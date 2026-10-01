@@ -1,0 +1,117 @@
+"""Model invocation + streaming helpers for the agent graph.
+
+Extracted from `graph.py` (pure move) so the graph stays under its size ratchet.
+These are the token-streaming best-effort path and the small message helpers it
+uses. Behavior is unchanged.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from langchain_core.messages import BaseMessage
+
+
+async def ainvoke_streaming(
+    model: Any,
+    messages: list[BaseMessage],
+    timeout_s: float,
+    emitter: Any,
+    finalizing: bool,
+) -> Any:
+    """Invoke the model, streaming tokens live when it supports it.
+
+    Streaming is best-effort: a provider/model that cannot stream falls back to
+    a single `ainvoke`. Token deltas are emitted as transient `model.delta`
+    events so the UI shows the agent working and writing, without persisting
+    every fragment. The assembled message is what the graph stores, so tool
+    calls and usage metadata still work exactly as before.
+
+    On the final step (`finalizing`) tools are unbound upstream, so this only
+    ever yields the closing answer.
+    """
+    async def _stream() -> Any:
+        aggregated: Any = None
+        last_with_tools: Any = None
+        last_with_usage: Any = None
+        async for chunk in model.astream(messages):
+            aggregated = chunk if aggregated is None else merge_chunks(aggregated, chunk)
+            if getattr(chunk, "tool_calls", None):
+                last_with_tools = chunk
+            if getattr(chunk, "usage_metadata", None):
+                last_with_usage = chunk
+            text = message_text(chunk) if getattr(chunk, "content", "") else ""
+            if text:
+                emitter.emit_transient(
+                    "model.delta", {"text": text, "finalizing": finalizing}
+                )
+        # Some providers/tests stream full AIMessage objects, whose `+` drops
+        # tool_calls/usage. Carry those forward so the graph still sees them.
+        if aggregated is not None:
+            if not getattr(aggregated, "tool_calls", None) and last_with_tools is not None:
+                try:
+                    aggregated.tool_calls = last_with_tools.tool_calls
+                except Exception:  # noqa: BLE001
+                    pass
+            if not getattr(aggregated, "usage_metadata", None) and last_with_usage is not None:
+                try:
+                    aggregated.usage_metadata = last_with_usage.usage_metadata
+                except Exception:  # noqa: BLE001
+                    pass
+        return aggregated
+
+    try:
+        aggregated = await asyncio.wait_for(_stream(), timeout=timeout_s)
+        if aggregated is None:
+            # An empty stream is not an answer; fall back to a plain call.
+            return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
+        return aggregated
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        raise
+    except Exception:  # noqa: BLE001 - not all models implement astream
+        return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
+
+
+FINALIZE_INSTRUCTION = (
+    "You have reached the last allowed step. Tools are no longer available. "
+    "Answer the user's request NOW using only the information already gathered "
+    "above. Do not call tools, do not describe what you would do, and do not ask "
+    "for permission. If some data was unavailable, say so plainly in the answer."
+)
+
+
+def merge_chunks(a: Any, b: Any) -> Any:
+    """Merge two stream chunks, tolerating providers that yield full messages.
+
+    LangChain's `AIMessageChunk + AIMessageChunk` is correct; a full `AIMessage`
+    addition is not (it drops tool_calls and can raise). Fall back to keeping the
+    richer object so a non-conforming provider cannot crash the run.
+    """
+    try:
+        return a + b
+    except Exception:  # noqa: BLE001
+        return b if getattr(b, "content", None) or getattr(b, "tool_calls", None) else a
+
+
+def message_text(message: Any) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return str(content)
+
+
+__all__ = [
+    "ainvoke_streaming",
+    "merge_chunks",
+    "message_text",
+    "FINALIZE_INSTRUCTION",
+]

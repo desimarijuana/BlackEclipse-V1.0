@@ -838,17 +838,13 @@ class MCPManager(IntrospectionMixin, OAuthFlowMixin, VerifyMixin, ExecutionMixin
             approver = getattr(ctx, "authorize_effect", None)
             approved = False
             if approver is not None:
-                try:
-                    approved = bool(await approver(
-                        type("_T", (), {
-                            "name": descriptor.eclipse_name,
-                            "effect": descriptor.effect,
-                            "effect_metadata": {"serverId": rt.config.id, "tool": descriptor.original_name},
-                        })(),
-                        args,
-                    ))
-                except Exception:  # noqa: BLE001 - a failing approver must not authorize
-                    approved = False
+                from .approvals import invoke_effect_authorizer
+                probe = type("_T", (), {
+                    "name": descriptor.eclipse_name,
+                    "effect": descriptor.effect,
+                    "effect_metadata": {"serverId": rt.config.id, "tool": descriptor.original_name},
+                })()
+                approved = await invoke_effect_authorizer(approver, probe, args, ctx)
             if not approved:
                 await emit("mcp.tool.failed", {
                     "serverId": rt.config.id, "tool": descriptor.original_name,

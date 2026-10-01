@@ -297,9 +297,15 @@ export interface MCPApprovalView {
   eclipseTool: string;
   effect: MCPEffect;
   argsDigest: string;
-  status: "pending" | "approved" | "denied" | "expired";
+  /**
+   * `consumed` means the approval already authorized ONE call (approvals are
+   * single-use, ADR-H92); it can never authorize another.
+   */
+  status: "pending" | "approved" | "denied" | "expired" | "consumed";
   createdAt: string;
   expiresAt?: string | null;
+  /** When the approval was consumed by a successful authorization (single-use). */
+  usedAt?: string | null;
   requestedByRunId?: string | null;
   decidedBy?: string | null;
   reason?: string | null;

@@ -8,6 +8,57 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **Tool-loop integrity Phase 1 — the release gate's one red test was a UTC
+  month-rollover time bomb.** `weekly.test.ts`'s `buildMonthlyWrapped` test
+  derived its period from `new Date()` while its fixtures were hardcoded to
+  2026-09; after 20:00 EDT on Sep 30 (UTC already Oct 1) the prefix resolved to
+  `2026-10` and zero rows matched. The test now passes `(year, month)` explicitly
+  and asserts the zero-match branch (`trades === 0`, `bestMarket === null`)
+  deliberately. A repo-wide sweep found no other live-clock/fixed-fixture test.
+  A testing convention was added to `CONTRIBUTING.md`.
+  docs updated: `CONTRIBUTING.md`, `docs/harness/tool-loop-integrity-progress.md`
+
+- **Tool-loop integrity Phase 2 — duplicate tool-call suppression is scoped to
+  one agent step, not the whole run (ADR-H90).** `seen_calls` now resets per
+  `tools_node` invocation, so a legitimate re-issue in a later turn (next page,
+  re-poll, retry) executes instead of being refused with a stale "use the earlier
+  result". Intra-turn refusal is unchanged. Regression tests cover both
+  directions; the retrieval cache still dedupes fetches per run.
+  docs updated: `docs/harness/decisions.md` (ADR-H90),
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`
+
+- **Tool-loop integrity Phase 3 — native tool-result text is bounded at the one
+  execution seam (ADR-H91).** `ToolRegistry.execute` trims a model-facing text
+  result to `MAX_TOOL_RESULT_CHARS = 24_000` with a non-JSON marker and
+  `truncated`/`shown_chars`/`total_chars` fields; the graph emits `tool.truncated`.
+  Byte-identical under the bound; `ToolResult.data` is never bounded. Blast
+  radius: only `session_open` can exceed it (~25.6k chars max); the constant was
+  not raised to hide it. Model-streaming helpers were extracted to
+  `model_stream.py` to keep `graph.py` under its ratchet.
+  docs updated: `docs/harness/decisions.md` (ADR-H91),
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`
+
+- **Tool-loop integrity Phase 4 — an effectful-tool approval is single-use
+  (ADR-H92).** `ApprovalStore.consume` atomically claims an approved, unexpired
+  approval (guarded `UPDATE` + rowcount) and moves it to a terminal `consumed`
+  state with `usedAt`; a second identical call is refused and creates a fresh
+  PENDING request. The double authorization seam (registry + manager re-assert) is
+  resolved via a per-call-scope digest marker on `ToolContext`. `consumed`/`usedAt`
+  ride the round-trip through `MCPApprovalView` and the approvals UI (extracted to
+  `mcp/approvals-panel.tsx` to keep `mcp-settings.tsx` under its ratchet).
+  docs updated: `docs/harness/decisions.md` (ADR-H92),
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`
+
+- **ChatBot: new Ctrl+N (Cmd+N on Mac) shortcut for a new chat page.**
+  The chat tab's "New chat" page shortcut was `Shift+N`, colliding with the
+  `Shift+N` "new layout"/new-item convention used across other screens (Command
+  Center layouts, trades, alerts). It is now `mod+n` (Ctrl on Windows/Linux, Cmd
+  on Mac) so the two never blur. Added `formatShortcutKeys` in `src/lib/keyboard.ts`
+  and used it in the keyboard-help dialog so specs like `mod+n` render as
+  `Ctrl / Cmd + N` (previously page/sidebar keys showed raw). Tests added for the
+  formatter.
+  docs updated: `docs/OVERVIEW.md`
+
 - **Background zoom could not go below 100%.** The Zoom control was hard-clamped
   to a 100% minimum in two places — `normalizeBackgroundPrefs` (`backgrounds.ts`)
   and the slider `min` (`background-settings.tsx`) — even though the CSS and

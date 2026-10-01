@@ -18,7 +18,7 @@ from harness import graph as graph_module
 from harness.persistence import AgentMemoryStore
 from harness.schemas import AgentConfig, ModelSettings, RunInput, RunRequest
 from harness.service import _HttpDataBridge
-from harness.tools import DataBridge, ToolRegistry
+from harness.tools import DataBridge, ToolRegistry, ToolDefinition
 from harness.finance_tools import register_finance_tools
 
 
@@ -585,3 +585,141 @@ async def test_unavailable_data_yields_honest_tool_ok(store, monkeypatch):
     tools = store.list_tool_executions("run_test")
     assert tools[0]["ok"] is True
     assert "UNAVAILABLE" in tools[0]["text"]
+
+
+# ── Phase 2: duplicate suppression is scoped to one agent step ──────────────
+
+
+def _counting_registry(counter: dict[str, int]) -> ToolRegistry:
+    """A registry with one native tool that counts how often it actually runs."""
+    reg = ToolRegistry()
+
+    async def handler(args, ctx):
+        counter["n"] += 1
+        return f"counting result #{counter['n']} for x={args.get('x')}"
+
+    reg.register(
+        ToolDefinition(
+            name="counting",
+            description="A counting test tool.",
+            input_schema={"type": "object", "properties": {"x": {"type": "integer"}}},
+            handler=handler,
+        )
+    )
+    return reg
+
+
+def _counter_agent(max_steps: int = 6) -> AgentConfig:
+    return AgentConfig(id="counter", name="Counter", systemPrompt="sys", tools=["counting"], maxSteps=max_steps)
+
+
+@pytest.mark.asyncio
+async def test_identical_tool_call_across_turns_executes_twice(store, monkeypatch):
+    """A legitimate re-issue in a LATER turn must execute, not be suppressed.
+
+    Regression for the run-scoped `seen_calls` map: the same (name, args) asked
+    at step 1 and again at a later step must run twice and the second result must
+    be the fresh one, never the "Use the earlier result" refusal.
+    """
+    counter = {"n": 0}
+    reg = _counting_registry(counter)
+    same = {"x": 1}
+    model = ScriptedModel(
+        [
+            AIMessage(content="", tool_calls=[{"id": "c1", "name": "counting", "args": same}]),
+            AIMessage(content="", tool_calls=[{"id": "c2", "name": "counting", "args": same}]),
+            AIMessage(content="Answer from two calls."),
+        ]
+    )
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(agent=_counter_agent()), reg, FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed", result.error
+    assert counter["n"] == 2
+    completed = [e for e in store.list_events("run_test") if e["type"] == "tool.completed"]
+    assert len(completed) == 2
+    assert result.toolErrors == 0
+    messages = store.list_tool_executions("run_test")
+    assert "counting result #2" in messages[1]["text"]
+    assert "Duplicate call" not in messages[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_identical_tool_call_within_one_turn_still_refuses(store, monkeypatch):
+    """Two identical calls in ONE model turn: the first runs, the second refuses.
+
+    This is the original intra-turn behaviour and must be preserved exactly —
+    same refusal shape and the same `tool.failed` code.
+    """
+    counter = {"n": 0}
+    reg = _counting_registry(counter)
+    same = {"x": 7}
+    model = ScriptedModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"id": "c1", "name": "counting", "args": same},
+                    {"id": "c2", "name": "counting", "args": same},
+                ],
+            ),
+            AIMessage(content="Answer after one real call."),
+        ]
+    )
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(agent=_counter_agent()), reg, FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed", result.error
+    assert counter["n"] == 1
+    assert result.toolErrors == 1
+    failures = [e["data"] for e in store.list_events("run_test") if e["type"] == "tool.failed"]
+    assert len(failures) == 1
+    assert failures[0]["code"] == "TOOL_FORBIDDEN"
+    # The refusal is not executed, so only the one real call is persisted.
+    messages = store.list_tool_executions("run_test")
+    assert len(messages) == 1
+    assert "counting result #1" in messages[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_oversized_native_tool_result_emits_tool_truncated(store, monkeypatch):
+    """Phase 3: a result over the bound is trimmed and emits `tool.truncated` once."""
+    from harness.tools import MAX_TOOL_RESULT_CHARS
+
+    big = "a" * (MAX_TOOL_RESULT_CHARS + 400)
+    reg = ToolRegistry()
+
+    async def handler(args, ctx):
+        return big
+
+    reg.register(
+        ToolDefinition(
+            name="bigtool",
+            description="Returns an oversized result.",
+            input_schema={"type": "object", "properties": {}},
+            handler=handler,
+        )
+    )
+    agent = AgentConfig(id="big", name="Big", systemPrompt="sys", tools=["bigtool"], maxSteps=3)
+    model = ScriptedModel(
+        [
+            AIMessage(content="", tool_calls=[{"id": "c1", "name": "bigtool", "args": {}}]),
+            AIMessage(content="Done."),
+        ]
+    )
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(agent=agent), reg, FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed", result.error
+    truncated = [e["data"] for e in store.list_events("run_test") if e["type"] == "tool.truncated"]
+    assert len(truncated) == 1
+    assert truncated[0]["totalChars"] == len(big)
+    assert truncated[0]["shownChars"] == MAX_TOOL_RESULT_CHARS
+    completed = [e["data"] for e in store.list_events("run_test") if e["type"] == "tool.completed"]
+    assert completed[0]["truncated"] is True

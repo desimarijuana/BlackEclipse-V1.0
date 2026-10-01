@@ -35,6 +35,11 @@ from typing_extensions import TypedDict
 
 from .agents import DEFAULT_AGENT_ID, get_agent
 from .events import EventBus, RunEmitter
+from .model_stream import (
+    FINALIZE_INSTRUCTION as _FINALIZE_INSTRUCTION,
+    ainvoke_streaming as _ainvoke_streaming,
+    message_text as _text,
+)
 from .models import build_chat_model
 from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
@@ -243,8 +248,6 @@ def build_graph(
     )
     registry.set_active_context(ctx)
 
-    seen_calls: dict[str, int] = {}
-
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
         await emitter.emit("model.requested", {"step": step, "messages": len(state["messages"])})
@@ -370,6 +373,20 @@ def build_graph(
         tool_errors = state.get("tool_errors", 0)
         out_messages: list[BaseMessage] = []
 
+        # Duplicate suppression is scoped to THIS agent step (one model turn),
+        # not the whole run. The guard exists to stop one turn from issuing the
+        # same call twice; a run-scoped map also blocked a legitimate re-issue in
+        # a later turn — the next page of a listing, re-polling a price after new
+        # evidence, a retry after a transient failure. Keying on
+        # `(name, canonical-args)` within a single `tools_node` invocation keeps
+        # the intra-turn refusal exactly as before while letting a later turn
+        # repeat a call. Do NOT key on the assistant message id: the same model
+        # message can legitimately recur across steps, which would reintroduce
+        # the bug. A cross-turn re-issue does not multiply upstream calls — the
+        # retrieval layer still deduplicates identical data fetches per run via
+        # the shared `retrieval_cache` passed into `build_graph`.
+        seen_calls: dict[str, int] = {}
+
         for call in calls:
             name = call.get("name", "")
             args = call.get("args", {}) or {}
@@ -414,8 +431,28 @@ def build_graph(
                 if result.ok:
                     await emitter.emit(
                         "tool.completed",
-                        {"name": name, "toolCallId": call_id, "durationMs": result.duration_ms},
+                        {
+                            "name": name,
+                            "toolCallId": call_id,
+                            "durationMs": result.duration_ms,
+                            "truncated": result.truncated,
+                            "shownChars": result.shown_chars,
+                            "totalChars": result.total_chars,
+                        },
                     )
+                    # A trimmed result is its own honest signal (Phase 3): emitted
+                    # once, carrying sizes only, so the stream shows the model got
+                    # a partial result without re-parsing the text marker.
+                    if result.truncated:
+                        await emitter.emit(
+                            "tool.truncated",
+                            {
+                                "name": name,
+                                "toolCallId": call_id,
+                                "shownChars": result.shown_chars,
+                                "totalChars": result.total_chars,
+                            },
+                        )
                 else:
                     tool_errors += 1
                     await emitter.emit(
@@ -466,102 +503,6 @@ def build_graph(
     graph.add_conditional_edges("tools", route_after_tools, {"agent": "agent", "exhausted": "exhausted"})
     graph.add_edge("exhausted", END)
     return graph.compile()
-
-
-async def _ainvoke_streaming(
-    model: Any,
-    messages: list[BaseMessage],
-    timeout_s: float,
-    emitter: RunEmitter,
-    finalizing: bool,
-) -> Any:
-    """Invoke the model, streaming tokens live when it supports it.
-
-    Streaming is best-effort: a provider/model that cannot stream falls back to
-    a single `ainvoke`. Token deltas are emitted as transient `model.delta`
-    events so the UI shows the agent working and writing, without persisting
-    every fragment. The assembled message is what the graph stores, so tool
-    calls and usage metadata still work exactly as before.
-
-    On the final step (`finalizing`) tools are unbound upstream, so this only
-    ever yields the closing answer.
-    """
-    async def _stream() -> Any:
-        aggregated: Any = None
-        last_with_tools: Any = None
-        last_with_usage: Any = None
-        async for chunk in model.astream(messages):
-            aggregated = chunk if aggregated is None else _merge_chunks(aggregated, chunk)
-            if getattr(chunk, "tool_calls", None):
-                last_with_tools = chunk
-            if getattr(chunk, "usage_metadata", None):
-                last_with_usage = chunk
-            text = _text(chunk) if getattr(chunk, "content", "") else ""
-            if text:
-                emitter.emit_transient(
-                    "model.delta", {"text": text, "finalizing": finalizing}
-                )
-        # Some providers/tests stream full AIMessage objects, whose `+` drops
-        # tool_calls/usage. Carry those forward so the graph still sees them.
-        if aggregated is not None:
-            if not getattr(aggregated, "tool_calls", None) and last_with_tools is not None:
-                try:
-                    aggregated.tool_calls = last_with_tools.tool_calls
-                except Exception:  # noqa: BLE001
-                    pass
-            if not getattr(aggregated, "usage_metadata", None) and last_with_usage is not None:
-                try:
-                    aggregated.usage_metadata = last_with_usage.usage_metadata
-                except Exception:  # noqa: BLE001
-                    pass
-        return aggregated
-
-    try:
-        aggregated = await asyncio.wait_for(_stream(), timeout=timeout_s)
-        if aggregated is None:
-            # An empty stream is not an answer; fall back to a plain call.
-            return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
-        return aggregated
-    except (asyncio.TimeoutError, asyncio.CancelledError):
-        raise
-    except Exception:  # noqa: BLE001 - not all models implement astream
-        return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
-
-
-_FINALIZE_INSTRUCTION = (
-    "You have reached the last allowed step. Tools are no longer available. "
-    "Answer the user's request NOW using only the information already gathered "
-    "above. Do not call tools, do not describe what you would do, and do not ask "
-    "for permission. If some data was unavailable, say so plainly in the answer."
-)
-
-
-def _merge_chunks(a: Any, b: Any) -> Any:
-    """Merge two stream chunks, tolerating providers that yield full messages.
-
-    LangChain's `AIMessageChunk + AIMessageChunk` is correct; a full `AIMessage`
-    addition is not (it drops tool_calls and can raise). Fall back to keeping the
-    richer object so a non-conforming provider cannot crash the run.
-    """
-    try:
-        return a + b
-    except Exception:  # noqa: BLE001
-        return b if getattr(b, "content", None) or getattr(b, "tool_calls", None) else a
-
-
-def _text(message: Any) -> str:
-    content = getattr(message, "content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-            elif isinstance(block, str):
-                parts.append(block)
-        return "".join(parts)
-    return str(content)
 
 
 async def execute_run(

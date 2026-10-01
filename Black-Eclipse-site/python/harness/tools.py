@@ -41,6 +41,48 @@ DEFAULT_TIMEOUT_MS = 20_000
 # turn; this ceiling only bounds one tool call.
 DEFAULT_TOOL_CEILING_MS = 30_000
 
+# ── Native tool-result text bound (one seam, every tool) ──────────────────────
+# A tool's text result is appended verbatim into the model's context as a
+# `ToolMessage`, so a handler with no internal cap can silently consume an
+# unbounded slice of the window. `ToolRegistry.execute` is the ONE seam that
+# every tool (native and MCP) passes through, so the ceiling lives here rather
+# than in each handler.
+#
+# The value is tied to the measured context budget (`context_budget.py` and
+# `graph.py`), not picked arbitrarily:
+#   * `CHARS_PER_TOKEN = 4` → 24_000 chars ≈ 6_000 estimated tokens.
+#   * `graph.MAX_HISTORY_CHARS = 40_000` bounds the ENTIRE conversation history;
+#     a single tool result must be a fraction of that, never larger than it.
+#   * `research.synthesis.MAX_PACKET_CHARS = 24_000` is the largest deliberate
+#     evidence packet the runtime already accepts. A single RAW tool result has
+#     no reason to exceed the fully-SYNTHESIZED packet bound, so 24_000 aligns
+#     with that existing, reviewed precedent.
+# Under the bound the text is returned byte-identical (a safety net, not a
+# formatting feature). The matching MCP ceiling (`outputLimitBytes`) remains
+# operator-configurable per server; this is the outer, global seam.
+MAX_TOOL_RESULT_CHARS = 24_000
+
+
+def bound_tool_text(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> tuple[str, bool, int, int]:
+    """Bound a tool's text result. Returns (text, truncated, shown_chars, total_chars).
+
+    Under `limit` the text is returned byte-identical. Over it, the cut text is
+    followed by an unmistakable, clearly NON-JSON marker naming the shown and
+    total sizes, so a partial JSON document can never be mistaken for a complete
+    one (the trailer cannot parse as JSON, and the structured `truncated` flag is
+    set on the `ToolResult`). Only the text is bounded; `ToolResult.data` — the
+    structured payload the front door reads — is never touched here.
+    """
+    total = len(text)
+    if total <= limit:
+        return text, False, total, total
+    marker = (
+        f"\n\n[TRUNCATED: tool output was {total} characters; only the first "
+        f"{limit} are shown. The result is incomplete.]"
+    )
+    return text[:limit] + marker, True, limit, total
+
+
 
 @dataclass
 class ToolResult:
@@ -51,6 +93,13 @@ class ToolResult:
     data: Any = None
     error: Optional[HarnessError] = None
     duration_ms: int = 0
+    # Text-bound reporting. `truncated` is True only when the result exceeded
+    # `MAX_TOOL_RESULT_CHARS`; `shown_chars`/`total_chars` let the event stream
+    # and the front door report the trim without re-parsing the marker text. For
+    # an untruncated result all three are the honest full size.
+    truncated: bool = False
+    shown_chars: int = 0
+    total_chars: int = 0
 
 
 @dataclass
@@ -104,11 +153,16 @@ class ToolContext:
     # the SAME registry (no second registry).
     tool_registry: Any = None
     # An optional async effect authorizer for NON-read tools. The registry is
-    # authoritative and calls this with (tool, clean_args) whenever a tool's
+    # authoritative and calls this with (tool, clean_args, ctx) whenever a tool's
     # permission is not `read`; it must return True only for an explicit, valid
     # approval bound to this exact server/tool/arguments (MCP Phase 5G). No
     # authorizer ⇒ every non-read tool is refused, exactly as before.
     authorize_effect: Any = None
+    # The argument digest authorized for the CURRENT tool call, set by the effect
+    # authorizer so a second authorization seam in the same call (the MCP
+    # manager's re-assert) does not consume a second single-use approval. Cleared
+    # by the registry at the start of every tool call.
+    effect_authorized_digest: Any = None
     # The process-wide MCP manager, so native retrieval can consider
     # operator-declared MCP data sources (Milestone 6). None = no MCP sources.
     mcp_manager: Any = None
@@ -274,11 +328,16 @@ class ToolRegistry:
             # call (bound to the server/tool/arguments). No authorizer ⇒ refused.
             authorizer = getattr(ctx, "authorize_effect", None)
             approved = False
+            # Clear the per-call authorization scope so an approval consumed for a
+            # PREVIOUS call cannot authorize this one.
+            try:
+                ctx.effect_authorized_digest = None
+            except Exception:  # noqa: BLE001
+                pass
             if authorizer is not None:
-                try:
-                    approved = bool(await authorizer(tool, clean))
-                except Exception:  # noqa: BLE001 - a failing authorizer must not authorize
-                    approved = False
+                # Arity-tolerant and exception-safe (shared with the MCP manager
+                # seam): a failing authorizer must never authorize.
+                approved = await _invoke_authorizer(authorizer, tool, clean, ctx)
             if not approved:
                 return self._failure(
                     call_id, name, "TOOL_FORBIDDEN",
@@ -306,13 +365,18 @@ class ToolRegistry:
             return self._failure(call_id, name, "TOOL_ERROR", str(exc), started)
 
         text, data = output if isinstance(output, tuple) else (output, None)
+        # Bound the model-facing text at this single seam; `data` is untouched.
+        bounded_text, truncated, shown_chars, total_chars = bound_tool_text(str(text))
         return ToolResult(
             tool_call_id=call_id,
             name=name,
             ok=True,
-            text=text,
+            text=bounded_text,
             data=data,
             duration_ms=int((time.monotonic() - started) * 1000),
+            truncated=truncated,
+            shown_chars=shown_chars,
+            total_chars=total_chars,
         )
 
     def _failure(self, call_id: str, name: str, code: str, message: str, started: float) -> ToolResult:
@@ -329,6 +393,18 @@ class ToolRegistry:
 # Grace added to the asyncio wait so an internally-timed-out tool can surface its
 # structured diagnostic before being hard-killed. Bounded and small.
 _TIMEOUT_GRACE_MS = 1_500
+
+
+async def _invoke_authorizer(authorizer: Any, tool: ToolDefinition, args: dict[str, Any], ctx: ToolContext) -> bool:
+    """Invoke an effect authorizer, tolerating both signatures and never on error.
+
+    Delegates to the shared helper so the registry and the MCP manager re-check
+    treat a failing or legacy-signed authorizer identically. Imported lazily to
+    keep this core module free of an import cycle on the MCP package.
+    """
+    from .mcp.approvals import invoke_effect_authorizer  # noqa: PLC0415
+
+    return await invoke_effect_authorizer(authorizer, tool, args, ctx)
 
 
 def _clamp_timeout(ms: int) -> int:

@@ -36,6 +36,20 @@ network. A human must run **both** before creating a release tag:
 
 Both are deliberately never in `npm test` or CI.
 
+## Time-dependent tests
+
+Do **not** derive an assertion period from the live clock (`new Date()`,
+`Date.now()`) and then assert against fixed-timestamp fixtures. A test like that
+couples a hardcoded date to the wall-clock moment the suite runs, so it passes
+for a while and then fails with no code change (the UTC month rollover of
+`src/lib/journal/analytics/weekly.test.ts` was exactly this). Either pass the
+period explicitly to the function under test, or derive the fixture from the
+same chosen period — never mix a live clock with a literal fixture.
+
+Journal dates are **UTC everywhere** (see the `src/lib/journal/dates.ts` row in
+[`docs/NAVIGATION.md`](docs/NAVIGATION.md)); format month/day labels in UTC or
+they render a month off.
+
 ## Code Style
 
 - TypeScript, strict mode

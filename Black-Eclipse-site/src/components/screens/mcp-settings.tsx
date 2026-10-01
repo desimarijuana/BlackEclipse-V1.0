@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type {
-  MCPServerView, MCPToolView, MCPSecretView, MCPApprovalView,
+  MCPServerView, MCPToolView, MCPSecretView,
   MCPIntegrationView, MCPWorkflowView, MCPDiagnosticView, MCPDiagnosticsResponse,
   MCPSupplyChainReport, MCPVerifyResult,
 } from "@/lib/harness/mcp-types";
@@ -33,6 +33,7 @@ import { Panel, EffectBadge, stateDot, StateDot } from "./mcp/primitives";
 import { ServerEditor } from "./mcp/server-editor";
 import { MCPLifecyclePanel } from "./mcp/lifecycle-panel";
 import { CredentialsPanel } from "./mcp/credentials-panel";
+import { MCPApprovalsPanel } from "./mcp/approvals-panel";
 
 function ServerCard({
   server,
@@ -711,121 +712,8 @@ function MCPSecretsPanel({ busy, onError }: { busy: boolean; onError: (m: string
   );
 }
 
-// ── Approvals panel (5G) ────────────────────────────────────────────────────
-
-const APPROVAL_FILTERS = ["pending", "approved", "denied", "expired", "all"] as const;
-type ApprovalFilter = (typeof APPROVAL_FILTERS)[number];
-
-function MCPApprovalsPanel({ busy, onError }: { busy: boolean; onError: (m: string) => void }) {
-  const [approvals, setApprovals] = useState<MCPApprovalView[]>([]);
-  const [working, setWorking] = useState(false);
-  const [filter, setFilter] = useState<ApprovalFilter>("pending");
-
-  const load = useCallback(async () => {
-    try {
-      const query = filter === "all" ? "" : `?status=${encodeURIComponent(filter)}`;
-      const res = await fetch(`/api/harness/mcp/approvals${query}`);
-      const body = await res.json();
-      if (res.ok) setApprovals(body.approvals ?? []);
-    } catch {
-      /* non-fatal */
-    }
-  }, [filter]);
-  useEffect(() => { void load(); }, [load]);
-
-  const decide = async (id: string, approve: boolean) => {
-    setWorking(true);
-    try {
-      const res = await fetch(`/api/harness/mcp/approvals/${encodeURIComponent(id)}/decide`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approve }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Decision failed");
-      await load();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Decision failed");
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  return (
-    <Panel className="p-5">
-      <div className="flex items-center gap-2 mb-2">
-        <Wrench className="w-4 h-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">Effectful-tool approvals</h3>
-      </div>
-      <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
-        A write/action MCP tool is blocked until you approve the exact call. The approval is bound to the server,
-        tool, and argument digest, and expires. Every approval is a single explicit decision — there is no
-        &quot;remember&quot; or bulk approval.
-      </p>
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {APPROVAL_FILTERS.map((f) => (
-          <button key={f} type="button" onClick={() => setFilter(f)}
-            className={cn("rounded-lg border px-2 py-0.5 text-[10px] capitalize cursor-pointer",
-              filter === f ? "border-primary/50 bg-primary/15 text-primary" : "border-border/30 text-muted-foreground hover:bg-accent/20")}>
-            {f}
-          </button>
-        ))}
-      </div>
-      {approvals.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/70">No {filter === "all" ? "" : `${filter} `}approvals.</p>
-      ) : (
-        <div className="space-y-2">
-          {approvals.map((a) => {
-            const expired = a.status === "expired";
-            const decided = a.status === "approved" || a.status === "denied";
-            return (
-              <div key={a.id} className={cn("rounded-xl border px-3 py-2",
-                expired ? "border-border/20 bg-muted/10 opacity-80"
-                  : decided ? "border-border/20 bg-muted/10"
-                    : "border-amber-500/20 bg-amber-500/5")}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-mono text-foreground">{a.tool}</span>
-                  <EffectBadge effect={a.effect} />
-                  <span className={cn("text-[9px] font-bold uppercase",
-                    a.status === "approved" ? "text-emerald-400" : a.status === "denied" ? "text-rose-400" : a.status === "expired" ? "text-muted-foreground" : "text-amber-300")}>
-                    {a.status}
-                  </span>
-                  {a.risk && (
-                    <span className={cn("text-[9px] font-bold uppercase", a.risk === "high" ? "text-rose-400" : "text-muted-foreground")}>
-                      {a.risk} risk
-                    </span>
-                  )}
-                  <span className="text-[9px] font-mono text-muted-foreground">{a.serverId}</span>
-                </div>
-                {a.actionSummary && <p className="text-[11px] text-foreground/90 mt-1">{a.actionSummary}</p>}
-                {a.affectedData && (
-                  <p className="text-[9px] font-mono text-muted-foreground mt-1 break-all">affects: {a.affectedData}</p>
-                )}
-                <p className="text-[9px] font-mono text-muted-foreground mt-1 break-all">digest {a.argsDigest.slice(0, 16)}…</p>
-                {a.decidedBy && <p className="text-[9px] text-muted-foreground mt-1">decided by {a.decidedBy}{a.reason ? `: ${a.reason}` : ""}</p>}
-                {a.expiresAt && <p className="text-[9px] text-muted-foreground mt-1">expires {a.expiresAt}</p>}
-                {a.requestedByRunId && (
-                  <p className="text-[9px] text-muted-foreground mt-1">
-                    run <span className="font-mono">{a.requestedByRunId}</span>
-                  </p>
-                )}
-                {a.status === "pending" && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <Button size="sm" className="cursor-pointer rounded-xl" onClick={() => void decide(a.id, true)} disabled={working || busy}>Approve this exact call</Button>
-                    <Button size="sm" variant="ghost" className="cursor-pointer rounded-xl text-rose-400" onClick={() => void decide(a.id, false)} disabled={working || busy}>Deny</Button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Panel>
-  );
-}
 
 // ── Supply chain (read-only, offline) ───────────────────────────────────────
-
 function MCPSupplyChainPanel() {
   const [report, setReport] = useState<MCPSupplyChainReport | null>(null);
   const [loading, setLoading] = useState(false);

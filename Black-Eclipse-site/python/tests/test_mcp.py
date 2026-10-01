@@ -1120,6 +1120,71 @@ def test_approval_expires(tmp_path):
         )
         approvals._db.commit()
         assert approvals.is_authorized("s", "t", {"x": 1}) is False
+        # An expired approval can never be consumed either.
+        assert approvals.consume("s", "t", {"x": 1}) is None
+    finally:
+        store.close()
+
+
+# ── Tool-loop integrity Phase 4: an approval is single-use (ADR-H92) ────────
+
+
+def test_approval_is_single_use(tmp_path):
+    """One operator approval authorizes exactly ONE call, then is consumed."""
+    store, approvals = _approval_store(tmp_path)
+    try:
+        rec = approvals.request(
+            server_id="s", tool="delete_file", eclipse_tool="mcp__s__delete_file",
+            effect="write", args={"path": "/a"}, run_id="r1",
+        )
+        approvals.decide(rec["id"], approve=True)
+        # The first consume authorizes and claims it.
+        first = approvals.consume("s", "delete_file", {"path": "/a"})
+        assert first is not None
+        assert first["status"] == "consumed"
+        assert first["usedAt"]
+        # A second identical call can NOT be authorized by the same approval.
+        assert approvals.consume("s", "delete_file", {"path": "/a"}) is None
+        # A fresh request for the same call now returns a NEW pending row (not the
+        # consumed one), so the operator is asked again — never a silent pass.
+        again = approvals.request(
+            server_id="s", tool="delete_file", eclipse_tool="mcp__s__delete_file",
+            effect="write", args={"path": "/a"}, run_id="r1",
+        )
+        assert again["status"] == "pending"
+        assert again["id"] != rec["id"]
+    finally:
+        store.close()
+
+
+def test_concurrent_identical_authorizations_cannot_both_pass(tmp_path):
+    """An atomic guarded claim means only one of two racers can consume it."""
+    store, approvals = _approval_store(tmp_path)
+    try:
+        rec = approvals.request(
+            server_id="s", tool="t", eclipse_tool="mcp__s__t", effect="write", args={"x": 1},
+        )
+        approvals.decide(rec["id"], approve=True)
+        a = approvals.consume("s", "t", {"x": 1})
+        b = approvals.consume("s", "t", {"x": 1})
+        assert (a is not None) != (b is not None)  # exactly one wins
+    finally:
+        store.close()
+
+
+def test_consumed_approval_status_is_exposed(tmp_path):
+    store, approvals = _approval_store(tmp_path)
+    try:
+        rec = approvals.request(
+            server_id="s", tool="t", eclipse_tool="mcp__s__t", effect="write", args={"x": 1},
+        )
+        assert rec["status"] == "pending"
+        approvals.decide(rec["id"], approve=True)
+        approvals.consume("s", "t", {"x": 1})
+        row = approvals.get(rec["id"])
+        assert row["status"] == "consumed"
+        consumed = approvals.list("consumed")
+        assert any(a["id"] == rec["id"] for a in consumed)
     finally:
         store.close()
 
@@ -1195,6 +1260,52 @@ async def test_effectful_tool_not_activated_without_opt_in(tmp_path):
     assert descriptor.activatable is False
     assert "enabled_effects" in (descriptor.diagnostic or "")
     await mgr.close()
+
+
+@pytest.mark.asyncio
+async def test_approved_effectful_call_runs_once_then_is_refused(tmp_path):
+    """A single approval authorizes ONE call; a repeat is refused + re-requested.
+
+    End-to-end through the registry + manager (both authorization seams): the
+    first call runs, the second identical call is refused, and a fresh PENDING
+    row exists for the operator. A double-consume at the second seam would have
+    refused the FIRST call — this proves the call-scope marker is correct.
+    """
+    store, approvals = _approval_store(tmp_path)
+    try:
+        cfg = fast_config(
+            selected_tools=["write_thing"],
+            tool_effects={"write_thing": "write"},
+            enabled_effects=["read", "write"],
+        )
+        mgr = MCPManager([cfg])
+        await mgr.start()
+        reg = ToolRegistry()
+        mgr.register_selected_tools(reg)
+        from harness.mcp.approvals import make_effect_authorizer
+
+        ctx = ToolContext(run_id="r1", log=lambda *_: None)
+        ctx.authorize_effect = make_effect_authorizer(approvals, "r1")
+
+        # First call (unapproved) creates a pending request and is refused.
+        refused = await reg.execute("mcp__fx__write_thing", "c1", {"text": "x"}, ctx, allowed={"mcp__fx__write_thing"})
+        assert not refused.ok and refused.error.code == "TOOL_FORBIDDEN"
+        pending = approvals.list("pending")
+        assert pending and pending[0]["tool"] == "write_thing"
+        approvals.decide(pending[0]["id"], approve=True)
+
+        # The approved call runs (authorized at both seams, consumed once).
+        first = await reg.execute("mcp__fx__write_thing", "c2", {"text": "x"}, ctx, allowed={"mcp__fx__write_thing"})
+        assert first.ok, first.text
+
+        # The SAME approval cannot authorize a second call: refused, and a fresh
+        # PENDING row now exists (never a silent pass).
+        second = await reg.execute("mcp__fx__write_thing", "c3", {"text": "x"}, ctx, allowed={"mcp__fx__write_thing"})
+        assert not second.ok and second.error.code == "TOOL_FORBIDDEN"
+        assert any(a["status"] == "pending" for a in approvals.list("pending"))
+        await mgr.close()
+    finally:
+        store.close()
 
 
 

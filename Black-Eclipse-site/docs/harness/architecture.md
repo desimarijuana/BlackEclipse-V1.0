@@ -391,10 +391,25 @@ tools  — each call validated → permission-checked → timed out → executed
 agent → … until maxSteps, then MAX_STEPS_EXCEEDED
 ```
 
-Safety: max steps, per-tool timeout, run timeout, duplicate-call suppression,
-read-only enforcement, cooperative cancellation, and exactly one terminal
-status. Events (`run.*`, `model.*`, `tool.*`) are emitted and persisted by the
-Python runtime.
+Safety: max steps, per-tool timeout, run timeout, **step-scoped** duplicate-call
+suppression (ADR-H90), a **bounded** native tool-result text (ADR-H91),
+read-only enforcement, cooperative cancellation, and exactly one terminal status.
+Events (`run.*`, `model.*`, `tool.*`) are emitted and persisted by the Python
+runtime.
+
+**Duplicate suppression is scoped to one agent step** (ADR-H90). Two identical
+`(tool, args)` calls in the SAME turn: the first executes, the second is refused
+with `tool.failed`/`TOOL_FORBIDDEN`. A call repeated in a LATER turn executes
+again — the guard exists to stop one turn repeating itself, not to block a
+legitimate re-issue (next page, re-poll, retry). The retrieval layer still
+deduplicates identical data fetches per run via the shared cache, so a cross-turn
+re-issue does not multiply upstream calls.
+
+**Tool-result text is bounded at the execution seam** (ADR-H91).
+`ToolRegistry.execute` trims a model-facing text result to 24 000 chars with a
+non-JSON marker naming shown/total and structured `truncated`/`shown_chars`/
+`total_chars` fields; the graph emits `tool.truncated` once per trimmed result.
+Under the bound the text is byte-identical; `ToolResult.data` is never bounded.
 
 **Forced final answer.** On the last allowed step the agent node unbinds tools,
 appends an in-band instruction to answer now, and strips any residual tool calls.
@@ -844,6 +859,17 @@ default). When a call is unapproved, the runtime records a PENDING request and
 refuses it, emitting `mcp.tool.approval_required`; the operator decides in
 Settings › MCP Servers (`/api/harness/mcp/approvals`). Approvals live in
 `agent-memory.db` (`McpApproval`) and hold no secret material.
+
+**An approval is single-use** (ADR-H92). A successful authorization atomically
+CLAIMS the approval (guarded `UPDATE ... WHERE status='approved'` + rowcount
+check) and moves it to a terminal `consumed` state with a `usedAt` stamp. One
+operator decision authorizes exactly ONE call; a second identical call is refused
+and produces a fresh PENDING request. Because one effectful call is authorized at
+two seams (the registry gate and the MCP manager's `_execute` re-assert), the
+first claim records the authorized digest on the shared `ToolContext` for that
+call-scope so the second seam does not consume again; a new call starts a new
+scope. `consumed` and `usedAt` ride the whole round-trip (the row, `_row()`,
+`GET /mcp/approvals`, `MCPApprovalView`, and the approvals UI).
 
 | To add… | Do this |
 |---|---|

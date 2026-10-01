@@ -2150,3 +2150,95 @@ description or a changed tool name. The deliberate non-goal: **no UI consumer of
 for a future subscriber but is not required for the operator surface. Re-opening
 that would need a concrete consumer (e.g. a global, non-per-server notification),
 which does not exist today.
+
+## ADR-H90 - Tool-call duplicate suppression is scoped to one agent step, not the run
+
+**Decision.** In `graph.py` the `seen_calls` map that refuses a repeated
+`(tool, canonical-args)` call is created INSIDE `tools_node`, so it lives for one
+model turn (one agent step) rather than the whole run. Two identical calls in the
+same turn keep the original behaviour exactly — the first executes, the second is
+refused with the same `tool.failed`/`TOOL_FORBIDDEN` event and the same
+"Use the earlier result" message shape. A call repeated in a LATER turn executes
+again. The key remains `(name, _stable_key(args))`; it is deliberately NOT keyed
+on the assistant message id (the same model message can legitimately recur across
+steps, which would reintroduce the bug).
+
+**Why.** The guard's purpose is to stop one turn from issuing the same call twice.
+A run-scoped map also blocked a legitimate re-issue in a later turn and instructed
+the model to reuse a stale result — the next page of a paginated listing,
+re-polling a price after new evidence arrived, a deliberate retry after a
+transient failure, or a second lookup whose first result changed between steps.
+Those are correct model behaviours that the run-scoped map silently defeated.
+
+**Consequences.** A cross-turn re-issue does not multiply upstream network calls:
+the retrieval layer still deduplicates identical data fetches per run through the
+shared `retrieval_cache` passed into `build_graph`. The duplicate refusal still
+counts as a tool error and consumes the run's `max_tool_calls` budget — that
+accounting is unchanged and out of scope here (recorded as an observation, not
+changed). Rejected alternative: keying on `(step, name, args)` — functionally
+equivalent but leaves a growing per-run map whose entries are never read again;
+resetting the map per `tools_node` call is simpler and self-evidently step-scoped.
+
+## ADR-H91 - Native tool-result text is bounded at the single execution seam and reports its own truncation
+
+**Decision.** `ToolRegistry.execute` — the one seam every native and MCP tool
+passes through — bounds a tool's model-facing text to
+`MAX_TOOL_RESULT_CHARS = 24_000`. Over the bound the text is cut and a clearly
+non-JSON trailer names the shown and total sizes; `ToolResult` gains
+`truncated` / `shown_chars` / `total_chars`, and the graph emits a
+`tool.truncated` event (sizes only, once per trimmed result). Under the bound the
+text is byte-identical — no marker, no flag, no whitespace change. `ToolResult.data`
+(the structured payload the front door reads) is NEVER bounded.
+
+**Why.** A native tool with no internal cap had neither a ceiling nor a signal: its
+result was appended verbatim into the model's context. The value is tied to the
+measured budget, not chosen arbitrarily: at `CHARS_PER_TOKEN = 4` the bound is
+~6 000 tokens; `graph.MAX_HISTORY_CHARS = 40_000` bounds the WHOLE conversation,
+so one tool result must be a fraction of it; and
+`research.synthesis.MAX_PACKET_CHARS = 24_000` is the largest synthesized evidence
+packet the runtime already accepts, so a single raw result has no reason to exceed
+it. The marker cannot parse as JSON, so a truncated JSON body can never be
+mistaken for a complete one — the exact failure mode avoided.
+
+**Consequences.** Blast radius measured: exactly one native tool can exceed the
+bound today — `session_open`, which returns a bounded message WINDOW with no
+character ceiling (a maximal 30×3 000-char window is 25 612 chars → trimmed to
+24 000). The constant is deliberately NOT raised to hide it; a bound that hides
+the one tool it exists to catch would be pointless. Rejected alternative: a
+per-tool `max_result_chars` field — more knobs, and a new tool could still forget
+one; a single global seam cannot be bypassed by omission.
+
+## ADR-H92 - An effectful-tool approval is single-use
+
+**Decision.** An `McpApproval` authorizes exactly ONE call. Authorization CLAIMS
+the approval with a guarded `UPDATE ... WHERE id=? AND status='approved'` and a
+rowcount check (`ApprovalStore.consume`), moving it to a terminal `consumed` state
+and stamping `usedAt`. A second identical call cannot be authorized by the same
+approval: it creates a fresh PENDING request and is refused (never a silent pass,
+never a bare denial with no record). `is_authorized` remains a NON-consuming probe
+for the resource/prompt paths and tests; the authorizing path is `consume`. Because
+one effectful call is authorized at two seams (the registry gate and the MCP
+manager's `_execute` re-assert), the first successful claim records the authorized
+argument digest on the shared `ToolContext` for the current call-scope, so the
+second seam authorizes without consuming again; the registry clears that scope at
+the start of each tool call, so every new call must claim its own approval.
+
+**Why.** One operator approval previously authorized an UNBOUNDED number of
+identical effectful calls for up to the TTL (15 min default, 24 h max), each
+emitting `mcp.tool.approved` as if freshly decided — a silent semantic the module
+docstring never stated. Single-use matches the store's fail-closed posture (no
+model/server-settable authority) and needs no new operator-settable field. Rejected
+alternative (Option B): an explicit, operator-only repeatable/standing grant with
+a `singleUse` field and its own UI label — a larger surface that adds a
+dangerous-by-default-if-misread toggle for no demonstrated need; single-use is the
+safe default and a standing grant can be added later as an explicit, labeled
+decision.
+
+**Consequences.** The `consumed` status and `usedAt` ride the whole round-trip:
+the Python row + `_row()`, the `GET /mcp/approvals` response, `MCPApprovalView` in
+`mcp-types.ts`, and the approvals UI (a `consumed` filter, a distinct badge, and a
+"consumed" line). Every existing invariant is preserved: unknown effects are never
+approvable; the digest still binds the arguments; TTL expiry and terminal denial
+are unchanged; a prior approval/tool description/model claim still cannot
+authorize a different action. A `consumed` approval is not re-used by `request`
+(which now returns a fresh PENDING row instead of an already-approved one).

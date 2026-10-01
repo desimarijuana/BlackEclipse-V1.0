@@ -91,14 +91,31 @@ describe('buildRecentWeeklyReviews', () => {
 });
 
 describe('buildMonthlyWrapped', () => {
-  it('produces a wrapped report for the current month', () => {
+  it('produces a wrapped report for an explicitly chosen month', () => {
+    // The period is passed explicitly rather than derived from the live clock.
+    // Deriving it from `new Date()` couples a fixed-timestamp fixture to when
+    // the suite happens to run — the UTC month rollover made this assert 2 but
+    // receive 0 (the fixture is September, the live UTC clock had rolled over to
+    // October). See CONTRIBUTING.md ("Time-dependent tests").
+    const year = 2026;
+    const month = 8; // September (0-indexed)
     const trades = [
-      trade({ id: 'a', symbol: 'XAUUSD', setupName: 'BOS + FVG', session: 'New York', rMultiple: 2 }),
-      trade({ id: 'b', symbol: 'NQ', setupName: 'Breakout', session: 'London', rMultiple: -1 }),
+      trade({ id: 'a', symbol: 'XAUUSD', setupName: 'BOS + FVG', session: 'New York', rMultiple: 2, exitTime: '2026-09-01T10:00:00.000Z' }),
+      trade({ id: 'b', symbol: 'NQ', setupName: 'Breakout', session: 'London', rMultiple: -1, exitTime: '2026-09-02T10:00:00.000Z' }),
     ];
-    const now = new Date();
-    const wrapped = buildMonthlyWrapped(trades, now.getUTCFullYear(), now.getUTCMonth());
+    const wrapped = buildMonthlyWrapped(trades, year, month);
     expect(wrapped.performance.trades).toBe(2);
     expect(wrapped.bestMarket?.key).toBe('XAUUSD');
+  });
+
+  it('returns an empty report (and a null bestMarket) for a month with no trades', () => {
+    // The opposite branch, asserted deliberately: a period whose prefix matches
+    // no fixture must report zero trades and no market, never a stray value.
+    const trades = [
+      trade({ id: 'a', symbol: 'XAUUSD', rMultiple: 2, exitTime: '2026-09-01T10:00:00.000Z' }),
+    ];
+    const wrapped = buildMonthlyWrapped(trades, 2031, 0); // January 2031
+    expect(wrapped.performance.trades).toBe(0);
+    expect(wrapped.bestMarket).toBeNull();
   });
 });
