@@ -8,7 +8,7 @@
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { cn } from '@/lib/utils';
-import type { CodeTask, TaskStatus } from '@/lib/harness/code-client';
+import type { CodeTask, TaskStatus } from '@/lib/harness/code-browser';
 
 const STATUS_KEY: Record<TaskStatus, TranslationKey> = {
   created: 'code.task.status.created',

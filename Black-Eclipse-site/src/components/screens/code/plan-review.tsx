@@ -6,7 +6,7 @@
 // the runtime resolved — never invented paths.
 
 import { useT } from '@/lib/i18n/use-t';
-import type { CodePlan } from '@/lib/harness/code-client';
+import type { CodePlan } from '@/lib/harness/code-browser';
 
 export interface PlanReviewProps {
   plan: CodePlan;

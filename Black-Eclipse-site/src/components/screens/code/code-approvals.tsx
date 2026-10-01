@@ -7,7 +7,7 @@
 
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
-import type { CodeApproval } from '@/lib/harness/code-client';
+import type { CodeApproval } from '@/lib/harness/code-browser';
 
 const ACTION_KEY: Record<string, TranslationKey> = {
   commit: 'code.approvals.action.commit',

@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
-import { claimStatusKey, coerceCodeVerification } from '@/lib/harness/code-client';
+import { claimStatusKey, coerceCodeVerification } from '@/lib/harness/code-browser';
 
 export interface CodeVerificationPanelProps {
   verification: unknown;

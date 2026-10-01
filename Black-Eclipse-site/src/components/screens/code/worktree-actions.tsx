@@ -5,7 +5,7 @@
 // affordances are NOT rendered (the tools do not exist), not merely disabled.
 
 import { useT } from '@/lib/i18n/use-t';
-import type { Autonomy } from '@/lib/harness/code-client';
+import type { Autonomy } from '@/lib/harness/code-browser';
 
 export interface WorktreeActionsProps {
   autonomy: Autonomy;

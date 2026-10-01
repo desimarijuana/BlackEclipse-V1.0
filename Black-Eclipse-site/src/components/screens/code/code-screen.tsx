@@ -25,7 +25,7 @@ import {
   type CodeApproval,
   type CodeTask,
   type CodeTaskDiff,
-} from '@/lib/harness/code-client';
+} from '@/lib/harness/code-browser';
 import { TaskList } from './task-list';
 import { TaskDetail } from './task-detail';
 import { CodeApprovals } from './code-approvals';

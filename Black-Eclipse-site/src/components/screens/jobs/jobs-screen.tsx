@@ -19,7 +19,7 @@ import {
   type JobDefinitionView,
   type JobRunView,
   type JobTemplateView,
-} from '@/lib/harness/jobs-client';
+} from '@/lib/harness/jobs-browser';
 import { JobList } from './job-list';
 import { JobEditor } from './job-editor';
 import { JobDetail } from './job-detail';

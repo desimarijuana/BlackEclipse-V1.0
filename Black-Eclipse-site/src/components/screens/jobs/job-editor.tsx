@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { cn } from '@/lib/utils';
-import type { CreateJobInput, DeliveryAdapter, JobDefinitionView, JobKind } from '@/lib/harness/jobs-client';
+import type { CreateJobInput, DeliveryAdapter, JobDefinitionView, JobKind } from '@/lib/harness/jobs-browser';
 
 type Cadence = 'weekdayMorning' | 'daily' | 'every6h' | 'every12h' | 'fileChange' | 'webAddress' | 'manual';
 

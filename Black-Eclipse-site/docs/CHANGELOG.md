@@ -8,6 +8,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Surface closure follow-up — client-safe browser clients for the code and jobs
+  surfaces.** Restarting the dev server revealed why the mounted screens had never
+  worked: `jobs-screen.tsx` and the code panels (client components) imported the
+  server-only `jobs-client.ts`/`code-client.ts`, which pull `python-runtime.ts`
+  (`child_process`, `fs`) into the browser bundle, so `/` returned 500 with
+  `Module not found: Can't resolve 'child_process'`. New client-safe
+  `src/lib/harness/code-browser.ts` and `src/lib/harness/jobs-browser.ts` (fetch the
+  existing `/api/code/**` and `/api/jobs/**` routes; type-only re-export of the wire
+  types) follow the existing `skills-browser.ts`/`eclipse-memory-browser.ts` pattern.
+  All eleven client components now import them; the server clients remain
+  server-only. Verified: `GET /` and the four proxy routes return 200; no
+  module-not-found errors remain.
+  docs updated: `docs/harness/roadmap/progress/surface-closure-progress.md`,
+  `docs/CHANGELOG.md`.
+
 - **Front-door surface closure — mount the code and jobs surfaces.** The Python
   runtime for the code capability, jobs and the Phase-12 eval was complete and its
   gates green, but several finished UI surfaces existed as files nothing imported,

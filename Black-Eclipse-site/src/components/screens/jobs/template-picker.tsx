@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
-import type { JobTemplateView } from '@/lib/harness/jobs-client';
+import type { JobTemplateView } from '@/lib/harness/jobs-browser';
 
 export interface TemplatePickerProps {
   templates: JobTemplateView[];

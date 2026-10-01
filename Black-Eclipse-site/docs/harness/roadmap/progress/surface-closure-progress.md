@@ -166,13 +166,43 @@ eval gates are unchanged and pass. The frozen four
 (`code/policy.py`, `skills/permissions.py`, `mcp/approvals.py`, `scripts/check-all.js`)
 are byte-unchanged; `jdds.db`, `agent-memory.db` and `scripts/scratch/` are untouched.
 
+## Follow-up — the mounting defect that only a running server revealed
+
+Committing and restarting `npm run dev` surfaced the deeper reason the surfaces
+were never mounted: `jobs-screen.tsx` and the code panels (client components)
+imported `jobs-client.ts` / `code-client.ts`, which import `python-runtime.ts`
+(`child_process`, `fs`, `ensurePythonRuntime`) — server-only. Importing either into
+a client component pulls `child_process` into the browser bundle, so `/` returned
+500 with `Module not found: Can't resolve 'child_process'`. No static gate caught
+it because nothing imported the screens.
+
+Fix (the repo's own pattern — cf. `skills-browser.ts` / `eclipse-memory-browser.ts`):
+new client-safe **`src/lib/harness/code-browser.ts`** and **`src/lib/harness/jobs-browser.ts`**
+that fetch the existing `/api/code/**` and `/api/jobs/**` routes (fetch only) and
+re-export the wire TYPES from the server clients (type-only — erased at compile
+time). All eleven client components now import the browser clients; the server
+clients stay server-only (the API routes and tests still use them).
+
+Verified on the running dev server:
+
+```
+GET /                    → 200
+GET /api/code/tasks      → 200
+GET /api/code/approvals  → 200
+GET /api/jobs            → 200
+GET /api/jobs/templates  → 200
+(grep for "Module not found" / "Can't resolve 'child_process'" → none)
+```
+
+`tsc --noEmit` clean; the full `check:all` stays green at 175/1993 + 2278.
+
 ## Honest limitations
 
-- **The mounted screens were not exercised in a live browser.** The gates prove
-  they compile, are reachable from the shell's source, and fetch through the real
-  `/api/code` and `/api/jobs` proxies. They do not prove the screens render
-  correctly against a live Python runtime with real tasks/jobs. That requires
-  running `npm run dev` and clicking through.
+- **The mounted screens were compiled and fetched, but not clicked through.** The
+  dev server was restarted and `GET /` + the four API routes return 200 (so the
+  client bundle compiles and the proxies answer); the panels were not driven in a
+  live browser against real tasks/jobs, so their interactive rendering is not
+  proven here.
 - **The capability statement page is deliberately not mounted.** Its user-facing
   reader surface is a product choice for the operator (the task's own non-goal), so
   the `capability.*` keys exist but are still unrendered. The Phase-12 eval report

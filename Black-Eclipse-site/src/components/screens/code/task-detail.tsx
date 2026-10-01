@@ -5,7 +5,7 @@
 // works, and the audit timeline. The mechanism never leads.
 
 import { useT } from '@/lib/i18n/use-t';
-import type { CodeTask } from '@/lib/harness/code-client';
+import type { CodeTask } from '@/lib/harness/code-browser';
 import { CheckResults } from './check-results';
 import { DiffViewer } from './diff-viewer';
 import { PlanReview } from './plan-review';

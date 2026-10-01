@@ -13,7 +13,7 @@ import {
   jobRunStatusKey,
   type JobDefinitionView,
   type JobRunView,
-} from '@/lib/harness/jobs-client';
+} from '@/lib/harness/jobs-browser';
 
 export interface JobDetailProps {
   job: JobDefinitionView;
