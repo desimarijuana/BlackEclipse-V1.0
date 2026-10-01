@@ -156,16 +156,21 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
 
 
 def _effect_authorizer(approvals: Optional[Any], run_id: str, emitter: RunEmitter) -> Optional[Any]:
-    """The run's effect authorizer, or None when no approval store is wired.
+    """The run's effect authorizer, composed with the code-write authorizer.
 
-    With no authorizer, the registry refuses every non-read tool — the safe
-    default. When wired, only an explicit matching operator approval passes.
+    A `workspace_*` write is authorized by the run's autonomy profile (Phase 2);
+    every other non-read tool falls to the MCP approvals authorizer (single-use
+    operator approval) — or is refused when no store is wired. With no authorizer
+    at all the registry refuses every non-read tool, the safe default.
     """
-    if approvals is None:
-        return None
-    from .mcp.approvals import make_effect_authorizer
+    from .code.tools import make_code_authorizer  # noqa: PLC0415
 
-    return make_effect_authorizer(approvals, run_id, emitter)
+    mcp_authorizer = None
+    if approvals is not None:
+        from .mcp.approvals import make_effect_authorizer
+
+        mcp_authorizer = make_effect_authorizer(approvals, run_id, emitter)
+    return make_code_authorizer(mcp_authorizer)
 
 
 def effective_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[set[str]]:
@@ -262,6 +267,7 @@ def build_graph(
     mcp_manager: Optional[Any] = None,
     lineage: Optional[Any] = None,
     resume_from: Optional[dict[str, Any]] = None,
+    code_store: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -322,6 +328,9 @@ def build_graph(
         # The read-only workspace binding for this run (Phase 1). Absent ⇒ no
         # code capability (the default-actor rule).
         workspace=resolve_workspace(request.workspace),
+        # Phase 2: the run's autonomy profile and the code-workspace store.
+        autonomy=request.autonomy,
+        code_store=code_store,
     )
     registry.set_active_context(ctx)
 
@@ -659,6 +668,7 @@ async def execute_run(
     approvals: Optional[Any] = None,
     memory_router: Optional[Any] = None,
     mcp_manager: Optional[Any] = None,
+    code_store: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -666,6 +676,10 @@ async def execute_run(
     agent = resolve_agent(request)
     emitter = RunEmitter(request.runId, store, bus)
     lineage = RunLineage(store)
+    if code_store is None:
+        from .code.store import CodeWorkspaceStore  # noqa: PLC0415
+
+        code_store = CodeWorkspaceStore(store)
     started = now_iso()
     # Resume, when requested, is validated BEFORE a run row is created so a
     # missing checkpoint / a terminal run never silently starts a fresh run.
@@ -883,6 +897,7 @@ async def execute_run(
             mcp_manager=mcp_manager,
             lineage=lineage,
             resume_from=resume_from,
+            code_store=code_store,
         )
         return await app.ainvoke(initial_state)
 

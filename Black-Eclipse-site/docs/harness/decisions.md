@@ -2457,3 +2457,47 @@ navigator at a different directory. `ToolContext.workspace` carries the binding
 `refusal.*` keys added) and the code→sentence map is data; the jargon gate
 `src/lib/i18n/plain-language.test.ts` scans the values. Phase 2 builds the write
 half on this same confinement and the same preset discipline.
+
+## ADR-H101 - Workspace isolation: disposable worktrees, snapshot fallback, never the user's own checkout
+
+**Decision.** Phase 2 lets Eclipse author a change — create/replace/delete/move a
+file — inside a DISPOSABLE copy of the repository, never the operator's checkout.
+`code/worktree.py` allocates at `<root>/.black-eclipse/code-workspaces/<id>` (an
+already-gitignored scratch root) with `git worktree add --detach`; when git
+`worktree` is unavailable it falls back to a bounded snapshot copy and reports
+`strategy: "snapshot"` honestly on the record and the event. The root is resolved
+INTERNALLY (`workspace.default_root()`) — it is never an argument to any function
+in `worktree.py`, so no caller can name the checkout. `release` refuses to delete
+anything whose realpath is not under the scratch root (`RELEASE_OUTSIDE_SCRATCH`)
+and is idempotent. The patch engine (`code/patch.py`) copies the discipline of
+`skills/patches.py`: a closed op set, structural validation BEFORE any write, a
+content-hash stale-base refusal (`PATCH_BASE_MISMATCH`), a unique-span rule for
+`replace` (0 → `PATCH_SPAN_NOT_FOUND`, 2+ → `PATCH_SPAN_AMBIGUOUS`; never a blind
+`.replace()`), and ATOMICity — a refusal at any op applies NOTHING. Every applied
+op records `contentHashBefore`/`After`. Three tools join the registry:
+`workspace_patch_apply` (`permission="write"`, `effect="write"`), `workspace_diff`
+(`permission="read"`), `workspace_revert` (`permission="write"`). A write is
+authorized by the run's autonomy profile (`edit_verify` grants `code.write`),
+composed into the single effect authorizer; `git.write` is implemented nowhere.
+
+**Why.** The whole value of the capability is that it can change code; the whole
+risk is that it changes the WRONG copy. The concurrency rule (README §4) makes
+this concrete: OpenCode edits the same tree, so a write tool that touched the
+checkout would collide with a live session. A detached worktree makes that
+impossible by construction, and putting it under the ignored `.black-eclipse/`
+means a leaked workspace can never become a tracked artifact. The stale-base and
+atomicity rules exist because a half-applied patch is exactly the "silently
+rebased" failure the skill engine already refuses; a content hash generalizes a
+version string to a file. The refusal vocabulary is the same per-vector honesty
+Phase 0/1 established, so a caller (and a test) can tell an escape from a
+protected path from a stale base.
+
+**Consequences.** `python/harness/code/store.py` owns the `CodeWorkspace` table in
+`agent-memory.db` bound to the one `AgentMemoryStore` connection (the
+`run_lineage.py` pattern), so the ratcheted `persistence.py` does not grow and no
+second database appears. `sweep_expired` runs on the existing startup lifespan,
+releasing workspaces past the TTL so a cancellation leaves no orphan. Front-door
+copy lives in `src/lib/i18n/` (`task.authoring.*` progress/result lines plus a
+`refusal.*` code→sentence map as data), and the jargon gate scans it. `git.write`
+remains an operator action; Phase 5 is where an agent-side `git.write` could be
+introduced behind a single-use approval.

@@ -176,6 +176,10 @@ class RunRequest(BaseModel):
     # Phase 1 (additive, optional): bind this run to a read-only workspace. Absent
     # ⇒ the run has no code capability at all (the default-actor rule, Phase 0).
     workspace: Optional[RunWorkspace] = None
+    # Phase 2 (additive, optional): the run's autonomy profile. Only a workspace-
+    # bound run with a known profile may hold code verbs (Phase 0). "edit_verify"
+    # is what grants code.write; absent/unknown grants nothing (fail-closed).
+    autonomy: Optional[str] = None
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

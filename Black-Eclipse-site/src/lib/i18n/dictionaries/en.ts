@@ -109,6 +109,16 @@ export const en = {
   'task.navigator.reading': 'Reading {name}…',
   'task.navigator.citation': 'From {path}:{line}',
 
+  // Authoring a change (Phase 2) — progress and result lines name the TASK,
+  // never the mechanism (no "patch", "diff", "worktree", "sandbox").
+  'task.authoring.working': 'Writing the change…',
+  'task.authoring.checking': 'Checking it works…',
+  'task.authoring.done': 'Done. I made the change in your project and saved a copy of what changed.',
+  'task.authoring.doneCount': 'Done. I changed {count} file(s) in your project.',
+  'task.authoring.seeChanges': 'See what changed',
+  'task.authoring.undo': 'Undo this change',
+  'task.authoring.undone': 'Undone — your project is back to how it was.',
+
   // Refusals — one plain sentence per machine code, plus a shared details label.
   // The code itself is never shown as the primary message; it belongs behind
   // the details affordance.
@@ -131,6 +141,42 @@ export const en = {
     'I don’t have a project folder to look through right now, so I can’t answer that.',
   'refusal.INVALID_PATTERN':
     'I couldn’t run that search because the wording wasn’t something I could look for.',
+
+  // Refusals for authoring a change (Phase 2) — one plain sentence each, no
+  // mechanism word. Keyed by the machine code for the details affordance.
+  'refusal.PATCH_PATH_ABSOLUTE':
+    'I didn’t make that change because it points outside your project, so I left everything alone.',
+  'refusal.PATCH_PATH_TRAVERSAL':
+    'I didn’t make that change because it points above your project folder, so I left everything alone.',
+  'refusal.PATCH_PATH_SYMLINK':
+    'I didn’t make that change because it leads outside your project, so I left everything alone.',
+  'refusal.PATCH_PROTECTED_PATH':
+    'I didn’t change that file because it holds private account data, so I left it alone.',
+  'refusal.PATCH_OUTSIDE_SCOPE':
+    'I didn’t make that change because it reaches beyond the part you asked me to work on.',
+  'refusal.PATCH_BASE_MISMATCH':
+    'I didn’t make that change because the file changed since I read it — ask me to look again.',
+  'refusal.PATCH_TOO_LARGE': 'I didn’t make that change because it is too big to do safely at once.',
+  'refusal.PATCH_SPAN_NOT_FOUND':
+    'I didn’t make that change because the text I meant to replace is no longer there.',
+  'refusal.PATCH_SPAN_AMBIGUOUS':
+    'I didn’t make that change because the text I meant to replace appears in more than one place, so I couldn’t tell which you meant.',
+  'refusal.PATCH_FILE_EXISTS':
+    'I didn’t make that change because a file with that name is already there.',
+  'refusal.PATCH_FILE_MISSING':
+    'I didn’t make that change because the file I meant to change is no longer there.',
+  'refusal.PATCH_MALFORMED':
+    'I didn’t make that change because I couldn’t understand the request.',
+  'refusal.PATCH_UNKNOWN_OP':
+    'I didn’t make that change because it asked for something I can’t do.',
+  'refusal.PATCH_TOO_MANY_OPERATIONS':
+    'I didn’t make that change because it asked for too many separate edits at once.',
+  'refusal.PROFILE_DENIED':
+    'I’m not set up to change files in this session, so I left everything alone.',
+  'refusal.WORKSPACE_UNBOUND':
+    'I don’t have a project folder to change right now, so I couldn’t do that.',
+  'refusal.UNKNOWN_WORKSPACE':
+    'I couldn’t find a work area to make or undo that change, so I left everything alone.',
 
   // Keyboard shortcuts dialog
   'keyboard.title': 'Keyboard shortcuts',

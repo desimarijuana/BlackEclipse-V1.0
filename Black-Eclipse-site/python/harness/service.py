@@ -124,6 +124,11 @@ class AgenticService:
         # dataset at the same moment share a single provider call (Milestone 2H),
         # and a fresh cached result is reused across runs.
         self.retrieval_cache = RetrievalCache()
+        # Disposable code workspaces (Phase 2): rows in agent-memory.db bound to
+        # the one store connection.
+        from .code.store import CodeWorkspaceStore  # noqa: PLC0415
+
+        self.code_store = CodeWorkspaceStore(self.store)
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
@@ -319,6 +324,13 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - skill maintenance must never block boot
             log.warning("startup skill maintenance failed", exc_info=True)
             result["skillMaintenance"] = {"ok": False, "error": "maintenance failed"}
+        try:
+            from .code.worktree import sweep_expired  # noqa: PLC0415
+
+            result["codeWorkspaceSweep"] = {"released": sweep_expired()}
+        except Exception:  # noqa: BLE001 - the sweep must never block boot
+            log.warning("code workspace sweep failed", exc_info=True)
+            result["codeWorkspaceSweep"] = {"ok": False, "error": "sweep failed"}
         return result
 
     def run_skill_maintenance(self) -> dict[str, Any]:
@@ -497,7 +509,7 @@ class AgenticService:
             retrieval_cache=self.retrieval_cache,
             memory_service=self.memory, skill_registry=self.skill_registry,
             approvals=self.approvals, memory_router=self.memory_router,
-            mcp_manager=self.mcp,
+            mcp_manager=self.mcp, code_store=self.code_store,
         )
         await self._schedule_review(request.runId, result.status)
         return result
@@ -595,7 +607,7 @@ class AgenticService:
                     retrieval_cache=self.retrieval_cache,
                     memory_service=self.memory, skill_registry=self.skill_registry,
                     approvals=self.approvals, memory_router=self.memory_router,
-                    mcp_manager=self.mcp,
+                    mcp_manager=self.mcp, code_store=self.code_store,
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

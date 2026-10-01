@@ -1,0 +1,439 @@
+"""Disposable code workspaces (Phase 2).
+
+A code workspace is a throwaway copy of the repository the agent may write to.
+The operator's checkout is never a target: `allocate` creates the workspace, and
+`release` can only delete something inside the scratch root — a path check, not a
+convention. No function here takes the checkout as an argument; the root is
+resolved internally from `workspace.default_root()` (the same server-resolved
+root the Phase-1 navigator uses), so no caller can name a different directory.
+
+Two strategies, chosen honestly and reported:
+
+  * "worktree" — `git worktree add --detach <dir> <base>` under
+    <root>/.black-eclipse/code-workspaces/<id>. The repo's .gitignore already
+    ignores /.black-eclipse/, so a leaked worktree is never a tracked artifact. A
+    detached HEAD means no branch is created, moved or deleted.
+  * "snapshot" — a bounded recursive copy of the tracked tree, used when
+    `git worktree` is unavailable (no git on PATH, a non-git root). It is SLOWER
+    and uses more disk, and the strategy string on the returned record says
+    "snapshot" — the runtime never claims a git worktree it did not create.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+from . import policy
+
+SCRATCH_RELPATH = ".black-eclipse/code-workspaces"
+MAX_SNAPSHOT_FILES = 20_000
+MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
+MAX_DIFF_BYTES = 2 * 1024 * 1024
+GIT_WORKTREE_TIMEOUT_S = 60
+WORKSPACE_TTL_SECONDS = 24 * 60 * 60
+
+# The ONLY argv this module may run. No model-supplied argument reaches any of
+# them; `base_revision` and `dir` come from validated internal values only.
+GIT_WORKTREE_ARGV: dict[str, tuple[str, ...]] = {
+    "add": ("git", "worktree", "add", "--detach"),
+    "remove": ("git", "worktree", "remove", "--force"),
+    "rev_parse": ("git", "rev-parse", "HEAD"),
+}
+BASE_REVISION_PATTERN = r"[0-9a-fA-F]{7,40}|HEAD(~\d+)?"
+
+_REVISION_RE = re.compile(rf"^(?:{BASE_REVISION_PATTERN})$")
+
+
+@dataclass(frozen=True)
+class CodeWorkspace:
+    id: str                 # "cw_" + 16 hex chars
+    root: Path              # <scratch>/<id> — the worktree root
+    strategy: str           # "worktree" | "snapshot"
+    base_revision: str      # resolved git sha, or the snapshot digest
+    created_at: str
+    file_count: int = 0
+    released_at: Optional[str] = None
+    diff_digest: Optional[str] = None    # set by diff(), sha256 of the unified diff
+
+
+class WorkspaceError(Exception):
+    """A structured workspace failure. `code` is stable and testable.
+
+    Codes: WORKSPACE_ROOT_UNAVAILABLE | GIT_WORKTREE_UNAVAILABLE |
+    SNAPSHOT_TOO_LARGE | RELEASE_OUTSIDE_SCRATCH | UNKNOWN_WORKSPACE |
+    GIT_FAILED | INVALID_REVISION.
+    """
+
+    def __init__(self, code: str, reason: str) -> None:
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _current_root() -> Path:
+    """The server-resolved root. Resolved HERE — never an argument to a caller."""
+    from .workspace import default_root  # noqa: PLC0415
+
+    root = default_root()
+    if root is None:
+        raise WorkspaceError(
+            "WORKSPACE_ROOT_UNAVAILABLE",
+            "there is no project root available for a change to be prepared in",
+        )
+    return root
+
+
+def scratch_root(repo_root: Path) -> Path:
+    """<repo_root>/.black-eclipse/code-workspaces — created lazily, 0700 on POSIX.
+
+    Pure helper: it takes a root but is not itself a target; `allocate`/`release`
+    resolve the root internally and never accept it from a caller.
+    """
+    path = Path(repo_root) / SCRATCH_RELPATH
+    path.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+    return path
+
+
+def _run(argv: tuple[str, ...], cwd: Path) -> subprocess.CompletedProcess:
+    """Run one fixed argv with no shell. The only child process in this phase."""
+    return subprocess.run(
+        list(argv),
+        cwd=str(cwd),
+        shell=False,
+        capture_output=True,
+        timeout=GIT_WORKTREE_TIMEOUT_S,
+        env={k: os.environ[k] for k in policy.SECRET_ENV_ALLOWLIST if k in os.environ},
+    )
+
+
+def _git_available(root: Path) -> bool:
+    try:
+        proc = _run(("git", "--version"), root)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def _valid_revision(base: str) -> str:
+    text = str(base or "HEAD").strip()
+    if not _REVISION_RE.match(text):
+        raise WorkspaceError("INVALID_REVISION", f"revision {base!r} is not a plain git revision")
+    return text
+
+
+def _stable_id() -> str:
+    return "cw_" + uuid.uuid4().hex[:16]
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _manifest(root: Path) -> dict[str, str]:
+    """A bounded path→sha256 manifest of the files under `root`, ignore-aware."""
+    out: dict[str, str] = {}
+    files = 0
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        current = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if d not in policy.IGNORED_DIRS and d != ".git"]
+        for name in filenames:
+            full = current / name
+            rel = full.relative_to(root).as_posix()
+            if policy.is_ignored(rel):
+                continue
+            try:
+                size = full.stat().st_size
+            except OSError:
+                continue
+            if files >= MAX_SNAPSHOT_FILES or total + size > MAX_SNAPSHOT_BYTES:
+                raise WorkspaceError("SNAPSHOT_TOO_LARGE", "the project is too large to copy")
+            total += size
+            files += 1
+            out[rel] = _hash_file(full)
+    return out
+
+
+def _snapshot_copy(source: Path, dest: Path) -> tuple[int, str]:
+    """Copy tracked files from `source` into `dest`. Returns (fileCount, digest)."""
+    manifest = _manifest(source)
+    for rel in manifest:
+        src = source / rel
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+    digest = hashlib.sha256(
+        json.dumps(manifest, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return len(manifest), digest
+
+
+def _write_manifest(sidecar: Path, manifest: dict[str, str]) -> None:
+    sidecar.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+
+def _read_manifest(sidecar: Path) -> dict[str, str]:
+    try:
+        return json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def allocate(base_revision: str = "HEAD") -> CodeWorkspace:
+    """Create a disposable workspace. Deterministic, bounded, honest about strategy.
+
+    Order of attempts, all inside the scratch root:
+      1. `git worktree add --detach <dir> <base>` with cwd=root, no shell.
+      2. On failure OR when git is unavailable: a bounded snapshot copy of the
+         tree. An honest refusal (`SNAPSHOT_TOO_LARGE`) past the caps — never a
+         partial copy silently used as if complete.
+
+    The root is resolved INTERNALLY (`workspace.default_root()`); it is never an
+    argument, so no caller can name the operator's checkout. Tests point the
+    resolver at a temp repo with `BLACK_ECLIPSE_CODE_ROOT`.
+    """
+    repo_root = _current_root()
+    base = _valid_revision(base_revision)
+    scratch = scratch_root(repo_root)
+    workspace_id = _stable_id()
+    dest = scratch / workspace_id
+    created_at = _now_iso()
+
+    if _git_available(repo_root):
+        try:
+            proc = _run(GIT_WORKTREE_ARGV["add"] + (str(dest), base), repo_root)
+            if proc.returncode == 0 and dest.is_dir():
+                file_count = len(_manifest(dest))
+                return CodeWorkspace(
+                    id=workspace_id, root=dest, strategy="worktree",
+                    base_revision=base, created_at=created_at, file_count=file_count,
+                )
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    # Snapshot fallback — honest about being a copy, bounded.
+    try:
+        dest.mkdir(parents=True, exist_ok=False)
+        file_count, digest = _snapshot_copy(repo_root, dest)
+        _write_manifest(scratch / f"{workspace_id}.manifest.json", _manifest(dest))
+        return CodeWorkspace(
+            id=workspace_id, root=dest, strategy="snapshot",
+            base_revision=digest[:40], created_at=created_at, file_count=file_count,
+        )
+    except WorkspaceError:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    except OSError as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise WorkspaceError("GIT_WORKTREE_UNAVAILABLE", f"could not create a workspace: {exc}") from exc
+
+
+def _workspace_dir(repo_root: Path, workspace_id: str) -> Path:
+    scratch = Path(os.path.realpath(scratch_root(repo_root)))
+    candidate = Path(os.path.realpath(scratch / str(workspace_id)))
+    if candidate != scratch and scratch not in candidate.parents:
+        raise WorkspaceError(
+            "RELEASE_OUTSIDE_SCRATCH",
+            "refused to remove a folder that is not inside the task's own scratch area",
+        )
+    return candidate
+
+
+def release(workspace_id: str) -> dict[str, Any]:
+    """Remove a workspace. Idempotent. Refuses to delete anything outside scratch.
+
+    `realpath(workspace_root)` must be under `realpath(scratch_root)`, else
+    `RELEASE_OUTSIDE_SCRATCH` and nothing is deleted — the check that makes
+    "disposable" safe rather than hopeful. A git worktree is deregistered with
+    `git worktree remove --force`, then removed with `shutil.rmtree` if it still
+    exists. An already-released workspace returns `{"alreadyReleased": True}`.
+    """
+    repo_root = _current_root()
+    target = _workspace_dir(repo_root, workspace_id)
+    if not target.exists():
+        return {"released": True, "alreadyReleased": True, "workspaceId": workspace_id}
+    if _git_available(repo_root):
+        try:
+            _run(GIT_WORKTREE_ARGV["remove"] + (str(target),), repo_root)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    sidecar = scratch_root(repo_root) / f"{workspace_id}.manifest.json"
+    try:
+        sidecar.unlink()
+    except OSError:
+        pass
+    return {"released": True, "alreadyReleased": False, "workspaceId": workspace_id}
+
+
+def _unified_from_manifests(before: dict[str, str], after: dict[str, str]) -> tuple[str, list[str], list[str], list[str]]:
+    """A synthesized unified diff for a snapshot workspace (no git index)."""
+    added = sorted(set(after) - set(before))
+    deleted = sorted(set(before) - set(after))
+    modified = sorted(p for p in (set(before) & set(after)) if before[p] != after[p])
+    lines: list[str] = []
+    for path in added:
+        lines.append(f"--- /dev/null\n+++ b/{path}\n@@ added @@")
+    for path in deleted:
+        lines.append(f"--- a/{path}\n+++ /dev/null\n@@ deleted @@")
+    for path in modified:
+        lines.append(f"--- a/{path}\n+++ b/{path}\n@@ modified @@")
+    return "\n".join(lines), added, modified, deleted
+
+
+def _count_hunks(unified: str) -> tuple[int, int]:
+    additions = sum(1 for line in unified.splitlines() if line.startswith("+") and not line.startswith("+++"))
+    deletions = sum(1 for line in unified.splitlines() if line.startswith("-") and not line.startswith("---"))
+    return additions, deletions
+
+
+def diff(workspace_id: str, base: Optional[str] = None, *, strategy: str = "worktree") -> dict[str, Any]:
+    """The unified diff plus added/modified/deleted lists.
+
+    For a "worktree" workspace the unified diff comes from
+    `git -C <root> diff <base> --no-color --no-ext-diff` (a read-only argv built
+    from the workspace record, not from the model). For a "snapshot" workspace
+    there is no git object database, so a synthesized diff is produced and the
+    result still says `strategy: "snapshot"` — no caller can mistake it for git.
+    """
+    repo_root = _current_root()
+    target = _workspace_dir(repo_root, workspace_id)
+    if not target.exists():
+        raise WorkspaceError("UNKNOWN_WORKSPACE", f"no workspace {workspace_id!r}")
+    base_rev = _valid_revision(base) if base else "HEAD"
+
+    if strategy == "snapshot":
+        sidecar = scratch_root(repo_root) / f"{workspace_id}.manifest.json"
+        before = _read_manifest(sidecar)
+        after = _manifest(target)
+        unified, added, modified, deleted = _unified_from_manifests(before, after)
+    else:
+        try:
+            proc = _run(
+                ("git", "-C", str(target), "diff", base_rev, "--no-color", "--no-ext-diff"),
+                repo_root,
+            )
+            unified = proc.stdout.decode("utf-8", "replace")
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise WorkspaceError("GIT_FAILED", f"could not read the change: {exc}") from exc
+        status = _run(
+            ("git", "-C", str(target), "status", "--porcelain=v1", "-z"),
+            repo_root,
+        )
+        added, modified, deleted = _parse_status_lists(status.stdout)
+
+    total_chars = len(unified)
+    truncated = total_chars > MAX_DIFF_BYTES
+    if truncated:
+        unified = unified[:MAX_DIFF_BYTES]
+    digest = hashlib.sha256(unified.encode("utf-8")).hexdigest()
+    additions, deletions = _count_hunks(unified)
+    files_changed = len(added) + len(modified) + len(deleted)
+    return {
+        "available": True,
+        "strategy": strategy,
+        "base": base_rev,
+        "unified": unified,
+        "truncated": truncated,
+        "totalChars": total_chars,
+        "added": added,
+        "modified": modified,
+        "deleted": deleted,
+        "digest": digest,
+        "filesChanged": files_changed,
+        "additions": additions,
+        "deletions": deletions,
+    }
+
+
+def _parse_status_lists(stdout: bytes) -> tuple[list[str], list[str], list[str]]:
+    added: list[str] = []
+    modified: list[str] = []
+    deleted: list[str] = []
+    parts = [p for p in stdout.split(b"\x00") if p]
+    for record in parts:
+        text = record.decode("utf-8", "replace")
+        if len(text) < 4:
+            continue
+        status = text[:2]
+        path = text[3:]
+        if "?" in status or "A" in status:
+            added.append(path)
+        elif "D" in status:
+            deleted.append(path)
+        else:
+            modified.append(path)
+    return added, modified, deleted
+
+
+def sweep_expired() -> list[str]:
+    """Release workspaces past WORKSPACE_TTL_SECONDS. Best-effort, never raises.
+
+    Called from the existing startup lifespan — not a new daemon or thread.
+    Returns released ids.
+    """
+    released: list[str] = []
+    try:
+        repo_root = _current_root()
+        scratch = scratch_root(repo_root)
+    except WorkspaceError:
+        return released
+    now = datetime.now(timezone.utc).timestamp()
+    for entry in scratch.iterdir():
+        if not entry.is_dir() or not entry.name.startswith("cw_"):
+            continue
+        try:
+            age = now - entry.stat().st_mtime
+        except OSError:
+            continue
+        if age <= WORKSPACE_TTL_SECONDS:
+            continue
+        try:
+            result = release(entry.name)
+            if result.get("released"):
+                released.append(entry.name)
+        except Exception:  # noqa: BLE001 - sweep must never raise
+            continue
+    return released
+
+
+__all__ = [
+    "BASE_REVISION_PATTERN",
+    "CodeWorkspace",
+    "GIT_WORKTREE_ARGV",
+    "MAX_DIFF_BYTES",
+    "MAX_SNAPSHOT_BYTES",
+    "MAX_SNAPSHOT_FILES",
+    "SCRATCH_RELPATH",
+    "WORKSPACE_TTL_SECONDS",
+    "WorkspaceError",
+    "allocate",
+    "diff",
+    "release",
+    "scratch_root",
+    "sweep_expired",
+]

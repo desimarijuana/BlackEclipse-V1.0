@@ -23,7 +23,7 @@ file, not here.
 |---|---|---|---|---|
 | 0 — Recon, policy decision, baseline freeze | [phase-00](./phase-00-policy-and-baseline.md) ✅ Done | — | 1,2,3 | — |
 | 1 — Repository navigator (read-only) | [phase-01](./phase-01-repository-navigator.md) ✅ Done | 0 | 2 | §15.3 **7A** |
-| 2 — Isolated worktree patch authoring | [phase-02](./phase-02-worktree-patching.md) | 1 | 3 | §15.3 **7B** |
+| 2 — Isolated worktree patch authoring | [phase-02](./phase-02-worktree-patching.md) ✅ Done | 1 | 3 | §15.3 **7B** |
 | 3 — Sandboxed command broker | [phase-03](./phase-03-command-broker.md) | 2 | 4 | §15.3 **7C** |
 | 4 — Verify-and-repair trust spine | [phase-04](./phase-04-verify-and-repair.md) | 3 | 5 | §15.3 **7D** |
 | 5 — Coding agent, autonomy profiles, approvals | [phase-05](./phase-05-coding-agent.md) | 4 | 6,7,8,9 | §15.3 **7E** |
@@ -306,5 +306,6 @@ Black-Eclipse-site/src/
 **Decision.** / **Why.** / **Consequences.** — match that. The harness closeout
 of 2026-09-30 already landed ADR-H93–H96 (run lineage, route health, capability
 matrix, workflows), so Phase 0 appended the next free numbers — **ADR-H97,
-ADR-H98, ADR-H99** — and Phase 1 appended **ADR-H100**, rather than duplicating
-those headers. Later phases take the numbers after H100.
+ADR-H98, ADR-H99**, Phase 1 appended **ADR-H100**, and Phase 2 appended
+**ADR-H101**, rather than duplicating those headers. Later phases take the numbers
+after H101.

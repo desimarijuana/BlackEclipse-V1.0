@@ -1,10 +1,10 @@
 ---
 title: "Phase 2 — Isolated Worktree Patch Authoring"
-status: Not started
+status: Done
 phase: 2
 depends_on: [1]
 unlocks: [3]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 2 — Isolated Worktree Patch Authoring
@@ -15,7 +15,7 @@ last-verified: 2026-09-30
 | **Unlocks** | Phase 3 (sandboxed command broker) |
 | **Estimated work** | 6–9 h of agent time, real write capability against a disposable tree |
 | **Deliverable type** | worktree lifecycle + structured patch engine + 3 write tools + 1 table + 1 ADR |
-| **New ADRs** | ADR-H104 |
+| **New ADRs** | ADR-H101 |
 | **Prompt to copy** | [§11 below](#11-implementation-prompt-copy-this-to-opencode) |
 
 ## Contents
@@ -126,7 +126,7 @@ on the operator's checkout stays clean.
 5. **Permissions**: `git.read` + `code.write`, inside the worktree only.
    `git.write` (staging/committing in the operator's checkout) is **operator-only
    and is NOT implemented here**.
-6. **Tests** for every gate in §9, and **ADR-H104**.
+6. **Tests** for every gate in §9, and **ADR-H101**.
 
 ## 4. Who can use it (the non-expert obligation)
 
@@ -638,7 +638,7 @@ proved it works with 3 checks."* A user never sees the word "worktree".
    jargon-gate additions to `src/lib/i18n/plain-language.test.ts`.
 9. Tests `python/tests/test_code_worktree.py` and `python/tests/test_code_patch.py`
    plus fixtures under `python/tests/fixtures/code/` — one test per gate in §9.
-10. ADR-H104, `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
+10. ADR-H101, `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
 
 ## 8. Deliverables
 
@@ -656,7 +656,7 @@ proved it works with 3 checks."* A user never sees the word "worktree".
 | `src/lib/i18n/plain-language.test.ts` | extend the jargon gate with this phase's keys |
 | `src/components/chat/{activity-item,activity-feed}.tsx` | render the plain progress/result lines via `useT()` |
 | `python/tests/test_code_worktree.py`, `test_code_patch.py`, `fixtures/code/*` | new — §9 as tests |
-| `docs/harness/decisions.md` | ADR-H104 |
+| `docs/harness/decisions.md` | ADR-H101 |
 | `docs/harness/roadmap/progress/phase-02-progress.md` | new — raw gate output |
 
 ## 9. Acceptance gates
@@ -730,7 +730,7 @@ artifact.
   `"snapshot"`), and a snapshot diff is never presented as a git diff.
 - Every user-visible string added by this phase lives in `src/lib/i18n/` and passes
   the jargon gate; the refusal code → plain sentence map is data, not branching UI.
-- ADR-H104 written; `docs/CHANGELOG.md` entry appended; `docs/NAVIGATION.md`
+- ADR-H101 written; `docs/CHANGELOG.md` entry appended; `docs/NAVIGATION.md`
   updated; `status:` flipped in this file and in the index row.
 
 ## 11. Implementation prompt (copy this to OpenCode)
@@ -805,8 +805,8 @@ In scope:
    keys.
 8. Tests: python/tests/test_code_worktree.py + python/tests/test_code_patch.py +
    fixtures under python/tests/fixtures/code/. One test per probe in §9.
-9. ADR-H104 in docs/harness/decisions.md (Decision / Why / Consequences shape; the series
-   currently ends at ADR-H92 — ADR-H103 is Phase 1's, this one is H104).
+9. ADR-H101 in docs/harness/decisions.md (Decision / Why / Consequences shape; the series
+   ended at ADR-H100 after Phases 0-1, so this one is H101).
    docs/CHANGELOG.md dated entry + docs/NAVIGATION.md rows for code/worktree.py,
    code/patch.py and code/store.py.
 

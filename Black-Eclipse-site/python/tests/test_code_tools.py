@@ -67,15 +67,26 @@ def _run(coro):
 # ── the tool set + read permission ──────────────────────────────────────────
 
 
-def test_exactly_five_read_only_tools_are_registered():
+READ_TOOLS = {
+    "workspace_docs", "workspace_list", "workspace_read", "workspace_search",
+    "workspace_status", "workspace_diff",
+}
+WRITE_TOOLS = {"workspace_patch_apply", "workspace_revert"}
+
+
+def test_registered_code_tools_split_into_read_and_write():
     registry = _registry()
-    names = sorted(n for n in registry.names() if n.startswith("workspace_"))
-    assert names == [
-        "workspace_docs", "workspace_list", "workspace_read", "workspace_search", "workspace_status",
-    ]
+    names = {n for n in registry.names() if n.startswith("workspace_")}
+    # Phase 1 read tools + Phase 2 diff (read) + patch/revert (write).
+    assert names == READ_TOOLS | WRITE_TOOLS
     for tool in registry.list():
-        assert tool.permission == "read"
-        assert tool.risk == "low"
+        if tool.name in READ_TOOLS:
+            assert tool.permission == "read"
+            assert tool.risk == "low"
+        else:
+            assert tool.permission == "write"
+            assert tool.effect == "write"
+            assert tool.risk == "medium"
 
 
 # ── fixture question → path:line ────────────────────────────────────────────

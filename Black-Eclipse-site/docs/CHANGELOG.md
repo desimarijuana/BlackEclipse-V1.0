@@ -8,6 +8,28 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 2 — isolated worktree patch authoring.** New
+  `python/harness/code/worktree.py` (allocate a disposable copy at
+  `<root>/.black-eclipse/code-workspaces/<id>` via `git worktree add --detach`,
+  bounded snapshot fallback reported honestly, `release` refusing anything outside
+  the scratch root and idempotent, `diff`, `sweep_expired`), `code/patch.py`
+  (closed op set create/replace/delete/move, structural validation before any
+  write, content-hash base refusal, unique-span `replace`, ATOMIC — a refusal
+  applies nothing, before/after hashes, `revert` newest-first), and
+  `code/store.py` (the `CodeWorkspace` table bound to the ONE `AgentMemoryStore`
+  connection; `persistence.py` untouched). Three tools added to
+  `register_code_tools` — `workspace_patch_apply` (write), `workspace_diff`
+  (read), `workspace_revert` (write) — authorized by the run's autonomy profile
+  via a code authorizer composed into the single effect authorizer; `RunRequest`
+  gains an optional `autonomy`; `code-navigator` gains the three tools.
+  `sweep_expired` wired into startup maintenance. Front-door i18n `task.authoring.*`
+  progress/result lines + authoring `refusal.*` codes + `plain-language.test.ts`
+  extended; human tool labels added. ADR-H101 appended (the series ended at H100).
+  Baseline frozen in `docs/harness/roadmap/progress/phase-02-progress.md` (vitest
+  169/1966; pytest 1808→1839; eval gates pass). docs updated:
+  `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-02-worktree-patching.md`, `docs/NAVIGATION.md`
+
 - **Eclipse-as-a-Harness Phase 1 — read-only repository navigator.** Five
   read-only tools on the EXISTING `ToolRegistry` (`workspace_status`,
   `workspace_list`, `workspace_search`, `workspace_read`, `workspace_docs`; all

@@ -173,6 +173,12 @@ class ToolContext:
     # the graph from `resolve_workspace(request.workspace)`; None = no code
     # capability (every code tool then refuses with WORKSPACE_UNAVAILABLE).
     workspace: Any = None
+    # The run's autonomy profile (Phase 2). "edit_verify"/"approve_external" grant
+    # code.write; absent/unknown grants nothing (fail-closed, Phase 0 policy).
+    autonomy: Any = None
+    # The code-workspace store (CodeWorkspace rows). Attached per run so the
+    # patch/diff tools can record a workspace without a global. None = no record.
+    code_store: Any = None
 
 
 class DataBridge:

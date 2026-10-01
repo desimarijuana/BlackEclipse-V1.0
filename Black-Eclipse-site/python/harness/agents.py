@@ -11,14 +11,18 @@ from __future__ import annotations
 from .prompts import CODE_NAVIGATOR_SYSTEM_PROMPT, ECLIPSE_AGENT_SYSTEM_PROMPT
 from .schemas import AgentConfig
 
-# The five read-only repository tools (Phase 1). Kept as a named constant so the
-# preset's closed allowlist is asserted in one place and never widened.
+# The repository tools. Phase 1 shipped the five read tools; Phase 2 adds the
+# write half (patch/diff/revert), which the run's autonomy profile gates. Kept as
+# a named constant so the preset's closed allowlist is asserted in one place.
 CODE_NAVIGATOR_TOOLS = [
     "workspace_status",
     "workspace_list",
     "workspace_search",
     "workspace_read",
     "workspace_docs",
+    "workspace_patch_apply",
+    "workspace_diff",
+    "workspace_revert",
 ]
 
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path

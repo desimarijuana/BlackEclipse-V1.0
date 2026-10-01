@@ -25,6 +25,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
 from . import policy
+from . import patch as patch_mod
+from . import worktree as worktree_mod
+from .patch import MAX_OPERATIONS, MAX_REASON_CHARS, PatchError, parse_patch
+from .worktree import CodeWorkspace, WorkspaceError
 from .workspace import (
     MAX_LIST_ENTRIES,
     MAX_MATCHES,
@@ -90,6 +94,40 @@ class WorkspaceDocsInput(BaseModel):
     maxChars: int = Field(4_000, ge=200, le=8_000)  # noqa: N815
 
 
+class _PatchOpModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    op: str = Field(..., min_length=1, max_length=16)
+    path: str = Field(..., min_length=1, max_length=512)
+    reason: str = Field("", max_length=MAX_REASON_CHARS)
+    content: Optional[str] = None
+    old: Optional[str] = None
+    new: Optional[str] = None
+    expectHash: Optional[str] = Field(default=None, max_length=128)  # noqa: N815
+    fromPath: Optional[str] = Field(default=None, max_length=512)  # noqa: N815
+
+
+class PatchApplyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operations: list[_PatchOpModel] = Field(..., min_length=1, max_length=MAX_OPERATIONS)
+    scope: list[str] = Field(default_factory=list, max_length=16)
+    note: str = Field("", max_length=MAX_REASON_CHARS)
+
+
+class WorkspaceDiffInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base: Optional[str] = Field(default=None, max_length=128)  # noqa: N815
+    includeUnified: bool = True  # noqa: N815
+
+
+class WorkspaceRevertInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    applied: list[dict] = Field(..., min_length=1)
+
+
 _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "workspace_status": {"type": "object", "properties": {}, "additionalProperties": False},
     "workspace_list": {
@@ -133,6 +171,49 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "maxChars": {"type": "integer", "description": "Total character budget for excerpts (default 4000)."},
         },
         "required": ["query"],
+        "additionalProperties": False,
+    },
+    "workspace_patch_apply": {
+        "type": "object",
+        "properties": {
+            "operations": {
+                "type": "array",
+                "description": "The changes to make, in order. Each is create/replace/delete/move.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "op": {"type": "string", "enum": ["create", "replace", "delete", "move"]},
+                        "path": {"type": "string", "description": "Destination path, relative to the project."},
+                        "reason": {"type": "string", "description": "Why this change is being made."},
+                        "content": {"type": "string", "description": "create: the whole file content."},
+                        "old": {"type": "string", "description": "replace: the exact text to replace."},
+                        "new": {"type": "string", "description": "replace: the replacement text."},
+                        "expectHash": {"type": "string", "description": "Optional hash the file is expected to have now."},
+                        "fromPath": {"type": "string", "description": "move: the source path."},
+                    },
+                    "required": ["op", "path"],
+                },
+            },
+            "scope": {"type": "array", "items": {"type": "string"}, "description": "Optional declared path prefixes the change is limited to."},
+            "note": {"type": "string", "description": "A short note about the change."},
+        },
+        "required": ["operations"],
+        "additionalProperties": False,
+    },
+    "workspace_diff": {
+        "type": "object",
+        "properties": {
+            "base": {"type": "string", "description": "Optional revision to compare against (defaults to the task's start)."},
+            "includeUnified": {"type": "boolean", "description": "Include the raw unified change text (default true)."},
+        },
+        "additionalProperties": False,
+    },
+    "workspace_revert": {
+        "type": "object",
+        "properties": {
+            "applied": {"type": "array", "items": {"type": "object"}, "description": "The change record returned by a prior apply."},
+        },
+        "required": ["applied"],
         "additionalProperties": False,
     },
 }
@@ -439,6 +520,237 @@ async def _read(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     }
 
 
+# ── Phase 2: the write half (patch / diff / revert) ─────────────────────────
+#
+# A code write is authorised by the run's autonomy profile, not by an operator
+# approval (Phase 5 owns that). The disposable CodeWorkspace is allocated lazily
+# on the first write, from the SAME server-resolved root the Phase-1 navigator
+# uses — never the operator's checkout. The binding/actor are rebuilt against the
+# worktree root so `policy.decide_write` confines the write to the disposable tree.
+
+
+def _present_dict(raw: Any) -> dict[str, Any]:
+    return raw if isinstance(raw, dict) else {}
+
+
+def _autonomy_grants_write(ctx: ToolContext) -> bool:
+    autonomy = getattr(ctx, "autonomy", None)
+    return bool(autonomy and "code.write" in policy.code_grants(str(autonomy)))
+
+
+def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, ResolvedWorkspace, Any]:
+    """Allocate (once) the disposable workspace for this run.
+
+    Returns `(code_workspace, binding, resolved_workspace, actor)`. The binding's
+    root is the worktree root, so `policy.decide_write` and `workspace.confine`
+    both act on the disposable copy.
+    """
+    existing = getattr(ctx, "_code_workspace", None)
+    if existing is not None:
+        return existing
+    base = getattr(getattr(ctx, "workspace", None), "base_revision", "HEAD") or "HEAD"
+    cw = worktree_mod.allocate(base_revision=base)
+    binding = policy.WorkspaceBinding(
+        id=cw.id, root=cw.root, base_revision=cw.base_revision, strategy=cw.strategy,
+    )
+    resolved = ResolvedWorkspace(
+        id=cw.id, root=cw.root, base_revision=cw.base_revision,
+        strategy=cw.strategy, binding=binding,
+    )
+    actor = _make_actor(cw.id, getattr(ctx, "autonomy", None))
+    bundle = (cw, binding, resolved, actor)
+    try:
+        ctx._code_workspace = bundle
+    except Exception:  # noqa: BLE001 - a frozen ctx must not break the call
+        pass
+    store = getattr(ctx, "code_store", None)
+    if store is not None:
+        try:
+            store.save_workspace(
+                cw.id, str(cw.root), cw.base_revision, cw.strategy,
+                run_id=getattr(ctx, "run_id", None), file_count=cw.file_count,
+            )
+        except Exception:  # noqa: BLE001 - a record failure must not block a write
+            pass
+    return bundle
+
+
+def _make_actor(workspace_id: str, autonomy: Any) -> Any:
+    from ..skills.permissions import Actor  # noqa: PLC0415
+
+    return Actor(id="coder", operator=False, workspace_id=workspace_id, autonomy=autonomy)
+
+
+def make_code_authorizer(mcp_authorizer: Any = None):
+    """Compose the effect authorizer for a run's non-read tools.
+
+    A code write tool (`workspace_*`, effect `write`) is admitted at this seam;
+    the HANDLER then enforces the binding and the autonomy profile and reports the
+    precise refusal code (`WORKSPACE_UNBOUND` / `PROFILE_DENIED`), and the engine
+    (`patch.apply` → `policy.decide_write`) re-checks `code.write` for every path.
+    The write is therefore gated at three layers. Every other non-read tool falls
+    through to the MCP approvals authorizer (single-use operator approval) — or is
+    refused when there is none.
+    """
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name.startswith("workspace_") and getattr(tool, "effect", None) == "write":
+            return True
+        if mcp_authorizer is not None:
+            return bool(await mcp_authorizer(tool, args, ctx))
+        return False
+
+    return authorize
+
+
+async def _emit_patch_refused(ctx: ToolContext, workspace_id: str, op: str, path: str, code: str) -> None:
+    await emit_code_event(ctx, "code.patch.refused", {
+        "workspaceId": workspace_id, "op": op, "path": path, "code": code,
+    })
+
+
+def _patch_refusal(workspace_id: str, code: str, reason: str, op: str = "", path: str = "") -> tuple[str, Any]:
+    return (
+        f"REFUSED ({code}): {reason}",
+        {"status": "refused", "code": code, "reason": reason, "op": op, "path": path, "workspaceId": workspace_id},
+    )
+
+
+async def _patch_apply(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    model = PatchApplyInput(**_present(args))
+    ws_binding = getattr(ctx, "workspace", None)
+    if ws_binding is None:
+        await _emit_patch_refused(ctx, "", "", "", "WORKSPACE_UNBOUND")
+        return _patch_refusal("", "WORKSPACE_UNBOUND", "there is no project folder to make the change in")
+    if not _autonomy_grants_write(ctx):
+        await _emit_patch_refused(ctx, "", "", "", "PROFILE_DENIED")
+        return _patch_refusal("", "PROFILE_DENIED", "this task isn't set up to make that kind of change")
+    try:
+        ops = parse_patch({"operations": [op.model_dump() for op in model.operations]})
+    except PatchError as exc:
+        await _emit_patch_refused(ctx, "", "", exc.reason, exc.code)
+        return _patch_refusal("", exc.code, exc.reason)
+    if len(ops) > MAX_OPERATIONS:
+        return _patch_refusal("", "PATCH_TOO_MANY_OPERATIONS", "too many changes at once")
+    try:
+        cw, binding, resolved, actor = _ensure_code_workspace(ctx)
+    except WorkspaceError as exc:
+        await _emit_patch_refused(ctx, "", "", exc.reason, exc.code)
+        return _patch_refusal("", exc.code, exc.reason)
+    await emit_code_event(ctx, "code.workspace.created", {
+        "workspaceId": cw.id, "strategy": cw.strategy,
+        "baseRevision": cw.base_revision, "fileCount": cw.file_count,
+    })
+
+    scope = tuple(str(s) for s in (model.scope or []))
+    try:
+        result = patch_mod.apply(
+            resolved, ops, scope=scope, binding=binding, actor=actor, emitter=ctx.emitter,
+        )
+    except PatchError as exc:
+        await _emit_patch_refused(ctx, cw.id, ops[0].op if ops else "", ops[0].path if ops else "", exc.code)
+        return _patch_refusal(cw.id, exc.code, exc.reason, op=ops[0].op if ops else "")
+    if not result.get("ok"):
+        refused = result.get("refused") or {}
+        await _emit_patch_refused(ctx, cw.id, refused.get("op", ""), "", refused.get("code", ""))
+        return _patch_refusal(cw.id, refused.get("code", "PATCH_MALFORMED"), refused.get("reason", ""))
+
+    for item in result["applied"]:
+        await emit_code_event(ctx, "code.patch.applied", {
+            "workspaceId": cw.id, "op": item["op"], "path": item["path"],
+            "bytes": item["bytesWritten"], "hashBefore": item["contentHashBefore"],
+            "hashAfter": item["contentHashAfter"],
+        })
+    summary = ", ".join(f"{a['op']} {a['path']}" for a in result["applied"])
+    text = f"Change made inside the task's own copy: {summary}."
+    data = {
+        "status": "ok",
+        "workspaceId": cw.id,
+        "strategy": cw.strategy,
+        "applied": result["applied"],
+        "filesChanged": result["filesChanged"],
+        "totalBytes": result["totalBytes"],
+    }
+    return text, data
+
+
+async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    model = WorkspaceDiffInput(**_present(args))
+    if getattr(ctx, "workspace", None) is None:
+        return (
+            "REFUSED (WORKSPACE_UNBOUND): there is no project folder to compare.",
+            {"status": "refused", "code": "WORKSPACE_UNBOUND"},
+        )
+    existing = getattr(ctx, "_code_workspace", None)
+    if existing is None:
+        # Nothing has been written yet this run — a diff is honestly empty.
+        return (
+            "No changes have been made in this task yet.",
+            {"status": "ok", "strategy": "none", "filesChanged": 0, "unified": "",
+             "added": [], "modified": [], "deleted": [], "digest": None, "truncated": False,
+             "additions": 0, "deletions": 0, "totalChars": 0},
+        )
+    cw = existing[0]
+    try:
+        result = worktree_mod.diff(cw.id, model.base, strategy=cw.strategy)
+    except WorkspaceError as exc:
+        return _patch_refusal(cw.id, exc.code, exc.reason)
+    store = getattr(ctx, "code_store", None)
+    if store is not None:
+        try:
+            store.set_diff_digest(cw.id, result["digest"])
+        except Exception:  # noqa: BLE001
+            pass
+    await emit_code_event(ctx, "code.diff", {
+        "workspaceId": cw.id, "filesChanged": result["filesChanged"],
+        "additions": result["additions"], "deletions": result["deletions"],
+        "digest": result["digest"], "truncated": result["truncated"],
+    })
+    lines = [
+        f"{result['filesChanged']} file(s) changed inside the task's own copy "
+        f"(+{result['additions']}/-{result['deletions']})."
+    ]
+    if not model.includeUnified:
+        result = {**result, "unified": ""}
+    else:
+        lines.append(result["unified"])
+    data = {
+        "status": "ok", "strategy": result["strategy"], "base": result["base"],
+        "added": result["added"], "modified": result["modified"], "deleted": result["deleted"],
+        "digest": result["digest"], "filesChanged": result["filesChanged"],
+        "additions": result["additions"], "deletions": result["deletions"],
+        "unified": result["unified"], "truncated": result["truncated"],
+        "totalChars": result["totalChars"],
+    }
+    return "\n".join(lines), data
+
+
+async def _revert(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    model = WorkspaceRevertInput(**_present(args))
+    if getattr(ctx, "workspace", None) is None:
+        await _emit_patch_refused(ctx, "", "", "", "WORKSPACE_UNBOUND")
+        return _patch_refusal("", "WORKSPACE_UNBOUND", "there is no project folder to undo in")
+    if not _autonomy_grants_write(ctx):
+        await _emit_patch_refused(ctx, "", "", "", "PROFILE_DENIED")
+        return _patch_refusal("", "PROFILE_DENIED", "this task isn't set up to make that kind of change")
+    existing = getattr(ctx, "_code_workspace", None)
+    if existing is None:
+        await _emit_patch_refused(ctx, "", "", "", "UNKNOWN_WORKSPACE")
+        return _patch_refusal("", "UNKNOWN_WORKSPACE", "there is no change to undo")
+    cw, binding, resolved, actor = existing
+    try:
+        result = patch_mod.revert(resolved, list(model.applied), binding=binding, actor=actor, emitter=ctx.emitter)
+    except PatchError as exc:
+        await _emit_patch_refused(ctx, cw.id, "", "", exc.code)
+        return _patch_refusal(cw.id, exc.code, exc.reason)
+    await emit_code_event(ctx, "code.reverted", {"workspaceId": cw.id, "ops": result["reverted"], "ok": True})
+    return (
+        f"Undid {result['reverted']} change(s) inside the task's own copy.",
+        {"status": "ok", "workspaceId": cw.id, "reverted": result["reverted"]},
+    )
+
+
 # ── workspace_docs ──────────────────────────────────────────────────────────
 
 
@@ -534,18 +846,25 @@ _CODE_TOOL_NAMES = (
     "workspace_search",
     "workspace_read",
     "workspace_docs",
+    "workspace_patch_apply",
+    "workspace_diff",
+    "workspace_revert",
 )
 
 
-def _definition(name: str, description: str, handler: Any, timeout_ms: int) -> ToolDefinition:
+def _definition(
+    name: str, description: str, handler: Any, timeout_ms: int,
+    *, permission: str = "read", risk: str = "low", effect: Optional[str] = None,
+) -> ToolDefinition:
     return ToolDefinition(
         name=name,
         description=description,
         input_schema=_INPUT_SCHEMAS[name],
         handler=handler,
-        permission="read",
-        risk="low",
+        permission=permission,
+        risk=risk,
         timeout_ms=timeout_ms,
+        effect=effect,
     )
 
 
@@ -584,6 +903,25 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         "is built. Read-only.",
         _docs, 25_000,
     ))
+    registry.register(_definition(
+        "workspace_patch_apply",
+        "Author a change inside a DISPOSABLE copy of the project (never the operator's own "
+        "checkout): create/replace/delete/move files. The whole change is validated before "
+        "any byte is written — a refusal applies nothing. Requires the run's editing profile.",
+        _patch_apply, 60_000, permission="write", risk="medium", effect="write",
+    ))
+    registry.register(_definition(
+        "workspace_diff",
+        "Show the changes made inside the disposable copy of the project: a unified diff "
+        "plus the added/modified/deleted files and a digest. Read-only.",
+        _diff, 30_000,
+    ))
+    registry.register(_definition(
+        "workspace_revert",
+        "Undo a change previously authored in the disposable copy of the project, newest "
+        "operation first. Refuses over a changed base.",
+        _revert, 60_000, permission="write", risk="medium", effect="write",
+    ))
     return list(_CODE_TOOL_NAMES)
 
 
@@ -596,4 +934,7 @@ __all__ = [
     "WorkspaceSearchInput",
     "WorkspaceReadInput",
     "WorkspaceDocsInput",
+    "PatchApplyInput",
+    "WorkspaceDiffInput",
+    "WorkspaceRevertInput",
 ]

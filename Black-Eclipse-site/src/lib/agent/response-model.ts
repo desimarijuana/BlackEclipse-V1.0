@@ -117,6 +117,17 @@ const TOOL_LABELS: Record<string, string> = {
   calculate_rsi: 'Calculating RSI',
   calculate_sma: 'Calculating moving average',
   calculate_technical_indicators: 'Calculating technical indicators',
+  // Repository navigation (read) and authoring (write) — plain job names, never
+  // the mechanism. The durable copy lives in the i18n dictionary; this map is
+  // the codebase's single place a raw operation id becomes human language.
+  workspace_status: 'Checking the project',
+  workspace_list: 'Listing the project',
+  workspace_search: 'Searching the project',
+  workspace_read: 'Reading a file',
+  workspace_docs: 'Looking through the notes',
+  workspace_patch_apply: 'Writing the change',
+  workspace_diff: 'Showing what changed',
+  workspace_revert: 'Undoing the change',
 };
 
 /** Turn a raw tool name into a short, human label (fallback prettifies it). */
