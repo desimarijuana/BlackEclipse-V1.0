@@ -1387,6 +1387,34 @@ body {
   transform-origin: var(--app-bg-position, center);
 }
 
+/* Giant ChatBot wordmark. A display-type wordmark (e.g. "ECLIPSE AGENT") painted
+ * behind the ChatBot landing, above the wallpaper art but below the transcript
+ * and composer. Sits at `z-0` like the wallpaper layer, so the message/composer
+ * stacking (`z-10`) always wins. `pointer-events: none` keeps the composer
+ * clickable through the glyphs. Sizing is in `vw` so the wordmark rescales with
+ * the window; placement and strength come from the background store. */
+.chat-wordmark {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.chat-wordmark__text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: block;
+  padding: 0 2vw;
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--foreground);
+  transform: translateY(-50%);
+  text-shadow: 0 2px 24px rgb(0 0 0 / 0.28);
+}
+
 /* ── Accessibility preferences ───────────────────────────────────────────────
  * Classes toggled on <html> by the locale/a11y store (Settings › Accessibility).
  * Kept here so components never read the preference — the document root adapts.

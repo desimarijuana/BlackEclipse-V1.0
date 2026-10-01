@@ -25,7 +25,7 @@
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { pageBackgroundImage } from '@/lib/theme/tokens';
+import { pageBackgroundImage, type FontOption } from '@/lib/theme/tokens';
 import { useThemeStore } from '@/lib/theme/store';
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -38,6 +38,19 @@ export type BackgroundPattern = 'solid' | 'gradient' | 'grid';
 export type BackgroundFit = 'cover' | 'contain' | 'tile';
 /** Preset id, or `custom` when the user's own image is active. */
 export type BackgroundPresetId = string;
+/** Horizontal alignment of the giant ChatBot wordmark. */
+export type WordmarkAlign = 'left' | 'center' | 'right';
+
+/** The default giant wordmark painted on the ChatBot landing. */
+export const DEFAULT_WORDMARK_TEXT = 'ECLIPSE AGENT';
+
+/**
+ * The default wordmark typeface — a high-contrast Didone/Bodoni stack (the
+ * Hermes-Agent look). Defined here as a literal so it can seed
+ * {@link DEFAULT_BACKGROUND} before the option list below is declared.
+ */
+export const DEFAULT_WORDMARK_FONT =
+  '"Bodoni Moda", "Bodoni MT", "Didot", "Playfair Display", "Didot LT STD", Georgia, "Times New Roman", serif';
 
 export interface BackgroundPrefs {
   mode: BackgroundMode;
@@ -55,6 +68,18 @@ export interface BackgroundPrefs {
   positionY: number;
   /** Scrim strength over the image, 0–100, so text stays legible on any art. */
   dim: number;
+  /** Optional giant wordmark painted behind the ChatBot landing (may be empty). */
+  text: string;
+  /** A `value` from `WORDMARK_FONT_OPTIONS`. */
+  textFont: string;
+  /** Wordmark size in viewport-width units (vw), 4–40. */
+  textScale: number;
+  /** Wordmark strength, 0–100 (100 = full foreground, low = ghosted). */
+  textOpacity: number;
+  /** Vertical placement of the wordmark, 0 (top) – 100 (bottom). */
+  textPositionY: number;
+  /** Horizontal alignment of the wordmark. */
+  textAlign: WordmarkAlign;
 }
 
 /** The official first-run background for new users. */
@@ -73,11 +98,21 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   positionX: 50,
   positionY: 50,
   dim: 45,
+  // The giant "ECLIPSE AGENT" wordmark ships ON by default — it paints behind
+  // the ChatBot landing only. Users can rename it, restyle or clear it.
+  text: DEFAULT_WORDMARK_TEXT,
+  textFont: DEFAULT_WORDMARK_FONT,
+  textScale: 16,
+  textOpacity: 90,
+  textPositionY: 50,
+  textAlign: 'center',
 };
 
 const MODES: readonly BackgroundMode[] = ['none', 'pattern', 'image'];
 const PATTERNS: readonly BackgroundPattern[] = ['solid', 'gradient', 'grid'];
 const FITS: readonly BackgroundFit[] = ['cover', 'contain', 'tile'];
+const WORDMARK_ALIGNS: readonly WordmarkAlign[] = ['left', 'center', 'right'];
+const MAX_WORDMARK_LENGTH = 64;
 
 export const BACKGROUND_MODE_OPTIONS: { id: BackgroundMode; label: string; hint: string }[] = [
   { id: 'none', label: 'None', hint: 'Plain theme color — no artwork' },
@@ -95,6 +130,28 @@ export const BACKGROUND_FIT_OPTIONS: { id: BackgroundFit; label: string; hint: s
   { id: 'cover', label: 'Cover', hint: 'Fill the screen, cropping if needed' },
   { id: 'contain', label: 'Contain', hint: 'Fit the whole image, letterboxed' },
   { id: 'tile', label: 'Tile', hint: 'Repeat the image at its native size' },
+];
+
+/**
+ * Fonts offered for the giant ChatBot wordmark. Deliberately high-contrast
+ * display faces (the Hermes-Agent look) rather than the UI/mono stacks — this is
+ * artwork, not body copy, so it gets its own curated list.
+ */
+export const WORDMARK_FONT_OPTIONS: FontOption[] = [
+  { label: 'Bodoni', value: DEFAULT_WORDMARK_FONT },
+  { label: 'Didot', value: '"Didot", "Didot LT STD", "Bodoni Moda", "Playfair Display", Georgia, serif' },
+  { label: 'Playfair', value: '"Playfair Display", "Bodoni Moda", Georgia, "Times New Roman", serif' },
+  { label: 'Times', value: '"Times New Roman", Times, Georgia, serif' },
+  { label: 'Georgia', value: 'Georgia, "Times New Roman", Times, serif' },
+  { label: 'System', value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
+  { label: 'Inter', value: 'Inter, "Segoe UI", system-ui, sans-serif' },
+  { label: 'Mono', value: '"JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace' },
+];
+
+export const BACKGROUND_WORDMARK_ALIGN_OPTIONS: { id: WordmarkAlign; label: string }[] = [
+  { id: 'left', label: 'Left' },
+  { id: 'center', label: 'Center' },
+  { id: 'right', label: 'Right' },
 ];
 
 /** A shipped wallpaper. `url` is the public path (spaces encoded). */
@@ -155,7 +212,28 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const dim = typeof value.dim === 'number' && Number.isFinite(value.dim)
     ? Math.min(100, Math.max(0, Math.round(value.dim)))
     : DEFAULT_BACKGROUND.dim;
-  return { mode, pattern, preset, customKey, fit, scale, positionX, positionY, dim };
+  const text = typeof value.text === 'string'
+    ? value.text.slice(0, MAX_WORDMARK_LENGTH)
+    : DEFAULT_BACKGROUND.text;
+  const textFont = typeof value.textFont === 'string' && value.textFont.length > 0
+    ? value.textFont
+    : DEFAULT_BACKGROUND.textFont;
+  const textScale = typeof value.textScale === 'number' && Number.isFinite(value.textScale)
+    ? Math.min(40, Math.max(4, Math.round(value.textScale)))
+    : DEFAULT_BACKGROUND.textScale;
+  const textOpacity = typeof value.textOpacity === 'number' && Number.isFinite(value.textOpacity)
+    ? Math.min(100, Math.max(0, Math.round(value.textOpacity)))
+    : DEFAULT_BACKGROUND.textOpacity;
+  const textPositionY = typeof value.textPositionY === 'number' && Number.isFinite(value.textPositionY)
+    ? Math.min(100, Math.max(0, Math.round(value.textPositionY)))
+    : DEFAULT_BACKGROUND.textPositionY;
+  const textAlign = WORDMARK_ALIGNS.includes(value.textAlign as WordmarkAlign)
+    ? (value.textAlign as WordmarkAlign)
+    : DEFAULT_BACKGROUND.textAlign;
+  return {
+    mode, pattern, preset, customKey, fit, scale, positionX, positionY, dim,
+    text, textFont, textScale, textOpacity, textPositionY, textAlign,
+  };
 }
 
 export function loadBackgroundPrefs(): BackgroundPrefs {

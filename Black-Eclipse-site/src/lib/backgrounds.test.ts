@@ -29,11 +29,33 @@ describe('normalizeBackgroundPrefs', () => {
     const t = normalizeBackgroundPrefs({
       mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
       fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
+      text: 'HELLO', textFont: 'Inter, sans-serif', textScale: 22,
+      textOpacity: 40, textPositionY: 30, textAlign: 'left',
     });
     expect(t).toEqual({
       mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
       fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
+      text: 'HELLO', textFont: 'Inter, sans-serif', textScale: 22,
+      textOpacity: 40, textPositionY: 30, textAlign: 'left',
     });
+  });
+
+  it('normalizes and clamps the landing wordmark', () => {
+    // Junk falls back to the shipped wordmark defaults.
+    const junk = normalizeBackgroundPrefs({ textScale: Number.NaN, textAlign: 'diagonal' });
+    expect(junk.text).toBe(DEFAULT_BACKGROUND.text);
+    expect(junk.textFont).toBe(DEFAULT_BACKGROUND.textFont);
+    expect(junk.textScale).toBe(DEFAULT_BACKGROUND.textScale);
+    expect(junk.textAlign).toBe(DEFAULT_BACKGROUND.textAlign);
+
+    // Ranges clamp; an explicitly empty string is honoured (wordmark hidden).
+    expect(normalizeBackgroundPrefs({ textScale: 1 }).textScale).toBe(4);
+    expect(normalizeBackgroundPrefs({ textScale: 99 }).textScale).toBe(40);
+    expect(normalizeBackgroundPrefs({ textOpacity: -5 }).textOpacity).toBe(0);
+    expect(normalizeBackgroundPrefs({ textPositionY: 140 }).textPositionY).toBe(100);
+    expect(normalizeBackgroundPrefs({ textAlign: 'right' }).textAlign).toBe('right');
+    expect(normalizeBackgroundPrefs({ text: '' }).text).toBe('');
+    expect(normalizeBackgroundPrefs({ textFont: '' }).textFont).toBe(DEFAULT_BACKGROUND.textFont);
   });
 
   it('clamps scale to 50–300 and position to 0–100', () => {

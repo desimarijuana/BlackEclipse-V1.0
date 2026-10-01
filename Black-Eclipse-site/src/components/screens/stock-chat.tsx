@@ -12,6 +12,7 @@ import { ChatInput } from '@/components/chat/chat-input';
 import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
+import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession } from '@/lib/chat/use-session';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { Message } from '@/types/chat';
@@ -847,6 +848,10 @@ function StockChatContent() {
         {activeTab === 'chat' && messages.length === 0 && (
           <div aria-hidden className="app-bg-layer" />
         )}
+
+        {/* Giant ChatBot wordmark (Settings › General › Background). Painted
+            above the wallpaper but below the transcript/composer, landing only. */}
+        {activeTab === 'chat' && messages.length === 0 && <ChatWordmark />}
 
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}

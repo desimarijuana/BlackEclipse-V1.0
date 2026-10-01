@@ -9,22 +9,27 @@
 // lives here now so there is a single background surface.
 
 import { useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, RotateCcw, Trash2, Upload } from "lucide-react";
+import { Image as ImageIcon, RotateCcw, Trash2, Upload, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   BACKGROUND_FIT_OPTIONS,
   BACKGROUND_MODE_OPTIONS,
   BACKGROUND_PATTERN_OPTIONS,
+  BACKGROUND_WORDMARK_ALIGN_OPTIONS,
   CUSTOM_BACKGROUND_ID,
   DEFAULT_BACKGROUND_ID,
   MAX_UPLOAD_BYTES,
   SHIPPED_BACKGROUNDS,
+  WORDMARK_FONT_OPTIONS,
   useBackgroundStore,
   type BackgroundFit,
   type BackgroundMode,
   type BackgroundPattern,
+  type WordmarkAlign,
 } from "@/lib/backgrounds";
 
 function Panel({ className, children, ...rest }: { className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
@@ -113,6 +118,12 @@ export function BackgroundSettingsPanel() {
   const setCustomImage = useBackgroundStore((s) => s.setCustomImage);
   const clearCustomImage = useBackgroundStore((s) => s.clearCustomImage);
   const reset = useBackgroundStore((s) => s.reset);
+  const text = useBackgroundStore((s) => s.prefs.text);
+  const textFont = useBackgroundStore((s) => s.prefs.textFont);
+  const textScale = useBackgroundStore((s) => s.prefs.textScale);
+  const textOpacity = useBackgroundStore((s) => s.prefs.textOpacity);
+  const textPositionY = useBackgroundStore((s) => s.prefs.textPositionY);
+  const textAlign = useBackgroundStore((s) => s.prefs.textAlign);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -333,6 +344,96 @@ export function BackgroundSettingsPanel() {
             <span className="absolute bottom-1.5 left-2 text-[10px] text-white/70">
               {prefs.mode === "image" ? "ChatBot page" : "Whole app"}
             </span>
+          </div>
+        )}
+
+        {prefs.mode !== "none" && (
+          <div className="space-y-4 border-t border-white/10 dark:border-white/5 pt-5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground/80">
+              <Type className="w-4 h-4 text-primary shrink-0" />
+              <span>Landing text</span>
+            </div>
+
+            <Field
+              label="Text"
+              hint="A giant wordmark painted behind the ChatBot landing. Leave empty to hide it."
+            >
+              <Input
+                value={text}
+                maxLength={64}
+                placeholder="ECLIPSE AGENT"
+                onChange={(e) => setPrefs({ text: e.target.value })}
+              />
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Font">
+                <Select
+                  value={textFont}
+                  onValueChange={(v) => v && setPrefs({ textFont: v })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WORDMARK_FONT_OPTIONS.map((f) => (
+                      <SelectItem key={f.label} value={f.value}>
+                        <span style={{ fontFamily: f.value }}>{f.label}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Align">
+                <div className="grid grid-cols-3 gap-2">
+                  {BACKGROUND_WORDMARK_ALIGN_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setPrefs({ textAlign: opt.id as WordmarkAlign })}
+                      className={cn(
+                        "px-3 py-2 text-xs font-medium rounded-xl border transition-all cursor-pointer",
+                        textAlign === opt.id
+                          ? "bg-primary/10 text-primary border-primary/40"
+                          : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Range
+                label="Size"
+                value={textScale}
+                min={4}
+                max={40}
+                step={1}
+                format={(v) => `${v}vw`}
+                onChange={(textScale) => setPrefs({ textScale })}
+              />
+              <Range
+                label="Strength"
+                value={textOpacity}
+                min={0}
+                max={100}
+                step={1}
+                format={(v) => `${v}%`}
+                onChange={(textOpacity) => setPrefs({ textOpacity })}
+              />
+              <Range
+                label="Vertical"
+                value={textPositionY}
+                min={0}
+                max={100}
+                step={1}
+                format={(v) => `${v}%`}
+                onChange={(textPositionY) => setPrefs({ textPositionY })}
+              />
+            </div>
           </div>
         )}
 
