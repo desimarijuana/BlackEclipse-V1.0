@@ -262,8 +262,10 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "delegate": _delegate_schema(),
 }
 from ..analysis_tools import analysis_schema as _analysis_schema  # noqa: E402
+from ..scaffold_tools import scaffold_schema as _scaffold_schema  # noqa: E402
 
 _INPUT_SCHEMAS["analysis"] = _analysis_schema()
+_INPUT_SCHEMAS["scaffold"] = _scaffold_schema()
 
 
 # ── Events ──────────────────────────────────────────────────────────────────
@@ -653,6 +655,11 @@ def make_code_authorizer(mcp_authorizer: Any = None):
         # and every path is refused-and-recorded on its own merits.
         if name == "command_run":
             return True
+        # A scaffold is admitted at this seam; the handler enforces the binding,
+        # the autonomy profile (`code.write`) and the closed `produces` set, and
+        # every write is re-checked per path by `patch.apply` → `policy.decide_write`.
+        if name == "scaffold_kit" and getattr(tool, "effect", None) == "write":
+            return True
         if mcp_authorizer is not None:
             return bool(await mcp_authorizer(tool, args, ctx))
         return False
@@ -922,6 +929,7 @@ _CODE_TOOL_NAMES = (
     "code_deploy",
     "delegate",
     "analysis_run",
+    "scaffold_kit",
 )
 
 
@@ -1054,6 +1062,24 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         input_schema=_INPUT_SCHEMAS["analysis"],
         handler=analysis_run,
         permission="read", risk="low", timeout_ms=180_000,
+    ))
+    # Phase 9: finance-application scaffold kits. The handler lives in
+    # `harness/scaffold_tools.py`; it writes into the task's disposable workspace
+    # and runs the kit's own check.
+    from ..scaffold_tools import scaffold_kit  # noqa: PLC0415
+
+    registry.register(ToolDefinition(
+        name="scaffold_kit",
+        description=(
+            "Build a ready-made finance tool from a short description of the job — a new data "
+            "source, a ratio, a backtest, a chart indicator, a portfolio analysis, an import job, "
+            "a repeatable research routine. Eclipse writes the files into the task's own copy, "
+            "runs the check that proves it works, and keeps it for you to review. Nothing turns "
+            "itself on."
+        ),
+        input_schema=_INPUT_SCHEMAS["scaffold"],
+        handler=scaffold_kit,
+        permission="write", risk="medium", timeout_ms=600_000, effect="write",
     ))
     return list(_CODE_TOOL_NAMES)
 

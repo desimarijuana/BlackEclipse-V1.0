@@ -1,0 +1,33 @@
+"""Generated acceptance test for the {{module_name}} server (kit: mcp_server).
+
+WHY it ships WITH the artefact: the kit's acceptance rule is that the server
+declares a valid MCP config (argv, no shell) and is INERT on its own.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from harness.mcp_servers.{{module_name}} import TOOLS, config, list_tools
+
+
+def test_config_uses_an_argv_array_never_a_shell_string():
+    cfg = config()
+    assert isinstance(cfg["command"], str)
+    assert isinstance(cfg["args"], list)
+    assert " " not in cfg["command"]  # no shell fragment in the command
+
+
+def test_server_is_inert_until_enabled():
+    cfg = config()
+    assert cfg["enabled"] is False
+    assert cfg["selected_tools"] == []
+
+
+def test_tools_declare_an_effect_class():
+    assert list_tools()
+    for tool in list_tools():
+        assert tool["effect"] in ("read", "write", "external_action", "unknown")

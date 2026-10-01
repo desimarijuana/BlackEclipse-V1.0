@@ -28,7 +28,8 @@ def client():
 
 def test_health_reports_skills(client):
     body = client.get("/health").json()
-    assert body["skills"]["installed"] == 5
+    # The five built-in skills (Phases 0-5) plus the eight Phase 9 kit wrappers.
+    assert body["skills"]["installed"] == 13
     assert body["skills"]["loadErrors"] == []
 
 

@@ -1,0 +1,33 @@
+{
+  "id": "ratio_calculator",
+  "version": "1.0.0",
+  "title": "A new financial ratio",
+  "summary_key": "kit.ratio_calculator.summary",
+  "produces": [
+    "python/harness/research/ratios_{{module_name}}.py",
+    "python/tests/test_ratios_{{module_name}}.py"
+  ],
+  "requires": {
+    "inputs": [
+      {
+        "name": "ratio_name",
+        "kind": "identifier",
+        "prompt_key": "kit.ratio_calculator.q.ratio_name"
+      },
+      {
+        "name": "description",
+        "kind": "text",
+        "prompt_key": "kit.ratio_calculator.q.description"
+      }
+    ]
+  },
+  "conventions": [
+    "follow research/calculations.py: a formula, a version, input provenance and hard input guards",
+    "return UNAVAILABLE when a required input is absent — never a default or an estimate",
+    "record the inputs and the period on the result so the number can be explained"
+  ],
+  "checks": [
+    { "command_class": "python_test", "args": { "paths": ["python/tests/test_ratios_{{module_name}}.py"] } }
+  ],
+  "acceptance": "the ratio computes from explicit inputs, and returns UNAVAILABLE (never a guess) when a required input is missing"
+}

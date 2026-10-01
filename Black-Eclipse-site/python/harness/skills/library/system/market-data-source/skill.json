@@ -1,0 +1,43 @@
+{
+  "id": "system.market-data-source",
+  "name": "A new market-data source",
+  "version": "1.0.0",
+  "description": "Build a new place to get market data from, using the market-data kit.",
+  "category": "system",
+  "tags": [
+    "build",
+    "kit"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "objective": {
+        "type": "string",
+        "description": "What the user wants built, in their words."
+      }
+    },
+    "required": [
+      "objective"
+    ]
+  },
+  "requiredTools": [
+    "scaffold_kit",
+    "workspace_patch_apply",
+    "command_run"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "analysis.execute"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 10,
+    "timeoutMs": 300000,
+    "maxToolCalls": 30
+  },
+  "author": "eclipse",
+  "origin": "author",
+  "compatibleRuntime": ">=0.1.0"
+}

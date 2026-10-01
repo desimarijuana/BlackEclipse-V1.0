@@ -306,13 +306,14 @@ def test_prompt_has_no_phantom_capabilities():
 def test_prompt_char_ceiling():
     """The finance-harness prompt stays under its ceiling (a size ratchet).
 
-    Phase 7 raised the ceiling from 17500 to 18000 for one new capability
-    paragraph: "Working on several things at once" (the `delegate` tool). The
-    ratchet still bites — a 500-char allowance, not an open door.
+    Phase 7 raised the ceiling from 17500 to 18000 for the "Working on several
+    things at once" paragraph (`delegate`); Phase 9 raised it to 18600 for the
+    "Building a tool" paragraph (`scaffold_kit`). The ratchet still bites — a
+    bounded allowance, not an open door.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 18000, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 18600, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

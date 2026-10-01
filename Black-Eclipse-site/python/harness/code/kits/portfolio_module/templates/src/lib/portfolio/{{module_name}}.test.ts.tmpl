@@ -1,0 +1,23 @@
+// Generated acceptance test for {{class_name}} (kit: portfolio_module).
+//
+// WHY it ships WITH the artefact: the kit's acceptance rule is that the module is
+// a pure function returning a well-defined result and an EMPTY result (never a
+// fabricated figure) when its inputs are absent.
+
+import { describe, expect, it } from 'vitest';
+import { {{class_name}} } from './{{module_name}}';
+
+describe('{{class_name}}', () => {
+  it('computes contributions from explicit positions', () => {
+    const result = {{class_name}}([
+      { name: 'a', weight: 60 },
+      { name: 'b', weight: 40 },
+    ]);
+    expect(result.total).toBe(100);
+    expect(result.contributions[0].contribution).toBe(60);
+  });
+
+  it('returns an empty result (never a fabricated figure) with no positions', () => {
+    expect({{class_name}}([])).toEqual({ total: 0, contributions: [] });
+  });
+});

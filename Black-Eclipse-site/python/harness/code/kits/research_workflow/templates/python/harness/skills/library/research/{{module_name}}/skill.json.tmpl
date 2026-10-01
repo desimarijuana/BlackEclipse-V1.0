@@ -1,0 +1,25 @@
+{
+  "id": "research.{{module_name}}",
+  "name": "{{class_name}}",
+  "version": "1.0.0",
+  "description": "{{description}}",
+  "category": "research",
+  "tags": ["research", "workflow"],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "objective": { "type": "string", "description": "The question this routine answers." }
+    },
+    "required": ["objective"]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": ["data.read", "research.read"],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 6, "timeoutMs": 120000, "maxToolCalls": 12 },
+  "author": "eclipse",
+  "origin": "author",
+  "compatibleRuntime": ">=0.1.0"
+}

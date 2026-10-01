@@ -85,6 +85,9 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 8: the analysis sandbox (compute a derived metric). OFF per run
         # unless the caller enables it (`RunRequest.analysisEnabled`).
         "analysis_run",
+        # Phase 9: build a finance tool from a ready-made shape. Gated by the
+        # run's editing profile (a workspace-bound code.write).
+        "scaffold_kit",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -140,6 +143,8 @@ CODE_AGENT_TOOLS = [
     "delegate",
     # Analysis sandbox (Phase 8) — compute a derived metric in isolation.
     "analysis_run",
+    # Scaffold kits (Phase 9) — build a finance tool from a ready-made shape.
+    "scaffold_kit",
 ]
 
 CODE_AGENT = AgentConfig(

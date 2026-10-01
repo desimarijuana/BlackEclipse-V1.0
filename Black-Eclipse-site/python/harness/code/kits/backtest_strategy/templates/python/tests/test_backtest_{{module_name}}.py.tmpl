@@ -1,0 +1,34 @@
+"""Generated acceptance test for the {{strategy_name}} backtest (kit: backtest_strategy).
+
+WHY it ships WITH the artefact: the kit's acceptance rule is that the backtest
+runs over explicit prices, labels its period/inputs, and returns UNAVAILABLE
+(never a synthetic series) when prices are absent.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from harness.research.backtest_{{module_name}} import UNAVAILABLE, run_backtest
+
+
+def test_runs_over_explicit_prices_and_states_its_inputs():
+    result = run_backtest([100, 110, 105, 120], period="2020-2024")
+    assert result.status == "OK"
+    assert result.period == "2020-2024"
+    assert result.inputs["prices"] == [100, 110, 105, 120]
+
+
+def test_missing_prices_is_unavailable_not_a_synthetic_series():
+    result = run_backtest(None)
+    assert result.status == UNAVAILABLE
+    assert result.metrics == {}
+
+
+def test_in_sample_is_labelled_and_never_predictive():
+    result = run_backtest([100, 120])
+    assert result.inSample is True
+    assert any("in-sample" in line for line in result.limitations)

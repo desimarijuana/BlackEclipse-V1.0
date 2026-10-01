@@ -1,0 +1,25 @@
+{
+  "id": "mcp_server",
+  "version": "1.0.0",
+  "title": "A new tool server",
+  "summary_key": "kit.mcp_server.summary",
+  "produces": [
+    "python/harness/mcp_servers/{{module_name}}.py",
+    "python/tests/test_{{module_name}}.py"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "source_name", "kind": "identifier", "prompt_key": "kit.mcp_server.q.source_name" },
+      { "name": "description", "kind": "text", "prompt_key": "kit.mcp_server.q.description" }
+    ]
+  },
+  "conventions": [
+    "follow mcp/config.py: a stdio server declared by an executable and an argument array — never a shell string",
+    "declare its tools and their effect classes (read is the only one that needs no per-call approval)",
+    "the server is INERT until an operator enables it and selects a tool (discovery is not activation)"
+  ],
+  "checks": [
+    { "command_class": "python_test", "args": { "paths": ["python/tests/test_{{module_name}}.py"] } }
+  ],
+  "acceptance": "the server module declares a valid MCP config (argv, no shell) and lists its tools with effect classes; nothing activates on its own"
+}

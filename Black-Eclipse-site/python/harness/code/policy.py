@@ -315,10 +315,11 @@ def code_grants(autonomy: str) -> frozenset[str]:
 # it — not "shouldn't", cannot. This is the ONE place a write/external tool is
 # removed; `graph.effective_allowlist` calls it before building the model tools.
 
-# Effectful code-write / execute tools (the REAL names Phases 1–3 registered).
+# Effectful code-write / execute tools (the REAL names Phases 1–9 registered).
 WRITE_TOOLS: tuple[str, ...] = (
     "workspace_patch_apply", "workspace_revert",   # code.write
     "command_run",                                  # code.execute / command.execute
+    "scaffold_kit",                                 # code.write (Phase 9)
 )
 
 # External actions — commit / push / open a PR / deploy. approve_external only,

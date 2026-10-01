@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 9 — finance application scaffold kits.**
+  New `python/harness/code/kits/` (a validated kit contract + loader that refuses
+  a kit with no acceptance test or an undeclared output) and eight kits:
+  `market_data_adapter`, `mcp_server`, `ratio_calculator`, `backtest_strategy`,
+  `chart_indicator`, `portfolio_module`, `data_ingestion_pipeline`,
+  `research_workflow`. The `scaffold_kit` tool (handler in the new
+  `scaffold_tools.py`, registered in `code/tools.py` under its size ceiling, added
+  to both agent allowlists and to `policy.WRITE_TOOLS`) renders a kit into the
+  task's disposable workspace, runs its checks through the Phase 3 broker, and
+  records them in the Phase 4 ledger; a failed check keeps the scaffold
+  (`CHECK_FAILED`). The anti-fabrication generation rule is enforced by the
+  templates (UNAVAILABLE, not a default; in-sample labelled; idempotent imports).
+  Eight draft skill wrappers (`system.*`, all inert). i18n `kit.*`; tests
+  `test_kits_{contract,scaffold,unavailability,skill_wrappers}.py` + one
+  `test_kit_<id>.py` per kit. ADR-H111. docs updated:
+  `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-09-scaffold-kits.md`,
+  `docs/harness/roadmap/progress/phase-09-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 8 — analysis sandbox (computing, not just retrieving).**
   New `python/harness/code/execution.py` (bounded, reproducible analysis on the
   Phase 3 sandbox: AST import allowlist — never eval/exec — source/input/interpreter/

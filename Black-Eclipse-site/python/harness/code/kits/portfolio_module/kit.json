@@ -1,0 +1,24 @@
+{
+  "id": "portfolio_module",
+  "version": "1.0.0",
+  "title": "A portfolio analysis",
+  "summary_key": "kit.portfolio_module.summary",
+  "produces": [
+    "src/lib/portfolio/{{module_name}}.ts",
+    "src/lib/portfolio/{{module_name}}.test.ts"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "module_name", "kind": "identifier", "prompt_key": "kit.portfolio_module.q.module_name" }
+    ]
+  },
+  "conventions": [
+    "a pure TypeScript function over explicit position/return inputs — no I/O, no globals",
+    "date-align series before combining (the repo's src/lib/portfolio/matrix.ts convention)",
+    "return an empty/neutral result when inputs are absent — never a fabricated figure"
+  ],
+  "checks": [
+    { "command_class": "unit_test", "args": { "files": ["src/lib/portfolio/{{module_name}}.test.ts"] } }
+  ],
+  "acceptance": "the module is a pure function that returns a well-defined result and an empty result (never a fabricated figure) when its inputs are absent"
+}

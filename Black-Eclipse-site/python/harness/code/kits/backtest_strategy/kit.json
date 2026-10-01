@@ -1,0 +1,25 @@
+{
+  "id": "backtest_strategy",
+  "version": "1.0.0",
+  "title": "A backtest strategy",
+  "summary_key": "kit.backtest_strategy.summary",
+  "produces": [
+    "python/harness/research/backtest_{{module_name}}.py",
+    "python/tests/test_backtest_{{module_name}}.py"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "strategy_name", "kind": "identifier", "prompt_key": "kit.backtest_strategy.q.strategy_name" },
+      { "name": "period", "kind": "text", "prompt_key": "kit.backtest_strategy.q.period" }
+    ]
+  },
+  "conventions": [
+    "the strategy runs over EXPLICIT price inputs and states its period and inputs on its result",
+    "an in-sample metric is labelled as in-sample and is never presented as predictive",
+    "missing data is UNAVAILABLE — never a synthetic series or an extrapolation"
+  ],
+  "checks": [
+    { "command_class": "python_test", "args": { "paths": ["python/tests/test_backtest_{{module_name}}.py"] } }
+  ],
+  "acceptance": "the backtest runs over explicit prices, labels its period and inputs, and returns UNAVAILABLE (never a synthetic series) when prices are absent"
+}

@@ -1,0 +1,24 @@
+{
+  "id": "chart_indicator",
+  "version": "1.0.0",
+  "title": "A chart indicator",
+  "summary_key": "kit.chart_indicator.summary",
+  "produces": [
+    "src/lib/chart/{{module_name}}.ts",
+    "src/lib/chart/{{module_name}}.test.ts"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "indicator_name", "kind": "identifier", "prompt_key": "kit.chart_indicator.q.indicator_name" }
+    ]
+  },
+  "conventions": [
+    "a pure TypeScript function over explicit numeric inputs — no I/O, no globals",
+    "an undefined/short series returns an empty result, never a fabricated point",
+    "ship a vitest test alongside (the repo's own gate)"
+  ],
+  "checks": [
+    { "command_class": "unit_test", "args": { "files": ["src/lib/chart/{{module_name}}.test.ts"] } }
+  ],
+  "acceptance": "the indicator is a pure function that returns a well-defined series and an empty result (never a fabricated point) when the input is too short"
+}

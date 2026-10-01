@@ -1,0 +1,30 @@
+{
+  "id": "market_data_adapter",
+  "version": "1.0.0",
+  "title": "A new market-data source",
+  "summary_key": "kit.market_data_adapter.summary",
+  "produces": [
+    "python/harness/retrieval/{{module_name}}.py",
+    "python/tests/test_{{module_name}}.py"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "source_name", "kind": "identifier", "prompt_key": "kit.market_data_adapter.q.source_name" },
+      {
+        "name": "data_type",
+        "kind": "choice",
+        "choices": ["current_quote", "historical_prices", "financial_statements", "news"],
+        "prompt_key": "kit.market_data_adapter.q.data_type"
+      }
+    ]
+  },
+  "conventions": [
+    "implement RetrievalSource from retrieval/sources.py (name, tier, dataTypes, available, retrieve)",
+    "retrieve() must never raise — return a SourceOutcome with status UNAVAILABLE when it has no data",
+    "the planner selects a source by data type; add the DataType to retrieval/contract.py when it is new"
+  ],
+  "checks": [
+    { "command_class": "python_test", "args": { "paths": ["python/tests/test_{{module_name}}.py"] } }
+  ],
+  "acceptance": "the source is available when configured, returns UNAVAILABLE (never a guess) when it has no data, and declares the data type it serves"
+}

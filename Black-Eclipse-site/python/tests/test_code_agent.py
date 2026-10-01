@@ -68,7 +68,7 @@ def test_code_agent_has_no_finance_tool():
     # per run).
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
-        "delegate", "analysis_run",
+        "delegate", "analysis_run", "scaffold_kit",
     })
 
 
@@ -80,11 +80,12 @@ def test_finance_agent_unchanged_no_code_tool():
     for name in ECLIPSE_AGENT.tools:
         assert not name.startswith(CODE_TOOL_PREFIXES), name
     # Phase 5: 24 tools, no code tool. Phase 7 adds `delegate` (25); Phase 8 adds
-    # `analysis_run` (26) — both shared capabilities with no finance permission of
-    # their own, and both gated (delegation narrows; analysis is off per run).
-    assert len(ECLIPSE_AGENT.tools) == 26
+    # `analysis_run` (26); Phase 9 adds `scaffold_kit` (27) — shared capabilities
+    # with no finance permission of their own, each gated.
+    assert len(ECLIPSE_AGENT.tools) == 27
     assert "delegate" in ECLIPSE_AGENT.tools
     assert "analysis_run" in ECLIPSE_AGENT.tools
+    assert "scaffold_kit" in ECLIPSE_AGENT.tools
     assert ECLIPSE_AGENT.allowMcpTools is True
 
 

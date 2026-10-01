@@ -130,3 +130,32 @@ def test_analysis_surface_uses_no_execution_vocabulary():
         lowered = text.casefold()
         for word in banned:
             assert word not in lowered, f"{word!r} reached the surface: {text}"
+
+
+# -- Phase 9: scaffold-kit titles, questions and result lines -----------------
+
+
+def test_kit_strings_are_plain():
+    """Every kit's title, summary, question and result line names the JOB."""
+    from harness.code.kits import list_kits
+
+    surfaces: list[str] = []
+    for kit in list_kits():
+        surfaces.append(kit["title"])
+        for question in kit["inputs"]:
+            surfaces.append(question["name"])  # machine name only, never shown
+    # The user-facing result lines live in the i18n dictionary; the kit manifest
+    # carries only keys. Assert the titles here (the dictionary half is the
+    # front-door gate).
+    for text in surfaces:
+        assert not _leaks(text), f"kit surface leaks: {text}"
+
+
+def test_kit_titles_and_refusals_use_no_mechanism_vocabulary():
+    from harness.code.kits import list_kits
+
+    banned = ("scaffold", "kit", "template", "worktree", "diff", "patch", "manifest", "sandbox", "argv")
+    for kit in list_kits():
+        title = kit["title"].casefold()
+        for word in banned:
+            assert word not in title, f"{word!r} reached the surface: {kit['title']}"

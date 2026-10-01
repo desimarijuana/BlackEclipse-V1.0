@@ -1,0 +1,24 @@
+{
+  "id": "data_ingestion_pipeline",
+  "version": "1.0.0",
+  "title": "A data-import job",
+  "summary_key": "kit.data_ingestion_pipeline.summary",
+  "produces": [
+    "scripts/import_{{module_name}}.py",
+    "python/tests/test_import_{{module_name}}.py"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "source_name", "kind": "identifier", "prompt_key": "kit.data_ingestion_pipeline.q.source_name" }
+    ]
+  },
+  "conventions": [
+    "follow the scripts/import-*.js conventions: idempotent, universe-aware",
+    "an absent input row is skipped, never fabricated",
+    "running the importer twice must not duplicate state"
+  ],
+  "checks": [
+    { "command_class": "python_test", "args": { "paths": ["python/tests/test_import_{{module_name}}.py"] } }
+  ],
+  "acceptance": "the importer is idempotent (running it twice yields the same state) and never fabricates a missing row"
+}

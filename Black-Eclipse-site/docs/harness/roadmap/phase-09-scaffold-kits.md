@@ -1,10 +1,10 @@
 ---
 title: "Phase 9 — Finance Application Scaffold Kits"
-status: Not started
+status: Done
 phase: 9
 depends_on: [5, 7, 8]
 unlocks: [10]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 9 — Finance Application Scaffold Kits

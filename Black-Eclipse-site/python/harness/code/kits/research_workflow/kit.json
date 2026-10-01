@@ -1,0 +1,23 @@
+{
+  "id": "research_workflow",
+  "version": "1.0.0",
+  "title": "A repeatable research routine",
+  "summary_key": "kit.research_workflow.summary",
+  "produces": [
+    "python/harness/skills/library/research/{{module_name}}/skill.json",
+    "python/harness/skills/library/research/{{module_name}}/SKILL.md"
+  ],
+  "requires": {
+    "inputs": [
+      { "name": "workflow_name", "kind": "identifier", "prompt_key": "kit.research_workflow.q.workflow_name" },
+      { "name": "description", "kind": "text", "prompt_key": "kit.research_workflow.q.description" }
+    ]
+  },
+  "conventions": [
+    "follow skills/manifest.py: a versioned manifest with inputSchema, requiredTools and permissions",
+    "ship a SKILL.md procedure (progressive disclosure: metadata first, prose on select)",
+    "the skill arrives as a DRAFT and is INERT until evaluated and the operator enables it (ADR-025)"
+  ],
+  "checks": [],
+  "acceptance": "the generated skill loads through skills/loader.py, validates as a manifest, and stays inert (status draft; not enabled)"
+}

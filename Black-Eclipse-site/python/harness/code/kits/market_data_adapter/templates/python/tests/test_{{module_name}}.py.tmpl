@@ -1,0 +1,29 @@
+"""Generated acceptance test for the {{module_name}} source (kit: market_data_adapter).
+
+WHY it ships WITH the artefact: the kit's acceptance rule is that a source returns
+UNAVAILABLE (never a guess) when it has no data, and declares the data type it
+serves. This test proves the UNAVAILABLE branch.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from harness.retrieval.{{module_name}} import {{class_name}}
+from harness.retrieval.contract import FinancialRetrievalRequest
+
+
+def test_declares_its_data_type():
+    assert {{class_name}}.dataTypes == ("{{data_type}}",)
+
+
+def test_no_data_is_unavailable_never_a_guess():
+    source = {{class_name}}()
+    request = FinancialRetrievalRequest(objective="test", dataType="{{data_type}}")
+    outcome = asyncio.run(source.retrieve(request))
+    assert outcome.status == "UNAVAILABLE"
+    assert outcome.objects == []

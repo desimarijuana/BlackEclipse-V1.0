@@ -2901,3 +2901,57 @@ never interpreter/module/argv/exit-code vocabulary; the computed/retrieved
 distinction is a front-door helper (`analysis-types.ts`) with its own invariant
 test. The finance and code agent allowlists gained the tool; the finance-agent
 tool-count assertion moved 24 → 26 across Phases 7–8.
+
+
+## ADR-H111 — Scaffold kits are data; a generated artefact stays inert until evaluated
+
+**Decision.** Phase 9 adds a library of eight **scaffold kits** (`python/harness/code/kits/`)
+and a `scaffold_kit` tool. A kit is **data**, not a code snippet: the closed
+`produces` set the repo already demands for one named artefact, typed inputs that
+carry i18n prompt keys, convention statements, and a required `acceptance` rule.
+The kit loader REFUSES to load a kit that has no acceptance test shipped WITH it
+(`python/tests/test_kit_<id>.py`) or a declared output with no template — so a kit
+cannot exist without its proof.
+
+`scaffold_kit` renders the kit into the **task's disposable workspace** (Phase 2,
+never the user's checkout), runs the kit's `checks` through the Phase 3 command
+broker, and records them in the Phase 4 ledger. A failed check KEEPS the scaffold
+for inspection (`CHECK_FAILED`), never silently deletes it. The rendered output is
+CLOSED to the declared `produces` set; a path outside it is refused
+(`OUTPUT_OUTSIDE_DECLARED_SET`). Each kit also ships a thin **draft** skill wrapper
+so it is reachable through the existing `skill_invoke` path with the existing
+permission model — a wrapper holds `scaffold_kit` as a required tool and no
+operator permission, and can never grant anything.
+
+The anti-fabrication generation rule (§6.5) is enforced by the templates: every
+generated adapter/backtest/ingestion path returns `UNAVAILABLE` (never a default,
+a synthetic series, or an extrapolation) when its data is absent, and its shipped
+test exercises that branch; a generated backtest labels an in-sample metric as
+in-sample and never presents it as predictive; a generated importer is idempotent
+(running twice yields the same state) and its test proves it.
+
+**Why.** The root plan's whole point is that the agent can build actual financial
+software — a data adapter, a ratio, a backtest, a chart indicator, a portfolio
+module, an ingestion pipeline, a research workflow, an MCP server. Each of those
+shapes already has an exact convention in this repo. A kit makes the agent satisfy
+that convention rather than emit plausible boilerplate: the acceptance test ships
+with the artefact and fails if it is missing, and the check runs through the SAME
+broker a human's change would. The inert rule is the existing ADR-025 discipline
+applied to generated skills: nothing a model authored activates without evaluation
+and an operator decision. Generating code without the `UNAVAILABLE` rule would
+reintroduce exactly the hazard `AGENTS.md` names — a plausible-looking number from
+invented inputs.
+
+**Consequences.** Eight kits shipped (`market_data_adapter`, `mcp_server`,
+`ratio_calculator`, `backtest_strategy`, `chart_indicator`, `portfolio_module`,
+`data_ingestion_pipeline`, `research_workflow`), each with template(s), a manifest,
+and an acceptance test under `python/tests/`. `scaffold_kit` registers on the ONE
+registry and is added to both agent allowlists; its handler lives in the new
+`scaffold_tools.py` so `code/tools.py` stays under its size ceiling, and
+`policy.WRITE_TOOLS` includes it so the autonomy boundary removes it at
+`plan_only`. Eight draft skill wrappers load (all `status: draft`, never enabled),
+moving the installed-skill count 5 → 13. Kit user-facing strings are i18n keys
+(`kit.*`), covered by the plain-language gate. No trading/order/broker kit ships —
+an order path is a non-goal by construction. Tests: `test_kits_contract.py`,
+`test_kits_scaffold.py`, `test_kits_unavailability.py`, `test_kits_skill_wrappers.py`,
+and one `test_kit_<id>.py` per kit.

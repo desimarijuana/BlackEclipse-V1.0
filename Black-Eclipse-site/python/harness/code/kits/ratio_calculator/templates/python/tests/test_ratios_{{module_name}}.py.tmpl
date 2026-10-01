@@ -1,0 +1,40 @@
+"""Generated acceptance test for the {{ratio_name}} ratio (kit: ratio_calculator).
+
+WHY it ships WITH the artefact: the kit's acceptance rule is that the ratio
+computes from explicit inputs AND returns UNAVAILABLE when an input is absent. A
+kit whose generated test does not cover the UNAVAILABLE branch fails its own gate.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from harness.research.ratios_{{module_name}} import UNAVAILABLE, compute_ratio
+
+
+def test_computes_from_explicit_inputs():
+    result = compute_ratio(numerator=10, denominator=4)
+    assert result.status == "OK"
+    assert result.value == 2.5
+
+
+def test_missing_input_is_unavailable_not_a_default():
+    result = compute_ratio(numerator=10)
+    assert result.status == UNAVAILABLE
+    assert result.value is None
+    assert "denominator" in result.missing
+
+
+def test_zero_denominator_is_refused_never_forced():
+    result = compute_ratio(numerator=10, denominator=0)
+    assert result.status == UNAVAILABLE
+    assert result.value is None
+
+
+def test_result_carries_its_formula_for_explanation():
+    result = compute_ratio(numerator=1, denominator=2)
+    assert result.formula
+    assert result.inputs == {"numerator": 1, "denominator": 2}
