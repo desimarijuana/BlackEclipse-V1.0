@@ -1,10 +1,10 @@
 ---
 title: "Phase 3 — Sandboxed Command Broker"
-status: Not started
+status: Done
 phase: 3
 depends_on: [2]
 unlocks: [4]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 3 — Sandboxed Command Broker

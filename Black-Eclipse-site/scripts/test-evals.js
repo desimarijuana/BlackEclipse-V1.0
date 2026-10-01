@@ -72,6 +72,13 @@ const launcher = [
   "comp = check_compaction_thresholds(run_compaction_eval())",
   "print('  compaction gate:', 'PASS' if comp['passed'] else 'FAIL', comp['failures'] if not comp['passed'] else '')",
   "failed += [] if comp['passed'] else ['compaction']",
+  // Phase 4: the code-verification floor (falseVerifiedRate must be 0).
+  "from harness.code.eval import run_evaluation as run_code_eval, check_thresholds as check_code_thresholds, format_report as format_code_report",
+  "cv = run_code_eval()",
+  "print('  ' + format_code_report(cv).splitlines()[0])",
+  "cg = check_code_thresholds(cv)",
+  "print('  code_verify gate:', 'PASS' if cg['passed'] else 'FAIL', cg['failures'] if not cg['passed'] else '')",
+  "failed += [] if cg['passed'] else ['code_verify']",
   // Harness closeout Phase 8: the capability-matrix gate is TS (invoked by
   // run_gates via npx tsx); route_health/workflow/resume are Python. All offline.
   "from harness.eval_gates import run_gates",

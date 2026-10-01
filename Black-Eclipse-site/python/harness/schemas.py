@@ -213,6 +213,10 @@ class RunResult(BaseModel):
     # bounded this run's history. Absent for older persisted rows and for runs
     # that did not trim, so existing clients remain compatible.
     context: Optional[dict[str, Any]] = None
+    # Phase 4 (additive, optional): the run's code verification ledger + repair
+    # outcome (records, claims, unverified count). Absent/None for ordinary chat
+    # and older rows, so existing clients remain compatible.
+    codeVerification: Optional[dict[str, Any]] = None  # noqa: N815
 
 
 EventLiteral = Literal[

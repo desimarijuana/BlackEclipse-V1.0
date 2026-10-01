@@ -1,0 +1,390 @@
+"""One bounded execution primitive. Everything that runs, runs through here.
+
+There is no second execution path in the harness. `mcp/client.py` owns MCP
+subprocesses; this owns the code capability's commands. Both follow the same
+rules: argv arrays with no shell, an explicitly constructed environment, a
+bounded lifetime, and a hard cap on what comes back.
+
+Platform isolation (matching `mcp/orphan_supervisor.py`'s documented strategy):
+
+  * **Windows** — the child is assigned to a Job Object with
+    `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so closing the job handle (including on
+    parent death) kills the whole tree. A timeout/cancel also runs
+    `taskkill /F /T /PID` as the deterministic in-process kill.
+  * **POSIX** — the child starts its own process group (`start_new_session`), and
+    the tree is killed with `os.killpg`.
+
+If neither primitive is available, `select_backend()` raises `SandboxUnavailable`
+and the command is REFUSED — never executed unsandboxed. The same honesty rule as
+the 503 "runtime unavailable" contract in AGENTS.md.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
+
+from . import policy
+
+# A hard ceiling on any command's output, below which a class may set its own.
+MAX_OUTPUT_CAP_BYTES = 4_000_000
+_READ_CHUNK = 65_536
+_POLL_S = 0.05
+
+
+class SandboxUnavailable(RuntimeError):
+    """No isolation primitive is available. The command is refused, not run."""
+
+    code = "SANDBOX_UNAVAILABLE"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class RunSpec:
+    argv: list[str]                 # already resolved + validated
+    cwd: Path                       # the worktree root — never the operator checkout
+    env: dict[str, str]             # built from policy.SECRET_ENV_ALLOWLIST ONLY
+    timeout_s: int
+    output_cap_bytes: int
+    network: bool
+
+
+@dataclass(frozen=True)
+class RawResult:
+    exit_code: Optional[int]
+    timed_out: bool
+    killed: bool
+    cancelled: bool
+    output: str
+    truncated: bool
+    total_chars: int
+    duration_ms: int
+    backend: str
+    # Set when the process could not be started (so the caller reports a refusal).
+    launch_error: Optional[str] = None
+
+
+def build_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """ONLY `policy.SECRET_ENV_ALLOWLIST` keys are copied from the parent.
+
+    Never `os.environ` passthrough. Never the settings vault. Never the callback
+    token: `HARNESS_*`, `CRON_SECRET`, provider keys and vault values are ABSENT
+    by construction, so a command that tries to read one finds nothing to read.
+    `PYTHONIOENCODING=utf-8` is the repo's own Windows lesson. Proxy variables are
+    dropped so a network attempt cannot be proxied.
+    """
+    env = {k: os.environ[k] for k in policy.SECRET_ENV_ALLOWLIST if k in os.environ}
+    # Drop proxy config that could route a command through an intermediary.
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "NO_PROXY",
+                "no_proxy", "HARNESS_CALLBACK_TOKEN", "CRON_SECRET"):
+        env.pop(key, None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    if extra:
+        env.update({str(k): str(v) for k, v in extra.items()})
+    return env
+
+
+def _read_stream(stream: Any, cap: int, sink: dict[str, Any], done: threading.Event) -> None:
+    """Drain a pipe into a bounded buffer, counting the honest total."""
+    chunks: list[bytes] = []
+    kept = 0
+    total = 0
+    try:
+        while True:
+            chunk = stream.read(_READ_CHUNK)
+            if not chunk:
+                break
+            total += len(chunk)
+            if kept < cap:
+                room = cap - kept
+                chunks.append(chunk[:room])
+                kept += min(len(chunk), room)
+    except (OSError, ValueError):
+        pass
+    finally:
+        sink["data"] = b"".join(chunks)
+        sink["total"] = total
+        done.set()
+
+
+class _BaseBackend:
+    name = "unknown"
+    guarantees: tuple[str, ...] = ()
+
+    def run(self, spec: RunSpec, *, cancel_event: Optional[threading.Event] = None) -> RawResult:
+        return self._spawn_and_wait(spec, cancel_event=cancel_event)
+
+    def _spawn_and_wait(
+        self, spec: RunSpec, *, cancel_event: Optional[threading.Event]
+    ) -> RawResult:
+        started = time.monotonic()
+        cap = max(1, min(int(spec.output_cap_bytes), MAX_OUTPUT_CAP_BYTES))
+        try:
+            proc = self._popen(spec)
+        except (OSError, ValueError) as exc:
+            return RawResult(
+                exit_code=None, timed_out=False, killed=False, cancelled=False,
+                output="", truncated=False, total_chars=0,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                backend=self.name, launch_error=str(exc),
+            )
+        self._on_spawn(proc)
+        sink: dict[str, Any] = {"data": b"", "total": 0}
+        done = threading.Event()
+        reader = threading.Thread(
+            target=_read_stream, args=(proc.stdout, cap, sink, done), daemon=True
+        )
+        reader.start()
+
+        timed_out = cancelled = killed = False
+        deadline = started + max(1, int(spec.timeout_s))
+        while True:
+            if proc.poll() is not None:
+                break
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                killed = True
+                self._kill_tree(proc)
+                break
+            if time.monotonic() > deadline:
+                timed_out = True
+                killed = True
+                self._kill_tree(proc)
+                break
+            time.sleep(_POLL_S)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:  # pragma: no cover - kill should be prompt
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        done.wait(timeout=5)
+        reader.join(timeout=2)
+        self._on_close(proc)
+        raw: bytes = sink.get("data", b"")
+        total: int = int(sink.get("total", len(raw)))
+        text = raw.decode("utf-8", "replace")
+        return RawResult(
+            exit_code=proc.returncode,
+            timed_out=timed_out,
+            killed=killed,
+            cancelled=cancelled,
+            output=text,
+            truncated=total > cap,
+            total_chars=total,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            backend=self.name,
+        )
+
+    def _popen(self, spec: RunSpec) -> subprocess.Popen:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def _on_spawn(self, proc: subprocess.Popen) -> None:
+        pass
+
+    def _on_close(self, proc: subprocess.Popen) -> None:
+        pass
+
+    def _kill_tree(self, proc: subprocess.Popen) -> None:
+        raise NotImplementedError
+
+
+class WindowsJobBackend(_BaseBackend):
+    """Windows: a Job Object with KILL_ON_JOB_CLOSE plus a deterministic tree kill."""
+
+    name = "windows-job"
+    guarantees = ("process_tree_kill", "env_scrub", "output_cap", "parent_death_kill")
+
+    def __init__(self) -> None:
+        self._job = None
+        try:  # pragma: no cover - platform-specific
+            import ctypes
+
+            self._ctypes = ctypes
+            self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        except Exception as exc:  # noqa: BLE001 - no Win32 = no isolation primitive
+            raise SandboxUnavailable(f"the Windows job primitive is unavailable: {exc}") from exc
+
+    def _popen(self, spec: RunSpec) -> subprocess.Popen:
+        flags = 0
+        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        return subprocess.Popen(
+            list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+
+    def _on_spawn(self, proc: subprocess.Popen) -> None:
+        self._assign_job(proc)  # best-effort; taskkill still kills the tree
+
+    def _assign_job(self, proc: subprocess.Popen) -> None:  # pragma: no cover - Windows
+        try:
+            ctypes = self._ctypes
+            kernel32 = self._kernel32
+            from ctypes import wintypes
+            job = kernel32.CreateJobObjectW(None, None)
+            if not job:
+                return
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+            JobObjectExtendedLimitInformation = 9
+
+            class IO_COUNTERS(ctypes.Structure):
+                _fields_ = [("ReadOperationCount", ctypes.c_ulonglong),
+                            ("WriteOperationCount", ctypes.c_ulonglong),
+                            ("OtherOperationCount", ctypes.c_ulonglong),
+                            ("ReadTransferCount", ctypes.c_ulonglong),
+                            ("WriteTransferCount", ctypes.c_ulonglong),
+                            ("OtherTransferCount", ctypes.c_ulonglong)]
+
+            class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+                _fields_ = [("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+                            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+                            ("LimitFlags", wintypes.DWORD),
+                            ("MinimumWorkingSetSize", ctypes.c_size_t),
+                            ("MaximumWorkingSetSize", ctypes.c_size_t),
+                            ("ActiveProcessLimit", wintypes.DWORD),
+                            ("Affinity", ctypes.c_size_t),
+                            ("PriorityClass", wintypes.DWORD),
+                            ("SchedulingClass", wintypes.DWORD)]
+
+            class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+                _fields_ = [("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                            ("IoInfo", IO_COUNTERS),
+                            ("ProcessMemoryLimit", ctypes.c_size_t),
+                            ("JobMemoryLimit", ctypes.c_size_t),
+                            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                            ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            kernel32.SetInformationJobObject(
+                job, JobObjectExtendedLimitInformation, ctypes.byref(info), ctypes.sizeof(info)
+            )
+            # Attach via the process handle (OpenProcess on the pid).
+            PROCESS_SET_QUOTA = 0x0100
+            PROCESS_TERMINATE = 0x0001
+            handle = kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, proc.pid)
+            if handle:
+                kernel32.AssignProcessToJobObject(job, handle)
+                kernel32.CloseHandle(handle)
+            self._job = job
+        except Exception:  # noqa: BLE001 - best-effort; taskkill kills the tree
+            self._job = None
+
+    def _on_close(self, proc: subprocess.Popen) -> None:  # pragma: no cover - Windows
+        job = self._job
+        self._job = None
+        if job:
+            try:
+                self._kernel32.CloseHandle(job)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _kill_tree(self, proc: subprocess.Popen) -> None:
+        # Fixed, argument-free tree kill. `proc.pid` is internal, never model text.
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                shell=False, capture_output=True, timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+
+class PosixBackend(_BaseBackend):
+    """POSIX: a new process group per child, killed with `os.killpg`."""
+
+    name = "posix-rlimit"
+    guarantees = ("process_tree_kill", "env_scrub", "output_cap")
+
+    def _popen(self, spec: RunSpec) -> subprocess.Popen:
+        return subprocess.Popen(
+            list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    def _kill_tree(self, proc: subprocess.Popen) -> None:
+        try:
+            pgid = os.getpgid(proc.pid)
+        except OSError:
+            pgid = None
+        try:
+            if pgid and pgid > 1:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                proc.kill()
+        except OSError:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+
+_BACKEND: Optional[_BaseBackend] = None
+
+
+def select_backend() -> _BaseBackend:
+    """Prefer OS-level isolation; report exactly what was chosen.
+
+    Windows → a Job Object backend; POSIX → process groups. If neither primitive
+    exists, raise `SandboxUnavailable`. There is no 'unbounded' fallback.
+    """
+    global _BACKEND
+    if _BACKEND is not None:
+        return _BACKEND
+    if os.name == "nt":
+        _BACKEND = WindowsJobBackend()
+    elif os.name == "posix":
+        _BACKEND = PosixBackend()
+    else:
+        raise SandboxUnavailable(f"no sandbox primitive is available on platform {os.name!r}")
+    return _BACKEND
+
+
+def set_backend(backend: Optional[_BaseBackend]) -> None:
+    """TEST SEAM: force a backend (or None to re-detect). Never used in production."""
+    global _BACKEND
+    _BACKEND = backend
+
+
+def run(spec: RunSpec, *, cancel_event: Optional[threading.Event] = None) -> RawResult:
+    """Run one command through the selected isolation primitive."""
+    return select_backend().run(spec, cancel_event=cancel_event)
+
+
+def backend_name() -> str:
+    """The current backend's name, or 'unavailable' — honest, never guessed."""
+    try:
+        return select_backend().name
+    except SandboxUnavailable:
+        return "unavailable"
+
+
+__all__ = [
+    "MAX_OUTPUT_CAP_BYTES",
+    "PosixBackend",
+    "RawResult",
+    "RunSpec",
+    "SandboxUnavailable",
+    "WindowsJobBackend",
+    "backend_name",
+    "build_env",
+    "run",
+    "select_backend",
+    "set_backend",
+]

@@ -23,6 +23,7 @@ CODE_NAVIGATOR_TOOLS = [
     "workspace_patch_apply",
     "workspace_diff",
     "workspace_revert",
+    "command_run",
 ]
 
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path

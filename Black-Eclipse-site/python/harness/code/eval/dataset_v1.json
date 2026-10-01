@@ -1,0 +1,65 @@
+{
+  "version": "code-verify-v1",
+  "cases": [
+    {
+      "id": "tests-pass-backed",
+      "answer": "All tests pass.",
+      "records": [{"commandClass": "unit_test", "exitCode": 0}],
+      "expectedClaims": [{"kind": "tests_pass", "supported": true}]
+    },
+    {
+      "id": "tests-pass-unbacked-empty",
+      "answer": "All tests pass.",
+      "records": [],
+      "expectedClaims": [{"kind": "tests_pass", "supported": false}]
+    },
+    {
+      "id": "tests-pass-but-failed",
+      "answer": "All tests pass.",
+      "records": [{"commandClass": "unit_test", "exitCode": 1}],
+      "expectedClaims": [{"kind": "tests_pass", "supported": false}]
+    },
+    {
+      "id": "typecheck-backed",
+      "answer": "Type checking passes cleanly.",
+      "records": [{"commandClass": "typecheck", "exitCode": 0}],
+      "expectedClaims": [{"kind": "typecheck_clean", "supported": true}]
+    },
+    {
+      "id": "build-unbacked",
+      "answer": "The build succeeds.",
+      "records": [],
+      "expectedClaims": [{"kind": "build_ok", "supported": false}]
+    },
+    {
+      "id": "lint-backed-python-test-wrong-class",
+      "answer": "Linting is clean.",
+      "records": [{"commandClass": "python_test", "exitCode": 0}],
+      "expectedClaims": [{"kind": "lint_clean", "supported": false}]
+    },
+    {
+      "id": "honest-negative-not-a-claim",
+      "answer": "I did not run the tests.",
+      "records": [],
+      "expectedClaims": []
+    },
+    {
+      "id": "honest-negative-could-not",
+      "answer": "I could not run the build.",
+      "records": [{"commandClass": "build", "exitCode": 1}],
+      "expectedClaims": []
+    },
+    {
+      "id": "non-claim-sentence",
+      "answer": "I refactored the parser and updated the docs.",
+      "records": [],
+      "expectedClaims": []
+    },
+    {
+      "id": "bulleted-list-checks-line-by-line",
+      "answer": "Summary:\n- All tests pass.\n- The code is clean.",
+      "records": [{"commandClass": "unit_test", "exitCode": 0}],
+      "expectedClaims": [{"kind": "tests_pass", "supported": true}]
+    }
+  ]
+}

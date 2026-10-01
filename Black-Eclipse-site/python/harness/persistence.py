@@ -366,7 +366,7 @@ class AgentMemoryStore:
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
             "provider", "model", "startedAt", "finishedAt", "research", "memory",
-            "context",
+            "context", "codeVerification",
             "sessionId", "profileId", "projectId",
         }
         sets, params = [], []
@@ -375,7 +375,7 @@ class AgentMemoryStore:
                 continue
             value = patch[key]
             sets.append(f"{key} = ?")
-            if key in ("error", "research", "memory", "context") and value is not None:
+            if key in ("error", "research", "memory", "context", "codeVerification") and value is not None:
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -1331,6 +1331,7 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "research": json.loads(row["research"]) if _has_column(row, "research") and row["research"] else None,
         "memory": json.loads(row["memory"]) if _has_column(row, "memory") and row["memory"] else None,
         "context": json.loads(row["context"]) if _has_column(row, "context") and row["context"] else None,
+        "codeVerification": json.loads(row["codeVerification"]) if _has_column(row, "codeVerification") and row["codeVerification"] else None,
         "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
         "profileId": row["profileId"] if _has_column(row, "profileId") else None,
         "projectId": row["projectId"] if _has_column(row, "projectId") else None,

@@ -119,6 +119,14 @@ export const en = {
   'task.authoring.undo': 'Undo this change',
   'task.authoring.undone': 'Undone — your project is back to how it was.',
 
+  // Running checks (Phase 3) — names the job, never the command.
+  'task.check.working': 'Checking the numbers…',
+  'task.check.running': 'Running the checks…',
+  'task.check.passed': 'The checks passed.',
+  'task.check.failed': 'The checks found something to fix.',
+  'task.check.timedOut': 'That check took too long, so I stopped it.',
+  'task.check.truncated': 'That check produced a lot of output; I kept the beginning.',
+
   // Refusals — one plain sentence per machine code, plus a shared details label.
   // The code itself is never shown as the primary message; it belongs behind
   // the details affordance.
@@ -177,6 +185,35 @@ export const en = {
     'I don’t have a project folder to change right now, so I couldn’t do that.',
   'refusal.UNKNOWN_WORKSPACE':
     'I couldn’t find a work area to make or undo that change, so I left everything alone.',
+
+  // Running-checks refusals (Phase 3) — one plain sentence + a next step.
+  'refusal.COMMAND_NOT_ALLOWLISTED':
+    'That isn’t a check I’m allowed to run. I can run a check for you instead — tests, types, lint, a build, or a quick look at the project’s history.',
+  'refusal.COMMAND_NOT_ENABLED':
+    'I’m not allowed to add software to the project in this session, so I left it alone.',
+  'refusal.COMMAND_EXECUTABLE_MISSING':
+    'The tool I’d need for that check isn’t installed on this computer, so I couldn’t run it.',
+  'refusal.COMMAND_ARG_INVALID':
+    'I couldn’t run that check because one of the details I was given wasn’t something I could use.',
+  'refusal.SANDBOX_UNAVAILABLE':
+    'I can’t run checks safely on this computer right now, so I won’t run them.',
+  'refusal.COMMAND_REFUSED':
+    'I didn’t run that check because it isn’t one I’m allowed to run.',
+
+  // Proof it works (Phase 4) — the verification panel. Names the job, never the
+  // mechanism (no "exit code", "digest", "verification ledger"); the technical
+  // reason sits behind the "details" affordance.
+  'code.proof.title': 'Proof it works',
+  'code.proof.checks': '{count} check(s)',
+  'code.proof.checkPassed': 'Passed — {seconds}s',
+  'code.proof.checkFailed': 'Did not pass',
+  'code.proof.noChecks': 'No checks were run.',
+  'code.proof.verified': 'confirmed',
+  'code.proof.notChecked': 'not checked yet',
+  'code.proof.repairPassed': 'Fixed after {attempts} attempt(s).',
+  'code.proof.repairFailed': 'Could not fix it ({attempts} of {max} attempts).',
+  'code.proof.truncated': 'More checks were run than are shown here.',
+  'code.proof.details': 'details',
 
   // Keyboard shortcuts dialog
   'keyboard.title': 'Keyboard shortcuts',

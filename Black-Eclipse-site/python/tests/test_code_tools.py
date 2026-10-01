@@ -80,6 +80,8 @@ def test_registered_code_tools_split_into_read_and_write():
     # Phase 1 read tools + Phase 2 diff (read) + patch/revert (write).
     assert names == READ_TOOLS | WRITE_TOOLS
     for tool in registry.list():
+        if not tool.name.startswith("workspace_"):
+            continue
         if tool.name in READ_TOOLS:
             assert tool.permission == "read"
             assert tool.risk == "low"
@@ -87,6 +89,15 @@ def test_registered_code_tools_split_into_read_and_write():
             assert tool.permission == "write"
             assert tool.effect == "write"
             assert tool.risk == "medium"
+
+
+def test_command_run_is_a_non_read_external_action_tool():
+    registry = _registry()
+    tool = registry.get("command_run")
+    assert tool is not None
+    assert tool.permission == "write"
+    assert tool.effect == "external_action"
+    assert tool.risk == "medium"
 
 
 # ── fixture question → path:line ────────────────────────────────────────────

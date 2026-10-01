@@ -24,10 +24,14 @@ from typing import Any, Iterator, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
+from . import commands as commands_mod
 from . import policy
 from . import patch as patch_mod
+from . import sandbox as sandbox_mod
 from . import worktree as worktree_mod
+from .commands import OPERATOR_GATED_CLASSES, CommandUnavailable, build_argv, resolve_class
 from .patch import MAX_OPERATIONS, MAX_REASON_CHARS, PatchError, parse_patch
+from .sandbox import SandboxUnavailable
 from .worktree import CodeWorkspace, WorkspaceError
 from .workspace import (
     MAX_LIST_ENTRIES,
@@ -128,6 +132,16 @@ class WorkspaceRevertInput(BaseModel):
     applied: list[dict] = Field(..., min_length=1)
 
 
+class CommandRunInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # A plain string, NOT a Literal: an unlisted class must reach the handler so
+    # the refusal is recorded (a schema rejection leaves no row and no event).
+    command_class: str = Field(..., min_length=1, max_length=64)
+    args: dict[str, Any] = Field(default_factory=dict)
+    note: str = Field("", max_length=200)
+
+
 _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "workspace_status": {"type": "object", "properties": {}, "additionalProperties": False},
     "workspace_list": {
@@ -214,6 +228,22 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "applied": {"type": "array", "items": {"type": "object"}, "description": "The change record returned by a prior apply."},
         },
         "required": ["applied"],
+        "additionalProperties": False,
+    },
+    "command_run": {
+        "type": "object",
+        "properties": {
+            "command_class": {
+                # A plain string (not an enum): an unlisted class must reach the
+                # handler so the refusal is RECORDED, not silently rejected at the
+                # schema seam with no row and no event.
+                "type": "string",
+                "description": "Which check to run: typecheck, lint, unit_test, python_test, build, format_check, git_read, or dependency_install.",
+            },
+            "args": {"type": "object", "description": "Typed arguments for the class (e.g. {subcommand} for git_read)."},
+            "note": {"type": "string", "description": "Why this check is wanted; recorded in the trace."},
+        },
+        "required": ["command_class"],
         "additionalProperties": False,
     },
 }
@@ -549,6 +579,10 @@ def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, Resolv
     if existing is not None:
         return existing
     base = getattr(getattr(ctx, "workspace", None), "base_revision", "HEAD") or "HEAD"
+    # A Phase-1 base of "unknown" is not a git revision; fall back to HEAD so the
+    # workspace still allocates. Never invent a sha — HEAD is the honest default.
+    if not re.fullmatch(worktree_mod.BASE_REVISION_PATTERN, str(base)):
+        base = "HEAD"
     cw = worktree_mod.allocate(base_revision=base)
     binding = policy.WorkspaceBinding(
         id=cw.id, root=cw.root, base_revision=cw.base_revision, strategy=cw.strategy,
@@ -597,6 +631,11 @@ def make_code_authorizer(mcp_authorizer: Any = None):
         name = str(getattr(tool, "name", ""))
         if name.startswith("workspace_") and getattr(tool, "effect", None) == "write":
             return True
+        # A command execution is admitted at this seam; the handler enforces the
+        # binding, the autonomy profile (`command.execute`) and the class table,
+        # and every path is refused-and-recorded on its own merits.
+        if name == "command_run":
+            return True
         if mcp_authorizer is not None:
             return bool(await mcp_authorizer(tool, args, ctx))
         return False
@@ -608,6 +647,13 @@ async def _emit_patch_refused(ctx: ToolContext, workspace_id: str, op: str, path
     await emit_code_event(ctx, "code.patch.refused", {
         "workspaceId": workspace_id, "op": op, "path": path, "code": code,
     })
+    # A policy denial is ALSO emitted on the shared event family so the Phase 4
+    # mistake analyzer can see a scope/protected denial deterministically.
+    if code in ("PROTECTED_PATH", "OUTSIDE_WORKSPACE", "PATH_OUTSIDE_WORKSPACE",
+                "COMMAND_NOT_ALLOWLISTED", "PROFILE_DENIED"):
+        await emit_code_event(ctx, "code.policy.denied", {
+            "code": code, "decision": "write", "relPath": path,
+        })
 
 
 def _patch_refusal(workspace_id: str, code: str, reason: str, op: str = "", path: str = "") -> tuple[str, Any]:
@@ -849,6 +895,7 @@ _CODE_TOOL_NAMES = (
     "workspace_patch_apply",
     "workspace_diff",
     "workspace_revert",
+    "command_run",
 )
 
 
@@ -869,7 +916,11 @@ def _definition(
 
 
 def register_code_tools(registry: ToolRegistry) -> list[str]:
-    """Register the five read tools. Returns the names added."""
+    """Register the code tools. Returns the names added."""
+    # Imported lazily: command_tools imports helpers from this module, so a
+    # module-level import here would be circular.
+    from .command_tools import command_run  # noqa: PLC0415
+
     registry.register(_definition(
         "workspace_status",
         "Report which project Eclipse is looking at: its saved revision, current line of "
@@ -922,6 +973,14 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         "operation first. Refuses over a changed base.",
         _revert, 60_000, permission="write", risk="medium", effect="write",
     ))
+    registry.register(_definition(
+        "command_run",
+        "Run one allowlisted check (typecheck, lint, unit tests, python tests, build, "
+        "format check, read-only git) inside the project's own copy. The command is chosen "
+        "from a fixed table — no shell, no arbitrary program — and every run is recorded. "
+        "Refused unless the session may run checks.",
+        command_run, 120_000, permission="write", risk="medium", effect="external_action",
+    ))
     return list(_CODE_TOOL_NAMES)
 
 
@@ -937,4 +996,5 @@ __all__ = [
     "PatchApplyInput",
     "WorkspaceDiffInput",
     "WorkspaceRevertInput",
+    "CommandRunInput",
 ]

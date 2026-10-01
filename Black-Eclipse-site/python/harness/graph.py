@@ -268,6 +268,7 @@ def build_graph(
     lineage: Optional[Any] = None,
     resume_from: Optional[dict[str, Any]] = None,
     code_store: Optional[Any] = None,
+    code_ledger: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -331,6 +332,9 @@ def build_graph(
         # Phase 2: the run's autonomy profile and the code-workspace store.
         autonomy=request.autonomy,
         code_store=code_store,
+        # Phase 4: the run's verification ledger — every command execution is
+        # recorded here so the final answer can be checked against proven fact.
+        code_ledger=code_ledger,
     )
     registry.set_active_context(ctx)
 
@@ -680,6 +684,15 @@ async def execute_run(
         from .code.store import CodeWorkspaceStore  # noqa: PLC0415
 
         code_store = CodeWorkspaceStore(store)
+    # Phase 4: the per-run verification ledger. Rehydrated from the persisted blob
+    # when resuming (EMPTY when absent, so a resumed run starts unverified); a
+    # fresh run starts empty.
+    from .code.verify import VerificationLedger  # noqa: PLC0415
+
+    _prior_run = store.get_run(request.runId)
+    code_ledger = VerificationLedger.from_blob(
+        request.runId, (_prior_run or {}).get("codeVerification"),
+    )
     started = now_iso()
     # Resume, when requested, is validated BEFORE a run row is created so a
     # missing checkpoint / a terminal run never silently starts a fresh run.
@@ -775,7 +788,7 @@ async def execute_run(
     # Prompt-cache plan: stable segments + a cache key computed from identity
     # (versions + snapshot/manifest ids), never the user message. Recorded for
     # observability; it changes nothing the model is allowed to do.
-    from .prompt_segments import build_prompt_plan  # noqa: PLC0415
+    from .prompt_segments import build_prompt_plan, runtime_context_block  # noqa: PLC0415
 
     # Surface honesty (Milestone 4): resolve the tool surface AND the system
     # prompt FROM POLICY per run — never at import or __init__ time. A disabled
@@ -799,6 +812,12 @@ async def execute_run(
     except Exception:  # noqa: BLE001 - an override is never required
         budget_overrides = {}
 
+    # The runtime date/time block: the run's real clock, rendered as its own
+    # per-run block (never in the byte-stable system-prompt head). It gives the
+    # model the as-of period it needs without a shell call and is excluded from
+    # the cache key so a new run date never invalidates the reusable prefix.
+    runtime_context = runtime_context_block(request.runId)
+
     prompt_plan = build_prompt_plan(
         system_prompt=system_prompt,
         agent_id=agent.id,
@@ -807,6 +826,7 @@ async def execute_run(
         profile_snapshot_id=profile_snapshot_id,
         skill_manifest=skill_manifest,
         skill_manifest_version=skill_manifest_version,
+        runtime_context=runtime_context,
         user_message=request.input.query,
     )
     await emitter.emit("prompt.plan", prompt_plan.to_dict())
@@ -821,14 +841,14 @@ async def execute_run(
     # the block's own size. Two passes, no loop.
     budget = _history_budget(
         request, allowed, registry, system_prompt, profile_block, skill_manifest,
-        memory_block, dropped_block="", overrides=budget_overrides,
+        memory_block, "", runtime_context=runtime_context, overrides=budget_overrides,
     )
     history_messages, dropped_block, dropped_turns = await _dropped_context_block(
         request, memory_service, emitter, budget,
     )
     budget = _history_budget(
         request, allowed, registry, system_prompt, profile_block, skill_manifest,
-        memory_block, dropped_block=dropped_block, overrides=budget_overrides,
+        memory_block, dropped_block, runtime_context=runtime_context, overrides=budget_overrides,
     )
     if budget.effective:
         # Re-derive the trimmed set under the measured bound (re-extraction is
@@ -877,6 +897,7 @@ async def execute_run(
                 profile_block=profile_block, skill_manifest=skill_manifest,
                 memory_block=memory_block,
                 dropped_block=dropped if dropped is not None else dropped_block,
+                runtime_context=runtime_context,
             )
             initial_state = {
                 "messages": run_messages,
@@ -898,6 +919,7 @@ async def execute_run(
             lineage=lineage,
             resume_from=resume_from,
             code_store=code_store,
+            code_ledger=code_ledger,
         )
         return await app.ainvoke(initial_state)
 
@@ -910,6 +932,7 @@ async def execute_run(
                 overrides=budget_overrides,
                 system_prompt=system_prompt, profile_block=profile_block,
                 skill_manifest=skill_manifest, memory_block=memory_block,
+                runtime_context=runtime_context,
                 memory_service=memory_service, allowed=allowed,
                 registry=registry, invoke=_invoke_with_history,
             )
@@ -968,6 +991,15 @@ async def execute_run(
         ))
 
     output = final_state.get("final") or ""
+    # Phase 4: make the answer consistent with what the executor actually
+    # recorded. A pass-claim with no zero-exit execution is marked, never
+    # asserted — the same discipline the finance renderer applies to claims.
+    from .code.verify import enforce_run_answer  # noqa: PLC0415
+
+    output, code_verification_blob = await enforce_run_answer(
+        output, code_ledger, repair_outcome=None, emitter=emitter,
+    )
+    store.update_run(request.runId, codeVerification=code_verification_blob)
     context_blob = _context_budget_blob(
         final_budget, request, kind="completed", retried=retry_budget is not None,
     )
@@ -1214,6 +1246,7 @@ def _history_budget(
     skill_manifest: str,
     memory_block: str,
     dropped_block: str,
+    runtime_context: str = "",
     *,
     overrides: Optional[dict[str, Any]] = None,
     tighter: bool = False,
@@ -1253,6 +1286,7 @@ def _history_budget(
         profile_block=profile_block,
         skill_manifest=skill_manifest,
         memory_block=memory_block,
+        runtime_context=runtime_context,
         dropped_block=dropped_block,
         user_turn=_user_message(request),
         absolute_max_turns=MAX_HISTORY_TURNS,
@@ -1272,14 +1306,18 @@ def _assemble_run_messages(
     skill_manifest: str,
     memory_block: str,
     dropped_block: str,
+    runtime_context: str = "",
 ) -> list[BaseMessage]:
     """The full message list for one run, with the SAME slot order as before.
 
     Only the number of history messages varies per budget; the system-prompt
-    head and the per-run block order are byte-stable within a run.
+    head and the per-run block order are byte-stable within a run. The
+    run-scoped `runtime_context` block sits immediately after the system head so
+    the stable head prefix is unaffected.
     """
     return [
         SystemMessage(content=system_prompt),
+        *([SystemMessage(content=runtime_context)] if runtime_context else []),
         *history_messages,
         *([SystemMessage(content=profile_block)] if profile_block else []),
         *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
@@ -1346,6 +1384,7 @@ async def _retry_with_tighter_budget(
     profile_block: str,
     skill_manifest: str,
     memory_block: str,
+    runtime_context: str,
     memory_service: Optional[Any],
     allowed: Optional[set[str]],
     registry: ToolRegistry,
@@ -1368,7 +1407,7 @@ async def _retry_with_tighter_budget(
         return final_state, None
     tighter_budget = _history_budget(
         request, allowed, registry, system_prompt, profile_block, skill_manifest,
-        memory_block, dropped_block="", overrides=overrides, tighter=True,
+        memory_block, "", runtime_context=runtime_context, overrides=overrides, tighter=True,
     )
     kept, _dropped = _bounded_history(request, tighter_budget)
     base_kept_count = len(_bounded_history(request, base_budget)[0])
@@ -1628,6 +1667,7 @@ def _result(run_id: str, status: str, store: AgentMemoryStore, error: Optional[d
         promptTokens=run.get("promptTokens", 0),
         completionTokens=run.get("completionTokens", 0),
         totalTokens=run.get("totalTokens", 0),
+        codeVerification=run.get("codeVerification"),
     )
 
 

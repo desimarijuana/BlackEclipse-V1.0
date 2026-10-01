@@ -42,6 +42,13 @@ CATEGORIES = (
     "timeout",
     "currency_mismatch",
     "unit_mismatch",
+    # Phase 4 (code): deterministic code-loop mistakes. Each carries evidence.
+    "check_claimed_not_run",        # the answer asserts a pass with no execution
+    "check_run_failed_ignored",     # a check FAILED and the answer asserts a pass
+    "scope_violation",              # a write/execute denied by code.policy
+    "unbounded_retry",              # repair attempts exceeded the configured bound
+    "protected_path_write_attempt", # a write to a PROTECTED_PATHS entry was refused
+    "sandbox_unavailable",          # a check could not run (honest refusal)
 )
 
 _SEVERITY = {
@@ -56,6 +63,12 @@ _SEVERITY = {
     "timeout": "medium",
     "currency_mismatch": "high",
     "unit_mismatch": "medium",
+    "check_claimed_not_run": "high",
+    "check_run_failed_ignored": "high",
+    "scope_violation": "high",
+    "protected_path_write_attempt": "high",
+    "unbounded_retry": "medium",
+    "sandbox_unavailable": "medium",
 }
 
 _PRECISE_NUMBER = __import__("re").compile(r"\b\d[\d,]*(\.\d+)?\s?(%|billion|million|bn|mn|cr|b|m)?\b")
@@ -187,7 +200,126 @@ def analyze_run_for_mistakes(run_id: str, run_store: Any) -> list[dict[str, Any]
             actual="a retrieved value carried an inconsistent unit",
             evidence={}, reusable=True)
 
+    # 9. Phase 4 (code): deterministic code-loop mistakes from the verification
+    #    blob + command events. A mistake is a recorded observation, never a guess.
+    _code_mistakes(add, run, events, tools, output)
+
     return mistakes
+
+
+# Error codes that prove a write/execute was denied by code.policy (Phase 0–3).
+_DENIED_CODES = {"OUTSIDE_WORKSPACE", "COMMAND_NOT_ALLOWLISTED", "PROFILE_DENIED"}
+
+
+def _code_mistakes(add, run, events, tools, output) -> None:  # noqa: ANN001 - local helper
+    """Deterministic code-domain categories, each with its evidence."""
+    blob = run.get("codeVerification") or {}
+    records = blob.get("records") if isinstance(blob, dict) else None
+    claims = blob.get("claims") if isinstance(blob, dict) else None
+    records = records if isinstance(records, list) else []
+    claims = claims if isinstance(claims, list) else []
+    event_types = [e["type"] for e in events]
+
+    # check_claimed_not_run: an unbacked pass-claim exists AND no record at all
+    # matched its class (nothing ran). Distinguish from failed_ignored below.
+    if blob:
+        unverified = [c for c in claims if isinstance(c, dict) and not c.get("supported")]
+        if unverified and not records:
+            add(
+                "check_claimed_not_run",
+                expected="a check claim backed by an execution in this run",
+                actual="the answer asserted a passing check with no recorded execution",
+                evidence={"claims": [c.get("kind") for c in unverified][:5]},
+                reusable=True,
+            )
+
+    # check_run_failed_ignored: a NON-ZERO-exit record exists for class C AND the
+    # answer carries an (unsupported) claim whose matchedClasses include C.
+    failing_classes = {
+        str(r.get("commandClass")) for r in records
+        if isinstance(r, dict) and isinstance(r.get("exitCode"), int) and r.get("exitCode") != 0
+    }
+    if failing_classes:
+        ignored = [
+            c for c in claims
+            if isinstance(c, dict) and not c.get("supported")
+            and failing_classes.intersection(c.get("matchedClasses") or [])
+        ]
+        if ignored:
+            add(
+                "check_run_failed_ignored",
+                expected="the answer states that a check failed",
+                actual="a check ran and failed, but the answer asserted a pass",
+                evidence={"failedClasses": sorted(failing_classes)},
+                reusable=True,
+            )
+
+    # scope_violation: a command/patch tool execution was denied by policy.
+    for tool in tools:
+        if tool.get("ok"):
+            continue
+        error = tool.get("error") or {}
+        code = error.get("code") if isinstance(error, dict) else None
+        if code in _DENIED_CODES:
+            add(
+                "scope_violation",
+                toolName=tool.get("name"),
+                expected="the action stays within the granted scope",
+                actual=f"a code action was denied: {code}",
+                evidence={"toolCallId": tool.get("toolCallId"), "code": code},
+                reusable=True,
+            )
+            break
+
+    # unbounded_retry: repair attempts EXCEEDED the recorded maximum (proof the
+    # loop crossed its bound, not merely used it).
+    repair_events = [e for e in events if e["type"] == "code.repair.attempt"]
+    if blob:
+        repair = blob.get("repair") or {}
+        max_attempts = int(repair.get("maxAttempts") or 0)
+        if max_attempts and len(repair_events) > max_attempts:
+            add(
+                "unbounded_retry",
+                expected="repair stops at the configured attempt bound",
+                actual=f"{len(repair_events)} repair attempts exceeded the bound of {max_attempts}",
+                evidence={"attempts": len(repair_events), "maxAttempts": max_attempts},
+                reusable=False,
+            )
+
+    # protected_path_write_attempt: a policy denial on a protected path for a write.
+    protected_denied = [
+        e for e in events if e["type"] == "code.policy.denied"
+        and isinstance(e.get("data"), dict)
+        and e["data"].get("code") == "PROTECTED_PATH"
+        and e["data"].get("decision") == "write"
+    ]
+    if protected_denied:
+        add(
+            "protected_path_write_attempt",
+            expected="a write never targets a protected path",
+            actual="a write to a protected path was refused",
+            evidence={"events": [e["id"] for e in protected_denied[:3]]},
+            reusable=False,
+        )
+
+    # sandbox_unavailable: a check could not run — an honest refusal, still a
+    # recorded observation.
+    sandbox_events = [
+        e for e in events if isinstance(e.get("data"), dict)
+        and e["data"].get("code") == "SANDBOX_UNAVAILABLE"
+    ]
+    tool_sandbox = [
+        t for t in tools if not t.get("ok")
+        and isinstance(t.get("error"), dict) and t["error"].get("code") == "SANDBOX_UNAVAILABLE"
+    ]
+    if sandbox_events or tool_sandbox or (isinstance(blob, dict) and blob.get("repair", {}).get("status") == "refused"):
+        add(
+            "sandbox_unavailable",
+            expected="a check runs and reports its result",
+            actual="a check could not be run safely and was refused",
+            evidence={"events": [e["id"] for e in sandbox_events[:3]]},
+            reusable=False,
+        )
 
 
 def capture_mistakes(run_id: str, run_store: Any, skill_store: EclipseMemoryStore) -> list[dict[str, Any]]:

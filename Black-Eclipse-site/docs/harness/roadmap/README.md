@@ -24,8 +24,8 @@ file, not here.
 | 0 — Recon, policy decision, baseline freeze | [phase-00](./phase-00-policy-and-baseline.md) ✅ Done | — | 1,2,3 | — |
 | 1 — Repository navigator (read-only) | [phase-01](./phase-01-repository-navigator.md) ✅ Done | 0 | 2 | §15.3 **7A** |
 | 2 — Isolated worktree patch authoring | [phase-02](./phase-02-worktree-patching.md) ✅ Done | 1 | 3 | §15.3 **7B** |
-| 3 — Sandboxed command broker | [phase-03](./phase-03-command-broker.md) | 2 | 4 | §15.3 **7C** |
-| 4 — Verify-and-repair trust spine | [phase-04](./phase-04-verify-and-repair.md) | 3 | 5 | §15.3 **7D** |
+| 3 — Sandboxed command broker | [phase-03](./phase-03-command-broker.md) ✅ Done | 2 | 4 | §15.3 **7C** |
+| 4 — Verify-and-repair trust spine | [phase-04](./phase-04-verify-and-repair.md) ✅ Done | 3 | 5 | §15.3 **7D** |
 | 5 — Coding agent, autonomy profiles, approvals | [phase-05](./phase-05-coding-agent.md) | 4 | 6,7,8,9 | §15.3 **7E** |
 | 6 — Harness-owned jobs and triggers | [phase-06](./phase-06-jobs-and-triggers.md) | 5 | 11 | new |
 | 7 — Delegation and child runs | [phase-07](./phase-07-delegation.md) | 5 | 9,10 | new |
@@ -292,20 +292,21 @@ Black-Eclipse-site/src/
 | ADR-H100 | Read-only repository navigation is path-confined, bounded and citable | 1 |
 | ADR-H101 | Workspace isolation: disposable worktrees, snapshot fallback, never the user's own checkout | 2 |
 | ADR-H102 | Commands are a closed table; a missing isolation primitive refuses rather than degrades | 3 |
-| ADR-H103 | A check is passing only when the executor recorded it; unbacked claims are marked | 4 |
-| ADR-H104 | One approval store, generalized; a code action is single-use, digest- and workspace-bound | 5 |
-| ADR-H105 | Harness-owned jobs; the TS refresh loops stay as they are | 6 |
-| ADR-H106 | Child runs are narrowed, never widened; self-reports require verifiable handles | 7 |
-| ADR-H107 | Computed ≠ retrieved: a code-produced number carries its code digest and never enters research claims | 8 |
-| ADR-H108 | Scaffold kits are data; a generated artefact stays inert until evaluated | 9 |
-| ADR-H109 | Self-improvement covers code as well as skills; the policy engine and the release gate are frozen | 10 |
-| ADR-H110 | Delivery adapters behind one interface; scope-aware surfaces; an honest sandbox backend | 11 |
-| ADR-H111 | The code eval gate is part of the one honest release gate | 12 |
+| ADR-H105 | A check is passing only when the executor recorded it; unbacked claims are marked | 4 |
+| ADR-H106 | One approval store, generalized; a code action is single-use, digest- and workspace-bound | 5 |
+| ADR-H107 | Harness-owned jobs; the TS refresh loops stay as they are | 6 |
+| ADR-H108 | Child runs are narrowed, never widened; self-reports require verifiable handles | 7 |
+| ADR-H109 | Computed ≠ retrieved: a code-produced number carries its code digest and never enters research claims | 8 |
+| ADR-H110 | Scaffold kits are data; a generated artefact stays inert until evaluated | 9 |
+| ADR-H111 | Self-improvement covers code as well as skills; the policy engine and the release gate are frozen | 10 |
+| ADR-H112 | Delivery adapters behind one interface; scope-aware surfaces; an honest sandbox backend | 11 |
+| ADR-H113 | The code eval gate is part of the one honest release gate | 12 |
 
 **ADR shape:** `docs/harness/decisions.md` uses `## ADR-Hnn — Title` followed by
 **Decision.** / **Why.** / **Consequences.** — match that. The harness closeout
 of 2026-09-30 already landed ADR-H93–H96 (run lineage, route health, capability
 matrix, workflows), so Phase 0 appended the next free numbers — **ADR-H97,
-ADR-H98, ADR-H99**, Phase 1 appended **ADR-H100**, and Phase 2 appended
-**ADR-H101**, rather than duplicating those headers. Later phases take the numbers
-after H101.
+ADR-H98, ADR-H99**, Phase 1 appended **ADR-H100**, Phase 2 **ADR-H101**, Phase 3
+**ADR-H102**, and Phase 4 **ADR-H105** (ADR-H103/H104 were taken by the concurrent
+prompt-v2 work). Later phases take the numbers after the highest used. The table
+above reflects the assigned numbers.

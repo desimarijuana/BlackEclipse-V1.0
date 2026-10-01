@@ -1,9 +1,9 @@
-"""Code-workspace persistence, bound to the ONE agent-memory connection (Phase 2).
+"""Code persistence, bound to the ONE agent-memory connection (Phases 2–3).
 
-Owns the `CodeWorkspace` table and its helpers. Mirrors `run_lineage.py` and
-`mcp/approvals.py`: the module is bound to the single `AgentMemoryStore` sqlite
-connection and owns only its own table, so `persistence.py` — pinned at its size
-ratchet — does not grow.
+Owns the `CodeWorkspace` and `HarnessCommandExecution` tables and their helpers.
+Mirrors `run_lineage.py` and `mcp/approvals.py`: the module is bound to the single
+`AgentMemoryStore` sqlite connection and owns only its own tables, so
+`persistence.py` — pinned at its size ratchet — does not grow.
 
 The database is `agent-memory.db` (the runtime's own). NEVER `eclipse-memory.db`
 and NEVER `jdds.db`. The DDL is idempotent (`CREATE TABLE IF NOT EXISTS`) and is
@@ -12,6 +12,8 @@ applied on first use, exactly like `run_lineage.py`.
 
 from __future__ import annotations
 
+import json
+import uuid
 from typing import Any, Optional
 
 from ..persistence import now_iso
@@ -33,6 +35,17 @@ class CodeWorkspaceStore:
         return self._store._db
 
     def _ensure_schema(self) -> None:
+        # Phase 4: the additive `HarnessRun.codeVerification` column. It is added
+        # HERE (not in the ratcheted persistence.py) exactly as run_lineage.py owns
+        # its own additive columns — same database, same connection, idempotent.
+        try:
+            existing = {
+                row["name"] for row in self._db.execute("PRAGMA table_info(HarnessRun)").fetchall()
+            }
+            if "codeVerification" not in existing:
+                self._db.execute("ALTER TABLE HarnessRun ADD COLUMN codeVerification TEXT")
+        except Exception:  # noqa: BLE001 - a missing table just means no column to add
+            pass
         self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS CodeWorkspace (
@@ -53,6 +66,32 @@ class CodeWorkspaceStore:
         )
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_code_workspace_run ON CodeWorkspace(runId)"
+        )
+        self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS HarnessCommandExecution (
+              id             TEXT PRIMARY KEY,
+              runId          TEXT NOT NULL,
+              stepIndex      INTEGER,
+              toolCallId     TEXT,
+              commandClass   TEXT NOT NULL,
+              argv           TEXT NOT NULL,
+              cwd            TEXT NOT NULL,
+              exitCode       INTEGER,
+              durationMs     INTEGER NOT NULL,
+              timedOut       INTEGER NOT NULL DEFAULT 0,
+              output         TEXT NOT NULL,
+              truncated      INTEGER NOT NULL DEFAULT 0,
+              totalChars     INTEGER NOT NULL,
+              sandboxBackend TEXT NOT NULL,
+              network        INTEGER NOT NULL DEFAULT 0,
+              policyDecision TEXT NOT NULL,
+              createdAt      TEXT NOT NULL
+            )
+            """
+        )
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cmd_run ON HarnessCommandExecution(runId, createdAt)"
         )
         self._db.commit()
 
@@ -124,6 +163,71 @@ class CodeWorkspaceStore:
             rows = self._db.execute(
                 "SELECT * FROM CodeWorkspace ORDER BY createdAt DESC LIMIT ?", (limit,)
             ).fetchall()
+        return [_row(r) for r in rows]
+
+    # ── Command executions (Phase 3) ─────────────────────────────────────────
+    def record_command_execution(
+        self,
+        *,
+        run_id: str,
+        command_class: str,
+        argv: list[str],
+        cwd: str,
+        exit_code: Optional[int],
+        duration_ms: int,
+        output: str,
+        total_chars: int,
+        sandbox_backend: str,
+        policy_decision: dict[str, Any],
+        timed_out: bool = False,
+        truncated: bool = False,
+        network: bool = False,
+        step_index: Optional[int] = None,
+        tool_call_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Record one command execution. `argv` carries NO secret (env is scrubbed)."""
+        record = {
+            "id": "cmd_" + uuid.uuid4().hex[:16],
+            "runId": run_id,
+            "stepIndex": step_index,
+            "toolCallId": tool_call_id,
+            "commandClass": command_class,
+            "argv": json.dumps(list(argv), ensure_ascii=False),
+            "cwd": str(cwd),
+            "exitCode": exit_code,
+            "durationMs": int(duration_ms),
+            "timedOut": 1 if timed_out else 0,
+            "output": str(output)[:60_000],
+            "truncated": 1 if truncated else 0,
+            "totalChars": int(total_chars),
+            "sandboxBackend": sandbox_backend,
+            "network": 1 if network else 0,
+            "policyDecision": json.dumps(policy_decision or {}, ensure_ascii=False),
+            "createdAt": now_iso(),
+        }
+        self._db.execute(
+            """INSERT INTO HarnessCommandExecution
+               (id, runId, stepIndex, toolCallId, commandClass, argv, cwd, exitCode,
+                durationMs, timedOut, output, truncated, totalChars, sandboxBackend,
+                network, policyDecision, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record["id"], record["runId"], record["stepIndex"], record["toolCallId"],
+                record["commandClass"], record["argv"], record["cwd"], record["exitCode"],
+                record["durationMs"], record["timedOut"], record["output"], record["truncated"],
+                record["totalChars"], record["sandboxBackend"], record["network"],
+                record["policyDecision"], record["createdAt"],
+            ),
+        )
+        self._db.commit()
+        return record
+
+    def list_command_executions(self, run_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 1000))
+        rows = self._db.execute(
+            "SELECT * FROM HarnessCommandExecution WHERE runId=? ORDER BY createdAt ASC LIMIT ?",
+            (run_id, limit),
+        ).fetchall()
         return [_row(r) for r in rows]
 
 

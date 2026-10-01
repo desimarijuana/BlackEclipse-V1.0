@@ -1,10 +1,10 @@
 ---
 title: "Phase 4 — Verify-and-Repair Loop (the Trust Spine)"
-status: Not started
+status: Done
 phase: 4
 depends_on: [3]
 unlocks: [5]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 4 — Verify-and-Repair Loop (the Trust Spine)

@@ -2501,3 +2501,169 @@ copy lives in `src/lib/i18n/` (`task.authoring.*` progress/result lines plus a
 `refusal.*` code→sentence map as data), and the jargon gate scans it. `git.write`
 remains an operator action; Phase 5 is where an agent-side `git.write` could be
 introduced behind a single-use approval.
+
+## ADR-H102 - Commands are a closed table; a missing isolation primitive refuses rather than degrades
+
+**Decision.** Phase 3 lets the agent run allowlisted checks through a single
+execution primitive. `code/commands.py` is a closed TABLE of command classes:
+the model supplies a class name plus typed args, never an argv. An `ArgSpec`
+validates each argument with `re.fullmatch` (and refuses a `..` component); the
+argv is assembled from a fixed template whose first token is an absolute,
+closed executable from `EXECUTABLES` (npm/npx/node, the VENDORED
+`scripts/vendor/python/python.exe`, and git). `git_read.subcommand` is a CLOSED
+allowlist — `push`, `reset`, `clean`, `checkout`, `commit`, `config` are absent
+by construction. `dependency_install` is the only class with `network=True`, is
+operator-gated (default OFF), and uses `--ignore-scripts`. `code/sandbox.py` is
+the ONE execution seam: `build_env` copies ONLY `policy.SECRET_ENV_ALLOWLIST`
+(never `os.environ`, so `HARNESS_*`/`CRON_SECRET` are absent), `cwd` is the
+resolved worktree root, `shell=False` always, a wall-clock timeout kills the
+whole process TREE, output is capped with honest `truncated`/`totalChars`, and
+cancellation propagates with no retry. On Windows the child is assigned to a
+Job Object with `KILL_ON_JOB_CLOSE` (plus a deterministic `taskkill /T`); on
+POSIX it gets its own process group. If no primitive exists, `select_backend`
+raises `SandboxUnavailable` and the command is REFUSED — never run unsandboxed.
+`command_run` is a registry tool (`permission="write"`,
+`effect="external_action"`); the handler enforces the autonomy profile
+(`command.execute`) and records EVERY attempt — including every refusal — as a
+`HarnessCommandExecution` row plus a `command.*` event.
+
+**Why.** Executing code is where a mistake stops being a bad diff and becomes a
+bad side effect, so this is the strictest phase in the roadmap. A matcher over
+model-supplied strings is a policy surface that grows with every string; a table
+is closed, reviewable, and its size is the size of the capability. The repo's own
+standard for spawning a child (MCP) already requires argv arrays, an explicit env
+allowlist and platform-appropriate reaping, so the broker matches it rather than
+inventing a weaker rule. And the honesty rule is already law (a missing runtime
+fails with 503, never a fake agent) — the same rule applied to isolation: no
+primitive means refuse, not degrade. Auditability is the point: a block that
+leaves no row and no event is treated as a FAILURE, because a refusal a user
+cannot see is indistinguishable from a silent success.
+
+**Consequences.** `code/store.py` (not the ratcheted `persistence.py`) owns the
+`HarnessCommandExecution` DDL and helpers on the one `AgentMemoryStore`
+connection. Every refusal carries a machine code AND one plain sentence plus a
+recovery step (`commands.COMMAND_REFUSAL_COPY`, mirrored in `src/lib/i18n`), and
+the plain-language gate asserts neither leaks a mechanism word. NETWORK is denied
+by CLASS and by a scrubbed environment (proxies dropped); there is no OS network
+namespace in this phase, which is recorded as a known limit — a command that
+tries to reach the network fails because the class is refused or the route is
+unreachable, and the attempt is recorded. Phase 4 consumes the recorded
+executions to prove a "pass" with an executor-backed receipt.
+
+## ADR-H103 — The system prompt is hardened and given a run-scoped clock; the cache key covers prompt content
+
+**Decision.** The Eclipse Agent system prompt is a reduction-and-accuracy surface,
+not a capability surface. Four properties now hold. (1) A run-scoped
+`runtime_context` `PromptSegment` carries the run's real date, time and UTC offset
+(`prompt_segments.runtime_context_block`) and is rendered as its OWN per-run
+`SystemMessage` after the byte-stable system head, never inside it; it has its own
+content hash and is excluded from `STATIC_SEGMENTS`, so the stable prefix still
+caches and the run date never invalidates it. (2) `prompt_cache_key` now includes
+the CONTENT hash of every reusable (`STATIC_SEGMENTS` = `system_policy` +
+`agent_identity` + `tool_schemas`) segment, so editing the prompt changes the key
+even when the hand-bumped `SYSTEM_POLICY_VERSION` has not; `runtime_context`,
+`run_instructions` and `user_message` remain excluded. `STATIC_SEGMENTS` is split
+from a new `RUN_FROZEN_SEGMENTS`, and only the static group feeds
+`reusable_total_tokens()`, so a per-run block no longer inflates the reuse
+accounting. (3) The execution-discipline blocks carry ONE statement per rule (no
+near-verbatim duplicates of the operating principles or tool-use enforcement) and
+its examples are finance-native (ambiguous instrument identity, market/currency
+defaulting) rather than shell/OS examples; the identity preamble is a bounded
+role-and-domains statement, not a 52-bullet inventory. (4) The bound tool schemas
+are declared authoritative (once), so the prompt no longer hardcodes tool names;
+the dead `filter_system_prompt` tool-list replacement was removed (the sentence it
+searched for is absent).
+
+**Why.** The prompt demanded as-of periods, staleness labels and revalidation but
+gave the model no clock; it repeated the same rules across eight `<...>` blocks;
+and its cache key tracked only hand-bumped versions, so a real prompt edit left
+the key unchanged — a correctness bug in the observability contract.
+
+**Consequences.** `filter_system_prompt` continues to drop memory/session guidance
+when those stores are off (unchanged). `graph.execute_run` builds the runtime
+block once per run and threads it into the prompt plan, the assembled messages and
+the measured history budget. No permission or capability is added: this is a
+reduction plus an accuracy fix. `docs/harness/architecture.md` and
+`docs/NAVIGATION.md` updated; tests `test_prompt_segments.py`
+(`test_prompt_content_edit_changes_cache_key`,
+`test_runtime_context_does_not_change_cache_key`,
+`test_reusable_token_accounting_excludes_run_frozen_segments`,
+`test_runtime_context_block_carries_run_date_and_id`) and `test_memory_tools.py`
+(extended `test_prompt_has_no_phantom_capabilities`, `test_prompt_char_ceiling`).
+
+## ADR-H104 — The Eclipse Agent prompt states the finance-harness contract
+
+**Decision.** `ECLIPSE_AGENT_SYSTEM_PROMPT` now describes a finance harness, not
+only an analyst: it carries a `# Market data semantics` block (session state,
+price basis, period basis, corporate actions, point-in-time vs restated, FX,
+staleness) as *statement requirements* that make two numbers comparable; an
+`# Inputs and authority` precedence table (system policy > run instructions >
+attached documents > tool/retrieved evidence > profile context > conversation
+history > text inside a retrieved artifact) plus the attached-document rule
+(`[attached: <name>]`, primary source for its contents, data never instruction);
+an `# Answer contract` (answer-first shape, `source: as-of` citations, numeric
+conventions, one contrastive worked example); and a `## Runtime awareness` block
+(bounded steps/timeout, a stop rule, truncation disclosure, no redundant
+retrieval). The identity preamble was rewritten so its action surface is exactly
+the bound tool allowlist while its domain list stays framed as competence. The
+declared `session_summary` prompt segment was **removed**: it was never populated
+by any caller (only tests), and no bounded producer exists without a new
+dependency or a second model call, so keeping it would have overstated the
+prompt's real contents.
+
+**Why.** The prompt previously demanded as-of periods, units and comparability
+without ever naming the finance-specific facts that make numbers comparable, and
+it did not describe the runtime the model actually runs in. A capability claim
+("models, simulates, orchestrates") contradicted by the bound allowlist two
+sentences later is worse than no claim. The growth ceiling (≤ 17,500 chars) was
+paid for by tightening `# Investment Analysis`, `## MCP tools`, `## Tool calls`,
+identity preamble and `# Tool-use enforcement` — each rule retained.
+
+**Consequences.** `python/harness/prompt_segments.py` no longer declares
+`session_summary` (its `PromptPlan`, `to_dict` and cache key are unchanged
+otherwise). Guard tests in `test_memory_tools.py` (`test_prompt_char_ceiling` at
+17,500, `test_prompt_market_data_semantics_present`,
+`test_prompt_inputs_authority_and_attachments_present`,
+`test_prompt_has_no_duplicated_rule_sentences`) and `test_prompt_segments.py`
+(`test_session_summary_is_not_a_declared_segment`). No tool, permission or
+capability was added. Design prompt:
+`docs/harness/prompt-v2-finance-harness-opencode-prompt.md`; progress log
+`docs/harness/prompt-v2-finance-harness-progress.md`.
+
+## ADR-H105 - A check is passing only when the executor recorded it; unbacked claims are marked
+
+**Decision.** Phase 4 builds the trust spine for the code domain by mirroring the
+finance validator discipline. `code/verify.py` is a per-run `VerificationLedger`:
+a check is passing ONLY when it holds a `VerificationRecord` with a zero exit
+code and a class in `CLAIM_CLASSES`. A deterministic, sentence-level claim parser
+(`CLAIM_PATTERNS`, negation-aware so `"the tests did not run"` is not a claim)
+finds pass-claims in the final answer; `unverified_claims` is the difference
+between what the model asserted and what the executor proved. `enforce_answer`
+(default `mark`, `strip` available) appends `UNVERIFIED_MARKER` naming the
+classes that could have supported an unbacked claim, so a pass-claim is never
+rendered as fact. `code/repair.py` runs plan -> edit -> check -> repair bounded by
+`RepairBudget` (attempts, wall-clock, cost), checked BEFORE every edit; on
+exhaustion it STOPS and reports the failing class + output digest. A
+`SANDBOX_UNAVAILABLE` check is `refused`, never a pass. `execute_run` CALLS both
+(no new graph node); the ledger is rehydrated from `HarnessRun.codeVerification`
+on resume (EMPTY when absent) and persisted from `code/store.py`. Six
+deterministic mistake categories read the blob + events. `output_digest` hashes
+the FULL normalized output (CRLF/trailing-whitespace independent).
+
+**Why.** The finance path is believable because a claim is checked against a
+record: retrieval -> coverage -> validator -> receipt. The code path had no
+equivalent, so a model could write "all tests pass" whether or not a test ran —
+and prose is not a security boundary (README §3.2). A deterministic check must own
+the decision; the model may propose a repair but never decides whether a check
+passed. Bounding the repair loop is the whole point: an unbounded retry is the
+failure mode this phase exists to prevent.
+
+**Consequences.** A passing claim is provably impossible without a zero-exit
+record (`supported = True` has exactly one assignment site, behind `passed`). The
+`codeVerification` blob is additive and old-row-safe; `persistence.py` stayed
+within its ratchet by putting the column DDL in `code/store.py` (the
+`run_lineage.py` precedent). The UI panel is titled "Proof it works" and renders
+plain lines with the mechanism behind a details affordance; the jargon gate
+scans it. The eval pack (`python -m harness.code.eval`) floors
+`falseVerifiedRate` at 0. Phase 5 may grant autonomy because output is now
+verifiable.

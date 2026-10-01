@@ -40,6 +40,13 @@ export const REFUSAL_KEY: Record<string, TranslationKey> = {
   PROFILE_DENIED: 'refusal.PROFILE_DENIED',
   WORKSPACE_UNBOUND: 'refusal.WORKSPACE_UNBOUND',
   UNKNOWN_WORKSPACE: 'refusal.UNKNOWN_WORKSPACE',
+  // Phase 3 command refusals.
+  COMMAND_NOT_ALLOWLISTED: 'refusal.COMMAND_NOT_ALLOWLISTED',
+  COMMAND_NOT_ENABLED: 'refusal.COMMAND_NOT_ENABLED',
+  COMMAND_EXECUTABLE_MISSING: 'refusal.COMMAND_EXECUTABLE_MISSING',
+  COMMAND_ARG_INVALID: 'refusal.COMMAND_ARG_INVALID',
+  SANDBOX_UNAVAILABLE: 'refusal.SANDBOX_UNAVAILABLE',
+  COMMAND_REFUSED: 'refusal.COMMAND_REFUSED',
 };
 
 export function refusalKey(code: string | null | undefined): TranslationKey {

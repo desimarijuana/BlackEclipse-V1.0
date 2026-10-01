@@ -179,6 +179,14 @@ class ToolContext:
     # The code-workspace store (CodeWorkspace rows). Attached per run so the
     # patch/diff tools can record a workspace without a global. None = no record.
     code_store: Any = None
+    # Operator feature flags for command classes (Phase 3). A class in
+    # commands.OPERATOR_GATED_CLASSES (dependency_install) is refused unless its
+    # name maps to True here. Default {} = every gated class off.
+    command_flags: Any = None
+    # The run's VerificationLedger (Phase 4). Every recorded command execution is
+    # also recorded here so the final answer can be checked against proven fact.
+    # None = runs without a ledger (direct tool calls, tests).
+    code_ledger: Any = None
 
 
 class DataBridge:

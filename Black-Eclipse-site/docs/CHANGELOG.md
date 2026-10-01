@@ -8,6 +8,84 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 4 — verify-and-repair trust spine.** New
+  `python/harness/code/verify.py` (the per-run `VerificationLedger`; a
+  deterministic, negation-aware sentence-level claim parser; `enforce_answer`
+  marking/stripping an unbacked pass-claim with `UNVERIFIED`) and
+  `python/harness/code/repair.py` (the bounded plan→edit→check→repair loop with a
+  `RepairBudget` checked before every edit; `refused` for an unavailable check;
+  `no_checks` when none). `execute_run` constructs/rehydrates the ledger, records
+  every command execution as proof, enforces the final answer, and persists
+  `HarnessRun.codeVerification` (DDL in `code/store.py`; `persistence.py` stayed
+  within its ratchet). Six deterministic code categories added to
+  `eclipse_memory/mistakes.py`. New `python/harness/code/eval/` runnable as
+  `python -m harness.code.eval` (falseVerifiedRate floor 0) and wired into
+  `scripts/test-evals.js`. Front door `src/lib/harness/code-client.ts` +
+  `code-verification-panel.tsx` ("Proof it works"); i18n `code.proof.*` keys +
+  extended jargon gate. ADR-H105 appended (ADR-H103/H104 were taken concurrently).
+  Baseline frozen in `docs/harness/roadmap/progress/phase-04-progress.md`.
+  docs updated: `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-04-verify-and-repair.md`, `docs/NAVIGATION.md`
+
+- **Eclipse Agent Prompt v2 — finance-harness completion.** Added the
+  finance-harness contract to `ECLIPSE_AGENT_SYSTEM_PROMPT`: `# Market data
+  semantics` (session state, price/period basis, corporate actions,
+  point-in-time vs restated, FX, staleness), `# Inputs and authority` (7-rank
+  precedence table + attached-document rule with `[attached: <name>]`),
+  `# Answer contract` (answer-first shape, `source: as-of` citations, numeric
+  conventions, a contrastive worked example) and `## Runtime awareness`
+  (bounded steps/timeout, stop rule, truncation, no redundant retrieval).
+  Rewrote the identity preamble so its action surface is exactly the bound tool
+  allowlist while the domain list stays competence-only. Removed the declared
+  but never-populated `session_summary` prompt segment
+  (`python/harness/prompt_segments.py`). Paid for the growth by tightening
+  `# Investment Analysis`, `## MCP tools`, `## Tool calls`, the identity preamble
+  and `# Tool-use enforcement`, retaining every rule. Prompt 15,302 → 17,443
+  chars (~3,826 → ~4,361 est. tokens), under the 17,500 ceiling. Guard tests
+  added in `python/tests/test_memory_tools.py` and
+  `python/tests/test_prompt_segments.py`. docs updated:
+  `docs/harness/decisions.md` (ADR-H104), `docs/harness/architecture.md`,
+  `docs/harness/prompt-v2-finance-harness-progress.md`.
+
+- **Harden the Eclipse Agent system prompt (reduction + accuracy).** Added a
+  run-scoped `runtime_context` `PromptSegment` (`prompt_segments.runtime_context_block`)
+  carrying the run's real date/time/UTC offset, wired in `graph.py` where settings
+  are resolved and rendered as its own per-run `SystemMessage` after the
+  byte-stable head (own content hash; excluded from `STATIC_SEGMENTS`). Fixed the
+  cache key: `prompt_cache_key` now includes the content hash of the reusable
+  segments, so a prompt edit changes the key (`runtime_context`/`run_instructions`/
+  `user_message` stay excluded); split `STATIC_SEGMENTS` from a new
+  `RUN_FROZEN_SEGMENTS` so run-frozen blocks no longer inflate
+  `reusable_total_tokens`. Deduplicated the execution-discipline blocks to one
+  statement per rule (39.7% of prior size) with finance-native examples, compacted
+  the 52-bullet identity preamble to a bounded role statement, made the bound tool
+  schemas authoritative (removed the dead `_TOOLS_LIST_SENTENCE` replacement), and
+  added prompt guard tests. Prompt 18,826 → 15,302 chars (~4,707 → 3,826 est.
+  tokens). Removed the now-redundant `'What time is it?' -> date` example.
+  docs updated: `docs/harness/decisions.md` (ADR-H103),
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`.
+
+- **Eclipse-as-a-Harness Phase 3 — sandboxed command broker.** New
+  `python/harness/code/commands.py` (the closed command-class TABLE: ArgSpec
+  validation, a closed `EXECUTABLES` map, the vendored interpreter named once, a
+  CLOSED `git_read` subcommand set, `dependency_install` off by default with
+  `--ignore-scripts`, `CommandUnavailable`) and `python/harness/code/sandbox.py`
+  (the ONE execution primitive: `RunSpec`, `build_env` scrubbed to
+  `SECRET_ENV_ALLOWLIST`, `select_backend` with a Windows Job Object
+  `KILL_ON_JOB_CLOSE` and a POSIX process group, wall-clock timeout + process-tree
+  kill, honest output cap, cancellation, and a `SandboxUnavailable` refusal that
+  never executes unsandboxed). `command_run` joins the registry
+  (`permission="write"`, `effect="external_action"`), authorized by the run's
+  autonomy profile; every attempt (including every refusal) is recorded as a
+  `HarnessCommandExecution` row (in `code/store.py`) and a `command.*` event.
+  Plain refusal copy with a recovery step added as data in `commands.py` and
+  `src/lib/i18n`; `test_plain_language.py` + the jargon gate extended. ADR-H102
+  appended (the series ended at H101). Baseline frozen in
+  `docs/harness/roadmap/progress/phase-03-progress.md` (vitest 169/1966; pytest
+  1841→1883; eval gates pass). docs updated: `docs/harness/decisions.md`,
+  `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-03-command-broker.md`, `docs/NAVIGATION.md`
+
 - **Eclipse-as-a-Harness Phase 2 — isolated worktree patch authoring.** New
   `python/harness/code/worktree.py` (allocate a disposable copy at
   `<root>/.black-eclipse/code-workspaces/<id>` via `git worktree add --detach`,
