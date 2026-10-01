@@ -28,7 +28,7 @@ file, not here.
 | 4 — Verify-and-repair trust spine | [phase-04](./phase-04-verify-and-repair.md) ✅ Done | 3 | 5 | §15.3 **7D** |
 | 5 — Coding agent, autonomy profiles, approvals | [phase-05](./phase-05-coding-agent.md) ✅ Done | 4 | 6,7,8,9 | §15.3 **7E** |
 | 6 — Harness-owned jobs and triggers | [phase-06](./phase-06-jobs-and-triggers.md) ✅ Done | 5 | 11 | new |
-| 7 — Delegation and child runs | [phase-07](./phase-07-delegation.md) | 5 | 9,10 | new |
+| 7 — Delegation and child runs | [phase-07](./phase-07-delegation.md) ✅ Done | 5 | 9,10 | new |
 | 8 — Analysis sandbox (quant code execution) | [phase-08](./phase-08-analysis-sandbox.md) | 5 | 9 | §16 |
 | 9 — Finance application scaffold kits | [phase-09](./phase-09-scaffold-kits.md) | 5,7,8 | 10 | §15 examples |
 | 10 — Self-improvement v2 (code + skills) | [phase-10](./phase-10-self-improvement.md) | 4,9 | 11 | new |

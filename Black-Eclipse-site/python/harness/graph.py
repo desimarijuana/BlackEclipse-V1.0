@@ -375,6 +375,10 @@ def build_graph(
         # Phase 4: the run's verification ledger — every command execution is
         # recorded here so the final answer can be checked against proven fact.
         code_ledger=code_ledger,
+        # Phase 7: the resolved allowlist (a delegate narrows children against it)
+        # and how deep this run sits in a delegation chain.
+        allowed=allowed,
+        delegation_depth=int((request.input.context or {}).get("delegationDepth") or 0),
     )
     registry.set_active_context(ctx)
 

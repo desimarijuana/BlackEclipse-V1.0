@@ -2796,3 +2796,55 @@ window is reconciled once at startup and always recorded (`missed=1`). The
 delivery interface ships two adapters (`in_app` on the existing SSE bus, and
 `artifact`); messaging is Phase 11, which adds an adapter without refactoring the
 job model. The seven library templates ship disabled.
+
+
+## ADR-H109 — Child runs are narrowed, never widened; self-reports require verifiable handles
+
+**Decision.** Phase 7 adds bounded fan-out (`python/harness/delegation.py` + the
+`delegate` tool). A child IS a normal run: it goes through the SAME graph,
+registry, policy engine and persistence (`execute_run` with a `parentRunId`), and
+there is NO second execution path or agent loop. The module owns only three things:
+
+1. **The budget** — `MAX_CHILDREN=4`, `MAX_DEPTH=2`, bounded concurrency, a
+   per-child timeout and a token budget. Caps are enforced at construction with
+   structured codes (`DELEGATION_WIDTH_EXCEEDED`, `DELEGATION_DEPTH_EXCEEDED`,
+   `DELEGATION_BUDGET_EXHAUSTED`); a writing child is refused
+   (`SANDBOX_UNAVAILABLE`) when the isolation primitive is unavailable rather than
+   run unisolated.
+2. **The narrowing** — `child_actor(parent, child)` returns an actor whose grants
+   are the parent's grants INTERSECTED with the child's scope. `operator` is NEVER
+   inherited (a child did not make the operator's call, so inheriting it would
+   launder authority), operator-only permissions (`skill.create/enable/...`) are
+   never passed down, code verbs exist only when the parent held them, and a
+   workspace wider than the parent's is refused. A requested tool outside the
+   parent's allowlist is refused (`DELEGATION_TOOL_NOT_HELD`).
+3. **The aggregation** — a child's PROSE is quoted; a child's CLAIM is repeated
+   only with a handle the parent can re-check. A check-claim ("tests pass") is
+   admitted ONLY with a `check_record_id` that verifies against the Phase 4
+   verification ledger; a `run_id`/`path`/`citation` handle does not back it. An
+   unbacked claim goes to `droppedClaims` and is rendered as unconfirmed — never
+   silently discarded.
+
+**Why.** The linkage already existed (`HarnessRun.parentRunId`,
+`run_lineage.py`'s `RunCheckpoint`/`ToolExecutionIdempotency`, a skill's child
+run), but nothing fanned out, bounded, or aggregated. Two existing precedents
+made the safety model obvious: `permissions.Actor.scopes` already models a grant
+set that can only narrow, and the MCP layer already holds that "a self-report is
+never proof". Reusing both avoided a second narrowing implementation and a second
+trust rule. The operator-non-inheritance line is the one that matters most: a
+child that needs an effectful action returns the request to the parent, which asks
+the operator, so authority is never laundered through a sub-run.
+
+**Consequences.** One additive, old-row-safe `HarnessRun.delegation` column (owned
+by `delegation_tools.py`, added idempotently like `run_lineage.py` owns its
+columns), so the fan-out is explainable after the fact with counts only. Events
+ride the existing `RunEmitter` (`delegation.started` / `child.started` /
+`child.completed` / `child.failed` / `child.refused` / `aggregated`), so
+`explain_run` and the session trace already cover a delegation with no new
+observability surface. `delegate` is registered on the one registry and added to
+both the finance and code agent allowlists. `code/tools.py` did NOT grow past its
+size ceiling: the handler lives in a new `delegation_tools.py`. Writing children
+get their own Phase 2 worktree; the parent lists diffs and conflicting hunks and
+NEVER merges (a merge stays a Phase 5 `approve_external` action with an operator
+approval). The user sees the finance job and a plain progress list, never
+orchestration vocabulary.

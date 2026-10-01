@@ -51,3 +51,50 @@ def test_unknown_code_falls_back_to_plain_copy():
 def test_refusal_sentences_end_in_a_full_stop(code):
     copy = refusal_copy(code)
     assert copy["reason"].rstrip().endswith((".", "!", "?”", "?")), copy["reason"]
+
+
+# -- Phase 7: delegation progress + aggregation sentences ---------------------
+
+
+def test_delegation_aggregation_and_reasons_are_plain():
+    """The fan-out user-facing text names the JOB, never the machinery."""
+    from harness.delegation import ChildOutcome, DelegationResult, aggregate
+
+    outcomes = [
+        ChildOutcome(child_index=0, run_id="run_0", status="completed",
+                     summary="Prices for AAPL.", claimed=["All tests pass."]),
+        ChildOutcome(child_index=1, run_id="run_1", status="failed",
+                     summary="", reason="It couldn't be reached."),
+    ]
+    result = DelegationResult(
+        delegationId="dlg_x", outcomes=outcomes, droppedClaims=["All tests pass."],
+    )
+    result.aggregate = aggregate(result)
+    assert result.aggregate
+    assert not _leaks(result.aggregate), result.aggregate
+
+    reasons = {
+        "child_actor": "A child cannot work in a folder its parent does not already have.",
+        "tool_not_held": "This child asked for a tool, which this task isn't allowed to use.",
+        "width": "This asks for 5 at once; the most Eclipse does is 4.",
+        "depth": "This work is nested too deeply for Eclipse to keep it straight.",
+        "budget": "There isn't enough room to do all of these at once; try fewer at a time.",
+        "sandbox": "That part needs to make changes, which isn't available on this computer right now.",
+        "timeout": "This part took too long and was stopped.",
+        "cancelled": "This part was stopped.",
+        "no_result": "That part didn't return a result.",
+    }
+    for name, sentence in reasons.items():
+        assert not _leaks(sentence), f"{name} leaks: {sentence}"
+        assert sentence.rstrip().endswith((".", "!", "?")), name
+
+
+def test_delegation_uses_no_orchestration_vocabulary():
+    """child / parent / fan-out / budget / concurrency / depth never reach the surface."""
+    from harness.delegation import aggregate
+
+    text = aggregate(type("R", (), {"outcomes": [], "droppedClaims": []})())
+    banned = ("child", "parent", "subagent", "fan-out", "fanout", "budget", "concurrency", "depth")
+    lowered = text.casefold()
+    for word in banned:
+        assert word not in lowered, f"{word!r} reached the surface: {text}"

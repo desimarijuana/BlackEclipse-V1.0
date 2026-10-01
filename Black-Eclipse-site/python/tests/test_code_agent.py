@@ -62,8 +62,11 @@ def test_unknown_autonomy_is_read_only_subset():
 def test_code_agent_has_no_finance_tool():
     for name in CODE_AGENT.tools:
         assert not name.startswith(FINANCE_TOOL_PREFIXES), name
+    # `delegate` (Phase 7) is a shared ORCHESTRATION capability, not a finance
+    # tool: it only fans out sub-runs and holds no data permission of its own.
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
+        "delegate",
     })
 
 
@@ -74,8 +77,10 @@ def test_code_agent_does_not_allow_mcp():
 def test_finance_agent_unchanged_no_code_tool():
     for name in ECLIPSE_AGENT.tools:
         assert not name.startswith(CODE_TOOL_PREFIXES), name
-    # The finance allowlist is exactly what it was (24 tools; no code tool added).
-    assert len(ECLIPSE_AGENT.tools) == 24
+    # Phase 5: 24 tools, no code tool. Phase 7 adds ONLY `delegate` (25), a
+    # shared orchestration capability with no finance/code permission of its own.
+    assert len(ECLIPSE_AGENT.tools) == 25
+    assert "delegate" in ECLIPSE_AGENT.tools
     assert ECLIPSE_AGENT.allowMcpTools is True
 
 

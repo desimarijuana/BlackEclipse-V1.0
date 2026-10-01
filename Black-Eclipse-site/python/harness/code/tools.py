@@ -142,6 +142,9 @@ class CommandRunInput(BaseModel):
     note: str = Field("", max_length=200)
 
 
+from ..delegation_tools import delegate_schema as _delegate_schema  # noqa: E402
+
+
 _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "workspace_status": {"type": "object", "properties": {}, "additionalProperties": False},
     "workspace_list": {
@@ -256,6 +259,7 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "delegate": _delegate_schema(),
 }
 
 
@@ -893,6 +897,9 @@ async def _docs(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "truncated": truncated,
     }
 
+# Phase 7 (`delegate`) is registered below; its handler lives in
+# `harness/delegation_tools.py` so this module stays under its size ceiling.
+
 
 # ── Registration ────────────────────────────────────────────────────────────
 
@@ -910,6 +917,7 @@ _CODE_TOOL_NAMES = (
     "code_push",
     "code_open_pr",
     "code_deploy",
+    "delegate",
 )
 
 
@@ -1009,6 +1017,23 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
             effect="external_action",
             effect_metadata={"actionKind": spec["action"]},
         ))
+    # Phase 7: bounded fan-out. `read` at the registry seam (each child enforces
+    # its own policy). The handler lives in `harness/delegation_tools.py`.
+    from ..delegation_tools import delegate_handler  # noqa: PLC0415
+
+    registry.register(ToolDefinition(
+        name="delegate",
+        description=(
+            "Work on several INDEPENDENT sub-questions at once and combine the results. "
+            "Use this only when the parts do not need each other's output (e.g. review five "
+            "separate companies). Each part runs as a normal run with this run as its parent; "
+            "a part's claim is repeated only when it can be re-checked, and anything that "
+            "cannot be confirmed is reported as unconfirmed."
+        ),
+        input_schema=_INPUT_SCHEMAS["delegate"],
+        handler=delegate_handler,
+        permission="read", risk="low", timeout_ms=600_000,
+    ))
     return list(_CODE_TOOL_NAMES)
 
 

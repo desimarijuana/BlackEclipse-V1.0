@@ -1,10 +1,10 @@
 ---
 title: "Phase 7 — Delegation and Child Runs"
-status: Not started
+status: Done
 phase: 7
 depends_on: [5]
 unlocks: [9, 10]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 7 — Delegation and Child Runs

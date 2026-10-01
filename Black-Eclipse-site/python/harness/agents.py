@@ -79,6 +79,9 @@ ECLIPSE_AGENT = AgentConfig(
         "memory_search_native",
         "memory_search_external",
         "memory_provider_status",
+        # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
+        # these five companies"). A research capability, not only a code one.
+        "delegate",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -130,6 +133,8 @@ CODE_AGENT_TOOLS = [
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     # External actions (Phase 5) — approve_external only, each single-use approved.
     "code_commit", "code_push", "code_open_pr", "code_deploy",
+    # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
+    "delegate",
 ]
 
 CODE_AGENT = AgentConfig(

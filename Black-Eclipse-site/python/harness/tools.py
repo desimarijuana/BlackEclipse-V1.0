@@ -187,6 +187,13 @@ class ToolContext:
     # also recorded here so the final answer can be checked against proven fact.
     # None = runs without a ledger (direct tool calls, tests).
     code_ledger: Any = None
+    # The run's resolved tool allowlist (Phase 7). The `delegate` tool narrows a
+    # child's tools against it; None = the unrestricted case. Set by the graph
+    # from `resolve_surface`; never caller-supplied.
+    allowed: Any = None
+    # How deep this run sits in a delegation chain (Phase 7). 0 = a top-level
+    # run; a child is parent_depth + 1 and cannot spawn past MAX_DEPTH.
+    delegation_depth: int = 0
 
 
 class DataBridge:

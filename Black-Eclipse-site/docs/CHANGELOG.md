@@ -8,6 +8,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 7 — delegation and child runs.**
+  New `python/harness/delegation.py` (`DelegationChild`/`DelegationRequest`/`ChildOutcome`/
+  `DelegationResult`, `VerifiableHandle`, `child_actor`, `narrow_tools`,
+  `partition_claims`, `aggregate`, `run_delegation`; `MAX_CHILDREN=4`, `MAX_DEPTH=2`,
+  bounded concurrency + per-child timeout + token budget). A child IS a normal run
+  (`execute_run` with `parentRunId`); the module owns only the budget, the
+  narrowing and the aggregation. `child_actor` intersects the parent's grants and
+  NEVER inherits `operator` (the laundering guard); a wider workspace and an
+  unheld tool are refused. Aggregation admits a child's check-claim only with a
+  re-checkable `check_record_id` against the Phase 4 ledger; unbacked claims go to
+  `droppedClaims` and render unconfirmed. The `delegate` tool (handler in the new
+  `delegation_tools.py`, registered in `code/tools.py` under its size ceiling) is
+  added to both the finance and code agent allowlists, with prompt guidance on
+  when (and when not) to delegate. Additive, old-row-safe `HarnessRun.delegation`
+  blob + `delegation.*` events on the existing emitter. Tests
+  `test_delegation.py`/`_narrowing`/`_aggregation`/`_tool.py`; plain-language gate
+  extended. ADR-H109. docs updated: `docs/harness/decisions.md`,
+  `docs/NAVIGATION.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-07-delegation.md`,
+  `docs/harness/roadmap/progress/phase-07-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 5 — coding agent, autonomy profiles, approvals.**
   New `code-agent` preset (`agents.py`) whose allowlist is the REAL Phase 1–3
   code tools and NO finance tool, and which does not set `allowMcpTools`;
