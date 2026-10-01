@@ -82,6 +82,9 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
         # these five companies"). A research capability, not only a code one.
         "delegate",
+        # Phase 8: the analysis sandbox (compute a derived metric). OFF per run
+        # unless the caller enables it (`RunRequest.analysisEnabled`).
+        "analysis_run",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -135,6 +138,8 @@ CODE_AGENT_TOOLS = [
     "code_commit", "code_push", "code_open_pr", "code_deploy",
     # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
     "delegate",
+    # Analysis sandbox (Phase 8) — compute a derived metric in isolation.
+    "analysis_run",
 ]
 
 CODE_AGENT = AgentConfig(

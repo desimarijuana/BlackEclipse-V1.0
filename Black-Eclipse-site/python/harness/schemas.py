@@ -184,6 +184,10 @@ class RunRequest(BaseModel):
     # tool called with no binding is refused (Phase 0: no workspace ⇒ no code
     # permissions, whatever the profile).
     workspaceId: Optional[str] = None  # noqa: N815
+    # Phase 8 (additive, optional): enable the analysis sandbox for THIS run.
+    # Default False — discovery is not activation. A computed number is always
+    # labelled "worked out by Eclipse" and never presented as retrieved data.
+    analysisEnabled: bool = False  # noqa: N815
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

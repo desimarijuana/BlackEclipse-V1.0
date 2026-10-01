@@ -194,6 +194,10 @@ class ToolContext:
     # How deep this run sits in a delegation chain (Phase 7). 0 = a top-level
     # run; a child is parent_depth + 1 and cannot spawn past MAX_DEPTH.
     delegation_depth: int = 0
+    # Whether the analysis sandbox is enabled for this run (Phase 8). Default
+    # False: discovery is not activation. Set by the graph from
+    # `RunRequest.analysisEnabled`.
+    analysis_enabled: bool = False
 
 
 class DataBridge:

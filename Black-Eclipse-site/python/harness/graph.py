@@ -379,6 +379,8 @@ def build_graph(
         # and how deep this run sits in a delegation chain.
         allowed=allowed,
         delegation_depth=int((request.input.context or {}).get("delegationDepth") or 0),
+        # Phase 8: the analysis sandbox is OFF per run unless the caller enables it.
+        analysis_enabled=bool(request.analysisEnabled),
     )
     registry.set_active_context(ctx)
 

@@ -261,6 +261,9 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "delegate": _delegate_schema(),
 }
+from ..analysis_tools import analysis_schema as _analysis_schema  # noqa: E402
+
+_INPUT_SCHEMAS["analysis"] = _analysis_schema()
 
 
 # ── Events ──────────────────────────────────────────────────────────────────
@@ -918,6 +921,7 @@ _CODE_TOOL_NAMES = (
     "code_open_pr",
     "code_deploy",
     "delegate",
+    "analysis_run",
 )
 
 
@@ -1033,6 +1037,23 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         input_schema=_INPUT_SCHEMAS["delegate"],
         handler=delegate_handler,
         permission="read", risk="low", timeout_ms=600_000,
+    ))
+    # Phase 8: the analysis sandbox (compute, don't just retrieve). Handler lives
+    # in `harness/analysis_tools.py`; OFF per run (RunRequest.analysisEnabled).
+    from ..analysis_tools import analysis_run  # noqa: PLC0415
+
+    registry.register(ToolDefinition(
+        name="analysis_run",
+        description=(
+            "Work something out from data with a short calculation — a return, a drawdown, "
+            "a correlation, a reconciliation, a what-if. Prefer a ready-made recipe; otherwise "
+            "give a short program that reads `inputs` and puts its answer in `result`. The "
+            "result is always labelled as worked out by Eclipse, never as data from a source. "
+            "If a needed input is missing, ask — never invent it."
+        ),
+        input_schema=_INPUT_SCHEMAS["analysis"],
+        handler=analysis_run,
+        permission="read", risk="low", timeout_ms=180_000,
     ))
     return list(_CODE_TOOL_NAMES)
 

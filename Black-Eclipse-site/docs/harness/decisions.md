@@ -2848,3 +2848,56 @@ get their own Phase 2 worktree; the parent lists diffs and conflicting hunks and
 NEVER merges (a merge stays a Phase 5 `approve_external` action with an operator
 approval). The user sees the finance job and a plain progress list, never
 orchestration vocabulary.
+
+
+## ADR-H110 — Computed ≠ retrieved: a code-produced number carries its code digest and never enters research claims
+
+**Decision.** Phase 8 adds a bounded, reproducible analysis sandbox
+(`python/harness/code/execution.py`, `code/recipes.py`, the `analysis_run` tool).
+The sandbox runs a short program in the Phase 3 isolation primitive, records
+exactly enough to re-derive the result (the VENDORED interpreter path, the source
+digest, the input digests, the resolved package-set digest), and labels the output
+with a `Provenance` record. The rule, enforced in code and not in a prompt:
+
+1. Every execution output is `kind="computed"`. There is **no code path** that
+   produces `retrieved` from an execution.
+2. A computed number **without** a provenance record renders `UNAVAILABLE`, never
+   a bare number (`render_value` fails closed: a missing record is a bug).
+3. A computed number **cannot enter a research claim.** The only legal route for a
+   derivation to become evidence is re-expression through
+   `research/calculations.py` — an explicit act carrying formula/version/input
+   provenance, never an automatic promotion. An analysis run leaves the research
+   receipt untouched.
+4. Imports are checked by an **AST walk** (never `eval`/`exec` on the source, never
+   a regex as the only guard) against an explicit allowlist; there is no network.
+
+The tool is **off per run** (`RunRequest.analysisEnabled`, default `False`) — the
+same "discovery is not activation" discipline the MCP layer applies (ADR-H39). A
+missing input is a QUESTION, not a guess: the recipes refuse with a plain prompt
+rather than substituting a default or a silently shorter period.
+
+**Why.** `research/calculations.py` is the right shape — a small, auditable,
+provenance-carrying calculator — but its list is closed, so a metric outside it
+ends at retrieval or nothing. Opening a sandbox without a provenance rule would
+create the exact hazard `AGENTS.md` names: a plausible-looking number from
+invented inputs, indistinguishable from a retrieved fact. The MCP layer already
+established the precedent (every external result carries `verification`,
+`eclipseVerified: false`, source and `retrievedAt` and is labelled in its text);
+a computed result gets the same treatment with `computed` instead of `external`.
+Point 3 is the line that keeps the phase from quietly undermining the evidence
+system: without it, "run some code" becomes a laundering route into a claim.
+
+**Consequences.** `analysis_run` registers on the ONE registry and runs through
+the existing graph; the handler lives in the new `analysis_tools.py`
+(`code/tools.py` stays under its size ceiling). `RunRequest.analysisEnabled` plus
+`ToolContext.analysis_enabled` (default False) gate it. An additive, idempotent
+`AnalysisRecord` table (owned by `analysis_tools.py`, not the ratcheted
+`persistence.py`) records each run bounded. Artefacts are written to the
+gitignored `.black-eclipse/artifacts/<runId>/` with a SHA-256 digest as identity,
+so the behavioural reproducibility gate (same source + inputs ⇒ same digest) is
+meaningful. The recipes are data, each tested and each failing honestly on a
+missing input. The surface says "Worked out by Eclipse" with the method line, and
+never interpreter/module/argv/exit-code vocabulary; the computed/retrieved
+distinction is a front-door helper (`analysis-types.ts`) with its own invariant
+test. The finance and code agent allowlists gained the tool; the finance-agent
+tool-count assertion moved 24 → 26 across Phases 7–8.

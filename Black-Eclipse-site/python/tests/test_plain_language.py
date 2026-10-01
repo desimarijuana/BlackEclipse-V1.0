@@ -98,3 +98,35 @@ def test_delegation_uses_no_orchestration_vocabulary():
     lowered = text.casefold()
     for word in banned:
         assert word not in lowered, f"{word!r} reached the surface: {text}"
+
+
+# -- Phase 8: analysis (computed) labels + missing-input prompts --------------
+
+
+def test_analysis_labels_and_missing_prompts_are_plain():
+    """A computed number names the JOB, never the machinery."""
+    from harness.code.execution import computed_provenance
+    from harness.code.recipes import RECIPES, run_recipe
+
+    label = computed_provenance("the period change", source_digest="d").label
+    assert not _leaks(label), label
+    assert label == "Worked out by Eclipse"
+
+    for recipe in RECIPES:
+        prompt = recipe.missing_prompt
+        assert not _leaks(prompt), f"{recipe.name} prompt leaks: {prompt}"
+        assert prompt.rstrip().endswith(("?", ".")), recipe.name
+
+
+def test_analysis_surface_uses_no_execution_vocabulary():
+    """interpreter/argv/stdout/exit-code/module never reach a computed surface."""
+    from harness.code.execution import computed_provenance
+    from harness.code.recipes import RECIPES
+
+    banned = ("interpreter", "argv", "stdout", "stderr", "exit code", "module", "sandbox", "import")
+    surface = [computed_provenance("x", source_digest="d").label]
+    surface += [r.missing_prompt for r in RECIPES]
+    for text in surface:
+        lowered = text.casefold()
+        for word in banned:
+            assert word not in lowered, f"{word!r} reached the surface: {text}"

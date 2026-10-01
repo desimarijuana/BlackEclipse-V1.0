@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 8 — analysis sandbox (computing, not just retrieving).**
+  New `python/harness/code/execution.py` (bounded, reproducible analysis on the
+  Phase 3 sandbox: AST import allowlist — never eval/exec — source/input/interpreter/
+  package digests, artifact collection with SHA-256 identity, and the `Provenance`
+  contract). The provenance rule is enforced in code: every execution output is
+  `kind="computed"`, a computed number with no provenance renders `UNAVAILABLE`
+  (fail-closed), and a computed number can never enter a research claim (the only
+  legal path is `research/calculations.py`; the receipt is untouched). The
+  `analysis_run` tool (handler in the new `analysis_tools.py`, registered in
+  `code/tools.py` under its size ceiling) is OFF per run
+  (`RunRequest.analysisEnabled`, default False). New `code/recipes.py` ships seven
+  tested recipes, each failing honestly (asks) on a missing input. Additive
+  `AnalysisRecord` table; front door `src/lib/harness/analysis-types.ts` +
+  `src/components/chat/computed-result-panel.tsx`; i18n `analysis.*`; tests
+  `test_analysis_{execution,provenance,recipes,tool}.py` + `analysis-types.test.ts`.
+  ADR-H110. docs updated: `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-08-analysis-sandbox.md`,
+  `docs/harness/roadmap/progress/phase-08-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 7 — delegation and child runs.**
   New `python/harness/delegation.py` (`DelegationChild`/`DelegationRequest`/`ChildOutcome`/
   `DelegationResult`, `VerifiableHandle`, `child_actor`, `narrow_tools`,

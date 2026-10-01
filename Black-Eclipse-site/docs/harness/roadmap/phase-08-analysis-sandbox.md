@@ -1,10 +1,10 @@
 ---
 title: "Phase 8 — Analysis Sandbox (Computing, Not Just Retrieving)"
-status: Not started
+status: Done
 phase: 8
 depends_on: [5]
 unlocks: [9]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 8 — Analysis Sandbox (Computing, Not Just Retrieving)

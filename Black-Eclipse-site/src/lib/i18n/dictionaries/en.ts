@@ -314,6 +314,19 @@ export const en = {
   'jobs.run.webhook.token': 'Copy this now — you won’t see it again.',
   'jobs.run.details': 'Details',
 
+  // ── Analysis / computed results (Phase 8) ────────────────────────────────
+  // A computed number says so, in words. It names the finance job, never the
+  // mechanism (no interpreter/module/exit-code vocabulary).
+  'analysis.computed': 'Worked out by Eclipse',
+  'analysis.retrieved': 'From a source',
+  'analysis.unavailable': 'This number has no record of where it came from, so Eclipse won’t show it.',
+  'analysis.noOutputs': 'Nothing came back from that.',
+  'analysis.saved': 'Saved',
+  'analysis.notASource': 'This was worked out by Eclipse from the data above — it isn’t a figure from a data source.',
+  'analysis.details': 'How Eclipse worked this out',
+  'analysis.needsInput': 'I need a bit more to work that out: {what}',
+  'analysis.notEnabled': 'Eclipse isn’t set up to work numbers out in this session.',
+
   // Keyboard shortcuts dialog
   'keyboard.title': 'Keyboard shortcuts',
   'keyboard.searchPlaceholder': 'Search actions, keys, or pages',
