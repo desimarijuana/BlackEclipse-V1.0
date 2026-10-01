@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 # Bumped when the composition itself changes (not when content changes). This is
@@ -24,15 +25,25 @@ AGENT_VERSION = "eclipse-agent-v1"
 SYSTEM_POLICY_VERSION = "policy-v1"
 TOOL_SCHEMA_VERSION = "tool-schema-v1"
 
-# Segment ids. The first group is REUSABLE across runs; the last two are
-# run-specific and deliberately excluded from the cache key.
+# Segments REUSABLE across runs: only these belong to the reuse accounting and
+# contribute their CONTENT hash to the cache key. `system_policy` (the composed
+# prompt) is included so a prompt-content edit changes the key even when the
+# hand-bumped version has not changed.
 STATIC_SEGMENTS = (
     "system_policy",
     "agent_identity",
     "tool_schemas",
+)
+
+# Segments FROZEN for one run (materialised at run start) but not reusable across
+# runs, so they must not inflate `reusable_total_tokens`. `run_instructions` and
+# `user_message` are turn-specific and stay out of the cache key entirely.
+RUN_FROZEN_SEGMENTS = (
     "profile_snapshot",
-    "session_summary",
     "skill_manifest",
+    "runtime_context",
+    "run_instructions",
+    "user_message",
 )
 
 # Bounds.
@@ -46,6 +57,32 @@ def _token_estimate(text: str) -> int:
 
 def _hash(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def runtime_context_block(run_id: str, now: Optional[datetime] = None) -> str:
+    """The run-scoped date/time context block (TASK 1).
+
+    Carries the current date, time and UTC offset for the run so as-of periods,
+    staleness and revalidation reasoning have a real clock. It is rendered as its
+    OWN block — never inside the byte-stable system-prompt head — so the stable
+    prefix keeps caching. `now` defaults to the current UTC time; a caller may
+    pass an explicit aware datetime (tests). The date is always the real run
+    date, never a fabricated one.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    stamp = now.astimezone(timezone.utc)
+    offset = stamp.strftime("%z")
+    return (
+        "Runtime context (current as of this run; use for as-of periods and "
+        "staleness, not as market evidence):\n"
+        f"- Date: {stamp.strftime('%Y-%m-%d')} ({stamp.strftime('%A')})\n"
+        f"- Time: {stamp.strftime('%H:%M:%S')} UTC\n"
+        f"- UTC offset: {offset}\n"
+        f"- Run: {run_id}"
+    )
 
 
 @dataclass
@@ -89,7 +126,6 @@ class PromptPlan:
     tool_schema_version: str = TOOL_SCHEMA_VERSION
     profile_snapshot_id: Optional[str] = None
     skill_manifest_version: Optional[str] = None
-    session_summary_version: Optional[str] = None
     provider_context_version: Optional[str] = None
 
     def by_id(self, segment_id: str) -> Optional[PromptSegment]:
@@ -109,7 +145,6 @@ class PromptPlan:
             "toolSchemaVersion": self.tool_schema_version,
             "profileSnapshotId": self.profile_snapshot_id,
             "skillManifestVersion": self.skill_manifest_version,
-            "sessionSummaryVersion": self.session_summary_version,
             "providerContextVersion": self.provider_context_version,
             "reusableTokens": self.reusable_total_tokens(),
             "segments": [s.to_dict() for s in self.segments],
@@ -158,16 +193,20 @@ def build_prompt_plan(
     tool_names: Optional[list[str]] = None,
     profile_block: str = "",
     profile_snapshot_id: Optional[str] = None,
-    session_summary: str = "",
     skill_manifest: str = "",
     skill_manifest_version: Optional[str] = None,
+    runtime_context: str = "",
     run_instructions: str = "",
     user_message: str = "",
 ) -> PromptPlan:
     """Assemble the segment set and compute the stable cache key.
 
-    The cache key covers only stable identity (versions + snapshot/manifest
-    ids), never the user message, so a new turn reuses the static segments.
+    The cache key covers stable identity AND the CONTENT hash of each reusable
+    (STATIC) segment, so editing the system prompt changes the key even when the
+    hand-bumped version has not. The run-frozen and turn-specific segments
+    (`runtime_context`, `run_instructions`, `user_message`, …) are deliberately
+    excluded so they never invalidate the reusable prefix or inflate its
+    accounting.
     """
     tool_schema = _tool_schema_digest(tool_names or [])
     segments = [
@@ -177,10 +216,10 @@ def build_prompt_plan(
                       version=f"{TOOL_SCHEMA_VERSION}:{tool_schema}"),
         PromptSegment(id="profile_snapshot", content=profile_block, source="eclipse_memory/profile.py",
                       version=profile_snapshot_id or _hash(profile_block)),
-        PromptSegment(id="session_summary", content=session_summary, source="session_index.py",
-                      version=_hash(session_summary) if session_summary else "empty"),
         PromptSegment(id="skill_manifest", content=skill_manifest, source="skills/registry.py",
                       version=skill_manifest_version or (_hash(skill_manifest) if skill_manifest else "empty")),
+        PromptSegment(id="runtime_context", content=runtime_context, source="prompt_segments.py",
+                      version=_hash(runtime_context) if runtime_context else "empty"),
         PromptSegment(id="run_instructions", content=run_instructions, source="graph.py", version="1"),
         PromptSegment(id="user_message", content=user_message, source="request", version="1"),
     ]
@@ -189,7 +228,6 @@ def build_prompt_plan(
         tool_schema_version=f"{TOOL_SCHEMA_VERSION}:{tool_schema}",
         profile_snapshot_id=profile_snapshot_id,
         skill_manifest_version=skill_manifest_version,
-        session_summary_version=segments[4].version,
     )
     plan.cache_key = prompt_cache_key(plan)
     for segment in segments:
@@ -202,10 +240,13 @@ def _tool_schema_digest(tool_names: list[str]) -> str:
 
 
 def prompt_cache_key(plan: PromptPlan) -> str:
-    """The stable cache key: versions + reusable-segment versions only.
+    """The stable cache key: identity + reusable-segment CONTENT hashes.
 
-    Deliberately excludes `run_instructions` and `user_message` so a new turn
-    does not invalidate the reusable segments.
+    `staticContentHashes` covers the system-policy text (so a prompt edit changes
+    the key), the agent identity and the tool-schema digest. It deliberately
+    excludes `runtime_context`, `run_instructions` and `user_message` so a new
+    turn, a new run date, or a date change does not invalidate the reusable
+    segments.
     """
     components = {
         "agentVersion": plan.agent_version,
@@ -213,8 +254,10 @@ def prompt_cache_key(plan: PromptPlan) -> str:
         "toolSchemaVersion": plan.tool_schema_version,
         "profileSnapshotId": plan.profile_snapshot_id or "",
         "skillManifestVersion": plan.skill_manifest_version or "",
-        "sessionSummaryVersion": plan.session_summary_version or "",
         "providerContextVersion": plan.provider_context_version or "",
+        "staticContentHashes": {
+            s.id: s.content_hash for s in plan.segments if s.id in STATIC_SEGMENTS
+        },
     }
     return _hash(json.dumps(components, sort_keys=True, separators=(",", ":")))
 
@@ -245,6 +288,7 @@ __all__ = [
     "MAX_SKILL_MANIFEST_CHARS",
     "PromptPlan",
     "PromptSegment",
+    "RUN_FROZEN_SEGMENTS",
     "STATIC_SEGMENTS",
     "SYSTEM_POLICY_VERSION",
     "TOOL_SCHEMA_VERSION",
@@ -252,4 +296,5 @@ __all__ = [
     "build_skill_manifest",
     "compare_plans",
     "prompt_cache_key",
+    "runtime_context_block",
 ]

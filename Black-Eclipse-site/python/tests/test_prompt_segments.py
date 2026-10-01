@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from harness.prompt_segments import (
     MAX_SKILLS_IN_MANIFEST,
+    STATIC_SEGMENTS,
     PromptSegment,
     build_prompt_plan,
     build_skill_manifest,
     compare_plans,
     prompt_cache_key,
+    runtime_context_block,
 )
 
 
@@ -83,15 +85,55 @@ def test_segment_records_identity():
     assert segment.cache_key == plan.cache_key
 
 
-def test_reusable_token_accounting_excludes_user_message():
-    plan = _plan()
+def test_prompt_content_edit_changes_cache_key():
+    """TASK 4: a system-policy CONTENT change must change the cache key.
+
+    The key was previously derived from hand-bumped versions only, so editing the
+    prompt left it unchanged.
+    """
+    a = _plan(system_prompt="You are Eclipse Agent. Rule A.")
+    b = _plan(system_prompt="You are Eclipse Agent. Rule B.")
+    assert a.cache_key != b.cache_key
+    assert [c["segment"] for c in compare_plans(a, b)] == ["system_policy"]
+
+
+def test_runtime_context_does_not_change_cache_key():
+    """The run date lives in a run-frozen segment, never the reusable key."""
+    a = _plan(runtime_context="Date: 2026-10-01")
+    b = _plan(runtime_context="Date: 2026-10-02")
+    assert a.cache_key == b.cache_key
+    assert a.by_id("runtime_context").content_hash != b.by_id("runtime_context").content_hash
+
+
+def test_reusable_token_accounting_excludes_run_frozen_segments():
+    plan = _plan(
+        runtime_context="Date: 2026-10-01",
+        run_instructions="Answer in JSON.",
+    )
     reusable = plan.reusable_total_tokens()
     assert reusable == sum(
-        s.token_estimate for s in plan.segments
-        if s.id in ("system_policy", "agent_identity", "tool_schemas",
-                    "profile_snapshot", "session_summary", "skill_manifest")
+        s.token_estimate for s in plan.segments if s.id in STATIC_SEGMENTS
     )
+    # Run-frozen and turn-specific segments are NOT part of the reuse accounting.
+    for segment_id in ("runtime_context", "run_instructions", "user_message",
+                       "profile_snapshot", "skill_manifest"):
+        assert segment_id not in STATIC_SEGMENTS
     assert reusable < sum(s.token_estimate for s in plan.segments)
+
+
+def test_session_summary_is_not_a_declared_segment():
+    """M6: the never-populated `session_summary` was removed from the plan."""
+    assert _plan().by_id("session_summary") is None
+
+
+def test_runtime_context_block_carries_run_date_and_id():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 10, 1, 14, 30, 0, tzinfo=timezone.utc)
+    block = runtime_context_block("run_abc", now=now)
+    assert "2026-10-01" in block
+    assert "14:30:00" in block
+    assert "run_abc" in block
 
 
 # ── skill manifest ──────────────────────────────────────────────────────────

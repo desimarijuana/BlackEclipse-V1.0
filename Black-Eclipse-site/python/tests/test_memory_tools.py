@@ -279,11 +279,70 @@ async def test_tool_allowlist_bound_in_run(env, monkeypatch):
 
 
 def test_prompt_has_no_phantom_capabilities():
+    import re
+
+    from harness.agents import ECLIPSE_AGENT
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
     for phantom in ("skill_manage", "terminal", "read_file", "search_files",
                     "execute_code", "available_skills", "MEDIA:", "::preview"):
         assert phantom not in prompt, f"prompt still promises {phantom!r}"
+
+    # No tool that LOOKS like an invocation may be named unless it is in the
+    # agent's allowlist (a namespaced `mcp__…` name is a user-directed surface).
+    allowed = set(ECLIPSE_AGENT.tools)
+    for token in re.findall(r"`([a-z][a-z0-9_]*)\(", prompt):
+        assert token in allowed or token.startswith("mcp_"), (
+            f"prompt invokes tool {token!r} which is not in the agent allowlist"
+        )
+    for token in re.findall(r"\b([a-z][a-z0-9_]{3,})\(", prompt):
+        if token.endswith(("_get", "_search", "_view", "_invoke", "_list",
+                           "_run", "_apply", "_read", "_open", "_source")):
+            assert token in allowed, (
+                f"prompt names tool-like {token!r} not in the agent allowlist"
+            )
+
+
+def test_prompt_char_ceiling():
+    """The finance-harness prompt stays under its ceiling (a size ratchet)."""
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
+
+    assert len(prompt) <= 17500, f"prompt grew to {len(prompt)} chars"
+
+
+def test_prompt_market_data_semantics_present():
+    """M1: the finance comparability rules are present."""
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
+
+    assert "# Market data semantics" in prompt
+    for rule in ("Session state", "Price basis", "Period basis",
+                 "Corporate actions", "Point-in-time vs restated", "FX"):
+        assert rule in prompt, f"market-data rule missing: {rule}"
+
+
+def test_prompt_inputs_authority_and_attachments_present():
+    """M2: the attached-document rule and the precedence table are present."""
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
+
+    assert "# Inputs and authority" in prompt
+    assert "[attached:" in prompt
+    assert "system policy" in prompt and "run instructions" in prompt
+    assert "conversation history" in prompt
+
+
+def test_prompt_has_no_duplicated_rule_sentences():
+    """M7: no rule sentence (>40 chars) is repeated across the prompt."""
+    import re
+
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
+
+    sentences = [
+        re.sub(r"\s+", " ", s).strip()
+        for s in re.split(r"(?<=[.!?])\s+", prompt)
+        if len(s.strip()) > 40
+    ]
+    duplicates = {s for s in sentences if sentences.count(s) > 1}
+    assert not duplicates, f"duplicated rule text: {duplicates}"
 
 
 def _run_request(*, run_id: str, user_id: str, query: str):

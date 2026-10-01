@@ -160,11 +160,16 @@ async def test_conversation_history_reaches_the_model(store, monkeypatch):
     assert result.status == "completed"
 
     msgs = captured["messages"]
-    # system, prior user, prior assistant, current user
+    # system, runtime date/time context, prior user, prior assistant, current user
+    from datetime import datetime, timezone
+
     assert msgs[0].type == "system"
-    assert msgs[1].type == "human" and msgs[1].content == "price of AAPL?"
-    assert msgs[2].type == "ai" and "338.55" in msgs[2].content
-    assert msgs[3].type == "human" and msgs[3].content == "what did you say?"
+    assert "Runtime context" in msgs[1].content
+    # The block carries the run's real date, not a fabricated one.
+    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in msgs[1].content
+    assert msgs[2].type == "human" and msgs[2].content == "price of AAPL?"
+    assert msgs[3].type == "ai" and "338.55" in msgs[3].content
+    assert msgs[4].type == "human" and msgs[4].content == "what did you say?"
 
 
 def test_history_is_bounded():

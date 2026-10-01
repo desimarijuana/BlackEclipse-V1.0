@@ -115,6 +115,7 @@ def compute_history_budget(
     profile_block: str = "",
     skill_manifest: str = "",
     memory_block: str = "",
+    runtime_context: str = "",
     dropped_block: str = "",
     user_turn: str = "",
     absolute_max_turns: int,
@@ -141,6 +142,7 @@ def compute_history_budget(
         "profile": estimate_tokens(profile_block),
         "skillManifest": estimate_tokens(skill_manifest),
         "memory": estimate_tokens(memory_block),
+        "runtimeContext": estimate_tokens(runtime_context),
         "droppedContext": estimate_tokens(dropped_block),
         "userTurn": estimate_tokens(user_turn),
     }

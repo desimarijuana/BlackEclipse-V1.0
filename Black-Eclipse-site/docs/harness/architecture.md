@@ -66,7 +66,7 @@ Two boundaries, both deliberate:
 | `profile.py` (in `eclipse_memory/`) | the compact prompt profile — a deterministic, bounded projection over active memory injected once at run start (`MemoryProfileSnapshot`, migration 12) |
 | `session_index.py` | builds the bounded, redacted `SessionMessage` search index of a completed run (never a second copy of the trace) + `build_summary` (a bounded deterministic session summary; searchable, never auto-injected) |
 | `learning_review.py` | the bounded in-process post-run learning-review queue (priority-ordered, per-session coalescing, idle-aware; deterministic + optional inert model proposal; never enables a skill) |
-| `prompt_segments.py` | immutable prompt segments + a stable identity-only `prompt_cache_key`, selective bounded skill-manifest injection, and `prompt.plan` observability (`build_prompt_plan`, `build_skill_manifest`, `compare_plans`) |
+| `prompt_segments.py` | immutable prompt segments + a stable `prompt_cache_key` that covers the CONTENT hashes of the reusable (`STATIC_SEGMENTS`) segments (so a prompt edit changes the key), selective bounded skill-manifest injection, the run-scoped `runtime_context_block` date/time segment, and `prompt.plan` observability (`build_prompt_plan`, `build_skill_manifest`, `compare_plans`; `RUN_FROZEN_SEGMENTS` excluded from reuse accounting and the key) |
 | `context_budget.py` | the measured per-run history budget: sums the resolved system prompt, advertised tool schemas, per-run blocks and user turn, derives the history allowance from the resolved model's declared window (unknown → conservative ceiling), and keeps `MAX_HISTORY_CHARS` as an absolute cap (`compute_history_budget`) |
 | `memory_providers/` | the M8 external-memory-provider layer: `protocol.py` (`MemoryProvider` contract + typed request/response, external `provenance`/`verified=false` defaults), `native.py`, `mcp.py` (read-only-first, L2 write-gated, no automatic writes), `registry.py`, `routing.py` (native-first + external fencing, never promotes), `diagnostics.py` |
 | `eclipse_memory/profiles.py` | the M4 named-profile registry (`ProfileRegistry`) + directory projection under `.black-eclipse/profiles/<id>/`; metadata only, READ-ONLY inheritance, no memory content |
@@ -89,8 +89,15 @@ general-purpose financial intelligence identity. Its system prompt lives in
 `python/harness/prompts.py` as `ECLIPSE_AGENT_SYSTEM_PROMPT` and is composed
 into an `AgentConfig` in `agents.py`. The prompt sets finance-specific standards
 for source quality, point-in-time evidence, quantitative comparability, risk,
-and capability honesty; the registered tool allowlist remains the actual
-execution boundary.
+and capability honesty; it also carries the **finance-harness contract**: a
+`# Market data semantics` block (session state, price/period basis, corporate
+actions, point-in-time vs restated, FX, staleness), an `# Inputs and authority`
+precedence table with the attached-document rule, an `# Answer contract` (shape,
+citation format, numeric conventions, a worked example), and a
+`## Runtime awareness` block (bounded steps/timeout, stop rule, truncation,
+no redundant retrieval). The registered tool allowlist remains the actual
+execution boundary; the run's real date/time is supplied out-of-band by the
+`runtime_context` prompt segment, never inside the stable prompt head.
 
 The front door does **not** carry a prompt copy. It sends only `agentId`, and
 `resolve_agent()` in `graph.py` resolves the full `AgentConfig` (prompt + tool
