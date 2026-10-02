@@ -84,6 +84,28 @@ function OptionGrid<T extends string>({
   );
 }
 
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
+        checked ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border"
+      )}
+    >
+      <span
+        className={cn(
+          "inline-block h-3.5 w-3.5 transform rounded-full shadow-sm transition-transform",
+          checked ? "translate-x-[18px] bg-primary" : "translate-x-[2px] bg-muted-foreground/70"
+        )}
+      />
+    </button>
+  );
+}
+
 function Range({
   label, value, min, max, step, format, onChange,
 }: {
@@ -119,6 +141,7 @@ export function BackgroundSettingsPanel() {
   const clearCustomImage = useBackgroundStore((s) => s.clearCustomImage);
   const reset = useBackgroundStore((s) => s.reset);
   const text = useBackgroundStore((s) => s.prefs.text);
+  const textEnabled = useBackgroundStore((s) => s.prefs.textEnabled);
   const textFont = useBackgroundStore((s) => s.prefs.textFont);
   const textScale = useBackgroundStore((s) => s.prefs.textScale);
   const textOpacity = useBackgroundStore((s) => s.prefs.textOpacity);
@@ -349,91 +372,104 @@ export function BackgroundSettingsPanel() {
 
         {prefs.mode !== "none" && (
           <div className="space-y-4 border-t border-white/10 dark:border-white/5 pt-5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-foreground/80">
-              <Type className="w-4 h-4 text-primary shrink-0" />
-              <span>Landing text</span>
-            </div>
-
-            <Field
-              label="Text"
-              hint="A giant wordmark painted behind the ChatBot landing. Leave empty to hide it."
-            >
-              <Input
-                value={text}
-                maxLength={64}
-                placeholder="ECLIPSE AGENT"
-                onChange={(e) => setPrefs({ text: e.target.value })}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground/80">
+                <Type className="w-4 h-4 text-primary shrink-0" />
+                <span>Landing text</span>
+              </div>
+              <Toggle
+                checked={textEnabled}
+                onChange={(v) => setPrefs({ textEnabled: v })}
               />
-            </Field>
+            </div>
+            <p className="text-[10px] text-muted-foreground/70 -mt-2">
+              Off by default. Turn on to paint a giant wordmark behind the ChatBot landing.
+            </p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Font">
-                <Select
-                  value={textFont}
-                  onValueChange={(v) => v && setPrefs({ textFont: v })}
+            {textEnabled && (
+              <>
+                <Field
+                  label="Text"
+                  hint="A giant wordmark painted behind the ChatBot landing. Leave empty to hide it."
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {WORDMARK_FONT_OPTIONS.map((f) => (
-                      <SelectItem key={f.label} value={f.value}>
-                        <span style={{ fontFamily: f.value }}>{f.label}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Align">
-                <div className="grid grid-cols-3 gap-2">
-                  {BACKGROUND_WORDMARK_ALIGN_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setPrefs({ textAlign: opt.id as WordmarkAlign })}
-                      className={cn(
-                        "px-3 py-2 text-xs font-medium rounded-xl border transition-all cursor-pointer",
-                        textAlign === opt.id
-                          ? "bg-primary/10 text-primary border-primary/40"
-                          : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-            </div>
+                  <Input
+                    value={text}
+                    maxLength={64}
+                    placeholder="ECLIPSE AGENT"
+                    onChange={(e) => setPrefs({ text: e.target.value })}
+                  />
+                </Field>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Range
-                label="Size"
-                value={textScale}
-                min={4}
-                max={40}
-                step={1}
-                format={(v) => `${v}vw`}
-                onChange={(textScale) => setPrefs({ textScale })}
-              />
-              <Range
-                label="Strength"
-                value={textOpacity}
-                min={0}
-                max={100}
-                step={1}
-                format={(v) => `${v}%`}
-                onChange={(textOpacity) => setPrefs({ textOpacity })}
-              />
-              <Range
-                label="Vertical"
-                value={textPositionY}
-                min={0}
-                max={100}
-                step={1}
-                format={(v) => `${v}%`}
-                onChange={(textPositionY) => setPrefs({ textPositionY })}
-              />
-            </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Font">
+                    <Select
+                      value={textFont}
+                      onValueChange={(v) => v && setPrefs({ textFont: v })}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WORDMARK_FONT_OPTIONS.map((f) => (
+                          <SelectItem key={f.label} value={f.value}>
+                            <span style={{ fontFamily: f.value }}>{f.label}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Align">
+                    <div className="grid grid-cols-3 gap-2">
+                      {BACKGROUND_WORDMARK_ALIGN_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setPrefs({ textAlign: opt.id as WordmarkAlign })}
+                          className={cn(
+                            "px-3 py-2 text-xs font-medium rounded-xl border transition-all cursor-pointer",
+                            textAlign === opt.id
+                              ? "bg-primary/10 text-primary border-primary/40"
+                              : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Range
+                    label="Size"
+                    value={textScale}
+                    min={4}
+                    max={40}
+                    step={1}
+                    format={(v) => `${v}vw`}
+                    onChange={(textScale) => setPrefs({ textScale })}
+                  />
+                  <Range
+                    label="Strength"
+                    value={textOpacity}
+                    min={0}
+                    max={100}
+                    step={1}
+                    format={(v) => `${v}%`}
+                    onChange={(textOpacity) => setPrefs({ textOpacity })}
+                  />
+                  <Range
+                    label="Vertical"
+                    value={textPositionY}
+                    min={0}
+                    max={100}
+                    step={1}
+                    format={(v) => `${v}%`}
+                    onChange={(textPositionY) => setPrefs({ textPositionY })}
+                  />
+                </div>
+              </>
+            )}
           </div>
         )}
 

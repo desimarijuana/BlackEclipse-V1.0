@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 
 export function ChatWordmark() {
   const mode = useBackgroundStore((s) => s.prefs.mode);
+  const textEnabled = useBackgroundStore((s) => s.prefs.textEnabled);
   const text = useBackgroundStore((s) => s.prefs.text);
   const textFont = useBackgroundStore((s) => s.prefs.textFont);
   const textScale = useBackgroundStore((s) => s.prefs.textScale);
@@ -23,7 +24,7 @@ export function ChatWordmark() {
   const textAlign = useBackgroundStore((s) => s.prefs.textAlign);
 
   const word = text.trim();
-  if (mode === 'none' || !word) return null;
+  if (mode === 'none' || !textEnabled || !word) return null;
 
   return (
     <div aria-hidden className="chat-wordmark">

@@ -68,6 +68,13 @@ export interface BackgroundPrefs {
   positionY: number;
   /** Scrim strength over the image, 0–100, so text stays legible on any art. */
   dim: number;
+  /**
+   * Whether the giant wordmark is painted behind the ChatBot landing. OFF by
+   * default: the landing text is opt-in, so new users get the wallpaper alone
+   * and choose text only if they want it. The `text` fields below are retained
+   * while off so a user's authored wordmark survives toggling.
+   */
+  textEnabled: boolean;
   /** Optional giant wordmark painted behind the ChatBot landing (may be empty). */
   text: string;
   /** A `value` from `WORDMARK_FONT_OPTIONS`. */
@@ -98,8 +105,10 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   positionX: 50,
   positionY: 50,
   dim: 45,
-  // The giant "ECLIPSE AGENT" wordmark ships ON by default — it paints behind
-  // the ChatBot landing only. Users can rename it, restyle or clear it.
+  // The giant "ECLIPSE AGENT" wordmark ships OFF by default — the landing text
+  // is an opt-in choice. The authored text below is kept so a user can flip it
+  // on from Settings › General › Background without retyping it.
+  textEnabled: false,
   text: DEFAULT_WORDMARK_TEXT,
   textFont: DEFAULT_WORDMARK_FONT,
   textScale: 16,
@@ -212,6 +221,9 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const dim = typeof value.dim === 'number' && Number.isFinite(value.dim)
     ? Math.min(100, Math.max(0, Math.round(value.dim)))
     : DEFAULT_BACKGROUND.dim;
+  // Landing text is opt-in: absent/false keeps it off, so new users get the
+  // wallpaper alone and existing prefs adopt the new default.
+  const textEnabled = value.textEnabled === true;
   const text = typeof value.text === 'string'
     ? value.text.slice(0, MAX_WORDMARK_LENGTH)
     : DEFAULT_BACKGROUND.text;
@@ -232,7 +244,7 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
     : DEFAULT_BACKGROUND.textAlign;
   return {
     mode, pattern, preset, customKey, fit, scale, positionX, positionY, dim,
-    text, textFont, textScale, textOpacity, textPositionY, textAlign,
+    textEnabled, text, textFont, textScale, textOpacity, textPositionY, textAlign,
   };
 }
 

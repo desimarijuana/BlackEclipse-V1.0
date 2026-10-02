@@ -6,6 +6,110 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-02
+
+- **Phase 13 — source authority and freshness arbitration landed.** A price,
+  series or macro answer is now chosen by freshness-then-strength across all
+  eligible sources, with the disagreement preserved, instead of by the first
+  source in a static table. Added `python/harness/retrieval/authority.py` — the
+  ONE ordering table (`AUTHORITY`, one `DataTypeAuthority` row per data type) and
+  a pure decision function (`decide_source`). `current_quote`,
+  `historical_prices`, `macro_series` and `company_profile` become **arbitrated**:
+  every eligible candidate runs through the existing `parallel.run_parallel` +
+  `layer._resolve` + `conflicts.detect_conflicts` seam (no second conflict
+  algorithm), so a fresh live reading is consulted alongside a saved snapshot and
+  a vault-vs-live disagreement is surfaced as `CONFLICTING` instead of being
+  unreachable. A candidate older than the type's freshness ceiling is rejected
+  with `STALE_SOURCE` and the measured age; all-stale is `NO_FRESH_SOURCE`.
+  `planner._PLAN` and `layer._SINGLE_BEST` are deleted and their readers
+  repointed (one ordering in the tree, not three). `NormalizedFinancialObject`
+  gains additive `observation_time`/`observation_source` (`provider_asof` |
+  `snapshot_write` | `unknown`); `validate.validate_observations` flags ONE stale
+  row inside an otherwise fresh payload and stamps a snapshot-write value `saved
+  snapshot, not a live reading` (never worded as live). `data-bridge.ts`
+  `marketSnapshot` supplies `observationSource: "snapshot_write"`; `liveQuote`
+  supplies `provider_asof` only when the provider reports its own market time,
+  else `unknown` — its old `asOf: new Date()` (the retrieval clock) is corrected.
+  New `source.*` i18n keys and the extended plain-language gates. ADR-H115 and
+  ADR-H116 written; `NAVIGATION.md` rows 149/150/352 updated. Tests:
+  `test_source_authority.py` (15 cases, including the vault-vs-live disagreement
+  that failed on the pre-change code) plus the retrieval regression suites.
+  docs updated: `docs/harness/decisions.md`, `docs/NAVIGATION.md`, this file,
+  `docs/harness/roadmap/progress/phase-13-progress.md`,
+  `docs/harness/roadmap/phase-13-source-authority.md`, `docs/harness/roadmap/README.md`
+
+- **Roadmap round 2 authored: phases 13–20 (reachability, source truth, and output)
+  added to `docs/harness/roadmap/`.** Round 1 (phases 0–12) built the machinery of a
+  harness; this round closes the six gaps a user reports against the *running* system,
+  each traced to a measured cause and each with a paste-ready prompt. Added:
+  `phase-13-source-authority.md` (the market-data vault is first for every
+  price-shaped type and the first success wins, so a live provider is never
+  consulted; measured from the live `jdds.db`: 0 of 55 195 price rows are fresh
+  within 15 min and 22.2 % are older than 7 days, while `data-bridge.ts` hard-codes
+  `cadenceSeconds: 24*60*60` and `validate.py` measures staleness only at dataset
+  level — the phase adds one `AUTHORITY` table, arbitrated dispatch and
+  per-observation age, and deletes `_PLAN`/`_SINGLE_BEST`), `phase-14-reachable-code-capability.md`
+  (the code modules exist on the one registry, but `eclipse-agent`'s 27-tool
+  allowlist has no code tool, `RunRequestPayload` has no `autonomy` field at all, and
+  `analysisEnabled` is referenced **0** times in `src/` — the phase adds a
+  deterministic request classifier, a narrow chat code profile and a chat capability
+  panel), `phase-15-attachments-and-artifacts.md` (extract.ts is text+PDF only with a
+  20 000-char silent truncation; the chat artifact surface prints a filename and a
+  12-char hash and no route serves the file; `code_commit`'s handler performs **no git
+  operation** yet returns `status: "approved"` — the phase adds office extractors,
+  stated truncation, an artifact-serving route and a user-decided promotion with
+  Option B recommended), `phase-16-bulk-acquisition.md` (the answer budget is 4
+  searches / 8 fetches / 90 s, the analysis sandbox is `network=False` with 16 allowed
+  imports, and the TS scraper layer is unreachable from the runtime — the phase adds a
+  declared attributable source registry, an explicit acquisition budget and a new
+  `data.collect` permission noun), `phase-17-working-on-a-cadence.md` (the job model,
+  scheduler, delivery and seven templates exist; no tool can create a job — the phase
+  adds a fixed catalogue, a default-off operator switch and an unattended-report
+  honesty contract), `phase-18-visual-output.md` (no plotting library is importable and
+  no artifact can be shown — the phase adds a deterministic renderer that the model's
+  program never gains access to, plus a bootstrap Monte Carlo that records its seed),
+  `phase-19-self-verification.md` (the ledger's claim classes cover commands only —
+  the phase adds artifact checks, a data-driven change-review rule table and two claim
+  classes), and `phase-20-measuring-all-of-it.md` (the generated capability statement
+  covers seven code shapes and omits every new class — the phase registers all classes
+  and publishes the unmeasured ones as unmeasured, with the eval step added inside the
+  existing `test-evals.js`). The index gains the phase rows, the round-2 ordering
+  rules, the measured six-gap ledger (§1.2), a supersede note on §2, and the
+  ADR-H115…H125 assignments. Measured baseline re-established this session on the
+  untouched tree: `npm run check:all` → `ALL GATES PASSED` (vitest 175 files / 1 995
+  tests; pytest 2 278 passed). No runtime file was changed by this entry; the phase
+  folders are proposals with no code behind them yet.
+  docs updated: `harness/roadmap/README.md`, `harness/roadmap/phase-13…20`,
+  `harness/roadmap/NAVIGATION` row 62 (trigger table), this file
+
+- **ChatBot landing text is now opt-in (off by default).** The giant wordmark
+  previously shipped ON (`DEFAULT_BACKGROUND.text = 'ECLIPSE AGENT'`), so every
+  new user got text painted over their landing. Added a `textEnabled` boolean to
+  `BackgroundPrefs` (`src/lib/backgrounds.ts`) defaulting **false**;
+  `normalizeBackgroundPrefs` sets it true only when `textEnabled === true`, so
+  the flag stays off for absent/junk input. `ChatWordmark`
+  (`src/components/chat/chat-wordmark.tsx`) returns null unless the flag is on,
+  and the Background panel (`src/components/screens/background-settings.tsx`)
+  gained a `Landing text` Toggle (reusing the existing switch recipe) that
+  reveals the Text/Font/Align/Size controls only when enabled. The authored
+  `text` is retained while off, so toggling on restores it without retyping.
+  Wallpaper (`mode: 'image'`, Eclipse I) is unchanged and still the default.
+  docs updated: `docs/ARCHITECTURE.md`, this file; test:
+  `src/lib/backgrounds.test.ts`
+
+- **Main content panel is now a rounded floating card.** The right-hand content
+  panel in `stock-chat.tsx` was a full-bleed rectangle flush against the square
+  sidebar, so the top-left corner where they met was hard. It is now inset on
+  desktop (`md:m-2`), gently rounded (`md:rounded-xl`) and bordered, so it reads
+  as a card beside the sidebar and the shell/pattern shows through the corner
+  notches. It stays TRANSPARENT on the chat tab so the Aurora glow and page
+  pattern behind it are not hidden; non-chat tabs keep their existing frosted
+  `glass-card` fill. Mobile keeps the full-bleed panel (sidebar is a drawer
+  there). Sidebar unchanged.
+  no doc change — presentational corner treatment, no architecture/contract/
+  setup change (the content-panel host is already described in
+  `docs/ARCHITECTURE.md` §Presentation).
+
 ## 2026-10-01
 
 - **Fix the site-wide frosted-glass regression: `theme-glass-active` shipped with
@@ -2147,275 +2251,3 @@ esource_schemes
   `npx tsc --noEmit` clean; Vitest browser/file tests pass.
   docs updated: harness/phase-3-memory-progress.md, harness/architecture.md,
   harness/decisions.md (ADR-H51), NAVIGATION.md, CHANGELOG.md
-
-## 2026-09-25
-
-- **Memory: semantic-maturity pass — dedicated semantic evaluation, typed
-  candidates, false-confirmation safety fix, optional stronger backend, review
-  UX and operational controls.** Continued the memory work without changing the
-  architecture (one `eclipse-memory.db`, one `EclipseMemoryService`, local
-  single-user; `userId`/`scopeId` stay labels). **Phase 0** re-ran both evals and
-  the focused suites, then found a real **false-confirmation bug**: two
-  same-dimension statements that substituted a *value* ("reports as PDF" vs
-  "reports as Excel", "quarterly" vs "monthly", "24-hour" vs "12-hour") were
-  silently *confirmed* as the same statement, discarding the new value.
-  **Phase 1** added a dedicated labeled set for cases lexical matching does not
-  solve (`eclipse_memory/eval/semantic_v1.json`) plus a runner/CLI/release gate
-  (`eval/semantic.py`, `eval/semantic_cli.py`) that reports lexical-only vs
-  semantic-enabled vs combined, semantic candidate recall, false-candidate rate,
-  confirmation/conflict-review accuracy, and absolute safety floors. **Phase 2**
-  made the backend interface honest: `backend_status`/`backend_health`, an
-  `auto` selector, and an optional `LocalEmbeddingBackend` that loads a
-  sentence-transformer ONLY from an explicit local path (never downloads, never
-  phones home) and falls back to the dependency-free `char-ngram` default (which
-  the eval shows does not score unfamiliar paraphrases above a safe threshold).
-  **Phase 3** typed candidates — `confirmation_candidate`, `conflict_candidate`,
-  `replacement_candidate`, `unrelated_candidate`, `unavailable` — with only
-  conflict/replacement actionable; similarity can never confirm, activate,
-  supersede or archive. **Phase 4** fixed the confirmation safety bug with a
-  deterministic `_value_changed` gate (same-dimension, both sides carry a
-  distinctive token the other lacks, excluding reviewed synonym folds), tightened
-  the `short`→`sell` synonym collision in `normalize.py`, and added the
-  `same dimension, differing value requires review` reason. **Phase 5** added an
-  optional (off-by-default) `semantic_recall_tiebreak` that reorders ONLY
-  memories already carrying a lexical signal, preserving the lexical leader and
-  never widening the eligible scope/status/expiry-filtered set. **Phase 6**
-  extended `semantic_status` with bounded controls, backend health and bounded
-  diagnostic counters, and added an operator-gated, honest
-  `POST /eclipse-memory/semantic/rebuild` (v1 has no persistent index to clear).
-  **Phase 7** distinguishes a semantic-candidate proposal from a saved memory in
-  the chat panel. **Phase 8/9** added reliability coverage (missing/unavailable/
-  timeout/exception backend, malformed score, bounds, reset/restore, disabled
-  mode, no raw text in diagnostics, no network) and recorded that the
-  deterministic lexical fix closed the measured semantic gap, so the optional
-  backend stays off by default. Evidence: retrieval eval PASS (recall 1.0,
-  precision 0.727, leakage 0, forbidden 0); contradiction eval PASS (recall 1.0,
-  false-conflict 0.0, confirmation 1.0); semantic gate PASS (0 scope leak / 0
-  unauthorized / 0 secret / 0 financial, lexical and enabled). Full Python suite
-  and Vitest pass; `tsc` clean. No `jdds.db` change. docs updated:
-  `harness/memory-contradiction-detection.md`, `harness/phase-3-memory-progress.md`,
-  `NAVIGATION.md`, `CHANGELOG.md`.
-
-- **Contradiction detection: deterministic normalization + optional local
-  semantic candidates.** Closed the known lexical gap where a contradictory
-  preference phrased with unfamiliar wording was missed. **Phase 1** added a
-  human-labeled contradiction dataset + runner
-  (`eclipse_memory/eval/contradictions_v1.json`, `eval/contradictions.py`,
-  `contradictions_cli.py`) and recorded the baseline (recall 0.462, false-conflict
-  0.111, confirmation 0.333; scope isolation/authority 1.0, zero unauthorized
-  supersessions) in `harness/memory-contradiction-detection.md`. **Phase 2**
-  improved the explainable lexical layer: `normalize.py` gained reviewed
-  `CONCEPT_AXES` with polarity + negation windows, explicit-replacement reuse,
-  temporary-instruction exclusion, and subject-identity authority (two explicitly
-  different subjects never link, even sharing value words). This alone raised
-  recall to 1.000 with **zero** false conflicts and confirmation 1.000, so
-  **Phase 3** added the optional local semantic candidate layer
-  (`eclipse_memory/semantic.py`) that is **off by default**, dependency-free
-  (default `char-ngram` backend), bounded (threshold, max candidates, max index,
-  timeout), fail-safe (falls back to lexical), and authorization-neutral — it can
-  only surface a possible contradiction for review, never supersede, activate,
-  archive, delete, or bypass scope/privacy/authority. **Phase 4** persistence:
-  the candidate outcome stores the new record inert (`proposed`) and records
-  detector/version/score/candidate-ids/reason/authority as an audit event (no raw
-  embeddings). **Phase 5** policy controls (`semantic_conflict_enabled`,
-  `_threshold`, `_max_candidates`, `_max_index`, `_timeout_ms`, `_diagnostics`)
-  plus `EclipseMemoryService.semantic_status()` and
-  `GET /eclipse-memory/semantic-status` reporting `lexical` /
-  `lexical+semantic` / `lexical+semantic-unavailable`. **Phase 6** UI: Lifecycle
-  tab shows the detection mode and a possible-contradiction panel (detector,
-  similarity, authority, "not active truth until confirmed"); the chat panel
-  already renders an ambiguous conflict as "Not saved — conflicts with an
-  existing memory". **Phases 7–8** expanded coverage (paraphrase, negation, typo,
-  different subjects/scopes, authority floors, semantic-unavailable/timeout/
-  low-score/backend-crash fallbacks, migration/reopen/backup consistency) with a
-  release gate (zero scope leakage, zero forbidden recalls, zero unauthorized and
-  automatic-over-explicit supersessions). Full Python suite **927 passed**;
-  Vitest **1754 passed**; `tsc` clean. Contradiction gate PASS (recall 1.0,
-  false-conflict 0.0); retrieval eval unchanged. No `jdds.db` change. docs
-  updated: `harness/memory-contradiction-detection.md` (new),
-  `harness/architecture.md`, `NAVIGATION.md`, `CHANGELOG.md`.
-
-- **Customization / blue themes carry a blue sidebar** — The blue-family theme
-  presets now ship a coordinated blue-tinted sidebar instead of the neutral
-  charcoal: **Ocean** `#0b1a2a`, **Blueprint** `#0a1826`, **Crystal** `#101a2e`,
-  **Midnight** `#10142a` (each tuned to its palette). Presets only override
-  `sidebar` when it differs from the shipped default, so the green Eclipse
-  default stays charcoal. Test added asserting each blue preset's sidebar
-  blue-channel exceeds its red and round-trips through `normalizeTheme`. Vitest
-  **1753 passed**, `tsc` clean.
-  no doc change — preset data only; the sidebar-surface architecture is already
-  documented in `docs/ARCHITECTURE.md`.
-
-- **Memory retention & contradiction hardening (phases 1–7).** Made the two
-  least-production-ready memory areas safe for the local single-user product.
-  **Phase 1** traced every retention/conflict path and recorded the audit +
-  baseline pin in `harness/memory-retention-conflict-audit.md` /
-  `python/tests/test_memory_retention_conflicts_baseline.py`. **Phase 2
-  (retention):** the sweep now runs automatically at runtime startup through the
-  existing FastAPI lifespan (`main._lifespan` → `AgenticService.run_startup_maintenance`
-  → `EclipseMemoryService.run_retention_maintenance`) — no new daemon/thread —
-  and can never block boot. It is idempotent and observable via a new
-  `MemoryMaintenance` table (migration 11: operation/ranAt/ok/inspected/expired/
-  skipped/error) surfaced on `/eclipse-memory/health` and
-  `GET /eclipse-memory/retention`. Confirming/renewing now refreshes
-  `lastConfirmedAt` and extends/clears an automatic memory's `expiresAt` from
-  `retention_days`; explicit memories are never given a policy expiry. A
-  retention-policy change no longer risks mutating existing rows, and a duplicate
-  write can no longer revive an expired/superseded/archived/rejected record.
-  **Phase 3 (conflicts):** `_resolve_conflict` now actually uses authority —
-  explicit replacement and explicit-over-automatic supersede (with an auditable
-  old→new link), automatic-vs-explicit and two ambiguous explicit statements
-  store the new record inert (`proposed`). Each decision records a concrete
-  reason. **Phase 4 (detection):** `conflicts.py` is authority-aware, uses
-  subject identity + `SUBJECT_ALIASES` + normalized (synonym/stemmed) tokens, and
-  the opposing-pair table was tightened (removed the broad `\bdo\b` arm). Negative
-  cases (candlestick vs line, unrelated overlaps, scope/subject separation,
-  observation vs preference, temporary instruction) are pinned. **Phase 5 (UI):**
-  the Control Room Lifecycle tab shows retention policy/last-sweep, expiry/last-
-  confirmed/last-used/last-reviewed, supersede links, and Confirm-&-renew /
-  Restore / Approve / Archive actions; an ambiguous conflict renders as
-  "Not saved — conflicts with an existing memory" and never as a save. Migration
-  11 is additive and preserves v10 data (reopen tested). docs updated:
-  `harness/memory-retention-conflict-audit.md` (new),
-  `harness/architecture.md`, `NAVIGATION.md`, `CHANGELOG.md`.
-
-- **Settings › General rebuilt** — Removed the light/dark toggle (the app is
-  dark-first; nothing else in the app ever switched it) and replaced the tab with
-  real preferences. Added a **Start screen** control (Last screen / ChatBot /
-  Command Center / Portfolio / Chart Workspace) backed by a new
-  `src/lib/general-prefs.ts` store (`be_general_prefs_v1` + `be_last_tab_v1`):
-  `resolveStartTab()` seeds the shell's initial tab and an explicit deep link
-  still overrides it; `recordLastTab()` feeds the "Last screen" option. Added a
-  **Behavior & Safety** card with "Confirm before clearing data" (on by default),
-  now gating the Data & Storage clears/watchlist/portfolio/reset actions that
-  previously wiped local data instantly with no confirmation. Updated the General
-  rail/search terms and dropped the stale theme aliases. Tests: Vitest **1750
-  passed** (+10), `tsc` clean. docs updated: `docs/ARCHITECTURE.md`.
-
-- **Memory maturity — local, single-user personal memory (phases 0–9).** Matured
-  the existing Eclipse-Memory subsystem without rewriting its architecture (one
-  `eclipse-memory.db`, one service, one decision gate, one retrieval seam; no
-  hosted accounts; `userId`/`scopeId` stay local labels). **Phase 0:** baseline
-  documented in `harness/memory-maturity-baseline.md`. **Phase 1 (lifecycle):**
-  migration 10 adds `lastConfirmedAt`/`lastUsedAt`/`lastReviewedAt`/`authority`/
-  `statusReason`; `expiresAt` is now actually persisted; re-stating a fact
-  refreshes confirmation; retention (`expire_due_memories`) only ever expires
-  **automatic** memory; add `restore_memory`/`renew_memory`/lifecycle views; no
-  hard deletes. **Phase 2 (contradictions):** new `conflicts.py` — explicit
-  replacement supersedes the old record (linked, retained), an ambiguous
-  contradiction is stored inert (`proposed`), and two contradictory preferences
-  never coexist as active truth; scope isolation is authoritative; a retrieval
-  safety net recalls only the highest-authority truth. **Phase 3 (retrieval):**
-  new `normalize.py` (human-reviewed synonyms, light plural stemming, subject
-  aliases, bounded edit-distance-1 typo tolerance) behind the existing seam; the
-  labeled set grew to 21 cases (typo, multi-turn, ambiguous, conflict, expired)
-  with release thresholds (`check_thresholds`). Synonym recall 0.5→1.0, typo
-  0→1.0, overall recall 0.9→1.0, forbidden 0, leakage 0. **Semantic/embedding
-  retrieval deliberately deferred** (the eval shows no measured need; no new
-  dependency/network service). **Phase 4 (Control Room):** `explain_memory` (why
-  a memory exists + its recall disposition) on the memory detail API, a
-  `/eclipse-memory/lifecycle` view endpoint, and a Lifecycle tab + explanation
-  panels in the UI. **Phase 5 (transfer):** new `transfer.py` — readable JSON
-  export, validated import through the same decision gate + write pipeline with
-  `imported` provenance, atomic backup (never overwrites), stronger database
-  health, and a memory-domain-only reset requiring explicit confirmation (skills
-  and unrelated data survive). **Phase 6 (privacy):** policy gains
-  `memory_enabled` (hard off), `memory_in_diagnostics`,
-  `semantic_indexing_enabled` (recorded intent; no effect), and per-category
-  `capture_policy`/`recall_policy` (can only tighten); safety floors hold.
-  **Phase 7 (skill quality):** new `skill_quality.py` derives success/validation/
-  tool-budget metrics, version regression, and advisory deprecation/promotion
-  evidence from real executions; promotion stays evaluation + operator gated.
-  **Phase 8 (reliability):** busy timeout, `integrity_ok`, honest 503/refusal
-  outcomes, malformed-import reasons, atomic-interrupted-backup safety. **Phase
-  9:** Python **841 passed**, Vitest **1742 passed** (136 files), `tsc` clean,
-  eval threshold gate **PASS**. Migrations: 10 (additive, preserves v9 data). No
-  `jdds.db` change. docs updated: `harness/phase-3-memory-progress.md`,
-  `harness/memory-maturity-baseline.md`, `harness/architecture.md`,
-  `harness/decisions.md` (ADR-H49), `NAVIGATION.md`.
-
-- **Customization / dedicated sidebar surface** — The navigation rail no longer
-  inherits the near-black `.glass-card-strong` fill. Added a `sidebar`
-  `{tint,opacity,blur}` group to `EclipseTheme` (default dark charcoal `#1a1a1c`
-  at 90% opacity — a touch lighter than the black page so the rail reads as
-  separate chrome), emitted as `--sidebar-rgb/-opacity/-blur` structural tokens;
-  `.sidebar-root` now has its own frosted recipe (with light-mode and
-  `theme-glass-active/off` overrides so the generic glass rules can't win).
-  A new **Sidebar** card in Customization › Theme offers five presets
-  (Charcoal/Slate/Smoke/Crystal/Black), a tint swatch and opacity/blur sliders;
-  `setSidebar` was added to the theme store. Tests: Vitest **1740 passed**
-  (+4), `tsc` clean. docs updated: `docs/ARCHITECTURE.md`.
-
-- **Reliability follow-up: close the operator-auth bypass, harden schema
-  validation, fix retrieval word-matching.** Investigated the residual risks in
-  the prior commit and fixed the confirmed defects. **(1) API authorization
-  bypass (real):** memory/skill mutation endpoints in `main.py` trusted a
-  caller-supplied body boolean `operator`, while only the MCP endpoints proved
-  authorization by transport/token — so a directly reachable Python runtime (or a
-  crafted proxied payload) could self-authorize memory writes, policy changes,
-  suggestion accept/dismiss, skill author/enable/disable/deprecate/rollback and
-  promotion. Added a `require_operator` FastAPI dependency (loopback or runtime
-  secret, never the body) to every mutation endpoint; the Next.js clients now
-  forward the runtime secret as `X-Harness-Operator`. **(2) Suggestion
-  ownership:** API-level tests prove a caller guessing another scope's suggestion
-  id is refused; listing supports `?scopeId=`. **(3) Schema fail-closed:**
-  `jsonschema`-absent now fails closed (registration/evaluation/output) instead
-  of a required-only fallback that reported partial validation as full; input
-  validation stays pydantic/structural; `runtime-config.ts` + `doctor.js` probe
-  the package and `GET /health` reports `skills.schemaValidation`. **(4)
-  Retrieval:** `_score` matched substrings, so a query token `use` matched
-  `User`; switched to word-boundary matching — eval precision 0.571 → **0.667**
-  at recall 1.0, leakage 0, forbidden 0. Skill execution is not blanket-gated
-  (a non-operator may run an enabled read-only skill), but the body `operator`
-  flag that widens the actor is now honoured only with proven transport/token.
-  **(5) Measured paraphrase gap:** the eval gained a labeled
-  `synonym-paraphrase` slice (paraphrases sharing no lexical term) reported
-  **per kind**, so a deterministic lexical retriever's limitation is measured
-  rather than hidden; `recallSupported` (the exact+paraphrase slice it is built
-  to serve) stays 1.0. No semantic dependency added — the eval is the evidence
-  for whether one is ever warranted. Tests: Python **749 passed** (+20), Vitest
-  **1736 passed**, `tsc` clean. No `jdds.db` change; existing data preserved.
-  docs updated: `harness/architecture.md`, `harness/decisions.md` (ADR-H48),
-  `harness/phase-3-memory-progress.md`, `NAVIGATION.md`
-- **Memory + runtime-skills reliability: enforced contracts, measured retrieval,
-  isolated scopes.** Small, phased fixes on the existing architecture (no second
-  loop, registry or database). **Contracts:** skill input/output are now validated
-  as full JSON Schema (nested types, arrays, enums, `minimum`/`maximum`,
-  `minLength`/`maxLength`, `pattern`, `additionalProperties`, required) via the
-  already-present `jsonschema` (`skills/schema_validation.py`); schemas are
-  self-validated at registration/evaluation with actionable errors; a run may
-  `complete` while `outputValidated=false` and the violation is surfaced, never
-  reported as validated. **Limits:** `manifest.limits.maxToolCalls` is carried
-  into `AgentConfig.maxToolCalls` and enforced in `graph.tools_node` (refused
-  with `TOOL_BUDGET_EXCEEDED`, audited, run finalizes) — no longer metadata/prose
-  only. **Identity:** `SkillManifest.version_identity(instructions)` folds the
-  procedure content into the persisted version identity; `registry.load_all`
-  reports `skill.version_drift` when content changes without a bump (legacy
-  manifest-only hashes accepted). **Retrieval:** added a versioned, human-labeled
-  evaluation set + runner (`eclipse_memory/eval/`) recording baseline recall 1.0 /
-  precision 0.5 / scope leakage 0 / forbidden hits 0; a deterministic lexical
-  relevance gate stops off-domain/near-match queries from recalling unrelated
-  topical memories (standing preferences exempt), with inclusion/exclusion
-  diagnostics. **Isolation:** fixed a cross-user leak — `actor_scope="user"` with
-  no `scope_id` returned every user's rows — and refused another user's
-  suggestion accept/dismiss; `find_suggestion_by_signature` is scope-aware.
-  **Docs:** corrected DB ownership drift (`eclipse-memory.db` = control memory +
-  skill lifecycle; `agent-memory.db` = run/replay store) that several docs still
-  attributed to `agent-memory.db`. No `jdds.db` change; existing user data
-  preserved. Tests: Python 727 passed (+30), Vitest 1736 passed, `tsc` clean.
-  docs updated: `harness/phase-3-architecture.md`, `harness/architecture.md`,
-  `harness/decisions.md` (ADR-H45–H47), `DECISIONS.md` (ADR-026 + ADR-034),
-  `NAVIGATION.md`
-- **Memory + skills reliability — completion pass.** (1) Retrieval eval set
-  expanded with topical exact/paraphrase, other-domain no-match and topical
-  scope-boundary cases; added `python -m harness.eclipse_memory.eval` CLI and a
-  pre/post measurable result — the lexical relevance gate lifts precision from
-  0.125 (ungated baseline on the original set) to **0.571** at recall 1.0, with
-  scope leakage and forbidden hits both 0. (2) Operator observability:
-  `SkillExecution` (migration 9, additive) now persists `outputValidated`
-  (tri-state) and bounded `metrics` (toolCalls/toolErrors/modelSteps/totalTokens);
-  the Skills › Execution Activity panel shows the pinned version, manifest
-  identity, validation result and tool usage alongside the existing warnings/
-  missing data/limitations/evidence. Tests: Python 729 passed, Vitest 1736
-  passed, `tsc` clean.
-  docs updated: `harness/phase-3-memory-progress.md`, `NAVIGATION.md`

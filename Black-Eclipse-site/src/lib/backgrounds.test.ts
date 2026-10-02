@@ -29,15 +29,26 @@ describe('normalizeBackgroundPrefs', () => {
     const t = normalizeBackgroundPrefs({
       mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
       fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
+      textEnabled: true,
       text: 'HELLO', textFont: 'Inter, sans-serif', textScale: 22,
       textOpacity: 40, textPositionY: 30, textAlign: 'left',
     });
     expect(t).toEqual({
       mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
       fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
+      textEnabled: true,
       text: 'HELLO', textFont: 'Inter, sans-serif', textScale: 22,
       textOpacity: 40, textPositionY: 30, textAlign: 'left',
     });
+  });
+
+  it('keeps landing text off unless explicitly enabled', () => {
+    // Landing text is opt-in: the flag defaults off, even with authored text.
+    expect(DEFAULT_BACKGROUND.textEnabled).toBe(false);
+    expect(normalizeBackgroundPrefs({ text: 'HELLO' }).textEnabled).toBe(false);
+    expect(normalizeBackgroundPrefs({ textEnabled: 'yes' }).textEnabled).toBe(false);
+    expect(normalizeBackgroundPrefs({ textEnabled: false }).textEnabled).toBe(false);
+    expect(normalizeBackgroundPrefs({ textEnabled: true }).textEnabled).toBe(true);
   });
 
   it('normalizes and clamps the landing wordmark', () => {

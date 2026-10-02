@@ -204,6 +204,10 @@ Two mechanisms:
       `--app-bg-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
       fed by `useHydrateBackground` in `stock-chat.tsx`. The default for new
       users is the shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`).
+      The optional giant landing wordmark (`ChatWordmark`) is **opt-in**: the
+      `textEnabled` pref defaults false, so the wallpaper shows alone unless the
+      user turns the wordmark on in Settings › General › Background (the authored
+      `text`/font/size are retained while it is off).
       `pattern` mode instead keeps
       the theme's own `gradient`/`grid` treatment app-wide on the shell
       (`--page-bg-image`). This replaced the old hardcoded, dead
