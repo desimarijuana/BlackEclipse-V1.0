@@ -9,26 +9,26 @@
 // lives here now so there is a single background surface.
 
 import { useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, RotateCcw, Trash2, Upload, Type } from "lucide-react";
+import { Check, Image as ImageIcon, RotateCcw, Trash2, Upload, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   BACKGROUND_FIT_OPTIONS,
   BACKGROUND_MODE_OPTIONS,
-  BACKGROUND_PATTERN_OPTIONS,
   BACKGROUND_WORDMARK_ALIGN_OPTIONS,
   CUSTOM_BACKGROUND_ID,
   DEFAULT_BACKGROUND_ID,
+  GRADIENT_TYPE_OPTIONS,
   MAX_UPLOAD_BYTES,
   SHIPPED_BACKGROUNDS,
+  SOLID_FILL_OPTIONS,
+  SOLID_PATTERN_OPTIONS,
   WORDMARK_FONT_OPTIONS,
   useBackgroundStore,
   type BackgroundFit,
   type BackgroundMode,
-  type BackgroundPattern,
   type WordmarkAlign,
 } from "@/lib/backgrounds";
 
@@ -84,15 +84,17 @@ function OptionGrid<T extends string>({
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
+        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors",
+        disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
         checked ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border"
       )}
     >
@@ -143,10 +145,25 @@ export function BackgroundSettingsPanel() {
   const text = useBackgroundStore((s) => s.prefs.text);
   const textEnabled = useBackgroundStore((s) => s.prefs.textEnabled);
   const textFont = useBackgroundStore((s) => s.prefs.textFont);
+  const textColor = useBackgroundStore((s) => s.prefs.textColor);
   const textScale = useBackgroundStore((s) => s.prefs.textScale);
   const textOpacity = useBackgroundStore((s) => s.prefs.textOpacity);
   const textPositionY = useBackgroundStore((s) => s.prefs.textPositionY);
   const textAlign = useBackgroundStore((s) => s.prefs.textAlign);
+  const solidColor = useBackgroundStore((s) => s.prefs.solidColor);
+  const solidColor2 = useBackgroundStore((s) => s.prefs.solidColor2);
+  const solidFill = useBackgroundStore((s) => s.prefs.solidFill);
+  const solidGradientType = useBackgroundStore((s) => s.prefs.solidGradientType);
+  const solidGradientAngle = useBackgroundStore((s) => s.prefs.solidGradientAngle);
+  const solidPattern = useBackgroundStore((s) => s.prefs.solidPattern);
+  const solidPatternOpacity = useBackgroundStore((s) => s.prefs.solidPatternOpacity);
+  const solidPatternScale = useBackgroundStore((s) => s.prefs.solidPatternScale);
+  const textWeight = useBackgroundStore((s) => s.prefs.textWeight);
+  const textLetterSpacing = useBackgroundStore((s) => s.prefs.textLetterSpacing);
+  const textLineHeight = useBackgroundStore((s) => s.prefs.textLineHeight);
+  const textWidth = useBackgroundStore((s) => s.prefs.textWidth);
+  const textItalic = useBackgroundStore((s) => s.prefs.textItalic);
+  const textUppercase = useBackgroundStore((s) => s.prefs.textUppercase);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +182,9 @@ export function BackgroundSettingsPanel() {
   const activeThumb = prefs.mode === "image"
     ? (isCustom ? customUrl : SHIPPED_BACKGROUNDS.find((b) => b.id === prefs.preset)?.url ?? null)
     : null;
+  // Solid mode forces the wordmark on (it IS the backdrop), so its controls are
+  // always open there; image mode reveals them behind the opt-in toggle.
+  const wordmarkOpen = prefs.mode === "solid" || textEnabled;
 
   return (
     <div className="animate-fade-in-up space-y-4">
@@ -174,23 +194,13 @@ export function BackgroundSettingsPanel() {
           <span>Background</span>
         </div>
 
-        <Field label="Type" hint="Patterns tint the whole app; wallpapers paint the ChatBot page only.">
+        <Field label="Type" hint="Wallpapers paint the ChatBot page only; Solid fills it with a color and your wordmark.">
           <OptionGrid
             options={BACKGROUND_MODE_OPTIONS}
             value={prefs.mode}
             onSelect={(mode: BackgroundMode) => setPrefs({ mode })}
           />
         </Field>
-
-        {prefs.mode === "pattern" && (
-          <Field label="Pattern">
-            <OptionGrid
-              options={BACKGROUND_PATTERN_OPTIONS}
-              value={prefs.pattern}
-              onSelect={(pattern: BackgroundPattern) => setPrefs({ pattern })}
-            />
-          </Field>
-        )}
 
         {prefs.mode === "image" && (
           <>
@@ -338,7 +348,133 @@ export function BackgroundSettingsPanel() {
           </>
         )}
 
-        {prefs.mode !== "none" && (
+        {prefs.mode === "solid" && (
+          <>
+            <Field label="Style" hint="Flat color, a two-color gradient, or a textured pattern.">
+              <OptionGrid options={SOLID_FILL_OPTIONS} value={solidFill} onSelect={(v) => setPrefs({ solidFill: v })} />
+            </Field>
+
+            <Field
+              label={solidFill === "gradient" ? "Color (start)" : "Color"}
+              hint="Leave on Theme to follow the active theme, or pick your own."
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  className="relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-border/40"
+                  style={{ backgroundColor: solidColor || "var(--background)" }}
+                  title="Pick the base color"
+                >
+                  <input
+                    type="color"
+                    value={solidColor || "#000000"}
+                    onChange={(e) => setPrefs({ solidColor: e.target.value })}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    aria-label="Solid background color"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPrefs({ solidColor: "" })}
+                  className={cn(
+                    "rounded-xl border px-3 py-2 text-xs font-medium transition-all cursor-pointer",
+                    !solidColor
+                      ? "bg-primary/10 text-primary border-primary/40"
+                      : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                  )}
+                >
+                  Theme
+                </button>
+                {solidColor && (
+                  <span className="font-mono text-[11px] text-muted-foreground/80">{solidColor}</span>
+                )}
+              </div>
+            </Field>
+
+            {solidFill === "gradient" && (
+              <Field label="Color (end)" hint="Leave on Brand for a tint derived from your theme's brand color.">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    className="relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-border/40"
+                    style={{ backgroundColor: solidColor2 || "rgb(var(--brand-rgb) / 0.55)" }}
+                    title="Pick the end color"
+                  >
+                    <input
+                      type="color"
+                      value={solidColor2 || "#00ff41"}
+                      onChange={(e) => setPrefs({ solidColor2: e.target.value })}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      aria-label="Gradient end color"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setPrefs({ solidColor2: "" })}
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-xs font-medium transition-all cursor-pointer",
+                      !solidColor2
+                        ? "bg-primary/10 text-primary border-primary/40"
+                        : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                    )}
+                  >
+                    Brand
+                  </button>
+                  {solidColor2 && (
+                    <span className="font-mono text-[11px] text-muted-foreground/80">{solidColor2}</span>
+                  )}
+                </div>
+              </Field>
+            )}
+
+            {solidFill === "gradient" && (
+              <>
+                <Field label="Gradient">
+                  <OptionGrid options={GRADIENT_TYPE_OPTIONS} value={solidGradientType} onSelect={(v) => setPrefs({ solidGradientType: v })} />
+                </Field>
+                {solidGradientType === "linear" && (
+                  <Range
+                    label="Angle"
+                    value={solidGradientAngle}
+                    min={0}
+                    max={360}
+                    step={5}
+                    format={(v) => `${v}°`}
+                    onChange={(solidGradientAngle) => setPrefs({ solidGradientAngle })}
+                  />
+                )}
+              </>
+            )}
+
+            {solidFill === "pattern" && (
+              <>
+                <Field label="Pattern">
+                  <OptionGrid options={SOLID_PATTERN_OPTIONS} value={solidPattern} onSelect={(v) => setPrefs({ solidPattern: v })} cols={4} />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Range
+                    label="Pattern strength"
+                    value={solidPatternOpacity}
+                    min={0}
+                    max={100}
+                    step={1}
+                    format={(v) => `${v}%`}
+                    onChange={(solidPatternOpacity) => setPrefs({ solidPatternOpacity })}
+                  />
+                  <Range
+                    label="Pattern size"
+                    value={solidPatternScale}
+                    min={4}
+                    max={80}
+                    step={1}
+                    format={(v) => `${v}px`}
+                    onChange={(solidPatternScale) => setPrefs({ solidPatternScale })}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {prefs.mode === "image" && (
           <div
             className="relative h-20 overflow-hidden rounded-xl border border-border/30 bg-background"
             aria-hidden
@@ -365,28 +501,30 @@ export function BackgroundSettingsPanel() {
               <span className="absolute inset-0 bg-gradient-to-b from-primary/10 to-transparent" />
             )}
             <span className="absolute bottom-1.5 left-2 text-[10px] text-white/70">
-              {prefs.mode === "image" ? "ChatBot page" : "Whole app"}
+              ChatBot page
             </span>
           </div>
         )}
 
-        {prefs.mode !== "none" && (
-          <div className="space-y-4 border-t border-white/10 dark:border-white/5 pt-5">
+        <div className="space-y-4 border-t border-white/10 dark:border-white/5 pt-5">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-xs font-semibold text-foreground/80">
                 <Type className="w-4 h-4 text-primary shrink-0" />
                 <span>Landing text</span>
               </div>
               <Toggle
-                checked={textEnabled}
+                checked={wordmarkOpen}
                 onChange={(v) => setPrefs({ textEnabled: v })}
+                disabled={prefs.mode === "solid"}
               />
             </div>
             <p className="text-[10px] text-muted-foreground/70 -mt-2">
-              Off by default. Turn on to paint a giant wordmark behind the ChatBot landing.
+              {prefs.mode === "solid"
+                ? "The wordmark is the solid backdrop — customize its text, font, color and size."
+                : "Off by default. Turn on to paint the wordmark over your wallpaper — shipped or your own upload."}
             </p>
 
-            {textEnabled && (
+            {wordmarkOpen && (
               <>
                 <Field
                   label="Text"
@@ -400,44 +538,84 @@ export function BackgroundSettingsPanel() {
                   />
                 </Field>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Font">
-                    <Select
-                      value={textFont}
-                      onValueChange={(v) => v && setPrefs({ textFont: v })}
+                <Field label="Font" hint="Tap a face to preview and apply it. Each shows its own name in that typeface.">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {WORDMARK_FONT_OPTIONS.map((f) => (
+                      <button
+                        key={f.label}
+                        type="button"
+                        onClick={() => setPrefs({ textFont: f.value })}
+                        title={f.label}
+                        aria-pressed={textFont === f.value}
+                        className={cn(
+                          "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer",
+                          textFont === f.value
+                            ? "bg-primary/10 text-primary border-primary/40"
+                            : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                        )}
+                      >
+                        <span className="truncate text-sm leading-tight" style={{ fontFamily: f.value }}>{f.label}</span>
+                        {textFont === f.value && <Check className="w-3.5 h-3.5 shrink-0 text-primary" />}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                <Field label="Align">
+                  <div className="grid grid-cols-3 gap-2">
+                    {BACKGROUND_WORDMARK_ALIGN_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPrefs({ textAlign: opt.id as WordmarkAlign })}
+                        className={cn(
+                          "px-3 py-2 text-xs font-medium rounded-xl border transition-all cursor-pointer",
+                          textAlign === opt.id
+                            ? "bg-primary/10 text-primary border-primary/40"
+                            : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                <Field
+                  label="Text color"
+                  hint="Leave on Theme to follow the app's text color, or pick your own."
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      className="relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-border/40"
+                      style={{ backgroundColor: textColor || "var(--foreground)" }}
+                      title="Pick the wordmark color"
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {WORDMARK_FONT_OPTIONS.map((f) => (
-                          <SelectItem key={f.label} value={f.value}>
-                            <span style={{ fontFamily: f.value }}>{f.label}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Align">
-                    <div className="grid grid-cols-3 gap-2">
-                      {BACKGROUND_WORDMARK_ALIGN_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setPrefs({ textAlign: opt.id as WordmarkAlign })}
-                          className={cn(
-                            "px-3 py-2 text-xs font-medium rounded-xl border transition-all cursor-pointer",
-                            textAlign === opt.id
-                              ? "bg-primary/10 text-primary border-primary/40"
-                              : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                </div>
+                      <input
+                        type="color"
+                        value={textColor || "#ffffff"}
+                        onChange={(e) => setPrefs({ textColor: e.target.value })}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                        aria-label="Wordmark color"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setPrefs({ textColor: "" })}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-xs font-medium transition-all cursor-pointer",
+                        !textColor
+                          ? "bg-primary/10 text-primary border-primary/40"
+                          : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                      )}
+                    >
+                      Theme
+                    </button>
+                    {textColor && (
+                      <span className="font-mono text-[11px] text-muted-foreground/80">{textColor}</span>
+                    )}
+                  </div>
+                </Field>
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Range
@@ -468,10 +646,77 @@ export function BackgroundSettingsPanel() {
                     onChange={(textPositionY) => setPrefs({ textPositionY })}
                   />
                 </div>
+
+                {/* Typography playground — weight, width, tracking, leading, slant. */}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Range
+                    label="Weight"
+                    value={textWeight}
+                    min={100}
+                    max={900}
+                    step={100}
+                    format={(v) => `${v}`}
+                    onChange={(textWeight) => setPrefs({ textWeight })}
+                  />
+                  <Range
+                    label="Width"
+                    value={textWidth}
+                    min={50}
+                    max={200}
+                    step={5}
+                    format={(v) => `${v}%`}
+                    onChange={(textWidth) => setPrefs({ textWidth })}
+                  />
+                  <Range
+                    label="Tracking"
+                    value={textLetterSpacing}
+                    min={-0.1}
+                    max={0.5}
+                    step={0.01}
+                    format={(v) => `${v.toFixed(2)}em`}
+                    onChange={(textLetterSpacing) => setPrefs({ textLetterSpacing })}
+                  />
+                  <Range
+                    label="Leading"
+                    value={textLineHeight}
+                    min={0.7}
+                    max={2}
+                    step={0.05}
+                    format={(v) => `${v.toFixed(2)}`}
+                    onChange={(textLineHeight) => setPrefs({ textLineHeight })}
+                  />
+                  <div className="flex items-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPrefs({ textItalic: !textItalic })}
+                      aria-pressed={textItalic}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-xs font-medium italic transition-all cursor-pointer",
+                        textItalic
+                          ? "bg-primary/10 text-primary border-primary/40"
+                          : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                      )}
+                    >
+                      Italic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrefs({ textUppercase: !textUppercase })}
+                      aria-pressed={textUppercase}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-xs font-medium uppercase tracking-wide transition-all cursor-pointer",
+                        textUppercase
+                          ? "bg-primary/10 text-primary border-primary/40"
+                          : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                      )}
+                    >
+                      Uppercase
+                    </button>
+                  </div>
+                </div>
               </>
             )}
           </div>
-        )}
 
         {error && <p className="text-[10px] text-rose-400">{error}</p>}
       </Panel>

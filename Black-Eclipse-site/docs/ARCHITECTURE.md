@@ -184,10 +184,26 @@ Two mechanisms:
       suppressed while previewing). The old tiny inline mock was removed.
       **App background** is a separate, immediately-applied preference owned by
       `src/lib/backgrounds.ts` (Settings › General › Background): mode
-      `none | pattern | image`. `pattern` reuses the theme's `gradient`/`grid`
-      treatment; `image` picks one of the shipped wallpapers
+      `image | solid`. `image` picks one of the shipped wallpapers
       (`public/backgrounds/eclipse bg-1.svg`/`-3.png`/`-4.svg`/`-5.svg`) or the
-      user's own picture.
+      user's own picture; `solid` paints the landing from `solidFill`
+      (`flat | gradient | pattern`): a flat `solidColor`, a two-color
+      `solidColor`→`solidColor2` gradient (linear at `solidGradientAngle`, or
+      `radial`; empty stops follow `--background` and the brand tint), or a
+      texture (`solidPattern`: grid / dots / diagonal / ASCII, at
+      `solidPatternOpacity` and `solidPatternScale` px pitch) over the base
+      fill. The base/gradient colors are emitted as a `background-image` stack
+      (a bare color is not a valid `background-image`) and the pattern layers
+      use `rgb(var(--brand-rgb) …)` for the ink. Each solid style carries a
+      fully tunable wordmark: text, font, color, `textScale` (vw), `textWeight`,
+      `textWidth` (font-stretch), `textLetterSpacing`, `textLineHeight`,
+      `textItalic`, `textUppercase`, alignment and vertical position. The
+      wordmark is forced on in `solid` (it IS the backdrop) and opt-in in
+      `image` via the `textEnabled` toggle; `textColor` empty follows
+      `--foreground`. (The old `pattern` mode — flat/gradient/grid — was
+      removed: it duplicated the theme's own `gradient`/`grid` treatment,
+      its `solid` default rendered nothing, and it is now a real Image/Solid
+      choice instead.)
       Because a full-res wallpaper must not share the ~5 MB localStorage budget
       with themes/chats, custom image bytes live in **IndexedDB** (`be_background`
       / `custom`) while the small prefs live in `be_background_v1`; uploads are
@@ -204,13 +220,16 @@ Two mechanisms:
       `--app-bg-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
       fed by `useHydrateBackground` in `stock-chat.tsx`. The default for new
       users is the shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`).
-      The optional giant landing wordmark (`ChatWordmark`) is **opt-in**: the
-      `textEnabled` pref defaults false, so the wallpaper shows alone unless the
-      user turns the wordmark on in Settings › General › Background (the authored
-      `text`/font/size are retained while it is off).
-      `pattern` mode instead keeps
-      the theme's own `gradient`/`grid` treatment app-wide on the shell
-      (`--page-bg-image`). This replaced the old hardcoded, dead
+      The giant landing wordmark (`ChatWordmark`) is **opt-in for Image** (the
+      `textEnabled` pref defaults false, so the wallpaper shows alone) and
+      **always on for Solid** (the wordmark is the point of that mode); the
+      authored `text`/font/color/size are retained while off. The 17 wordmark
+      typefaces are **self-hosted** via `next/font/google` in
+      `src/app/layout.tsx` (16 `--font-*` variables on `<html>`, no runtime
+      request) and referenced by `WORDMARK_FONT_OPTIONS` — elegant serif, sci-fi
+      display, pixel and ASCII/mono faces. Keep that list in sync with the
+      `layout.tsx` imports.
+      This replaced the old hardcoded, dead
       `/backgrounds/eclipse bg.svg` block in `stock-chat.tsx`. The Settings
       panel is tabbed (**General · Theme · Glass & Surfaces · Aurora · Charts ·
       Language & Access**) and embeds the existing Aurora and Chart panels, so all

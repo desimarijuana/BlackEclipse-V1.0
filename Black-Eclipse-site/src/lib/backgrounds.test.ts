@@ -4,6 +4,7 @@ import {
   DEFAULT_BACKGROUND,
   isBackgroundCustomized,
   isVectorImage,
+  isWordmarkVisible,
   normalizeBackgroundPrefs,
   resolveBackgroundCss,
   shippedBackground,
@@ -12,7 +13,7 @@ import {
 describe('normalizeBackgroundPrefs', () => {
   it('returns shipped defaults for junk input', () => {
     expect(normalizeBackgroundPrefs(null)).toEqual(DEFAULT_BACKGROUND);
-    expect(normalizeBackgroundPrefs({ mode: 'plaid', pattern: 'no', fit: 'stretch' })).toEqual({
+    expect(normalizeBackgroundPrefs({ mode: 'plaid', fit: 'stretch' })).toEqual({
       ...DEFAULT_BACKGROUND,
       preset: DEFAULT_BACKGROUND.preset,
     });
@@ -27,18 +28,55 @@ describe('normalizeBackgroundPrefs', () => {
 
   it('accepts every valid enum value', () => {
     const t = normalizeBackgroundPrefs({
-      mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
+      mode: 'image', preset: 'eclipse-5', customKey: 'x',
       fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
+      solidFill: 'pattern', solidColor: '#101010', solidColor2: '#202020',
+      solidGradientType: 'radial', solidGradientAngle: 45,
+      solidPattern: 'dots', solidPatternOpacity: 33, solidPatternScale: 30,
       textEnabled: true,
-      text: 'HELLO', textFont: 'Inter, sans-serif', textScale: 22,
+      text: 'HELLO', textFont: 'Inter, sans-serif', textColor: '#00ff00',
+      textWeight: 800, textLetterSpacing: 0.1, textLineHeight: 1.2, textWidth: 120,
+      textItalic: true, textUppercase: true, textScale: 22,
       textOpacity: 40, textPositionY: 30, textAlign: 'left',
     });
     expect(t).toEqual({
-      mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
+      mode: 'image', preset: 'eclipse-5', customKey: 'x',
       fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
+      solidFill: 'pattern', solidColor: '#101010', solidColor2: '#202020',
+      solidGradientType: 'radial', solidGradientAngle: 45,
+      solidPattern: 'dots', solidPatternOpacity: 33, solidPatternScale: 30,
       textEnabled: true,
-      text: 'HELLO', textFont: 'Inter, sans-serif', textScale: 22,
+      text: 'HELLO', textFont: 'Inter, sans-serif', textColor: '#00ff00',
+      textWeight: 800, textLetterSpacing: 0.1, textLineHeight: 1.2, textWidth: 120,
+      textItalic: true, textUppercase: true, textScale: 22,
       textOpacity: 40, textPositionY: 30, textAlign: 'left',
+    });
+  });
+
+  it('rounds wordmark weight to the nearest 100 and clamps the typography', () => {
+    expect(normalizeBackgroundPrefs({ textWeight: 750 }).textWeight).toBe(800);
+    expect(normalizeBackgroundPrefs({ textWeight: 950 }).textWeight).toBe(900);
+    expect(normalizeBackgroundPrefs({ textWidth: 999 }).textWidth).toBe(200);
+    expect(normalizeBackgroundPrefs({ textLetterSpacing: -5 }).textLetterSpacing).toBe(-0.1);
+    expect(normalizeBackgroundPrefs({ textLineHeight: 5 }).textLineHeight).toBe(2);
+    expect(normalizeBackgroundPrefs({ solidGradientAngle: 999 }).solidGradientAngle).toBe(360);
+    expect(normalizeBackgroundPrefs({ solidPatternScale: 999 }).solidPatternScale).toBe(80);
+    expect(normalizeBackgroundPrefs({ solidPatternScale: 1 }).solidPatternScale).toBe(4);
+  });
+
+  it('normalizes the solid fill/pattern and clamps its strength', () => {
+    expect(normalizeBackgroundPrefs({ solidFill: 'noise' }).solidFill).toBe(DEFAULT_BACKGROUND.solidFill);
+    expect(normalizeBackgroundPrefs({ solidPattern: 'zigzag' }).solidPattern).toBe(DEFAULT_BACKGROUND.solidPattern);
+    expect(normalizeBackgroundPrefs({ solidPatternOpacity: 240 }).solidPatternOpacity).toBe(100);
+    expect(normalizeBackgroundPrefs({ solidPatternOpacity: -3 }).solidPatternOpacity).toBe(0);
+  });
+
+  it('drops the removed pattern mode back to the default mode', () => {
+    // The flat/gradient/grid pattern type was removed; a saved 'pattern' pref
+    // must resolve to the shipped default mode (the Eclipse I wallpaper).
+    expect(normalizeBackgroundPrefs({ mode: 'pattern' }).mode).toBe(DEFAULT_BACKGROUND.mode);
+    expect(normalizeBackgroundPrefs({ mode: 'pattern', pattern: 'grid' })).toEqual({
+      ...DEFAULT_BACKGROUND,
     });
   });
 
@@ -79,25 +117,62 @@ describe('normalizeBackgroundPrefs', () => {
 });
 
 describe('resolveBackgroundCss', () => {
-  it('is transparent for mode none', () => {
-    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'none' }, 'none', null);
-    expect(css.url).toBe('none');
+  it('paints a flat solid-color gradient for mode solid (flat)', () => {
+    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'flat', solidColor: '#123456' }, null);
+    expect(css.url).toBe('linear-gradient(#123456, #123456)');
     expect(css.pageImage).toBe('none');
     expect(css.scrim).toBe(false);
+    expect(css.suppressPattern).toBe(true);
   });
 
-  it('uses the theme pattern for pattern mode (pattern layer only)', () => {
-    const gradient = 'radial-gradient(red, transparent)';
-    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'pattern', pattern: 'gradient' }, gradient, null);
-    expect(css.pageImage).toBe(gradient);
-    expect(css.url).toBe('none');
-    expect(css.scrim).toBe(false);
+  it('solid flat with no color follows the theme background', () => {
+    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'flat', solidColor: '' }, null);
+    expect(css.url).toBe('linear-gradient(var(--background), var(--background))');
+  });
+
+  it('solid gradient builds a two-stop wash', () => {
+    const css = resolveBackgroundCss(
+      { ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'gradient', solidColor: '#111', solidColor2: '#222' },
+      null,
+    );
+    expect(css.url).toBe('linear-gradient(160deg, #111 0%, #222 100%)');
+  });
+
+  it('solid gradient honors type and angle', () => {
+    const linear = resolveBackgroundCss(
+      { ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'gradient', solidColor: '#111', solidColor2: '#222', solidGradientAngle: 45 },
+      null,
+    );
+    expect(linear.url).toBe('linear-gradient(45deg, #111 0%, #222 100%)');
+    const radial = resolveBackgroundCss(
+      { ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'gradient', solidColor: '#111', solidColor2: '#222', solidGradientType: 'radial' },
+      null,
+    );
+    expect(radial.url).toBe('radial-gradient(circle at 50% 50%, #222 0%, #111 100%)');
+  });
+
+  it('solid gradient end falls back to the brand tint', () => {
+    const css = resolveBackgroundCss(
+      { ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'gradient', solidColor: '', solidColor2: '' },
+      null,
+    );
+    expect(css.url).toContain('rgb(var(--brand-rgb) / 0.55)');
+  });
+
+  it('solid pattern layers a texture over the base fill', () => {
+    const css = resolveBackgroundCss(
+      { ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'pattern', solidPattern: 'dots', solidColor: '#000', solidPatternOpacity: 20 },
+      null,
+    );
+    expect(css.url).toContain('radial-gradient');
+    expect(css.url).toContain('linear-gradient(#000, #000)');
+    expect(css.size).toBe('22px 22px, 100% 100%');
   });
 
   it('resolves a shipped preset to its encoded public URL', () => {
     const asset = shippedBackground('eclipse-1');
     expect(asset).toBeDefined();
-    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'image', preset: 'eclipse-1' }, 'none', null);
+    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'image', preset: 'eclipse-1' }, null);
     expect(css.url).toBe(`url("${asset!.url}")`);
     expect(css.url).toContain('eclipse%20bg-1.svg');
     expect(css.pageImage).toBe('none');
@@ -108,7 +183,6 @@ describe('resolveBackgroundCss', () => {
   it('resolves the custom preset from the provided data URL', () => {
     const css = resolveBackgroundCss(
       { ...DEFAULT_BACKGROUND, mode: 'image', preset: CUSTOM_BACKGROUND_ID },
-      'none',
       'data:image/png;base64,AAAA',
     );
     expect(css.url).toBe('url("data:image/png;base64,AAAA")');
@@ -118,7 +192,6 @@ describe('resolveBackgroundCss', () => {
   it('falls back to no image when custom is selected but missing', () => {
     const css = resolveBackgroundCss(
       { ...DEFAULT_BACKGROUND, mode: 'image', preset: CUSTOM_BACKGROUND_ID },
-      'none',
       null,
     );
     expect(css.url).toBe('none');
@@ -127,33 +200,33 @@ describe('resolveBackgroundCss', () => {
 
   it('maps fit to size and repeat', () => {
     const base = { ...DEFAULT_BACKGROUND, mode: 'image' as const, preset: 'eclipse-4' };
-    expect(resolveBackgroundCss({ ...base, fit: 'contain' }, 'none', null).size).toBe('contain');
-    const tile = resolveBackgroundCss({ ...base, fit: 'tile' }, 'none', null);
+    expect(resolveBackgroundCss({ ...base, fit: 'contain' }, null).size).toBe('contain');
+    const tile = resolveBackgroundCss({ ...base, fit: 'tile' }, null);
     expect(tile.size).toBe('auto');
     expect(tile.repeat).toBe('repeat');
-    expect(resolveBackgroundCss({ ...base, fit: 'cover' }, 'none', null).repeat).toBe('no-repeat');
+    expect(resolveBackgroundCss({ ...base, fit: 'cover' }, null).repeat).toBe('no-repeat');
   });
 
   it('maps scale to a clamped zoom multiplier', () => {
     const base = { ...DEFAULT_BACKGROUND, mode: 'image' as const, preset: 'eclipse-1' };
-    expect(resolveBackgroundCss({ ...base, scale: 100 }, 'none', null).zoom).toBe(1);
-    expect(resolveBackgroundCss({ ...base, scale: 200 }, 'none', null).zoom).toBe(2);
-    expect(resolveBackgroundCss({ ...base, scale: 300 }, 'none', null).zoom).toBe(3);
+    expect(resolveBackgroundCss({ ...base, scale: 100 }, null).zoom).toBe(1);
+    expect(resolveBackgroundCss({ ...base, scale: 200 }, null).zoom).toBe(2);
+    expect(resolveBackgroundCss({ ...base, scale: 300 }, null).zoom).toBe(3);
     // Zoom below 100% must shrink the image, not be stuck at 100%.
-    expect(resolveBackgroundCss({ ...base, scale: 50 }, 'none', null).zoom).toBe(0.5);
+    expect(resolveBackgroundCss({ ...base, scale: 50 }, null).zoom).toBe(0.5);
     expect(normalizeBackgroundPrefs({ scale: 50 }).scale).toBe(50);
   });
 
   it('maps position to a focal point', () => {
     const css = resolveBackgroundCss(
       { ...DEFAULT_BACKGROUND, mode: 'image', preset: 'eclipse-1', positionX: 25, positionY: 75 },
-      'none', null,
+      null,
     );
     expect(css.position).toBe('25% 75%');
   });
 
   it('builds a scrim that is a valid background-image layer', () => {
-    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'image', dim: 50 }, 'none', null);
+    const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'image', dim: 50 }, null);
     expect(css.scrimImage).toBe('linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5))');
   });
 });
@@ -161,8 +234,18 @@ describe('resolveBackgroundCss', () => {
 describe('helpers', () => {
   it('flags non-default backdrops as customized', () => {
     expect(isBackgroundCustomized(DEFAULT_BACKGROUND)).toBe(false);
-    expect(isBackgroundCustomized({ ...DEFAULT_BACKGROUND, mode: 'none' })).toBe(true);
-    expect(isBackgroundCustomized({ ...DEFAULT_BACKGROUND, mode: 'pattern' })).toBe(true);
+    expect(isBackgroundCustomized({ ...DEFAULT_BACKGROUND, mode: 'solid' })).toBe(true);
+  });
+
+  it('shows the wordmark in solid mode, or image mode when opted in', () => {
+    const base = { ...DEFAULT_BACKGROUND, text: 'HELLO', textEnabled: false };
+    // Image: opt-in only.
+    expect(isWordmarkVisible({ ...base, mode: 'image' })).toBe(false);
+    expect(isWordmarkVisible({ ...base, mode: 'image', textEnabled: true })).toBe(true);
+    // Solid: always (the wordmark IS the backdrop).
+    expect(isWordmarkVisible({ ...base, mode: 'solid' })).toBe(true);
+    // Empty text never paints.
+    expect(isWordmarkVisible({ ...base, mode: 'solid', text: '   ' })).toBe(false);
   });
 
   it('detects vector images by mime or extension', () => {

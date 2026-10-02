@@ -10,21 +10,17 @@
 // composer (`z-0`, pointer-events none), and only on the empty landing — a live
 // conversation is never obscured. Empty/whitespace text renders nothing.
 
-import { useBackgroundStore } from '@/lib/backgrounds';
+import { isWordmarkVisible, useBackgroundStore } from '@/lib/backgrounds';
 import { cn } from '@/lib/utils';
 
 export function ChatWordmark() {
-  const mode = useBackgroundStore((s) => s.prefs.mode);
-  const textEnabled = useBackgroundStore((s) => s.prefs.textEnabled);
-  const text = useBackgroundStore((s) => s.prefs.text);
-  const textFont = useBackgroundStore((s) => s.prefs.textFont);
-  const textScale = useBackgroundStore((s) => s.prefs.textScale);
-  const textOpacity = useBackgroundStore((s) => s.prefs.textOpacity);
-  const textPositionY = useBackgroundStore((s) => s.prefs.textPositionY);
-  const textAlign = useBackgroundStore((s) => s.prefs.textAlign);
+  const prefs = useBackgroundStore((s) => s.prefs);
+  const {
+    text, textFont, textColor, textWeight, textLetterSpacing, textLineHeight,
+    textWidth, textItalic, textUppercase, textScale, textOpacity, textPositionY, textAlign,
+  } = prefs;
 
-  const word = text.trim();
-  if (mode === 'none' || !textEnabled || !word) return null;
+  if (!isWordmarkVisible(prefs)) return null;
 
   return (
     <div aria-hidden className="chat-wordmark">
@@ -33,12 +29,19 @@ export function ChatWordmark() {
         style={{
           fontFamily: textFont,
           fontSize: `${textScale}vw`,
+          fontWeight: textWeight,
+          letterSpacing: `${textLetterSpacing}em`,
+          lineHeight: textLineHeight,
+          fontStretch: `${textWidth}%`,
+          fontStyle: textItalic ? 'italic' : 'normal',
+          textTransform: textUppercase ? 'uppercase' : 'none',
           opacity: Math.min(1, Math.max(0, textOpacity / 100)),
+          color: textColor.trim() || undefined,
           top: `${textPositionY}%`,
           textAlign,
         }}
       >
-        {word}
+        {text.trim()}
       </span>
     </div>
   );

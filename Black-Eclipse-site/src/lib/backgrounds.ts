@@ -1,7 +1,11 @@
 // ── App background (Settings › General › Background) ────────────────────────
-// One place for the app's backdrop: the old pattern treatment (flat / gradient
-// / grid, formerly Customization › Glass & Surfaces) plus full image
-// wallpapers — the five shipped Eclipse SVGs and a user's own picture.
+// One place for the app's backdrop: none (the theme's own surface) or a full
+// image wallpaper — the shipped Eclipse SVGs and a user's own picture.
+//
+// The old flat/gradient/grid "pattern" treatment is gone: it was the theme's
+// job (Customization › Theme), the `solid` default rendered nothing, and a
+// separate Pattern type in this card only confused — `None` already exposes the
+// theme's pattern. This card now owns the wallpaper alone.
 //
 // Why its own store instead of the theme store: the theme is dark-mode-scoped
 // tokens and a draft/preview apply model; a background is a single, immediately
@@ -17,23 +21,31 @@
 //
 // The applied values are pure CSS custom properties (not a stylesheet), so they
 // do not fight the theme's managed `<style id="eclipse-theme-overrides">`.
-// Resolution: `pattern` mode keeps the theme's pattern on the shell (app-wide);
-// `image` mode suppresses the pattern and feeds a full-viewport `.app-bg-layer`
-// that `stock-chat.tsx` renders on the ChatBot landing only.
+// `none` clears them so the theme's surface shows; `image` suppresses the theme
+// pattern and feeds a full-viewport `.app-bg-layer` that `stock-chat.tsx`
+// renders on the ChatBot landing only.
 
 'use client';
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { pageBackgroundImage, type FontOption } from '@/lib/theme/tokens';
+import type { FontOption } from '@/lib/theme/tokens';
 import { useThemeStore } from '@/lib/theme/store';
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
-/** What kind of backdrop is active. */
-export type BackgroundMode = 'none' | 'pattern' | 'image';
-/** The shipped pattern treatment (kept in sync with `ThemeBackground`). */
-export type BackgroundPattern = 'solid' | 'gradient' | 'grid';
+/**
+ * What kind of backdrop is active.
+ *   * `image` — a shipped or uploaded wallpaper.
+ *   * `solid` — a flat custom color with a customizable wordmark.
+ */
+export type BackgroundMode = 'image' | 'solid';
+/** How the `solid` backdrop is painted. */
+export type SolidFill = 'flat' | 'gradient' | 'pattern';
+/** A texture overlaid when `solidFill === 'pattern'`. */
+export type SolidPattern = 'grid' | 'dots' | 'diagonal' | 'ascii';
+/** Gradient shape. */
+export type SolidGradientType = 'linear' | 'radial';
 /** How the image fills its box. */
 export type BackgroundFit = 'cover' | 'contain' | 'tile';
 /** Preset id, or `custom` when the user's own image is active. */
@@ -45,16 +57,13 @@ export type WordmarkAlign = 'left' | 'center' | 'right';
 export const DEFAULT_WORDMARK_TEXT = 'ECLIPSE AGENT';
 
 /**
- * The default wordmark typeface — a high-contrast Didone/Bodoni stack (the
- * Hermes-Agent look). Defined here as a literal so it can seed
- * {@link DEFAULT_BACKGROUND} before the option list below is declared.
+ * The default wordmark typeface — a high-contrast Didone/Bodoni display face
+ * (the Hermes-Agent look), self-hosted via next/font as `--font-bodoni`.
  */
-export const DEFAULT_WORDMARK_FONT =
-  '"Bodoni Moda", "Bodoni MT", "Didot", "Playfair Display", "Didot LT STD", Georgia, "Times New Roman", serif';
+export const DEFAULT_WORDMARK_FONT = 'var(--font-bodoni), Georgia, serif';
 
 export interface BackgroundPrefs {
   mode: BackgroundMode;
-  pattern: BackgroundPattern;
   /** A shipped id (`eclipse-1`/`eclipse-4`/`eclipse-5`), or `custom`. */
   preset: BackgroundPresetId;
   /** Non-empty only for `preset: 'custom'`; a key into the custom-image store. */
@@ -69,16 +78,53 @@ export interface BackgroundPrefs {
   /** Scrim strength over the image, 0–100, so text stays legible on any art. */
   dim: number;
   /**
-   * Whether the giant wordmark is painted behind the ChatBot landing. OFF by
-   * default: the landing text is opt-in, so new users get the wallpaper alone
-   * and choose text only if they want it. The `text` fields below are retained
-   * while off so a user's authored wordmark survives toggling.
+   * How the solid backdrop is painted: a flat fill, a brand-tinted gradient, or
+   * a flat fill with a texture overlay.
+   */
+  solidFill: SolidFill;
+  /**
+   * The base page color for `mode: 'solid'`. Empty = follow the theme's
+   * `--background`, so a solid backdrop can stay theme-coordinated or be
+   * overridden with an explicit pick.
+   */
+  solidColor: string;
+  /** The second color for `solidFill: 'gradient'`. Empty = derive from brand. */
+  solidColor2: string;
+  /** Gradient shape. */
+  solidGradientType: SolidGradientType;
+  /** Gradient angle in degrees for `linear` (0–360). */
+  solidGradientAngle: number;
+  /** The texture overlay for `solidFill: 'pattern'`. */
+  solidPattern: SolidPattern;
+  /** Texture strength, 0–100. */
+  solidPatternOpacity: number;
+  /** Texture tile size in px (pattern pitch). 4–80. */
+  solidPatternScale: number;
+  /**
+   * Whether the giant wordmark is painted behind the ChatBot landing. ON for the
+   * `solid` mode (the wordmark IS the backdrop there); opt-in for `image` so a
+   * wallpaper shows alone unless the user wants text over it. The `text` fields
+   * below are retained while off so a user's authored wordmark survives toggling.
    */
   textEnabled: boolean;
   /** Optional giant wordmark painted behind the ChatBot landing (may be empty). */
   text: string;
   /** A `value` from `WORDMARK_FONT_OPTIONS`. */
   textFont: string;
+  /** Wordmark color (any CSS color). Empty = follow `--foreground`. */
+  textColor: string;
+  /** Font weight, 100–900. */
+  textWeight: number;
+  /** Letter-spacing in em (can be negative to tighten). -0.1–0.5. */
+  textLetterSpacing: number;
+  /** Line-height multiplier. 0.7–2. */
+  textLineHeight: number;
+  /** Horizontal scale / width (font-stretch). 50–200 (%). */
+  textWidth: number;
+  /** Italic slant. */
+  textItalic: boolean;
+  /** Uppercase transform. */
+  textUppercase: boolean;
   /** Wordmark size in viewport-width units (vw), 4–40. */
   textScale: number;
   /** Wordmark strength, 0–100 (100 = full foreground, low = ghosted). */
@@ -97,7 +143,6 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   // default for new users. It paints on the ChatBot landing only; every other
   // tab keeps the plain themed surface.
   mode: 'image',
-  pattern: 'solid',
   preset: DEFAULT_BACKGROUND_ID,
   customKey: '',
   fit: 'cover',
@@ -105,34 +150,63 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   positionX: 50,
   positionY: 50,
   dim: 45,
-  // The giant "ECLIPSE AGENT" wordmark ships OFF by default — the landing text
-  // is an opt-in choice. The authored text below is kept so a user can flip it
-  // on from Settings › General › Background without retyping it.
+  // Solid type: a flat fill that follows the theme until the user picks a color.
+  solidFill: 'flat',
+  solidColor: '',
+  solidColor2: '',
+  solidGradientType: 'linear',
+  solidGradientAngle: 160,
+  solidPattern: 'grid',
+  solidPatternOpacity: 18,
+  solidPatternScale: 22,
+  // The wallpaper ships alone; the giant wordmark is opt-in for image mode (and
+  // forced on in solid mode). The authored text is kept so a user can flip it on
+  // from Settings › General › Background without retyping it.
   textEnabled: false,
   text: DEFAULT_WORDMARK_TEXT,
   textFont: DEFAULT_WORDMARK_FONT,
+  textColor: '',
+  textWeight: 600,
+  textLetterSpacing: -0.01,
+  textLineHeight: 0.9,
+  textWidth: 100,
+  textItalic: false,
+  textUppercase: false,
   textScale: 16,
   textOpacity: 90,
   textPositionY: 50,
   textAlign: 'center',
 };
 
-const MODES: readonly BackgroundMode[] = ['none', 'pattern', 'image'];
-const PATTERNS: readonly BackgroundPattern[] = ['solid', 'gradient', 'grid'];
+const MODES: readonly BackgroundMode[] = ['image', 'solid'];
+const SOLID_FILLS: readonly SolidFill[] = ['flat', 'gradient', 'pattern'];
+const SOLID_PATTERNS: readonly SolidPattern[] = ['grid', 'dots', 'diagonal', 'ascii'];
+const GRADIENT_TYPES: readonly SolidGradientType[] = ['linear', 'radial'];
 const FITS: readonly BackgroundFit[] = ['cover', 'contain', 'tile'];
 const WORDMARK_ALIGNS: readonly WordmarkAlign[] = ['left', 'center', 'right'];
 const MAX_WORDMARK_LENGTH = 64;
 
 export const BACKGROUND_MODE_OPTIONS: { id: BackgroundMode; label: string; hint: string }[] = [
-  { id: 'none', label: 'None', hint: 'Plain theme color — no artwork' },
-  { id: 'pattern', label: 'Pattern', hint: 'Gradient or grid tinted by your brand' },
-  { id: 'image', label: 'Image', hint: 'A shipped or custom wallpaper' },
+  { id: 'image', label: 'Image', hint: 'A shipped or uploaded wallpaper' },
+  { id: 'solid', label: 'Solid', hint: 'A color, gradient or pattern with a customizable wordmark' },
 ];
 
-export const BACKGROUND_PATTERN_OPTIONS: { id: BackgroundPattern; label: string; hint: string }[] = [
-  { id: 'solid', label: 'Solid', hint: 'Single flat color' },
-  { id: 'gradient', label: 'Gradient', hint: 'Soft vertical wash' },
+export const SOLID_FILL_OPTIONS: { id: SolidFill; label: string; hint: string }[] = [
+  { id: 'flat', label: 'Flat', hint: 'One solid color' },
+  { id: 'gradient', label: 'Gradient', hint: 'A two-color wash' },
+  { id: 'pattern', label: 'Pattern', hint: 'A color with a texture overlay' },
+];
+
+export const SOLID_PATTERN_OPTIONS: { id: SolidPattern; label: string; hint: string }[] = [
   { id: 'grid', label: 'Grid', hint: 'Faint technical grid' },
+  { id: 'dots', label: 'Dots', hint: 'Even dot matrix' },
+  { id: 'diagonal', label: 'Diagonal', hint: 'Diagonal hatching' },
+  { id: 'ascii', label: 'ASCII', hint: 'Terminal character texture' },
+];
+
+export const GRADIENT_TYPE_OPTIONS: { id: SolidGradientType; label: string; hint: string }[] = [
+  { id: 'linear', label: 'Linear', hint: 'Straight-angle wash' },
+  { id: 'radial', label: 'Radial', hint: 'Center-out glow' },
 ];
 
 export const BACKGROUND_FIT_OPTIONS: { id: BackgroundFit; label: string; hint: string }[] = [
@@ -142,19 +216,30 @@ export const BACKGROUND_FIT_OPTIONS: { id: BackgroundFit; label: string; hint: s
 ];
 
 /**
- * Fonts offered for the giant ChatBot wordmark. Deliberately high-contrast
- * display faces (the Hermes-Agent look) rather than the UI/mono stacks — this is
- * artwork, not body copy, so it gets its own curated list.
+ * Fonts offered for the giant ChatBot wordmark. Each value references a
+ * next/font CSS variable loaded in `src/app/layout.tsx` (self-hosted, zero
+ * runtime request) so the choices actually render differently. Curated for
+ * range: elegant serif, sci-fi display, pixel and ASCII/mono faces. Keep this
+ * list in sync with the imports in `layout.tsx`.
  */
 export const WORDMARK_FONT_OPTIONS: FontOption[] = [
-  { label: 'Bodoni', value: DEFAULT_WORDMARK_FONT },
-  { label: 'Didot', value: '"Didot", "Didot LT STD", "Bodoni Moda", "Playfair Display", Georgia, serif' },
-  { label: 'Playfair', value: '"Playfair Display", "Bodoni Moda", Georgia, "Times New Roman", serif' },
-  { label: 'Times', value: '"Times New Roman", Times, Georgia, serif' },
-  { label: 'Georgia', value: 'Georgia, "Times New Roman", Times, serif' },
+  { label: 'Bodoni', value: 'var(--font-bodoni), Georgia, serif' },
+  { label: 'Playfair', value: 'var(--font-playfair), Georgia, serif' },
+  { label: 'Cinzel', value: 'var(--font-cinzel), Georgia, serif' },
+  { label: 'Cormorant', value: 'var(--font-cormorant), Georgia, serif' },
+  { label: 'Orbitron', value: 'var(--font-orbitron), system-ui, sans-serif' },
+  { label: 'Audiowide', value: 'var(--font-audiowide), system-ui, sans-serif' },
+  { label: 'Michroma', value: 'var(--font-michroma), system-ui, sans-serif' },
+  { label: 'Press Start (pixel)', value: 'var(--font-press-start), monospace' },
+  { label: 'Silkscreen (pixel)', value: 'var(--font-silkscreen), monospace' },
+  { label: 'VT323 (terminal)', value: 'var(--font-vt323), monospace' },
+  { label: 'Major Mono (ASCII)', value: 'var(--font-major-mono), monospace' },
+  { label: 'Space Mono', value: 'var(--font-space-mono), monospace' },
+  { label: 'IBM Plex Mono', value: 'var(--font-plex-mono), monospace' },
+  { label: 'Bebas', value: 'var(--font-bebas), system-ui, sans-serif' },
+  { label: 'Blackletter', value: 'var(--font-blackletter), serif' },
+  { label: 'Glitch', value: 'var(--font-glitch), system-ui, sans-serif' },
   { label: 'System', value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
-  { label: 'Inter', value: 'Inter, "Segoe UI", system-ui, sans-serif' },
-  { label: 'Mono', value: '"JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace' },
 ];
 
 export const BACKGROUND_WORDMARK_ALIGN_OPTIONS: { id: WordmarkAlign; label: string }[] = [
@@ -199,9 +284,6 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const mode = MODES.includes(value.mode as BackgroundMode)
     ? (value.mode as BackgroundMode)
     : DEFAULT_BACKGROUND.mode;
-  const pattern = PATTERNS.includes(value.pattern as BackgroundPattern)
-    ? (value.pattern as BackgroundPattern)
-    : DEFAULT_BACKGROUND.pattern;
   const preset = typeof value.preset === 'string' && value.preset.length > 0
     ? value.preset
     : DEFAULT_BACKGROUND.preset;
@@ -221,8 +303,30 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const dim = typeof value.dim === 'number' && Number.isFinite(value.dim)
     ? Math.min(100, Math.max(0, Math.round(value.dim)))
     : DEFAULT_BACKGROUND.dim;
-  // Landing text is opt-in: absent/false keeps it off, so new users get the
-  // wallpaper alone and existing prefs adopt the new default.
+  // A CSS color string, or '' to follow the theme. Kept as-is (validated later
+  // in CSS); a non-string is dropped to the default.
+  const solidFill = SOLID_FILLS.includes(value.solidFill as SolidFill)
+    ? (value.solidFill as SolidFill)
+    : DEFAULT_BACKGROUND.solidFill;
+  const solidColor = typeof value.solidColor === 'string' ? value.solidColor : '';
+  const solidColor2 = typeof value.solidColor2 === 'string' ? value.solidColor2 : '';
+  const solidGradientType = GRADIENT_TYPES.includes(value.solidGradientType as SolidGradientType)
+    ? (value.solidGradientType as SolidGradientType)
+    : DEFAULT_BACKGROUND.solidGradientType;
+  const solidGradientAngle = typeof value.solidGradientAngle === 'number' && Number.isFinite(value.solidGradientAngle)
+    ? Math.min(360, Math.max(0, Math.round(value.solidGradientAngle)))
+    : DEFAULT_BACKGROUND.solidGradientAngle;
+  const solidPattern = SOLID_PATTERNS.includes(value.solidPattern as SolidPattern)
+    ? (value.solidPattern as SolidPattern)
+    : DEFAULT_BACKGROUND.solidPattern;
+  const solidPatternOpacity = typeof value.solidPatternOpacity === 'number' && Number.isFinite(value.solidPatternOpacity)
+    ? Math.min(100, Math.max(0, Math.round(value.solidPatternOpacity)))
+    : DEFAULT_BACKGROUND.solidPatternOpacity;
+  const solidPatternScale = typeof value.solidPatternScale === 'number' && Number.isFinite(value.solidPatternScale)
+    ? Math.min(80, Math.max(4, Math.round(value.solidPatternScale)))
+    : DEFAULT_BACKGROUND.solidPatternScale;
+  // Landing text: off unless enabled. In solid mode the wordmark IS the
+  // backdrop, so it is forced on (see `isWordmarkVisible`).
   const textEnabled = value.textEnabled === true;
   const text = typeof value.text === 'string'
     ? value.text.slice(0, MAX_WORDMARK_LENGTH)
@@ -230,6 +334,21 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const textFont = typeof value.textFont === 'string' && value.textFont.length > 0
     ? value.textFont
     : DEFAULT_BACKGROUND.textFont;
+  const textColor = typeof value.textColor === 'string' ? value.textColor : '';
+  const textWeight = typeof value.textWeight === 'number' && Number.isFinite(value.textWeight)
+    ? Math.min(900, Math.max(100, Math.round(value.textWeight / 100) * 100))
+    : DEFAULT_BACKGROUND.textWeight;
+  const textLetterSpacing = typeof value.textLetterSpacing === 'number' && Number.isFinite(value.textLetterSpacing)
+    ? Math.min(0.5, Math.max(-0.1, value.textLetterSpacing))
+    : DEFAULT_BACKGROUND.textLetterSpacing;
+  const textLineHeight = typeof value.textLineHeight === 'number' && Number.isFinite(value.textLineHeight)
+    ? Math.min(2, Math.max(0.7, value.textLineHeight))
+    : DEFAULT_BACKGROUND.textLineHeight;
+  const textWidth = typeof value.textWidth === 'number' && Number.isFinite(value.textWidth)
+    ? Math.min(200, Math.max(50, Math.round(value.textWidth)))
+    : DEFAULT_BACKGROUND.textWidth;
+  const textItalic = value.textItalic === true;
+  const textUppercase = value.textUppercase === true;
   const textScale = typeof value.textScale === 'number' && Number.isFinite(value.textScale)
     ? Math.min(40, Math.max(4, Math.round(value.textScale)))
     : DEFAULT_BACKGROUND.textScale;
@@ -243,8 +362,12 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
     ? (value.textAlign as WordmarkAlign)
     : DEFAULT_BACKGROUND.textAlign;
   return {
-    mode, pattern, preset, customKey, fit, scale, positionX, positionY, dim,
-    textEnabled, text, textFont, textScale, textOpacity, textPositionY, textAlign,
+    mode, preset, customKey, fit, scale, positionX, positionY, dim,
+    solidFill, solidColor, solidColor2, solidGradientType, solidGradientAngle,
+    solidPattern, solidPatternOpacity, solidPatternScale,
+    textEnabled, text, textFont, textColor, textWeight, textLetterSpacing,
+    textLineHeight, textWidth, textItalic, textUppercase,
+    textScale, textOpacity, textPositionY, textAlign,
   };
 }
 
@@ -427,61 +550,127 @@ function scrimImageFor(dim: number): string {
   return `linear-gradient(${scrimColorFor(dim)}, ${scrimColorFor(dim)})`;
 }
 
+/** The base fill color for a solid backdrop (theme background when empty). */
+function solidBaseColor(prefs: BackgroundPrefs): string {
+  return prefs.solidColor.trim() || 'var(--background)';
+}
+
 /**
- * Resolve prefs + the custom data URL into the concrete CSS a wallpaper layer
- * needs. `patternImage` is the theme-tinted CSS from `@/lib/theme/tokens`.
+ * The `background-image` stack for a solid backdrop. Flat = a solid-color
+ * gradient (a bare color is not valid `background-image`). Gradient = a
+ * two-color wash (second stop falls back to a brand tint). Pattern = a texture
+ * (grid / dots / diagonal / ASCII) drawn in the brand tint over the base fill.
+ * `--brand-rgb` is written by the theme store.
+ */
+function solidBackgroundImage(prefs: BackgroundPrefs): string {
+  const base = solidBaseColor(prefs);
+  if (prefs.solidFill === 'gradient') {
+    const to = prefs.solidColor2.trim() || 'rgb(var(--brand-rgb) / 0.55)';
+    if (prefs.solidGradientType === 'radial') {
+      return `radial-gradient(circle at 50% 50%, ${to} 0%, ${base} 100%)`;
+    }
+    return `linear-gradient(${prefs.solidGradientAngle}deg, ${base} 0%, ${to} 100%)`;
+  }
+  if (prefs.solidFill === 'pattern') {
+    const a = Math.min(1, Math.max(0, prefs.solidPatternOpacity / 100));
+    const ink = `rgb(var(--brand-rgb) / ${a})`;
+    const pitch = prefs.solidPatternScale;
+    const half = Math.round(pitch / 2);
+    switch (prefs.solidPattern) {
+      case 'dots':
+        return `radial-gradient(${ink} ${Math.max(1, half)}px, transparent ${half + 0.5}px), linear-gradient(${base}, ${base})`;
+      case 'diagonal':
+        return `repeating-linear-gradient(135deg, ${ink} 0 1px, transparent 1px ${pitch}px), linear-gradient(${base}, ${base})`;
+      case 'ascii': {
+        // A faint character-cell lattice: a 0°/90° line grid at the pattern
+        // pitch, reading as a terminal/ASCII texture behind the wordmark.
+        const cell = `repeating-linear-gradient(0deg, ${ink} 0 1px, transparent 1px ${pitch}px), repeating-linear-gradient(90deg, ${ink} 0 1px, transparent 1px ${pitch}px)`;
+        return `${cell}, linear-gradient(${base}, ${base})`;
+      }
+      case 'grid':
+      default:
+        return `linear-gradient(${ink} 1px, transparent 1px), linear-gradient(90deg, ${ink} 1px, transparent 1px), linear-gradient(${base}, ${base})`;
+    }
+  }
+  return `linear-gradient(${base}, ${base})`;
+}
+
+/** The `background-size` list matching {@link solidBackgroundImage} layers. */
+function solidBackgroundSize(prefs: BackgroundPrefs): string {
+  if (prefs.solidFill !== 'pattern') return '100% 100%';
+  const p = `${prefs.solidPatternScale}px ${prefs.solidPatternScale}px`;
+  switch (prefs.solidPattern) {
+    case 'dots':
+      return `${p}, 100% 100%`;
+    case 'grid':
+      return `${p}, ${p}, 100% 100%`;
+    case 'diagonal':
+    case 'ascii':
+    default:
+      return '100% 100%';
+  }
+}
+
+/**
+ * Resolve prefs + the custom data URL into the concrete CSS the backdrop layer
+ * needs.
  *
  * Semantics:
- *   * `none`    → no overrides; the theme's own pattern applies.
- *   * `pattern` → the theme pattern stays on the shell (app-wide); the layer
- *                 is emptied.
- *   * `image`   → the theme pattern is suppressed so the wallpaper reads clean,
- *                 and the wallpaper layer is fed the image + scrim.
+ *   * `image` → the theme pattern is suppressed so the wallpaper reads clean,
+ *               and the wallpaper layer is fed the image + scrim.
+ *   * `solid` → the layer is filled with a flat color, gradient or textured
+ *               pattern (base color falls back to the theme `--background`).
  *
  * Fit picks `cover`/`contain`/`auto`; `scale` is a separate zoom multiplier and
  * `positionX/Y` set the focal point, so the two can be combined freely.
  */
 export function resolveBackgroundCss(
   prefs: BackgroundPrefs,
-  patternImage: string,
   customUrl: string | null,
 ): BackgroundCss {
   const scrimImage = scrimImageFor(prefs.dim);
   const zoom = Math.min(3, Math.max(0.5, prefs.scale / 100));
   const position = `${prefs.positionX}% ${prefs.positionY}%`;
-  if (prefs.mode === 'pattern') {
+  if (prefs.mode === 'solid') {
     return {
-      url: 'none',
-      pageImage: patternImage !== 'none' ? patternImage : 'none',
-      size: 'auto',
-      repeat: 'repeat',
+      url: solidBackgroundImage(prefs),
+      pageImage: 'none',
+      size: solidBackgroundSize(prefs),
+      repeat: 'no-repeat',
       position: 'center',
       zoom: 1,
       scrim: false,
       scrimImage,
-      suppressPattern: false,
-    };
-  }
-  if (prefs.mode === 'image') {
-    const asset = prefs.preset === CUSTOM_BACKGROUND_ID ? null : shippedBackground(prefs.preset);
-    const url = asset?.url ?? (customUrl || null);
-    if (!url) {
-      return { url: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
-    }
-    return {
-      url: `url("${url}")`,
-      // Suppress the theme pattern so the wallpaper is the only backdrop.
-      pageImage: 'none',
-      size: sizeForFit(prefs.fit),
-      repeat: prefs.fit === 'tile' ? 'repeat' : 'no-repeat',
-      position,
-      zoom,
-      scrim: true,
-      scrimImage,
       suppressPattern: true,
     };
   }
-  return { url: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
+  const asset = prefs.preset === CUSTOM_BACKGROUND_ID ? null : shippedBackground(prefs.preset);
+  const url = asset?.url ?? (customUrl || null);
+  if (!url) {
+    return { url: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
+  }
+  return {
+    url: `url("${url}")`,
+    // Suppress the theme pattern so the wallpaper is the only backdrop.
+    pageImage: 'none',
+    size: sizeForFit(prefs.fit),
+    repeat: prefs.fit === 'tile' ? 'repeat' : 'no-repeat',
+    position,
+    zoom,
+    scrim: true,
+    scrimImage,
+    suppressPattern: true,
+  };
+}
+
+/**
+ * Whether the giant landing wordmark should paint. Solid mode always shows it
+ * (the wordmark IS the backdrop); image mode only when the user opted in. Empty
+ * text never paints.
+ */
+export function isWordmarkVisible(prefs: BackgroundPrefs): boolean {
+  if (prefs.text.trim().length === 0) return false;
+  return prefs.mode === 'solid' || prefs.textEnabled;
 }
 
 // ── DOM application ──────────────────────────────────────────────────────────
@@ -490,17 +679,13 @@ export function resolveBackgroundCss(
  * Push the resolved background onto the document as CSS variables. Purely a
  * custom-property write (no stylesheet), so it composes with the theme store's
  * managed `<style>` and survives theme changes. `--page-bg-image` is overridden
- * only to suppress the theme pattern in image mode; for `none`/`pattern` it is
- * removed so the theme's own value (or the shipped default) takes over.
+ * to suppress the theme pattern so the wallpaper / solid fill is the only
+ * backdrop on the ChatBot landing.
  */
-export function applyBackgroundToDocument(prefs: BackgroundPrefs, patternImage: string, customUrl: string | null): void {
+export function applyBackgroundToDocument(prefs: BackgroundPrefs, customUrl: string | null): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  if (prefs.mode === 'none' || prefs.mode === 'pattern') {
-    clearBackgroundFromDocument();
-    return;
-  }
-  const css = resolveBackgroundCss(prefs, patternImage, customUrl);
+  const css = resolveBackgroundCss(prefs, customUrl);
   root.style.setProperty('--page-bg-image', css.pageImage);
   root.style.setProperty('--app-bg-image', css.url);
   root.style.setProperty('--app-bg-size', css.size);
@@ -521,19 +706,6 @@ function clearBackgroundFromDocument(): void {
   }
 }
 
-/** The theme-tinted pattern CSS for a pattern id (brand is read per-hydrate). */
-function patternCssFor(prefs: BackgroundPrefs): string {
-  const brand = readBrandRgb();
-  return pageBackgroundImage(prefs.pattern, brand);
-}
-
-/** Read the live `--brand` color (falls back to the Eclipse green). */
-function readBrandRgb(): string {
-  if (typeof document === 'undefined') return '#7aff78';
-  const hex = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim();
-  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex) ? hex : '#7aff78';
-}
-
 // ── Store ────────────────────────────────────────────────────────────────────
 
 export interface BackgroundStore {
@@ -544,7 +716,7 @@ export interface BackgroundStore {
   /** True while saving an upload to IndexedDB. */
   saving: boolean;
   hydrate: () => Promise<void>;
-  /** Patch prefs; applies immediately and (for pattern/image) persists. */
+  /** Patch prefs; applies immediately and persists. */
   setPrefs: (patch: Partial<BackgroundPrefs>) => void;
   /** Optimise + store a user image and switch to it. Returns an error string. */
   setCustomImage: (file: File) => Promise<string | null>;
@@ -557,7 +729,7 @@ export interface BackgroundStore {
 export const useBackgroundStore = create<BackgroundStore>((set, get) => {
   /** Apply + persist the current prefs. */
   const apply = (prefs: BackgroundPrefs, customUrl = get().customUrl) => {
-    applyBackgroundToDocument(prefs, patternCssFor(prefs), customUrl);
+    applyBackgroundToDocument(prefs, customUrl);
   };
 
   const commit = (patch: Partial<BackgroundPrefs>) => {
@@ -609,7 +781,7 @@ export const useBackgroundStore = create<BackgroundStore>((set, get) => {
       await saveCustomImage(null);
       set({ customUrl: null });
       if (get().prefs.preset === CUSTOM_BACKGROUND_ID) {
-        commit({ preset: DEFAULT_BACKGROUND.preset, mode: 'pattern' });
+        commit({ preset: DEFAULT_BACKGROUND.preset, mode: 'image' });
       }
     },
 
@@ -623,8 +795,8 @@ export const useBackgroundStore = create<BackgroundStore>((set, get) => {
 
 /**
  * Hydrate the background from storage and apply it, once, client-side. Also
- * re-applies when the theme changes, because pattern mode derives its tint from
- * the live `--brand` color (read after the theme store has written it).
+ * re-applies on theme changes so the wallpaper-suppression var stays
+ * authoritative over the theme's own `--page-bg-image`.
  */
 export function useHydrateBackground() {
   const hydrate = useBackgroundStore((s) => s.hydrate);
@@ -637,9 +809,11 @@ export function useHydrateBackground() {
     if (!hydrated) return;
     const apply = () => {
       const s = useBackgroundStore.getState();
-      applyBackgroundToDocument(s.prefs, patternCssFor(s.prefs), s.customUrl);
+      applyBackgroundToDocument(s.prefs, s.customUrl);
     };
     apply();
+    // A wallpaper does not derive from the theme, but re-applying on theme
+    // changes is harmless and keeps the suppression var authoritative.
     return useThemeStore.subscribe(apply);
   }, [hydrated]);
 }

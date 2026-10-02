@@ -8,6 +8,83 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Background Solid mode — fully tunable gradient/pattern and wordmark
+  typography.** The gradient/pattern styles were static (fixed angle, fixed tile
+  size) and the wordmark only offered font + size. Added: gradient shape
+  (`solidGradientType`: linear/radial) and `solidGradientAngle`; pattern tile
+  size `solidPatternScale` (4–80px) beside strength; and wordmark typography
+  controls `textWeight` (100–900), `textWidth` (font-stretch, 50–200%),
+  `textLetterSpacing` (−0.1–0.5em), `textLineHeight` (0.7–2), `textItalic` and
+  `textUppercase`. `ChatWordmark` applies them; `resolveBackgroundCss` uses the
+  gradient type/angle and pattern pitch. All new fields are normalized/clamped
+  (`textWeight` rounds to the nearest 100). Settings panel gains the matching
+  sliders/toggles; the option constants `GRADIENT_TYPE_OPTIONS` added.
+  docs updated: `docs/ARCHITECTURE.md`, this file; test:
+  `src/lib/backgrounds.test.ts`
+
+- **Phase 13 follow-up — the price/market-cap ROUTE the agent actually used now
+  verifies across sources.** The Phase-13 arbitration fixed the retrieval layer,
+  but the Eclipse Agent had a second market-cap tool, `get_market_snapshot`
+  (`python/harness/finance_tools.py`), that went STRAIGHT to JDdS and never ran
+  the layer at all — so a months-old market cap was returned as current (the
+  reported demo: "market cap of AMD" showed stale data). `get_market_snapshot`
+  now runs its price/change/market-cap leg through the same arbitrated
+  `current_quote` path (`_verified_price_leg`): a fresh live reading beats the
+  saved snapshot, a stale snapshot is not asserted as current, the observation
+  time and its age are stated, and when two sources disagree beyond the tolerance
+  every contested figure is shown instead of one value silently chosen (the
+  headline no longer falls back to the stored value in that case). `normalize_quote`
+  now dates a live payload from its `observationTime` so cross-source conflict
+  grouping can see it. The tool description is corrected. Regression tests:
+  `test_demo_stale_market_cap_is_not_returned_as_current`,
+  `test_demo_disagreement_is_shown_when_sources_differ`; the tool-execution
+  property in `test_context_overflow.py` is asserted on recorded tool executions,
+  not bridge calls. ADR-H115 amended.
+  docs updated: `docs/harness/decisions.md` (ADR-H115), this file,
+  `docs/harness/roadmap/progress/phase-13-progress.md`
+
+- **Landing wordmark font list was all system fallbacks — now real,
+  self-hosted faces.** Every `WORDMARK_FONT_OPTIONS` value was a font-family
+  stack for a face the app never loaded (e.g. "Bodoni Moda", "Didot", "Playfair
+  Display"), so all options rendered as the same system fallback and the choice
+  felt broken. `src/app/layout.tsx` now loads 16 display faces via
+  `next/font/google` (Bodoni Moda, Playfair, Cinzel, Cormorant, Orbitron,
+  Audiowide, Michroma, Press Start 2P, Silkscreen, VT323, Major Mono Display,
+  Space Mono, IBM Plex Mono, Bebas Neue, UnifrakturMaguntia, Rubik Glitch),
+  self-hosted with no runtime request, exposed as `--font-*` CSS variables on
+  `<html>`. `WORDMARK_FONT_OPTIONS` (`src/lib/backgrounds.ts`) now references
+  those variables, adding pixel (Press Start, Silkscreen), ASCII/terminal
+  (VT323, Major Mono, Space Mono, IBM Plex Mono) and stylised (Blackletter,
+  Glitch, Bebas) choices; `DEFAULT_WORDMARK_FONT` becomes
+  `var(--font-bodoni), Georgia, serif`. The Settings font picker is a clickable
+  preview grid (each label rendered in its own face). Keep the option list in
+  sync with the `layout.tsx` imports.
+  docs updated: `docs/ARCHITECTURE.md`; app config: `src/app/layout.tsx`
+
+- **Background: two types — Image or Solid (color/gradient/pattern + wordmark).**
+  Reworked Settings › General › Background after removing the dead "Pattern"
+  type. The type is now a real choice of two: **Image** (shipped/uploaded
+  wallpaper, the default) or **Solid**. Solid has a `solidFill` of
+  **Flat** / **Gradient** / **Pattern**: a `solidColor`, a two-color
+  `solidColor`→`solidColor2` gradient (empty stops follow the theme background /
+  brand tint), or a texture (`solidPattern`: grid / dots / diagonal / ASCII, at
+  `solidPatternOpacity`) over the base fill — each with a customizable wordmark
+  (text, font, color, size, strength, alignment, vertical). `BackgroundMode` is
+  `image | solid`; `BackgroundPrefs` gains `solidFill`, `solidColor`,
+  `solidColor2`, `solidPattern`, `solidPatternOpacity`, `textColor`. The
+  wordmark paints via the new `isWordmarkVisible` helper: forced on in solid mode
+  (it IS the backdrop), opt-in in image mode (the `textEnabled` toggle, disabled
+  in solid since it is inherent). `resolveBackgroundCss` emits the solid stack
+  (base fill + optional texture as a `background-image` list; brand-tinted ink);
+  `ChatWordmark` applies `textColor`. The font picker is now a clickable
+  preview grid (each option renders its own name in that typeface) instead of a
+  Radix `Select` — more robust inside the modal and it actually shows the fonts.
+  A saved `mode: 'pattern'` / `'none'` normalizes back to the default image.
+  Tests updated; `resolveBackgroundCss`/`applyBackgroundToDocument` lost their
+  now-unused `patternImage` parameter.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, this file; test:
+  `src/lib/backgrounds.test.ts`
+
 - **Phase 13 — source authority and freshness arbitration landed.** A price,
   series or macro answer is now chosen by freshness-then-strength across all
   eligible sources, with the disagreement preserved, instead of by the first
@@ -34,7 +111,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   ADR-H116 written; `NAVIGATION.md` rows 149/150/352 updated. Tests:
   `test_source_authority.py` (15 cases, including the vault-vs-live disagreement
   that failed on the pre-change code) plus the retrieval regression suites.
-  docs updated: `docs/harness/decisions.md`, `docs/NAVIGATION.md`, this file,
+  docs updated: `docs/harness/decisions.md`, `docs/harness/architecture.md`,
+  `docs/NAVIGATION.md`, this file,
   `docs/harness/roadmap/progress/phase-13-progress.md`,
   `docs/harness/roadmap/phase-13-source-authority.md`, `docs/harness/roadmap/README.md`
 
