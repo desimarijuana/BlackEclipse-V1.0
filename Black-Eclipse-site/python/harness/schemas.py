@@ -229,6 +229,10 @@ class RunResult(BaseModel):
     # workspace it was bound to. Absent/None for ordinary finance runs.
     autonomy: Optional[str] = None
     workspaceId: Optional[str] = None  # noqa: N815
+    # Phase 14 (additive, optional): the chat capability view for a coding turn —
+    # the profile, an i18n headline KEY, and the verification blob it composes.
+    # Absent/None for ordinary chat and older rows.
+    capability: Optional[dict[str, Any]] = None
 
 
 EventLiteral = Literal[

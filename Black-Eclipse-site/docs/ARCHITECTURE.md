@@ -477,6 +477,35 @@ They coordinate through mutex flags (`isRunning`, `syncBusy`, `warmUpBusy`) so
 two heavy SQLite write storms never run at once. This is not incidental — running
 them concurrently is what used to freeze the API.
 
+### Alert delivery
+
+A fired price alert is dispatched from `src/lib/alerts/notifier.ts`
+(`dispatchAlert`, the single dispatch point). It always writes a
+`PriceAlertEvent` (history) and, when `inApp` is on, pushes to a server-side
+ring buffer served by `GET /api/alerts/live` — then sends to every enabled AND
+configured external channel (Telegram / Discord / ntfy / Email / webhook, config
+under `SystemConfig["alert_channels"]`).
+
+Two client surfaces consume the fired-alert stream:
+
+1. **In-app notices** — the `/alerts` screen polls `/api/alerts/live` every 5s
+   and plays `sound.notification()` on a genuinely new event. Because that screen
+   is only mounted on its own tab, this is silent elsewhere in the app.
+2. **Desktop (OS) notifications** — `src/lib/alerts/browser-notifier.ts` wraps the
+   Web Notification API, and `AlertNotificationProvider` (mounted once in
+   `src/app/layout.tsx`) polls the same `/api/alerts/live` feed globally (10s) and
+   raises a native OS notification for each new event. New events are found with
+   `src/lib/alerts/event-diff.ts`, which tracks a bounded set of seen event ids
+   (not just the last one) precisely because the feed is capped at 50 rows. This is the one delivery
+   path that reaches the laptop itself. It is **opt-in** (localStorage
+   `be_alerts_browser_v1`, default OFF), requests permission only from an
+   explicit user gesture, and is a no-op unless permission is actually granted —
+   the Settings toggle reports `blocked`/`off`/`on` honestly. There is **no
+   service worker**, so notifications appear only while a BlackEclipse page is
+   open in the browser; the UI states this rather than hiding it. Toggle + "Send
+   test notification" live in Settings › Alerts/Notifications
+   (`alert-notifications-settings.tsx`).
+
 ## The two workspace systems (read this twice)
 
 | | Widget workspace | Market workspace |

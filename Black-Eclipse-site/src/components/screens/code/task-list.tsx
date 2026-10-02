@@ -4,11 +4,20 @@
 // One row per task: a plain status, a plain progress line, and the autonomy
 // choice as a plain sentence. The mechanism (workspace, checks, argv) is never
 // on this surface; it lives behind "details" and in the trace.
+//
+// Phase 14 adds two actions on each row, both using EXISTING contracts:
+//   * "Build this" — re-runs the task's request through `createCodeTask`
+//     (`/api/code/tasks`), the same call the separate screen has always used.
+//   * "Schedule" — creates a Phase-6 job (`/api/jobs`) whose target is the
+//     code-agent at `edit_verify`, created DISABLED (discovery is not
+//     activation). The folder comes from the runtime's own resolved root.
 
+import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { cn } from '@/lib/utils';
-import type { CodeTask, TaskStatus } from '@/lib/harness/code-browser';
+import { createCodeTask, type CodeTask, type TaskStatus } from '@/lib/harness/code-browser';
+import { createJob } from '@/lib/harness/jobs-browser';
 
 const STATUS_KEY: Record<TaskStatus, TranslationKey> = {
   created: 'code.task.status.created',
@@ -29,33 +38,154 @@ export interface TaskListProps {
   tasks: CodeTask[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  /** Called after a "Build this" starts so the container can refresh. */
+  onChanged?: () => void;
 }
 
-export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
+type RowState = { busy: 'build' | 'schedule' | null; note: string | null; error: boolean };
+
+export function TaskList({ tasks, selectedId, onSelect, onChanged }: TaskListProps) {
   const t = useT();
+  const [rows, setRows] = useState<Record<string, RowState>>({});
+  const [draft, setDraft] = useState('');
+  const [starting, setStarting] = useState(false);
+
+  const setRow = (id: string, next: RowState) =>
+    setRows((prev) => ({ ...prev, [id]: next }));
+
+  const buildThis = async (task: CodeTask) => {
+    setRow(task.id, { busy: 'build', note: null, error: false });
+    try {
+      // The existing contract: the route resolves the model settings + binds the
+      // runtime's own code root server-side.
+      await createCodeTask({ query: task.query || t('code.task.title'), autonomy: 'edit_verify', modelSettings: {} });
+      setRow(task.id, { busy: null, note: t('code.chat.buildStarted'), error: false });
+      onChanged?.();
+    } catch {
+      setRow(task.id, { busy: null, note: t('code.chat.actionFailed'), error: true });
+    }
+  };
+
+  const schedule = async (task: CodeTask) => {
+    setRow(task.id, { busy: 'schedule', note: null, error: false });
+    try {
+      // A schedule needs the folder the code work happens in. The runtime owns
+      // the server-resolved root; it confirms that value, never the caller's.
+      const rootRes = await fetch('/api/code/root');
+      const rootBody = (await rootRes.json().catch(() => ({}))) as { root?: string | null };
+      const root = rootBody.root ?? '';
+      if (!root) {
+        setRow(task.id, { busy: null, note: t('code.chat.actionFailed'), error: true });
+        return;
+      }
+      await createJob({
+        name: task.query || t('code.task.title'),
+        kind: 'manual',
+        target: {
+          kind: 'objective',
+          objective: task.query,
+          agentId: 'code-agent',
+          autonomy: 'edit_verify',
+          workspaceRoot: root,
+        },
+        delivery: { adapter: 'in_app' },
+      });
+      setRow(task.id, { busy: null, note: t('code.chat.scheduleStarted'), error: false });
+    } catch {
+      setRow(task.id, { busy: null, note: t('code.chat.actionFailed'), error: true });
+    }
+  };
+
+  const startNew = async () => {
+    const query = draft.trim();
+    if (!query || starting) return;
+    setStarting(true);
+    try {
+      await createCodeTask({ query, autonomy: 'edit_verify', modelSettings: {} });
+      setDraft('');
+      onChanged?.();
+    } catch {
+      // Leave the draft in place so the user can retry.
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const composer = (
+    <div className="glass-card-subtle mb-1.5 rounded-xl border border-border/40 p-2">
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') void startNew(); }}
+        placeholder={t('code.chat.newPlaceholder')}
+        className="w-full rounded-lg bg-background/60 px-2.5 py-1.5 text-[13px] text-foreground outline-none"
+      />
+      <button
+        type="button"
+        disabled={!draft.trim() || starting}
+        onClick={() => void startNew()}
+        className="glass-button mt-1.5 rounded-lg px-2.5 py-1 text-[11px] text-foreground disabled:opacity-50"
+      >
+        {t('code.chat.buildThis')}
+      </button>
+    </div>
+  );
+
   if (tasks.length === 0) {
-    return <div className="glass-card-subtle rounded-xl p-3 text-[12px] text-muted-foreground">{t('code.task.empty')}</div>;
+    return (
+      <div className="space-y-1.5">
+        {composer}
+        <div className="glass-card-subtle rounded-xl p-3 text-[12px] text-muted-foreground">{t('code.task.empty')}</div>
+      </div>
+    );
   }
   return (
     <ul className="space-y-1.5">
-      {tasks.map((task) => (
-        <li key={task.id}>
-          <button
-            type="button"
-            onClick={() => onSelect?.(task.id)}
-            className={cn(
-              'glass-card-subtle flex w-full items-center gap-2 rounded-xl border border-border/40 p-2.5 text-left text-[12px] transition-colors',
-              selectedId === task.id && 'border-primary/50',
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate text-foreground">{task.query || t('code.task.title')}</span>
-            <span className="shrink-0 text-muted-foreground/70">
-              {t(AUTONOMY_KEY[task.autonomy] ?? 'code.task.badge.planOnly')}
-            </span>
-            <span className="shrink-0 text-muted-foreground">{t(STATUS_KEY[task.status] ?? 'code.task.status.created')}</span>
-          </button>
-        </li>
-      ))}
+      <li>{composer}</li>
+      {tasks.map((task) => {
+        const row = rows[task.id];
+        return (
+          <li key={task.id} className="glass-card-subtle rounded-xl border border-border/40 p-2.5">
+            <button
+              type="button"
+              onClick={() => onSelect?.(task.id)}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-lg text-left text-[12px] transition-colors',
+                selectedId === task.id && 'text-primary',
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate text-foreground">{task.query || t('code.task.title')}</span>
+              <span className="shrink-0 text-muted-foreground/70">
+                {t(AUTONOMY_KEY[task.autonomy] ?? 'code.task.badge.planOnly')}
+              </span>
+              <span className="shrink-0 text-muted-foreground">{t(STATUS_KEY[task.status] ?? 'code.task.status.created')}</span>
+            </button>
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={row?.busy != null}
+                onClick={() => void buildThis(task)}
+                className="glass-button rounded-lg px-2.5 py-1 text-[11px] text-foreground disabled:opacity-50"
+              >
+                {t('code.chat.buildThis')}
+              </button>
+              <button
+                type="button"
+                disabled={row?.busy != null}
+                onClick={() => void schedule(task)}
+                className="glass-button rounded-lg px-2.5 py-1 text-[11px] text-foreground disabled:opacity-50"
+              >
+                {t('code.chat.schedule')}
+              </button>
+              {row?.note && (
+                <span className={cn('truncate text-[11px]', row.error ? 'text-rose-300' : 'text-muted-foreground')}>
+                  {row.note}
+                </span>
+              )}
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }

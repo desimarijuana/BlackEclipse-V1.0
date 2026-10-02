@@ -3251,3 +3251,50 @@ This is not a bypass: the identity gate still refuses AMBIGUOUS, `not_covered` a
 wrong-currency answers, so a live provider can never price the wrong instrument.
 The live yfinance bridge now carries `marketCap` too. Tests:
 `data-bridge.test.ts`, `data-bridge-phase2.test.ts`, `data-bridge-health.test.ts`.
+
+## ADR-H117 � One way in: the code capability is reached from the conversation, not a second form
+
+**Decision.** A coding request typed in ordinary chat is served by the code
+capability that already exists, through three additive pieces. (1)
+`python/harness/code/request_intent.py::classify_code_request` � a deterministic,
+model-free classifier returning `code_change` | `code_question` | `not_code`,
+where an AMBIGUOUS turn is `not_code` (the refusal path is the safe failure). It
+is reached over the read-only, operator-gated `POST /code/intent`. (2)
+`python/harness/agents.py::CHAT_CODE_TOOLS` � a NARROWED profile applied per turn
+inside the existing `graph.resolve_surface`, after the autonomy narrowing, so
+there is ONE place a run's profile is computed. `code_change` ? `edit_verify`
+(write + execute + verify), `code_question` ? `plan_only` (read-only). The four
+external actions (`code_commit`/`code_push`/`code_open_pr`/`code_deploy`) are
+absent from the declared set and can never be added back by a profile. (3) The
+front door learns to send `autonomy` (`plan_only` | `edit_verify` only,
+fail-closed on any other value) and `analysisEnabled`; `startChatRun` resolves
+them from the classifier. The runtime's registered tool set is UNCHANGED � the
+phase changes an allowlist and a payload, never a tool.
+
+**Why.** The modules existed and were registered on the one registry, but
+`eclipse-agent`'s allowlist could not read a file, apply a change or run a
+command; the front door never sent an autonomy, so `plan_only` was the only
+profile anyone reached and `analysis_run` was unreachable from the product. A
+capability that is unreachable is, from the user's seat, missing. The classifier
+is deterministic code, not a model call, because a model's opinion cannot grant a
+capability (README �3.1, �3.2). External actions stay on the Code Tasks surface
+where the single-use approval panel lives, so chat cannot commit, push, open a
+review request or deploy.
+
+**Consequences.** A `code_change` turn binds `workspace_patch_apply` and
+`command_run` (proven against the BOUND schemas, not the prompt); a finance turn
+binds no change/execute tool and behaves exactly as before. A refusal is honest
+and specific (`PROFILE_DENIED`, `WORKSPACE_UNBOUND`, `SANDBOX_UNAVAILABLE`,
+`COMMAND_NOT_ALLOWLISTED` carry existing plain sentences). `analysis_run` is on
+only for a turn that already asked for a code change; Phase 15 owns the richer
+quantitative classifier. User-facing copy lives under `code.chat.*` and passes
+the plain-language gate. `RunResult.capability` is a first-class field: the
+profile rides inside the existing `codeVerification` blob (`autonomy`/`workspaceId`)
+and `code/capability.py::capability_from_verification` derives
+`{kind, profile, headline, verification}` (an i18n headline KEY, never a
+category); the panel prefers it and falls back to the flat fields for older rows.
+A "Build this" / "Schedule" action on the code task list reuses the EXISTING
+`/api/code/tasks` and `/api/jobs` contracts; a scheduled code job is created
+disabled (`agent_id="code-agent"`, `autonomy="edit_verify"`).
+Tests: `test_code_request_intent.py`, `test_chat_code_profile.py`,
+`test_code_reachability.py`, `chat-capability-panel.test.ts`.

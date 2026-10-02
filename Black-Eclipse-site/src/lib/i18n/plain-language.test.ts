@@ -14,7 +14,7 @@ import { REFUSAL_KEY, refusalKey } from './refusal-copy';
 
 const PHASE_1_PREFIXES = [
   'task.navigator.', 'task.authoring.', 'task.check.',
-  'code.proof.', 'code.task.', 'code.approvals.', 'refusal.',
+  'code.proof.', 'code.task.', 'code.approvals.', 'code.chat.', 'refusal.',
   'analysis.', 'kit.', 'evolution.', 'jobs.', 'capability.',
   'source.',
 ];

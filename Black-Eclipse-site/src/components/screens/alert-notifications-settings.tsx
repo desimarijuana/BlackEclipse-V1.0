@@ -5,10 +5,18 @@
 // Status is honest: "connected" only when required creds are actually set.
 
 import { useEffect, useState } from "react";
-import { Bell, Save, Check } from "lucide-react";
+import { Bell, Save, Check, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  isSupported,
+  isEnabled as browserNotifyEnabled,
+  permission as browserNotifyPermission,
+  setEnabled as setBrowserNotifyEnabled,
+  showAlertNotification,
+  type NotificationPermissionState,
+} from "@/lib/alerts/browser-notifier";
 
 interface ChannelPatch {
   enabled?: boolean;
@@ -70,6 +78,40 @@ export function AlertNotificationsPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Desktop (OS) notifications — client-only, so probe after mount to keep SSR
+  // stable. `supported` gates the whole control; `permission` drives the honest
+  // status line (blocked / needs permission / on).
+  const [browserSupported, setBrowserSupported] = useState(false);
+  const [browserOn, setBrowserOn] = useState(false);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermissionState>("unsupported");
+
+  useEffect(() => {
+    setBrowserSupported(isSupported());
+    setBrowserOn(browserNotifyEnabled());
+    setBrowserPermission(browserNotifyPermission());
+  }, []);
+
+  const toggleBrowserNotify = async () => {
+    const next = !browserOn;
+    const result = await setBrowserNotifyEnabled(next);
+    setBrowserOn(result.enabled);
+    setBrowserPermission(result.permission);
+    if (next && !result.effective) {
+      setMessage("Desktop notifications need browser permission — allow them in your browser's site settings.");
+    } else {
+      setMessage(null);
+    }
+  };
+
+  const testBrowserNotify = () => {
+    const shown = showAlertNotification({
+      alertName: "BlackEclipse",
+      msg: "This is a test alert — desktop notifications are working.",
+      test: true,
+    });
+    if (!shown) setMessage("Could not show a desktop notification — enable it and allow browser permission first.");
+  };
+
   const load = async () => {
     try {
       const res = await fetch("/api/alerts/channels", { cache: "no-store" });
@@ -128,6 +170,43 @@ export function AlertNotificationsPanel() {
           <input type="checkbox" checked={inApp} onChange={(e) => setInApp(e.target.checked)} className="accent-[hsl(var(--primary))]" />
           In-app notices (always recorded to history regardless)
         </label>
+
+        <div className="rounded-xl border border-border/30 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Monitor size={14} className="text-primary" />
+              <span className="text-xs font-semibold uppercase tracking-wide">Desktop notifications</span>
+              {browserOn && browserPermission === "granted" ? (
+                <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1">
+                  <Check size={9} /> on
+                </span>
+              ) : browserPermission === "denied" ? (
+                <span className="text-[9px] font-bold text-rose-400 uppercase tracking-widest">blocked</span>
+              ) : (
+                <span className="text-[9px] text-muted-foreground uppercase tracking-widest">off</span>
+              )}
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={browserOn}
+                disabled={!browserSupported}
+                onChange={toggleBrowserNotify}
+                className="accent-[hsl(var(--primary))]"
+              />
+              Enable
+            </label>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Native OS notifications on this computer (Windows/macOS/Linux) while a BlackEclipse tab is open.
+            {!browserSupported && " Not supported in this browser."}
+            {browserSupported && browserPermission === "denied" &&
+              " Your browser has blocked notifications — allow them in the site settings (padlock in the address bar)."}
+          </p>
+          <Button size="sm" variant="outline" onClick={testBrowserNotify} disabled={!browserOn || browserPermission !== "granted"} className="cursor-pointer rounded-xl">
+            Send test notification
+          </Button>
+        </div>
 
         {Object.entries(CHANNEL_FIELDS).map(([id, fields]) => {
           const st = statusFor(id);

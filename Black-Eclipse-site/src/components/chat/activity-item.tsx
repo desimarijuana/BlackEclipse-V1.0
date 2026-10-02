@@ -10,14 +10,22 @@
 // a developer-facing view is allowed to show.
 
 import { useState } from 'react';
-import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, Wrench } from 'lucide-react';
+import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, ShieldAlert, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n/use-t';
 import type { ActivityItem } from '@/lib/agent/response-model';
+import type { ChatCapability } from '@/lib/harness/chat-capability-view';
+import { ChatCapabilityPanel } from './chat-capability-panel';
 
 export interface ActivityItemRowProps {
   item: ActivityItem;
   /** Tighter type/spacing for the floating dock. */
   compact?: boolean;
+  /**
+   * Phase 14: the turn's code capability, rendered once for the anchor row of a
+   * coding turn. Absent for ordinary turns (nothing renders).
+   */
+  capability?: ChatCapability;
 }
 
 /** A conservative duration format — only shown when the runtime reported one. */
@@ -37,10 +45,14 @@ function CategoryIcon({ item, className }: { item: ActivityItem; className?: str
   return <Wrench size={12} className={className} />;
 }
 
-export function ActivityItemRow({ item, compact = false }: ActivityItemRowProps) {
+export function ActivityItemRow({ item, compact = false, capability }: ActivityItemRowProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const failed = item.status === 'failed';
   const running = item.status === 'running';
+  // A refused code step shows its ONE plain sentence instead of the operation
+  // label; the raw code stays behind "details".
+  const refused = Boolean(item.reasonKey);
 
   // Reveal the operation name + failure code only when they exist. A plain
   // successful tool with no extras stays a single line.
@@ -58,13 +70,14 @@ export function ActivityItemRow({ item, compact = false }: ActivityItemRowProps)
           hasDetails && 'cursor-pointer hover:bg-accent/50',
         )}
       >
-        <span className={cn('shrink-0', failed ? 'text-rose-400' : running ? 'text-primary' : 'text-muted-foreground/70')}>
+        <span className={cn('shrink-0', failed ? 'text-rose-400' : refused ? 'text-amber-500' : running ? 'text-primary' : 'text-muted-foreground/70')}>
           {running ? <Loader2 size={12} className="animate-spin" />
             : failed ? <AlertCircle size={12} />
+            : refused ? <ShieldAlert size={12} />
             : <CategoryIcon item={item} />}
         </span>
-        <span className={cn('min-w-0 flex-1 truncate', failed ? 'text-rose-300' : 'text-muted-foreground')}>
-          {item.label}
+        <span className={cn('min-w-0 flex-1 truncate', failed ? 'text-rose-300' : refused ? 'text-amber-300/90' : 'text-muted-foreground')}>
+          {refused && item.reasonKey ? t(item.reasonKey) : item.label}
         </span>
         {item.summary && !running && !failed && (
           <span className="shrink-0 text-muted-foreground/60">{item.summary}</span>
@@ -105,6 +118,17 @@ export function ActivityItemRow({ item, compact = false }: ActivityItemRowProps)
             </div>
           )}
         </dl>
+      )}
+
+      {/* Phase 14: the chat capability panel, rendered once beneath the anchor
+          activity row of a coding turn. It composes the existing verification
+          panel; it never re-renders its content. */}
+      {capability && (
+        <ChatCapabilityPanel
+          autonomy={capability.autonomy}
+          verification={capability.verification}
+          compact={compact}
+        />
       )}
     </div>
   );

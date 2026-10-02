@@ -165,8 +165,9 @@ def fetch_history(symbols, period, interval):
         if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
             df.index = df.index.tz_localize(None)
         df = df[df["Open"] > 0]
-        rows = [
-            {
+        rows = []
+        for idx, r in df.iterrows():
+            row = {
                 "date": str(idx.date()),
                 "open": round(float(r.Open), 6) if r.Open == r.Open else None,
                 "high": round(float(r.High), 6) if r.High == r.High else None,
@@ -174,8 +175,18 @@ def fetch_history(symbols, period, interval):
                 "close": round(float(r.Close), 6) if r.Close == r.Close else None,
                 "volume": float(r.Volume) if r.Volume == r.Volume else None,
             }
-            for idx, r in df.iterrows()
-        ]
+            # Corporate actions, when yfinance reports them on this bar. Carried so
+            # the fact engine can flag a split/dividend that makes a naive
+            # historical comparison invalid (Universal-financial-fact §17).
+            if "Dividends" in df.columns:
+                div = r.get("Dividends")
+                if div is not None and div == div and float(div) != 0:
+                    row["dividend"] = round(float(div), 6)
+            if "Stock Splits" in df.columns:
+                split = r.get("Stock Splits")
+                if split is not None and split == split and float(split) != 0:
+                    row["split"] = round(float(split), 6)
+            rows.append(row)
         if rows:
             history[sym] = rows
     return history

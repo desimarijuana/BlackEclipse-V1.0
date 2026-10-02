@@ -229,6 +229,32 @@ def effective_allowlist(
 # Tools whose surface is gated by a policy key. A tool is dropped from the
 # advertised schema AND the run's allowlist when its store is off, so the model
 # is never told about a tool it cannot use.
+def chat_code_allowlist(
+    agent: AgentConfig, registry: ToolRegistry, autonomy: Optional[str],
+) -> Optional[set[str]]:
+    """The allowlist for a CHAT turn that carries a code profile (Phase 14).
+
+    Only the finance agent (`eclipse-agent`) has a chat code profile, and only
+    when the front door sent an autonomy (i.e. the deterministic classifier saw a
+    coding request). The profile is `agents.CHAT_CODE_TOOLS`, narrowed through the
+    ONE policy authority (`code.policy.allowed_tools`) so `plan_only` removes the
+    write/execute tools and `edit_verify` keeps them — and the external actions
+    are absent from the declared set entirely (they cannot be added back by a
+    profile). Returns None when the agent is not the finance agent, or no autonomy
+    was sent, so the caller keeps the ordinary surface.
+    """
+    from .agents import CHAT_CODE_TOOLS  # noqa: PLC0415
+
+    if agent.id != "eclipse-agent" or not autonomy:
+        return None
+    from .code.policy import allowed_tools  # noqa: PLC0415
+
+    return set(allowed_tools(autonomy, tuple(CHAT_CODE_TOOLS)))
+
+
+# Tools whose surface is gated by a policy key. A tool is dropped from the
+# advertised schema AND the run's allowlist when its store is off, so the model
+# is never told about a tool it cannot use.
 def surface_disabled_tools(settings: Optional[dict[str, Any]]) -> set[str]:
     """Tool names whose surface is disabled by the resolved policy."""
     settings = settings or {}
@@ -273,7 +299,14 @@ def resolve_surface(
     effective_autonomy = autonomy
     if effective_autonomy is None and agent.id == "code-agent":
         effective_autonomy = "plan_only"
-    allowed = effective_allowlist(agent, registry, effective_autonomy)
+    # Phase 14: a CHAT coding turn carries an autonomy on the finance agent. Apply
+    # the chat code profile HERE, after the existing autonomy narrowing, so there
+    # is exactly ONE place a run's profile is computed and `plan_only` still
+    # removes the write/execute tools.
+    chat_profile = chat_code_allowlist(agent, registry, autonomy)
+    allowed = chat_profile if chat_profile is not None else effective_allowlist(
+        agent, registry, effective_autonomy,
+    )
     if allowed is None:
         if disabled:
             allowed = {name for name in registry.names() if name not in disabled}
@@ -1047,7 +1080,45 @@ async def execute_run(
     output, code_verification_blob = await enforce_run_answer(
         output, code_ledger, repair_outcome=None, emitter=emitter,
     )
+    # Phase 14: record the run's code profile ALONGSIDE the verification ledger, so
+    # a reader (the chat capability panel) can name what Eclipse set out to do. The
+    # profile rides in the existing additive blob — no new persisted column, no
+    # migration. Only a coding turn carries one; an ordinary run's blob is
+    # unchanged.
+    if request.autonomy or request.workspaceId:
+        code_verification_blob = dict(code_verification_blob or {})
+        if request.autonomy:
+            code_verification_blob["autonomy"] = request.autonomy
+        if request.workspaceId:
+            code_verification_blob["workspaceId"] = request.workspaceId
     store.update_run(request.runId, codeVerification=code_verification_blob)
+    # Universal financial-fact enforcement (finance_facts.enforce): if the answer
+    # asserts a metric the run's own analysis EXCLUDED (ambiguous definition, no
+    # period, superseded), or states one side of a cross-source conflict, append the
+    # disclosure rather than silently presenting an unverified figure as clean.
+    # Deterministic, no model call; a no-op when the run retrieved no finance facts.
+    finance_disclosures: list[str] = []
+    finance_presentable = True
+    finance_excluded: list[str] = []
+    try:
+        from .finance_facts.enforce import disclosure_note, enforce_finance_answer  # noqa: PLC0415
+
+        finance_analysis = source_collector.finance_analysis()
+        if finance_analysis:
+            verdict = enforce_finance_answer(output, finance_analysis)
+            finance_disclosures = verdict.required_disclosures
+            finance_presentable = bool(finance_analysis.get("presentable", True))
+            finance_excluded = list(finance_analysis.get("excluded") or [])
+            if finance_disclosures:
+                note = disclosure_note(finance_disclosures)
+                output = f"{output}\n\n{note}" if output.strip() else note
+            await emitter.emit("finance.analysis", {
+                "presentable": finance_presentable,
+                "excluded": finance_excluded,
+                "disclosures": finance_disclosures,
+            })
+    except Exception:  # noqa: BLE001 - enforcement is additive, never fatal
+        pass
     context_blob = _context_budget_blob(
         final_budget, request, kind="completed", retried=retry_budget is not None,
     )
@@ -1716,7 +1787,17 @@ def _result(run_id: str, status: str, store: AgentMemoryStore, error: Optional[d
         completionTokens=run.get("completionTokens", 0),
         totalTokens=run.get("totalTokens", 0),
         codeVerification=run.get("codeVerification"),
+        autonomy=run.get("autonomy"),
+        workspaceId=run.get("workspaceId"),
+        capability=_capability_of(run),
     )
+
+
+def _capability_of(run: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The chat capability view for a run, derived from its verification blob."""
+    from .code.capability import capability_from_verification  # noqa: PLC0415
+
+    return capability_from_verification(run.get("codeVerification"))
 
 
 __all__ = ["build_graph", "execute_run"]

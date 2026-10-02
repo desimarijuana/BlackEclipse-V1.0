@@ -209,6 +209,18 @@ export interface RunResult {
    * remain compatible.
    */
   context?: ContextBudgetInfo;
+  /**
+   * Phase 4/14 (additive, optional): the run's code-verification ledger. Present
+   * for a run that used the code capability (the chat capability panel renders
+   * it); absent for ordinary chat and older rows.
+   */
+  codeVerification?: Record<string, unknown>;
+  /** Phase 5 (additive): the autonomy a code run was bound to, when any. */
+  autonomy?: string | null;
+  /** Phase 5 (additive): the workspace a code run was bound to, when any. */
+  workspaceId?: string | null;
+  /** Phase 14 (additive): the chat capability view for a coding turn. */
+  capability?: Record<string, unknown> | null;
 }
 
 export interface ContextBudgetInfo {
@@ -274,6 +286,14 @@ export interface RunRecord {
   memory?: MemoryRunInfo | null;
   /** Context budgeting metadata (null for ordinary/older rows). */
   context?: ContextBudgetInfo | null;
+  /** Phase 4/14: code-verification ledger (null for ordinary/older rows). */
+  codeVerification?: Record<string, unknown> | null;
+  /** Phase 5: the autonomy a code run was bound to, when any. */
+  autonomy?: string | null;
+  /** Phase 5: the workspace a code run was bound to, when any. */
+  workspaceId?: string | null;
+  /** Phase 14: the chat capability view for a coding turn. */
+  capability?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

@@ -23,6 +23,7 @@ import { AgentationToolbar } from "@/components/layout/agentation-toolbar";
 import { GlobalLoader } from "@/components/ui/global-loader";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
 import { SoundProvider } from "@/lib/sounds";
 
 // ── Landing-wordmark fonts ──────────────────────────────────────────────────
@@ -70,6 +71,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <GlobalSearch />
         <KeyboardShortcuts />
         <SoundProvider />
+        <AlertNotificationProvider />
       </body>
     </html>
   );

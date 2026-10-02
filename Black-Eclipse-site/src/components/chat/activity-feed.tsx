@@ -16,6 +16,8 @@ import { AlertCircle, Check, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ActivityItem, ResponseStatus } from '@/lib/agent/response-model';
 import { ActivityItemRow } from './activity-item';
+import type { ChatCapability } from '@/lib/harness/chat-capability-view';
+import { ChatCapabilityPanel } from './chat-capability-panel';
 
 export interface ActivityFeedProps {
   activities: ActivityItem[];
@@ -28,6 +30,11 @@ export interface ActivityFeedProps {
    * ends. `false` keeps it collapsed unless the user opens it.
    */
   autoExpand?: boolean;
+  /**
+   * Phase 14: the turn's code capability, rendered beneath the FIRST activity
+   * row so a coding turn shows what Eclipse did exactly once.
+   */
+  capability?: ChatCapability;
 }
 
 /** Distinct sources/providers consulted, for the collapsed summary. */
@@ -36,7 +43,7 @@ function sourceCount(items: ActivityItem[]): number {
   return set.size;
 }
 
-export function ActivityFeed({ activities, status, compact = false, autoExpand = true }: ActivityFeedProps) {
+export function ActivityFeed({ activities, status, compact = false, autoExpand = true, capability }: ActivityFeedProps) {
   const [open, setOpen] = useState(false);
   const userToggled = useRef(false);
   const feedId = useId();
@@ -52,7 +59,20 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
     setOpen(working && activities.length > 0);
   }, [working, activities.length, autoExpand]);
 
-  if (activities.length === 0) return null;
+  // Phase 14: a coding turn with no tool activity still shows its capability
+  // (what Eclipse set out to do), so the line is never silently lost.
+  if (activities.length === 0) {
+    if (!capability?.autonomy && !capability?.verification) return null;
+    return (
+      <div className={cn('w-full', compact ? 'mb-2' : 'mb-3')}>
+        <ChatCapabilityPanel
+          autonomy={capability?.autonomy}
+          verification={capability?.verification}
+          compact={compact}
+        />
+      </div>
+    );
+  }
 
   const toggle = () => {
     userToggled.current = true;
@@ -106,8 +126,13 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
           // bound and pushing the answer off screen.
           style={{ maxHeight: 280, overflowY: 'auto' }}
         >
-          {activities.map((item) => (
-            <ActivityItemRow key={item.id} item={item} compact={compact} />
+          {activities.map((item, index) => (
+            <ActivityItemRow
+              key={item.id}
+              item={item}
+              compact={compact}
+              capability={index === 0 ? capability : undefined}
+            />
           ))}
         </div>
       )}

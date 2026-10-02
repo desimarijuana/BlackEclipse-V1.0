@@ -42,6 +42,11 @@ export interface RunRequestPayload {
   projectId?: string;
   /** Phase 1 (optional): bind this run to a read-only workspace. */
   workspace?: { root: string; baseRevision?: string };
+  /** Phase 14 (optional): the code profile for this run, when the turn is a
+   * coding request. Only `plan_only` | `edit_verify` are ever sent from chat. */
+  autonomy?: "plan_only" | "edit_verify";
+  /** Phase 8 (optional): enable the analysis sandbox for this turn. */
+  analysisEnabled?: boolean;
   callbackBaseUrl: string;
   callbackToken?: string;
 }

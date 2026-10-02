@@ -203,6 +203,29 @@ def normalize_history(payload: dict[str, Any], source: SourceReference) -> list[
                     instrument=symbol,
                 )
             )
+        # Corporate actions carried on the bar (yfinance Dividends/Stock Splits).
+        # Recorded as their own observations so the fact engine can flag a split
+        # that makes a naive historical comparison invalid (UFA §17).
+        split = bar.get("split")
+        if isinstance(split, (int, float)) and split not in (0, 1):
+            out.append(
+                _obj(
+                    "stock_split", split, source,
+                    unit="ratio", data_timestamp=str(date) if date else None,
+                    period=interval, instrument=symbol,
+                    transformations=[f"corporate action: {split}:1 split on {date}"],
+                )
+            )
+        dividend = bar.get("dividend")
+        if isinstance(dividend, (int, float)) and dividend != 0:
+            out.append(
+                _obj(
+                    "dividend", dividend, source,
+                    unit="currency", currency=currency,
+                    data_timestamp=str(date) if date else None,
+                    period=interval, instrument=symbol,
+                )
+            )
     return out
 
 

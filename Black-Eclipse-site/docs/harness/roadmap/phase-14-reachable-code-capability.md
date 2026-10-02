@@ -1,6 +1,6 @@
 ---
 title: "Phase 14 — The Code Capability, Reachable From Where the User Is"
-status: Not started
+status: Done
 phase: 14
 depends_on: [5, 12]
 unlocks: [15, 18]

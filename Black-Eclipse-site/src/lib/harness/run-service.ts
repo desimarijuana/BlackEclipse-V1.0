@@ -6,7 +6,8 @@
 // There is deliberately NO agent loop, tool registry or model adapter here.
 
 import { getLLMConfig } from "@/lib/settings";
-import { assertRunInput, validateWorkspaceRef } from "./validation";
+import { assertChatAutonomy, assertRunInput, validateWorkspaceRef } from "./validation";
+import { resolveChatCodeProfile } from "./chat-capability";
 import { getAgentPreset } from "./agent-presets";
 import { runViaRuntime, startRunBackground, type RunRequestPayload } from "./python-client";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
@@ -76,7 +77,17 @@ export async function chatWithAgent(
   };
 }
 
-/** Resolve the model settings the runtime should use for a run. */
+/**
+ * Resolve the model settings the runtime should use for a run.
+ *
+ * Exported (Phase 14) so the code-task route can resolve them server-side when a
+ * task is started from a UI surface that has no vault access. There is still one
+ * resolution path — this function.
+ */
+export async function resolveRunModelSettings() {
+  return resolveModelSettings();
+}
+
 async function resolveModelSettings() {
   const cfg = await getLLMConfig();
   const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
@@ -119,12 +130,24 @@ export async function startChatRun(
     );
   }
   const id = runId ?? newRunId();
+  // Phase 14: ask the runtime's deterministic classifier whether this turn is a
+  // coding request. A failure to classify is an ordinary turn (null), never a
+  // guess — an unavailable classifier must not hand out a code profile.
+  let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
+  try {
+    capability = await resolveChatCodeProfile(query, history);
+  } catch {
+    capability = null;
+  }
+  const autonomy = capability ? assertChatAutonomy(capability.autonomy) : undefined;
   const payload: RunRequestPayload = {
     runId: id,
     input,
     agentId: agent.id,
     modelSettings,
     sessionId,
+    ...(autonomy ? { autonomy } : {}),
+    ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };

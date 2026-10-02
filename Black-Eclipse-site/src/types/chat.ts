@@ -30,6 +30,19 @@ export interface Message {
   memory?: unknown;
   /** The harness run id for this turn (enables run-scoped actions/diagnostics). */
   runId?: string;
+  /**
+   * Phase 14: the run's code-verification ledger when the turn used the code
+   * capability. Absent on user turns, ordinary chat, and legacy rows. Narrowed
+   * by the chat capability panel via `coerceCodeVerification`.
+   */
+  codeVerification?: unknown;
+  /**
+   * Phase 14: the narrow code profile the turn was bound to
+   * (`plan_only` | `edit_verify`), or null/absent for an ordinary turn.
+   */
+  autonomy?: string | null;
+  /** Phase 14 §6.4: the runtime-derived chat capability view, when any. */
+  capability?: unknown;
   /** A recoverable failure on this turn. */
   error?: TurnError;
   /** User rating on an assistant turn, if given. Persisted with the message. */

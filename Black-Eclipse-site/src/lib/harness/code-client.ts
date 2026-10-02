@@ -154,6 +154,46 @@ export async function decideCodeApproval(id: string, approve: boolean, reason = 
   });
 }
 
+// ─── Chat request classification (Phase 14) ────────────────────────────────
+// The classifier lives in the runtime; the front door calls it rather than
+// re-implementing the rules (one runtime, ADR-H117). Both routes are read-only.
+
+export type CodeIntentVerdict = "code_change" | "code_question" | "not_code";
+
+export interface CodeIntent {
+  verdict: CodeIntentVerdict;
+  confidence: "certain" | "likely";
+  reason: string;
+  signals: string[];
+}
+
+export async function classifyCodeIntent(
+  query: string,
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
+): Promise<CodeIntent> {
+  const body = await request<{ intent: CodeIntent }>("/code/intent", {
+    method: "POST",
+    body: JSON.stringify({ query, history }),
+    timeoutMs: 10_000,
+  });
+  return body.intent;
+}
+
+/** The runtime's server-resolved code root. Read-only; used by proxy routes. */
+export async function getCodeRoot(): Promise<string | null> {
+  try {
+    const body = await request<{ root: string | null; available: boolean }>("/code/root", {
+      method: "GET",
+      timeoutMs: 10_000,
+    });
+    return body.available ? body.root : null;
+  } catch {
+    return null;
+  }
+}
+
+
+
 // ─── Code-verification wire types (Phase 4) ─────────────────────────────────
 // Mirror of the Python `code/verify.py` shapes. This module holds NO agentic
 // logic — the panel renders what the runtime recorded, and never upgrades an

@@ -8,6 +8,215 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Universal financial-fact engine, slice 6: point-in-time, research router and
+  corporate-action ingestion — the remaining sections.** Closes the three gaps the
+  audit named. `finance_facts/point_in_time.py` (§15) keeps period_end /
+  publication / retrieval distinct and refuses a later report under an earlier
+  cutoff (`latest_known_per_metric` returns the revision available THEN, not the
+  newest that exists today). `finance_facts/router.py` (§24) classifies a question
+  into an intent and returns the evidence areas it NEEDS — with sector-specific
+  additions — so the agent plans retrieval instead of taking whatever JDdS holds.
+  `finance_facts/corporate_actions.py::extract_from_series` (§17) derives splits and
+  dividends from the price series the yfinance bridge already carried
+  (`scripts/yfinance_bridge.py` now emits `Dividends`/`Stock Splits` per bar;
+  `normalize_history` lifts them to `stock_split`/`dividend` observations). Tests:
+  `test_finance_facts_pit_router.py` (10 cases). Full release gate: vitest 178 files
+  / 2027 tests, pytest 2425, ALL GATES PASSED. Still no ticker-specific logic; no
+  prisma/schema.prisma or jdds.db change.
+  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
+
+- **Universal financial-fact engine, slice 5: the final-answer gate.** Closes the
+  loop — the answer is now checked against the run's own validated facts, exactly
+  as code claims are checked against the verification ledger. `finance_facts/enforce.py`
+  (`enforce_finance_answer`) is deterministic and makes no model call: if the answer
+  asserts a metric the run's analysis EXCLUDED (ambiguous definition, no period,
+  superseded) or states one side of a cross-source conflict without saying so, it
+  requires a disclosure — it never silently strips the number. An already-present
+  in-sentence disclosure is honoured, so it never nags. `source_collector.py` now
+  accumulates the per-retrieval analysis across the run (deduplicated, higher
+  confidence wins) and carries it on the `research` blob's `financeAnalysis`;
+  `graph.py` adds ONE guarded block that appends the disclosure to the completed
+  answer and emits `finance.analysis`. Wiring is additive and exception-guarded.
+  Tests: `test_finance_facts_enforce.py` (8 cases) plus the collected-blob path.
+  Full release gate: vitest 178 files / 2026 tests, pytest 2413, ALL GATES PASSED.
+  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
+
+- **Desktop-alert notifications — audit hardening.** A review of the new
+  desktop-notification provider found a real de-dup defect: it tracked only the
+  single last-seen event id, but the `/api/alerts/live` feed is capped at 50 rows
+  (`take: 50`), so a burst of alerts could push the last-seen id out of the window
+  and re-announce an already-seen event. Detection is extracted to a pure,
+  framework-free `src/lib/alerts/event-diff.ts` (`selectNewEvents`/`seedSeen`, a
+  bounded 200-id seen-set) and the provider now consumes it. Adds
+  `event-diff.test.ts` (5 tests, incl. the scroll-out-of-window case). Full audit
+  run: `tsc --noEmit` clean, eslint clean, vitest 2026 passed, Python 2413 passed,
+  eval gates ALL PASS, `next build` succeeded.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Desktop (OS) notifications for fired price alerts.** Fired alerts can now
+  rise as native OS notifications on the user's laptop, not just the in-app feed
+  on the `/alerts` tab. New client lib `src/lib/alerts/browser-notifier.ts` wraps
+  the Web Notification API (opt-in localStorage flag `be_alerts_browser_v1`,
+  default OFF; permission requested only from an explicit gesture; `show()` is an
+  honest no-op unless granted). New `AlertNotificationProvider`
+  (`src/components/layout/alert-notification-provider.tsx`), mounted once in
+  `src/app/layout.tsx`, polls the always-recorded `GET /api/alerts/live` stream
+  (10s, first poll seeds history so nothing replays) and raises one notification
+  per genuinely new event. Settings › Alerts/Notifications
+  (`alert-notifications-settings.tsx`) gained a "Desktop notifications" toggle
+  with honest `off`/`blocked`/`on` state and a test-notification button. No service
+  worker, so notifications show only while a BlackEclipse page is open — stated in
+  the UI. Additive; no schema/API contract change. Tests:
+  `src/lib/alerts/browser-notifier.test.ts` (5). Full suite 2021 passed;
+  `tsc --noEmit` clean.
+  docs updated: `docs/ARCHITECTURE.md` (Alert delivery), `docs/NAVIGATION.md`
+
+- **Universal financial-fact engine, slice 4b: self-review fixes.** A careful pass
+  over the new engine found and fixed four real defects. (1) `conflicts.detect_conflict`
+  flagged two time-series bars at different dates as a disagreement and a single
+  source repeating itself as a conflict — it now requires the same period AND
+  different sources, and compares by canonical concept so two labels of one
+  definition are comparable. (2) `analysis.analyze_result` reported each conflict
+  twice (once per direction) and grouped by raw label; it now detects each pair once
+  (keyed by object identity, since fact_ids can collide across sources) and groups by
+  canonical definition. (3) `sector.classify` labelled a conglomerate that contains a
+  bank as `bank`; a holding/conglomerate is now a structural classification that
+  outranks a sub-business keyword, while the bank ownership still sets
+  `contains_financial`. (4) `retrieval_tools._finish`/`_summarize` ran the analysis
+  twice per tool call; it is now computed once and shared, with `_summarize` keeping
+  a guarded fallback for direct callers. Regression tests added for the conflict
+  cases. Tests: `test_finance_facts.py` (53 across the two files).
+  docs updated: `docs/CHANGELOG.md`
+
+- **Universal financial-fact engine, slice 4: the enforcing gate.** Every
+  retrieval tool result now carries a validated `analysis` block the answer layer
+  must honor. `finance_facts/analysis.py::analyze_result` runs the full chain on a
+  retrieval result: lift each value into a `FinancialFact`, run the ordered
+  data-quality gates, compute evidence-based confidence, detect and explain
+  cross-source conflicts, build the evidence graph and report orphans, and classify
+  the entity. A fact is marked **admissible** (only disclosures — stale, soft
+  source) or **excluded** (no entity/period/definition, superseded, unreproducible);
+  `presentable` is false when anything is excluded, so an ambiguous `revenue` is
+  withheld rather than presented as a clean figure. `retrieval_tools._finish`
+  attaches `analysis` to the structured payload and `_summarize` prints the
+  notes + the withheld list; both are exception-guarded and additive. The label
+  resolver is now case/separator-normalized, so a provider's `marketCap`,
+  `market_cap` and `market cap` all resolve to the same definition. Tests:
+  `test_analysis_returns_validated_facts_and_gate_verdicts`,
+  `test_analysis_excludes_an_ambiguous_revenue_from_a_clean_answer`. Still no
+  ticker-specific logic; no schema/jdds.db change.
+  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
+
+- **Universal financial-fact engine, slice 3: wired into the retrieval tool
+  summary.** The deterministic fact engine now runs on live retrieval output.
+  `finance_facts/adapter.py::annotate_result` lifts every normalized object of a
+  retrieval result into a `FinancialFact` and produces the honesty notes the
+  answer must carry — accounting-definition ambiguity, detected business type, the
+  financial-framework warning for entities containing banks/insurers, cross-source
+  definition differences vs real disagreements, and stale values.
+  `retrieval_tools._summarize` appends a "Data-quality notes:" block when there is
+  something to disclose (absent otherwise, so no existing text changed). Metadata
+  fields (sector/industry/name) are never mistaken for ambiguous financial metrics.
+  Additive and exception-guarded: analysis can never break a summary. Test:
+  `test_summary_surfaces_definition_ambiguity_and_sector_but_not_metadata`. Still
+  no ticker-specific logic; no schema/jdds.db change.
+  docs updated: `docs/CHANGELOG.md`
+
+- **Phase 14 — the code capability, reachable from chat.** A coding request typed
+  in ordinary conversation is now served by the code capability that already
+  existed, instead of refusing for lack of a tool. A deterministic, model-free
+  classifier `python/harness/code/request_intent.py::classify_code_request`
+  (reached over the read-only operator-gated `POST /code/intent`) decides
+  `code_change` | `code_question` | `not_code`, with an AMBIGUOUS turn defaulting
+  to `not_code` (the refusal path is the safe failure). `agents.CHAT_CODE_TOOLS`
+  is a NARROWED profile applied per turn inside the existing
+  `graph.resolve_surface`, after the autonomy narrowing: `code_change` →
+  `edit_verify` (write/execute/verify), `code_question` → `plan_only` (read-only).
+  The four external actions (`code_commit`/`code_push`/`code_open_pr`/
+  `code_deploy`) are absent from the declared set — external actions stay on the
+  Code Tasks surface. The front door gains additive `autonomy`
+  (`plan_only`|`edit_verify` only, fail-closed on anything else) and
+  `analysisEnabled` on `RunRequestPayload`; `startChatRun` resolves and sends them
+  from the classifier. A new `src/components/chat/chat-capability-panel.tsx`
+  composes the existing Phase-4 verification panel and is wired through
+  `activity-feed.tsx`/`activity-item.tsx`/`chat-history.tsx`, so a coding turn
+  shows what Eclipse did in plain words. The code task list gains "Build this"
+  (existing `/api/code/tasks`) and "Schedule" (existing `/api/jobs`, created
+  DISABLED with `agent_id="code-agent"`, `autonomy="edit_verify"`). The runtime's
+  registered tool set is UNCHANGED — an allowlist and a payload, never a tool.
+  Tests: `python/tests/test_code_request_intent.py`,
+  `test_chat_code_profile.py`, `test_code_reachability.py`,
+  `src/components/chat/chat-capability-panel.test.ts`; ADR-H117.
+  docs updated: `docs/harness/decisions.md` (ADR-H117), this file,
+  `docs/NAVIGATION.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-14-reachable-code-capability.md`,
+  `docs/harness/roadmap/progress/phase-14-progress.md`
+- **Phase 14 audit follow-up.** A self-review found and fixed four defects. (a)
+  The ADR-H117 append introduced mixed CRLF/LF into `docs/harness/decisions.md`
+  (caught by `gitignore-guard.test.ts`), normalized back to LF. (b) The first cut
+  of "Build this" only appeared on existing task rows, so an empty task list still
+  had no way to start a work order — the exact symptom the phase existed to
+  remove; `task-list.tsx` now renders a "what should Eclipse build or fix?"
+  composer above the list and the empty state. (c) The classifier returned
+  `not_code` for the user's literal wish ("create a new application", "build
+  algorithms", "build a Monte Carlo simulator"); the software-object vocabulary
+  gained those artifacts, a homograph guard stops "test the market" / "build a
+  portfolio" self-matching, and `what does…` questions plus reported symptoms and
+  named errors now classify correctly. (d) A refused code step
+  (`code.refused`/`code.patch.refused`) now renders its ONE plain refusal
+  sentence, with the raw code behind "details", instead of a technical operation
+  label. Tests: `test_code_request_intent.py` 22→43 cases, `events.test.ts` two
+  refusal cases. (e) The §6.4 capability view is now a first-class
+  `RunResult.capability` (`{kind, profile, headline, verification}`), derived in
+  `python/harness/code/capability.py` from the run's verification blob (the
+  profile rides inside that existing additive blob — no new column, `persistence.py`
+  ratchet untouched) and mirrored client-side by `coerceChatCapability`; the panel
+  prefers it and falls back to the flat fields for older rows. Gates: vitest
+  **178/2027**, pytest **2415**, `npm run build` exit 0.
+  docs updated: `docs/harness/roadmap/progress/phase-14-progress.md`, this entry.
+
+- **Universal financial-fact engine, slice 2: derived metrics, corporate actions,
+  evidence graph.** Completes the deterministic foundation. `finance_facts/metrics.py`
+  derives P/E, P/B (COMMON equity, §7), EV/EBITDA, ROE (parent-attributable), growth
+  and more, each returning a `DerivedMetric` with formula + inputs + input periods +
+  input sources + timestamp, and REFUSING mixed currency/period or a negative-EPS
+  P/E rather than fabricating a number. `finance_facts/corporate_actions.py` flags
+  splits/buybacks/spin-offs/M&A that make a naive historical comparison invalid and
+  adjusts a pre-split price only when the ratio is known. `finance_facts/evidence.py`
+  builds the Question→Claim→Derived→Fact→Source graph and detects orphans (a claim
+  with no fact, a fact with no source). Tests: `test_finance_facts_metrics.py` (14
+  cases). Still no ticker-specific logic; still pure Python; no schema/jdds.db change.
+  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
+
+- **Universal financial-fact foundation: every fact carries its meaning, not just
+  its value.** New pure-Python package `python/harness/finance_facts/` — the
+  deterministic layer the LLM reasons OVER (no prompts for rules). It EXTENDS the
+  Phase-4 evidence machinery (`research/{claims,supersession,calculations,periods}.py`
+  are reused, not rebuilt) and adds the dimensions they lacked: a
+  `FinancialFact` model (metric/definition/value/unit/currency, period with a
+  period TYPE, distinct publication/source/retrieved timestamps, accounting +
+  reporting standard, consolidation + attribution + ownership level,
+  reported/derived, freshness, confidence, supersedes); an accounting ontology
+  (`semantics.py`) that keeps Revenue ≠ Net Sales ≠ Gross Revenue and separates
+  net income / attributable-to-parent / NCI and gross/net/financial debt and the
+  cash variants (an ambiguous label like "revenue" resolves to None, never a
+  silent guess); a universal period model (`periods_ext.py`) where FY ≠ TTM and H1
+  ≠ FY; an independent TTM engine (`ttm.py`) that sums four adjacent quarters and
+  flags a material vendor difference as CONFLICT with an investigation checklist;
+  per-metric freshness (`freshness.py`); an evidence-based confidence model
+  (`confidence.py`); sector classification + sector metric sets (`sector.py`, bank
+  CET1/NIM, insurance combined ratio, REIT FFO, crypto, …); currency/unit + FX-basis
+  normalization (`fx.py`); a structured semantic conflict record (`conflicts.py`)
+  where consolidated-vs-parent earnings is a definition difference, not an error;
+  and the ordered data-quality gate chain with distinct N/A reasons (`quality.py`).
+  Nothing is ticker-specific — KCHOL is one row in the diverse regression suite
+  (`test_finance_facts.py`, 33 cases: US tech, bank, insurance, REIT, energy,
+  mining, holding/conglomerate, crypto, NCI, negative earnings, restated, ADR,
+  stale-vault — asserted on RULES, not symbols). No prisma/schema.prisma or jdds.db
+  change. This is the foundation slice; wiring it into the retrieval/research path
+  is the next phase.
+  docs updated: `docs/NAVIGATION.md`, this file
+
 - **Phase 13 follow-up 3 — general multi-source, not price-only: the vault is a
   cache, not a precondition.** The earlier fixes verified the price leg, but two
   data classes were still vault-bound and would fail or go stale for anything the

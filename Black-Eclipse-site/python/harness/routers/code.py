@@ -14,6 +14,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..code.request_intent import classify_code_request
 from ..code.tasks import DEFAULT_AUTONOMY, TaskStore
 from ..deps import require_operator, service
 from ..schemas import RunInput, RunRequest
@@ -39,6 +40,13 @@ class CreateTaskRequest(BaseModel):
     scopeId: Optional[str] = Field(None, max_length=200)  # noqa: N815
 
 
+class CodeIntentRequest(BaseModel):
+    """One chat turn to classify. Pure, read-only — no state is created."""
+
+    query: str = Field(min_length=1, max_length=4000)
+    history: Optional[list[dict[str, Any]]] = None
+
+
 class DecideApprovalRequest(BaseModel):
     approve: bool
     reason: str = Field("", max_length=400)
@@ -62,7 +70,43 @@ def _tasks() -> TaskStore:
     return service.code_tasks()
 
 
+# ── Chat request classification (Phase 14) ──────────────────────────────────
+
+
+@router.post("/code/intent")
+def classify_intent(body: CodeIntentRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Classify one chat turn. A read-only, stateless deterministic verdict.
+
+    Operator-gated (transport/token only) like every other code route, so the
+    front-door proxy is the only caller. No model call, no state.
+    """
+    intent = classify_code_request(body.query, body.history)
+    return {"success": True, "intent": {
+        "verdict": intent.verdict,
+        "confidence": intent.confidence,
+        "reason": intent.reason,
+        "signals": list(intent.signals),
+    }}
+
+
 # ── Task lifecycle ──────────────────────────────────────────────────────────
+
+
+@router.get("/code/root")
+def code_root(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The runtime's SERVER-RESOLVED code root. Read-only and operator-gated.
+
+    Used by the chat front door (a confirmation ref) and the task list's
+    schedule action (a code job needs a folder to work in). The runtime binds
+    only its own server-resolved root (`workspace.resolve_workspace` refuses a
+    mismatch), so the value can never point a run at another directory.
+    """
+    from ..code.workspace import default_root  # noqa: PLC0415
+
+    root = default_root()
+    if root is None:
+        return {"success": True, "root": None, "available": False}
+    return {"success": True, "root": str(root), "available": True}
 
 
 @router.post("/code/tasks")

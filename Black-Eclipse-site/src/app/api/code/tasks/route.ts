@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
 import { listCodeTasks, createCodeTask, type Autonomy } from "@/lib/harness/code-client";
+import { resolveRunModelSettings } from "@/lib/harness/run-service";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
@@ -38,11 +39,18 @@ export async function POST(request: Request) {
     if (!AUTONOMY.includes(autonomy)) {
       return NextResponse.json({ error: "unknown autonomy" }, { status: 400 });
     }
+    // A UI "Build this" action has no vault access, so the model settings are
+    // resolved server-side (the same one resolution path a chat run uses). The
+    // runtime binds its own server-resolved code root; no workspace ref is sent.
+    const modelSettings =
+      body.modelSettings && Object.keys(body.modelSettings).length
+        ? body.modelSettings
+        : await resolveRunModelSettings();
     const task = await createCodeTask({
       query: body.query.trim(),
       autonomy,
       workspaceId: body.workspaceId,
-      modelSettings: body.modelSettings ?? {},
+      modelSettings,
       callbackBaseUrl: body.callbackBaseUrl,
     });
     return NextResponse.json({ success: true, task });

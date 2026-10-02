@@ -9,6 +9,7 @@ import { ActivityFeed } from './activity-feed';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { RunExplanationPanel } from './run-explanation-panel';
+import { ChatCapabilityPanel } from './chat-capability-panel';
 import { MessageRail } from './message-rail';
 
 interface ChatHistoryProps {
@@ -168,8 +169,13 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                 </div>
               )}
 
-              {msg.role === 'assistant' && msg.activities && msg.activities.length > 0 && (
-                <ActivityFeed activities={msg.activities} status={msg.status} compact={compact} />
+              {msg.role === 'assistant' && ((msg.activities && msg.activities.length > 0) || Boolean(msg.autonomy) || Boolean(msg.codeVerification) || Boolean(msg.capability)) && (
+                <ActivityFeed
+                  activities={msg.activities ?? []}
+                  status={msg.status}
+                  compact={compact}
+                  capability={{ autonomy: msg.autonomy, verification: msg.codeVerification, capability: msg.capability }}
+                />
               )}
 
               {msg.role === 'assistant' ? (
@@ -197,6 +203,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                     </div>
                   )}
                   {msg.content && <AssistantContent content={msg.content} compact={compact} />}
+                  <ChatCapabilityPanel
+                    autonomy={msg.autonomy}
+                    verification={msg.codeVerification}
+                    compact={compact}
+                  />
                   {msg.research ? (
                     <ResearchEvidencePanel research={msg.research} compact={compact} />
                   ) : null}

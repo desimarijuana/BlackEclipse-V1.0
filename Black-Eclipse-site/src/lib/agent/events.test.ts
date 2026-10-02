@@ -72,6 +72,33 @@ describe('normalizeHarnessEvent', () => {
     expect(e).toMatchObject({ kind: 'activity_end', status: 'failed', code: 'TOOL_ERROR' });
   });
 
+  it('surfaces a refused code step as a plain reasonKey, not the raw code', () => {
+    const e = normalizeHarnessEvent('code.refused', {
+      type: 'code.refused',
+      data: { tool: 'workspace_patch_apply', code: 'PROFILE_DENIED' },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_start',
+      item: { name: 'workspace_patch_apply', status: 'completed', code: 'PROFILE_DENIED' },
+    });
+    if (e?.kind === 'activity_start') {
+      expect(e.item.reasonKey).toBe('refusal.PROFILE_DENIED');
+      // The raw code never becomes the label shown to a user.
+      expect(e.item.label).not.toContain('PROFILE_DENIED');
+    }
+  });
+
+  it('a patch refusal maps to its refusal key too', () => {
+    const e = normalizeHarnessEvent('code.patch.refused', {
+      type: 'code.patch.refused',
+      data: { op: 'replace', path: 'src/x.ts', code: 'PATCH_PROTECTED_PATH' },
+    });
+    expect(e).toMatchObject({ kind: 'activity_start', item: { code: 'PATCH_PROTECTED_PATH' } });
+    if (e?.kind === 'activity_start') {
+      expect(e.item.reasonKey).toBe('refusal.PATCH_PROTECTED_PATH');
+    }
+  });
+
   it('maps retrieval source events, falling back to a composite id', () => {
     const start = normalizeHarnessEvent('retrieval.source_start', {
       type: 'retrieval.source_start',

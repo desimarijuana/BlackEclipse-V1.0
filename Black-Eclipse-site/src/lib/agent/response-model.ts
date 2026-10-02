@@ -38,6 +38,12 @@ export interface ActivityItem {
    * report a result — never inferred.
    */
   summary?: string;
+  /**
+   * Phase 14: an i18n KEY holding one plain sentence for a refused step
+   * ("this task isn't set up to make that kind of change"). The raw code stays in
+   * `code`. Absent for an ordinary tool step — the component shows `label` then.
+   */
+  reasonKey?: import('@/lib/i18n/types').TranslationKey;
 }
 
 /** A recoverable failure attached to an assistant turn. */
@@ -75,6 +81,16 @@ export interface AssistantTurn {
    * (eligibility, events) from the originating turn.
    */
   runId?: string;
+  /**
+   * Phase 14: the run's code-verification ledger, present when the turn used the
+   * code capability. Typed loosely to keep this model free of a harness-runtime
+   * dependency; the chat surface narrows it via `coerceCodeVerification`.
+   */
+  codeVerification?: unknown;
+  /** Phase 14: the narrow profile the turn was bound to (`plan_only` | `edit_verify`). */
+  autonomy?: string | null;
+  /** Phase 14 §6.4: the runtime-derived chat capability view. */
+  capability?: unknown;
   /** True once a terminal state has been reached. */
   done: boolean;
 }

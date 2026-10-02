@@ -276,6 +276,20 @@ export const en = {
   'code.approvals.used': 'Already used once',
   'code.approvals.needsOk': 'I did not run that — it needs the app owner’s OK. Ask them and I’ll continue.',
 
+  // Chat code capability (Phase 14) — a coding request made in ordinary
+  // conversation. The user sees what Eclipse will DO, never the classifier's
+  // category or a mechanism word; the technical profile sits behind "details".
+  'code.chat.headline.editVerify': 'I’ll look at the project, make the change in a copy, and run the checks.',
+  'code.chat.headline.planOnly': 'I’ll look at the project and tell you what I’d change — without changing anything yet.',
+  'code.chat.details': 'details',
+  'code.chat.detail.profile': 'setup',
+  'code.chat.buildThis': 'Build this',
+  'code.chat.schedule': 'Schedule this',
+  'code.chat.newPlaceholder': 'What should Eclipse build or fix?',
+  'code.chat.buildStarted': 'Started building this for you.',
+  'code.chat.scheduleStarted': 'Scheduled. It stays off until you turn it on.',
+  'code.chat.actionFailed': 'I couldn’t start that just now. Try again in a moment.',
+
   // ── Scheduled jobs (Phase 6) ─────────────────────────────────────────────
   // The user names the JOB, never the mechanism. A cron expression, skill id,
   // job kind or machine reason is never on this surface — only behind "details".

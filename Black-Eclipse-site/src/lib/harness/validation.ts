@@ -186,3 +186,31 @@ export function assertRunInput(raw: unknown): RunInput {
   }
   return result.value;
 }
+
+// ── Phase 14: the chat code profile (additive, fail-closed) ─────────────────
+// The front door may send a code profile with a chat run when the deterministic
+// classifier saw a coding request. Chat may only ever send the two narrow
+// profiles; `approve_external` is the Code Tasks surface's business, and any
+// other value is REJECTED here rather than silently defaulted (fail-closed).
+
+export const CHAT_AUTONOMY_PROFILES = ["plan_only", "edit_verify"] as const;
+export type ChatAutonomy = (typeof CHAT_AUTONOMY_PROFILES)[number];
+
+export function isChatAutonomy(value: unknown): value is ChatAutonomy {
+  return value === "plan_only" || value === "edit_verify";
+}
+
+/**
+ * Validate an autonomy value the front door intends to send. Throws
+ * `INVALID_INPUT` for anything outside `plan_only` | `edit_verify`, so a bad
+ * value fails at the front door instead of reaching — or being dropped by — the
+ * runtime.
+ */
+export function assertChatAutonomy(raw: unknown): ChatAutonomy {
+  if (typeof raw === "string" && isChatAutonomy(raw)) return raw;
+  throw new HarnessError(
+    "INVALID_INPUT",
+    "Invalid autonomy",
+    `autonomy must be one of: ${CHAT_AUTONOMY_PROFILES.join(", ")}`,
+  );
+}

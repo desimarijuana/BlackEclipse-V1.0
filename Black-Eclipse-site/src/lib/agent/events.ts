@@ -1,5 +1,6 @@
 import type { ActivityItem, ResponseStatus } from './response-model';
 import { sourceLabel, toolLabel } from './response-model';
+import { refusalKey } from '@/lib/i18n/refusal-copy';
 
 /**
  * Normalize the harness SSE stream into a small, typed UI event union.
@@ -27,7 +28,22 @@ export type HarnessUiEvent =
       /** Short user-safe result summary (e.g. "3 records") when reported. */
       summary?: string;
     }
-  | { kind: 'final'; output?: string; error?: string; errorCode?: string; status?: string; research?: unknown; memory?: unknown; runId?: string }
+  | {
+      kind: 'final';
+      output?: string;
+      error?: string;
+      errorCode?: string;
+      status?: string;
+      research?: unknown;
+      memory?: unknown;
+      runId?: string;
+      /** Phase 14: the run's code-verification ledger + code profile, when any. */
+      codeVerification?: unknown;
+      autonomy?: string | null;
+      workspaceId?: string | null;
+      /** Phase 14 §6.4: the runtime-derived chat capability view. */
+      capability?: unknown;
+    }
   | { kind: 'error'; message: string; code?: string };
 
 /**
@@ -153,6 +169,30 @@ export function normalizeHarnessEvent(
     };
   }
 
+  // A refused code step (Phase 14): the runtime emits `code.refused` /
+  // `code.patch.refused` with a stable code. Show it as ONE plain sentence, not
+  // the raw code; the code stays in `code` behind "details". "I couldn't do this
+  // and here's exactly why" is a first-class answer.
+  if (event === 'code.refused' || event === 'code.patch.refused') {
+    const code = str(payload.code) ?? 'REFUSED';
+    const tool = str(payload.tool) ?? str(payload.op) ?? 'code';
+    // `reasonKey` is always set (the map has a fallback); the component renders
+    // it via `useT`, so no locale lives in this reducer. `label`/`name` stay
+    // technical and are only shown behind "details".
+    return {
+      kind: 'activity_start',
+      item: {
+        id: `code_refused:${code}:${tool}`,
+        kind: 'tool',
+        name: tool,
+        label: toolLabel(tool),
+        status: 'completed',
+        code,
+        reasonKey: refusalKey(code),
+      },
+    };
+  }
+
   // Retrieval activity — the sources the agent consulted *inside* a tool call.
   if (event === 'retrieval.source_start') {
     const source = str(payload.source) ?? 'source';
@@ -207,6 +247,10 @@ export function normalizeHarnessEvent(
       research: payload.research ?? undefined,
       memory: payload.memory ?? undefined,
       runId: str(payload.runId),
+      codeVerification: payload.codeVerification ?? undefined,
+      autonomy: typeof payload.autonomy === 'string' ? payload.autonomy : payload.autonomy === null ? null : undefined,
+      workspaceId: typeof payload.workspaceId === 'string' ? payload.workspaceId : payload.workspaceId === null ? null : undefined,
+      capability: payload.capability ?? undefined,
     };
   }
 

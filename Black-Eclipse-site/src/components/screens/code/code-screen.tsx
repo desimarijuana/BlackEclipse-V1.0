@@ -119,7 +119,7 @@ export function CodeScreen() {
       )}
 
       <div className={cn('grid gap-3 lg:grid-cols-2', view !== 'tasks' && 'hidden')}>
-        <TaskList tasks={tasks} selectedId={selectedId} onSelect={setSelectedId} />
+        <TaskList tasks={tasks} selectedId={selectedId} onSelect={setSelectedId} onChanged={after} />
         {detail ? (
           <TaskDetail
             task={detail}

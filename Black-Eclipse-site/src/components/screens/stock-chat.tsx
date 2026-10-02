@@ -120,7 +120,7 @@ function StockChatContent() {
   useHydrateI18n();
   // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
   useHydrateTheme();
-  // Hydrate the app background (pattern or wallpaper; app-wide or chat-only).
+  // Hydrate the app background (wallpaper; ChatBot page only).
   useHydrateBackground();
   const t = useT();
   // Full-screen theme preview (Settings › Customization) hides the modal so the

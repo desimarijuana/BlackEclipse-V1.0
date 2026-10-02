@@ -160,6 +160,26 @@ CODE_AGENT = AgentConfig(
     # Deliberately ABSENT: allowMcpTools.
 )
 
+# The CHAT code profile (Phase 14 §6.2). ADDITIVE: `ECLIPSE_AGENT`'s declared
+# tools are NOT touched. When the front door recognizes a coding request it sends
+# an `autonomy`; the resolver then NARROWS the finance agent's run to this set for
+# that turn only, exactly as the code-agent narrows through `code.policy`.
+#
+# It is still narrow: the read/navigate tools plus the write/execute/verify tools,
+# and deliberately NO external action — `code_commit`/`code_push`/`code_open_pr`/
+# `code_deploy` stay on the Code Tasks surface where the approval panel lives.
+CHAT_CODE_TOOLS: tuple[str, ...] = (
+    "workspace_status", "workspace_list", "workspace_search",
+    "workspace_read", "workspace_docs",
+    "workspace_patch_apply", "workspace_diff", "workspace_revert",
+    "command_run", "scaffold_kit", "analysis_run",
+    # read-only context, unchanged from ECLIPSE_AGENT
+    "memory", "skill_list", "skill_view", "session_search", "session_open",
+    # finance tools stay available: a code change may need the vault for a fixture
+    "market_get_quote", "fundamentals_get_financials", "research_search",
+)
+# Deliberately ABSENT: code_commit, code_push, code_open_pr, code_deploy.
+
 AGENT_PRESETS: dict[str, AgentConfig] = {
     ECLIPSE_AGENT.id: ECLIPSE_AGENT,
     CODE_NAVIGATOR.id: CODE_NAVIGATOR,
@@ -179,6 +199,7 @@ def get_agent(agent_id: str) -> AgentConfig:
 
 __all__ = [
     "AGENT_PRESETS",
+    "CHAT_CODE_TOOLS",
     "CODE_AGENT",
     "CODE_AGENT_TOOLS",
     "CODE_NAVIGATOR",

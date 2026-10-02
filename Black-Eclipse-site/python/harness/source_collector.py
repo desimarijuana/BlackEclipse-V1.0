@@ -53,16 +53,31 @@ class SourceCollector:
         self._source_status: dict[str, str] = {}
         self._source_meta: dict[str, dict[str, Any]] = {}
         self._conflicts: list[dict[str, Any]] = []
+        # Universal-financial-fact analysis accumulated over the run's retrievals.
+        self._finance: Optional["_FinanceAccumulator"] = None
 
     # ── Ingestion ───────────────────────────────────────────────────────────
-    def add(self, result: FinancialRetrievalResult) -> None:
-        """Record one retrieval result. Never raises — provenance is best-effort."""
+    def add(self, result: FinancialRetrievalResult, analysis: Any = None) -> None:
+        """Record one retrieval result. Never raises — provenance is best-effort.
+
+        `analysis` is the `finance_facts.analysis.ResultAnalysis` already computed
+        by the retrieval tool (computed once, passed here — never recomputed). When
+        absent, a run simply carries no finance analysis.
+        """
         try:
             self._record_sources(result)
             self._record_citations(result)
             self._record_conflicts(result)
+            self._record_finance(analysis)
         except Exception:  # noqa: BLE001 - collection must never break a run
             return
+
+    def _record_finance(self, analysis: Any) -> None:
+        if analysis is None:
+            return
+        if self._finance is None:
+            self._finance = _FinanceAccumulator()
+        self._finance.add(analysis)
 
     def _record_sources(self, result: FinancialRetrievalResult) -> None:
         status = "ok" if result.status in ("OK", "PARTIAL") else "unavailable"
@@ -187,7 +202,7 @@ class SourceCollector:
             for name, status in self._source_status.items()
             if status == "unavailable"
         ]
-        return {
+        blob: dict[str, Any] = {
             "status": "collected",
             "metadata": {
                 "taskType": "ordinary_run",
@@ -204,6 +219,75 @@ class SourceCollector:
             "failedRoutes": failed[:MAX_ROUTES] or None,
             "collected": True,
         }
+        if self._finance is not None:
+            blob["financeAnalysis"] = self._finance.to_dict()
+        return blob
+
+    # ── Finance analysis access ───────────────────────────────────────────────
+    def finance_analysis(self) -> Optional[dict[str, Any]]:
+        """The accumulated universal-fact analysis, or None when no retrieval ran."""
+        return self._finance.to_dict() if self._finance is not None else None
+
+
+class _FinanceAccumulator:
+    """Merges the per-retrieval `ResultAnalysis` of one run.
+
+    Fact verdicts are deduplicated by (entity, metric, definition, period) so a
+    value fetched twice appears once. Exclusions accumulate; notes are merged
+    without repetition. It exposes the union of everything the answer must honor.
+    """
+
+    def __init__(self) -> None:
+        self._facts: dict[str, dict[str, Any]] = {}
+        self._excluded: set[str] = set()
+        self._notes: list[str] = []
+        self._seen_notes: set[str] = set()
+        self._conflicts: list[dict[str, Any]] = []
+        self._conflict_keys: set[str] = set()
+        self._sector: Optional[str] = None
+        self._financial_framework = False
+
+    def add(self, analysis: Any) -> None:
+        for fact in getattr(analysis, "facts", []) or []:
+            data = fact.to_dict() if hasattr(fact, "to_dict") else dict(fact)
+            key = "|".join(str(data.get(k)) for k in ("metric", "definition", "period"))
+            # Keep the higher-confidence verdict when the same fact repeats.
+            existing = self._facts.get(key)
+            if existing is None or _conf_rank(data.get("confidence")) > _conf_rank(existing.get("confidence")):
+                self._facts[key] = data
+        for name in getattr(analysis, "excluded", []) or []:
+            self._excluded.add(name)
+        for note in getattr(analysis, "notes", []) or []:
+            if note not in self._seen_notes:
+                self._seen_notes.add(note)
+                self._notes.append(note)
+        for conflict in getattr(analysis, "conflicts", []) or []:
+            key = "|".join(str(conflict.get(k)) for k in ("metric", "sourceA", "sourceB", "period"))
+            if key not in self._conflict_keys:
+                self._conflict_keys.add(key)
+                self._conflicts.append(conflict)
+        if getattr(analysis, "sector", None):
+            self._sector = analysis.sector
+        if getattr(analysis, "financial_framework", False):
+            self._financial_framework = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "presentable": not self._excluded,
+            "sector": self._sector,
+            "financialFramework": self._financial_framework,
+            "excluded": sorted(self._excluded),
+            "conflicts": self._conflicts,
+            "notes": self._notes,
+            "facts": list(self._facts.values()),
+        }
+
+
+_CONF_RANK = {"unverified": 0, "low": 1, "medium": 2, "high": 3}
+
+
+def _conf_rank(level: Any) -> int:
+    return _CONF_RANK.get(str(level), 0)
 
 
 __all__ = ["SourceCollector", "MAX_CITATIONS"]

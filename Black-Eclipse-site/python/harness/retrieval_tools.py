@@ -90,27 +90,45 @@ def _event_logger(ctx: ToolContext):
     return _log
 
 
-def _collect(ctx: ToolContext, result: Any) -> None:
+def _collect(ctx: ToolContext, result: Any, analysis: Any = None) -> None:
     """Hand a retrieval result to the run's source collector, when one is attached.
 
     Ordinary chat runs collect provenance so the answer can show a Sources panel
     (built only from what was actually retrieved). A run with no sink (tests, or
     the gated research path) simply skips this — collection is additive and must
-    never affect the tool's returned text.
+    never affect the tool's returned text. The finance `analysis` is passed through
+    so the run can enforce disclosures on the final answer without recomputing it.
     """
     sink = getattr(ctx, "source_sink", None)
     if sink is None:
         return
     try:
-        sink.add(result)
+        sink.add(result, analysis) if analysis is not None else sink.add(result)
     except Exception:  # noqa: BLE001 - provenance collection must never break a tool
         pass
 
 
 def _finish(ctx: ToolContext, result: Any) -> tuple[str, Any]:
-    """Collect provenance (when enabled) and return the standard tool tuple."""
-    _collect(ctx, result)
-    return _summarize(result), result.model_dump()
+    """Collect provenance (when enabled) and return the standard tool tuple.
+
+    The structured payload gains an `analysis` block: the validated fact set,
+    gate verdicts, conflicts and notes. Additive and best-effort — a failure in
+    analysis must never break the tool, so it degrades to the original payload.
+    The analysis is computed ONCE and shared with the text summary.
+    """
+    payload = result.model_dump()
+    analysis = None
+    try:
+        from .finance_facts.analysis import analyze_result
+
+        analysis = analyze_result(result)
+        payload["analysis"] = analysis.to_dict()
+    except Exception:  # noqa: BLE001 - analysis is additive, never fatal
+        analysis = None
+    # The analysis also rides the run's provenance collector so the FINAL answer
+    # can be checked against what was actually retrieved (finance_facts.enforce).
+    _collect(ctx, result, analysis)
+    return _summarize(result, analysis=analysis), payload
 
 
 def _record_fetched(
@@ -138,7 +156,7 @@ def _record_fetched(
         pass
 
 
-def _summarize(result: Any) -> str:
+def _summarize(result: Any, analysis: Any = None) -> str:
     """A compact, honest text summary of a retrieval result."""
     lines = [
         f"Retrieval status: {result.status}",
@@ -187,6 +205,23 @@ def _summarize(result: Any) -> str:
             "No data was fabricated. If this is a precise quantitative request, "
             "an explicit UNAVAILABLE is the correct answer rather than a web guess."
         )
+    # Universal-financial-fact analysis (additive, §1/§3/§4/§12/§26): name the
+    # accounting-definition ambiguity, the business type, any cross-source
+    # disagreement and any stale value — so the model reasons OVER validated facts
+    # rather than assuming. Absent when there is nothing to disclose.
+    try:
+        if analysis is None:
+            from .finance_facts.analysis import analyze_result
+
+            analysis = analyze_result(result)
+        if analysis.notes:
+            lines.append("")
+            lines.append("Data-quality notes:")
+            lines.extend(f"  - {n}" for n in analysis.notes[:8])
+        if analysis.excluded:
+            lines.append(f"  - withheld from a clean answer: {', '.join(analysis.excluded)}")
+    except Exception:  # noqa: BLE001 - analysis must never break the summary
+        pass
     lines.append(f"Retrieved at: {result.retrievedAt}")
     return "\n".join(lines)
 

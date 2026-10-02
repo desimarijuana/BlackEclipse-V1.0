@@ -133,6 +133,9 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.research) t.research = event.research;
           if (event.memory) t.memory = event.memory;
           if (event.runId) t.runId = event.runId;
+          if (event.codeVerification) t.codeVerification = event.codeVerification;
+          if (event.autonomy !== undefined) t.autonomy = event.autonomy;
+          if (event.capability) t.capability = event.capability;
           if (event.error) {
             t.error = { code: event.errorCode, message: event.error };
             t.status = 'error';
