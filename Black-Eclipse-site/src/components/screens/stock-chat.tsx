@@ -874,7 +874,7 @@ function StockChatContent() {
               nothing, preserving the old single-screen boot behavior. */}
           {visited.has('dashboard') && (
             <div data-keepalive-panel className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
-              <div className="flex-1 w-full px-4 md:px-8 py-8">
+              <div className="flex-1 w-full px-2 md:px-4 py-3">
                 <MarketViewsProvider>
                   <DashboardScreen />
                 </MarketViewsProvider>

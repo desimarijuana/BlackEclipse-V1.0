@@ -269,6 +269,23 @@ export interface PlacementSizing {
   minHeight?: number;
 }
 
+/**
+ * Add a NEW widget into a brand-new section appended at the end. Used when the
+ * main (centre) zone has no section to drop into — e.g. the user emptied the
+ * centre while the left/right rails still exist, so `addWidget`'s "last section"
+ * fallback would otherwise drop the card into a rail. Always creates a `main`
+ * section (or the caller-supplied zone) so the centre can always receive a card.
+ */
+export function addWidgetToNewSection(
+  d: Draft<WorkspaceLayout>,
+  widgetId: string,
+  zone: WorkspaceZone = 'main',
+  sizing?: PlacementSizing,
+): void {
+  const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null, ...(sizing ?? {}) };
+  d.sections.push({ id: newId('sec'), zone, columns: [{ id: newId('col'), weight: 3, widgets: [widget] }] });
+}
+
 export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget, sizing?: PlacementSizing): void {
   const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null, ...(sizing ?? {}) };
   if (d.sections.length === 0) d.sections.push({ id: newId('sec'), columns: [] });

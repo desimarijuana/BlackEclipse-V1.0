@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { produce } from 'immer';
 import {
   addWidget,
+  addWidgetToNewSection,
   addWidgetToNewSectionAt,
   allWidgetIds,
   duplicateWidget,
@@ -362,6 +363,33 @@ describe('add/remove', () => {
     const n = runOp(addWidgetToNewSectionAt, l, 'map', l.sections[0].id, 'below', { defaultHeight: 460 });
     const added = n.sections.flatMap(s => s.columns).flatMap(c => c.widgets).find(w => w.widgetId === 'map')!;
     expect(added.defaultHeight).toBe(460);
+  });
+
+  it('addWidgetToNewSection creates a MAIN section when centre was emptied', () => {
+    // Rails-only layout: the centre has no section, so a plain addWidget would
+    // fall back to the last section (a rail). The dedicated op must restore the
+    // centre so a new widget is reachable again.
+    const rails: WorkspaceLayout = {
+      version: 2,
+      sections: [
+        { id: 'l', zone: 'left', columns: [{ id: 'lc', weight: 1, widgets: [] }] },
+        { id: 'r', zone: 'right', columns: [{ id: 'rc', weight: 1, widgets: [] }] },
+      ],
+    };
+    const n = runOp(addWidgetToNewSection, rails, 'kpi', 'main', { minHeight: 260 });
+    const main = n.sections.filter(s => (s.zone ?? 'main') === 'main');
+    expect(main).toHaveLength(1);
+    expect(idsOf(main[0])).toEqual(['kpi']);
+    expect(main[0].columns[0].widgets[0].minHeight).toBe(260);
+  });
+
+  it('addWidgetToNewSection defaults to the main zone', () => {
+    const rails: WorkspaceLayout = {
+      version: 2,
+      sections: [{ id: 'r', zone: 'right', columns: [{ id: 'rc', weight: 1, widgets: [] }] }],
+    };
+    const n = runOp(addWidgetToNewSection, rails, 'kpi');
+    expect(n.sections[n.sections.length - 1].zone).toBe('main');
   });
 
   it('removes a widget and prunes empty sections', () => {

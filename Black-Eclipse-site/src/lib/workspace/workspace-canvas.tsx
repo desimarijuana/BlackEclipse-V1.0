@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';
+import { ColumnEdge, ConfirmGhost, DropLine, EmptyMainZone, NewSectionStrip, idOf } from './workspace-chrome';
 import type { WidgetPlacement, WorkspaceSection } from './types';
 import { MAX_ZONE_WIDTH, MIN_COLUMN_WEIGHT, MIN_ZONE_WIDTH } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
@@ -39,14 +40,6 @@ interface DropTargetInfo {
   columnId: string;
   index: number;
 }
-
-/** Stable dnd ids: columns / edges / zones only — cards are not drop targets. */
-const idOf = {
-  col: (columnId: string) => `col:${columnId}`,
-  colEdgeL: (columnId: string) => `edgeL:${columnId}`,
-  colEdgeR: (columnId: string) => `edgeR:${columnId}`,
-  newsection: (anchorId: string, pos: 'above' | 'below') => `newsec:${anchorId}:${pos}`,
-};
 
 interface WorkspaceCanvasProps {
   workspace: WC;
@@ -71,6 +64,8 @@ interface WorkspaceCanvasProps {
    * like fund workspaces).
    */
   zones?: { left?: WorkspaceZoneConfig; right?: WorkspaceZoneConfig };
+  /** Tighter gutters between zones, sections, columns and cards. */
+  dense?: boolean;
 }
 
 /** Per-zone presentation config (width, header, collapse state). */
@@ -85,7 +80,7 @@ export interface WorkspaceZoneConfig {
   onToggle?: () => void;
 }
 
-export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, zones }: WorkspaceCanvasProps) {
+export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, zones, dense = false }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const rootRef = useRef<HTMLDivElement>(null);
   const zoneRowRef = useRef<HTMLDivElement>(null);
@@ -188,6 +183,16 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
       const section = layoutRef.current.sections.find(s => s.columns.some(c => c.id === colId));
       if (!section) continue;
       return { sectionId: section.id, columnId: colId, index: insertIndexFor(colEl, dragId, py) };
+    }
+
+    // 4) Empty centre zone → create a NEW main section holding the card. This
+    //    is what makes an emptied centre (e.g. rails still present) able to
+    //    receive a drop again — without it computeTarget returned null and both
+    //    drag-drop and library adds silently did nothing.
+    for (const el of stack) {
+      if (el.closest<HTMLElement>('[data-emptyzone]')) {
+        return { sectionId: '', columnId: '__newmain', index: 0 };
+      }
     }
 
     return null;
@@ -323,6 +328,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
 
   /** Commit a target for the grabbed card (shared by confirm + strip paths). */
   const commitTarget = useCallback((id: string, t: DropTargetInfo) => {
+    if (t.columnId === '__newmain') {
+      ops.moveWidgetToNewSection(id);
+      return;
+    }
     if (t.columnId.startsWith('__newsec:')) {
       const [, anchorId, pos] = t.columnId.split(':') as [string, string, 'above' | 'below'];
       ops.moveWidgetToNewSectionAt(id, anchorId, pos);
@@ -349,6 +358,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
     // definite frame instead of collapsing (the "blank widget" regression).
     const meta = widgets.find(m => m.widgetId === widgetId);
     const sizing = meta ? { defaultHeight: meta.defaultHeight, minHeight: meta.minHeight } : undefined;
+    if (t.columnId === '__newmain') {
+      ops.addWidgetToNewSection(widgetId, 'main', sizing);
+      return;
+    }
     if (t.columnId.startsWith('__newsec:')) {
       const [, anchorId, pos] = t.columnId.split(':') as [string, string, 'above' | 'below'];
       ops.addWidgetToNewSectionAt(widgetId, anchorId, pos, sizing);
@@ -527,7 +540,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   /** Render one zone's stack of sections (strips + rows) — all zones share the
    *  same DndContext so cards drag freely between centre and sides. */
   const renderZone = (sections: WorkspaceSection[]) => (
-    <div className="flex flex-col gap-3">
+    <div className={cn('flex flex-col', dense ? 'gap-1.5' : 'gap-3')}>
       {sections.map((section, secIdx) => (
         <React.Fragment key={section.id}>
           {secIdx === 0 && (editMode || dragging) && (
@@ -569,6 +582,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
             lastDragEndRef={lastDragEndRef}
             onGhostConfirm={onGhostConfirm}
             onEmptyColumnClick={onEmptyColumnClick}
+            dense={dense}
           />
           {(editMode || dragging) && (
             <NewSectionStrip
@@ -586,6 +600,19 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
         </React.Fragment>
       ))}
     </div>
+  );
+
+  /** Centre zone: the main sections, or a droppable placeholder when the centre
+   *  has been emptied (so drops/adds still have a target). */
+  const renderMain = () => (
+    mainSections.length > 0
+      ? renderZone(mainSections)
+      : <EmptyMainZone
+          dragging={dragging}
+          grabbedId={grabbedId}
+          isAdding={addingWidgetId !== null}
+          onPlace={onEmptyColumnClick}
+        />
   );
 
   return (
@@ -606,7 +633,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
     >
       {/* Compact edit bar — single slim row */}
       {editMode && !hideEditBar && (
-        <div className="glass-card sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
+        <div className={cn('glass-card sticky top-0 z-30 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in', dense ? 'mb-2' : 'mb-3')}>
           <span className="flex items-center gap-1.5 text-xs font-bold text-primary font-sans">
             <Columns3 size={14} /> Customizing
           </span>
@@ -660,7 +687,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
           const rightCfg = zones?.right;
           const showLeft = leftSections.length > 0 && !hiddenZones.includes('left');
           const showRight = rightSections.length > 0 && !hiddenZones.includes('right');
-          if (!showLeft && !showRight) return renderZone(mainSections);
+          if (!showLeft && !showRight) return renderMain();
 
           const widths = layout.zoneWidths ?? {};
 
@@ -701,10 +728,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
           );
 
           return (
-            <div ref={zoneRowRef} className="flex items-start gap-4">
+            <div ref={zoneRowRef} className={cn('flex items-start', dense ? 'gap-1.5' : 'gap-4')}>
               {showLeft && leftCfg && zoneColumn('left', leftSections, leftCfg)}
               {showLeft && !leftCfg?.collapsed && resizer('left')}
-              <div className="min-w-0 flex-1">{renderZone(mainSections)}</div>
+              <div className="min-w-0 flex-1">{renderMain()}</div>
               {showRight && !rightCfg?.collapsed && resizer('right')}
               {showRight && rightCfg && zoneColumn('right', rightSections, rightCfg)}
             </div>
@@ -780,7 +807,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
 // ── Section row: columns + edit controls + resize handles ────────────────────
 
 function SectionRow({
-  section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
+  section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick, dense,
 }: {
   section: WorkspaceSection;
   editMode: boolean;
@@ -796,9 +823,10 @@ function SectionRow({
   lastDragEndRef: React.MutableRefObject<number>;
   onGhostConfirm: () => void;
   onEmptyColumnClick: (coords: { x: number; y: number }) => void;
+  dense: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-1 transition-all">
+    <div className={cn('rounded-2xl transition-all', dense ? 'p-0.5' : 'p-1')}>
       {/* Section edit controls */}
       {editMode && (
         <div className="mb-1.5 flex items-center gap-1.5 px-1">
@@ -832,13 +860,14 @@ function SectionRow({
       {/* items-start (not stretch): a short column must NOT grow to the height
           of its tallest sibling — that is what produced blank tail space under
           short widgets. Each card owns its own pinned height. */}
-      <div className="flex flex-col md:flex-row gap-2.5 items-start">
+      <div className={cn('flex flex-col md:flex-row items-start', dense ? 'gap-1.5' : 'gap-2.5')}>
         {section.columns.map((column, colIdx) => (
           <React.Fragment key={column.id}>
             <ColumnDroppable
               column={column}
               section={section}
               editMode={editMode}
+              dense={dense}
               dragging={dragging}
               activeId={activeId}
               grabbedId={grabbedId}
@@ -865,7 +894,7 @@ function SectionRow({
 // ── Column with live insertion indicator + edge drop halves ──────────────────
 
 function ColumnDroppable({
-  column, section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
+  column, section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick, dense,
 }: {
   column: WorkspaceSection['columns'][number];
   section: WorkspaceSection;
@@ -884,6 +913,7 @@ function ColumnDroppable({
   onGhostConfirm: () => void;
   /** Click on an empty column while grabbing → arm/place into it. */
   onEmptyColumnClick: (coords: { x: number; y: number }) => void;
+  dense: boolean;
 }) {
   const { setNodeRef } = useDroppable({ id: idOf.col(column.id), data: { kind: 'col', columnId: column.id, sectionId: section.id } });
 
@@ -926,7 +956,8 @@ function ColumnDroppable({
         onEmptyColumnClick({ x: e.clientX, y: e.clientY });
       } : undefined}
       className={cn(
-        'relative flex flex-col gap-2.5 min-h-[40px] min-w-0 flex-1 transition-all',
+        'relative flex flex-col min-h-[40px] min-w-0 flex-1 transition-all',
+        dense ? 'gap-1.5' : 'gap-2.5',
         editMode && 'rounded-2xl outline-1 outline-dashed outline-border/20 p-1.5 -m-1.5',
         dragging && 'rounded-2xl outline-1 outline-dashed outline-border/30',
         colIsTarget && 'rounded-2xl outline-1 outline-dashed outline-primary/50',
@@ -964,25 +995,6 @@ function ColumnDroppable({
         </button>
       )}
     </div>
-  );
-}
-
-function DropLine() {
-  return <div className="ws-drop-indicator" aria-hidden />;
-}
-
-/** Armed-position preview (two-click confirm): a labeled ghost slot. Clicking
- *  it confirms the placement (same as clicking the spot again). */
-function ConfirmGhost({ onConfirm }: { onConfirm: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); onConfirm(); }}
-      className="w-full rounded-2xl border-2 border-dashed border-primary/70 bg-primary/10 px-4 py-3 flex items-center gap-2 animate-fade-in cursor-pointer text-left"
-    >
-      <GripVertical size={14} className="text-primary shrink-0" />
-      <span className="font-serif text-sm font-semibold text-primary truncate">Click again to confirm</span>
-    </button>
   );
 }
 
@@ -1213,77 +1225,6 @@ function WidgetCard({
         </div>
       )}
     </div>
-  );
-}
-
-// ── Zones ────────────────────────────────────────────────────────────────────
-
-/** Invisible left/right half of a column: dropping here creates a new column. */
-function ColumnEdge({ side, column, section, hot }: {
-  side: 'L' | 'R';
-  column: WorkspaceSection['columns'][number];
-  section: WorkspaceSection;
-  hot: boolean;
-}) {
-  const dndId = side === 'L' ? idOf.colEdgeL(column.id) : idOf.colEdgeR(column.id);
-  const { setNodeRef } = useDroppable({
-    id: dndId,
-    data: { kind: 'edge', side, columnId: column.id, sectionId: section.id },
-  });
-  return (
-    <div
-      ref={setNodeRef}
-      data-edge={side}
-      data-col={column.id}
-      data-sec={section.id}
-      className={cn(
-        'absolute inset-y-0 z-10 w-2',
-        side === 'L' ? 'left-0 rounded-l-2xl' : 'right-0 rounded-r-2xl',
-        hot ? 'bg-primary/10 outline-1 outline-dashed outline-primary/60' : 'bg-transparent',
-      )}
-      title={side === 'L' ? 'Drop to insert a column to the left' : 'Drop to insert a column to the right'}
-    />
-  );
-}
-
-/** Slim strip between/around sections: dropping (or clicking) creates a new
- * section there. While a card is click-grabbed, clicking commits the grab. */
-function NewSectionStrip({ anchorId, pos, dragging, isGrabbing, isAdding, onStripClick }: {
-  anchorId: string;
-  pos: 'above' | 'below';
-  dragging: boolean;
-  isGrabbing: boolean;
-  isAdding: boolean;
-  onStripClick: () => void;
-}) {
-  const dndId = idOf.newsection(anchorId, pos);
-  const { setNodeRef, isOver } = useDroppable({ id: dndId, data: { kind: 'newsec', anchorId, pos } });
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      data-newsec={`${anchorId}:${pos}`}
-      data-nodrag
-      onClick={(e) => {
-        // During an add-project the click must bubble to the canvas so it
-        // commits the placement (including "new section" targets).
-        if (isAdding) return;
-        e.stopPropagation();
-        onStripClick();
-      }}
-      className={cn(
-        'flex h-7 items-center justify-center gap-2 rounded-xl border border-dashed text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer touch-none',
-        dragging ? 'opacity-100' : 'opacity-40 hover:opacity-100',
-        isOver
-          ? 'border-primary bg-primary/10 text-primary'
-          : 'border-primary/40 text-primary/70',
-      )}
-    >
-      <Plus size={11} />
-      {isGrabbing || isAdding
-        ? (isOver ? 'Click to place here' : 'Click to place the held widget here')
-        : isOver ? 'Release for a new section' : 'New section here'}
-    </button>
   );
 }
 

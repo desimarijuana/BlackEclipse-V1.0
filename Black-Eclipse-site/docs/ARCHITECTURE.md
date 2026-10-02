@@ -491,6 +491,20 @@ Key invariants:
   prop (HTML5 drag on each tab); `market-tabs.tsx` maps it through
   `useMarketViews.reorder`. Double-click still renames and widget
   rearrangement (drag/click-to-place) is unchanged.
+- **Density is a host preference, not a card mode.** `CustomizableWorkspace` /
+  `WorkspaceCanvas` take a `dense` prop (default `false`) that only tightens
+  gutters — inter-zone `gap-4→gap-1.5`, section stack `gap-3→gap-1.5`, column
+  and card gaps `gap-2.5→gap-1.5`, section wrapper `p-1→p-0.5`, and header /
+  edit-bar / toolbar margins `mb-3→mb-2`. The Command Center passes `dense`.
+  It changes NO sizing semantics (no fixed card height) — it is not the removed
+  compact/row-height mode.
+- **An emptied centre is still a drop target.** When the `main` zone has no
+  section, the canvas renders an `EmptyMainZone` placeholder tagged
+  `data-emptyzone`; `computeTarget` resolves a drop or library add-project click
+  on it to `columnId:'__newmain'`, which commits through
+  `ops.addWidgetToNewSection` / `moveWidgetToNewSection` (always creating a
+  `main` section). Without this, an emptied centre made `computeTarget` return
+  `null` and both drag-drop and library adds silently did nothing.
 - **Side panels are drag-resizable.** A vertical handle between each side zone and
   the centre sets that zone's width live (clamped 180–520px) and commits on
   release through `ops.setZoneWidth`, persisted in `WorkspaceLayout.zoneWidths`
@@ -727,6 +741,14 @@ uses). Invariants:
   already suppresses shortcuts via the editable-element guard.
 - **Never fabricate a model name.** The provider pill renders
   `getAgentProvider().label` — the real configured provider.
+- **Icon is `Bot` (a robot)** — the dock's minimized pill, transcript header and
+  provider pill all use the robot glyph, matching the ChatBot nav item.
+- **A restored pill position is clamped to the current viewport.** The minimized
+  pill persists its x/y (`be_chat_dock_pill_pos_v1`); one saved on a larger
+  window (or a second monitor) restored raw would sit fully off-screen, so the
+  minimized assistant looked like it had vanished. The clamp effect runs once on
+  mount (deferred a frame) as well as on resize, and only writes when it moves a
+  value so it cannot self-loop.
 
 It renders at `z-[90]` (above the fullscreen overlay's `z-[80]`) and takes a
 `className` so fullscreen can lift it clear of the Exit button. Two independent

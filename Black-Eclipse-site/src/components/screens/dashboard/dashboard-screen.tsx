@@ -121,13 +121,14 @@ export function DashboardScreen() {
       widgets={DASHBOARD_WIDGETS}
       widgetIcon={widgetIcon}
       renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
+      dense
       zones={{
         left: {
           className: 'hidden xl:block w-64',
           collapsed: !watchlistOpen,
           onToggle: () => setWatchlistOpen(v => !v),
           header: (
-            <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+            <div className="mb-2 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
                 <List size={13} className="text-primary" /> Watchlist
               </span>
@@ -146,7 +147,7 @@ export function DashboardScreen() {
           collapsed: !marketOpen,
           onToggle: () => setMarketOpen(v => !v),
           header: (
-            <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+            <div className="mb-2 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
                 <Globe size={13} className="text-primary" /> Market
               </span>

@@ -50,6 +50,8 @@ export interface CustomizableWorkspaceProps {
    * from the Customize edit bar.
    */
   zones?: { left?: WorkspaceZoneConfig; right?: WorkspaceZoneConfig };
+  /** Tighter gutters between zones, sections, columns and cards. */
+  dense?: boolean;
   /** @deprecated Use `zones.right`. Kept as an alias for existing callers. */
   railClassName?: string;
   /** @deprecated Use `zones.right.header`. */
@@ -72,6 +74,7 @@ export function CustomizableWorkspace({
   toolbar = 'default',
   hideFloatingAdd = false,
   zones,
+  dense = false,
   railClassName,
   railHeader,
   railCollapsed = false,
@@ -170,7 +173,7 @@ export function CustomizableWorkspace({
     <div ref={rootRef} data-keyboard-scope="Widget workspace" className={cn('relative', className)}>
       {/* Refresh + Customize — always visible */}
       {toolbar === 'icons' ? (
-        <div className="mb-3 flex items-center justify-end gap-1">
+        <div className={cn('flex items-center justify-end gap-1', dense ? 'mb-2' : 'mb-3')}>
           <button
             onClick={refreshAll}
             className="glass-button rounded-lg p-1.5 text-muted-foreground hover:text-primary transition-all cursor-pointer"
@@ -200,7 +203,7 @@ export function CustomizableWorkspace({
           )}
         </div>
       ) : toolbar === 'default' ? (
-        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <div className={cn('flex flex-wrap items-center justify-end gap-2', dense ? 'mb-2' : 'mb-3')}>
           <button
             onClick={refreshAll}
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
@@ -291,6 +294,7 @@ export function CustomizableWorkspace({
           onAddingEnd={endAddDrag}
           widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc, defaultHeight: w.defaultHeight, minHeight: w.minHeight }))}
           zones={resolvedZones}
+          dense={dense}
           renderWidget={(widgetId, placement) => (
             <div className="relative h-full">
               {renderWidget(widgetId, placement)}

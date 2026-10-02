@@ -26,6 +26,7 @@ import {
   moveWidgetToAdjacentColumn as moveWidgetToAdjacentColumnDraft,
   moveWidgetToNewSection as moveWidgetToNewSectionDraft,
   moveWidgetToNewSectionAt as moveWidgetToNewSectionAtDraft,
+  addWidgetToNewSection as addWidgetToNewSectionDraft,
   createSectionAt as createSectionAtDraft,
   removeSection as removeSectionDraft,
   createSectionInZone as createSectionInZoneDraft,
@@ -64,6 +65,7 @@ interface WorkspaceActions {
   moveWidget: (widgetId: string, target: DropTarget) => void;
   moveWidgetToNewSection: (widgetId: string) => void;
   moveWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
+  addWidgetToNewSection: (widgetId: string, zone?: WorkspaceZone, sizing?: PlacementSizing) => void;
   createSectionAt: (anchorSectionId: string, position: 'above' | 'below') => void;
   removeSection: (sectionId: string) => void;
   createSectionInZone: (zone: WorkspaceZone) => void;
@@ -167,6 +169,7 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       moveWidget: (widgetId, target) => commit(d => { moveWidgetDraft(d, widgetId, target); }),
       moveWidgetToNewSection: (widgetId) => commit(d => { moveWidgetToNewSectionDraft(d, widgetId); }),
       moveWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { moveWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
+      addWidgetToNewSection: (widgetId, zone, sizing) => commit(d => { addWidgetToNewSectionDraft(d, widgetId, zone, sizing); }),
       createSectionAt: (anchorSectionId, position) => commit(d => { createSectionAtDraft(d, anchorSectionId, position); }),
       removeSection: (sectionId) => commit(d => { removeSectionDraft(d, sectionId); }),
       createSectionInZone: (zone) => commit(d => { createSectionInZoneDraft(d, zone); }),
@@ -241,6 +244,7 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       moveWidget: useStore.getState().moveWidget,
       moveWidgetToNewSection: useStore.getState().moveWidgetToNewSection,
       moveWidgetToNewSectionAt: useStore.getState().moveWidgetToNewSectionAt,
+      addWidgetToNewSection: useStore.getState().addWidgetToNewSection,
       createSectionAt: useStore.getState().createSectionAt,
       removeSection: useStore.getState().removeSection,
       createSectionInZone: useStore.getState().createSectionInZone,

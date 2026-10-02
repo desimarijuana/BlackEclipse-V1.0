@@ -8,6 +8,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Tighten the Command Center gaps and fix adding widgets to an emptied
+  layout.** Two independent issues. (1) Density: added a `dense` prop to
+  `CustomizableWorkspace`/`WorkspaceCanvas` (gutters only — inter-zone
+  `gap-4→gap-1.5`, section stack `gap-3→gap-1.5`, column/card gaps
+  `gap-2.5→gap-1.5`, section padding `p-1→p-0.5`, header/edit-bar margins
+  `mb-3→mb-2`) and passed it from `DashboardScreen`; also cut the outer wrapper
+  in `stock-chat.tsx` from `px-4 md:px-8 py-8` to `px-2 md:px-4 py-3`. Fund
+  workspaces keep the original spacing. (2) Empty-centre add: after deleting
+  every centre widget while the Watchlist/Market rails remained, `pruneLayout`
+  left only rail sections so `mainSections` was empty, `computeTarget` returned
+  `null`, and both drag-drop and library adds silently no-op'd. The canvas now
+  renders an `EmptyMainZone` placeholder (`data-emptyzone`) that resolves to
+  `columnId:'__newmain'`, backed by a new `ops.addWidgetToNewSection` that always
+  creates a `main` section. Extracted the drop chrome into
+  `src/lib/workspace/workspace-chrome.tsx` to keep `workspace-canvas.tsx` within
+  its size budget. Added regression tests in `workspace.test.ts`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
 - **Fix the gitignore guard so it no longer requires `jdds.db` on disk.** The
   guard's own intent is "untracked, not deleted", but it asserted
   `existsSync(jdds.db)` — which fails on a fresh CI checkout, where the
