@@ -8,6 +8,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Fix the gitignore guard so it no longer requires `jdds.db` on disk.** The
+  guard's own intent is "untracked, not deleted", but it asserted
+  `existsSync(jdds.db)` — which fails on a fresh CI checkout, where the
+  gitignored runtime vault is (correctly) absent. It now proves the real property:
+  `jdds.db` is git-ignored AND not tracked (`git ls-files --error-unmatch`). This
+  unblocks the root `.github/workflows/ci.yml` gate, which mirrors check-all.js.
+  No doc change — test-only; the runtime and the DB posture are unchanged.
+
 - **Surface closure follow-up — client-safe browser clients for the code and jobs
   surfaces.** Restarting the dev server revealed why the mounted screens had never
   worked: `jobs-screen.tsx` and the code panels (client components) imported the

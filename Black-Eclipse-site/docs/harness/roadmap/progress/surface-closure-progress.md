@@ -196,6 +196,16 @@ GET /api/jobs/templates  → 200
 
 `tsc --noEmit` clean; the full `check:all` stays green at 175/1993 + 2278.
 
+## Unrelated CI failure found during the restart
+
+The root CI gate (`.github/workflows/ci.yml`, added in closeout 43085d8) failed on
+GitHub with `gitignore-guard.test.ts:49` asserting `jdds.db` exists on disk. That
+is environmental and predates this work: `jdds.db` is gitignored (never committed),
+so a fresh checkout has none, while a developer's working copy does. The test's own
+name says "untracked, not deleted" — the assertion was the wrong one. Fixed in
+`src/lib/gitignore-guard.test.ts` to prove the real property (`jdds.db` is ignored
+AND not tracked), which passes on a clean checkout. Test-only; no runtime change.
+
 ## Honest limitations
 
 - **The mounted screens were compiled and fetched, but not clicked through.** The

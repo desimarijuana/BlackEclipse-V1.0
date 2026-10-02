@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,8 +45,24 @@ describe("gitignore behavior", () => {
     expect(isIgnored("Black-Eclipse-site/README.md")).toBe(false);
   });
 
-  it("the jdds.db working file still exists on disk (untracked, not deleted)", () => {
-    expect(existsSync(join(APP_ROOT, "jdds.db"))).toBe(true);
+  it("jdds.db is untracked runtime state, not a committed file", () => {
+    // `jdds.db` is the runtime data vault: a working file that is gitignored and
+    // deliberately NOT committed (AGENTS.md / black-eclipse-db skill). The guard
+    // must prove it cannot be accidentally committed — i.e. git does not track it
+    // — NOT that the file happens to exist on a given machine. A fresh CI
+    // checkout has no `jdds.db` (it is untracked), so asserting on-disk presence
+    // would fail everywhere except a developer's working copy.
+    expect(isIgnored("Black-Eclipse-site/jdds.db")).toBe(true);
+    let tracked = true;
+    try {
+      execFileSync("git", ["ls-files", "--error-unmatch", "Black-Eclipse-site/jdds.db"], {
+        cwd: REPO_ROOT,
+        stdio: "ignore",
+      });
+    } catch {
+      tracked = false;
+    }
+    expect(tracked, "jdds.db must not be tracked by git").toBe(false);
   });
 });
 
