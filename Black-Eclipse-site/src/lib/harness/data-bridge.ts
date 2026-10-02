@@ -228,9 +228,16 @@ async function resolveAnyInstrument(
     };
   }
 
-  // Equity/fund: resolve through the vault master (the shared gate).
+  // Equity/fund: resolve through the vault master (the shared gate). A vault
+  // MISS for a KNOWN, covered market is not terminal — the live provider can
+  // still quote an instrument outside the committed universe (the vault is a
+  // cache, not a precondition; the same rule `financial_statements` follows).
   const resolved = await resolveVaultInstrument(symbol, rawMarket, false);
-  if (!resolved.ok) return resolved;
+  if (!resolved.ok) {
+    const fallback = statementIdentityFallback(symbol, rawMarket, resolved.failure);
+    if (!fallback) return resolved;
+    return { ok: true, asset: null, identity: fallback };
+  }
   // Enforce contract terms for derivatives / fixed income.
   const missing = missingContractTerms(resolved.identity.assetClass, terms);
   if (missing.length > 0) {
@@ -486,9 +493,78 @@ async function marketSnapshot(params: Record<string, unknown>): Promise<DataBrid
 
   // Shared identity gate — the SAME one live_quote uses. No US default; an
   // unqualified multi-listed ticker is AMBIGUOUS, never silently US.
-  const resolved = await resolveVaultInstrument(symbol, params.market, true);
-  if (!resolved.ok) return identityFailureResult(resolved.failure);
+  const resolved = await resolveVaultInstrument(symbol, params.market, false);
+
+  // A vault MISS is not a hard failure: the live provider may have the
+  // instrument (many symbols are outside the committed universe). Only an
+  // AMBIGUOUS or uncovered request is terminal. This is the same rule
+  // `financial_statements` already follows — the vault is a cache, not a
+  // precondition.
+  if (!resolved.ok) {
+    const recoverable = resolved.failure.reason === "not_found";
+    if (!recoverable) return identityFailureResult(resolved.failure);
+    const live = await liveQuote(params);
+    if (live.status !== "OK") return identityFailureResult(resolved.failure);
+    // The live quote carries a verified identity + price; expose it as a
+    // snapshot with no stored profile and an explicit live observation time.
+    return {
+      status: "OK",
+      symbol: live.symbol ?? symbol,
+      name: null,
+      sector: null,
+      industry: null,
+      securityType: live.securityType ?? null,
+      assetClass: live.assetClass ?? null,
+      country: live.market ?? null,
+      market: live.market ?? null,
+      exchange: live.exchange ?? null,
+      mic: live.mic ?? null,
+      currency: live.currency ?? null,
+      instrumentId: live.instrumentId ?? null,
+      priceSource: live.provider ?? null,
+      updatedAt: live.observationTime ?? null,
+      observationTime: live.observationTime ?? null,
+      observationSource: live.observationSource ?? "unknown",
+      price: live.price ?? null,
+      profileSource: "none",
+      served: "live",
+    };
+  }
+
   const { identity, asset } = resolved;
+
+  // The vault may resolve the identity but hold no row (a symbol outside the
+  // committed universe), or hold a row with no stored price. Either way a live
+  // quote can still answer, so the snapshot is not vault-only.
+  if (!asset || !asset.price) {
+    const live = await liveQuote(params);
+    if (live.status === "OK") {
+      return {
+        status: "OK",
+        symbol: identity.symbol,
+        name: asset?.name ?? null,
+        sector: asset?.sector ?? null,
+        industry: asset?.industry ?? null,
+        securityType: asset?.securityType ?? live.securityType ?? null,
+        assetClass: asset?.assetClass ?? live.assetClass ?? null,
+        country: identity.market,
+        market: identity.market,
+        exchange: identity.exchange ?? asset?.market.exchange ?? live.exchange ?? null,
+        mic: identity.mic ?? null,
+        currency: identity.currency ?? live.currency ?? null,
+        instrumentId: `${identity.market}:${identity.symbol}`,
+        priceSource: live.provider ?? null,
+        updatedAt: live.observationTime ?? null,
+        observationTime: live.observationTime ?? null,
+        observationSource: live.observationSource ?? "unknown",
+        price: live.price ?? null,
+        profileSource: asset ? "JDDS" : "none",
+        served: "live",
+      };
+    }
+  }
+
+  if (!asset) return identityFailureResult({ ok: false, reason: "not_found", message: `${symbol} not found in JDdS and no live provider answered.` });
 
   return {
     status: "OK",
@@ -506,6 +582,12 @@ async function marketSnapshot(params: Record<string, unknown>): Promise<DataBrid
     instrumentId: `${identity.market}:${identity.symbol}`,
     priceSource: asset.price?.source ?? null,
     updatedAt: asset.price?.updatedAt?.toISOString() ?? null,
+    // Phase 13: the observation's own time and how it was obtained. The vault
+    // writes the row when it fetches, so its only timestamp is a SNAPSHOT WRITE —
+    // never presented as a live as-of. `cadenceSeconds` stays as a HINT; the
+    // runtime decides eligibility from the observation time.
+    observationTime: asset.price?.updatedAt?.toISOString() ?? null,
+    observationSource: "snapshot_write",
     // The vault is refreshed on a scraper schedule, not tick-by-tick.
     cadenceSeconds: 24 * 60 * 60,
     price: asset.price
@@ -526,28 +608,90 @@ async function fundamentals(params: Record<string, unknown>): Promise<DataBridge
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
   if (!symbol) return unavailableClass("invalid_request", "symbol is required");
 
-  // Same shared identity gate as market_snapshot/live_quote. Previously this
-  // tool had NO gate, so `fundamentals("BHP")` silently returned the US ADR.
-  const resolved = await resolveVaultInstrument(symbol, params.market, true);
-  if (!resolved.ok) return identityFailureResult(resolved.failure);
-  const { identity, asset } = resolved;
+  // Same shared identity gate as market_snapshot/live_quote. A vault miss is NOT
+  // a hard failure: the provider pipeline (SEC → FMP → Yahoo) can still answer,
+  // exactly as `financial_statements` does. Only a genuinely unresolvable request
+  // (unknown venue, ambiguous bare ticker, uncovered venue) stays an identity
+  // failure.
+  const resolved = await resolveVaultInstrument(symbol, params.market, false);
+  let identity: InstrumentIdentity;
+  let asset: VaultAsset | null = null;
+  if (resolved.ok) {
+    identity = resolved.identity;
+    asset = resolved.asset;
+  } else {
+    const fallback = statementIdentityFallback(symbol, params.market, resolved.failure);
+    if (!fallback) return identityFailureResult(resolved.failure);
+    identity = fallback;
+  }
+
+  // The profile is a live-verifiable fact, not a vault-only one. When the vault
+  // has no row or lacks sector/industry/name, enrich from the existing
+  // fundamentals provider pipeline (SEC/FMP/Yahoo) — the SAME service the
+  // Fundamentals page uses. Never fabricate; a missing field stays null and is
+  // reported as `null`, not guessed.
+  const vaultHasProfile = Boolean(asset && (asset.sector || asset.industry || asset.name));
+  const needLive = !vaultHasProfile || params.refresh === true;
+  let liveProfile: Awaited<ReturnType<typeof liveCompanyProfile>> = null;
+  if (needLive) {
+    liveProfile = await liveCompanyProfile(identity.symbol, identity.market);
+  }
+
+  const name = asset?.name ?? liveProfile?.name ?? null;
+  const sector = asset?.sector ?? liveProfile?.sector ?? null;
+  const industry = asset?.industry ?? liveProfile?.industry ?? null;
+  const profileSource = asset && (asset.sector || asset.industry || asset.name)
+    ? "JDDS"
+    : liveProfile
+      ? "provider"
+      : "JDDS";
 
   return {
     status: "OK",
     symbol: identity.symbol,
-    name: asset.name,
-    sector: asset.sector,
-    industry: asset.industry,
-    securityType: asset.securityType,
-    assetClass: asset.assetClass,
+    name,
+    sector,
+    industry,
+    securityType: asset?.securityType ?? null,
+    assetClass: identity.assetClass ?? asset?.assetClass ?? null,
     market: identity.market,
-    country: identity.market,
-    exchange: identity.exchange ?? asset.market.exchange,
+    country: identity.market ?? liveProfile?.country ?? null,
+    exchange: identity.exchange ?? asset?.market?.exchange ?? liveProfile?.exchange ?? null,
     mic: identity.mic ?? null,
-    currency: identity.currency,
+    currency: identity.currency ?? liveProfile?.currency ?? null,
     instrumentId: `${identity.market}:${identity.symbol}`,
-    price: asset.price?.price ?? null,
+    price: asset?.price?.price ?? null,
+    // Provenance for the profile fields: vault or a live provider. Honest about
+    // where the profile came from so a consumer never assumes the vault answered.
+    profileSource,
   };
+}
+
+/**
+ * The company profile from the live provider pipeline (SEC → FMP → Yahoo), or
+ * null when no provider can answer. Reuses the existing fundamentals service —
+ * there is no second provider implementation here.
+ */
+async function liveCompanyProfile(
+  symbol: string,
+  market: string
+): Promise<{ name: string | null; sector: string | null; industry: string | null; country: string | null; exchange: string | null; currency: string | null } | null> {
+  try {
+    const { getFundamentals } = await import("@/lib/fundamentals");
+    const snapshot = await getFundamentals(symbol, market);
+    if (!snapshot) return null;
+    const c = snapshot.company;
+    return {
+      name: c.name ?? null,
+      sector: c.sector ?? null,
+      industry: c.industry ?? null,
+      country: c.country ?? null,
+      exchange: c.exchange ?? null,
+      currency: snapshot.currency ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -975,6 +1119,11 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
           : "per-share",
       },
       asOf: new Date().toISOString(),
+      // Phase 13: the provider's own market as-of when it reports one, else
+      // "unknown" — never the retrieval clock dressed up as a market time. The
+      // scraper chain reports no market timestamp, so this is honestly unknown.
+      observationTime: null,
+      observationSource: "unknown" as const,
     };
   } catch (err) {
     return unavailableClass("source_failure", err instanceof Error ? err.message : "live quote failed");

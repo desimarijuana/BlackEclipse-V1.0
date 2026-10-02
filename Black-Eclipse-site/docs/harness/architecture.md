@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-09-30
+last-verified: 2026-10-02
 ---
 
 # Harness Architecture
@@ -137,14 +137,18 @@ also available as general tools and are not required to implement this contract:
 | `validate.py` | valid / warning / invalid / unknown (negative earnings stay valid) |
 | `conflicts.py` | preserve discrepancies; resolve only with a stated reason |
 | `aggregate.py` | `EvidenceSet` keeping evidence kinds distinct |
-| `planner.py` | deterministic, explainable source selection |
+| `authority.py` | the ONE ordering table (`AUTHORITY`) + the arbitration decision (`decide_source`); ADR-H115/H116 |
+| `planner.py` | deterministic, explainable source selection (adapts `AUTHORITY` into a plan) |
 | `routing.py` | route eligibility + outcome categories (ineligible / not_implemented / unconfigured / provider_failure / no_instrument / no_data / …), so a skip is never reported as an outage |
 | `layer.py` | the orchestrator the tools call |
 
-**Source selection is task-aware, not "JDdS first" or "web first".** It is data
-in `planner.py`; e.g. a current quote prefers a structured provider, a 5-year
-Sharpe prefers structured history, "why did NVDA move" combines market data and
-web research, and a historical series never uses web at all. The selected
+**Source selection is task-aware, not "JDdS first" or "web first".** The ordering
+is data in `authority.py`; e.g. a current quote prefers a live structured reading
+(the vault is a candidate, not the first-and-only — ADR-H115), a 5-year Sharpe
+prefers structured history, "why did NVDA move" combines market data and web
+research, and a historical series never uses web at all. The price/series/macro
+types are **arbitrated**: every eligible candidate runs and a disagreement is
+preserved as `CONFLICTING` rather than hidden by the first success. The selected
 strategy is recorded on every result (`strategy`) and emitted as an event.
 
 **Precise data is never web-sourced.** `historical_prices`, `macro_series` and
@@ -278,8 +282,8 @@ changing the evidence contracts:
 ### Retrieval escalation (Phase 5) and resilient multi-source research (Phase 6)
 
 Structured sources stay the preferred path, but they are no longer the only one.
-`retrieval/planner.py` is the explicit, testable source policy; for
-`financial_statements` it is:
+`retrieval/authority.py` is the explicit, testable source policy (the planner
+adapts it); for `financial_statements` it is:
 
 ```
 SEC EDGAR (direct filing/XBRL, tier primary, US issuers)
@@ -942,7 +946,7 @@ scope. `consumed` and `usedAt` ride the whole round-trip (the row, `_row()`,
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
 | A tool that needs JDdS data | Add a capability to `data-bridge.ts` + a `DataCapability` union member; call `ctx.data_bridge.fetch(...)`. |
-| A retrieval data type | Add a row to `retrieval/planner.py` (`_PLAN`), `policies.py` (`DEFAULT_FRESHNESS`, `CACHE_TTL_SECONDS`) and the `DataType` literal in `contract.py`. |
+| A retrieval data type | Add one row to `retrieval/authority.py` (`AUTHORITY`, a `DataTypeAuthority`), `policies.py` (`DEFAULT_FRESHNESS`, `CACHE_TTL_SECONDS`) and the `DataType` literal in `contract.py`. The authority is the ONE ordering table (ADR-H115). |
 | A retrieval provider | Implement `RetrievalSource` in `retrieval/`; register it in `FinancialRetrievalLayer.__init__`. Add its name to the planner's order. |
 | A capability the retrieval layer needs | Add a capability to `data-bridge.ts` + the `DataCapability` union + the API route whitelist. |
 | An agent | Add a prompt to `python/harness/prompts.py` and an `AgentConfig` to `AGENT_PRESETS` in `python/harness/agents.py` (update `DEFAULT_AGENT_ID` if it should be the default). |

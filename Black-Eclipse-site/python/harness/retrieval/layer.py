@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from ..tools import DataBridge
 from .aggregate import aggregate, outcome_to_evidence
+from .authority import authority_for, decide_source
 from .cache import RetrievalCache
 from .conflicts import detect_conflicts
 from .contract import (
@@ -38,7 +39,7 @@ from .contract import (
 )
 from .health import build_health_index, rank_sources
 from .parallel import run_parallel
-from .policies import cadence_for
+from .policies import cadence_for, max_age_seconds
 from .planner import (
     SEC_FILINGS,
     STRUCTURED_LIVE,
@@ -50,19 +51,12 @@ from .retry import retrieve_with_retry, DEFAULT_MAX_RETRIES
 from .routing import classify_outcome, classify_skip
 from .sources import RetrievalSource, SourceOutcome, outcome_diagnostics
 from .structured import JddsSource, LiveStructuredSource, SecFilingsSource
-from .validate import detect_incomplete, validate_objects
+from .validate import detect_incomplete, validate_objects, validate_observations
 from .web import WebResearchSource
 
-# Data types where a single best source is expected (not multi-source synthesis).
-_SINGLE_BEST = {
-    "current_quote",
-    "historical_prices",
-    "macro_series",
-    "company_profile",
-    "financial_statements",
-}
-# Data types where multiple sources are intentionally combined.
-_MULTI_SOURCE = {"earnings", "news", "web_research", "world_events", "derived_metric"}
+# Data types whose payload is a legitimate TIME SERIES: an old row inside it is
+# the point of history, not a defect, so the per-observation check is skipped.
+_SERIES_TYPES = {"historical_prices", "macro_series"}
 
 
 class FinancialRetrievalLayer:
@@ -276,11 +270,12 @@ class FinancialRetrievalLayer:
                 strategy=plan.sources,
             )
 
-        if request.dataType in _SINGLE_BEST:
-            return await self._execute_single(request, plan)
-        return await self._execute_multi(request, plan)
+        authority = authority_for(request.dataType)
+        if authority.policy == "arbitrated":
+            return await self._execute_arbitrated(request, plan, authority)
+        return await self._execute_single(request, plan, authority)
 
-    async def _execute_single(self, request: FinancialRetrievalRequest, plan: Any) -> FinancialRetrievalResult:
+    async def _execute_single(self, request: FinancialRetrievalRequest, plan: Any, authority: Any = None) -> FinancialRetrievalResult:
         """Try planned sources in order; first OK result wins (then validate)."""
         attempts: list[SourceOutcome] = []
         warnings: list[str] = []
@@ -340,7 +335,7 @@ class FinancialRetrievalLayer:
                 # Only the answering source's own warnings apply to the result.
                 return self._finalize_single(
                     request, outcome, list(outcome.warnings), plan, fallback_notes,
-                    diagnostics=diagnostics,
+                    diagnostics=diagnostics, authority=authority,
                 )
             self.metrics["failures"] += 1
             if outcome.error:
@@ -362,14 +357,36 @@ class FinancialRetrievalLayer:
             diagnostics=diagnostics,
         )
 
-    async def _execute_multi(self, request: FinancialRetrievalRequest, plan: Any) -> FinancialRetrievalResult:
-        """Run independent sources concurrently; aggregate all evidence."""
+    async def _execute_arbitrated(self, request: FinancialRetrievalRequest, plan: Any, authority: Any) -> FinancialRetrievalResult:
+        """Run EVERY eligible candidate concurrently, then decide with provenance.
+
+        This is the Phase-13 path for price/series/macro/profile types. It reuses
+        the existing ``run_parallel`` + ``_resolve`` + ``detect_conflicts`` seam —
+        there is no second conflict mechanism. Its whole point is that a fresh live
+        reading is *consulted* alongside a saved snapshot, so a real disagreement
+        can be preserved (which was unreachable when the first success won).
+        """
         tasks: list[tuple[str, Any]] = []
+        diagnostics: list[dict[str, Any]] = []
         for name in plan.sources:
             source = self._sources.get(name)
-            if source is None or not source.available(request):
+            skip = classify_skip(name, source, request) if source is not None else ("not_implemented", f"{name} is not registered")
+            if skip is not None:
+                category, reason = skip
+                diagnostics.append(
+                    {
+                        "provider": name,
+                        "category": category,
+                        "routeCategory": category,
+                        "normalizedStatus": "skipped",
+                        "retryable": False,
+                        "detail": reason,
+                    }
+                )
+                await self._emit("retrieval.source_skipped", {"source": name, "category": category, "reason": reason})
                 continue
             tasks.append((name, self._bind(source, request)))
+            await self._emit("retrieval.source_start", {"source": name, "dataType": request.dataType})
 
         if not tasks:
             return FinancialRetrievalResult(
@@ -380,54 +397,65 @@ class FinancialRetrievalLayer:
                 freshness=request.freshnessRequirement,
                 warnings=plan.warnings + ["no available source"],
                 strategy=plan.sources,
+                diagnostics=diagnostics,
             )
 
         self.metrics["sourceCalls"] += len(tasks)
-        task_results = await run_parallel(
-            tasks,
-            on_start=lambda n: None,
-            on_done=None,
-        )
+        task_results = await run_parallel(tasks, on_start=lambda n: None, on_done=None)
 
-        items: list[EvidenceItem] = []
-        references: list[SourceReference] = []
-        warnings: list[str] = []
-        ok = 0
+        outcomes: list[SourceOutcome] = []
         for tr in task_results:
-            if tr.ok and tr.outcome is not None:
-                ok += 1
-                items.extend(tr.outcome.evidence)
-                references.extend(tr.outcome.references)
-            else:
+            if tr.outcome is not None:
+                outcomes.append(tr.outcome)
+                for d in outcome_diagnostics(tr.outcome):
+                    diagnostics.append({**d, "routeCategory": classify_outcome(tr.outcome)})
+                if tr.outcome.status == "OK" and (tr.outcome.objects or tr.outcome.evidence):
+                    await self._emit("retrieval.source_ok", {"source": tr.name, "objects": len(tr.outcome.objects)})
+                else:
+                    await self._emit("retrieval.source_unavailable", {"source": tr.name, "error": tr.outcome.error})
+            elif tr.error:
                 self.metrics["failures"] += 1
-                if tr.error:
-                    warnings.append(tr.error)
+                diagnostics.append(
+                    {
+                        "provider": tr.name,
+                        "category": "provider_failure",
+                        "routeCategory": "provider_failure",
+                        "normalizedStatus": "failed",
+                        "retryable": not tr.timed_out,
+                        "detail": tr.error,
+                    }
+                )
 
-        if not items:
+        decision = decide_source(authority, outcomes, request)
+        if decision.chosen is None:
+            status: RetrievalStatus = "CONFLICTING" if decision.reason.startswith("CONFLICTING") else "UNAVAILABLE"
+            if status == "CONFLICTING":
+                self.metrics["conflicts"] += 1
+            # Preserve every candidate and its provenance when they disagree.
+            candidate_objects = [o for outcome in outcomes if outcome.status == "OK" for o in outcome.objects]
             return FinancialRetrievalResult(
-                status="UNAVAILABLE",
+                status=status,
                 objective=request.objective,
                 dataType=request.dataType,
                 instrument=request.instrument,
                 freshness=request.freshnessRequirement,
-                warnings=warnings + plan.warnings,
+                warnings=_dedupe([decision.reason, *plan.warnings, *(w for _n, w in decision.rejected)]),
                 strategy=plan.sources,
+                conflicts=_conflicts_payload(candidate_objects) if status == "CONFLICTING" else [],
+                diagnostics=diagnostics,
             )
 
-        status: RetrievalStatus = "OK" if ok == len(task_results) else "PARTIAL"
-        quality: QualityStatus = "valid"
-        return FinancialRetrievalResult(
-            status=status,
-            objective=request.objective,
-            dataType=request.dataType,
-            instrument=request.instrument,
-            data={"evidenceCount": len(items)},
-            evidence=items,
-            sourceReferences=references,
-            freshness=request.freshnessRequirement,
-            quality=quality,
-            warnings=warnings + plan.warnings,
-            strategy=plan.sources,
+        chosen_outcome = next((o for o in outcomes if o.source == decision.chosen), None)
+        if chosen_outcome is None:  # pragma: no cover - decide_source only names members of `outcomes`
+            return FinancialRetrievalResult(
+                status="UNAVAILABLE", objective=request.objective, dataType=request.dataType,
+                instrument=request.instrument, freshness=request.freshnessRequirement,
+                strategy=plan.sources, diagnostics=diagnostics,
+            )
+        fallback_notes = [w for name, w in decision.rejected if name != decision.chosen and not w.startswith("skipped")]
+        return self._finalize_single(
+            request, chosen_outcome, list(chosen_outcome.warnings), plan, fallback_notes,
+            diagnostics=diagnostics, authority=authority,
         )
 
     # ── Single-result post-processing ─────────────────────────────────────────
@@ -440,6 +468,7 @@ class FinancialRetrievalLayer:
         plan: Any,
         fallback_notes: Optional[list[str]] = None,
         diagnostics: Optional[list[dict[str, Any]]] = None,
+        authority: Any = None,
     ) -> FinancialRetrievalResult:
         objects = outcome.objects
         _ = fallback_notes  # fallback misses are not degradations of the answer
@@ -466,6 +495,24 @@ class FinancialRetrievalLayer:
             chosen, request.freshnessRequirement, source_cadence_seconds=cadence
         )
         warnings.extend(quality_warnings)
+
+        # Phase 13: a payload of many rows can pass the dataset-level freshness
+        # check while a few individual rows are stale. `validate_observations`
+        # answers "is THIS value current?" for a non-series payload — the check
+        # that stops one instrument's stale row riding a fresh batch. The
+        # authority's window is the SAME ceiling arbitration used to gate the
+        # source, so the age stated here and the eligibility agree.
+        if request.dataType not in _SERIES_TYPES:
+            window_s = None
+            if authority is not None:
+                request_window = max_age_seconds(request.freshnessRequirement)
+                window_s = min(int(authority.request_window_s), request_window) or int(
+                    authority.request_window_s
+                )
+            objects, observation_warnings = validate_observations(
+                objects, request.freshnessRequirement, window_s=window_s
+            )
+            warnings.extend(observation_warnings)
 
         # D2: detect truncated/partial parses. A partial numeric is never emitted
         # as a figure — it is marked invalid and the result is flagged incomplete.

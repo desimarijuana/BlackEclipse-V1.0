@@ -131,6 +131,7 @@ interface BridgeQuote {
   dayHigh: number | null;
   dayLow: number | null;
   volume: number | null;
+  marketCap?: number | null;
 }
 
 interface BridgeQuotesOutput {
@@ -226,6 +227,7 @@ export async function fetchYahooBatchQuote(
         price: q.price,
         changePct: q.changePct ?? 0,
         volume: q.volume ?? undefined,
+        marketCap: q.marketCap ?? undefined,
         // The request's market, not the provider's — the bridge re-verifies it.
         market: market.trim().toUpperCase(),
       };

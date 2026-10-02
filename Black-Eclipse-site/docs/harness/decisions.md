@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-09-30
+last-verified: 2026-10-02
 ---
 
 # Harness Decisions
@@ -2754,7 +2754,7 @@ anything outside the app"), and the jargon gate scans it. Phases 6, 7, 8 and 9 m
 now build on a code-capable agent with a task lifecycle.
 
 
-## ADR-H108 � Harness-owned jobs; the TS refresh loops stay as they are
+## ADR-H108 � Harness-owned jobs; the TS refresh loops stay as they are
 
 **Decision.** Phase 6 adds a durable, single-process job model to the Python
 harness (`python/harness/jobs/`) beside the three existing TypeScript schedulers.
@@ -2765,8 +2765,8 @@ A job is durable, reviewable **DATA** (`JobDefinition` on the `HarnessJob` table
 with a `HarnessJobRun` history table, both in `agent-memory.db`). A job references
 a skill (by id + pinned version) or an objective + agent id; it never holds
 executable code and never widens authority. A job run **is** a normal `execute_run`
-with a job id attached � there is no second agent loop, tool registry or model
-adapter (README �3.1). The run row links to the existing `HarnessRun`, so a job
+with a job id attached � there is no second agent loop, tool registry or model
+adapter (README �3.1). The run row links to the existing `HarnessRun`, so a job
 produces the same trace, events, tool executions and (for a code job) verification
 ledger as a user-initiated run.
 
@@ -2774,16 +2774,16 @@ The scheduler is one FastAPI-lifespan task started in `service.start_jobs()`
 alongside `start_mcp()`. It reuses `mcp/circuit.py`'s breaker states and
 thresholds rather than writing a second backoff. Cron parsing is stdlib-only
 (`jobs/cron.py`), justified by `AGENTS.md`'s lighter-option rule. `enabled`
-defaults **False** (discovery is not activation, ADR-H39), and every route �
-reads included � carries `require_operator` (ADR-H48), except the webhook trigger,
+defaults **False** (discovery is not activation, ADR-H39), and every route �
+reads included � carries `require_operator` (ADR-H48), except the webhook trigger,
 which authenticates on the job's SHA-256 token hash.
 
 **Why.** The roadmap's gap #4 is "no autonomous cadence: nothing runs without a
 human clicking." The existing TS loops can only refresh data; none can run an
 agent, and none has a job model, run history or delivery. But they are proven and
 serve a different, latency-sensitive purpose. Replacing them would be a regression
-risk with no user-visible benefit. Two existing pieces already do the hard parts �
-run execution/persistence and failure containment � so the phase reuses both.
+risk with no user-visible benefit. Two existing pieces already do the hard parts �
+run execution/persistence and failure containment � so the phase reuses both.
 
 **Consequences.** The three TS schedulers are byte-unchanged (acceptance gate G6).
 `main.py` grows by exactly two lines (import + `include_router`) plus the lifespan
@@ -3131,3 +3131,123 @@ sees; the eval report itself stays engineering-facing and is never rendered to a
 user. The injected-regression proof asserts the **failure** of the gate (the failing
 run is the evidence) and then reverts. Tests: `test_code_eval.py`,
 `test_code_eval_safety.py`, plus the extended plain-language gates.
+
+
+## ADR-H115 — A source is never the authority; agreement between sources is arbitrated
+
+**Decision.** Phase 13 replaces the two static orderings that decided a
+price-shaped answer (`planner._PLAN` and `layer._SINGLE_BEST`) with ONE authority
+in `python/harness/retrieval/authority.py`: `AUTHORITY`, one `DataTypeAuthority`
+row per data type holding the ordered candidate list, whether the type is
+`single_best` (first success) or `arbitrated`, and the freshness ceiling for the
+type; and `decide_source`, a pure function that returns the chosen source, a plain
+reason, and every rejected candidate with why. `current_quote`,
+`historical_prices`, `macro_series` and `company_profile` become **arbitrated**:
+every eligible candidate runs (through the existing `parallel.run_parallel` seam),
+and the existing `conflicts.detect_conflicts` / `layer._resolve` chooses the
+highest-tier newest value (`sources agree`) or reports `CONFLICTING` with every
+candidate and its provenance. No second conflict mechanism is introduced. A
+candidate whose newest observation is older than
+`min(authority.request_window_s, request freshness window)` is ineligible to
+answer and is rejected with `STALE_SOURCE` and the measured age; when every
+candidate is stale the status is `NO_FRESH_SOURCE` (distinct from `UNAVAILABLE`,
+which means none answered at all). `financial_statements` and the qualitative
+types stay `single_best` — an issuer filing is not a race with a snapshot.
+
+**Why.** The vault was first for every price-shaped type and `_execute_single`
+returned on the first success, so the live provider was **never called** once the
+vault answered. A vault-vs-live disagreement could not occur, which made the
+0.5 % conflict tolerance — written for exactly that case — unreachable. The system
+prompt already stated the correct rule ("the vault is one source, not the
+authority"); the code contradicted it. A prompt cannot fix a source that is never
+consulted; only arbitration can. This is a correctness fix, not new power: nothing
+new becomes writable, and no new data source is added.
+
+**Consequences.** `planner._PLAN` and `layer._SINGLE_BEST` are deleted and their
+readers repointed, so there is one ordering in the tree, not three. The web route
+stays forbidden for the precise types (`historical_prices`, `macro_series`,
+`derived_metric`). A `realtime` price request can no longer be satisfied by a
+22-day-old vault row, and the refusal names the age. A cross-source disagreement
+is `CONFLICTING` with both candidates — proven by a test that fails on the
+pre-change code. Tests: `test_source_authority.py`, the retrieval regression
+suites, plus the plain-language gates.
+
+**Amendment (follow-up).** The arbitration only governs calls that go through the
+retrieval layer. The agent also held `get_market_snapshot` (`finance_tools.py`),
+which read the vault price/market-cap directly and **never ran the layer at all** —
+so a months-old market cap could still be presented as current (the reported
+demo). `get_market_snapshot` now routes its price/change/market-cap leg through the
+same arbitrated `current_quote` path: a fresh live reading beats the saved
+snapshot, a stale snapshot is not asserted as current, the observation time and its
+age are stated, and a disagreement beyond the tolerance shows every contested
+figure rather than the stored one. `normalize_quote` dates a live payload from its
+`observationTime` so the cross-source grouping can see it. This confirms the ADR's
+own rule at the tool grain: a source is never the authority, whichever entry point
+the model chooses. Tests:
+`test_demo_stale_market_cap_is_not_returned_as_current`,
+`test_demo_disagreement_is_shown_when_sources_differ`.
+
+## ADR-H116 — An observation's age is a property of the observation, not of the payload
+
+**Decision.** `NormalizedFinancialObject` gains two ADDITIVE fields,
+`observation_time` (the market time the value is about) and `observation_source`
+(`provider_asof` | `snapshot_write` | `unknown`, defaulting to `unknown`), so an
+old payload still loads unchanged and a missing time is never fabricated.
+`validate.py` gains `validate_observations` beside the existing dataset-level
+`validate_objects`: it stamps an individual stale row `warning` and reports it,
+and a value whose only time is a snapshot write gains the transformation
+`saved snapshot, not a live reading` and is `warning` for a `realtime` request —
+never worded as live. The check is applied to non-series payloads only (an old
+bar inside a history series is the point of history, not a defect).
+`src/lib/harness/data-bridge.ts` supplies the fields additively:
+`marketSnapshot` returns `observationSource: "snapshot_write"` with the vault
+row's write time, and `liveQuote` returns `"provider_asof"` only when the provider
+reports its own market time and `"unknown"` otherwise — the retrieval clock is
+never dressed up as a market as-of. `cadenceSeconds` stays, but as a hint: the
+runtime decides eligibility.
+
+**Why.** The dataset-level check (`_newest_timestamp`) answers "is this batch
+current?" — a payload of 40 rows where 3 are a month old passes it, so a stale row
+could ride a fresh batch silently. An observation's age is a fact about that
+observation. Separately, the vault's schema has no market-as-of column, so its
+only timestamp is the snapshot write time; a value whose age is unknown must say
+so rather than imply it is live. This is the honesty rule (`never fabricate`) at
+the per-value grain.
+
+**Consequences.** Older payloads load with `observation_source == "unknown"` and
+are unaffected until a source starts reporting a time. The user-facing strings for
+the as-of / delayed / disagreement wording are i18n keys (`source.*` in
+`src/lib/i18n/dictionaries/en.ts`), so they pass the plain-language gate and name
+the number, not the plumbing ("This is a saved reading, not a live price"). Tests:
+`test_source_authority.py` (per-observation staleness), plus the extended
+plain-language gates.
+
+**Amendment (follow-up 2).** "An observation's age is a property of the
+observation" must hold as **per-field** provenance, not per-payload. Routing
+`get_market_snapshot` through the layer was not enough: the live provider for US
+equities (yfinance `fast_info`) returns a price and **no market cap**, so the cap
+always fell back to JDdS while the payload was labelled "verified" — the original
+demo defect wearing a verified badge. The cap is now actually carried from the
+provider when it exists (`scripts/yfinance_bridge.py` → `fetchers/yfinance.ts` →
+`data-bridge.ts`), and when a single field falls back to the stored snapshot it is
+labelled `— saved snapshot` with its stored time and source; the top-level
+`verified` flag is true only when the PRICE itself is live, and each field's origin
+rides on the structured payload. A value can never borrow another value's
+provenance. Tests:
+`test_demo_live_price_but_no_live_cap_labels_the_cap_saved` (the real US-equity
+shape), `test_demo_stale_market_cap_is_not_returned_as_current`.
+
+**Amendment (follow-up 3 — the general rule).** Verification is not a property of
+the price leg; it is a property of every data type. Two capabilities were still
+vault-bound and would fail or go stale for anything the committed snapshot lacks:
+`fundamentals` (the company profile) and `market_snapshot` (a symbol absent from
+the universe, or a vault row with no stored price). The vault is a **cache, not a
+precondition** — the rule `financial_statements` already followed is now applied
+uniformly. `fundamentals` enriches from the existing live provider pipeline
+(SEC → FMP → Yahoo) when the vault lacks the profile, and reports which answered
+(`profileSource`); `resolveAnyInstrument` recovers a `not_found` for a KNOWN,
+covered market so a live quote can serve an instrument the vault never stored.
+This is not a bypass: the identity gate still refuses AMBIGUOUS, `not_covered` and
+wrong-currency answers, so a live provider can never price the wrong instrument.
+The live yfinance bridge now carries `marketCap` too. Tests:
+`data-bridge.test.ts`, `data-bridge-phase2.test.ts`, `data-bridge-health.test.ts`.

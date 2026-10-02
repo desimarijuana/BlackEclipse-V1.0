@@ -107,7 +107,14 @@ describe("one health seam records every data capability", () => {
   });
 
   it("records a failing route as a failure, not a silent skip", async () => {
+    // A vault miss now falls back to a live quote (multi-source). For a symbol
+    // NEITHER source can answer, both must fail so the route is recorded as a
+    // failure. The default mock returns a quote; make the live route empty.
     assetFindMany.mockResolvedValue([]);
+    const { fetchQuoteWithFallback } = await import("@/lib/scraper/fetchers");
+    (fetchQuoteWithFallback as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: "empty", source: "scraper", error: "no quote",
+    });
     await fetchCapability("market_snapshot", { symbol: "ZZZZ", market: "US" });
     const call = lastUpsert();
     expect(call).toBeTruthy();

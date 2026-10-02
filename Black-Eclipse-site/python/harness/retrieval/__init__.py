@@ -33,6 +33,7 @@ from .contract import (
     SourceReference,
     SourceTier,
 )
+from .authority import AUTHORITY, DataTypeAuthority, SourceDecision, decide_source
 from .layer import FinancialRetrievalLayer
 
 __all__ = [
@@ -49,4 +50,8 @@ __all__ = [
     "SourceReference",
     "SourceTier",
     "FinancialRetrievalLayer",
+    "AUTHORITY",
+    "DataTypeAuthority",
+    "SourceDecision",
+    "decide_source",
 ]

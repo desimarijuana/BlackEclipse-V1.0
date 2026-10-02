@@ -81,6 +81,23 @@ def max_age_seconds(freshness: str) -> int:
     return FRESHNESS_MAX_AGE_SECONDS.get(freshness, FRESHNESS_MAX_AGE_SECONDS["any"])
 
 
+def format_age(seconds: float) -> str:
+    """Human duration with enough precision that a sub-day age is never '0 days'.
+
+    The one age formatter. `validate` and `authority` both use it, so a staleness
+    reason reads identically wherever it is produced.
+    """
+    s = max(0, int(seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86_400:
+        return f"{s // 3600}h"
+    days = s // 86_400
+    return f"{days} day{'s' if days != 1 else ''}"
+
+
 # Trust ranking for conflict resolution (higher wins when timestamps tie).
 TIER_RANK: dict[str, int] = {
     "primary": 7,
@@ -107,5 +124,6 @@ __all__ = [
     "cadence_for",
     "ttl_seconds",
     "max_age_seconds",
+    "format_age",
     "tier_rank",
 ]

@@ -5,16 +5,17 @@ source names to try. It is NOT "always JDdS first" and NOT "always web first" �
 the decision considers data type, required freshness, structured vs qualitative,
 source reliability, availability and precision.
 
-The selected strategy is stored in execution metadata by the layer, so a run can
-be explained after the fact.
+The ordering is no longer defined here. `retrieval/authority.py` owns the ONE
+ordering table (`AUTHORITY`); this module adapts it into a `RetrievalPlan` and
+applies the caller-facing rules (a tier hint, a web prohibition, declared MCP
+sources, availability). One ordering in the tree, not three.
 
-Rules (one row per data type; a new type gets a new row):
-  * current_quote      → structured providers first (a precise number), web only
-                         if the caller allows it and structured is unavailable.
+Rules (one row per data type lives in `authority.AUTHORITY`):
+  * current_quote      → a live structured provider, then the vault, then web.
   * historical_prices  → structured only. Web is FORBIDDEN here: a search engine
                          must never be asked to invent a precise series.
   * company_profile    → structured, then web for qualitative color.
-  * financial_statements → structured first, then primary-source web.
+  * financial_statements → primary filing first, then the vault, then web.
   * earnings           → web/primary first (recent qualitative), structured supports.
   * macro_series       → structured only.
   * news / web_research → web first (qualitative + current).
@@ -27,13 +28,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .authority import (
+    SEC_FILINGS,
+    STRUCTURED_LIVE,
+    STRUCTURED_VAULT,
+    WEB,
+    authority_for,
+)
 from .contract import DataType, FinancialRetrievalRequest
 
-# Provider names are opaque ids here; the layer maps them to source instances.
-STRUCTURED_VAULT = "JDDS"
-STRUCTURED_LIVE = "LIVE_STRUCTURED"
-SEC_FILINGS = "SEC"
-WEB = "WEB"
+# Re-exported so existing importers (`layer`, `health`, tests) keep working
+# without knowing the table moved.
 
 
 @dataclass
@@ -45,36 +50,8 @@ class RetrievalPlan:
     warnings: list[str] = field(default_factory=list)
 
 
-# Per-data-type source ordering. The FIRST available wins for a single-best
-# retrieval; the layer may run the whole list for multi-source objectives.
-#
-# Source policy (deterministic, testable): official filing/company sources are
-# preferred for reported financials, then the structured vault, then a reputable
-# secondary. For `financial_statements` the order is:
-#   1. SEC — issuer-filed XBRL (primary, US issuers)
-#   2. JDDS — the structured vault (cached statements)
-#   3. WEB — bounded primary-source web (last resort; facts must be span-verified)
-# No data type makes every provider depend on one search call; SEC is a direct
-# filing route, not a web search.
-_PLAN: dict[str, list[str]] = {
-    "current_quote": [STRUCTURED_VAULT, STRUCTURED_LIVE, WEB],
-    "historical_prices": [STRUCTURED_VAULT, STRUCTURED_LIVE],
-    "company_profile": [STRUCTURED_VAULT, STRUCTURED_LIVE, WEB],
-    "financial_statements": [SEC_FILINGS, STRUCTURED_VAULT, WEB],
-    "earnings": [WEB, STRUCTURED_VAULT],
-    "macro_series": [STRUCTURED_VAULT, STRUCTURED_LIVE],
-    "news": [WEB],
-    "web_research": [WEB],
-    "world_events": [WEB],
-    "derived_metric": [STRUCTURED_VAULT, STRUCTURED_LIVE],
-}
-
-# Data types where a precise quantitative dataset is REQUIRED. If none is
-# available, web research must not be used to invent the number.
-_PRECISE: set[str] = {"historical_prices", "macro_series", "derived_metric", "current_quote"}
-
 _RATIONALE: dict[str, str] = {
-    "current_quote": "a precise latest price → structured provider; web is a last-resort fallback",
+    "current_quote": "a precise latest price → structured providers (live then vault); web is a last-resort fallback",
     "historical_prices": "a precise series is required → structured providers only",
     "company_profile": "profile metadata is structured; web supplies qualitative context",
     "financial_statements": "statements are reported facts → issuer filing (SEC) first, then the vault; primary-source web only as a last resort",
@@ -100,7 +77,8 @@ def plan_retrieval(
     selected when the vault is stale/missing without displacing a strong native
     provider. They are never forced: availability and freshness still decide.
     """
-    order = list(_PLAN.get(request.dataType, [WEB]))
+    authority = authority_for(request.dataType)
+    order = list(authority.candidates)
     warnings: list[str] = []
 
     # A caller-supplied tier hint reorders preference (but never forces a source).
@@ -110,10 +88,10 @@ def plan_retrieval(
             order = [hint] + [s for s in order if s != hint]
 
     # Web is forbidden when the caller says so, or when precise data is required
-    # but web is not an acceptable substitute for it (it never is, for the
-    # precise data types) — except current_quote, where a live web quote is a
-    # legitimate *qualitative* clue but never labeled precise.
-    precise = request.dataType in _PRECISE
+    # but web is not an acceptable substitute for it. The precise types
+    # (historical_prices / macro_series / derived_metric) keep web forbidden even
+    # if a table row were ever to list it.
+    precise = authority.require_precise
     if not request.allowWeb:
         order = [s for s in order if s != WEB]
     if request.dataType in ("historical_prices", "macro_series", "derived_metric"):

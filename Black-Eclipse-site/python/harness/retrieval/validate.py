@@ -16,7 +16,7 @@ import time
 from typing import Any, Optional
 
 from .contract import NormalizedFinancialObject, QualityStatus
-from .policies import max_age_seconds
+from .policies import format_age, max_age_seconds
 
 # Metrics that are legitimately allowed to be negative.
 _NEGATIVE_OK = ("netIncome", "eps", "changePct", "earnings", "freeCashFlow", "operatingCashFlow", "netDebt", "margin")
@@ -25,7 +25,7 @@ _NEGATIVE_OK = ("netIncome", "eps", "changePct", "earnings", "freeCashFlow", "op
 _NON_NEGATIVE = ("price", "volume", "marketCap", "sharesOutstanding", "revenue", "totalAssets")
 
 
-def _age_seconds(ts: Optional[str]) -> Optional[float]:
+def _age_seconds(ts: Optional[str], *, now: Optional[float] = None) -> Optional[float]:
     if not ts:
         return None
     import datetime as _dt
@@ -37,7 +37,10 @@ def _age_seconds(ts: Optional[str]) -> Optional[float]:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=_dt.timezone.utc)
-    return ( _dt.datetime.now(_dt.timezone.utc) - parsed ).total_seconds()
+    ref = _dt.datetime.now(_dt.timezone.utc) if now is None else _dt.datetime.fromtimestamp(
+        now, _dt.timezone.utc
+    )
+    return (ref - parsed).total_seconds()
 
 
 def validate_object(obj: NormalizedFinancialObject) -> QualityStatus:
@@ -209,15 +212,57 @@ def validate_objects(
 
 def _fmt_duration(seconds: float) -> str:
     """Human duration with enough precision that a sub-day age is never '0 days'."""
-    s = max(0, int(seconds))
-    if s < 60:
-        return f"{s}s"
-    if s < 3600:
-        return f"{s // 60}m"
-    if s < 86_400:
-        return f"{s // 3600}h"
-    days = s // 86_400
-    return f"{days} day{'s' if days != 1 else ''}"
+    return format_age(seconds)
+
+
+def validate_observations(
+    objects: list[NormalizedFinancialObject],
+    freshness: str,
+    *,
+    now: Optional[float] = None,
+    window_s: Optional[int] = None,
+) -> tuple[list[NormalizedFinancialObject], list[str]]:
+    """Flag ONE stale observation inside an otherwise fresh payload.
+
+    The dataset-level check (`validate_objects`) answers "is this batch current?";
+    a payload of 40 rows where 3 are a month old passes it. This answers "is THIS
+    value current?" and is the check that stops a stale row riding a fresh batch.
+
+    A row dated by a SNAPSHOT WRITE (`observation_source == "snapshot_write"`) is
+    never described as live: for a `realtime` request its transformations gain
+    "saved snapshot, not a live reading" and its quality becomes `warning`.
+
+    `window_s`, when given, is the caller's effective freshness ceiling (the
+    stricter of the data type's own window and the request's). It is used in
+    place of the request freshness window so the per-observation age and the
+    arbitration eligibility agree.
+    """
+    warnings: list[str] = []
+    limit = window_s if window_s is not None else max_age_seconds(freshness)
+    for obj in objects:
+        stamp = obj.observation_time or obj.dataTimestamp
+        age = _age_seconds(stamp, now=now)
+
+        if getattr(obj, "observation_source", "unknown") == "snapshot_write":
+            note = "saved snapshot, not a live reading"
+            if note not in obj.transformations:
+                obj.transformations.append(note)
+            if freshness == "realtime":
+                if obj.quality != "invalid":
+                    obj.quality = "warning"
+                warnings.append(
+                    f"{obj.name}: saved snapshot, not a live reading"
+                )
+                continue
+
+        if age is not None and age > limit:
+            if obj.quality != "invalid":
+                obj.quality = "warning"
+            warnings.append(
+                f"{obj.name}: observation is {format_age(age)} old "
+                f"(freshness requirement '{freshness}' allows {format_age(limit)})"
+            )
+    return objects, warnings
 
 
 def check_ordering(dated: list[dict[str, Any]], date_key: str = "date") -> list[str]:
@@ -254,6 +299,7 @@ def insufficient_observations(count: int, minimum: int) -> Optional[str]:
 __all__ = [
     "validate_object",
     "validate_objects",
+    "validate_observations",
     "check_ordering",
     "detect_duplicates",
     "insufficient_observations",

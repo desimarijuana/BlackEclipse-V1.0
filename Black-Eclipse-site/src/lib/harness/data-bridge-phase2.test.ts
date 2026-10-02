@@ -105,6 +105,44 @@ describe("fetchCapability — live_quote", () => {
   });
 });
 
+describe("fetchCapability — market_snapshot live fallback", () => {
+  it("serves a live quote when the vault has NO row for the symbol", async () => {
+    assetFindMany.mockResolvedValue([]); // outside the committed universe
+    fetchQuoteWithFallback.mockResolvedValue({
+      status: "ok",
+      source: "yfinance",
+      quote: { symbol: "NEWCO", price: 12.5, changePct: 0.4, volume: 100, marketCap: 1e9, market: "US", currency: "USD" },
+    });
+    const result = await fetchCapability("market_snapshot", { symbol: "NEWCO", market: "US" });
+    expect(result.status).toBe("OK");
+    expect(result.served).toBe("live");
+    expect((result.price as { price: number }).price).toBe(12.5);
+    expect(result.observationSource).toBe("unknown");
+  });
+
+  it("serves a live quote when the vault row has no stored price", async () => {
+    assetFindMany.mockResolvedValue([
+      { symbol: "AAPL", name: "Apple Inc.", securityType: "Stock", assetClass: "Equity", market: { country: "US", exchange: "NASDAQ" }, price: null },
+    ]);
+    fetchQuoteWithFallback.mockResolvedValue({
+      status: "ok",
+      source: "yfinance",
+      quote: { symbol: "AAPL", price: 240.1, changePct: 1.2, volume: 10, marketCap: 3e12, market: "US", currency: "USD" },
+    });
+    const result = await fetchCapability("market_snapshot", { symbol: "AAPL", market: "US" });
+    expect(result.status).toBe("OK");
+    expect(result.served).toBe("live");
+    expect((result.price as { price: number }).price).toBe(240.1);
+  });
+
+  it("still returns UNAVAILABLE when neither the vault nor a live provider answers", async () => {
+    assetFindMany.mockResolvedValue([]);
+    fetchQuoteWithFallback.mockResolvedValue({ status: "empty", error: "no quote", source: "yfinance" });
+    const result = await fetchCapability("market_snapshot", { symbol: "ZZZZ", market: "US" });
+    expect(result.status).toBe("UNAVAILABLE");
+  });
+});
+
 describe("fetchCapability — price_history", () => {
   it("returns a real series from the batched bridge", async () => {
     fetchYahooBatchRaw.mockResolvedValue({ history: { "AAPL": [{ date: "2026-09-18", close: 1 }, { date: "2026-09-19", close: 2 }] } });

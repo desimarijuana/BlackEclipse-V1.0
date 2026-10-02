@@ -130,8 +130,11 @@ async def test_layer_static_order_when_no_health_is_available():
     result = await layer.retrieve(
         FinancialRetrievalRequest(objective="q", dataType="current_quote", instrument="AAPL", market="US")
     )
-    # Fail-open: with no ledger, the static plan (vault first) is unchanged.
-    assert result.strategy[0] == "JDDS"
+    # Fail-open: with no ledger, the plan is the static AUTHORITY order, unchanged
+    # by health. Phase 13 moved the live structured reading ahead of the saved
+    # snapshot for a current price, so the static order now leads with it.
+    assert result.strategy[0] == "LIVE_STRUCTURED"
+    assert "JDDS" in result.strategy
 
 
 @pytest.mark.asyncio

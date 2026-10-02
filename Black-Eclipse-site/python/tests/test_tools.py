@@ -195,7 +195,11 @@ async def test_finance_tool_returns_grounded_snapshot():
     result = await reg.execute("get_market_snapshot", "c1", {"symbol": "aapl"}, c)
     assert result.ok
     assert "237.42" in result.text
-    assert "Data source: JDDS (scraper)" in result.text
+    # Phase 13 follow-up: provenance is now PER FIELD. With a stale vault row and
+    # no live provider, the snapshot is labelled a saved reading and names its
+    # stored source rather than a blanket "Data source: JDDS (scraper)".
+    assert "saved snapshot" in result.text.lower()
+    assert "JDDS/scraper" in result.text
 
 
 @pytest.mark.asyncio

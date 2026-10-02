@@ -55,6 +55,23 @@ def quote_payload(price: float = 237.42, source: str = "scraper") -> dict[str, A
     }
 
 
+def fresh_quote_payload(price: float = 237.42, source: str = "scraper") -> dict[str, Any]:
+    """A quote whose observation is genuinely current.
+
+    Phase 13 arbitration rejects a candidate whose newest observation is outside
+    the request window. A current-quote fixture must therefore be dated NOW to
+    represent the valid quote these tests are about.
+    """
+    import datetime as dt
+
+    now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    payload = quote_payload(price, source)
+    payload["updatedAt"] = now
+    payload["observationTime"] = now
+    payload["observationSource"] = "snapshot_write"
+    return payload
+
+
 def research_payload() -> dict[str, Any]:
     return {
         "status": "OK",
@@ -85,7 +102,10 @@ def test_contract_defaults_and_provenance():
 
 def test_planner_selects_structured_for_quotes_and_history():
     quote = plan_retrieval(FinancialRetrievalRequest(objective="q", dataType="current_quote"))
-    assert quote.sources[0] == "JDDS"
+    # Phase 13: a live structured reading outranks a saved snapshot for a current
+    # price (the vault is one candidate, not the first-and-only). Both are precise.
+    assert quote.sources[0] == "LIVE_STRUCTURED"
+    assert "JDDS" in quote.sources
     assert quote.requires_precise_data is True
 
     history = plan_retrieval(FinancialRetrievalRequest(objective="h", dataType="historical_prices"))
@@ -214,14 +234,14 @@ async def test_structured_source_returns_unavailable_without_inventing():
 
 @pytest.mark.asyncio
 async def test_structured_quote_via_layer():
-    bridge = FakeBridge({"market_snapshot": quote_payload()})
+    bridge = FakeBridge({"market_snapshot": fresh_quote_payload()})
     layer = FinancialRetrievalLayer(bridge)
     result = await layer.retrieve(
         FinancialRetrievalRequest(objective="q", dataType="current_quote", instrument="AAPL")
     )
     assert result.status == "OK"
     assert result.data["price"] == 237.42
-    assert result.strategy[0] == "JDDS"
+    assert result.strategy[0] == "LIVE_STRUCTURED"
 
 
 # ── 2E web research ─────────────────────────────────────────────────────────
@@ -269,7 +289,7 @@ async def test_web_research_does_not_invent_when_search_empty():
 
 @pytest.mark.asyncio
 async def test_cache_reuses_recent_retrieval():
-    bridge = FakeBridge({"market_snapshot": quote_payload()})
+    bridge = FakeBridge({"market_snapshot": fresh_quote_payload()})
     layer = FinancialRetrievalLayer(bridge)
     request = FinancialRetrievalRequest(objective="q", dataType="current_quote", instrument="AAPL")
     first = await layer.retrieve(request)
@@ -282,7 +302,7 @@ async def test_cache_reuses_recent_retrieval():
 
 @pytest.mark.asyncio
 async def test_cache_does_not_serve_realtime_stale_quote():
-    bridge = FakeBridge({"market_snapshot": quote_payload()})
+    bridge = FakeBridge({"market_snapshot": fresh_quote_payload()})
     layer = FinancialRetrievalLayer(bridge)
     request = FinancialRetrievalRequest(objective="q", dataType="current_quote", instrument="AAPL")
     await layer.retrieve(request)
@@ -301,7 +321,7 @@ async def test_inflight_deduplication_shares_one_retrieval():
     async def slow_quote(params: dict[str, Any]) -> dict[str, Any]:
         calls["n"] += 1
         await asyncio.sleep(0.05)
-        return quote_payload()
+        return fresh_quote_payload()
 
     bridge = FakeBridge({"market_snapshot": slow_quote})
     layer = FinancialRetrievalLayer(bridge)

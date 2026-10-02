@@ -127,6 +127,13 @@ class NormalizedFinancialObject(BaseModel):
     # from `dataTimestamp` (when the observation applies) and `retrievedAt`.
     basis: Optional[str] = None
     publishedAt: Optional[str] = None
+    # Phase 13 (additive): the observation's OWN time (the MARKET time the value
+    # is about) and how that time was obtained. Old payloads that predate these
+    # fields load unchanged: both default to "unknown"/None, never a fabricated
+    # time. `snapshot_write` means the only timestamp is when a saved snapshot was
+    # written — such a value must never be worded as a live reading.
+    observation_time: Optional[str] = None
+    observation_source: Literal["provider_asof", "snapshot_write", "unknown"] = "unknown"
     # Phase 4 (additive): provider-neutral supersession/restatement provenance.
     # ALL are None unless the source exposes a reliable revision contract; a
     # link is never inferred from a differing value. `relationshipKind` is one

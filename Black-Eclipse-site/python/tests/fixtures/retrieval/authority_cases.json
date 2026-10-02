@@ -1,0 +1,91 @@
+{
+  "_comment": "Phase 13 labelled arbitration cases. `now` is fixed so timestamps are deterministic. Each case names its expectation; test_source_authority.py loads this file.",
+  "now": "2026-10-02T12:00:00Z",
+  "cases": [
+    {
+      "id": "fresh_live_reading_beats_saved_snapshot",
+      "dataType": "current_quote",
+      "freshness": "realtime",
+      "expect": "chosen",
+      "expectChosen": "LIVE_STRUCTURED",
+      "outcomes": [
+        {
+          "source": "JDDS",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 240.0, "observation_time": "2026-10-02T11:42:00Z", "observation_source": "snapshot_write"}
+          ]
+        },
+        {
+          "source": "LIVE_STRUCTURED",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 240.1, "observation_time": "2026-10-02T11:59:30Z", "observation_source": "provider_asof"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "saved_snapshot_outside_window_is_rejected",
+      "dataType": "current_quote",
+      "freshness": "realtime",
+      "expect": "no_chosen",
+      "expectCode": "STALE_SOURCE",
+      "outcomes": [
+        {
+          "source": "JDDS",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 240.0, "observation_time": "2026-09-10T11:00:00Z", "observation_source": "snapshot_write"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "two_sources_disagree_beyond_tolerance",
+      "dataType": "current_quote",
+      "freshness": "realtime",
+      "expect": "no_chosen",
+      "expectCode": "CONFLICTING",
+      "outcomes": [
+        {
+          "source": "JDDS",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 240.0, "observation_time": "2026-10-02T11:59:40Z", "observation_source": "snapshot_write"}
+          ]
+        },
+        {
+          "source": "LIVE_STRUCTURED",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 243.0, "observation_time": "2026-10-02T11:59:50Z", "observation_source": "provider_asof"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "two_sources_agree_within_tolerance",
+      "dataType": "current_quote",
+      "freshness": "realtime",
+      "expect": "chosen",
+      "expectReason": "sources agree",
+      "outcomes": [
+        {
+          "source": "JDDS",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 240.0, "observation_time": "2026-10-02T11:59:40Z", "observation_source": "snapshot_write"}
+          ]
+        },
+        {
+          "source": "LIVE_STRUCTURED",
+          "tier": "structured",
+          "objects": [
+            {"name": "price", "value": 240.48, "observation_time": "2026-10-02T11:59:50Z", "observation_source": "provider_asof"}
+          ]
+        }
+      ]
+    }
+  ]
+}

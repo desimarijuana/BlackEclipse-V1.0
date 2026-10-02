@@ -64,11 +64,36 @@ def ctx(bridge: DataBridge) -> ToolContext:
 
 
 def history_payload() -> dict[str, Any]:
+    # Phase 13: arbitration rejects a candidate whose newest observation is
+    # outside the request window (6h for a series), so a "current" series must
+    # END now. The timestamps are generated relative to the run, not hard-coded,
+    # so the fixture is genuinely fresh whenever the suite runs.
+    import datetime as dt
+
+    now = dt.datetime.now(dt.timezone.utc)
     series = [
-        {"date": f"2026-09-{10 + i:02d}", "open": 100 + i, "high": 101 + i, "low": 99 + i, "close": 100 + i, "volume": 1000}
+        {"date": (now - dt.timedelta(days=19 - i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+         "open": 100 + i, "high": 101 + i, "low": 99 + i, "close": 100 + i, "volume": 1000}
         for i in range(20)
     ]
     return {"status": "OK", "symbol": "AAPL", "currency": "USD", "interval": "1d", "series": series, "asOf": series[-1]["date"]}
+
+
+def fresh_updated_at() -> str:
+    """A genuinely-current ISO timestamp for a quote fixture."""
+    import datetime as dt
+
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def snapshot_payload(symbol: str, price: float, change_pct: float) -> dict[str, Any]:
+    now = fresh_updated_at()
+    return {
+        "status": "OK", "symbol": symbol, "updatedAt": now,
+        "observationTime": now, "observationSource": "snapshot_write",
+        "priceSource": "scraper",
+        "price": {"price": price, "changePct": change_pct},
+    }
 
 
 def fundamentals_payload() -> dict[str, Any]:
@@ -121,7 +146,7 @@ async def test_scenario_1_historical_prices_use_structured_source():
 
 @pytest.mark.asyncio
 async def test_scenario_2_today_combines_market_and_web():
-    bridge = ScenarioBridge({"market_snapshot": {"status": "OK", "symbol": "AAPL", "updatedAt": "2026-09-21T14:00:00Z", "priceSource": "scraper", "price": {"price": 240.0, "changePct": 1.1}}})
+    bridge = ScenarioBridge({"market_snapshot": snapshot_payload("AAPL", 240.0, 1.1)})
     quote_text, quote = await market_get_quote({"symbol": "AAPL"}, ctx(bridge))
     assert quote["status"] == "OK"
 
@@ -186,7 +211,7 @@ async def test_scenario_5_performance_calculation_uses_structured_data():
 async def test_scenario_6_nvda_move_uses_market_plus_web():
     bridge = ScenarioBridge(
         {
-            "market_snapshot": {"status": "OK", "symbol": "NVDA", "updatedAt": "2026-09-21T14:00:00Z", "priceSource": "scraper", "price": {"price": 180.0, "changePct": -3.2}},
+            "market_snapshot": snapshot_payload("NVDA", 180.0, -3.2),
             "web_search": web_payload("why did NVDA move today"),
             "web_fetch": lambda p: {"status": "OK", "url": p["url"], "title": "t", "text": "body"},
         }
@@ -205,7 +230,7 @@ async def test_scenario_6_nvda_move_uses_market_plus_web():
 async def test_scenario_7_complete_analysis_runs_paths_in_parallel():
     bridge = ScenarioBridge(
         {
-            "market_snapshot": {"status": "OK", "symbol": "TSLA", "updatedAt": "2026-09-21T14:00:00Z", "priceSource": "scraper", "price": {"price": 250.0, "changePct": 2.0}},
+            "market_snapshot": snapshot_payload("TSLA", 250.0, 2.0),
             "fundamentals": fundamentals_payload(), "financial_statements": fundamentals_payload(),
             "price_history": history_payload(),
             "web_search": web_payload("Tesla analysis"),
@@ -246,7 +271,7 @@ async def test_scenario_8_yfinance_unavailable_falls_back():
 
 @pytest.mark.asyncio
 async def test_scenario_8b_repeat_request_served_from_cache():
-    bridge = ScenarioBridge({"market_snapshot": {"status": "OK", "symbol": "AAPL", "updatedAt": "2026-09-21T14:00:00Z", "priceSource": "scraper", "price": {"price": 240.0, "changePct": 1.1}}})
+    bridge = ScenarioBridge({"market_snapshot": snapshot_payload("AAPL", 240.0, 1.1)})
     c = ctx(bridge)
     await market_get_quote({"symbol": "AAPL"}, c)
     _, second = await market_get_quote({"symbol": "AAPL"}, c)
@@ -286,7 +311,7 @@ async def test_scenario_10_concurrent_requests_share_one_provider_call():
     async def slow_snapshot(params: dict[str, Any]) -> dict[str, Any]:
         calls["n"] += 1
         await asyncio.sleep(0.05)
-        return {"status": "OK", "symbol": "AAPL", "updatedAt": "2026-09-21T14:00:00Z", "priceSource": "scraper", "price": {"price": 240.0, "changePct": 1.1}}
+        return snapshot_payload("AAPL", 240.0, 1.1)
 
     # Many concurrent "agents" request the same dataset through the SAME shared
     # layer/cache (the runtime wires one cache across runs).

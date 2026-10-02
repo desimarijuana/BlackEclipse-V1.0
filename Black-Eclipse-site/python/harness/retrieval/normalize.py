@@ -53,6 +53,8 @@ def _obj(
     identity: Optional[InstrumentIdentity] = None,
     transformations: Optional[list[str]] = None,
     warnings: Optional[list[str]] = None,
+    observation_time: Optional[str] = None,
+    observation_source: str = "unknown",
 ) -> NormalizedFinancialObject:
     return NormalizedFinancialObject(
         name=name,
@@ -69,7 +71,27 @@ def _obj(
         source=source,
         transformations=transformations or [],
         warnings=warnings or [],
+        observation_time=observation_time,
+        observation_source=observation_source,
     )
+
+
+def _observation(payload: dict[str, Any], fallback: Optional[str]) -> tuple[Optional[str], str]:
+    """The observation time + its provenance for a payload.
+
+    A payload that carries no market as-of and only a snapshot write timestamp
+    (the vault's normal shape) yields ``snapshot_write`` — never a fabricated
+    as-of, and never presented as a live reading.
+    """
+    explicit_source = payload.get("observationSource")
+    explicit_time = payload.get("observationTime")
+    if explicit_source in ("provider_asof", "snapshot_write", "unknown"):
+        return explicit_time or fallback, explicit_source
+    if explicit_time:
+        return explicit_time, "provider_asof"
+    if fallback:
+        return fallback, "unknown"
+    return None, "unknown"
 
 
 # ── Quote / snapshot ────────────────────────────────────────────────────────
@@ -82,9 +104,18 @@ def normalize_quote(payload: dict[str, Any], source: SourceReference) -> list[No
     """
     symbol = payload.get("symbol")
     price_block = payload.get("price") if isinstance(payload.get("price"), dict) else payload
-    data_ts = payload.get("updatedAt") or payload.get("asOf")
+    # The observation time is the market time the value is about. Prefer an
+    # explicit market timestamp; the vault's `updatedAt` is its snapshot write.
+    # A live payload that carries only `observationTime` must still date the value,
+    # so cross-source conflict grouping (keyed on the observation time) can see it.
+    data_ts = (
+        payload.get("updatedAt")
+        or payload.get("asOf")
+        or payload.get("observationTime")
+    )
     currency = payload.get("currency")
     identity = identity_from_payload(payload)
+    obs_time, obs_source = _observation(payload, data_ts)
     out: list[NormalizedFinancialObject] = []
 
     def add(name: str, value: Any, unit: Optional[str] = None) -> None:
@@ -100,6 +131,8 @@ def normalize_quote(payload: dict[str, Any], source: SourceReference) -> list[No
                 data_timestamp=data_ts,
                 instrument=symbol,
                 identity=identity,
+                observation_time=obs_time,
+                observation_source=obs_source,
             )
         )
 

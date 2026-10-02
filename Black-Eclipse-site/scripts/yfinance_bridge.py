@@ -102,6 +102,10 @@ def fetch_quote(ticker_sym):
         open_ = fast_get(fast, "open")
         high = fast_get(fast, "day_high", "dayHigh")
         low = fast_get(fast, "day_low", "dayLow")
+        # Market capitalisation, when the provider exposes it. Carried so the
+        # retrieval layer can VERIFY a cap against the stored snapshot instead of
+        # silently falling back to a possibly stale vault value.
+        mcap = fast_get(fast, "market_cap", "marketCap")
         quote = {
             "symbol": ticker_sym,
             "price": round(float(last), 6),
@@ -111,6 +115,7 @@ def fetch_quote(ticker_sym):
             "dayHigh": float(high) if high else None,
             "dayLow": float(low) if low else None,
             "volume": float(vol) if vol else None,
+            "marketCap": float(mcap) if mcap else None,
         }
         return ticker_sym, quote
     except Exception:

@@ -443,4 +443,18 @@ export const en = {
   'keyboard.noMatches': 'No matching shortcuts.',
   'keyboard.globalGroup': 'Global and chart shortcuts',
   'keyboard.navGroup': 'Sidebar navigation',
+
+  // ── Where a number came from / how current it is (Phase 13) ───────────────
+  // The user's question is "is this number current?". The answer is a sentence
+  // about the number, never about the plumbing. No mechanism word appears.
+  'source.asOf.today': 'As of {time} today',
+  'source.asOf.date': 'As of {date}',
+  'source.asOf.unknown': 'I do not know exactly when this reading was taken.',
+  'source.saved': 'This is a saved reading, not a live price.',
+  'source.delayed': 'This reading is {age} old.',
+  'source.stale': 'The most recent reading I have is {age} old — older than you asked for.',
+  'source.conflict.title': 'Two sources disagree',
+  'source.conflict.detail':
+    'One source says {a}; another says {b}. I am showing both rather than choosing one for you.',
+  'source.conflict.none': 'A value could not be chosen because the sources disagree.',
 } as const;

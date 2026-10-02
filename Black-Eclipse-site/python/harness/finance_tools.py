@@ -11,7 +11,8 @@ slice): if JDdS has no data, the tool returns an explicit UNAVAILABLE state.
 
 from __future__ import annotations
 
-from typing import Any
+import time
+from typing import Any, Optional
 
 from .tools import DataBridge, ToolContext, ToolDefinition, ToolRegistry, dumps
 
@@ -20,6 +21,114 @@ async def _fetch(ctx: ToolContext, capability: str, params: dict[str, Any]) -> d
     if ctx.data_bridge is None:
         return {"status": "UNAVAILABLE", "error": "data bridge not configured"}
     return await ctx.data_bridge.fetch(capability, params)
+
+
+def _age_label(iso: Optional[str]) -> Optional[str]:
+    """A plain age sentence for an observation time, or None when undateable."""
+    if not iso:
+        return None
+    import datetime as dt
+
+    text = str(iso).strip().replace("Z", "+00:00")
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    age = (dt.datetime.now(dt.timezone.utc) - parsed).total_seconds()
+    if age < 0:
+        return "as of just now"
+    if age < 90:
+        return "less than 2 minutes old"
+    if age < 3600:
+        return f"about {int(age // 60)} minutes old"
+    if age < 86_400:
+        return f"about {int(age // 3600)} hours old"
+    days = int(age // 86_400)
+    return f"about {days} day{'s' if days != 1 else ''} old"
+
+
+def _fmt(value: Any) -> str:
+    if value is None:
+        return "N/A"
+    if isinstance(value, float):
+        return f"{value:,.4f}".rstrip("0").rstrip(".")
+    if isinstance(value, int):
+        return f"{value:,}"
+    return str(value)
+
+
+async def _verified_price_leg(
+    ctx: ToolContext, symbol: str, market: Optional[str]
+) -> Optional[dict[str, Any]]:
+    """Run the price/market-cap leg through the arbitrated retrieval layer.
+
+    Phase 13 follow-up: the snapshot tool previously read the stored price and,
+    worse, never ran the retrieval layer at all — so a months-old market cap was
+    returned as if current. This routes the SAME fact through the layer, where a
+    fresh live reading can beat a saved snapshot, a stale candidate is rejected
+    with its age, and a cross-source disagreement is preserved.
+
+    Returns a dict of `{status, values, obs_time, sources, disagreement, warnings}`
+    or None when the layer has nothing usable.
+    """
+    # Import here to keep this module import-light and cycle-free.
+    from .retrieval import FinancialRetrievalRequest
+    from .retrieval_tools import _layer
+
+    request = FinancialRetrievalRequest(
+        objective=f"latest verified price and market cap for {symbol}",
+        dataType="current_quote",
+        instrument=symbol,
+        market=market,
+        freshnessRequirement="realtime",
+        allowWeb=False,  # a price is structured data; a web snippet is not precise
+    )
+    result = await _layer(ctx).retrieve(request)
+    if result.status not in ("OK", "PARTIAL", "CONFLICTING"):
+        return None
+
+    values: dict[str, Any] = result.data if isinstance(result.data, dict) else {}
+    sources: list[str] = [r.source for r in result.sourceReferences]
+    # The observation time is a property of the OBSERVATION. Pull it from the
+    # returned objects first (the live bridge carries it there), then fall back to
+    # a source reference's publishedAt. Never fabricate a time.
+    obs_time = None
+    for item in result.evidence:
+        for obj in getattr(item, "objects", []):
+            stamp = getattr(obj, "observation_time", None) or getattr(obj, "dataTimestamp", None)
+            if stamp:
+                obs_time = str(stamp)
+                break
+        if obs_time:
+            break
+    if obs_time is None:
+        for ref in result.sourceReferences:
+            if ref.publishedAt:
+                obs_time = ref.publishedAt
+                break
+
+    disagreement = None
+    if result.conflicts:
+        first = result.conflicts[0]
+        cands = first.get("candidates") or []
+        parts = [
+            f"{c.get('source')}: {_fmt(c.get('value'))}" for c in cands
+        ]
+        if parts:
+            disagreement = f"{first.get('metric')} — " + "; ".join(parts)
+
+    return {
+        "status": result.status,
+        "values": values,
+        "obs_time": obs_time,
+        "sources": sources,
+        "disagreement": disagreement,
+        "warnings": list(result.warnings),
+        "strategy": list(result.strategy),
+        "degraded": result.degraded,
+    }
 
 
 async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -57,6 +166,53 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
             "source": "JDDS",
         }
 
+    # ── Verify the price / market cap through the arbitrated layer ──────────
+    verified = await _verified_price_leg(ctx, symbol, market)
+
+    vault_price = payload.get("price") or {}
+    vault_obs = payload.get("observationTime") or payload.get("updatedAt")
+    contested = bool(verified and verified["status"] == "CONFLICTING")
+    live_values = (verified or {}).get("values") or {}
+    live_obs = (verified or {}).get("obs_time")
+    live_sources = list(dict.fromkeys((verified or {}).get("sources") or []))
+
+    def _resolve(name: str) -> tuple[Any, str]:
+        """(value, origin) for one field. Origin is `live`, `saved` or `none`.
+
+        Per-FIELD provenance is the point: the live provider may return a price
+        but no market cap, so the cap can be a saved snapshot while the price is
+        live. Labelling the whole payload "verified" would repeat the original
+        defect in a new form.
+        """
+        if (
+            verified
+            and not contested
+            and name in live_values
+            and live_values[name] is not None
+        ):
+            return live_values[name], "live"
+        v = vault_price.get(name)
+        if v is not None:
+            return v, "saved"
+        return None, "none"
+
+    price_value, price_origin = _resolve("price")
+    cap_value, cap_origin = _resolve("marketCap")
+    change_value, change_origin = _resolve("changePct")
+    volume_value, volume_origin = _resolve("volume")
+    pe_value, pe_origin = _resolve("peRatio")
+
+    def _annotate(value: Any, origin: str, suffix: str = "") -> str:
+        if value is None:
+            return "N/A"
+        label = _fmt(value) + suffix
+        if contested:
+            return label  # both candidates are listed below
+        if origin == "saved":
+            age = _age_label(vault_obs)
+            return f"{label} — saved snapshot" + (f", {age}" if age else "")
+        return label
+
     lines = [
         f"Snapshot for {payload.get('symbol', symbol)} — {payload.get('name', '')}",
         f"  Market: {payload.get('exchange', '')} ({payload.get('country', market)})",
@@ -65,27 +221,86 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
         f"  Industry: {payload.get('industry') or 'N/A'}",
         f"  Security type: {payload.get('securityType') or 'N/A'}",
     ]
-    price = payload.get("price")
-    if price:
+    if contested:
+        # The sources disagree on the price/cap beyond the tolerance. Do NOT
+        # present the stored (possibly stale) value as THE answer — every
+        # contested figure is shown below with both candidates.
+        lines.append("  Price / Market cap: sources disagree — both values are listed below.")
+    elif price_value is not None:
         lines += [
-            f"  Price: {price.get('price')} {payload.get('currency', '')} (per-share)",
-            f"  Change: {price.get('changePct')}%",
-            f"  Market cap: {price.get('marketCap') if price.get('marketCap') is not None else 'N/A'}",
-            f"  Volume: {price.get('volume') if price.get('volume') is not None else 'N/A'}",
-            f"  P/E: {price.get('peRatio') if price.get('peRatio') is not None else 'N/A'}",
+            f"  Price: {_annotate(price_value, price_origin)} {payload.get('currency', '')} (per-share)",
+            f"  Change: {_annotate(change_value, change_origin, '%')}",
+            f"  Market cap: {_annotate(cap_value, cap_origin)}",
+            f"  Volume: {_annotate(volume_value, volume_origin)}",
+            f"  P/E: {_annotate(pe_value, pe_origin)}",
         ]
     else:
-        lines.append("  Price: UNAVAILABLE — the asset exists but has no stored price yet.")
-    lines.append(f"Data source: JDDS ({payload.get('priceSource', 'n/a')})")
-    lines.append(f"Last updated: {payload.get('updatedAt') or 'unknown'}")
-    return "\n".join(lines), {
+        lines.append("  Price: UNAVAILABLE — no source returned a current price.")
+
+    # ── Say WHERE each value came from and HOW CURRENT it is ────────────────
+    if live_values:
+        if live_sources:
+            lines.append(f"Live source: {', '.join(live_sources)}")
+        if live_obs:
+            age = _age_label(live_obs)
+            lines.append(f"Live observation: {live_obs}" + (f" — {age}" if age else ""))
+    saved_fields = [
+        label
+        for label, origin in (
+            ("price", price_origin),
+            ("change", change_origin),
+            ("market cap", cap_origin),
+            ("volume", volume_origin),
+            ("P/E", pe_origin),
+        )
+        if origin == "saved"
+    ]
+    if saved_fields:
+        vault_age = _age_label(vault_obs)
+        lines.append(
+            "Saved snapshot (not live): "
+            + ", ".join(saved_fields)
+            + (f" — the stored reading is {vault_age}." if vault_age else ".")
+        )
+        if vault_obs:
+            lines.append(f"Stored at: {vault_obs} (source: JDDS/{payload.get('priceSource', 'n/a')})")
+    if not live_values and (price_origin == "saved" or cap_origin == "saved"):
+        lines.append("No live reading was available; the values above are a saved snapshot.")
+
+    if verified and verified.get("disagreement"):
+        lines.append("")
+        lines.append("Sources disagree on this value — both are shown, not one chosen for you:")
+        lines.append(f"  {verified['disagreement']}")
+
+    if contested:
+        lines.append("")
+        lines.append(
+            "Because the sources disagree beyond the tolerance, no single figure is "
+            "asserted as the answer. Ask the user which source to trust, or use the "
+            "range above."
+        )
+
+    # The structured `verified` flag is TRUE only when the PRICE itself is live —
+    # a saved-only cap must not inherit a verified label.
+    price_is_live = price_origin == "live"
+    out: dict[str, Any] = {
         "status": "OK",
         "symbol": payload.get("symbol", symbol),
         "market": payload.get("country", market),
         "currency": payload.get("currency"),
         "instrumentId": payload.get("instrumentId"),
-        "source": "JDDS",
+        "source": "VERIFIED" if price_is_live else "JDDS",
+        "verified": price_is_live,
+        "priceOrigin": price_origin,
+        "marketCapOrigin": cap_origin,
+        "observationTime": live_obs or vault_obs,
+        "sources": live_sources or ["JDDS"],
     }
+    if verified and verified.get("disagreement"):
+        out["disagreement"] = verified["disagreement"]
+    return "\n".join(lines), out
+
+
 
 
 async def get_fundamentals(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -349,9 +564,12 @@ def register_finance_tools(registry: ToolRegistry) -> None:
         ToolDefinition(
             name="get_market_snapshot",
             description=(
-                "Read a symbol's stored snapshot from JDdS (price, change, market cap, volume, "
-                "sector, industry) with explicit provenance and freshness. Returns UNAVAILABLE "
-                "when the symbol is not in the vault — it never invents data."
+                "Read a symbol's price, change, market cap, volume, sector and industry. "
+                "The price/market-cap leg is VERIFIED across every eligible source (a live "
+                "provider and the stored snapshot) and the observation's age is stated; a "
+                "stale snapshot is not presented as current, and a cross-source "
+                "disagreement is shown rather than one value silently chosen. Returns "
+                "UNAVAILABLE when the symbol is not resolvable — it never invents data."
             ),
             input_schema={
                 "type": "object",

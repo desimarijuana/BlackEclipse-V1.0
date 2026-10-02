@@ -34,9 +34,36 @@ file, not here.
 | 10 — Self-improvement v2 (code + skills) | [phase-10](./phase-10-self-improvement.md) ✅ Done | 4,9 | 11 | new |
 | 11 — Surface and scale | [phase-11](./phase-11-surface-and-scale.md) ✅ Done | 6,10 | — | new |
 | 12 — Evaluation harness and standing gate | [phase-12](./phase-12-evaluation-gate.md) ✅ Done | all | — | §15.3 **7F** |
+| 13 — Source authority and freshness arbitration | [phase-13](./phase-13-source-authority.md) ✅ Done | 0, 2 | 16, 20 | new |
+| 14 — The code capability, reachable from chat | [phase-14](./phase-14-reachable-code-capability.md) ⬜ Not started | 5, 12 | 15, 18 | new |
+| 15 — Documents in, files out, landing a change | [phase-15](./phase-15-attachments-and-artifacts.md) ⬜ Not started | 14 | 18, 20 | new |
+| 16 — Bounded bulk acquisition | [phase-16](./phase-16-bulk-acquisition.md) ⬜ Not started | 13, 15 | 18, 20 | new |
+| 17 — Working on a cadence | [phase-17](./phase-17-working-on-a-cadence.md) ⬜ Not started | 6, 14 | 20 | new |
+| 18 — Visual output | [phase-18](./phase-18-visual-output.md) ⬜ Not started | 15, 16 | 19, 20 | new |
+| 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ⬜ Not started | 14, 18 | 20 | new |
+| 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) ⬜ Not started | 13–19 | — | §15.3 **7F** extended |
+
+**Round 2 (phases 13–20) — what it is for.** Round 1 (0–12) built the *machinery* of
+a harness: a code capability, isolation, a trust spine, jobs, delegation, kits,
+self-improvement and a gate. Round 2 is the round that makes that machinery
+**reachable, truthful about its sources, and able to produce something a user can
+hold** — the six complaints in §1.1, each traced to a measured cause.
 
 `§15` / `§16` refer to `agentic-plan-implementaion.md` at the repository root —
 this roadmap **builds on** those gates, it does not replace them.
+
+**Ordering rules for round 2.**
+
+- Phase **13 first.** Every later phase that answers a question about data depends on
+  the runtime being able to say which source won and how old it is.
+- Phase **14 before 15**: a change that cannot leave Eclipse's copy is not useful until
+  the attachment/artifact path exists, and 15's promotion work depends on 14's surface.
+- Phase **15 before 16 and 18**: both produce files, and 15 is the only phase that adds
+  the serving route and the renderer they need.
+- Phase **16 before 18**: a chart over a dataset needs the acquisition path to have
+  collected it.
+- Phase **17** only needs 6 and 14 and can run in parallel with 15/16/18.
+- Phase **19** needs 14 and 18 (a diff and a figure to check). Phase **20** needs all.
 
 **Status tracker.** Update the phase file's frontmatter (`status: Not started →
 In progress → Done / Blocked`) and the one-line row here when a phase closes.
@@ -128,7 +155,30 @@ All 18 tools are read-only: the `get_*` finance/capability family, the retrieval
 family (`market.get_quote`, `market.get_ohlcv`, `fundamentals.get_*`,
 `research.*`, `macro.get_series`), and the memory/session/skill-read tools.
 
-## 2. The four structural gaps
+### 1.2 Round 2 ledger — the six reported gaps (measured 2026-10-02, not recalled)
+
+Round 1's rows above were true when written and are now **stale for the code
+capability**: phases 0–12 landed. This table supersedes those rows and states what is
+still missing after round 1 — the six things a user reports, each with a measured
+cause. Evidence was gathered by reading the tree and running the commands named.
+
+| Reported | What is actually true | Measured evidence |
+|---|---|---|
+| "relies too much on data from jdds / the Yahoo data is inaccurate, and it must not depend on the vault" | The vault is **first** for every price-shaped type and the first success wins, so the live provider is never consulted; the vault's own age is the snapshot write time and carries no market as-of | `retrieval/planner.py::_PLAN`, `retrieval/layer.py::_SINGLE_BEST` + `_execute_single` ("first OK result wins"); live `jdds.db`: 55 195 `Price` rows, **0 fresh within 15 min**, 22.2 % older than 7 days, median age 0.8 d, p90 38.5 d; `data-bridge.ts` hard-codes `cadenceSeconds: 24*60*60` |
+| "cannot modify/edit its own code, create a new application, write good code or test or run it" | The modules exist and are registered on the one registry — but `eclipse-agent`'s allowlist has **no** code tool (27 names), `code-agent` runs `plan_only` from chat because the front door **never sends an autonomy at all**, and `analysis_run` is off with no control | `agents.py` (ECLIPSE_AGENT tools, `resolve_run_policy` forcing plan_only), `grep -rn "autonomy" src/lib/harness/run-service.ts python-client.ts` ⇒ **no matches** (no `autonomy` field on the payload), `grep -rn "analysisEnabled\|analysis_run" src \| wc -l` ⇒ **0** |
+| "cannot paste documents in itself; no shell/file-read like a harness" | Text+PDF only; caps truncate silently; and the *change* a code task makes never leaves its disposable copy | `chat/extract.ts` (`TEXT_EXTENSIONS`, `isTextExtractable`), `SESSION_LIMITS` (20 000 chars/doc, 60 000 total), `grep -niE "mammoth\|xlsx\|python-docx"` ⇒ nothing; `action_tools.py::_make_handler` performs **no git operation** and returns `status: "approved"`; no promote/copy-back exists |
+| "cannot schedule tasks" | The job model, scheduler, triggers, delivery and seven templates all exist — no **tool** can create a job, and `routers/jobs.py` is `require_operator` on every route | `grep -rn 'name="job\|job_create\|job_run'` ⇒ none; `jobs/model.py::JobTarget` (agent/autonomy/objective), `jobs/templates.py` (7 templates, `enabled=False`), `routers/jobs.py` |
+| "cannot download data / libraries — e.g. a BTC Monte Carlo can't fetch its data"; "lacks web scraping for huge data" | The answer budget is 4 searches / 8 fetches / 6 pages / 90 s; the sandbox has **no network** and 16 allowed imports; the TS scraper layer (8 fetchers + a scheduler) is unreachable from the runtime | `research/budget.py` defaults; `code/execution.py` `IMPORT_ALLOWLIST` + `RunSpec(network=False)`; `src/lib/scraper/fetchers/` |
+| "inputs lack visualisation" | The runtime imports no plotting library and nothing can render; the chat surface shows a filename + a 12-char hash and **no route serves the artifact** | `grep -rniE "matplotlib\|plotly\|seaborn\|savefig" python/harness` ⇒ nothing; `computed-result-panel.tsx` (name + `a.sha256.slice(0,12)`); the only artifact route is the jobs one |
+
+Round 2 (phases 13–20) closes exactly these, in this order, and phase 20 measures it.
+
+## 2. The four structural gaps (round 1 — closed by phases 0–12)
+
+> **Superseded by §1.2 for anything still open.** All four gaps below were closed in
+> round 1; they are kept because the permission analysis that follows is still the
+> reason Phase 0 exists, and because a future session needs to know why the block was
+> there. The gaps that remain after round 1 are in §1.2.
 
 1. **No code capability at all.** Every "build me X" ends at *prose about X*.
 2. **No isolation primitive.** Even with code tools, there is no worktree, no
@@ -301,6 +351,17 @@ Black-Eclipse-site/src/
 | ADR-H112 | Self-improvement covers code as well as skills; the policy engine and the release gate are frozen | 10 |
 | ADR-H113 | Delivery adapters behind one interface; scope-aware surfaces; an honest sandbox backend | 11 |
 | ADR-H114 | The code eval gate is part of the one honest release gate | 12 |
+| ADR-H115 | A source is never the authority; agreement between sources is arbitrated | 13 |
+| ADR-H116 | An observation's age is a property of the observation, not of the payload | 13 |
+| ADR-H117 | One way in: the code capability is reached from the conversation, not a second form | 14 |
+| ADR-H118 | Attachments are data of unlimited format, bounded by size — never by extension | 15 |
+| ADR-H119 | A change lands only through an explicit, single-use, operator-confirmed promotion | 15 |
+| ADR-H120 | Bulk acquisition is one bounded job over a declared, attributable source registry | 16 |
+| ADR-H121 | Bulk collection needs its own permission noun (`data.collect`), not `code.write` | 16 |
+| ADR-H122 | The agent may schedule its own work, within a fixed catalogue and with an operator master switch | 17 |
+| ADR-H123 | The runtime may render; every rendered figure is `computed`, never evidence | 18 |
+| ADR-H124 | A claim about a produced artifact needs a recorded check, exactly like a command claim | 19 |
+| ADR-H125 | The capability statement covers every class; an unmeasured class is published as unmeasured | 20 |
 
 **ADR shape:** `docs/harness/decisions.md` uses `## ADR-Hnn — Title` followed by
 **Decision.** / **Why.** / **Consequences.** — match that. The harness closeout

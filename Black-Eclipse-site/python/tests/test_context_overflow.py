@@ -247,7 +247,12 @@ async def test_side_effecting_tool_is_not_re_executed_across_retry(store, monkey
     assert result.error.code == "CONTEXT_OVERFLOW"
     # The overflow happened on step 2; no retry is attempted, so the tool ran once.
     assert "context.retry" not in events
-    assert executed["count"] == 1
+    # The property is that the TOOL was not re-executed — not that the bridge was
+    # called once. A single `get_market_snapshot` now consults several capabilities
+    # (the vault snapshot plus the arbitrated price route), so counting bridge
+    # calls is the wrong proxy. Count the recorded tool executions instead.
+    assert len(store.list_tool_executions("run_tool")) == 1
+    assert executed["count"] >= 1
 
 
 @pytest.mark.asyncio

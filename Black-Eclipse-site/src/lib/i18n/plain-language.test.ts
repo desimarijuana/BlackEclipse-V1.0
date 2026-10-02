@@ -16,6 +16,7 @@ const PHASE_1_PREFIXES = [
   'task.navigator.', 'task.authoring.', 'task.check.',
   'code.proof.', 'code.task.', 'code.approvals.', 'refusal.',
   'analysis.', 'kit.', 'evolution.', 'jobs.', 'capability.',
+  'source.',
 ];
 
 const DENYLIST = [

@@ -398,11 +398,16 @@ async def test_retrieval_tool_runs_through_the_graph(store, monkeypatch):
     model = ScriptedModel([tool_call, AIMessage(content="AAPL is at 240.10 (retrieval layer).")])
     monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
 
+    import datetime as _dt
+
+    _now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     bridge = FakeBridge(
         {
             "status": "OK",
             "symbol": "AAPL",
-            "updatedAt": "2026-09-21T14:00:00.000Z",
+            "updatedAt": _now,
+            "observationTime": _now,
+            "observationSource": "snapshot_write",
             "priceSource": "scraper",
             "price": {"price": 240.10, "changePct": 1.1, "volume": 1000, "marketCap": None, "peRatio": None},
         }

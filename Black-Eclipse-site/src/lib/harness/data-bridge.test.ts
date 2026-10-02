@@ -203,3 +203,55 @@ describe("fetchCapability — other capabilities", () => {
     expect(result.status).toBe("UNAVAILABLE");
   });
 });
+
+describe("fetchCapability — fundamentals is not vault-only", () => {
+  it("enriches a vault row that lacks a profile from the live provider", async () => {
+    assetFindMany.mockResolvedValue([
+      {
+        symbol: "AAPL",
+        name: null,
+        sector: null,
+        industry: null,
+        securityType: "Common Stock",
+        assetClass: "Equity",
+        market: { country: "US", exchange: "NASDAQ" },
+        price: null,
+      },
+    ]);
+    fundamentalsGet.mockResolvedValue({
+      symbol: "AAPL",
+      market: "US",
+      currency: "USD",
+      company: {
+        name: "Apple Inc.", sector: "Technology", industry: "Consumer Electronics",
+        country: "US", exchange: "NASDAQ", website: null, description: null, employees: null,
+      },
+      provenance: "LIVE",
+    });
+    const result = await fetchCapability("fundamentals", { symbol: "AAPL" });
+    expect(result.status).toBe("OK");
+    // The vault held no profile; the live provider supplied it and we say so.
+    expect(result.sector).toBe("Technology");
+    expect(result.profileSource).toBe("provider");
+    expect(fundamentalsGet).toHaveBeenCalledWith("AAPL", "US");
+  });
+
+  it("does NOT call the live provider when the vault already has a profile", async () => {
+    assetFindMany.mockResolvedValue([
+      {
+        symbol: "AAPL",
+        name: "Apple Inc.",
+        sector: "Technology",
+        industry: "Consumer Electronics",
+        securityType: "Common Stock",
+        assetClass: "Equity",
+        market: { country: "US", exchange: "NASDAQ" },
+        price: null,
+      },
+    ]);
+    const result = await fetchCapability("fundamentals", { symbol: "AAPL" });
+    expect(result.status).toBe("OK");
+    expect(result.profileSource).toBe("JDDS");
+    expect(fundamentalsGet).not.toHaveBeenCalled();
+  });
+});

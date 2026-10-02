@@ -8,6 +8,46 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Phase 13 follow-up 3 — general multi-source, not price-only: the vault is a
+  cache, not a precondition.** The earlier fixes verified the price leg, but two
+  data classes were still vault-bound and would fail or go stale for anything the
+  committed snapshot lacks: `fundamentals` (company profile) and `market_snapshot`
+  (a symbol absent from the universe, or a vault row with no stored price).
+  `src/lib/harness/data-bridge.ts` now enriches the profile from the existing live
+  fundamentals pipeline (SEC → FMP → Yahoo) when the vault lacks it — and says
+  which one answered via `profileSource`; `live_quote`/`market_snapshot` resolve an
+  instrument outside the vault for a known covered market (`resolveAnyInstrument`
+  recovers a `not_found` the same way `financial_statements` already did), so a
+  live quote serves a symbol the vault never stored and the snapshot is never
+  `UNAVAILABLE` merely because JDdS is. The identity gate still refuses
+  AMBIGUOUS / `not_covered` / wrong-currency answers — the vault is skipped, not
+  bypassed. The yfinance bridge now also carries `marketCap`. Tests:
+  `data-bridge.test.ts` (profile enrichment + vault-hit short-circuit),
+  `data-bridge-phase2.test.ts` (live fallback for no-row and no-price);
+  `data-bridge-health.test.ts` updated so a both-sources-fail route is recorded as
+  a failure. ADR-H116 amended.
+  docs updated: `docs/harness/decisions.md` (ADR-H116), this file,
+  `docs/harness/roadmap/progress/phase-13-progress.md`
+
+- **Phase 13 follow-up 2 — per-field provenance: a live price no longer launders a
+  stale market cap.** The first follow-up routed `get_market_snapshot` through the
+  arbitrated layer, but the live provider used for US equities (yfinance
+  `fast_info`) returns a price and **no market cap**, so the cap always fell back to
+  JDdS — and the whole payload was stamped "verified", repeating the original demo
+  defect in a new form (a verified-looking badge on a months-old cap). Two fixes:
+  (1) the yfinance bridge now carries `marketCap` when the provider exposes it
+  (`scripts/yfinance_bridge.py`, `fetchers/yfinance.ts`, `data-bridge.ts`), so the
+  cap is genuinely cross-checked when possible; (2) when it is not, the snapshot
+  tool now labels **each field** by origin (`finance_tools.py`): a value from a
+  source that answered now is live; a value that fell back to the stored snapshot is
+  annotated `— saved snapshot` with its stored time and source, and the top-level
+  `verified` flag is true only when the PRICE itself is live (each `*Origin` is
+  exposed on the structured payload). Regression tests:
+  `test_demo_live_price_but_no_live_cap_labels_the_cap_saved` (the real US-equity
+  shape), plus the updated demo tests. ADR-H116 amended.
+  docs updated: `docs/harness/decisions.md` (ADR-H116), this file,
+  `docs/harness/roadmap/progress/phase-13-progress.md`
+
 - **Background Solid mode — fully tunable gradient/pattern and wordmark
   typography.** The gradient/pattern styles were static (fixed angle, fixed tile
   size) and the wordmark only offered font + size. Added: gradient shape
