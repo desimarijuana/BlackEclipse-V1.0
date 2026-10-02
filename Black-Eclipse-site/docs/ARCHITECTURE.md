@@ -162,7 +162,12 @@ Two mechanisms:
       counterpart, so a custom dark tint never leaks into light mode. The token
       glass override is gated by the `theme-glass-active` root class, which is only
       added once the user changes a glass/shadow setting — so the shipped per-tier
-      glass hierarchy is preserved untouched by default. **User themes** are saved
+      glass hierarchy is preserved untouched by default. **Never write
+      `-webkit-backdrop-filter` next to `backdrop-filter`** in these rules: Next's
+      lightningcss minifier collapses the pair down to the `-webkit-` form alone,
+      which modern Chrome no longer supports, so every glass surface silently loses
+      its blur — the `theme-glass-active` rules shipped broken this way once and are
+      now standard-property only. **User themes** are saved
       by name into `be_theme_presets_v1` (save / rename / update / delete) and can be
       exported/imported as JSON. A saved preset also captures the chart/heatmap
       palette in effect (via `bridge.ts`), and re-applying it restores both the

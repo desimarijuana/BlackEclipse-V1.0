@@ -8,6 +8,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Fix the site-wide frosted-glass regression: `theme-glass-active` shipped with
+  only `-webkit-backdrop-filter`.** `globals.css` wrote both `backdrop-filter`
+  and `-webkit-backdrop-filter` on the token-driven glass rules; Next's
+  lightningcss minifier collapses such a pair down to the `-webkit-` form alone,
+  and modern Chrome no longer supports `-webkit-backdrop-filter`
+  (`CSS.supports('-webkit-backdrop-filter')` is false). Because that rule also
+  carries `!important`, the lower-specificity per-tier `.glass-card` rule could
+  not win — so whenever the theme had been customized (which adds
+  `theme-glass-active` to `<html>`), EVERY glass surface lost its blur and the
+  background showed through sharply. Removed the `-webkit-` declarations in both
+  the active and off blocks; the compiled CSS now emits the standard property (and
+  lightningcss re-adds the needed suffix itself). docs updated:
+  `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
 - **Restore the floating Assistant, give it a robot icon, and fix its frost.**
   The app-wide `ChatDock` assistant was never removed (still mounted at
   `stock-chat.tsx:1117`), but the minimized pill restored its persisted position
