@@ -25,7 +25,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowUp, Maximize2, Mic, Minimize2, Minus, Pause, Plus, Sparkles, SquarePen, Trash2,
+  ArrowUp, Bot, Maximize2, Mic, Minimize2, Minus, Pause, Plus, SquarePen, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { sound } from '@/lib/sounds';
@@ -190,16 +190,32 @@ export function ChatDock({
     sessionIdRef.current = loadDockSessionId();
   }, []);
 
-  // Re-clamp the pill if the window shrinks under it.
+  // Re-clamp the pill if the window shrinks under it. Also runs once on mount
+  // to bring a persisted position back on-screen: a pill saved on a larger
+  // window (or a second monitor) restored at raw x/y can otherwise land fully
+  // off the viewport, so the minimized assistant looks like it vanished.
   useEffect(() => {
     if (!pillPos) return;
-    const onResize = () => {
+    const clampToViewport = () => {
       const el = pillRef.current;
       const r = el?.getBoundingClientRect();
-      setPillPos(p => (p ? clampPill(p.x, p.y, r?.width ?? 130, r?.height ?? 36) : p));
+      setPillPos(p => {
+        if (!p) return p;
+        const next = clampPill(p.x, p.y, r?.width ?? 130, r?.height ?? 36);
+        // Return the SAME reference when nothing moved, so this effect (which
+        // depends on pillPos) does not loop.
+        if (next.x === p.x && next.y === p.y) return p;
+        savePillPos(next);
+        return next;
+      });
     };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    // The pill may not be mounted on the first tick; defer a frame.
+    const raf = requestAnimationFrame(clampToViewport);
+    window.addEventListener('resize', clampToViewport);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', clampToViewport);
+    };
   }, [pillPos]);
 
   const toggleMinimized = useCallback(() => {
@@ -463,14 +479,14 @@ export function ChatDock({
             onPointerDown={onPillPointerDown}
             style={pillPos ? { left: pillPos.x, top: pillPos.y, right: 'auto', bottom: 'auto' } : undefined}
             className={cn(
-              'fixed z-[90] inline-flex touch-none select-none items-center gap-2 rounded-full border border-white/12 dark:border-white/8 glass-card-strong px-3.5 py-2 text-xs font-bold text-muted-foreground shadow-2xl shadow-black/50 transition-colors hover:text-primary',
+              'fixed z-[90] inline-flex touch-none select-none items-center gap-2 rounded-full border border-white/12 dark:border-white/8 glass-card px-3.5 py-2 text-xs font-bold text-muted-foreground shadow-2xl shadow-black/50 transition-colors hover:text-primary',
               pillPos ? 'cursor-grab active:cursor-grabbing' : 'bottom-4 right-4 ml-auto cursor-grab active:cursor-grabbing',
             )}
             title="Drag to move · click to expand"
             aria-label="Expand the assistant (drag to move)"
             aria-expanded={false}
           >
-            <Sparkles size={13} className="pointer-events-none text-primary" />
+            <Bot size={13} className="pointer-events-none text-primary" />
             <span className="pointer-events-none hidden sm:inline">Assistant</span>
             <Maximize2 size={13} className="pointer-events-none" />
           </button>
@@ -481,11 +497,11 @@ export function ChatDock({
           <div
             role="dialog"
             aria-label={title}
-            className="flex max-h-[min(45vh,360px)] flex-col overflow-hidden rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card-strong shadow-2xl shadow-black/50 animate-fade-in"
+            className="flex max-h-[min(45vh,360px)] flex-col overflow-hidden rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card shadow-2xl shadow-black/50 animate-fade-in"
           >
             <div className="flex shrink-0 items-center gap-2 border-b border-border/10 px-4 py-2.5">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/15 text-primary">
-                <Sparkles size={12} />
+                <Bot size={12} />
               </span>
               <p className="min-w-0 flex-1 truncate font-serif text-sm font-semibold text-foreground">{title}</p>
               <CheckpointBar
@@ -546,7 +562,7 @@ export function ChatDock({
         )}
 
         {/* Composer — always visible, bottom-centre. */}
-        <div className="rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card-strong p-2 shadow-2xl shadow-black/50">
+        <div className="rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card p-2 shadow-2xl shadow-black/50">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -602,7 +618,7 @@ export function ChatDock({
               className="ml-1 hidden items-center gap-1.5 rounded-full border border-border/25 bg-accent/25 px-2.5 py-1 text-[10px] font-bold text-muted-foreground sm:inline-flex"
               title={`Chat provider: ${providerLabel}`}
             >
-              <Sparkles size={11} className="text-primary" />
+              <Bot size={11} className="text-primary" />
               {providerLabel}
             </span>
 

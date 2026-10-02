@@ -8,6 +8,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Restore the floating Assistant, give it a robot icon, and fix its frost.**
+  The app-wide `ChatDock` assistant was never removed (still mounted at
+  `stock-chat.tsx:1117`), but the minimized pill restored its persisted position
+  (`be_chat_dock_pill_pos_v1`) without clamping it to the current viewport, so a
+  pill saved on a larger window / second monitor came back fully off-screen and
+  read as "gone". The clamp effect now also runs once on mount (deferred a frame)
+  and returns the same state reference when nothing moved so it cannot loop. Its
+  `Sparkles` glyph is replaced with `Bot` (robot) in the pill, transcript header
+  and provider pill, and the pill/transcript/composer backgrounds switch from
+  `.glass-card-strong` (tint 0.85 — above the frosted threshold, so the blur was
+  invisible) to `.glass-card` (tint 0.55 + blur 18) so the frost actually renders.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
 - **Tighten the Command Center gaps and fix adding widgets to an emptied
   layout.** Two independent issues. (1) Density: added a `dense` prop to
   `CustomizableWorkspace`/`WorkspaceCanvas` (gutters only — inter-zone

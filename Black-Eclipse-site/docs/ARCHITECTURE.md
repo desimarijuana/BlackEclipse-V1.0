@@ -741,6 +741,10 @@ uses). Invariants:
   already suppresses shortcuts via the editable-element guard.
 - **Never fabricate a model name.** The provider pill renders
   `getAgentProvider().label` — the real configured provider.
+- **Glass tier is `.glass-card`, not `-strong`.** The pill, transcript and
+  composer use `.glass-card` (tint 0.55 + blur 18). `.glass-card-strong`'s 0.85
+  tint is above the frosted threshold, so its blur is invisible and the dock read
+  as a flat panel.
 - **Icon is `Bot` (a robot)** — the dock's minimized pill, transcript header and
   provider pill all use the robot glyph, matching the ChatBot nav item.
 - **A restored pill position is clamped to the current viewport.** The minimized
