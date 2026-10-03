@@ -161,6 +161,28 @@ describe('user theme presets', () => {
     again.useThemeStore.getState().hydrate();
     expect(again.useThemeStore.getState().userPresets[0].chartPalette?.heatmap.down).toBe('#abc123');
   });
+
+  it('captures the Aurora palette with a preset and restores it on apply', async () => {
+    const { useThemeStore } = await import('./store');
+    const { useAuroraPaletteStore } = await import('@/lib/aurora/store');
+    useThemeStore.getState().hydrate();
+    useAuroraPaletteStore.getState().setPalette({
+      bullish: { core: '#00ff00', edge: '#003300' },
+      neutral: { core: '#888888', edge: '#222222' },
+      bearish: { core: '#ff0000', edge: '#330000' },
+    });
+    const id = useThemeStore.getState().saveUserPreset('Green glow');
+    expect(useThemeStore.getState().userPresets[0].aurora?.bullish.core).toBe('#00ff00');
+
+    // Change the glow away, then re-apply the preset.
+    useAuroraPaletteStore.getState().setPalette({
+      bullish: { core: '#0000ff', edge: '#000033' },
+      neutral: { core: '#111111', edge: '#000000' },
+      bearish: { core: '#ff00ff', edge: '#330033' },
+    });
+    useThemeStore.getState().applyUserPreset(id);
+    expect(useAuroraPaletteStore.getState().palette.bullish.core).toBe('#00ff00');
+  });
 });
 
 describe('live preview', () => {

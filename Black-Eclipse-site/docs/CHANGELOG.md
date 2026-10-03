@@ -8,6 +8,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-03
 
+- **Theme-preset backdrops: very dark grey + faint accent; whiteish wordmark;
+  Aurora follows the preset; Electric Blue added.** The shipped `THEME_PRESETS`
+  previously carried radical radial/linear gradients, grid/ASCII pattern
+  textures and image wallpapers (Crystal), each with a bespoke wordmark. Now
+  every preset's ChatBot landing is a simple **flat** solid derived in the
+  `preset()` helper: a very dark neutral grey (`LANDING_BASE` `#0f0f11`) carrying
+  only the faintest shade of the preset's ACCENT hue
+  (`mixHex(accent, LANDING_BASE, 0.05)`) — dark and low-saturation, not a bright
+  wash. All preset wordmarks use the unified "ECLIPSE AGENT" text in a whiteish
+  tone (`#e8e8ea`). Presets also now carry an **Aurora palette snapshot**
+  (`ThemePreset.aurora`, derived from the theme's bullish/bearish colors via
+  `auroraFromColors`), so applying a preset restyles the ambient Aurora glow
+  alongside the theme + backdrop: `applyPreset(theme, background, aurora)` pushes
+  it to `useAuroraPaletteStore`, the customization panel previews it live, and
+  `saveUserPreset`/`applyUserPreset` capture/restore it (Aurora store gained
+  `preview`/`cancelPreview`). Added an official **Electric Blue** preset matching
+  the user's recovered saved look (primary `#77edfd`, accent `#36c8d3`, black
+  background, dramatic shadow, frosted glass) with a dark accent-tinted landing.
+  A `flat` solid backdrop is a genuine solid fill — the color is emitted as
+  `--app-bg-color` onto the layer's `background-color` and no `background-image`
+  is set, so the ChatBot landing paints no gradient function at all. `tsc` clean;
+  vitest 2055 passed. docs updated: `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`
+
 - **Investor Eye: Bloomberg-style event heatmap layer.** Added an
   `event-heatmap` layer (new `MapLayerType` `'heatmap'`): ECharts `heatmap`
   series on the 2D geo map, one datum per geolocated event, intensity =

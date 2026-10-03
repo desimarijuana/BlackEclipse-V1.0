@@ -154,9 +154,10 @@ describe('normalizePresetBackground', () => {
 });
 
 describe('resolveBackgroundCss', () => {
-  it('paints a flat solid-color gradient for mode solid (flat)', () => {
+  it('paints a genuine solid fill for mode solid (flat) — no gradient', () => {
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'flat', solidColor: '#123456' }, null);
-    expect(css.url).toBe('linear-gradient(#123456, #123456)');
+    expect(css.url).toBe('none');
+    expect(css.color).toBe('#123456');
     expect(css.pageImage).toBe('none');
     expect(css.scrim).toBe(false);
     expect(css.suppressPattern).toBe(true);
@@ -164,7 +165,8 @@ describe('resolveBackgroundCss', () => {
 
   it('solid flat with no color follows the theme background', () => {
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'flat', solidColor: '' }, null);
-    expect(css.url).toBe('linear-gradient(var(--background), var(--background))');
+    expect(css.url).toBe('none');
+    expect(css.color).toBe('var(--background)');
   });
 
   it('solid gradient builds a two-stop wash', () => {

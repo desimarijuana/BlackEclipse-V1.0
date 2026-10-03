@@ -176,8 +176,9 @@ Two mechanisms:
       `background` snapshot (`ThemePreset.background` / `UserThemePreset.background`,
       validated by `normalizePresetBackground` in `backgrounds.ts`). This is what
       makes one click restyle the **ChatBot landing** too — shipped presets ship a
-      coordinated wallpaper/solid fill + wordmark (e.g. Midnight's indigo radial
-      gradient with a "MIDNIGHT" wordmark), and the panel pushes the snapshot to
+      coordinated solid fill + wordmark (e.g. Midnight's flat, near-neutral
+      dark landing with an "ECLIPSE AGENT" wordmark), and the panel pushes the
+      snapshot to
       `useBackgroundStore` on preview/apply via `applyPreset(theme, background)`.
       Because the snapshot is **partial and merged over live prefs**, a preset that
       only themes the wordmark keeps the user's chosen wallpaper and vice versa;
@@ -208,9 +209,23 @@ Two mechanisms:
       `radial`; empty stops follow `--background` and the brand tint), or a
       texture (`solidPattern`: grid / dots / diagonal / ASCII, at
       `solidPatternOpacity` and `solidPatternScale` px pitch) over the base
-      fill. The base/gradient colors are emitted as a `background-image` stack
-      (a bare color is not a valid `background-image`) and the pattern layers
-      use `rgb(var(--brand-rgb) …)` for the ink. Each solid style carries a
+      fill. A `flat` fill is a genuine solid: the color is emitted as
+      `--app-bg-color` onto the layer's `background-color` (no `background-image`
+      gradient function at all), while `gradient`/`pattern` fills are emitted as
+      a layered `background-image` stack (a bare color is not a valid
+      `background-image`) and the pattern layers
+      use `rgb(var(--brand-rgb) …)` for the ink. Shipped theme presets use
+      `flat` with a solid fill derived automatically in the `preset()` helper:
+      a very dark neutral grey (`LANDING_BASE` `#0f0f11`) carrying only the
+      faintest shade of the preset's ACCENT hue
+      (`mixHex(accent, LANDING_BASE, 0.05)`), so each ChatBot landing is a dark,
+      low-saturation grey with a hint of the theme brand — never a bright wash or
+      a gradient. The wordmark is a whiteish `#e8e8ea`. A preset also carries an
+      **Aurora palette snapshot** (`ThemePreset.aurora`, derived from the theme's
+      bullish/bearish colors), pushed to `useAuroraPaletteStore` on apply so the
+      ambient glow recolors with the theme; the panel previews it live and user
+      presets capture/restore it. An author may still pin an explicit
+      `solidColor`/`textColor` to override. Each solid style carries a
       fully tunable wordmark: text, font, color, `textScale` (vw), `textWeight`,
       `textWidth` (font-stretch), `textLetterSpacing`, `textLineHeight`,
       `textItalic`, `textUppercase`, alignment and vertical position. The
@@ -233,7 +248,7 @@ Two mechanisms:
       (50–300%), and X/Y focal `position`s. The image is painted on the layer's
       `::before` (so the zoom scales only the art) while the `dim` scrim sits on
       the element itself; the layer reads
-      `--app-bg-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
+      `--app-bg-color/-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
       fed by `useHydrateBackground` in `stock-chat.tsx` (initial load) and
       re-asserted by `refreshBackground()` after every theme write, so the
       background's suppression/solid-fill vars stay authoritative over the

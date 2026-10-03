@@ -9,9 +9,7 @@
 // import from server code. The live store lives in `store.ts`.
 
 import type { BackgroundPrefs } from '@/lib/backgrounds';
-
-/** The shipped default wallpaper id (see `SHIPPED_BACKGROUNDS`). */
-const CRYSTAL_WALLPAPER_ID = 'eclipse-1';
+import type { AuroraPalette } from '@/lib/aurora-sentiment';
 
 export type ThemeDensity = 'compact' | 'comfortable' | 'spacious';
 export type ThemeShadow = 'none' | 'soft' | 'medium' | 'dramatic';
@@ -232,6 +230,34 @@ export interface ThemePreset {
    * the user's chosen wallpaper image (and vice versa).
    */
   background?: Partial<BackgroundPrefs>;
+  /**
+   * Optional Aurora-glow palette snapshot. The ambient Aurora glow is part of a
+   * theme's identity, so a preset carries its three sentiment colors here; the
+   * panel pushes them to the Aurora store on preview/apply. Derived from the
+   * theme's own bullish/bearish colors when omitted.
+   */
+  aurora?: AuroraPalette;
+}
+
+/** The Aurora default brand glow, reused by the Eclipse preset. */
+const ECLIPSE_AURORA: AuroraPalette = {
+  bullish: { core: '#7aff78', edge: '#022c22' },
+  neutral: { core: '#3d9e63', edge: '#02170f' },
+  bearish: { core: '#ff0000', edge: '#3a0000' },
+};
+
+/** Derive an Aurora palette from a preset's palette: bullish→neutral ramp,
+ *  bearish→neutral ramp, neutral between them. Keeps the glow coherent with the
+ *  theme tokens when a preset does not pin its own `aurora`. */
+export function auroraFromColors(colors: Partial<ThemeColors>): AuroraPalette {
+  const bullish = colors.bullish ?? DEFAULT_ECLIPSE_THEME.colors.bullish;
+  const bearish = colors.bearish ?? DEFAULT_ECLIPSE_THEME.colors.bearish;
+  const background = colors.background ?? DEFAULT_ECLIPSE_THEME.colors.background;
+  return {
+    bullish: { core: bullish, edge: mixHex(bullish, background, 0.22) },
+    neutral: { core: mixHex(bullish, bearish, 0.5), edge: mixHex(bullish, background, 0.12) },
+    bearish: { core: bearish, edge: mixHex(bearish, background, 0.22) },
+  };
 }
 
 function preset(
@@ -242,11 +268,27 @@ function preset(
   extra?: Partial<EclipseTheme>,
   background?: Partial<BackgroundPrefs>,
 ): ThemePreset {
+  // Every shipped preset's ChatBot landing is a simple FLAT solid: a very dark,
+  // near-neutral grey carrying only the faintest shade of the preset's ACCENT
+  // hue (the Hermes look) — never a bright or over-saturated wash, never a
+  // gradient. The wordmark stays whitish so it reads on the dark landing.
+  // A caller may still pin an explicit `solidColor`/`textColor` to override.
+  const accent = colors.accent ?? DEFAULT_ECLIPSE_THEME.colors.accent;
+  const tint = mixHex(accent, LANDING_BASE, 0.05);
+  const wordmark = '#e8e8ea';
+  const landing: Partial<BackgroundPrefs> = {
+    ...(background ?? {}),
+    mode: background?.mode ?? 'solid',
+    solidFill: background?.solidFill ?? 'flat',
+    solidColor: background?.solidColor?.trim() || tint,
+    textColor: background?.textColor?.trim() || wordmark,
+  };
   return {
     id,
     label,
     description,
-    background,
+    background: landing,
+    aurora: auroraFromColors(colors),
     theme: {
       ...DEFAULT_ECLIPSE_THEME,
       ...extra,
@@ -258,6 +300,17 @@ function preset(
 /** The wordmark font of the shipped Eclipse landing, reused by neutral presets. */
 const ECLIPSE_WORDMARK_FONT = 'var(--font-bodoni), Georgia, serif';
 
+/**
+ * The neutral base every preset's ChatBot landing is mixed toward: a darkish
+ * grey. The preset's accent hue is mixed in at a low weight, so each landing is
+ * a calm grey with a faint brand shade (the Hermes look), never a bright tint.
+ */
+const LANDING_BASE = '#0f0f11';
+
+// Hex validation must precede the presets: `preset()` derives each landing tint
+// at module-load, which calls down into `mixHex`.
+const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
 /** Shipped Eclipse-family looks. The first is the brand default. */
 /**
  * Neutral backgrounds shipped with the brand-color generator when the user
@@ -267,67 +320,88 @@ export const BRAND_GENERATOR_BACKGROUND = '#000000';
 export const BRAND_GENERATOR_SURFACE = '#0f0f0f';
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: 'eclipse', label: 'Eclipse', description: 'The default green-on-black terminal.', theme: DEFAULT_ECLIPSE_THEME },
+  {
+    id: 'eclipse',
+    label: 'Eclipse',
+    description: 'The default green-on-black terminal.',
+    theme: DEFAULT_ECLIPSE_THEME,
+    background: {
+      mode: 'solid',
+      solidFill: 'flat',
+      solidColor: mixHex(DEFAULT_ECLIPSE_THEME.colors.accent, LANDING_BASE, 0.1),
+      textEnabled: true,
+      text: 'ECLIPSE AGENT',
+      textFont: ECLIPSE_WORDMARK_FONT,
+      textColor: mixHex(DEFAULT_ECLIPSE_THEME.colors.primary, '#ffffff', 0.65),
+      textUppercase: true,
+      textScale: 12,
+      textOpacity: 78,
+      textAlign: 'center',
+    },
+  },
+  preset('electric-blue', 'Electric Blue', 'Electric cyan-blue brand on a cold dark landing.',
+    { primary: '#77edfd', accent: '#36c8d3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#f4f4f5', bullish: '#7aff78', bearish: '#ff3e3e' },
+    { glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' }, shadow: 'dramatic', background: 'solid' },
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('midnight', 'Midnight', 'Cool indigo accent on deep navy.',
     { primary: '#818cf8', accent: '#6366f1', background: '#05060f', surface: '#0d1020', border: '#26304a', text: '#e6e8f2', bullish: '#818cf8', bearish: '#fb7185' },
     { sidebar: { tint: '#10142a', opacity: 0.9, blur: 20 } },
-    { mode: 'solid', solidFill: 'gradient', solidColor: '#05060f', solidColor2: '#818cf8', solidGradientType: 'radial',
-      textEnabled: true, text: 'MIDNIGHT', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#818cf8', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('matrix', 'Matrix', 'Phosphor-green terminal, minimal red.',
     { primary: '#00ff41', accent: '#22c55e', background: '#000400', surface: '#05130a', border: '#12351f', text: '#d7ffe4', bullish: '#00ff41', bearish: '#ff3b3b' },
     undefined,
-    { mode: 'solid', solidFill: 'pattern', solidPattern: 'ascii', solidColor: '#000400', solidPatternOpacity: 20, solidPatternScale: 24,
-      textEnabled: true, text: 'WAKE UP', textFont: 'var(--font-vt323), monospace', textColor: '#00ff41', textUppercase: true, textScale: 18, textOpacity: 26, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: 'var(--font-vt323), monospace', textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('ocean', 'Ocean', 'Cold cyan brand with a coral bearish shift.',
     { primary: '#38bdf8', accent: '#22d3ee', background: '#02090f', surface: '#0a1622', border: '#1d3247', text: '#e2f3fb', bullish: '#38bdf8', bearish: '#fb7185' },
     { sidebar: { tint: '#0b1a2a', opacity: 0.9, blur: 20 } },
-    { mode: 'solid', solidFill: 'gradient', solidColor: '#02090f', solidColor2: '#38bdf8', solidGradientType: 'radial',
-      textEnabled: true, text: 'OCEAN', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#38bdf8', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('solar', 'Solar', 'Warm amber brand on charcoal.',
     { primary: '#fbbf24', accent: '#f59e0b', background: '#0c0803', surface: '#17110a', border: '#3a2c14', text: '#fdf4e3', bullish: '#fbbf24', bearish: '#ff5c5c' },
     undefined,
-    { mode: 'solid', solidFill: 'gradient', solidColor: '#0c0803', solidColor2: '#fbbf24', solidGradientType: 'radial',
-      textEnabled: true, text: 'SOLAR', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#fbbf24', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('crimson', 'Crimson', 'Rose-forward brand for a warmer terminal.',
     { primary: '#fb7185', accent: '#f43f5e', background: '#0d0508', surface: '#190c12', border: '#3f1622', text: '#fdeef2', bullish: '#fb7185', bearish: '#ff2d55' },
     undefined,
-    { mode: 'solid', solidFill: 'gradient', solidColor: '#0d0508', solidColor2: '#fb7185', solidGradientType: 'radial',
-      textEnabled: true, text: 'CRIMSON', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#fb7185', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('mono', 'Mono', 'Neutral greyscale with a white brand.',
     { primary: '#e5e5e5', accent: '#a3a3a3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#fafafa', bullish: '#e5e5e5', bearish: '#737373' },
     { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0f0f0f' }, shadow: 'none' },
-    { mode: 'solid', solidFill: 'flat', solidColor: '#000000',
-      textEnabled: true, text: 'MONO', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#e5e5e5', textUppercase: true, textScale: 16, textOpacity: 16, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('crystal', 'Crystal', 'Bright, high-blur glass over a soft gradient.',
     { primary: '#60a5fa', accent: '#93c5fd', background: '#05070f', surface: '#0b1020', border: '#243047', text: '#eaf1ff', bullish: '#60a5fa', bearish: '#fb7185' },
-    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'gradient', shadow: 'dramatic', sidebar: { tint: '#101a2e', opacity: 0.8, blur: 26 } },
-    { mode: 'image', preset: CRYSTAL_WALLPAPER_ID, fit: 'cover', dim: 40,
-      textEnabled: true, text: 'CRYSTAL', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#93c5fd', textUppercase: true, textScale: 15, textOpacity: 20, textAlign: 'center' }),
+    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'solid', shadow: 'dramatic', sidebar: { tint: '#101a2e', opacity: 0.8, blur: 26 } },
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('blueprint', 'Blueprint', 'Technical grid, tight radius and flat surfaces.',
     { primary: '#38bdf8', accent: '#0ea5e9', background: '#03070d', surface: '#0a1119', border: '#183042', text: '#e0f2fe', bullish: '#38bdf8', bearish: '#f87171' },
-    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'grid', shadow: 'none', radius: 0.25, sidebar: { tint: '#0a1826', opacity: 0.94, blur: 0 } },
-    { mode: 'solid', solidFill: 'pattern', solidPattern: 'grid', solidColor: '#03070d', solidPatternOpacity: 22, solidPatternScale: 22,
-      textEnabled: true, text: 'BLUEPRINT', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#38bdf8', textUppercase: true, textScale: 14, textOpacity: 20, textAlign: 'center' }),
+    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'solid', shadow: 'none', radius: 0.25, sidebar: { tint: '#0a1826', opacity: 0.94, blur: 0 } },
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('smoked', 'Smoked', 'Opaque dark glass with heavy depth.',
     { primary: '#f59e0b', accent: '#fbbf24', background: '#0a0805', surface: '#141009', border: '#3a2c14', text: '#fdf4e3', bullish: '#f59e0b', bearish: '#ef4444' },
     { glass: { enabled: true, blur: 12, opacity: 0.82, tint: '#0a0805' }, shadow: 'dramatic' },
-    { mode: 'solid', solidFill: 'gradient', solidColor: '#0a0805', solidColor2: '#f59e0b', solidGradientType: 'linear', solidGradientAngle: 160,
-      textEnabled: true, text: 'SMOKED', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#f59e0b', textUppercase: true, textScale: 16, textOpacity: 20, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: ECLIPSE_WORDMARK_FONT, textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('bloomberg', 'Bloomberg', 'Dense amber-on-black trading terminal with blue selection.',
     { primary: '#ffa028', accent: '#2d7ff9', background: '#000000', surface: '#0a0a0a', border: '#2b2b2b', text: '#e8e8e8', bullish: '#4ade80', bearish: '#ff4438' },
     { glass: { enabled: false, blur: 0, opacity: 0.96, tint: '#0a0a0a' }, shadow: 'none', density: 'compact', radius: 0.2 },
-    { mode: 'solid', solidFill: 'pattern', solidPattern: 'grid', solidColor: '#000000', solidPatternOpacity: 14, solidPatternScale: 20,
-      textEnabled: true, text: 'TERMINAL', textFont: 'var(--font-plex-mono), monospace', textColor: '#ffa028', textUppercase: true, textScale: 15, textOpacity: 26, textAlign: 'center' }),
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: 'var(--font-plex-mono), monospace', textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
   preset('bubudoll', 'Bubudoll', 'Soft candy pink with a cute, rounded ambient glow.',
     { primary: '#ff9ecb', accent: '#ffd1e8', background: '#170b14', surface: '#261323', border: '#4d2540', text: '#ffeaf5', bullish: '#ff9ecb', bearish: '#ff4d6d' },
-    { glass: { enabled: true, blur: 24, opacity: 0.45, tint: '#2a1426' }, background: 'gradient', shadow: 'medium', radius: 1 },
-    { mode: 'solid', solidFill: 'gradient', solidColor: '#170b14', solidColor2: '#ff9ecb', solidGradientType: 'radial',
-      textEnabled: true, text: 'BUBUDOLL', textFont: 'var(--font-playfair), Georgia, serif', textColor: '#ff9ecb', textUppercase: true, textScale: 15, textOpacity: 22, textAlign: 'center' }),
+    { glass: { enabled: true, blur: 24, opacity: 0.45, tint: '#2a1426' }, background: 'solid', shadow: 'medium', radius: 1 },
+    { mode: 'solid', solidFill: 'flat',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: 'var(--font-playfair), Georgia, serif', textUppercase: true, textScale: 12, textOpacity: 78, textAlign: 'center' }),
 ];
 
 // ── Color helpers ────────────────────────────────────────────────────────────
-
-const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 export function isValidHex(value: unknown): value is string {
   return typeof value === 'string' && HEX_RE.test(value.trim());

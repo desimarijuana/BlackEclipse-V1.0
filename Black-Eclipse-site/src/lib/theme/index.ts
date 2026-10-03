@@ -24,6 +24,7 @@ export {
   mixHex,
   luminance,
   readableOn,
+  auroraFromColors,
   themeCssVars,
   themeFromBrandColor,
   themeMatchesPreset,

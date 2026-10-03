@@ -40,6 +40,9 @@ import {
 } from "@/lib/theme";
 import { useChartPaletteStore } from "@/lib/chart-palette-store";
 import type { ChartPalette } from "@/lib/chart-palette";
+import { useAuroraPaletteStore } from "@/lib/aurora/store";
+import { auroraFromColors } from "@/lib/theme";
+import type { AuroraPalette } from "@/lib/aurora-sentiment";
 import {
   normalizePresetBackground,
   useBackgroundStore,
@@ -296,6 +299,8 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   const setChartPalette = useChartPaletteStore((s) => s.setPalette);
   const previewBackground = useBackgroundStore((s) => s.preview);
   const cancelBackgroundPreview = useBackgroundStore((s) => s.cancelPreview);
+  const previewAurora = useAuroraPaletteStore((s) => s.preview);
+  const cancelAuroraPreview = useAuroraPaletteStore((s) => s.cancelPreview);
 
   const [tab, setTab] = useState<CustomTab>(generalTab ? "general" : "theme");
   const [draft, setDraft] = useState<EclipseTheme>(theme);
@@ -308,6 +313,9 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   // so the live preview auditions it and Apply persists it. Null leaves the
   // user's own backdrop untouched.
   const [pendingBackground, setPendingBackground] = useState<Partial<BackgroundPrefs> | null>(null);
+  // The Aurora-glow palette a selected preset carries, so the live preview and
+  // Apply restyle the ambient glow alongside the theme + backdrop.
+  const [pendingAurora, setPendingAurora] = useState<AuroraPalette | null>(null);
   const [livePreview, setLivePreview] = useState(true);
   const [presetName, setPresetName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -336,6 +344,10 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
       // preview, restoring the user's own saved backdrop.
       if (pendingBackground) previewBackground(pendingBackground);
       else cancelBackgroundPreview();
+      // A selected preset also previews its Aurora glow, so the ambient color
+      // matches the theme before Apply; a manual edit cancels it.
+      if (pendingAurora) previewAurora(pendingAurora);
+      else cancelAuroraPreview();
       const base = useChartPaletteStore.getState().palette;
       // A preset with its own chart palette previews that exact palette;
       // otherwise derive market colors from the draft theme.
@@ -343,16 +355,18 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     } else {
       cancelPreview();
       cancelBackgroundPreview();
+      cancelAuroraPreview();
       clearChartPalettePreview();
     }
-  }, [draft, pendingChartPalette, pendingBackground, livePreview, previewTheme, cancelPreview, previewBackground, cancelBackgroundPreview, setChartPreview]);
+  }, [draft, pendingChartPalette, pendingBackground, pendingAurora, livePreview, previewTheme, cancelPreview, previewBackground, cancelBackgroundPreview, previewAurora, cancelAuroraPreview, setChartPreview]);
 
   // Leaving the panel cancels an uncommitted preview so the saved theme wins.
   useEffect(() => () => {
     cancelPreview();
     cancelBackgroundPreview();
+    cancelAuroraPreview();
     clearChartPalettePreview();
-  }, [cancelPreview, cancelBackgroundPreview]);
+  }, [cancelPreview, cancelBackgroundPreview, cancelAuroraPreview]);
 
   // ── Draft mutators ──────────────────────────────────────────────────────
   const patch = (p: Partial<Omit<EclipseTheme, "colors">>) =>
@@ -373,26 +387,31 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   const applyDraft = () => {
     // Restore the preset's backdrop AND clear the preview flag in one step:
     // setPrefs persists and supersedes the preview.
-    applyPreset(draft, pendingBackground ?? undefined);
+    applyPreset(draft, pendingBackground ?? undefined, pendingAurora ?? undefined);
     // A preset's captured palette wins; otherwise derive from the theme onto
     // whatever chart colors are currently saved.
     const base = useChartPaletteStore.getState().palette;
     setChartPalette(pendingChartPalette ?? chartPaletteFromTheme(draft, base));
     setPendingChartPalette(null);
     setPendingBackground(null);
+    setPendingAurora(null);
   };
   const discardDraft = () => {
     setDraft(theme);
     setPendingChartPalette(null);
     setPendingBackground(null);
+    setPendingAurora(null);
     cancelPreview();
     cancelBackgroundPreview();
+    cancelAuroraPreview();
     clearChartPalettePreview();
   };
   const resetAll = () => {
     setPendingChartPalette(null);
     setPendingBackground(null);
+    setPendingAurora(null);
     cancelBackgroundPreview();
+    cancelAuroraPreview();
     resetTheme();
     syncChartPaletteFromTheme(useThemeStore.getState().theme);
   };
@@ -412,6 +431,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     const next = normalizeTheme(preset.theme);
     setPendingChartPalette(null);
     setPendingBackground(normalizePresetBackground(preset.background) ?? null);
+    setPendingAurora(preset.aurora ?? auroraFromColors(next.colors));
     setDraft(next);
   };
   const selectUserPreset = (id: string) => {
@@ -419,6 +439,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     if (!preset) return;
     setPendingChartPalette(preset.chartPalette ?? null);
     setPendingBackground(preset.background ?? null);
+    setPendingAurora(preset.aurora ?? null);
     setDraft(normalizeTheme(preset.theme));
   };
 

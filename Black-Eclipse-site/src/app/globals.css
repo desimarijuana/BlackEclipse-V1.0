@@ -1370,6 +1370,7 @@ body {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
+  background-color: var(--app-bg-color, transparent);
   background-image: var(--app-bg-scrim, none);
   background-size: 100% 100%;
   background-repeat: no-repeat;

@@ -33,6 +33,9 @@ import {
   useBackgroundStore,
   type BackgroundPrefs,
 } from '@/lib/backgrounds';
+import { useAuroraPaletteStore } from '@/lib/aurora/store';
+import { parseAuroraPalette } from '@/lib/aurora/theme';
+import { type AuroraPalette } from '@/lib/aurora-sentiment';
 
 export const THEME_STORAGE_KEY = 'be_theme_v1';
 export const THEME_PRESETS_STORAGE_KEY = 'be_theme_presets_v1';
@@ -55,6 +58,9 @@ export interface UserThemePreset {
    * Optional for presets saved before this field existed.
    */
   background?: Partial<BackgroundPrefs>;
+  /** The Aurora-glow palette captured with the theme, so re-applying a preset
+   *  restores the ambient glow too. Optional for presets saved before it existed. */
+  aurora?: AuroraPalette;
   createdAt: number;
 }
 
@@ -85,6 +91,7 @@ function loadUserPresets(): UserThemePreset[] {
         theme: normalizeTheme(p.theme),
         chartPalette: p.chartPalette ? normalizeChartPalette(p.chartPalette) : undefined,
         background: normalizePresetBackground(p.background),
+        aurora: p.aurora ? parseAuroraPalette(p.aurora) : undefined,
       }))
       .filter((p) => p.id.length > 0);
   } catch {
@@ -258,7 +265,7 @@ export interface ThemeStore {
    * snapshot is pushed to the background store in the same step, so applying a
    * preset restores its ChatBot backdrop alongside its tokens.
    */
-  applyPreset: (theme: EclipseTheme, background?: Partial<BackgroundPrefs>) => void;
+  applyPreset: (theme: EclipseTheme, background?: Partial<BackgroundPrefs>, aurora?: AuroraPalette) => void;
   /**
    * Apply a theme to the document WITHOUT persisting it. Used by the Settings
    * preview toggle so the whole app can be auditioned before committing.
@@ -351,8 +358,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set({ theme: commit(next), customized: true });
   },
 
-  applyPreset: (theme, background) => {
+  applyPreset: (theme, background, aurora) => {
     restoreBackground(background);
+    if (aurora) useAuroraPaletteStore.getState().setPalette(aurora);
     set({ theme: commit(theme), customized: true, previewTheme: null });
   },
 
@@ -386,6 +394,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       theme: normalizeTheme(get().theme),
       chartPalette: currentChartPalette(),
       background: currentBackground(),
+      aurora: useAuroraPaletteStore.getState().palette,
       createdAt: Date.now(),
     };
     const userPresets = [preset, ...get().userPresets];
@@ -402,6 +411,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
             theme: normalizeTheme(get().theme),
             chartPalette: currentChartPalette(),
             background: currentBackground(),
+            aurora: useAuroraPaletteStore.getState().palette,
             createdAt: Date.now(),
           }
         : p,
@@ -413,7 +423,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   applyUserPreset: (id) => {
     const preset = get().userPresets.find((p) => p.id === id);
     if (!preset) return;
-    get().applyPreset(preset.theme, preset.background);
+    get().applyPreset(preset.theme, preset.background, preset.aurora);
     if (preset.chartPalette) {
       useChartPaletteStore.getState().setPalette(preset.chartPalette);
     }

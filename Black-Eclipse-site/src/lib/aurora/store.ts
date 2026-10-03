@@ -22,12 +22,18 @@ import {
 export interface AuroraPaletteStore {
   palette: AuroraPalette;
   hydrated: boolean;
+  /** True while a non-persisted preset preview is showing. */
+  previewing: boolean;
   /** Merge a hydrated palette from localStorage (client only, post-mount). */
   hydrate: () => void;
   /** Set a single state's core or edge color. */
   setColor: (state: AuroraMarketState, key: keyof AuroraColorPair, value: string) => void;
-  /** Replace the whole palette (preset application). */
+  /** Replace the whole palette (preset application) and persist it. */
   setPalette: (palette: AuroraPalette) => void;
+  /** Show a palette WITHOUT persisting — theme-preset auditioning. */
+  preview: (palette: AuroraPalette) => void;
+  /** Discard an active preview, restoring the saved palette. */
+  cancelPreview: () => void;
   reset: () => void;
 }
 
@@ -36,6 +42,7 @@ export const useAuroraPaletteStore = create<AuroraPaletteStore>((set) => ({
   // mismatch, and the Aurora starts on the shipped identity).
   palette: defaultAuroraPalette(),
   hydrated: false,
+  previewing: false,
 
   hydrate: () => {
     const palette = loadAuroraPalette();
@@ -57,7 +64,16 @@ export const useAuroraPaletteStore = create<AuroraPaletteStore>((set) => ({
     // reference (a later edit would otherwise mutate the preset itself).
     const clean = parseAuroraPalette(palette);
     saveAuroraPalette(clean);
-    set({ palette: clean });
+    set({ palette: clean, previewing: false });
+  },
+
+  preview: (palette) => {
+    const clean = parseAuroraPalette(palette);
+    set({ palette: clean, previewing: true });
+  },
+
+  cancelPreview: () => {
+    set({ palette: loadAuroraPalette(), previewing: false });
   },
 
   reset: () => {

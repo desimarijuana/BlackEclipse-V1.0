@@ -531,8 +531,13 @@ export function customImageError(dataUrl: string): string | null {
 // ── CSS resolution ───────────────────────────────────────────────────────────
 
 export interface BackgroundCss {
-  /** The wallpaper URL (as a CSS `url(...)`), or `none`. */
+  /** The wallpaper URL (as a CSS `url(...)`) / gradient layers, or `none`. */
   url: string;
+  /** The flat fill color for the host element (`background-color`). `transparent`
+   * when a gradient/image layer covers the whole box. A flat backdrop uses this
+   * rather than a `linear-gradient(color, color)` so it is a genuine solid fill
+   * — no gradient function at all. */
+  color: string;
   /** `background-image` for the host element's *pattern* layer (`--page-bg-image`). */
   pageImage: string;
   /** `background-size` for the image layer (fit). */
@@ -651,8 +656,15 @@ export function resolveBackgroundCss(
   const zoom = Math.min(3, Math.max(0.5, prefs.scale / 100));
   const position = `${prefs.positionX}% ${prefs.positionY}%`;
   if (prefs.mode === 'solid') {
+    // A flat backdrop is a genuine solid fill: the color goes on the host's
+    // `background-color` (via `--app-bg-color`) and NO `background-image` is
+    // emitted, so the ChatBot page never paints a gradient function. Gradient /
+    // pattern fills still use layered `background-image`; those layers cover the
+    // whole box, so the host color stays transparent beneath them.
+    const flat = prefs.solidFill === 'flat';
     return {
-      url: solidBackgroundImage(prefs),
+      url: flat ? 'none' : solidBackgroundImage(prefs),
+      color: flat ? solidBaseColor(prefs) : 'transparent',
       pageImage: 'none',
       size: solidBackgroundSize(prefs),
       repeat: 'no-repeat',
@@ -666,10 +678,11 @@ export function resolveBackgroundCss(
   const asset = prefs.preset === CUSTOM_BACKGROUND_ID ? null : shippedBackground(prefs.preset);
   const url = asset?.url ?? (customUrl || null);
   if (!url) {
-    return { url: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
+    return { url: 'none', color: 'transparent', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
   }
   return {
     url: `url("${url}")`,
+    color: 'transparent',
     // Suppress the theme pattern so the wallpaper is the only backdrop.
     pageImage: 'none',
     size: sizeForFit(prefs.fit),
@@ -706,6 +719,7 @@ export function applyBackgroundToDocument(prefs: BackgroundPrefs, customUrl: str
   const root = document.documentElement;
   const css = resolveBackgroundCss(prefs, customUrl);
   root.style.setProperty('--page-bg-image', css.pageImage);
+  root.style.setProperty('--app-bg-color', css.color);
   root.style.setProperty('--app-bg-image', css.url);
   root.style.setProperty('--app-bg-size', css.size);
   root.style.setProperty('--app-bg-repeat', css.repeat);
@@ -718,7 +732,7 @@ function clearBackgroundFromDocument(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   for (const name of [
-    '--page-bg-image', '--app-bg-image', '--app-bg-size', '--app-bg-repeat',
+    '--page-bg-image', '--app-bg-color', '--app-bg-image', '--app-bg-size', '--app-bg-repeat',
     '--app-bg-position', '--app-bg-zoom', '--app-bg-scrim',
   ]) {
     root.style.removeProperty(name);
