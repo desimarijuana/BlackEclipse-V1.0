@@ -35,6 +35,10 @@ class CreateTaskRequest(BaseModel):
     callbackBaseUrl: str  # noqa: N815
     callbackToken: Optional[str] = None  # noqa: N815
     modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
+    # Folder-selection (additive): edit the selected real folder directly
+    # instead of a disposable copy. None = resolve from the selected root
+    # (a chosen folder edits directly; the built-in repo stays isolated).
+    direct: Optional[bool] = None
     # Phase 11 (additive): a caller-supplied scope FILTER label. It narrows what is
     # listed; it NEVER authorizes anything — `require_operator` does.
     scopeId: Optional[str] = Field(None, max_length=200)  # noqa: N815
@@ -113,6 +117,15 @@ def code_root(_: bool = Depends(require_operator)) -> dict[str, Any]:
 async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Create and run a code task. The autonomy defaults to plan_only."""
     autonomy = _resolve_autonomy(body.autonomy)
+    # A user-selected trusted folder is edited directly (that is the point of
+    # choosing it); the built-in repo root stays isolated. An explicit `direct`
+    # always wins.
+    direct = body.direct
+    if direct is None:
+        try:
+            direct = service.trusted_root_store().selected() is not None
+        except Exception:  # noqa: BLE001 - no store ⇒ stay isolated (safe default)
+            direct = False
     run_id = body.runId or f"code_{abs(hash(body.query)) & 0xFFFFFFFF:08x}_{int(__import__('time').time())}"
     if body.modelSettings is None:
         raise HTTPException(status_code=400, detail="modelSettings is required")
@@ -126,7 +139,20 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
         callbackBaseUrl=body.callbackBaseUrl,
         callbackToken=body.callbackToken,
         userId=body.scopeId,
+        direct=bool(direct),
     )
+    # Create the run ROW first: `RunCheckpoint` has a FOREIGN KEY on
+    # `HarnessRun(id)`, so `record_created` before the row exists fails with a
+    # FOREIGN KEY constraint error. `execute_run` re-uses this row (it does not
+    # re-create an existing run), so the `task.created` boundary and the run row
+    # are guaranteed to name the SAME run.
+    try:
+        service.store.create_run(
+            run_id, "code-agent", request.input.model_dump(), body.scopeId,
+            body.modelSettings.get("provider"), body.modelSettings.get("model"),
+        )
+    except Exception:  # noqa: BLE001 - a duplicate run id is not fatal here
+        pass
     # Record the durable `task.created` boundary BEFORE the run so a resume can
     # prove it re-enters the SAME workspace + profile.
     _tasks().record_created(

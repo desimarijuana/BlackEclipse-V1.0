@@ -198,6 +198,14 @@ class ToolContext:
     # False: discovery is not activation. Set by the graph from
     # `RunRequest.analysisEnabled`.
     analysis_enabled: bool = False
+    # The process-wide approval store (MCP 5G / code actions). Attached per run so
+    # the `terminal_run` effect authorizer can claim a single-use approval for an
+    # `ask`-classified command. None = no approvals reachable (an `ask` command
+    # then refuses).
+    approvals: Any = None
+    # Folder-selection: when True, the disposable code workspace is the SELECTED
+    # trusted root itself (direct edits to the user's folder). Opt-in per run.
+    direct: bool = False
 
 
 class DataBridge:

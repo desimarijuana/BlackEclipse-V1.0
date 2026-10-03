@@ -64,6 +64,31 @@ describe('normalizeHarnessEvent', () => {
     });
   });
 
+  it('carries the tool detail (command/path) on tool.requested', () => {
+    const e = normalizeHarnessEvent('tool.requested', {
+      type: 'tool.requested',
+      data: { name: 'terminal_run', toolCallId: 'call_c', detail: 'python app.py' },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_start',
+      item: { id: 'call_c', name: 'terminal_run', detail: 'python app.py' },
+    });
+  });
+
+  it('carries the result summary on tool.completed', () => {
+    const e = normalizeHarnessEvent('tool.completed', {
+      type: 'tool.completed',
+      data: { name: 'terminal_run', toolCallId: 'call_c', durationMs: 40, summary: 'exit 0' },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_end',
+      id: 'call_c',
+      name: 'terminal_run',
+      status: 'completed',
+      summary: 'exit 0',
+    });
+  });
+
   it('surfaces tool.failed as a failed activity with its code', () => {
     const e = normalizeHarnessEvent('tool.failed', {
       type: 'tool.failed',

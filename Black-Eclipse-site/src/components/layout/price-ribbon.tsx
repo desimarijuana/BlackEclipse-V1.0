@@ -186,7 +186,7 @@ function RibbonConfig({ onClose }: { onClose: () => void }) {
           {suggestions.length > 0 && (
             <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
               <p className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground/70">Matches — click to add</p>
-              {suggestions.slice(0, 8).map(s => (
+              {suggestions.slice(0, 50).map(s => (
                 <button
                   key={`${s.symbol}-${s.marketId ?? ''}`}
                   onClick={() => commit(s.symbol)}

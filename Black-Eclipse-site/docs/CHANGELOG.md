@@ -8,6 +8,110 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **The chat stream now reads like a real coding harness.** Tool activity showed
+  only a tool NAME ("Reading a file"); it now shows what the tool is doing and
+  what came back — "Writing the change `stream.py` → 1 file(s)", "Running
+  `python stream.py` → exit 0". Added `python/harness/code/activity.py`
+  (`tool_detail`/`tool_result_summary`) — a pure, bounded, content-free derivation
+  (a command, a file PATH, the changed PATHS; never file text, so a secret in a
+  patch body never reaches the stream). `graph.py` emits `detail` on
+  `tool.requested` and `summary` on `tool.completed`; the client carries
+  `ActivityItem.detail` and the row renders it in monospace beside the label.
+  Verified live against the runtime: the run's events carry
+  `terminal_run | detail= python stream.py | summary= exit 0`. Tests
+  `test_code_activity.py` + two `events.test.ts` cases. `tsc` clean; vitest 2032
+  passed; pytest 2470 passed.
+  docs updated: `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H121)
+
+- **Folder selection + direct editing + a general terminal + an Editor surface.**
+  Eclipse can now work on a folder you choose, not only its own repo. (1) **Trusted
+  roots**: a folder picker (`/workspace/browse`) and an operator-approved, persisted
+  allowlist (`TrustedRoot` in `agent-memory.db`); the SELECTED root becomes what
+  `workspace.default_root()` resolves to, after the env override — so zero-config is
+  unchanged. (2) **Direct mode**: `worktree.allocate(direct=True)` edits the selected
+  real folder (strategy `"direct"`; `release` never deletes it); a code task defaults
+  to direct when a folder is selected. Confinement is unchanged — `resolve_within` +
+  `PROTECTED_PATHS` still apply, so the human editor and the agent share one boundary.
+  (3) **`terminal_run`**: an arbitrary command WITHOUT a shell, classified
+  allow/ask/deny in Python — safe tools run, others need a per-command single-use
+  approval, destructive/shell/downloader commands are refused; runs through the
+  existing sandbox and is recorded in the ledger. (4) **Editor UI** (AppTab `editor`):
+  file tree + text editor + save, plus the folder picker. Verified live: approved a
+  folder, created and ran `auto.py` in the REAL folder (exit 0), listed/wrote/read a
+  nested file through the editor API, and confirmed `.env`/traversal/absolute paths
+  are refused. Tests `test_code_roots.py`/`test_code_terminal.py`/
+  `test_workspace_editor_api.py` + direct-mode cases in `test_code_worktree.py`.
+  `tsc` clean; vitest 2031 passed; pytest 2461 passed.
+  docs updated: `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H118/H119/H120)
+
+- **Alert symbol search un-capped; fired alerts now visible app-wide.** Two real
+  defects behind "only 4 assets / no notification". (1) `/api/quote` symbol
+  autocomplete was hard-capped at 8 rows (`LIMIT 8` + `.slice(0,8)`) via
+  `searchSymbols`, and de-duped by symbol alone — so searching "A" showed 8 and
+  a ticker listed in two markets collapsed to one. Now up to 100 rows, de-duped by
+  `symbol|market`, with the alert builder, market-overview strip, price-ribbon and
+  chart-compare suggestion lists raised from 8→50 and made scrollable. (2) Desktop
+  notifications silently no-op unless the user opted in AND granted permission —
+  which is why no notification appeared. `AlertNotificationProvider` now ALWAYS
+  shows an app-wide bottom-right in-app toast for every fired alert (all tabs, no
+  permission needed) and additionally raises the OS notification when enabled; it
+  is the single owner of delivery via the `be:alert-notify` event (the Settings
+  test button no longer calls `showAlertNotification` directly, which double-fired).
+  Verified against a forced rebuild: `?q=A` returns 100, a test fire created a new
+  event (8→9), the notification bundle is live; `tsc --noEmit` clean; eslint clean;
+  vitest 2031 passed.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Fix three real failures that made the code harness non-functional from the
+  UI.** Exercising the live stack (not just the test suite) showed "build me X"
+  could never complete. (1) **HTTP 500 on every code task**: `POST /code/tasks`
+  recorded the `task.created` `RunCheckpoint` (FK → `HarnessRun(id)`) BEFORE the
+  run row existed, so `record_created` raised `sqlite3.IntegrityError: FOREIGN
+  KEY constraint failed`; the route now creates the run row first and
+  `execute_run` reuses a pre-created row (only in `created` status). (2) **No
+  write ever succeeded on Windows**: an unconfigured `git worktree add` aborted
+  on the deep scaffold-kit template paths with `Filename too long`, silently
+  demoting every allocation to the snapshot fallback, which then refused with
+  `SNAPSHOT_TOO_LARGE`; every git invocation now carries `-c core.longpaths=true`
+  (per-command, so the operator's global config is untouched). (3) **Chat never
+  bound code tools**: the non-streaming `chatWithAgent` (`/api/harness/chat`)
+  bypassed the Phase-14 classifier that only `startChatRun` used, so a coding
+  request reached the model with no write/execute tool and the model honestly
+  refused; it now resolves the same code profile. Verified live: a real task
+  created `hello.py` + a test in its disposable worktree and the ledger recorded
+  `python_test` exit 0; the chat route then built a module end-to-end. Added
+  regression tests `python/tests/test_code_api.py` (route FK ordering),
+  long-path assertions in `test_code_worktree.py`, and four
+  `chatWithAgent` profile cases. `tsc --noEmit` clean; vitest 2031 passed;
+  pytest 2428 passed; `npm run test:evals` all pass.
+  docs updated: `docs/CHANGELOG.md`
+
+- **Remove the remaining hardcoded 4-market lists.** After the alert builder fix,
+  an audit of every market list found two more that were silently narrowed to
+  `US/PK/IN/CRYPTO`: the Settings › General "Default Market" *fallback*
+  (`general-settings.tsx` `ALL_MARKETS`, now derived from `HEATMAP_MARKETS`) and
+  the legacy agent's `get_price` tool description (`src/lib/agent/tools.ts`, now
+  names several markets). The Market Data panel and screener already load the
+  full set from JDDS (`/api/markets` → 28). Verified against a forced rebuild:
+  the old `["US","PK","IN","CRYPTO"]` literal is gone from `.next`, 28 markets /
+  1,455 crypto assets are reachable, and `npm run demo:btc` is 6/6 PASS.
+  `tsc --noEmit` clean; eslint clean; vitest 2027 passed.
+  docs updated: `docs/CHANGELOG.md`
+
+- **Alert builder: full market coverage + a runnable BTC demo.** Investigating a
+  report that "markets are limited" found the data path is complete (28 JDDS
+  markets + FX/commodities; 1,455 crypto assets incl. BTC; correct live quote),
+  but the alert builder's market dropdown was hardcoded to
+  `["US","PK","IN","CRYPTO"]`. It now lists every market the alert feed can
+  actually quote (`HEATMAP_MARKETS` minus FOREX/COMMODITIES, which have no Yahoo
+  suffix) in `src/app/alerts/alerts-client.tsx`. Added `scripts/demo-btc.mts`
+  (`npm run demo:btc`), a live end-to-end demo: JDDS vault → yfinance CRYPTO
+  `BTC-USD` (~$84k) → the bare-`US BTC` ETF trap it disambiguates (~$37) → the
+  alert engine's `fetchSnapshots` → markets beyond the old hardcoded list
+  (UK/JP/DE/CRYPTO) → the running app's `/api/quote`. Verified: demo OK, 6 legs,
+  0 failed; `tsc --noEmit` clean; vitest 2027 passed.
+  docs updated: `docs/NAVIGATION.md`
+
 - **Universal financial-fact engine, slice 6: point-in-time, research router and
   corporate-action ingestion — the remaining sections.** Closes the three gaps the
   audit named. `finance_facts/point_in_time.py` (§15) keeps period_end /

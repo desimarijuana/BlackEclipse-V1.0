@@ -602,7 +602,7 @@ def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, Resolv
     # workspace still allocates. Never invent a sha — HEAD is the honest default.
     if not re.fullmatch(worktree_mod.BASE_REVISION_PATTERN, str(base)):
         base = "HEAD"
-    cw = worktree_mod.allocate(base_revision=base)
+    cw = worktree_mod.allocate(base_revision=base, direct=bool(getattr(ctx, "direct", False)))
     binding = policy.WorkspaceBinding(
         id=cw.id, root=cw.root, base_revision=cw.base_revision, strategy=cw.strategy,
     )
@@ -923,6 +923,7 @@ _CODE_TOOL_NAMES = (
     "workspace_diff",
     "workspace_revert",
     "command_run",
+    "terminal_run",
     "code_commit",
     "code_push",
     "code_open_pr",
@@ -954,6 +955,9 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     # Imported lazily: command_tools imports helpers from this module, so a
     # module-level import here would be circular.
     from .command_tools import command_run  # noqa: PLC0415
+    from .terminal_tools import terminal_run, terminal_schema  # noqa: PLC0415
+
+    _INPUT_SCHEMAS["terminal_run"] = terminal_schema()
 
     registry.register(_definition(
         "workspace_status",
@@ -1014,6 +1018,16 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         "from a fixed table — no shell, no arbitrary program — and every run is recorded. "
         "Refused unless the session may run checks.",
         command_run, 120_000, permission="write", risk="medium", effect="external_action",
+    ))
+    # Phase D: generic terminal. Runs an arbitrary command WITHOUT a shell; safe
+    # tools run directly, others require a per-command single-use approval, and
+    # destructive commands are refused. Effectful, so the authorizer gates it.
+    registry.register(_definition(
+        "terminal_run",
+        "Run a command in the project folder (no shell). Use for building, running "
+        "scripts, tests, or anything not covered by the fixed checks. Safe tools run "
+        "directly; other commands ask the user first; destructive commands are refused.",
+        terminal_run, 900_000, permission="write", risk="high", effect="external_action",
     ))
     # The external actions (Phase 5): each external_action, each requiring a
     # single-use, workspace-bound operator approval resolved by actionKind.

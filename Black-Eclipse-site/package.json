@@ -22,6 +22,7 @@
     "test:evals": "node scripts/test-evals.js",
     "test:smoke": "node scripts/test-python.js smoke",
     "test:presets": "node scripts/test-presets.js",
+    "demo:btc": "tsx scripts/demo-btc.mts",
     "check:all": "node scripts/check-all.js"
   },
   "engines": {

@@ -25,6 +25,7 @@ export const en = {
   'nav.memory': 'Eclipse Memory',
   'nav.code': 'Code Tasks',
   'nav.jobs': 'Scheduled Jobs',
+  'nav.editor': 'Editor',
 
   // Common actions & nouns
   'common.settings': 'Settings',
@@ -289,6 +290,32 @@ export const en = {
   'code.chat.buildStarted': 'Started building this for you.',
   'code.chat.scheduleStarted': 'Scheduled. It stays off until you turn it on.',
   'code.chat.actionFailed': 'I couldn’t start that just now. Try again in a moment.',
+
+  // ── Editor / workspace folders ───────────────────────────────────────────
+  'editor.heading': 'Editor',
+  'editor.openFolder': 'Open a folder',
+  'editor.currentFolder': 'Working in',
+  'editor.noFolder': 'No folder open yet. Open one to browse and edit its files.',
+  'editor.files': 'Files',
+  'editor.chooseFolder': 'Choose a folder',
+  'editor.approve': 'Open this folder',
+  'editor.cancel': 'Cancel',
+  'editor.up': 'Up one level',
+  'editor.loading': 'Loading…',
+  'editor.save': 'Save',
+  'editor.saving': 'Saving…',
+  'editor.saved': 'Saved',
+  'editor.revert': 'Discard changes',
+  'editor.unsaved': 'Unsaved changes',
+  'editor.selectFile': 'Choose a file to edit.',
+  'editor.readFailed': 'I couldn’t open that file.',
+  'editor.saveFailed': 'I couldn’t save that file.',
+  'editor.listFailed': 'I couldn’t list that folder.',
+  'editor.emptyFolder': 'This folder is empty.',
+  'editor.binary': 'That looks like a binary file, so I left it closed.',
+  'editor.redacted': 'Some lines are hidden because they may hold private data.',
+  'editor.removeFolder': 'Forget this folder',
+  'editor.folderHint': 'Approved folders you can work in.',
 
   // ── Scheduled jobs (Phase 6) ─────────────────────────────────────────────
   // The user names the JOB, never the mechanism. A cron expression, skill id,

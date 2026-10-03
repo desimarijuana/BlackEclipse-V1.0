@@ -94,11 +94,30 @@ def _repo_root() -> Optional[str]:
         return None
 
 
-def default_root() -> Optional[Path]:
-    """The server-resolved root. BLACK_ECLIPSE_CODE_ROOT, else the repo root.
+# The process-wide provider for a user-chosen ("trusted") root. The service
+# registers this at boot; `default_root` consults it after the explicit env
+# override and before the built-in repo root. It is a CALLABLE so a selection
+# change takes effect on the next resolution without restarting the runtime. It
+# can only ever return a path already approved in `TrustedRoot` (the provider is
+# wired to the store's `selected()`), so a chosen folder is still an approved one.
+_TRUSTED_ROOT_PROVIDER: Optional[Any] = None
 
-    An env override wins, otherwise the repo containing the harness. Returns
-    None when neither resolves — a missing root is a REFUSAL
+
+def set_trusted_root_provider(provider: Optional[Any]) -> None:
+    """Register the callable returning the currently selected trusted root path."""
+    global _TRUSTED_ROOT_PROVIDER
+    _TRUSTED_ROOT_PROVIDER = provider
+
+
+def default_root() -> Optional[Path]:
+    """The server-resolved root.
+
+    Resolution order, highest first:
+      1. `BLACK_ECLIPSE_CODE_ROOT` (an explicit operator/test override);
+      2. the user-selected trusted root, when one is chosen and still exists;
+      3. the repo containing the harness (the zero-config default).
+
+    Returns None when none resolves — a missing root is a REFUSAL
     (`WORKSPACE_UNAVAILABLE`), never a guess at a directory.
     """
     override = os.environ.get("BLACK_ECLIPSE_CODE_ROOT")
@@ -107,6 +126,17 @@ def default_root() -> Optional[Path]:
         if candidate.is_dir():
             return Path(os.path.realpath(candidate))
         return None
+    if _TRUSTED_ROOT_PROVIDER is not None:
+        try:
+            selected = _TRUSTED_ROOT_PROVIDER()
+        except Exception:  # noqa: BLE001 - a broken provider must not break resolution
+            selected = None
+        if selected:
+            candidate = Path(str(selected))
+            if candidate.is_dir():
+                return Path(os.path.realpath(candidate))
+            # A selected root that has vanished falls through to the repo root
+            # rather than failing every run; the picker shows it as missing.
     found = _repo_root()
     return Path(os.path.realpath(found)) if found else None
 

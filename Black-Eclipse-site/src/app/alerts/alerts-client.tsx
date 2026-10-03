@@ -17,6 +17,13 @@ import { cn } from "@/lib/utils";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import { sound } from "@/lib/sounds";
+import { HEATMAP_MARKETS } from "@/lib/heatmap";
+
+// Markets the alert feed can actually quote. Every equity market + CRYPTO has a
+// Yahoo ticker suffix (see MARKET_SUFFIX); FOREX/COMMODITIES do not, so offering
+// them here would create watches that silently never resolve. Filter them out
+// rather than present a market that cannot fire.
+const ALERT_MARKETS = HEATMAP_MARKETS.filter((m) => m.id !== "FOREX" && m.id !== "COMMODITIES");
 
 // ─── Site design system (matches my-portfolio / market-overview) ──────────
 // Frost glass — the default glass panel style used across every screen.
@@ -603,7 +610,7 @@ function AlertBuilder({ editing, onSaved, onCancel }: {
         const res = await fetch(`/api/quote?q=${encodeURIComponent(q)}`);
         if (!res.ok) return;
         const data = await res.json();
-        const list: Suggestion[] = (data.suggestions || []).slice(0, 8);
+        const list: Suggestion[] = (data.suggestions || []).slice(0, 100);
         setSuggestions(list);
         setSuggestOpen(list.length > 0);
       } catch {}
@@ -660,7 +667,9 @@ function AlertBuilder({ editing, onSaved, onCancel }: {
             <Select value={market} onValueChange={(v) => setMarket(v ?? "US")}>
               <SelectTrigger className="w-full rounded-xl"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {["US", "PK", "IN", "CRYPTO"].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                {ALERT_MARKETS.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.id} — {m.country}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -684,7 +693,7 @@ function AlertBuilder({ editing, onSaved, onCancel }: {
               <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => void addSymbol()}><Plus size={13} /></Button>
             </div>
             {suggestOpen && suggestions.length > 0 && (
-              <div className={cn(TILE, "absolute left-0 right-14 mt-1 z-50 overflow-hidden shadow-2xl divide-y divide-border/10")}>
+              <div className={cn(TILE, "absolute left-0 right-14 mt-1 z-50 max-h-80 overflow-y-auto shadow-2xl divide-y divide-border/10")}>
                 {suggestions.map((s) => (
                   <button
                     key={`${s.marketId}-${s.symbol}`}

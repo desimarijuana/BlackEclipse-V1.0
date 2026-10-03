@@ -178,6 +178,12 @@ def _effect_authorizer(
 
         mcp_authorizer = make_effect_authorizer(approvals, run_id, emitter)
     code_authorizer = make_code_authorizer(mcp_authorizer)
+    # Generic terminal: an `allow` command runs, an `ask` command needs a
+    # single-use workspace-bound approval, a `deny` is refused. Composed OVER the
+    # code/MCP authorizer so every other non-read tool is unchanged.
+    from .code.terminal_tools import make_terminal_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_terminal_authorizer(code_authorizer)
 
     if approvals is None or not workspace_id:
         return code_authorizer
@@ -338,6 +344,7 @@ def build_graph(
     allowed: Optional[set[str]] = None,
     source_sink: Optional[Any] = None,
     mcp_manager: Optional[Any] = None,
+    approvals: Optional[Any] = None,
     lineage: Optional[Any] = None,
     resume_from: Optional[dict[str, Any]] = None,
     code_store: Optional[Any] = None,
@@ -414,6 +421,11 @@ def build_graph(
         delegation_depth=int((request.input.context or {}).get("delegationDepth") or 0),
         # Phase 8: the analysis sandbox is OFF per run unless the caller enables it.
         analysis_enabled=bool(request.analysisEnabled),
+        # The approval store, so the terminal authorizer can claim a single-use
+        # approval for an `ask`-classified command.
+        approvals=approvals,
+        # Folder-selection: edit the selected real folder directly (opt-in).
+        direct=bool(getattr(request, "direct", False)),
     )
     registry.set_active_context(ctx)
 
@@ -618,7 +630,16 @@ def build_graph(
                 continue
 
             tool_calls += 1
-            await emitter.emit("tool.requested", {"name": name, "toolCallId": call_id, "step": state.get("step")})
+            # A safe, bounded "what" for the live stream (the command, the file
+            # path, the changed paths) — never file content. Derived by a pure
+            # function so the event carries display metadata only.
+            from .code.activity import tool_detail  # noqa: PLC0415
+
+            detail = tool_detail(name, args if isinstance(args, dict) else {})
+            await emitter.emit("tool.requested", {
+                "name": name, "toolCallId": call_id, "step": state.get("step"),
+                **({"detail": detail} if detail else {}),
+            })
 
             key = _stable_key(name, args)
             # Resume idempotency: if this exact call already executed in a prior
@@ -654,6 +675,9 @@ def build_graph(
                 if lineage is not None:
                     lineage.mark_tool_executed(request.runId, step_index, call_id, result)
                 if result.ok:
+                    from .code.activity import tool_result_summary  # noqa: PLC0415
+
+                    summary = tool_result_summary(name, result.data)
                     await emitter.emit(
                         "tool.completed",
                         {
@@ -663,6 +687,7 @@ def build_graph(
                             "truncated": result.truncated,
                             "shownChars": result.shown_chars,
                             "totalChars": result.total_chars,
+                            **({"summary": summary} if summary else {}),
                         },
                     )
                     # A trimmed result is its own honest signal (Phase 3): emitted
@@ -797,17 +822,27 @@ async def execute_run(
         store.update_run(request.runId, status="running", startedAt=started)
         await emitter.emit("run.resumed", {"checkpointId": checkpoint["id"], "step": (checkpoint.get("payload") or {}).get("step")})
     else:
-        store.create_run(
-            request.runId,
-            agent.id,
-            request.input.model_dump(),
-            request.userId,
-            request.modelSettings.provider,
-            request.modelSettings.model,
-            session_id=request.sessionId,
-            profile_id=request.profileId,
-            project_id=request.projectId,
-        )
+        # A caller (the code-task route) may have pre-created the run row so it
+        # could write a FK-bound `task.created` checkpoint first. Reuse that row
+        # instead of re-inserting it; any other pre-existing row is a genuine
+        # duplicate and still fails loudly.
+        prior_status = (_prior_run or {}).get("status")
+        if _prior_run is None:
+            store.create_run(
+                request.runId,
+                agent.id,
+                request.input.model_dump(),
+                request.userId,
+                request.modelSettings.provider,
+                request.modelSettings.model,
+                session_id=request.sessionId,
+                profile_id=request.profileId,
+                project_id=request.projectId,
+            )
+        elif prior_status != "created":
+            raise RuntimeError(
+                f"run {request.runId!r} already exists in status {prior_status!r}"
+            )
         # Record lineage AFTER the row exists (the columns are owned by the
         # lineage module, not the ratcheted core store).
         lineage.set_run_parent(request.runId, request.parentRunId, request.workflowId)
@@ -997,6 +1032,7 @@ async def execute_run(
             allowed=allowed,
             source_sink=source_collector,
             mcp_manager=mcp_manager,
+            approvals=approvals,
             lineage=lineage,
             resume_from=resume_from,
             code_store=code_store,

@@ -11,7 +11,7 @@
 import {
   LayoutDashboard, ChartCandlestick, ScanSearch, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain,
-  SquareCode, CalendarClock, type LucideIcon,
+  SquareCode, CalendarClock, FileCode2, type LucideIcon,
 } from 'lucide-react';
 import type { AppTab } from '@/components/layout/sidebar';
 
@@ -47,6 +47,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'code', label: 'Code Tasks', icon: SquareCode, group: 'agentic' },
+  { id: 'editor', label: 'Editor', icon: FileCode2, group: 'agentic' },
   { id: 'jobs', label: 'Scheduled Jobs', icon: CalendarClock, group: 'agentic' },
 ];
 

@@ -187,3 +187,62 @@ def test_snapshot_fallback_reports_snapshot_strategy(tmp_path, monkeypatch):
         assert result["strategy"] == "snapshot"
     finally:
         release(ws.id)
+
+
+# ── Windows long-path regression ─────────────────────────────────────────────
+#
+# An unconfigured git on Windows aborts `worktree add` with "Filename too long"
+# when the tree contains deep paths (the scaffold-kit templates do), which
+# silently demoted every task to the snapshot fallback and then refused with
+# SNAPSHOT_TOO_LARGE. The git argv must therefore always carry
+# `-c core.longpaths=true`, so the worktree strategy stays usable.
+
+
+def test_git_argv_enables_long_paths():
+    for key in ("add", "remove", "rev_parse"):
+        argv = worktree.GIT_WORKTREE_ARGV[key]
+        assert argv[0] == "git"
+        assert "-c" in argv and "core.longpaths=true" in argv, key
+
+
+def test_allocate_uses_the_worktree_strategy_when_git_is_present(git_root):
+    ws = allocate()
+    try:
+        # If `-c core.longpaths=true` were dropped, this would be "snapshot" on a
+        # deep-tree checkout. The fixture is shallow, so this asserts the argv is
+        # wired correctly rather than relying on hitting MAX_PATH.
+        assert ws.strategy == "worktree"
+    finally:
+        release(ws.id)
+
+
+# ── direct mode (the user's real folder, opt-in) ─────────────────────────────
+
+
+def test_direct_workspace_is_the_real_root(git_root):
+    ws = allocate(direct=True)
+    assert ws.strategy == "direct"
+    assert ws.root == git_root
+    assert ws.id.startswith("cw_direct_")
+
+
+def test_release_never_deletes_a_direct_workspace(git_root):
+    ws = allocate(direct=True)
+    marker = git_root / "keep-me.txt"
+    marker.write_text("real file", encoding="utf-8")
+    result = release(ws.id)
+    assert result.get("direct") is True
+    # The user's real folder is untouched.
+    assert marker.exists()
+
+
+def test_direct_workspace_diff_is_honest_without_git(tmp_path, monkeypatch):
+    plain = tmp_path / "plain-direct"
+    plain.mkdir()
+    monkeypatch.setenv("BLACK_ECLIPSE_CODE_ROOT", str(plain))
+    ws = allocate(direct=True)
+    assert ws.strategy == "direct"
+    result = worktree.diff(ws.id, strategy="direct")
+    # Not a git checkout: no invented diff, just an honest empty result.
+    assert result["strategy"] == "direct"
+    assert result["filesChanged"] == 0

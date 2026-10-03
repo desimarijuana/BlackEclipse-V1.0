@@ -25,4 +25,5 @@ export type AppTab =
   | 'skills'
   | 'memory'
   | 'code'
-  | 'jobs';
+  | 'jobs'
+  | 'editor';

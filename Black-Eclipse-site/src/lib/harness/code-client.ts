@@ -52,6 +52,8 @@ export interface CreateTaskInput {
   modelSettings: Record<string, unknown>;
   callbackBaseUrl?: string;
   callbackToken?: string;
+  /** Edit the selected real folder directly instead of a disposable copy. */
+  direct?: boolean;
 }
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -193,6 +195,116 @@ export async function getCodeRoot(): Promise<string | null> {
 }
 
 
+
+// ─── Workspace folders (folder picker) ─────────────────────────────────────
+// Thin proxy over the runtime's /workspace routes. Approving a folder is the one
+// way a new root becomes workable; selecting it makes it the active workspace.
+
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  hidden: boolean;
+}
+
+export interface BrowseResult {
+  path: string | null;
+  parent: string | null;
+  entries: BrowseEntry[];
+  truncated: boolean;
+  reason: string | null;
+}
+
+export interface TrustedRoot {
+  id: string;
+  path: string;
+  label: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  selected: boolean;
+}
+
+export async function browseFolders(path?: string): Promise<BrowseResult> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : "";
+  const body = await request<BrowseResult & { success: boolean }>(`/workspace/browse${q}`, {
+    method: "GET",
+    timeoutMs: 15_000,
+  });
+  return body;
+}
+
+export async function listTrustedRoots(): Promise<TrustedRoot[]> {
+  const body = await request<{ roots: TrustedRoot[] }>("/workspace/roots", { method: "GET" });
+  return body.roots ?? [];
+}
+
+export async function approveTrustedRoot(path: string, label?: string): Promise<TrustedRoot> {
+  const body = await request<{ root: TrustedRoot }>("/workspace/roots", {
+    method: "POST",
+    body: JSON.stringify({ path, label }),
+  });
+  return body.root;
+}
+
+export async function selectTrustedRoot(rootId: string | null): Promise<TrustedRoot | null> {
+  const body = await request<{ selected: TrustedRoot | null }>("/workspace/roots/select", {
+    method: "POST",
+    body: JSON.stringify({ rootId }),
+  });
+  return body.selected;
+}
+
+export async function revokeTrustedRoot(rootId: string): Promise<void> {
+  await request(`/workspace/roots/${encodeURIComponent(rootId)}`, { method: "DELETE" });
+}
+
+// ─── Editor: file tree + read + write ───────────────────────────────────────
+
+export interface EditorEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+export interface EditorTreeResult {
+  root: string;
+  path: string;
+  entries: EditorEntry[];
+  truncated: boolean;
+}
+
+export interface EditorFileResult {
+  path: string;
+  content: string;
+  redacted: boolean;
+  lines: number;
+}
+
+export async function listWorkspaceFiles(path = "."): Promise<EditorTreeResult> {
+  const body = await request<EditorTreeResult & { success: boolean }>(
+    `/workspace/files?path=${encodeURIComponent(path)}`,
+    { method: "GET", timeoutMs: 20_000 },
+  );
+  return body;
+}
+
+export async function readWorkspaceFile(path: string): Promise<EditorFileResult> {
+  const body = await request<EditorFileResult & { success: boolean }>("/workspace/file/read", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+    timeoutMs: 20_000,
+  });
+  return body;
+}
+
+export async function writeWorkspaceFile(path: string, content: string): Promise<{ path: string; bytes: number }> {
+  const body = await request<{ success: boolean; path: string; bytes: number }>("/workspace/file/write", {
+    method: "POST",
+    body: JSON.stringify({ path, content }),
+    timeoutMs: 30_000,
+  });
+  return { path: body.path, bytes: body.bytes };
+}
 
 // ─── Code-verification wire types (Phase 4) ─────────────────────────────────
 // Mirror of the Python `code/verify.py` shapes. This module holds NO agentic

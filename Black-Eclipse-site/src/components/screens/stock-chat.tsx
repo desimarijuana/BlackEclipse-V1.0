@@ -85,6 +85,10 @@ const JobsScreen = dynamic(
   () => import('@/components/screens/jobs/jobs-screen').then((m) => m.JobsScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const EditorScreen = dynamic(
+  () => import('@/components/screens/editor/editor-screen').then((m) => m.EditorScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -1076,6 +1080,12 @@ function StockChatContent() {
               <div className="flex-1 overflow-y-auto">
                 <JobsScreen />
               </div>
+            </div>
+          )}
+
+          {visited.has('editor') && (
+            <div className={cn('w-full h-full', activeTab === 'editor' ? '' : 'hidden')}>
+              <EditorScreen />
             </div>
           )}
 

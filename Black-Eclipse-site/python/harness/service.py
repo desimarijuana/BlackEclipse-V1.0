@@ -129,6 +129,16 @@ class AgenticService:
         from .code.store import CodeWorkspaceStore  # noqa: PLC0415
 
         self.code_store = CodeWorkspaceStore(self.store)
+        # Trusted workspace roots (folder picker): the persisted allowlist of
+        # directories a person approved. The SELECTED root is what
+        # `workspace.default_root()` resolves to, after the env override and
+        # before the built-in repo root — so zero-config is unchanged and a
+        # chosen folder takes effect on the next run without a restart.
+        from .code.roots import TrustedRootStore  # noqa: PLC0415
+        from .code.workspace import set_trusted_root_provider  # noqa: PLC0415
+
+        self.trusted_roots = TrustedRootStore(self.store)
+        set_trusted_root_provider(self._selected_trusted_root)
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
@@ -151,6 +161,18 @@ class AgenticService:
         from .memory_providers import build_memory_router
 
         self.memory_router = build_memory_router(self.memory, mcp_manager=self.mcp)
+
+    def _selected_trusted_root(self) -> Optional[str]:
+        """The path of the selected trusted root, or None. Never raises."""
+        try:
+            selected = self.trusted_roots.selected()
+            return selected.path if selected else None
+        except Exception:  # noqa: BLE001 - a root lookup must never break a run
+            return None
+
+    def trusted_root_store(self) -> Any:
+        """The process-wide trusted-roots registry (folder picker)."""
+        return self.trusted_roots
 
     def _project_root(self) -> Optional[str]:
         """The project root whose local skills may apply, or None.

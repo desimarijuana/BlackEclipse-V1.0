@@ -82,9 +82,60 @@ export async function getCodeTaskDiff(id: string): Promise<CodeTaskDiff | null> 
   }
 }
 
+// ── Workspace folders + editor (client-safe) ─────────────────────────────────
+
+import type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTreeResult, TrustedRoot } from './code-client';
+export type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTreeResult, TrustedRoot };
+
+export async function browseFolders(path?: string): Promise<BrowseResult> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : '';
+  return api<BrowseResult>(`/api/workspace/browse${q}`);
+}
+
+export async function listTrustedRoots(): Promise<TrustedRoot[]> {
+  const body = await api<{ roots: TrustedRoot[] }>('/api/workspace/roots');
+  return body.roots ?? [];
+}
+
+export async function approveTrustedRoot(path: string, label?: string): Promise<TrustedRoot> {
+  const body = await api<{ root: TrustedRoot }>('/api/workspace/roots', {
+    method: 'POST',
+    body: JSON.stringify({ path, label }),
+  });
+  return body.root;
+}
+
+export async function selectTrustedRoot(rootId: string | null): Promise<TrustedRoot | null> {
+  const body = await api<{ selected: TrustedRoot | null }>('/api/workspace/roots/select', {
+    method: 'POST',
+    body: JSON.stringify({ rootId }),
+  });
+  return body.selected;
+}
+
+export async function revokeTrustedRoot(rootId: string): Promise<void> {
+  await api(`/api/workspace/roots/${encodeURIComponent(rootId)}`, { method: 'DELETE' });
+}
+
+export async function listWorkspaceFiles(path = '.'): Promise<EditorTreeResult> {
+  return api<EditorTreeResult>(`/api/workspace/files?path=${encodeURIComponent(path)}`);
+}
+
+export async function readWorkspaceFile(path: string): Promise<EditorFileResult> {
+  return api<EditorFileResult>('/api/workspace/file/read', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+export async function writeWorkspaceFile(path: string, content: string): Promise<{ path: string; bytes: number }> {
+  return api<{ path: string; bytes: number }>('/api/workspace/file/write', {
+    method: 'POST',
+    body: JSON.stringify({ path, content }),
+  });
+}
+
 // ── Pure, client-safe render helpers (mirrors of the server client) ─────────
-// These hold no state and no secrets; they are the ONE place each status word is
-// chosen, so "verified" and an unsupported claim can never coincide.
 
 export type CheckClaimKind = 'tests_pass' | 'typecheck_clean' | 'build_ok' | 'lint_clean';
 

@@ -19,7 +19,7 @@ EXPECTED = (
     "workspace_status", "workspace_list", "workspace_search",
     "workspace_read", "workspace_docs",
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
-    "command_run", "scaffold_kit", "analysis_run",
+    "command_run", "terminal_run", "scaffold_kit", "analysis_run",
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     "market_get_quote", "fundamentals_get_financials", "research_search",
 )

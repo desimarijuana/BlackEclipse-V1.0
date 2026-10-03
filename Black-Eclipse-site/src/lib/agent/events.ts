@@ -99,6 +99,7 @@ export function normalizeHarnessEvent(
   if (event === 'tool.requested') {
     const name = str(payload.name) ?? 'tool';
     const id = str(payload.toolCallId) ?? `tool:${name}`;
+    const detail = str(payload.detail);
     return {
       kind: 'activity_start',
       item: {
@@ -107,6 +108,7 @@ export function normalizeHarnessEvent(
         name,
         label: toolLabel(name),
         status: 'running',
+        ...(detail ? { detail } : {}),
       },
     };
   }
@@ -159,6 +161,7 @@ export function normalizeHarnessEvent(
   if (event === 'tool.completed' || event === 'tool.failed') {
     const name = str(payload.name) ?? 'tool';
     const failed = event === 'tool.failed';
+    const summary = str(payload.summary);
     return {
       kind: 'activity_end',
       id: str(payload.toolCallId),
@@ -166,6 +169,7 @@ export function normalizeHarnessEvent(
       status: failed ? 'failed' : 'completed',
       durationMs: num(payload.durationMs),
       code: failed ? str(payload.code) : undefined,
+      ...(summary ? { summary } : {}),
     };
   }
 

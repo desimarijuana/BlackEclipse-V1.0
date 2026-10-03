@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const runViaRuntime = vi.fn();
 const listAgentsFromRuntime = vi.fn();
 const getLLMConfig = vi.fn();
+const resolveChatCodeProfile = vi.fn();
 
 vi.mock("./python-client", () => ({
   runViaRuntime: (...a: unknown[]) => runViaRuntime(...a),
@@ -14,14 +15,19 @@ vi.mock("./python-client", () => ({
 vi.mock("@/lib/settings", () => ({
   getLLMConfig: (...a: unknown[]) => getLLMConfig(...a),
 }));
+vi.mock("./chat-capability", () => ({
+  resolveChatCodeProfile: (...a: unknown[]) => resolveChatCodeProfile(...a),
+}));
 
-import { startRun } from "./run-service";
+import { startRun, chatWithAgent } from "./run-service";
 import { __clearAgentPresetCache } from "./agent-presets";
 import { HarnessError } from "./errors";
 
 beforeEach(() => {
   runViaRuntime.mockReset();
   getLLMConfig.mockReset();
+  resolveChatCodeProfile.mockReset();
+  resolveChatCodeProfile.mockResolvedValue(null);
   __clearAgentPresetCache();
   listAgentsFromRuntime.mockResolvedValue({
     agents: [{ id: "eclipse-agent", name: "Eclipse Agent", systemPrompt: "You are Eclipse Agent." }],
@@ -123,5 +129,57 @@ describe("startRun", () => {
     runViaRuntime.mockResolvedValue({ runId: "run_n", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await startRun({ input: { query: "x" } });
     expect("contextWindow" in runViaRuntime.mock.calls[0][0].modelSettings).toBe(false);
+  });
+});
+
+describe("chatWithAgent code profile (Phase 14)", () => {
+  it("sends edit_verify + analysis for a recognised coding turn", async () => {
+    resolveChatCodeProfile.mockResolvedValue({
+      autonomy: "edit_verify",
+      analysisEnabled: true,
+      verdict: "code_change",
+    });
+    runViaRuntime.mockResolvedValue({
+      runId: "run_code",
+      status: "completed",
+      output: "done",
+      modelSteps: 3,
+      toolCalls: 2,
+      toolErrors: 0,
+    });
+    await chatWithAgent("build me a python module");
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect(payload.autonomy).toBe("edit_verify");
+    expect(payload.analysisEnabled).toBe(true);
+  });
+
+  it("sends plan_only without the analysis sandbox for a code question", async () => {
+    resolveChatCodeProfile.mockResolvedValue({
+      autonomy: "plan_only",
+      analysisEnabled: false,
+      verdict: "code_question",
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_q", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("what does the workspace tool do");
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect(payload.autonomy).toBe("plan_only");
+    expect("analysisEnabled" in payload).toBe(false);
+  });
+
+  it("sends no code profile for an ordinary finance turn", async () => {
+    resolveChatCodeProfile.mockResolvedValue(null);
+    runViaRuntime.mockResolvedValue({ runId: "run_f", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("what is AAPL trading at");
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
+    expect("analysisEnabled" in payload).toBe(false);
+  });
+
+  it("treats a classifier failure as an ordinary turn", async () => {
+    resolveChatCodeProfile.mockRejectedValue(new Error("runtime unavailable"));
+    runViaRuntime.mockResolvedValue({ runId: "run_e", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("build me a python module");
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
   });
 });

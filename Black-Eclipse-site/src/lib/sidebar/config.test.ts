@@ -17,11 +17,11 @@ describe('defaultSidebarConfig', () => {
   it('assigns unique F1..F12 in canonical section order', () => {
     const config = defaultSidebarConfig();
     expect(config.shortcutVersion).toBe(2);
-    // 12 shortcut slots exist; the 13th, 14th and 15th canonical sections have no
-    // default. This is the explicit expected list — not a count derived from the
-    // source under test — so adding/removing a section fails here on purpose.
+    // 12 shortcut slots exist; sections past the 12th get no default. This is
+    // the explicit expected list — not a count derived from the source under
+    // test — so adding/removing a section fails here on purpose.
     expect(config.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '',
     ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
@@ -57,10 +57,10 @@ describe('v1 migration', () => {
     };
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(untouched));
     // The untouched v1 legacy-order save adopts the current function defaults
-    // (now 15 canonical sections; only the first 12 get F1..F12). This is the
-    // explicit expected list, so a change to the canonical section count fails here.
+    // (only the first 12 get F1..F12). This is the explicit expected list, so a
+    // change to the canonical section count fails here.
     expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '',
     ]);
   });
 

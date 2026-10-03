@@ -491,10 +491,15 @@ Two client surfaces consume the fired-alert stream:
 1. **In-app notices** — the `/alerts` screen polls `/api/alerts/live` every 5s
    and plays `sound.notification()` on a genuinely new event. Because that screen
    is only mounted on its own tab, this is silent elsewhere in the app.
-2. **Desktop (OS) notifications** — `src/lib/alerts/browser-notifier.ts` wraps the
-   Web Notification API, and `AlertNotificationProvider` (mounted once in
+2. **App-wide delivery** — `AlertNotificationProvider` (mounted once in
    `src/app/layout.tsx`) polls the same `/api/alerts/live` feed globally (10s) and
-   raises a native OS notification for each new event. New events are found with
+   surfaces each new event two ways: an **always-on in-app toast** (bottom-right,
+   every tab, no permission needed) and a **native OS notification** when the user
+   has opted in and granted permission. It is the single owner of fired-alert
+   delivery; any surface (e.g. the Settings test button) raises the same pair via
+   the `be:alert-notify` window event rather than calling the notifier directly.
+   `src/lib/alerts/browser-notifier.ts` wraps the Web Notification API (opt-in
+   `be_alerts_browser_v1`, default OFF). New events are found with
    `src/lib/alerts/event-diff.ts`, which tracks a bounded set of seen event ids
    (not just the last one) precisely because the feed is capped at 50 rows. This is the one delivery
    path that reaches the laptop itself. It is **opt-in** (localStorage

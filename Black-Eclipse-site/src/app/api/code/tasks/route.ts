@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       workspaceId?: string;
       modelSettings?: Record<string, unknown>;
       callbackBaseUrl?: string;
+      direct?: boolean;
     };
     if (typeof body.query !== "string" || !body.query.trim()) {
       return NextResponse.json({ error: "query is required" }, { status: 400 });
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
       workspaceId: body.workspaceId,
       modelSettings,
       callbackBaseUrl: body.callbackBaseUrl,
+      direct: body.direct === true,
     });
     return NextResponse.json({ success: true, task });
   } catch (err) {

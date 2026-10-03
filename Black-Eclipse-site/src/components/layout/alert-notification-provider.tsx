@@ -1,33 +1,60 @@
 'use client';
 
 // ── Global alert notification provider ─────────────────────────────────────
-// Mounted once at the app root (src/app/layout.tsx). Watches the always-recorded
-// fired-alert stream (GET /api/alerts/live — the same source the /alerts screen
-// reads) and raises a native OS notification via the Web Notification API.
+// Mounted once at the app root (src/app/layout.tsx). It makes a fired price
+// alert visible EVERYWHERE in the app — not just on the /alerts tab.
 //
-// Why a global poll rather than wiring the /alerts screen: that screen is only
-// mounted on its own tab, so a fired alert was otherwise silent everywhere else.
-// The live feed records every fire regardless of channels configured, so this is
-// the reliable signal. It polls a small JSON GET every 10s even while desktop
-// notifications are off: keeping the seen-set current is what lets a user enable
-// them later without the still-buffered alerts firing as a backlog burst. It
-// never *notifies* unless the user has opted in.
+// Two delivery layers, so an alert is never silent:
+//   1. An in-app toast (bottom-right) — always shown when an alert fires, on
+//      every tab, with no browser permission required.
+//   2. A native OS (desktop) notification via the Web Notification API — only
+//      when the user opted in AND the browser granted permission. The Settings
+//      toggle reports the honest permission state (`off`/`blocked`/`on`).
 //
-// De-duplication is a bounded set of seen ids (lib/alerts/event-diff.ts), not a
-// single "last seen" id — the feed is capped at 50 rows, so a burst could
-// otherwise re-announce an event after it scrolls out of the window. The first
-// poll SEEDS the set without notifying, so opening the app never re-announces
-// history.
+// It watches GET /api/alerts/live (the always-recorded fired-alert stream). A
+// bounded set of seen ids (lib/alerts/event-diff.ts) guarantees exactly one
+// notice per event, even though the feed is capped at 50 rows. The first poll
+// seeds the set without notifying, so opening the app never replays history.
+//
+// A `be:alert-notify` window event lets any surface (the Settings test button,
+// future callers) raise the same toast+desktop pair without duplicating logic.
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isEnabled, showAlertNotification } from '@/lib/alerts/browser-notifier';
 import { seedSeen, selectNewEvents, type LiveAlertEvent } from '@/lib/alerts/event-diff';
 
 const POLL_MS = 10_000;
+const TOAST_MS = 8_000;
+const MAX_TOASTS = 4;
+
+export const ALERT_NOTIFY_EVENT = 'be:alert-notify';
+
+interface Toast {
+  id: string;
+  title: string;
+  body: string;
+}
 
 export function AlertNotificationProvider() {
   const seenRef = useRef<Set<string>>(new Set());
   const seededRef = useRef(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const pushToast = useCallback((title: string, body: string) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts((prev) => [...prev.slice(-(MAX_TOASTS - 1)), { id, title, body }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), TOAST_MS);
+  }, []);
+
+  // The one place an alert becomes visible: always the toast, plus the desktop
+  // notification when the user opted in and permission is granted.
+  const announce = useCallback(
+    (title: string, body: string, alertId?: string, test?: boolean) => {
+      pushToast(test ? `Test — ${title}` : title, body);
+      if (isEnabled()) showAlertNotification({ alertName: title, msg: body, alertId, test });
+    },
+    [pushToast],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -47,10 +74,8 @@ export function AlertNotificationProvider() {
 
         const { fresh, seen } = selectNewEvents(events, seenRef.current);
         seenRef.current = seen;
-        if (!fresh.length || !isEnabled()) return;
-
         for (const e of fresh) {
-          showAlertNotification({ msg: e.detail || 'Alert fired', alertId: e.alertId });
+          announce('BlackEclipse alert', e.detail || 'Alert fired', e.alertId);
         }
       } catch {
         /* offline / server down — try again next tick */
@@ -63,7 +88,42 @@ export function AlertNotificationProvider() {
       cancelled = true;
       clearInterval(t);
     };
-  }, []);
+  }, [announce]);
 
-  return null;
+  // External surfaces (Settings test button) raise the same pair.
+  useEffect(() => {
+    const onNotify = (ev: Event) => {
+      const d = (ev as CustomEvent<{ title?: string; body?: string; test?: boolean }>).detail || {};
+      announce(d.title || 'BlackEclipse', d.body || 'Alert', undefined, d.test);
+    };
+    window.addEventListener(ALERT_NOTIFY_EVENT, onNotify);
+    return () => window.removeEventListener(ALERT_NOTIFY_EVENT, onNotify);
+  }, [announce]);
+
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[120] flex flex-col gap-2 pointer-events-none">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          role="alert"
+          className="pointer-events-auto w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/10 dark:border-white/5 glass-card-strong shadow-lg p-3.5 animate-fade-in-up"
+        >
+          <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+            {t.title}
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{t.body}</p>
+          <button
+            onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+            className="absolute top-2 right-3 text-muted-foreground hover:text-foreground text-xs cursor-pointer"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }

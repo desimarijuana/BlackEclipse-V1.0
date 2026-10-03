@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
 import { DISPLAY_TIMEZONES, browserTimeZone, getDisplayTimeZone, isValidTimeZone, setDisplayTimeZone } from "@/lib/timezone";
+import { HEATMAP_MARKETS } from "@/lib/heatmap";
 import { DEFAULT_GENERAL_PREFS, loadGeneralPrefs, saveGeneralPrefs, type GeneralPrefs } from "@/lib/general-prefs";
 import { BackgroundSettingsPanel } from "./background-settings";
 
@@ -25,12 +26,10 @@ export interface GeneralAppPreferences {
   refreshMs: number;
 }
 
-const ALL_MARKETS = [
-  { id: "US", label: "United States" },
-  { id: "PK", label: "Pakistan" },
-  { id: "IN", label: "India" },
-  { id: "CRYPTO", label: "Crypto" },
-];
+// Fallback market list, used only when /api/markets has not answered yet. It is
+// the full supported universe (not a hardcoded few) so the selector is never
+// silently narrowed to 4 markets.
+const ALL_MARKETS = HEATMAP_MARKETS.map((m) => ({ id: m.id, label: m.country }));
 
 const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 

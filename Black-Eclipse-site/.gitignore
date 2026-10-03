@@ -91,6 +91,7 @@ python/**/*.egg-info/
 # them, so they must be ignored rather than tracked.
 /.test-tmp/
 .tmp-tests/
+/scripts/scratch/
 
 # vendored embedded Python (downloaded on-demand, never committed)
 /scripts/vendor/python/

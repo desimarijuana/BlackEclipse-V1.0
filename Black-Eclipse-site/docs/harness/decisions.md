@@ -3298,3 +3298,94 @@ A "Build this" / "Schedule" action on the code task list reuses the EXISTING
 disabled (`agent_id="code-agent"`, `autonomy="edit_verify"`).
 Tests: `test_code_request_intent.py`, `test_chat_code_profile.py`,
 `test_code_reachability.py`, `chat-capability-panel.test.ts`.
+
+## ADR-H118 — The folder a person chooses is a trusted root; approval is the one widening act
+
+**Decision.** OpenCode-style general software work is enabled without repealing
+the isolation invariant. A person picks a folder; an operator approves it
+(`POST /workspace/roots`, `require_operator`); it is persisted in a
+`TrustedRoot` table on the runtime's own `agent-memory.db`. The SELECTED root is
+what `workspace.default_root()` resolves to, after the `BLACK_ECLIPSE_CODE_ROOT`
+override and before the built-in repo root, so zero-config is unchanged and a
+chosen folder takes effect on the next run without a restart. Approval is the
+ONE place a new root becomes workable; every read and write is still confined by
+`policy.resolve_within`, and `PROTECTED_PATHS` remain untouchable inside an
+approved folder.
+
+**Why.** The prior design bound only the server's own repo root, so a person
+could never point Eclipse at their own project. Widening "any path the model
+names" would be a security hole; a persisted, operator-approved allowlist is the
+narrow, auditable widening that keeps the model from choosing its own boundary.
+
+**Consequences.** `code/roots.py` owns the registry + a bounded directory
+browse. `routers/workspace.py` owns the routes. The editor's file APIs
+(`/workspace/files`, `/workspace/file/read|write`) use the SAME confinement the
+agent tools use, so the human editor is a second door to one boundary, never a
+weaker one. A root that vanishes falls back to the repo root rather than failing
+every run.
+
+## ADR-H119 — A direct edit is opt-in and lands in the real folder; the sandbox stays the default
+
+**Decision.** `worktree.allocate(direct=True)` returns the resolved root itself
+(strategy `"direct"`) instead of a disposable worktree or snapshot; `release`
+NEVER deletes a direct workspace. Direct mode is reachable only for a run whose
+root resolution already succeeded, and a code task defaults to direct when (and
+only when) a trusted folder is selected — an explicit `direct` always wins. The
+built-in repo root with no selection stays isolated.
+
+**Why.** "Pick a folder and edit it" is the point of choosing it; making the user
+flip a second switch after the explicit folder approval would be ceremony. The
+safety comes from the approval (ADR-H118) and the confinement (unchanged), not
+from a copy. The copy remains for the built-in repo, where the operator never
+opted in.
+
+**Consequences.** `RunRequest.direct` is additive and default-False at the
+schema level (old callers unchanged); the route resolves the default from the
+selected root. `worktree.diff` reports a direct workspace honestly: a git diff
+when the folder is a checkout, an empty result otherwise — never a synthesized
+change.
+
+## ADR-H120 — The terminal is one tool with a three-way classifier, not a shell
+
+**Decision.** `terminal_run` runs an arbitrary command WITHOUT a shell
+(`shlex.split`, argv exec through `code/sandbox.py`). A pure classifier sorts
+every command into `allow` (a safe-program allowlist: interpreters, package
+managers, test/build/lint, git, read-only coreutils, safe file mutators), `ask`
+(anything else), or `deny` (destructive shapes, shells, downloaders, and
+shell-chaining metacharacters). `allow` runs; `ask` requires a single-use,
+workspace-bound approval (`kind="terminal_command"`) created on first call and
+consumed on retry; `deny` is refused and is never approvable. The registry's
+effect authorizer and the handler both enforce the verdict.
+
+**Why.** The user asked for real terminal access. The safe way to add it is not
+to delete the closed command table but to add a generic tool whose safety is a
+classifier enforced in Python — never by a prompt — plus the existing
+sandbox/wall-clock/output/process-tree bounds. No shell means a `; rm -rf` is
+inert text, not a second command.
+
+**Consequences.** `code/terminal.py` owns classification + `RunSpec`; the
+handler is `code/terminal_tools.py`; the tool is registered only on the
+code/chat surfaces and is removed at `plan_only`. Every execution is recorded in
+`HarnessCommandExecution` and the verification ledger exactly like `command_run`,
+so a claim about it is checkable.
+
+## ADR-H121 — The live stream shows what a tool is doing, content-free
+
+**Decision.** `tool.requested` carries a bounded `detail` and `tool.completed`
+carries a bounded `summary`, both derived by one pure function
+(`code/activity.py::tool_detail`/`tool_result_summary`). A `detail` is a command,
+a file PATH, or the changed PATHS; a `summary` is an exit code, a count, or
+"timed out". File CONTENT is never included: a `workspace_patch_apply` carrying a
+secret in `content`/`new` summarizes to its paths alone.
+
+**Why.** A coding harness earns trust by showing its work — "Running
+`python app.py` → exit 0", "Writing the change `stream.py` → 1 file(s)". Eclipse's
+chat showed only a tool NAME ("Reading a file"), so the surface read like a
+chatbot with a spinner, not a harness. The fix belongs at the emitter: the
+runtime owns the tool call and its data, so it can summarize safely.
+
+**Consequences.** `activity.py` owns the derivation (a fixed field allowlist per
+tool; a `MAX_DETAIL_CHARS` bound). The event carries display metadata only — it
+is never an authorization. `ActivityItem.detail` is the one new client field; the
+activity reducer already spreads it through. A tool with no safe detail or a
+result with no known shape reports nothing rather than a fabricated line.

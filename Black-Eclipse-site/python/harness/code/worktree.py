@@ -44,10 +44,19 @@ WORKSPACE_TTL_SECONDS = 24 * 60 * 60
 
 # The ONLY argv this module may run. No model-supplied argument reaches any of
 # them; `base_revision` and `dir` come from validated internal values only.
+#
+# `-c core.longpaths=true` is set on every invocation: on Windows an unconfigured
+# git aborts a checkout that contains deep paths (the scaffold-kit templates under
+# `code/kits/**` exceed MAX_PATH) with "Filename too long". That failure silently
+# demoted every code task to the full-copy "snapshot" fallback, which then refused
+# with SNAPSHOT_TOO_LARGE on this repo — so no write ever succeeded. Passing the
+# config per-command avoids mutating the operator's global git config.
+_GIT: tuple[str, ...] = ("git", "-c", "core.longpaths=true")
+
 GIT_WORKTREE_ARGV: dict[str, tuple[str, ...]] = {
-    "add": ("git", "worktree", "add", "--detach"),
-    "remove": ("git", "worktree", "remove", "--force"),
-    "rev_parse": ("git", "rev-parse", "HEAD"),
+    "add": _GIT + ("worktree", "add", "--detach"),
+    "remove": _GIT + ("worktree", "remove", "--force"),
+    "rev_parse": _GIT + ("rev-parse", "HEAD"),
 }
 BASE_REVISION_PATTERN = r"[0-9a-fA-F]{7,40}|HEAD(~\d+)?"
 
@@ -133,6 +142,19 @@ def _git_available(root: Path) -> bool:
     return proc.returncode == 0
 
 
+def _git_head(root: Path) -> str:
+    """The git HEAD sha for `root`, or "direct" when git is absent. Never invents."""
+    try:
+        proc = _run(GIT_WORKTREE_ARGV["rev_parse"], root)
+        if proc.returncode == 0:
+            text = proc.stdout.decode("utf-8", "replace").strip()
+            if re.fullmatch(r"[0-9a-fA-F]{7,40}", text):
+                return text
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "direct"
+
+
 def _valid_revision(base: str) -> str:
     text = str(base or "HEAD").strip()
     if not _REVISION_RE.match(text):
@@ -202,10 +224,16 @@ def _read_manifest(sidecar: Path) -> dict[str, str]:
         return {}
 
 
-def allocate(base_revision: str = "HEAD") -> CodeWorkspace:
+def allocate(base_revision: str = "HEAD", *, direct: bool = False) -> CodeWorkspace:
     """Create a disposable workspace. Deterministic, bounded, honest about strategy.
 
-    Order of attempts, all inside the scratch root:
+    With ``direct=True`` the workspace IS the resolved root itself (strategy
+    ``"direct"``) — the user chose this folder and approved it, so writes land in
+    their real files. ``release`` NEVER deletes a ``"direct"`` workspace. Direct
+    mode is opt-in per run and only ever binds a root the runtime already
+    resolved and a person already approved.
+
+    Otherwise the order of attempts, all inside the scratch root:
       1. `git worktree add --detach <dir> <base>` with cwd=root, no shell.
       2. On failure OR when git is unavailable: a bounded snapshot copy of the
          tree. An honest refusal (`SNAPSHOT_TOO_LARGE`) past the caps — never a
@@ -216,6 +244,16 @@ def allocate(base_revision: str = "HEAD") -> CodeWorkspace:
     resolver at a temp repo with `BLACK_ECLIPSE_CODE_ROOT`.
     """
     repo_root = _current_root()
+    if direct:
+        base = _valid_revision(base_revision) if _REVISION_RE.match(str(base_revision or "HEAD")) else "HEAD"
+        return CodeWorkspace(
+            id="cw_direct_" + hashlib.sha256(str(repo_root).encode("utf-8")).hexdigest()[:16],
+            root=repo_root,
+            strategy="direct",
+            base_revision=_git_head(repo_root) if _git_available(repo_root) else "direct",
+            created_at=_now_iso(),
+            file_count=0,
+        )
     base = _valid_revision(base_revision)
     scratch = scratch_root(repo_root)
     workspace_id = _stable_id()
@@ -272,6 +310,10 @@ def release(workspace_id: str) -> dict[str, Any]:
     exists. An already-released workspace returns `{"alreadyReleased": True}`.
     """
     repo_root = _current_root()
+    if str(workspace_id).startswith("cw_direct_"):
+        # A direct workspace IS the user's real folder. Never delete it.
+        return {"released": True, "alreadyReleased": True, "workspaceId": workspace_id,
+                "direct": True}
     target = _workspace_dir(repo_root, workspace_id)
     if not target.exists():
         return {"released": True, "alreadyReleased": True, "workspaceId": workspace_id}
@@ -321,7 +363,8 @@ def diff(workspace_id: str, base: Optional[str] = None, *, strategy: str = "work
     result still says `strategy: "snapshot"` — no caller can mistake it for git.
     """
     repo_root = _current_root()
-    target = _workspace_dir(repo_root, workspace_id)
+    # A direct workspace IS the resolved real root, not a scratch subfolder.
+    target = repo_root if strategy == "direct" else _workspace_dir(repo_root, workspace_id)
     if not target.exists():
         raise WorkspaceError("UNKNOWN_WORKSPACE", f"no workspace {workspace_id!r}")
     base_rev = _valid_revision(base) if base else "HEAD"
@@ -331,6 +374,20 @@ def diff(workspace_id: str, base: Optional[str] = None, *, strategy: str = "work
         before = _read_manifest(sidecar)
         after = _manifest(target)
         unified, added, modified, deleted = _unified_from_manifests(before, after)
+    elif strategy == "direct":
+        # A direct workspace is the user's real folder. If it is a git checkout
+        # we can show a real diff; otherwise there is no base to diff against, so
+        # we report the working tree honestly rather than synthesizing a change.
+        if _git_available(target):
+            try:
+                proc = _run(("git", "-C", str(target), "diff", base_rev, "--no-color", "--no-ext-diff"), repo_root)
+                unified = proc.stdout.decode("utf-8", "replace")
+                status = _run(("git", "-C", str(target), "status", "--porcelain=v1", "-z"), repo_root)
+                added, modified, deleted = _parse_status_lists(status.stdout)
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise WorkspaceError("GIT_FAILED", f"could not read the change: {exc}") from exc
+        else:
+            unified, added, modified, deleted = "", [], [], []
     else:
         try:
             proc = _run(

@@ -14,7 +14,6 @@ import {
   isEnabled as browserNotifyEnabled,
   permission as browserNotifyPermission,
   setEnabled as setBrowserNotifyEnabled,
-  showAlertNotification,
   type NotificationPermissionState,
 } from "@/lib/alerts/browser-notifier";
 
@@ -104,12 +103,24 @@ export function AlertNotificationsPanel() {
   };
 
   const testBrowserNotify = () => {
-    const shown = showAlertNotification({
-      alertName: "BlackEclipse",
-      msg: "This is a test alert — desktop notifications are working.",
-      test: true,
-    });
-    if (!shown) setMessage("Could not show a desktop notification — enable it and allow browser permission first.");
+    // Raise the SAME pair a real fired alert uses, through the ONE provider that
+    // owns delivery: an always-on in-app toast, plus the desktop notification
+    // when enabled+granted. Firing `showAlertNotification` here as well would
+    // double the OS notification, so the event is the single trigger.
+    window.dispatchEvent(
+      new CustomEvent('be:alert-notify', {
+        detail: {
+          title: 'Desk-test alert',
+          body: 'This is a test alert — in-app + desktop delivery are wired.',
+          test: true,
+        },
+      }),
+    );
+    setMessage(
+      browserOn && browserPermission === 'granted'
+        ? 'Test sent — check your desktop and the bottom-right toast.'
+        : 'In-app toast sent. Desktop notification is off or blocked — enable it and allow browser permission for OS alerts.',
+    );
   };
 
   const load = async () => {

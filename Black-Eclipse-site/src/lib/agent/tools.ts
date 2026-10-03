@@ -128,7 +128,7 @@ export const TOOLS: ToolDefinition[] = [
       type: "object",
       properties: {
         symbol: { type: "string", description: "Ticker symbol, e.g. AAPL, SYS, BTC" },
-        market: { type: "string", description: "Market/venue: US, PK, IN, CRYPTO. Required when the ticker is multi-listed; no default." },
+        market: { type: "string", description: "Market/venue code (US, PK, IN, UK, JP, DE, CRYPTO, …). Required when the ticker is multi-listed; no default." },
       },
       required: ["symbol"],
     },

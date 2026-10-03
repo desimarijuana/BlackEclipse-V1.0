@@ -54,6 +54,11 @@ export function ActivityItemRow({ item, compact = false, capability }: ActivityI
   // label; the raw code stays behind "details".
   const refused = Boolean(item.reasonKey);
 
+  // A coding-harness row: when the runtime supplied a `detail` (the command, the
+  // file path, the changed paths), the label becomes the quiet prefix and the
+  // detail is the primary line — the way a real harness shows what it is doing.
+  const hasDetail = Boolean(item.detail);
+
   // Reveal the operation name + failure code only when they exist. A plain
   // successful tool with no extras stays a single line.
   const hasDetails = Boolean(item.code) || item.kind === 'retrieval' || Boolean(item.name);
@@ -77,7 +82,14 @@ export function ActivityItemRow({ item, compact = false, capability }: ActivityI
             : <CategoryIcon item={item} />}
         </span>
         <span className={cn('min-w-0 flex-1 truncate', failed ? 'text-rose-300' : refused ? 'text-amber-300/90' : 'text-muted-foreground')}>
-          {refused && item.reasonKey ? t(item.reasonKey) : item.label}
+          {refused && item.reasonKey ? t(item.reasonKey) : (
+            hasDetail ? (
+              <>
+                <span className="text-muted-foreground/60">{item.label} </span>
+                <span className="font-mono text-foreground/80">{item.detail}</span>
+              </>
+            ) : item.label
+          )}
         </span>
         {item.summary && !running && !failed && (
           <span className="shrink-0 text-muted-foreground/60">{item.summary}</span>

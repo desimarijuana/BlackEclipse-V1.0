@@ -319,6 +319,7 @@ def code_grants(autonomy: str) -> frozenset[str]:
 WRITE_TOOLS: tuple[str, ...] = (
     "workspace_patch_apply", "workspace_revert",   # code.write
     "command_run",                                  # code.execute / command.execute
+    "terminal_run",                                 # command.execute (generic, gated)
     "scaffold_kit",                                 # code.write (Phase 9)
 )
 

@@ -45,7 +45,7 @@ async function searchSymbols(q: string): Promise<SuggestionRow[]> {
         CASE WHEN UPPER(a."symbol") LIKE ${prefix} THEN 0 ELSE 1 END,
         p."marketCap" IS NULL,
         p."marketCap" DESC
-      LIMIT 8
+      LIMIT 100
     `,
     prisma.$queryRaw<
       Array<{ symbol: string; name: string; marketId: string; price: number }>
@@ -53,7 +53,7 @@ async function searchSymbols(q: string): Promise<SuggestionRow[]> {
       SELECT "symbol" AS symbol, "name" AS name, "marketId" AS marketId, "price" AS price
       FROM "IndexQuote"
       WHERE "price" > 0 AND ("symbol" LIKE ${like} OR "name" LIKE ${like})
-      LIMIT 6
+      LIMIT 20
     `,
   ]);
 
@@ -100,12 +100,14 @@ async function searchSymbols(q: string): Promise<SuggestionRow[]> {
   return merged
     .sort((a, b) => rank(a) - rank(b))
     .filter((r) => {
-      const key = r.symbol.toUpperCase();
+      // De-dup by symbol+market so the same ticker listed in two markets (e.g.
+      // a US and a DE line) both remain pickable, not silently collapsed.
+      const key = `${r.symbol.toUpperCase()}|${r.marketId}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .slice(0, 8);
+    .slice(0, 100);
 }
 
 // GET /api/quote?symbols=OGDC,AAPL,BTC — resolve arbitrary pinned symbols

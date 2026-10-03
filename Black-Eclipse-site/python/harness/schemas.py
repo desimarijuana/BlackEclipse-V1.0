@@ -188,6 +188,10 @@ class RunRequest(BaseModel):
     # Default False — discovery is not activation. A computed number is always
     # labelled "worked out by Eclipse" and never presented as retrieved data.
     analysisEnabled: bool = False  # noqa: N815
+    # Folder-selection (additive, optional): when True, the task edits the
+    # SELECTED trusted root DIRECTLY instead of a disposable copy. Opt-in per
+    # run; only ever binds a root the runtime resolved and a person approved.
+    direct: bool = False
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

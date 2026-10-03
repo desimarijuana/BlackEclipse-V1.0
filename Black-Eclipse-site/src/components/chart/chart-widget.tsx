@@ -1109,7 +1109,7 @@ function CompareMenu({
       fetch(`/api/quote?q=${encodeURIComponent(q)}`, { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : { suggestions: [] }))
         .then((j: { suggestions?: SymbolSuggestion[] }) => {
-          if (!controller.signal.aborted) setSuggestions((j.suggestions ?? []).slice(0, 8));
+          if (!controller.signal.aborted) setSuggestions((j.suggestions ?? []).slice(0, 50));
         })
         .catch(() => {})
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });

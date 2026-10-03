@@ -1347,7 +1347,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 {stripSuggestions.length > 0 && (
                   <div className="mt-2">
                     <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1">Matches from database — click to pin</p>
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
                       {stripSuggestions.map(s => (
                         <button
                           key={`${s.marketId}-${s.symbol}`}

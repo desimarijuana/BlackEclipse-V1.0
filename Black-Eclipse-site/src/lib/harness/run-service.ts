@@ -27,6 +27,11 @@ export interface StartRunOptions {
   // Phase 1 (optional): bind this run to a read-only workspace. Validated here
   // and forwarded; the runtime only ever binds its server-resolved root.
   workspace?: { root: string; baseRevision?: string };
+  // Phase 14 (optional): a chat turn recognised as a coding request narrows the
+  // run with an autonomy profile and (for a code change) the analysis sandbox.
+  // Validated here; the runtime enforces the actual grant.
+  autonomy?: "plan_only" | "edit_verify";
+  analysisEnabled?: boolean;
 }
 
 /**
@@ -47,6 +52,17 @@ export async function chatWithAgent(
   error?: string;
   research?: import("./types").ResearchRunInfo;
 }> {
+  // Phase 14: the non-streaming chat path must resolve the code profile too —
+  // otherwise a coding request typed into `/api/harness/chat` reached the model
+  // with NO code tool bound and the model honestly refused ("no filesystem or
+  // shell tool is bound"). Only the streaming path had this wiring. A classifier
+  // failure is an ordinary turn (null), never a guess.
+  let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
+  try {
+    capability = await resolveChatCodeProfile(query, history);
+  } catch {
+    capability = null;
+  }
   const result = await startRun({
     input: { query, history, documents: documents.length ? documents : undefined },
     agentId: "eclipse-agent",
@@ -54,6 +70,8 @@ export async function chatWithAgent(
     // The chat workspace id is the session id, so a chat turn belongs to a
     // long-lived session and shows up in the Sessions tab (M3).
     sessionId,
+    ...(capability ? { autonomy: capability.autonomy } : {}),
+    ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
   });
 
   if ("status" in result && !("modelSteps" in result)) {
@@ -194,6 +212,10 @@ export async function startRun(
     projectId: options.projectId,
     // Phase 1 (optional): a narrowing/confirmation of the workspace root.
     workspace,
+    // Phase 14 (optional): the code profile resolved for a recognised coding
+    // turn. Absent for an ordinary finance turn, which is unchanged.
+    ...(options.autonomy ? { autonomy: options.autonomy } : {}),
+    ...(options.analysisEnabled ? { analysisEnabled: true } : {}),
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };

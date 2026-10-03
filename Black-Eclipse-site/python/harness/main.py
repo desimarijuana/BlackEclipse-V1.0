@@ -50,6 +50,7 @@ from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
+from .routers.workspace import router as workspace_router
 from .schemas import RunRequest, RunResult
 from .skills.draft import propose_draft
 from .skills.evaluation import evaluate_skill
@@ -121,6 +122,7 @@ app.include_router(mcp_router)
 app.include_router(memory_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
+app.include_router(workspace_router)
 
 # Process start time (epoch ms). The TS launcher compares this against the
 # build time of `python/harness/` to detect an orphaned runtime from an earlier

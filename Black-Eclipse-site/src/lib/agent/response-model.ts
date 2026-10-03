@@ -25,6 +25,12 @@ export interface ActivityItem {
   name: string;
   /** Human-readable label, e.g. "Retrieving market quote". Safe to display. */
   label: string;
+  /**
+   * What the tool is acting on — the command, the file path, or the changed
+   * paths. Bounded, content-free (never file text), derived by the runtime's
+   * `code/activity.py`. Absent when there is nothing safe to show.
+   */
+  detail?: string;
   /** Data category / provider for a retrieval item (e.g. "yfinance"). */
   source?: string;
   status: 'running' | 'completed' | 'failed';
@@ -144,6 +150,10 @@ const TOOL_LABELS: Record<string, string> = {
   workspace_patch_apply: 'Writing the change',
   workspace_diff: 'Showing what changed',
   workspace_revert: 'Undoing the change',
+  command_run: 'Running a check',
+  terminal_run: 'Running',
+  scaffold_kit: 'Building a tool',
+  analysis_run: 'Working it out',
 };
 
 /** Turn a raw tool name into a short, human label (fallback prettifies it). */
