@@ -306,6 +306,24 @@ export async function writeWorkspaceFile(path: string, content: string): Promise
   return { path: body.path, bytes: body.bytes };
 }
 
+export async function makeWorkspaceFolder(path: string): Promise<{ path: string }> {
+  const body = await request<{ success: boolean; path: string }>("/workspace/file/mkdir", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+    timeoutMs: 20_000,
+  });
+  return { path: body.path };
+}
+
+export async function deleteWorkspacePath(path: string): Promise<{ path: string; removed: boolean }> {
+  const body = await request<{ success: boolean; path: string; removed: boolean }>("/workspace/file/delete", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+    timeoutMs: 20_000,
+  });
+  return { path: body.path, removed: body.removed };
+}
+
 // ─── Code-verification wire types (Phase 4) ─────────────────────────────────
 // Mirror of the Python `code/verify.py` shapes. This module holds NO agentic
 // logic — the panel renders what the runtime recorded, and never upgrades an

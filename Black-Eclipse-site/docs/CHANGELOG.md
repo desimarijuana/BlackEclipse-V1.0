@@ -8,6 +8,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Editor: a real explorer tree — create files/folders, expand in place, delete.**
+  The editor had no "+" control at all and clicking a folder navigated away, so a
+  file could not be added. The tree is now an editor explorer: click a file to
+  open it, click a folder to expand it in place, "+" (new file / new folder) opens
+  an inline name field committed with Enter, and hovering a row reveals Delete.
+  Added `POST /workspace/file/mkdir` and `/workspace/file/delete` (a non-empty
+  folder is refused, never removed recursively) plus their `code-client` /
+  `code-browser` proxies and `/api/workspace/file/{mkdir,delete}` routes.
+  Verified live: created `demo/sub`, wrote `demo/sub/a.txt`, listed it, and the
+  non-empty delete was refused. Tests: 4 new cases in `test_workspace_editor_api.py`.
+  `tsc` clean; vitest 2033 passed; pytest 2473 passed.
+  docs updated: `docs/CHANGELOG.md`
+
 - **The chat stream now reads like a real coding harness.** Tool activity showed
   only a tool NAME ("Reading a file"); it now shows what the tool is doing and
   what came back — "Writing the change `stream.py` → 1 file(s)", "Running

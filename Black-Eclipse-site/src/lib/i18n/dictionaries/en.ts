@@ -316,6 +316,15 @@ export const en = {
   'editor.redacted': 'Some lines are hidden because they may hold private data.',
   'editor.removeFolder': 'Forget this folder',
   'editor.folderHint': 'Approved folders you can work in.',
+  'editor.newFile': 'New file',
+  'editor.newFolder': 'New folder',
+  'editor.namePlaceholder': 'name',
+  'editor.delete': 'Delete',
+  'editor.confirmDelete': 'Delete this?',
+  'editor.createFailed': 'I couldn’t create that.',
+  'editor.deleteFailed': 'I couldn’t remove that.',
+  'editor.newFileName': 'untitled.txt',
+  'editor.newFolderName': 'new-folder',
 
   // ── Scheduled jobs (Phase 6) ─────────────────────────────────────────────
   // The user names the JOB, never the mechanism. A cron expression, skill id,

@@ -135,6 +135,20 @@ export async function writeWorkspaceFile(path: string, content: string): Promise
   });
 }
 
+export async function makeWorkspaceFolder(path: string): Promise<{ path: string }> {
+  return api<{ path: string }>('/api/workspace/file/mkdir', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+export async function deleteWorkspacePath(path: string): Promise<{ path: string; removed: boolean }> {
+  return api<{ path: string; removed: boolean }>('/api/workspace/file/delete', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
 // ── Pure, client-safe render helpers (mirrors of the server client) ─────────
 
 export type CheckClaimKind = 'tests_pass' | 'typecheck_clean' | 'build_ok' | 'lint_clean';

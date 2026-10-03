@@ -38,6 +38,10 @@ class WriteFileRequest(BaseModel):
     content: str = Field(default="", max_length=2_000_000)
 
 
+class MkdirRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+
+
 def _editor_root():
     """The active workspace root for the human editor, or raise 400."""
     from ..code.workspace import default_root  # noqa: PLC0415
@@ -207,6 +211,39 @@ def write_file(body: WriteFileRequest, _: bool = Depends(require_operator)) -> d
         raise HTTPException(status_code=400, detail=f"That file could not be saved: {exc}") from exc
     return {"success": True, "path": resolved.relative_to(root).as_posix(),
             "bytes": len(body.content.encode("utf-8"))}
+
+
+@router.post("/workspace/file/mkdir")
+def make_folder(body: MkdirRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Create a folder inside the active root (the editor's "new folder")."""
+    from ..code.policy import PolicyDenial, resolve_within  # noqa: PLC0415
+
+    root, resolved = _resolve_editor_path(body.path)
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"That folder could not be created: {exc}") from exc
+    return {"success": True, "path": resolved.relative_to(root).as_posix()}
+
+
+@router.post("/workspace/file/delete")
+def delete_path(body: ReadFileRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Delete a file (or an empty folder) inside the active root.
+
+    A human editor action, so directories are deleted only when EMPTY — a
+    non-empty folder is refused rather than silently removed recursively.
+    """
+    root, resolved = _resolve_editor_path(body.path)
+    if not resolved.exists():
+        raise HTTPException(status_code=400, detail="That path is not there.")
+    try:
+        if resolved.is_dir():
+            resolved.rmdir()  # refuses a non-empty folder
+        else:
+            resolved.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"That couldn't be removed: {exc}") from exc
+    return {"success": True, "path": resolved.relative_to(root).as_posix(), "removed": True}
 
 
 __all__ = ["router"]

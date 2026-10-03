@@ -102,3 +102,27 @@ def test_missing_file_is_refused(editor_app):
     client, _root = editor_app
     resp = client.post("/workspace/file/read", json={"path": "does-not-exist.txt"})
     assert resp.status_code == 400
+
+
+def test_mkdir_creates_a_folder(editor_app):
+    client, root = editor_app
+    resp = client.post("/workspace/file/mkdir", json={"path": "new/pkg"})
+    assert resp.status_code == 200
+    assert (root / "new" / "pkg").is_dir()
+
+
+def test_delete_removes_a_file(editor_app):
+    client, root = editor_app
+    (root / "gone.txt").write_text("x", encoding="utf-8")
+    resp = client.post("/workspace/file/delete", json={"path": "gone.txt"})
+    assert resp.status_code == 200
+    assert not (root / "gone.txt").exists()
+
+
+def test_delete_refuses_a_non_empty_folder(editor_app):
+    client, root = editor_app
+    (root / "keep" / "inner.txt").parent.mkdir(parents=True, exist_ok=True)
+    (root / "keep" / "inner.txt").write_text("x", encoding="utf-8")
+    resp = client.post("/workspace/file/delete", json={"path": "keep"})
+    assert resp.status_code == 400
+    assert (root / "keep" / "inner.txt").exists()

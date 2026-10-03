@@ -7,18 +7,22 @@
 // folder by the runtime — the same confinement the agent tools use — so this is a
 // second door to the SAME boundary, never a weaker one.
 //
-// A minimal, dependency-free editor: a directory tree, a monospace textarea, and
-// a Save that writes the file. Syntax highlighting is deliberately not bundled
-// (no Monaco/CodeMirror dependency added) — this is the working core.
+// The tree behaves like an editor explorer: click a file to open it, click a
+// folder to expand it in place, use the "+" to create a file or folder (inline,
+// named with Enter), and hover a row to delete it. No dependency is bundled; this
+// is the working core.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronRight, FilePlus, FolderPlus, Plus, Trash2, X } from 'lucide-react';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
 import {
   approveTrustedRoot,
   browseFolders,
+  deleteWorkspacePath,
   listTrustedRoots,
   listWorkspaceFiles,
+  makeWorkspaceFolder,
   readWorkspaceFile,
   selectTrustedRoot,
   writeWorkspaceFile,
@@ -92,28 +96,54 @@ export function EditorScreen() {
 
 // ── The tree + editor ────────────────────────────────────────────────────────
 
+interface TreeState {
+  /** Directory rel path → its loaded children. */
+  children: Record<string, EditorEntry[]>;
+  expanded: Set<string>;
+}
+
+function joinPath(dir: string, name: string): string {
+  return dir === '.' || dir === '' ? name : `${dir}/${name}`;
+}
+
 function FileWorkspace({ root }: { root: TrustedRoot }) {
   const t = useT();
-  const [entries, setEntries] = useState<EditorEntry[]>([]);
-  const [path, setPath] = useState('.');
+  const [tree, setTree] = useState<TreeState>({ children: {}, expanded: new Set(['.']) });
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [original, setOriginal] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Inline creation: { dir, kind } — a name input appears under that folder.
+  const [creating, setCreating] = useState<{ dir: string; kind: 'file' | 'folder' } | null>(null);
+  const [draftName, setDraftName] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const loadDir = useCallback(async (dir: string) => {
-    try {
-      const result = await listWorkspaceFiles(dir);
-      setEntries(result.entries);
-      setPath(result.path || '.');
-      setStatus(null);
-    } catch {
-      setStatus(t('editor.listFailed'));
+  const loadDir = useCallback(async (dir: string): Promise<EditorEntry[]> => {
+    const result = await listWorkspaceFiles(dir);
+    setTree((prev) => ({ ...prev, children: { ...prev.children, [dir]: result.entries } }));
+    return result.entries;
+  }, []);
+
+  useEffect(() => { void loadDir('.').catch(() => setStatus(t('editor.listFailed'))); }, [loadDir, root.id, t]);
+
+  useEffect(() => { if (creating) inputRef.current?.focus(); }, [creating]);
+
+  const toggle = useCallback(async (entry: EditorEntry) => {
+    if (!entry.isDir) { void open(entry.path); return; }
+    setTree((prev) => {
+      const expanded = new Set(prev.expanded);
+      if (expanded.has(entry.path)) {
+        expanded.delete(entry.path);
+      } else {
+        expanded.add(entry.path);
+      }
+      return { ...prev, expanded };
+    });
+    if (!tree.children[entry.path]) {
+      try { await loadDir(entry.path); } catch { setStatus(t('editor.listFailed')); }
     }
-  }, [t]);
-
-  useEffect(() => { void loadDir('.'); }, [loadDir, root.id]);
+  }, [tree.children, loadDir, t]);
 
   const open = useCallback(async (file: string) => {
     try {
@@ -141,42 +171,143 @@ function FileWorkspace({ root }: { root: TrustedRoot }) {
     }
   }, [openFile, content, t]);
 
+  const beginCreate = useCallback((dir: string, kind: 'file' | 'folder') => {
+    setCreating({ dir, kind });
+    setDraftName(kind === 'file' ? t('editor.newFileName') : t('editor.newFolderName'));
+  }, [t]);
+
+  const commitCreate = useCallback(async () => {
+    if (!creating) return;
+    const name = draftName.trim();
+    if (!name) { setCreating(null); return; }
+    const target = joinPath(creating.dir, name);
+    try {
+      if (creating.kind === 'folder') {
+        await makeWorkspaceFolder(target);
+      } else {
+        await writeWorkspaceFile(target, '');
+        await open(target);
+      }
+      await loadDir(creating.dir);
+      setCreating(null);
+      setStatus(null);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : t('editor.createFailed'));
+    }
+  }, [creating, draftName, loadDir, open, t]);
+
+  const remove = useCallback(async (entry: EditorEntry) => {
+    try {
+      await deleteWorkspacePath(entry.path);
+      const parent = entry.path.includes('/') ? entry.path.split('/').slice(0, -1).join('/') : '.';
+      await loadDir(parent);
+      if (openFile === entry.path) { setOpenFile(null); setContent(''); setOriginal(''); }
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : t('editor.deleteFailed'));
+    }
+  }, [loadDir, openFile, t]);
+
   const dirty = content !== original;
-  const parent = path !== '.' && path !== '' ? path.split('/').slice(0, -1).join('/') || '.' : null;
+
+  // Render a directory's children recursively (folders expand in place).
+  const renderDir = (dir: string, depth: number) => {
+    const entries = tree.children[dir] ?? [];
+    return (
+      <>
+        {entries.map((entry) => {
+          const isOpenFolder = entry.isDir && tree.expanded.has(entry.path);
+          const isActive = !entry.isDir && openFile === entry.path;
+          return (
+            <div key={entry.path}>
+              <div
+                className={cn(
+                  'group flex items-center gap-1 rounded pr-1 text-[12px] transition-colors',
+                  isActive ? 'bg-primary/20 text-foreground' : 'text-foreground/80 hover:bg-white/5',
+                )}
+                style={{ paddingLeft: 4 + depth * 12 }}
+              >
+                <button
+                  type="button"
+                  onClick={() => void toggle(entry)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
+                >
+                  {entry.isDir ? (
+                    <ChevronRight size={12} className={cn('shrink-0 text-muted-foreground/60 transition-transform', isOpenFolder && 'rotate-90')} />
+                  ) : (
+                    <span className="w-3 shrink-0" />
+                  )}
+                  <span className="truncate">{entry.name}</span>
+                </button>
+                <button
+                  type="button"
+                  title={t('editor.delete')}
+                  onClick={() => void remove(entry)}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground/0 transition-colors hover:text-rose-300 group-hover:text-muted-foreground/60"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+              {entry.isDir && (
+                <>
+                  {isOpenFolder && renderDir(entry.path, depth + 1)}
+                  {creating?.dir === entry.path && (
+                    <NameInput
+                      inputRef={inputRef}
+                      value={draftName}
+                      onChange={setDraftName}
+                      depth={depth + 1}
+                      onCommit={() => void commitCreate()}
+                      onCancel={() => setCreating(null)}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </>
+    );
+  };
 
   return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[260px_1fr]">
+    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[280px_1fr]">
       <div className="glass-card flex min-h-0 flex-col overflow-hidden">
-        <div className="flex items-center justify-between gap-2 border-b border-white/5 px-2.5 py-1.5">
+        <div className="flex items-center justify-between gap-1 border-b border-white/5 px-2.5 py-1.5">
           <span className="text-[11px] font-medium text-muted-foreground">{t('editor.files')}</span>
-          {parent && (
+          <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
-              onClick={() => void loadDir(parent)}
-              className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              title={t('editor.newFile')}
+              onClick={() => beginCreate('.', 'file')}
+              className="rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
             >
-              ↑ {t('editor.up')}
+              <FilePlus size={13} />
             </button>
-          )}
+            <button
+              type="button"
+              title={t('editor.newFolder')}
+              onClick={() => beginCreate('.', 'folder')}
+              className="rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            >
+              <FolderPlus size={13} />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-1">
-          {entries.length === 0 && (
+          {creating?.dir === '.' && (
+            <NameInput
+              inputRef={inputRef}
+              value={draftName}
+              onChange={setDraftName}
+              depth={0}
+              onCommit={() => void commitCreate()}
+              onCancel={() => setCreating(null)}
+            />
+          )}
+          {renderDir('.', 0)}
+          {(tree.children['.'] ?? []).length === 0 && !creating && (
             <p className="p-2 text-[11px] text-muted-foreground">{t('editor.emptyFolder')}</p>
           )}
-          {entries.map((entry) => (
-            <button
-              key={entry.path}
-              type="button"
-              onClick={() => (entry.isDir ? void loadDir(entry.path) : void open(entry.path))}
-              className={cn(
-                'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition-colors hover:bg-white/5',
-                !entry.isDir && openFile === entry.path ? 'bg-primary/15 text-foreground' : 'text-foreground/80',
-              )}
-            >
-              <span className="w-3 shrink-0 text-[10px] text-muted-foreground">{entry.isDir ? '▸' : '·'}</span>
-              <span className="truncate">{entry.name}</span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -221,6 +352,37 @@ function FileWorkspace({ root }: { root: TrustedRoot }) {
           <div className="border-t border-white/5 px-2.5 py-1 text-[11px] text-muted-foreground">{status}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function NameInput({
+  inputRef, value, onChange, depth, onCommit, onCancel,
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  value: string;
+  onChange: (v: string) => void;
+  depth: number;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 py-0.5 pr-1" style={{ paddingLeft: 4 + depth * 12 }}>
+      <Plus size={11} className="shrink-0 text-primary/70" />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); onCommit(); }
+          if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        }}
+        onBlur={onCommit}
+        className="min-w-0 flex-1 rounded border border-primary/40 bg-background/60 px-1 py-0.5 font-mono text-[11px] text-foreground outline-none"
+      />
+      <button type="button" onClick={onCancel} className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-foreground">
+        <X size={11} />
+      </button>
     </div>
   );
 }
