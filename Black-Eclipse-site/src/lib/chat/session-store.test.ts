@@ -71,6 +71,23 @@ describe('session-store file handling', () => {
     ).rejects.toBeInstanceOf(SessionError);
   });
 
+  it('accepts ordinary real-world file names', async () => {
+    // These all failed under the old ASCII-only allowlist, so "attach a file"
+    // broke for most files a person actually picks.
+    for (const name of ['notes(1).md', 'résumé.pdf', 'Q3 [final].xlsx', 'R&D.csv', 'a+b.txt']) {
+      const file = await writeSessionFile('c1', { name, bytes: Buffer.from('x'), kind: 'context' });
+      expect(file.name).toBe(name);
+    }
+  });
+
+  it('still refuses unsafe characters', async () => {
+    for (const name of ['a/b.txt', 'a\\b.txt', 'a:b.txt', 'a*b.txt', 'nul', 'CON.txt', '  ']) {
+      await expect(
+        writeSessionFile('c1', { name, bytes: Buffer.from('x'), kind: 'context' })
+      ).rejects.toBeInstanceOf(SessionError);
+    }
+  });
+
   it('enforces the per-file size limit', async () => {
     const tooBig = Buffer.alloc(SESSION_LIMITS.maxFileBytes + 1);
     await expect(

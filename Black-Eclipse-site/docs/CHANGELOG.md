@@ -8,6 +8,28 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Attachments actually work: real file names + Office documents.** The file-name
+  guard was an ASCII allowlist, which REJECTED extremely common real names —
+  `notes(1).md`, `résumé.pdf`, `Q3 [final].xlsx`, `R&D.csv` — so "attach a file"
+  failed with "Invalid file name" for most files a person picks. It is now a
+  denylist (path separators, control chars, Windows reserved names) that accepts
+  Unicode and ordinary punctuation while still refusing traversal. Also added real
+  extraction for `.docx`/`.xlsx`/`.pptx` (Office files are ZIP+XML — a
+  dependency-free bounded ZIP reader extracts the text) so the most common finance
+  documents are no longer "unsupported". Verified live: `my report(1).pdf`,
+  `résumé.txt`, `Q3 [final].md`, `R&D.csv` all upload; a generated `earnings.docx`
+  uploads and its text reaches `loadContextDocuments`. Tests: 6 new cases.
+  `tsc` clean; vitest 2038 passed; pytest 2474 passed.
+  docs updated: `docs/CHANGELOG.md`
+
+- **ChatBot landing composer no longer floats up.** Commit `3445a2f` wrapped
+  `EmptyState` (which pins the composer with `flex-1 … justify-end`) in a plain
+  `flex w-full flex-col items-center` div with no `flex-1`, so the `justify-between`
+  column had nothing to push against and the input box drifted upward. The wrapper
+  now grows (`flex-1 … min-h-0`), restoring the bottom-pinned composer.
+  `tsc` clean.
+  no doc change — layout bug fix, contracts intact.
+
 - **Chat can now create files on your PC; attachments show; honest narration.**
   Three real defects behind "it won't create a file / can't attach". (1) The
   STREAMING chat path (`startChatRun`) sent an autonomy but never a `direct` flag,

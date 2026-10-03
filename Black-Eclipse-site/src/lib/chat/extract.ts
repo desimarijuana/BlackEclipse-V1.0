@@ -10,12 +10,18 @@
 // fed to the model as mojibake.
 
 import { inflateSync } from "node:zlib";
+import { inflateRawSync } from "node:zlib";
 import { SESSION_LIMITS } from "./session-types";
 
 const TEXT_EXTENSIONS = new Set([
   "txt", "md", "markdown", "csv", "tsv", "json", "log", "yml", "yaml",
   "xml", "html", "htm", "sql", "ini", "cfg", "toml",
 ]);
+
+// Office documents are ZIP archives of XML. They are extremely common finance
+// files, so they get real extraction (not "unsupported"): docx → the document
+// body text, xlsx → the shared strings (the cell text a reader would see).
+const OFFICE_ZIP_EXTENSIONS = new Set(["docx", "xlsx", "pptx"]);
 
 export interface ExtractResult {
   ok: boolean;
@@ -31,7 +37,119 @@ export function extensionOf(name: string): string {
 
 /** True when we can turn the file into text the model can read. */
 export function isTextExtractable(name: string): boolean {
-  return TEXT_EXTENSIONS.has(extensionOf(name)) || extensionOf(name) === "pdf";
+  const ext = extensionOf(name);
+  return TEXT_EXTENSIONS.has(ext) || ext === "pdf" || OFFICE_ZIP_EXTENSIONS.has(ext);
+}
+
+// ── Minimal ZIP reader (no dependency) ──────────────────────────────────────
+// docx/xlsx/pptx are ZIP archives. We read the central directory, find the
+// entries we want, and inflate their raw DEFLATE streams. No entries are
+// written; nothing is extracted to disk. Bounded to avoid a zip bomb.
+
+const MAX_ZIP_ENTRIES = 2_000;
+const MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
+
+interface ZipEntry {
+  name: string;
+  method: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+}
+
+function readZipEntries(buf: Buffer): ZipEntry[] {
+  // Find End Of Central Directory (EOCD): signature 0x06054b50, scanned from end.
+  let eocd = -1;
+  const minEocd = Math.max(0, buf.length - 65_557);
+  for (let i = buf.length - 22; i >= minEocd; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd === -1) return [];
+  const count = buf.readUInt16LE(eocd + 10);
+  const cdOffset = buf.readUInt32LE(eocd + 16);
+  const entries: ZipEntry[] = [];
+  let p = cdOffset;
+  for (let n = 0; n < Math.min(count, MAX_ZIP_ENTRIES); n++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) break;
+    const method = buf.readUInt16LE(p + 10);
+    const compressedSize = buf.readUInt32LE(p + 20);
+    const uncompressedSize = buf.readUInt32LE(p + 24);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const commentLen = buf.readUInt16LE(p + 32);
+    const localHeaderOffset = buf.readUInt32LE(p + 42);
+    const name = buf.toString("utf8", p + 46, p + 46 + nameLen);
+    entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+function readZipEntry(buf: Buffer, entry: ZipEntry): Buffer | null {
+  const lh = entry.localHeaderOffset;
+  if (lh + 30 > buf.length || buf.readUInt32LE(lh) !== 0x04034b50) return null;
+  const nameLen = buf.readUInt16LE(lh + 26);
+  const extraLen = buf.readUInt16LE(lh + 28);
+  const dataStart = lh + 30 + nameLen + extraLen;
+  const data = buf.subarray(dataStart, dataStart + entry.compressedSize);
+  if (entry.method === 0) return Buffer.from(data);
+  if (entry.method === 8) {
+    try { return inflateRawSync(data); } catch { return null; }
+  }
+  return null;
+}
+
+const XML_ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'", "#34": '"',
+};
+
+function decodeXml(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&([a-z#0-9]+);/gi, (m, e: string) => XML_ENTITIES[e.toLowerCase()] ?? m);
+}
+
+/**
+ * Extract text from a docx/xlsx/pptx (a ZIP of XML). docx/pptx: the `<w:t>` /
+ * `<a:t>` runs become the prose. xlsx: `<t>` shared strings and inline strings
+ * become the cell text. Best-effort and bounded — a scanned or exotic file just
+ * yields no text.
+ */
+function extractOfficeText(buf: Buffer, ext: string): ExtractResult {
+  const entries = readZipEntries(buf);
+  if (entries.length === 0) return { ok: false, note: "Not a readable document" };
+  // Reject a zip bomb before inflating anything.
+  const declared = entries.reduce((sum, e) => sum + e.uncompressedSize, 0);
+  if (declared > MAX_UNCOMPRESSED_BYTES) {
+    return { ok: false, note: "Document too large to read" };
+  }
+  // Prefer the specific XML parts, in document order.
+  const wanted = ext === "xlsx"
+    ? ["xl/sharedStrings.xml"]
+    : ["word/document.xml", "ppt/slides/slide1.xml"];
+  const chunks: string[] = [];
+  let total = 0;
+  for (const want of wanted) {
+    const entry = entries.find((e) => e.name === want);
+    if (!entry) continue;
+    const data = readZipEntry(buf, entry);
+    if (!data) continue;
+    const xml = data.toString("utf8");
+    // <w:t>text</w:t> (docx), <a:t>text</a:t> (pptx), <t>text</t> (xlsx)
+    const re = /<(?:w|a|m)?:?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:w|a|m)?:?t>/g;
+    for (const m of xml.matchAll(re)) {
+      const text = decodeXml(m[1]);
+      if (!text) continue;
+      chunks.push(text);
+      total += text.length + 1;
+      if (total > SESSION_LIMITS.maxDocChars) break;
+    }
+    if (total > SESSION_LIMITS.maxDocChars) break;
+  }
+  // Preserve paragraph breaks so the prose is legible.
+  const joined = chunks.join(" ").replace(/[ \t]{2,}/g, " ");
+  return bound(joined);
 }
 
 /** Reject empty or absurdly long extracted text before it reaches a prompt. */
@@ -108,6 +226,7 @@ function extractPdfText(bytes: Uint8Array): ExtractResult {
 export function extractText(name: string, bytes: Uint8Array): ExtractResult {
   const ext = extensionOf(name);
   if (ext === "pdf") return extractPdfText(bytes);
+  if (OFFICE_ZIP_EXTENSIONS.has(ext)) return extractOfficeText(Buffer.from(bytes), ext);
   if (!TEXT_EXTENSIONS.has(ext)) {
     return { ok: false, note: `Unsupported file type: .${ext || "unknown"}` };
   }

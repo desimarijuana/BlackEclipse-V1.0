@@ -17,7 +17,6 @@ import { extractText, isTextExtractable } from "./extract";
 import { SESSION_LIMITS, type SessionFile, type SessionFileKind, type SessionInfo } from "./session-types";
 
 const CHAT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const SAFE_NAME_RE = /^[A-Za-z0-9._ -]{1,128}$/;
 
 export class SessionError extends Error {
   readonly code: string;
@@ -35,10 +34,31 @@ function assertChatId(chatId: string): string {
   return chatId;
 }
 
-/** Reject traversal, separators, reserved names, and control characters. */
+// A file name is accepted if it is SAFE, not if it is plain ASCII. An allowlist
+// of `[A-Za-z0-9._ -]` rejected extremely common real names — `notes(1).md`,
+// `résumé.pdf`, `Q3 [final].xlsx`, `R&D.csv` — so "attach a file" failed for most
+// files a person actually picks. This is a DENYLIST of the characters that are
+// unsafe or invalid: path separators, NUL/control chars, and the characters
+// Windows forbids in a name. Everything else (Unicode letters, spaces, and
+// ordinary punctuation) is allowed.
+const UNSAFE_NAME_CHARS_RE = /[\/\\\x00-\x1f<>:"|?*]/;
+const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+const MAX_NAME_CHARS = 160;
+
+/** Reject traversal, separators, control characters and Windows-reserved names. */
 function assertSafeName(name: string): string {
   const trimmed = name.trim();
-  if (!SAFE_NAME_RE.test(trimmed) || trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
+  if (!trimmed || trimmed.length > MAX_NAME_CHARS) {
+    throw new SessionError("INVALID_FILE_NAME", "Invalid file name");
+  }
+  if (trimmed === "." || trimmed === ".." || trimmed.startsWith(".")) {
+    throw new SessionError("INVALID_FILE_NAME", "Invalid file name");
+  }
+  if (UNSAFE_NAME_CHARS_RE.test(trimmed) || WINDOWS_RESERVED_RE.test(trimmed)) {
+    throw new SessionError("INVALID_FILE_NAME", "Invalid file name");
+  }
+  // A name must not be only dots/spaces.
+  if (/^[.\s]+$/.test(trimmed)) {
     throw new SessionError("INVALID_FILE_NAME", "Invalid file name");
   }
   return trimmed;

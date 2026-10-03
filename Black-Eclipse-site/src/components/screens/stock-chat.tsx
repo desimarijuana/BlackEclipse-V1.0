@@ -919,7 +919,7 @@ function StockChatContent() {
                 focusMode && 'pt-0',
               )}>
                 {messages.length === 0 ? (
-                  <div className="flex w-full flex-col items-center">
+                  <div className="flex-1 flex w-full flex-col items-center min-h-0">
                     <EmptyState
                       query={query}
                       setQuery={setQuery}
