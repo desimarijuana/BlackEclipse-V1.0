@@ -109,6 +109,21 @@ def set_trusted_root_provider(provider: Optional[Any]) -> None:
     _TRUSTED_ROOT_PROVIDER = provider
 
 
+def trusted_root_selected() -> bool:
+    """True when a user-chosen (trusted) root is the active workspace root.
+
+    The runtime uses this to decide direct mode: a folder a person explicitly
+    chose and approved should be edited directly, while the built-in repo root
+    stays isolated. Never raises — a broken provider means "not selected".
+    """
+    if _TRUSTED_ROOT_PROVIDER is None:
+        return False
+    try:
+        return bool(_TRUSTED_ROOT_PROVIDER())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def default_root() -> Optional[Path]:
     """The server-resolved root.
 

@@ -552,6 +552,14 @@ function StockChatContent() {
     setQuery('');
     
     const chatId = addMessageToActiveChat(userMsg);
+    // Attachments made on the empty state must land in the session folder BEFORE
+    // the run starts, or the run's context documents miss them. This awaits the
+    // upload, so the first turn sees the attached file.
+    try {
+      await sessionController.flushPending(chatId);
+    } catch {
+      // A failed flush must not block the send; the error is surfaced on the bar.
+    }
     await runAgent(chatId, userText, userMsg);
   };
 
@@ -911,16 +919,21 @@ function StockChatContent() {
                 focusMode && 'pt-0',
               )}>
                 {messages.length === 0 ? (
-                  <EmptyState
-                    query={query}
-                    setQuery={setQuery}
-                    onSend={handleSend}
-                    onViewMarketOverview={() => setActiveTab('discovery')}
-                    onAttach={() => fileInputRef.current?.click()}
-                    busy={agentBusy}
-                    onCancel={handleCancel}
-                    focus={focusMode}
-                  />
+                  <div className="flex w-full flex-col items-center">
+                    <EmptyState
+                      query={query}
+                      setQuery={setQuery}
+                      onSend={handleSend}
+                      onViewMarketOverview={() => setActiveTab('discovery')}
+                      onAttach={() => fileInputRef.current?.click()}
+                      busy={agentBusy}
+                      onCancel={handleCancel}
+                      focus={focusMode}
+                    />
+                    <div className="w-full px-4 md:px-6">
+                      <SessionBar session={sessionController} />
+                    </div>
+                  </div>
                 ) : (
                   <div className={cn(
                     'flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between transition-[max-width] duration-500 ease-out',

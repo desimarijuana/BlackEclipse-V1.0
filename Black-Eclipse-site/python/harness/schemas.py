@@ -189,9 +189,10 @@ class RunRequest(BaseModel):
     # labelled "worked out by Eclipse" and never presented as retrieved data.
     analysisEnabled: bool = False  # noqa: N815
     # Folder-selection (additive, optional): when True, the task edits the
-    # SELECTED trusted root DIRECTLY instead of a disposable copy. Opt-in per
-    # run; only ever binds a root the runtime resolved and a person approved.
-    direct: bool = False
+    # SELECTED trusted root DIRECTLY instead of a disposable copy. None = resolve
+    # from the selected root at run time (a folder a person chose edits directly;
+    # the built-in repo stays isolated). An explicit True/False always wins.
+    direct: Optional[bool] = None
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

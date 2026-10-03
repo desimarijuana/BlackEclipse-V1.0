@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Chat can now create files on your PC; attachments show; honest narration.**
+  Three real defects behind "it won't create a file / can't attach". (1) The
+  STREAMING chat path (`startChatRun`) sent an autonomy but never a `direct` flag,
+  so a code turn always edited a disposable worktree, never the folder the user
+  picked. The runtime now resolves direct mode itself: a run bound to a
+  user-selected trusted root edits the real folder, the built-in repo stays
+  isolated (`workspace.trusted_root_selected` + `graph._resolve_direct`). (2)
+  Attaching a file on the EMPTY state put it in a ref with zero UI feedback, and
+  the first message started the run before the upload landed — so the file neither
+  showed nor reached the run. Pending files now render immediately in the session
+  bar (shown in the empty state too) and `handleSend` awaits `flushPending` so the
+  first turn's context includes them. (3) Tool output said "disposable copy" even
+  in direct mode; `workspace_status`/patch/diff/revert messages now name where the
+  change actually landed (`ctx.direct`). Verified live: a chat-style run wrote
+  `honest.py` into the real folder, ran it (exit 0), and reported "written to the
+  user's real folder". Tests: `test_code_worktree.py` direct auto-resolve case.
+  `tsc` clean; vitest 2033 passed; pytest 2473 passed.
+  docs updated: `docs/CHANGELOG.md`
+
 - **Editor: a real explorer tree — create files/folders, expand in place, delete.**
   The editor had no "+" control at all and clicking a folder navigated away, so a
   file could not be added. The tree is now an editor explorer: click a file to

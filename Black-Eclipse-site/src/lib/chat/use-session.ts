@@ -12,13 +12,28 @@ import {
 } from './session-client';
 import { SESSION_LIMITS, type SessionFile, type SessionInfo } from './session-types';
 
+export interface PendingFile {
+  name: string;
+  bytes: number;
+}
+
 export interface SessionController {
   session: SessionInfo | null;
   busy: boolean;
   error: string | null;
+  /** Files attached before a conversation exists — shown immediately. */
+  pending: PendingFile[];
   refresh: () => void;
   uploadFiles: (files: FileList | File[]) => Promise<void>;
+  /**
+   * Upload anything attached before the conversation existed into `chatId`, and
+   * WAIT for it. Call this before starting a run so the run's context documents
+   * include a file attached on the empty state — otherwise the turn starts
+   * before the upload lands and the attachment is silently missing.
+   */
+  flushPending: (chatId: string) => Promise<void>;
   removeFile: (file: SessionFile) => Promise<void>;
+  removePending: (name: string) => void;
 }
 
 export function useSession(chatId: string | null, refreshKey = 0): SessionController {
@@ -26,6 +41,7 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localKey, setLocalKey] = useState(0);
+  const [pending, setPending] = useState<PendingFile[]>([]);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
   // Files attached before a conversation exists, flushed on the first reload.
@@ -35,10 +51,20 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     const id = chatIdRef.current;
     const list = Array.from(files);
     if (list.length === 0) return;
-    // No conversation yet (empty state): hold the files and flush them once the
-    // first message creates the chat, so attaching before sending still works.
+    // No conversation yet (empty state): hold the files and SHOW them right away,
+    // so attaching before the first message is visible instead of silent. They
+    // flush into the session folder once the first message creates the chat.
     if (!id) {
-      pendingRef.current.push(...list);
+      for (const file of list) {
+        if (file.size > SESSION_LIMITS.maxFileBytes) {
+          const limit = Math.round(SESSION_LIMITS.maxFileBytes / 1024 / 1024);
+          setError(`${file.name} exceeds ${limit}MB`);
+          continue;
+        }
+        pendingRef.current.push(file);
+        setPending((prev) => [...prev.filter((p) => p.name !== file.name), { name: file.name, bytes: file.size }]);
+      }
+      setError(null);
       return;
     }
     setBusy(true);
@@ -61,6 +87,25 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     }
   }, []);
 
+  const flushPending = useCallback(async (id: string) => {
+    const queued = pendingRef.current;
+    if (queued.length === 0) return;
+    pendingRef.current = [];
+    setPending([]);
+    setBusy(true);
+    try {
+      for (const file of queued) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await uploadSessionFile(id, 'context', file.name, bytes);
+      }
+      setLocalKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const reload = useCallback(async () => {
     const id = chatIdRef.current;
     if (!id) {
@@ -70,9 +115,7 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     try {
       // A conversation now exists: flush anything attached beforehand.
       if (pendingRef.current.length > 0) {
-        const queued = pendingRef.current;
-        pendingRef.current = [];
-        await uploadFiles(queued);
+        await flushPending(id);
       }
       const next = await fetchSession(id);
       // Ignore a response for a conversation the user has since left.
@@ -83,8 +126,7 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load session folder');
     }
-  }, [uploadFiles]);
-
+  }, [flushPending]);
   useEffect(() => { void reload(); }, [reload, refreshKey, localKey]);
 
   const refresh = useCallback(() => setLocalKey((k) => k + 1), []);
@@ -103,5 +145,10 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     }
   }, [refresh]);
 
-  return { session, busy, error, refresh, uploadFiles, removeFile };
+  const removePending = useCallback((name: string) => {
+    pendingRef.current = pendingRef.current.filter((f) => f.name !== name);
+    setPending((prev) => prev.filter((p) => p.name !== name));
+  }, []);
+
+  return { session, busy, error, pending, refresh, uploadFiles, flushPending, removeFile, removePending };
 }

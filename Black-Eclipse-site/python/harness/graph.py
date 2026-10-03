@@ -155,6 +155,21 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
     return get_agent(request.agentId or DEFAULT_AGENT_ID)
 
 
+def _resolve_direct(request: Any) -> bool:
+    """Whether a run edits the real folder or a disposable copy.
+
+    An explicit `request.direct` always wins. When absent (None), a run edits
+    DIRECTLY only if the active root is one the user chose and approved; the
+    built-in repo root stays isolated.
+    """
+    explicit = getattr(request, "direct", None)
+    if explicit is not None:
+        return bool(explicit)
+    from .code.workspace import trusted_root_selected  # noqa: PLC0415
+
+    return trusted_root_selected()
+
+
 def _effect_authorizer(
     approvals: Optional[Any],
     run_id: str,
@@ -424,8 +439,10 @@ def build_graph(
         # The approval store, so the terminal authorizer can claim a single-use
         # approval for an `ask`-classified command.
         approvals=approvals,
-        # Folder-selection: edit the selected real folder directly (opt-in).
-        direct=bool(getattr(request, "direct", False)),
+        # Folder-selection: a run bound to a user-chosen trusted folder edits it
+        # directly (that is the point of choosing it); the built-in repo root
+        # stays isolated. An explicit `request.direct` always wins.
+        direct=_resolve_direct(request),
     )
     registry.set_active_context(ctx)
 

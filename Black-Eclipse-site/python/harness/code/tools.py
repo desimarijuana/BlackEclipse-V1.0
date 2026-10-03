@@ -339,8 +339,10 @@ async def _status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         )
         return text, {"status": "unavailable", "workspaceId": ws.id, "strategy": ws.strategy}
     dirty = status.get("dirty") or []
+    direct = bool(getattr(ctx, "direct", False))
     lines = [
         f"Project root: {ws.root}",
+        f"Where changes land: {'the user\'s real folder (direct)' if direct else 'a disposable copy of the project (the user reviews before accepting)'}",
         f"Revision: {head.get('head', 'unknown') if head.get('available') else 'unknown'}",
         f"Current line of work: {branch.get('branch', 'unknown') if branch.get('available') else 'unknown'}",
     ]
@@ -355,6 +357,7 @@ async def _status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "status": "ok",
         "workspaceId": ws.id,
         "strategy": ws.strategy,
+        "direct": direct,
         "baseRevision": ws.base_revision,
         "head": head.get("head") if head.get("available") else None,
         "branch": branch.get("branch") if branch.get("available") else None,
@@ -733,7 +736,8 @@ async def _patch_apply(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
             "hashAfter": item["contentHashAfter"],
         })
     summary = ", ".join(f"{a['op']} {a['path']}" for a in result["applied"])
-    text = f"Change made inside the task's own copy: {summary}."
+    where = "the user's real folder" if getattr(ctx, "direct", False) else "the task's working copy"
+    text = f"Change made in {where}: {summary}."
     data = {
         "status": "ok",
         "workspaceId": cw.id,
@@ -778,7 +782,8 @@ async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "digest": result["digest"], "truncated": result["truncated"],
     })
     lines = [
-        f"{result['filesChanged']} file(s) changed inside the task's own copy "
+        f"{result['filesChanged']} file(s) changed in "
+        f"{'the user\'s real folder' if getattr(ctx, 'direct', False) else 'the task\'s working copy'} "
         f"(+{result['additions']}/-{result['deletions']})."
     ]
     if not model.includeUnified:
@@ -816,7 +821,8 @@ async def _revert(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         return _patch_refusal(cw.id, exc.code, exc.reason)
     await emit_code_event(ctx, "code.reverted", {"workspaceId": cw.id, "ops": result["reverted"], "ok": True})
     return (
-        f"Undid {result['reverted']} change(s) inside the task's own copy.",
+        f"Undid {result['reverted']} change(s) in "
+        f"{'the user\'s real folder' if getattr(ctx, 'direct', False) else 'the task\'s working copy'}.",
         {"status": "ok", "workspaceId": cw.id, "reverted": result["reverted"]},
     )
 
@@ -994,9 +1000,10 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     ))
     registry.register(_definition(
         "workspace_patch_apply",
-        "Author a change inside a DISPOSABLE copy of the project (never the operator's own "
-        "checkout): create/replace/delete/move files. The whole change is validated before "
-        "any byte is written — a refusal applies nothing. Requires the run's editing profile.",
+        "Author a change in the project (create/replace/delete/move files). Whether it lands "
+        "in the user's real folder or a disposable copy depends on the task's setup — call "
+        "workspace_status to see which. The whole change is validated before any byte is "
+        "written — a refusal applies nothing. Requires the run's editing profile.",
         _patch_apply, 60_000, permission="write", risk="medium", effect="write",
     ))
     registry.register(_definition(

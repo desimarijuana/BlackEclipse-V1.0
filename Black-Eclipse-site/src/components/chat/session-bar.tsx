@@ -34,15 +34,15 @@ function formatBytes(n: number): string {
  * attach affordance instead of two. Collapsed by default.
  */
 export function SessionBar({ session: controller, compact = false }: SessionBarProps) {
-  const { session, busy, error, removeFile } = controller;
+  const { session, busy, error, pending, removeFile, removePending } = controller;
   const [open, setOpen] = useState(false);
 
   const chatId = session?.chatId;
   const contextFiles = session?.files.filter((f) => f.kind === 'context') ?? [];
   const outputFiles = session?.files.filter((f) => f.kind === 'output') ?? [];
-  const total = contextFiles.length + outputFiles.length;
+  const total = contextFiles.length + outputFiles.length + pending.length;
 
-  if (!chatId || total === 0) return null;
+  if (total === 0 && !error) return null;
 
   return (
     <div className={cn('w-full', compact ? 'text-[11px]' : 'text-xs')}>
@@ -54,7 +54,7 @@ export function SessionBar({ session: controller, compact = false }: SessionBarP
           title={session?.path}
         >
           {open ? <FolderOpen size={13} /> : <Folder size={13} />}
-          <span className="font-medium">Session</span>
+          <span className="font-medium">{chatId ? 'Session' : 'Attached'}</span>
           <span className="text-muted-foreground/60">{total}</span>
           <ChevronUp size={12} className={cn('transition-transform', open ? '' : 'rotate-180')} />
         </button>
@@ -75,11 +75,21 @@ export function SessionBar({ session: controller, compact = false }: SessionBarP
 
       {open && (
         <div className="mt-1.5 glass-card rounded-xl border border-white/10 dark:border-white/5 p-2 space-y-2">
+          {pending.length > 0 && (
+            <FileGroup
+              label={chatId ? 'Attaching' : 'Attached — sent with your first message'}
+              icon={FileText}
+              files={pending.map((p) => ({ name: p.name, kind: 'context' as const, bytes: p.bytes, updatedAt: '', textExtractable: true }))}
+              chatId={chatId ?? ''}
+              onRemove={(f) => removePending(f.name)}
+              downloadable={false}
+            />
+          )}
           {contextFiles.length > 0 && (
-            <FileGroup label="Context" icon={FileText} files={contextFiles} chatId={chatId} onRemove={removeFile} />
+            <FileGroup label="Context" icon={FileText} files={contextFiles} chatId={chatId ?? ''} onRemove={removeFile} />
           )}
           {outputFiles.length > 0 && (
-            <FileGroup label="Output" icon={FileOutput} files={outputFiles} chatId={chatId} onRemove={removeFile} />
+            <FileGroup label="Output" icon={FileOutput} files={outputFiles} chatId={chatId ?? ''} onRemove={removeFile} />
           )}
         </div>
       )}
@@ -93,12 +103,14 @@ function FileGroup({
   files,
   chatId,
   onRemove,
+  downloadable = true,
 }: {
   label: string;
   icon: typeof FileText;
   files: SessionFile[];
   chatId: string;
   onRemove: (file: SessionFile) => void;
+  downloadable?: boolean;
 }) {
   return (
     <div>
@@ -113,14 +125,16 @@ function FileGroup({
               {file.name}
             </span>
             <span className="shrink-0 text-[10px] text-muted-foreground/70">{formatBytes(file.bytes)}</span>
-            <a
-              href={sessionFileUrl(chatId, file.kind, file.name)}
-              download={file.name}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-              title="Download"
-            >
-              <Download size={12} />
-            </a>
+            {downloadable && chatId && (
+              <a
+                href={sessionFileUrl(chatId, file.kind, file.name)}
+                download={file.name}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                title="Download"
+              >
+                <Download size={12} />
+              </a>
+            )}
             <button
               type="button"
               onClick={() => onRemove(file)}

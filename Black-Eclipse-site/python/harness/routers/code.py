@@ -117,15 +117,6 @@ def code_root(_: bool = Depends(require_operator)) -> dict[str, Any]:
 async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Create and run a code task. The autonomy defaults to plan_only."""
     autonomy = _resolve_autonomy(body.autonomy)
-    # A user-selected trusted folder is edited directly (that is the point of
-    # choosing it); the built-in repo root stays isolated. An explicit `direct`
-    # always wins.
-    direct = body.direct
-    if direct is None:
-        try:
-            direct = service.trusted_root_store().selected() is not None
-        except Exception:  # noqa: BLE001 - no store ⇒ stay isolated (safe default)
-            direct = False
     run_id = body.runId or f"code_{abs(hash(body.query)) & 0xFFFFFFFF:08x}_{int(__import__('time').time())}"
     if body.modelSettings is None:
         raise HTTPException(status_code=400, detail="modelSettings is required")
@@ -139,7 +130,7 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
         callbackBaseUrl=body.callbackBaseUrl,
         callbackToken=body.callbackToken,
         userId=body.scopeId,
-        direct=bool(direct),
+        direct=body.direct,
     )
     # Create the run ROW first: `RunCheckpoint` has a FOREIGN KEY on
     # `HarnessRun(id)`, so `record_created` before the row exists fails with a

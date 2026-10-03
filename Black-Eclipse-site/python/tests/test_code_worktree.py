@@ -246,3 +246,46 @@ def test_direct_workspace_diff_is_honest_without_git(tmp_path, monkeypatch):
     # Not a git checkout: no invented diff, just an honest empty result.
     assert result["strategy"] == "direct"
     assert result["filesChanged"] == 0
+
+
+def test_direct_auto_resolves_from_a_selected_trusted_root(store, tmp_path, monkeypatch):
+    """A run with no explicit `direct` edits the real folder iff one is selected."""
+    from harness.code import roots, workspace  # noqa: PLC0415
+    from harness.graph import _resolve_direct  # noqa: PLC0415
+
+    class _Req:
+        direct = None
+
+    class _Explicit:
+        direct = True
+
+    class _ExplicitFalse:
+        direct = False
+
+    try:
+        # No selected root → isolated.
+        monkeypatch.delenv("BLACK_ECLIPSE_CODE_ROOT", raising=False)
+        workspace.set_trusted_root_provider(None)
+        assert _resolve_direct(_Req()) is False
+        # A selected trusted root → direct.
+        target = tmp_path / "chosen"
+        target.mkdir()
+        rstore = roots.TrustedRootStore(store)
+        root = rstore.approve(str(target))
+        rstore.select(root.id)
+        workspace.set_trusted_root_provider(lambda: rstore.selected().path if rstore.selected() else None)
+        assert _resolve_direct(_Req()) is True
+        # An explicit value always wins.
+        assert _resolve_direct(_Explicit()) is True
+        assert _resolve_direct(_ExplicitFalse()) is False
+    finally:
+        workspace.set_trusted_root_provider(None)
+
+
+@pytest.fixture()
+def store(tmp_path):
+    from harness.persistence import AgentMemoryStore  # noqa: PLC0415
+
+    s = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    yield s
+    s.close()
