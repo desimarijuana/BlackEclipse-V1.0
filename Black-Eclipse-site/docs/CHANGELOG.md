@@ -8,6 +8,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-03
 
+- **Preset landing wordmark made smaller.** Shipped-preset ChatBot wordmark
+  `textScale` lowered from 12vw to 7vw so "ECLIPSE AGENT" reads as a compact
+  wordmark rather than a wall-filling headline. Preset data only.
+  `tsc` clean; vitest 2055 passed. docs updated: `docs/CHANGELOG.md`
+
 - **Theme-preset backdrops: very dark grey + faint accent; whiteish wordmark;
   Aurora follows the preset; Electric Blue added.** The shipped `THEME_PRESETS`
   previously carried radical radial/linear gradients, grid/ASCII pattern
@@ -91,6 +96,41 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   preview launcher to `customization-preview.tsx` to stay under the size ratchet.
   `tsc` clean; vitest 2047 passed; pytest eval gates pass. ADR-040.
   docs updated: `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/NAVIGATION.md`, `skills/ARCHITECT.md`.
+
+- **Code harness defaults to `edit_verify` so writes/executes work.** The
+  code task store (`code/tasks.py` `DEFAULT_AUTONOMY`) and the code-agent run
+  fallback (`graph.py`) both defaulted to `plan_only`, which the Phase-5 tool
+  allowlist strips of every write/execute tool — the harness could not create
+  files or run commands unless the front door explicitly sent a different
+  autonomy. Both now default to `edit_verify` (file create/write + command
+  execution, no external git actions). Router docstrings updated. `npm run
+  test` eval gates all pass; `npx tsc --noEmit` clean. no doc change —
+  policy tables in `docs/harness/decisions.md` already describe `edit_verify`;
+  only the default value changed.
+
+- **Coding-agent harness: persistent terminal, auto-verify, write approvals,
+  explore delegation, diff rendering.** Five additive changes make the code
+  surface behave like a real agent harness (opencode/hermes class):
+  (1) `terminal_run` now keeps a per-workspace session — `cd <dir>`,
+  `export KEY=VAL`/`set KEY=VAL` and `pwd` persist across calls (confined to
+  the worktree root, `terminal_tools.py` `_SESSIONS`), and `build_run_spec`
+  accepts `env_extra`; the effect authorizer treats session mutations as
+  allow since no process spawns. (2) `workspace_patch_apply` now runs an
+  auto-verify hook: a workspace-pinned `.black-eclipse/verify.json`
+  (`{"command": "..."}`) runs after every successful patch and its
+  pass/fail folds into the tool result, so the model sees failing checks as
+  the observation and can self-repair; only `allow`-classified commands run.
+  (3) Writes are gated per-call, opencode-style: `make_code_authorizer` now
+  requires a single-use approval (`code_write`, keyed to the digest of the
+  changed paths) or a workspace-wide `code_write_session` approval before a
+  patch apply is admitted; with no approvals backend (tests, zero-config) the
+  handler still enforces binding + autonomy profile as before. (4) The chat
+  code profile (`CHAT_CODE_TOOLS`) now includes `delegate`, so the finance
+  agent can spawn parallel narrowed subagents (read-only explore) from a
+  coding turn. (5) Fenced ` ```diff ` blocks render with per-line +/-/@@
+  coloring in the chat markdown renderer. Test: `test_chat_code_profile.py`
+  updated for the `delegate` addition. Full suite 2474 passed; `tsc` clean.
+  no doc change — behavior is additive and documented in module docstrings.
 
 ## 2026-10-02
 
