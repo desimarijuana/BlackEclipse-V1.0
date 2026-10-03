@@ -34,6 +34,7 @@ export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
   companies: false,
   risk: false,
   portfolio: false,
+  'event-heatmap': false,
 };
 
 export interface SelectedMarket {

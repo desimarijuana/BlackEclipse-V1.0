@@ -19,7 +19,7 @@ import type {
 /** Every layer id the app knows about, in controller order. */
 export const ALL_LAYER_IDS = [
   'events', 'markets', 'conflict', 'shipping', 'trade', 'energy', 'commodities',
-  'economy', 'weather', 'fires', 'companies', 'risk', 'portfolio',
+  'economy', 'weather', 'fires', 'companies', 'risk', 'portfolio', 'event-heatmap',
 ] as const;
 export type LayerId = (typeof ALL_LAYER_IDS)[number];
 
@@ -161,6 +161,7 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
   companies: { name: 'Companies', phase: 2, group: 'markets', color: '#60a5fa', glyph: 'company', hint: 'Listed companies by HQ country' },
   risk: { name: 'Risk', phase: 2, group: 'events', color: '#f472b6', glyph: 'risk', hint: 'Event density per country' },
   portfolio: { name: 'Portfolio', phase: 2, group: 'markets', color: '#818cf8', glyph: 'portfolio', hint: 'Countries your holdings are exposed to' },
+  'event-heatmap': { name: 'Event Heatmap', phase: 2, group: 'events', color: '#f43f5e', hint: 'Severity-weighted event density — Bloomberg-style heat layer' },
 };
 
 /** Accent for a layer: its own colour, else its group's. */
@@ -308,6 +309,45 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
 }
 
 /** Markets layer — a point per country with an index observation. */
+/**
+ * Severity-weighted event DENSITY heatmap (Bloomberg-style). One datum per
+ * geolocated event; each point's intensity is its severity weight, so a
+ * handful of critical events lights up hotter than a crowd of low ones.
+ */
+export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
+  const data: LayerDatum[] = events
+    .filter((e) => typeof e.lon === 'number' && typeof e.lat === 'number')
+    .map((e) => ({
+      id: e.id ?? e.dedupKey,
+      lon: e.lon as number,
+      lat: e.lat as number,
+      value: severityWeight(e.severity),
+      severity: e.severity,
+      label: e.title,
+      geoMethod: e.geoMethod,
+      data: e,
+    }));
+  return {
+    id: 'event-heatmap',
+    name: 'Event Heatmap',
+    enabled: false,
+    type: 'heatmap',
+    zIndex: 6,
+    data: () => data,
+    tooltip: (datum) => {
+      const e = datum.data as NormalizedEvent;
+      return {
+        title: e.title,
+        rows: [
+          { label: 'Severity', value: e.severity },
+          { label: 'Type', value: e.eventType },
+          { label: 'Published', value: formatUtc(e.publishedAt) },
+        ],
+      };
+    },
+  };
+}
+
 export function buildMarketsLayer(
   markets: MarketObservation[],
   countries: CountrySummary[],
@@ -700,6 +740,7 @@ export function buildAllLayers(inputs: LayerInputs): MapLayer[] {
   const { state } = inputs;
   const layers: MapLayer[] = [
     buildCountryEventFill(state.countries, 'density', 'Event Density', false),
+    buildEventHeatmapLayer(state.events),
     buildEventsLayer(state.events, inputs.onSelectEvent),
     buildMarketsLayer(state.markets, state.countries, inputs.onSelectMarket),
     buildConflictLayer(state.events, inputs.onSelectEvent),

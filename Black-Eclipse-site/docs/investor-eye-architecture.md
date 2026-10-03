@@ -1,7 +1,7 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-09-17
+last-verified: 2026-10-03
 ---
 
 # Investor Eye — Architecture & Audit
@@ -316,6 +316,7 @@ The deterministic foundation is extended — **no AI is required for any of it**
 | 2.10 | **Relationship graph** — `Relationship` model + pure builder + ECharts graph | ✅ |
 | 2.11 | **AI Analyst** — 7 read-only agent tools (+ a `world` research agent) | ✅ |
 | 2.12 | **Natural-language map search** — deterministic intent → layer/filter | ✅ |
+| 2.13 | **Event heatmap** — severity-weighted ECharts `heatmap` series, 2D geo only (globe keeps pins), `visualMap` legend + per-event tooltip | ✅ |
 
 ### How each Phase 2 piece is wired
 

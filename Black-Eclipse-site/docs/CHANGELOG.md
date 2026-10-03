@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-03
 
+- **Investor Eye: Bloomberg-style event heatmap layer.** Added an
+  `event-heatmap` layer (new `MapLayerType` `'heatmap'`): ECharts `heatmap`
+  series on the 2D geo map, one datum per geolocated event, intensity =
+  severity weight (`severityWeight`), `pointSize` 16 / `blurSize` 22, a
+  continuous `visualMap` legend (blue→cyan→yellow→orange→red, HIGH/LOW labels),
+  and per-event tooltips (severity, type, published time). On the globe the
+  heatmap is not drawn — `echarts-gl` has no heatmap series; the event pins
+  remain there. New layer toggle in the Layer Controller (`Event Heatmap`,
+  group `events`, off by default; `DEFAULT_LAYERS` updated). `tsc` clean;
+  test suite passes. docs updated: `docs/CHANGELOG.md`
+
 - **Attachments accept every practical file type.** A type audit showed source
   code (`.py`/`.js`/`.ts`/`.go`/…), `.rtf`, `.eml`, OpenDocument (`.odt`/`.ods`/
   `.odp`), `.epub`, and any unknown/no-extension file were refused as

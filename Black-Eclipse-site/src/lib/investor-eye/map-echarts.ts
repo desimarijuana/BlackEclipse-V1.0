@@ -413,6 +413,37 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
     }
   }
 
+  // Severity-weighted density heatmap (Bloomberg-style). ECharts' `heatmap`
+  // series only works against the 2D `geo` coordinate system — echarts-gl has
+  // no heatmap, so on the globe this layer is simply not drawn (the pins layer
+  // already communicates density there).
+  let heatmapMax = 0;
+  if (mode === '2d') {
+    for (const layer of enabled) {
+      if (layer.type !== 'heatmap') continue;
+      const data = layer.data();
+      for (const d of data) heatmapMax = Math.max(heatmapMax, d.value ?? 0);
+      series.push({
+        id: layer.id,
+        name: layer.name,
+        type: 'heatmap',
+        coordinateSystem: 'geo',
+        z: layer.zIndex,
+        pointSize: 16,
+        blurSize: 22,
+        progressive: 400,
+        data: data.map((d) => ({
+          name: d.label ?? d.id,
+          value: [d.lon, d.lat, d.value ?? 1],
+          severity: d.severity,
+          _datum: d,
+        })),
+        label: { show: false },
+        tooltip: layer.tooltip ? { formatter: tooltipFormatter(layer) } : undefined,
+      } as never);
+    }
+  }
+
   // Points/lines anchor to whichever coordinate system is active.
   const coordSystem = mode === 'globe' ? 'globe' : 'geo';
 
@@ -799,6 +830,27 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       appendTo: 'body',
       confine: false,
     },
+    // Severity-weighted heat legend. Low → cool blue, high → hot red, matching
+    // the severity palette used across the app (see `severityColor`).
+    ...(heatmapMax > 0
+      ? {
+          visualMap: {
+            show: true,
+            type: 'continuous',
+            min: 0,
+            max: heatmapMax,
+            calculable: false,
+            orient: 'vertical',
+            right: 14,
+            bottom: 40,
+            text: ['HIGH', 'LOW'],
+            textStyle: { color: '#9ca3af', fontSize: 10 },
+            inRange: {
+              color: ['#1d4ed8', '#0ea5e9', '#22d3ee', '#facc15', '#f97316', '#ef4444'],
+            },
+          },
+        }
+      : {}),
     series: [
       ...series,
       ...(highlightPoints.length > 0
