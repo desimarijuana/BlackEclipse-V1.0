@@ -8,6 +8,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-03
 
+- **Attachments accept every practical file type.** A type audit showed source
+  code (`.py`/`.js`/`.ts`/`.go`/…), `.rtf`, `.eml`, OpenDocument (`.odt`/`.ods`/
+  `.odp`), `.epub`, and any unknown/no-extension file were refused as
+  "unsupported" — a coding/finance agent must read all of them. `extract.ts` now:
+  recognises a broad text+code extension set; reads OpenDocument + epub via the
+  same ZIP+XML path (per-extension member map); strips RTF control words; runs a
+  readable-string scan for old binary Office (`.doc`/`.xls`/`.ppt`) and unknown
+  binaries; and sniffs any unrecognised/no-extension file (UTF-8 if printable,
+  string-scan otherwise). A genuinely binary file (image/archive) reports "no
+  readable text" honestly instead of a flat refusal. `isTextExtractable` is now a
+  known-binary denylist so unknown files are tried, not pre-blocked. Tests:
+  expanded `extract.test.ts` (code, rtf, no-extension, binary-honest cases).
+  `tsc` clean; vitest 2054 passed.
+  docs updated: `docs/CHANGELOG.md`
+
 - **PDFs actually get read now (real attachment fix).** The hand-rolled PDF reader
   only handled simple ASCII text streams; a real report/deck (like the user's
   `Eclipse-as-a-Harness-Round-2.pdf`) uses CID/Identity-H fonts where text is

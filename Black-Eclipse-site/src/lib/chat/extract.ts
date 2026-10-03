@@ -5,23 +5,55 @@
 // their text extracted here and injected into the run input — not by giving the
 // agent filesystem access.
 //
-// Supported today: plain text, Markdown, CSV, JSON, and simple PDFs (text
-// streams only, no OCR). Unknown/binary types are rejected rather than being
-// fed to the model as mojibake.
+// Coverage: any text file (docs, data, and source code), PDFs (real fonts via
+// pdfjs), Office documents (docx/xlsx/pptx and OpenDocument odt/ods/odp, plus
+// epub — all ZIP+XML), RTF, and a readable-string scan for old binary Office
+// (.doc/.xls) and unknown formats. A genuinely binary file (an image, an
+// archive) reports "no readable text" rather than being fed to the model as
+// mojibake; it is never a flat "unsupported".
 
 import { inflateSync } from "node:zlib";
 import { inflateRawSync } from "node:zlib";
 import { SESSION_LIMITS } from "./session-types";
 
+// Every file type whose bytes are already (or trivially become) readable text.
+// Code files are text too — rejecting `.py`/`.js`/`.sql` made no sense for a
+// coding agent. This list is deliberately broad; the UTF-8 fallback below also
+// catches anything not named here.
 const TEXT_EXTENSIONS = new Set([
-  "txt", "md", "markdown", "csv", "tsv", "json", "log", "yml", "yaml",
-  "xml", "html", "htm", "sql", "ini", "cfg", "toml",
+  // docs / data
+  "txt", "text", "md", "markdown", "mdx", "rst", "csv", "tsv", "json", "jsonl",
+  "ndjson", "log", "yml", "yaml", "xml", "html", "htm", "xhtml", "svg", "sql",
+  "ini", "cfg", "conf", "toml", "env", "properties", "diff", "patch",
+  // code
+  "py", "pyi", "ipynb", "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts",
+  "rs", "go", "java", "kt", "kts", "scala", "c", "h", "cc", "cpp", "cxx", "hpp",
+  "cs", "rb", "php", "swift", "m", "mm", "pl", "pm", "lua", "r", "jl", "dart",
+  "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "makefile", "mk", "gradle",
+  "dockerfile", "tf", "hcl", "proto", "graphql", "gql", "vue", "svelte", "astro",
+  "css", "scss", "sass", "less", "tex", "bib", "v", "vh", "vhd", "clj", "cljs",
+  "ex", "exs", "erl", "hs", "elm", "zig", "nim", "groovy", "vb",
+  // mail / markup-ish
+  "eml", "mbox", "rtf", "vtt", "srt", "ics",
 ]);
 
 // Office documents are ZIP archives of XML. They are extremely common finance
 // files, so they get real extraction (not "unsupported"): docx → the document
 // body text, xlsx → the shared strings (the cell text a reader would see).
-const OFFICE_ZIP_EXTENSIONS = new Set(["docx", "xlsx", "pptx"]);
+// ODT/ODS/ODP (OpenDocument) and EPUB are the same shape with different internal
+// paths — handled by `OFFICE_ZIP_PARTS` below.
+const OFFICE_ZIP_EXTENSIONS = new Set(["docx", "xlsx", "pptx", "odt", "ods", "odp", "epub"]);
+
+// The ZIP member(s) to read, per extension, in priority order.
+const OFFICE_ZIP_PARTS: Record<string, string[]> = {
+  docx: ["word/document.xml"],
+  pptx: ["ppt/slides/slide1.xml"],
+  xlsx: ["xl/sharedStrings.xml"],
+  odt: ["content.xml"],
+  ods: ["content.xml"],
+  odp: ["content.xml"],
+  epub: ["OEBPS/content.xhtml", "OEBPS/nav.xhtml", "content.xhtml"],
+};
 
 export interface ExtractResult {
   ok: boolean;
@@ -35,11 +67,34 @@ export function extensionOf(name: string): string {
   return idx === -1 ? "" : name.slice(idx + 1).toLowerCase();
 }
 
-/** True when we can turn the file into text the model can read. */
+/**
+ * True when the file has a chance of yielding text. This is now almost always
+ * true: unknown/no-extension files are SNIFFED at extraction time (text is read,
+ * binary is scanned for strings), so the UI should not pre-label them
+ * unsupported. It only returns false for a known-binary image/archive extension
+ * that the extractor will honestly report as having no readable text.
+ */
 export function isTextExtractable(name: string): boolean {
   const ext = extensionOf(name);
-  return TEXT_EXTENSIONS.has(ext) || ext === "pdf" || OFFICE_ZIP_EXTENSIONS.has(ext);
+  if (!ext) return true;
+  return !KNOWN_BINARY_EXTENSIONS.has(ext);
 }
+
+// Types we know are binary containers (media/archives/executables): extraction
+// still runs (readable-string scan) but the flag is honest up front.
+const KNOWN_BINARY_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tif", "tiff", "heic",
+  "mp3", "wav", "flac", "ogg", "m4a", "aac", "mp4", "mov", "avi", "mkv", "webm",
+  "zip", "gz", "tar", "rar", "7z", "bz2", "xz", "exe", "dll", "so", "dylib",
+  "bin", "iso", "dmg", "class", "pyc", "o", "obj", "woff", "woff2", "ttf", "otf",
+]);
+
+// Old binary Office (`.doc`/`.xls`/`.ppt`) and `.pages`/`.numbers`/`.key`: not
+// ZIP+XML, so a best-effort readable-string scan runs instead of refusing.
+const EXTRA_ZIP_TEXT_EXTENSIONS = new Set([
+  "doc", "xls", "ppt", "pages", "numbers", "key", "msg", "vsd",
+  "odg", "odf", "ots", "otp",
+]);
 
 // ── Minimal ZIP reader (no dependency) ──────────────────────────────────────
 // docx/xlsx/pptx are ZIP archives. We read the central directory, find the
@@ -118,16 +173,23 @@ function decodeXml(text: string): string {
  */
 function extractOfficeText(buf: Buffer, ext: string): ExtractResult {
   const entries = readZipEntries(buf);
-  if (entries.length === 0) return { ok: false, note: "Not a readable document" };
+  if (entries.length === 0) {
+    // Not a ZIP we can read (an old binary .doc/.xls, or a password-protected
+    // file). Fall back to a readable-string scan rather than refusing.
+    return extractReadableStrings(buf);
+  }
   // Reject a zip bomb before inflating anything.
   const declared = entries.reduce((sum, e) => sum + e.uncompressedSize, 0);
   if (declared > MAX_UNCOMPRESSED_BYTES) {
     return { ok: false, note: "Document too large to read" };
   }
-  // Prefer the specific XML parts, in document order.
-  const wanted = ext === "xlsx"
-    ? ["xl/sharedStrings.xml"]
-    : ["word/document.xml", "ppt/slides/slide1.xml"];
+  // The known member(s) for this type, else every .xml/.xhtml member.
+  let wanted = OFFICE_ZIP_PARTS[ext] ?? [];
+  if (wanted.length === 0) {
+    wanted = entries
+      .filter((e) => /\.(xml|xhtml|html)$/i.test(e.name))
+      .map((e) => e.name);
+  }
   const chunks: string[] = [];
   let total = 0;
   for (const want of wanted) {
@@ -136,20 +198,67 @@ function extractOfficeText(buf: Buffer, ext: string): ExtractResult {
     const data = readZipEntry(buf, entry);
     if (!data) continue;
     const xml = data.toString("utf8");
-    // <w:t>text</w:t> (docx), <a:t>text</a:t> (pptx), <t>text</t> (xlsx)
-    const re = /<(?:w|a|m)?:?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:w|a|m)?:?t>/g;
+    // <w:t>text</w:t> (docx), <a:t>text</a:t> (pptx), <t>text</t> (xlsx),
+    // and OpenDocument's <text:p>…</text:p> paragraphs.
+    const re = /<(?:w|a|m|text)?:?(?:t|p|h)(?:\s[^>]*)?>([\s\S]*?)<\/(?:w|a|m|text)?:?(?:t|p|h)>/g;
     for (const m of xml.matchAll(re)) {
-      const text = decodeXml(m[1]);
-      if (!text) continue;
+      const text = decodeXml(m[1].replace(/<[^>]+>/g, ""));
+      if (!text.trim()) continue;
       chunks.push(text);
       total += text.length + 1;
       if (total > SESSION_LIMITS.maxDocChars) break;
     }
     if (total > SESSION_LIMITS.maxDocChars) break;
   }
+  if (chunks.length === 0) return extractReadableStrings(buf);
   // Preserve paragraph breaks so the prose is legible.
   const joined = chunks.join(" ").replace(/[ \t]{2,}/g, " ");
   return bound(joined);
+}
+
+/**
+ * A best-effort readable-text scan for a binary document we cannot structurally
+ * parse (old `.doc`/`.xls`, a malformed ZIP, a scanned file). Pulls runs of
+ * printable ASCII/UTF-8 so the model gets SOMETHING rather than "unsupported".
+ * Honest: if nothing readable is found it says so.
+ */
+function extractReadableStrings(buf: Buffer): ExtractResult {
+  const text = buf.toString("utf8");
+  const runs = text.match(/[\x20-\x7e\u00a0-\uffff]{4,}/g) ?? [];
+  const joined = runs.join(" ").replace(/\s{3,}/g, "  ");
+  if (joined.trim().length < 8) {
+    return { ok: false, note: "No readable text found (a scanned or binary file)" };
+  }
+  return bound(joined);
+}
+
+/** A UTF-8 text fallback for anything not in the known lists. */
+function extractPlainText(bytes: Uint8Array): ExtractResult {
+  const buf = Buffer.from(bytes);
+  // A NUL byte in the first 8 KB is the standard "this is binary" signal.
+  const probe = buf.subarray(0, Math.min(buf.length, 8192));
+  if (probe.includes(0)) return extractReadableStrings(buf);
+  let text = buf.toString("utf8").replace(/^\uFEFF/, "");
+  // If decoding produced a lot of replacement chars, treat as binary.
+  const bad = (text.match(/\uFFFD/g) || []).length;
+  if (text.length > 0 && bad / text.length > 0.1) return extractReadableStrings(buf);
+  // Reject content that is only control characters (e.g. bytes 1,2,3) — that is
+  // not text, however well it decodes.
+  const printable = (text.match(/[\t\n\r\x20-\x7e\u00a0-\uffff]/g) || []).length;
+  if (text.length > 0 && printable / text.length < 0.8) return extractReadableStrings(buf);
+  return bound(text);
+}
+
+/** Strip the lightest RTF control words so an `.rtf` reads as prose. */
+function extractRtfText(bytes: Uint8Array): ExtractResult {
+  let text = Buffer.from(bytes).toString("latin1");
+  text = text
+    .replace(/\\'([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\par[d]?\b/g, "\n")
+    .replace(/\\[a-z]+-?\d* ?/gi, " ")
+    .replace(/[{}]/g, "")
+    .replace(/\\\*/g, "");
+  return bound(text);
 }
 
 /** Reject empty or absurdly long extracted text before it reaches a prompt. */
@@ -227,13 +336,19 @@ export function extractText(name: string, bytes: Uint8Array): ExtractResult {
   const ext = extensionOf(name);
   if (ext === "pdf") return extractPdfText(bytes);
   if (OFFICE_ZIP_EXTENSIONS.has(ext)) return extractOfficeText(Buffer.from(bytes), ext);
+  if (ext === "rtf") return extractRtfText(bytes);
+  // Old binary Office / unknown binary-ish containers: readable-string scan.
+  if (EXTRA_ZIP_TEXT_EXTENSIONS.has(ext)) return extractReadableStrings(Buffer.from(bytes));
   if (!TEXT_EXTENSIONS.has(ext)) {
-    return { ok: false, note: `Unsupported file type: .${ext || "unknown"}` };
+    // No extension, or an extension we do not know: sniff it. Text → read it;
+    // binary → readable-string scan. Never a flat "unsupported" refusal for a
+    // file whose bytes are actually text.
+    return extractPlainText(bytes);
   }
   let text = Buffer.from(bytes).toString("utf8");
   // Markdown/HTML: strip the noisiest markup so the model reads prose, not
   // tags. (A full renderer would be overkill for context injection.)
-  if (ext === "html" || ext === "htm") {
+  if (ext === "html" || ext === "htm" || ext === "xhtml") {
     text = text
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")

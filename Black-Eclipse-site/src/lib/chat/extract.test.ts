@@ -10,11 +10,18 @@ describe('extensionOf / isTextExtractable', () => {
     expect(extensionOf('noext')).toBe('');
   });
 
-  it('recognises text and pdf types only', () => {
+  it('recognises documents, code and office types', () => {
     expect(isTextExtractable('a.md')).toBe(true);
     expect(isTextExtractable('a.pdf')).toBe(true);
+    expect(isTextExtractable('a.docx')).toBe(true);
+    expect(isTextExtractable('a.odt')).toBe(true);
+    expect(isTextExtractable('a.py')).toBe(true);
+    expect(isTextExtractable('a.ts')).toBe(true);
+    // An unknown extension is still TRIED (sniffed), so it is "extractable".
+    expect(isTextExtractable('a.unknown')).toBe(true);
+    // A known binary container is honestly not text-extractable.
     expect(isTextExtractable('a.png')).toBe(false);
-    expect(isTextExtractable('a.exe')).toBe(false);
+    expect(isTextExtractable('a.zip')).toBe(false);
   });
 });
 
@@ -25,6 +32,12 @@ describe('extractText', () => {
     expect(extractText('a.csv', bytes('a,b\n1,2')).text).toBe('a,b\n1,2');
   });
 
+  it('reads source code files', () => {
+    expect(extractText('a.py', bytes("print('hi')")).text).toBe("print('hi')");
+    expect(extractText('a.ts', bytes('let x: number = 1')).text).toBe('let x: number = 1');
+    expect(extractText('a.sql', bytes('SELECT 1')).text).toBe('SELECT 1');
+  });
+
   it('strips html tags and decodes common entities', () => {
     const result = extractText('a.html', bytes('<p>a &amp; b</p><script>x</script>'));
     expect(result.ok).toBe(true);
@@ -32,10 +45,22 @@ describe('extractText', () => {
     expect(result.text).not.toContain('script');
   });
 
-  it('rejects an unsupported binary type', () => {
-    const result = extractText('a.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+  it('strips rtf control words', () => {
+    const result = extractText('a.rtf', bytes('{\\rtf1\\ansi Hello World}'));
+    expect(result.ok).toBe(true);
+    expect(result.text).toContain('Hello World');
+  });
+
+  it('reads an unknown/no-extension file when its bytes are text', () => {
+    expect(extractText('notes', bytes('plain text here')).text).toBe('plain text here');
+    expect(extractText('a.unknown', bytes('just some text')).text).toBe('just some text');
+  });
+
+  it('reports a genuinely binary file honestly (not a flat refusal)', () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+    const result = extractText('a.png', png);
     expect(result.ok).toBe(false);
-    expect(result.note).toContain('Unsupported');
+    expect(result.note).toMatch(/readable text|binary/i);
   });
 
   it('rejects empty content', () => {
