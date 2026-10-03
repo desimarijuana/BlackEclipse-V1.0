@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
@@ -13,7 +13,7 @@ import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
-import { useSession } from '@/lib/chat/use-session';
+import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { Message } from '@/types/chat';
 
@@ -152,6 +152,25 @@ function StockChatContent() {
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Visible attachment chips at the composer: pending + the session's saved
+  // context files, de-duplicated.
+  const attachmentChips = useMemo(
+    () => mergeAttachmentChips(
+      sessionController.pending,
+      (sessionController.session?.files ?? []).filter((f) => f.kind === 'context'),
+    ),
+    [sessionController.pending, sessionController.session],
+  );
+
+  const handleRemoveAttachment = (name: string) => {
+    if (sessionController.pending.some((p) => p.name === name)) {
+      sessionController.removePending(name);
+      return;
+    }
+    const file = sessionController.session?.files.find((f) => f.kind === 'context' && f.name === name);
+    if (file) void sessionController.removeFile(file);
+  };
 
   // The one place a turn's streaming lifecycle lives. The hook reports the
   // AssistantTurn; we map it onto the message store below. `turnSinkRef` is set
@@ -926,6 +945,8 @@ function StockChatContent() {
                       onSend={handleSend}
                       onViewMarketOverview={() => setActiveTab('discovery')}
                       onAttach={() => fileInputRef.current?.click()}
+                      attachments={attachmentChips}
+                      onRemoveAttachment={handleRemoveAttachment}
                       busy={agentBusy}
                       onCancel={handleCancel}
                       focus={focusMode}
@@ -959,6 +980,8 @@ function StockChatContent() {
                         onCancel={handleCancel}
                         onAttach={() => fileInputRef.current?.click()}
                         attaching={sessionController.busy}
+                        attachments={attachmentChips}
+                        onRemoveAttachment={handleRemoveAttachment}
                         contextLabel={sessionController.session && sessionController.session.contextChars > 0
                           ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars`
                           : undefined}

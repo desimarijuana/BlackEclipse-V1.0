@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-02
 
+- **Attachments are VISIBLE at the composer.** An attached file used to be hidden
+  behind a collapsed session bar, so "did it attach?" was unanswerable. Files now
+  render as chips directly above the chat composer — a file icon, the name, and an
+  X to remove — plus the "Attached N" count. Shown on both the empty landing and
+  an active conversation. The chip list merges pending (attached before a session
+  exists) and saved context files, de-duplicated (`mergeAttachmentChips`, pure and
+  tested). Verified in a real browser (Playwright): attaching a file renders the
+  `chatmade.py` chip with its remove button. Tests: `attachment-chips.test.ts`.
+  `tsc` clean; vitest 2042 passed; pytest 2474 passed.
+  docs updated: `docs/CHANGELOG.md`
+
 - **Attachments actually work: real file names + Office documents.** The file-name
   guard was an ASCII allowlist, which REJECTED extremely common real names —
   `notes(1).md`, `résumé.pdf`, `Q3 [final].xlsx`, `R&D.csv` — so "attach a file"

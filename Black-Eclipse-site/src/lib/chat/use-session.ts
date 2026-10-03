@@ -17,6 +17,25 @@ export interface PendingFile {
   bytes: number;
 }
 
+/**
+ * The visible attachment chips: pending files first, then the session's saved
+ * context files, de-duplicated by name (a file shown as pending must not appear
+ * twice once it lands in the session). Pure, so the display rule is testable.
+ */
+export function mergeAttachmentChips(
+  pending: PendingFile[],
+  contextFiles: { name: string }[],
+): { name: string }[] {
+  const seen = new Set<string>();
+  const out: { name: string }[] = [];
+  for (const file of [...pending, ...contextFiles]) {
+    if (seen.has(file.name)) continue;
+    seen.add(file.name);
+    out.push({ name: file.name });
+  }
+  return out;
+}
+
 export interface SessionController {
   session: SessionInfo | null;
   busy: boolean;

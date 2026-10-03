@@ -1,13 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
+
+/** One attached file shown as a chip above the composer. */
+export interface AttachmentChip {
+  name: string;
+  /** True while the upload is still in flight (for a pending attachment). */
+  uploading?: boolean;
+}
 
 interface ChatInputProps {
   query: string;
@@ -25,6 +32,13 @@ interface ChatInputProps {
   onAttach?: () => void;
   /** Shows a spinner on the "+" while documents upload. */
   attaching?: boolean;
+  /**
+   * Attached documents rendered as visible chips above the composer, so an
+   * attachment is obviously present without expanding anything. Removing a chip
+   * calls `onRemoveAttachment` with its name.
+   */
+  attachments?: AttachmentChip[];
+  onRemoveAttachment?: (name: string) => void;
   /**
    * A short "context used" label (e.g. `4.2k / 60k`). Rendered quietly under
    * the composer; omitted when there is nothing to report.
@@ -45,6 +59,8 @@ export function ChatInput({
   onCancel,
   onAttach,
   attaching = false,
+  attachments,
+  onRemoveAttachment,
   contextLabel,
   contextFraction,
   }: ChatInputProps) {
@@ -79,6 +95,35 @@ export function ChatInput({
 
   return (
     <div className="w-full">
+      {attachments && attachments.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Attached documents">
+          {attachments.map((file) => (
+            <span
+              key={file.name}
+              className="group inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 py-1 pl-2 pr-1 text-[11px] text-foreground/90"
+              title={file.name}
+            >
+              {file.uploading ? (
+                <Loader2 size={12} className="shrink-0 animate-spin text-primary" />
+              ) : (
+                <FileText size={12} className="shrink-0 text-primary" />
+              )}
+              <span className="min-w-0 truncate">{file.name}</span>
+              {onRemoveAttachment && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveAttachment(file.name)}
+                  title="Remove attachment"
+                  aria-label={`Remove ${file.name}`}
+                  className="shrink-0 rounded-full p-0.5 text-muted-foreground/70 hover:bg-white/10 hover:text-foreground"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <form onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
         <Button
           type="button"
