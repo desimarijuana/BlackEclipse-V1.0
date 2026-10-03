@@ -604,6 +604,28 @@ name only real tools. Path config: `ECLIPSE_MEMORY_DB_PATH`. See
 **Reason:** The release gate was fictional three ways: a CI job that could not pass, a workflow GitHub never read, and eval floors no local command ran.
 **Impact:** .github/ removed; scripts/test-evals.js + scripts/check-all.js (new); package.json (`test:evals`, `check:all`, `test` includes evals); .githooks/commit-msg (new); scripts/install-git-hooks.js. See docs/harness/decisions.md ADR-H75 and docs/harness/engineering-hardening-progress.md.
 
+### ADR-040 - A theme preset is holistic: it carries a partial ChatBot-backdrop snapshot (2026)
+**Decision:** A preset is more than design tokens. `ThemePreset` and
+`UserThemePreset` carry an optional **partial** `background` snapshot
+(`Partial<BackgroundPrefs>`, validated by `normalizePresetBackground`). Selecting
+a preset previews its backdrop (`useBackgroundStore.preview`, non-persisted) and
+Apply commits it (`applyPreset(theme, background)`); the snapshot is **merged over
+the user's live background prefs**, so a preset that only sets the wordmark keeps
+the user's wallpaper and vice versa. `ChatWordmark` reads `previewPrefs ?? prefs`
+so glyphs update live. The theme store calls the background store's adapter
+(`applyBackgroundToDocument`) rather than subscribing to it — a store-to-store
+subscription was a module **cycle** (`backgrounds.ts` imported `useThemeStore`);
+`refreshBackground()` re-asserts the saved backdrop after every theme write.
+**Reason:** Applying a preset changed colors/fonts/sidebar but left the ChatBot
+landing (the most visible surface) untouched, because the two stores had no
+coupling. The separation was intentional for *manual* backgrounds but wrong for a
+unified "look".
+**Impact:** src/lib/theme/{tokens,store,index}.ts, src/lib/backgrounds.ts,
+src/components/screens/customization-settings.tsx (+ extracted
+`customization-preview.tsx` to stay under the size ratchet),
+src/components/chat/chat-wordmark.tsx, src/components/layout/{sidebar,top-bar}.tsx,
+src/app/globals.css (`--font-heading`). Tests: tokens/store/backgrounds + new
+preset-snapshot cases. See docs/ARCHITECTURE.md.
 
 ### ADR-019 — Provider-agnostic financial retrieval layer; web research is first-class (2026)
 **Decision:** The agent requests an **objective + data type**, not a provider. A

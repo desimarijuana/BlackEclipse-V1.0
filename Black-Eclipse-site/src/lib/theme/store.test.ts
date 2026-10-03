@@ -131,6 +131,24 @@ describe('user theme presets', () => {
     expect(useChartPaletteStore.getState().palette.candles.up).toBe('#abcdef');
   });
 
+  it('captures the ChatBot backdrop with a preset and restores it on apply', async () => {
+    const { useThemeStore } = await import('./store');
+    const { useBackgroundStore } = await import('@/lib/backgrounds');
+    useThemeStore.getState().hydrate();
+    useBackgroundStore.getState().setPrefs({
+      mode: 'solid', solidFill: 'gradient', solidColor: '#05060f', text: 'MIDNIGHT', textEnabled: true,
+    });
+    const id = useThemeStore.getState().saveUserPreset('Midnight-ish');
+    expect(useThemeStore.getState().userPresets[0].background?.mode).toBe('solid');
+    expect(useThemeStore.getState().userPresets[0].background?.text).toBe('MIDNIGHT');
+
+    // Change the backdrop away, then re-apply the preset.
+    useBackgroundStore.getState().setPrefs({ mode: 'image', preset: 'eclipse-5' });
+    useThemeStore.getState().applyUserPreset(id);
+    expect(useBackgroundStore.getState().prefs.mode).toBe('solid');
+    expect(useBackgroundStore.getState().prefs.text).toBe('MIDNIGHT');
+  });
+
   it('persists and rehydrates a preset chart palette', async () => {
     const { useThemeStore } = await import('./store');
     const { useChartPaletteStore } = await import('@/lib/chart-palette-store');

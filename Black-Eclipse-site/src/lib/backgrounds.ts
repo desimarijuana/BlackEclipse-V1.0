@@ -30,7 +30,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { FontOption } from '@/lib/theme/tokens';
-import { useThemeStore } from '@/lib/theme/store';
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
@@ -369,6 +368,26 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
     textLineHeight, textWidth, textItalic, textUppercase,
     textScale, textOpacity, textPositionY, textAlign,
   };
+}
+
+/**
+ * Validate a preset's partial background snapshot and return only the keys it
+ * actually supplied, so merging it over the live prefs never invents values and
+ * a preset that only themes the wordmark leaves the user's wallpaper alone.
+ * Invalid snapshots collapse to `undefined` (the preset then carries no
+ * background and the panel leaves the current backdrop untouched).
+ */
+export function normalizePresetBackground(raw: unknown): Partial<BackgroundPrefs> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const src = raw as Record<string, unknown>;
+  const full = normalizeBackgroundPrefs({ ...DEFAULT_BACKGROUND, ...src });
+  const out: Partial<BackgroundPrefs> = {};
+  for (const key of Object.keys(DEFAULT_BACKGROUND) as (keyof BackgroundPrefs)[]) {
+    if (key in src) {
+      (out as Record<string, unknown>)[key] = full[key];
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function loadBackgroundPrefs(): BackgroundPrefs {
@@ -718,6 +737,23 @@ export interface BackgroundStore {
   hydrate: () => Promise<void>;
   /** Patch prefs; applies immediately and persists. */
   setPrefs: (patch: Partial<BackgroundPrefs>) => void;
+  /**
+   * Show a preset's partial background (merged over the live prefs) on the
+   * document WITHOUT persisting — the live/full-screen theme preview uses this
+   * so selecting a theme preset also auditions its ChatBot backdrop. Reverting
+   * is `cancelPreview`.
+   */
+  preview: (patch: Partial<BackgroundPrefs>) => void;
+  /** Discard any active background preview, restoring the saved prefs. */
+  cancelPreview: () => void;
+  /** True while a non-persisted preview is on the document. */
+  previewing: boolean;
+  /**
+   * The prefs to render from: the previewed snapshot while a preview is active,
+   * otherwise the saved prefs. React consumers (the giant wordmark) read this so
+   * a preset preview updates the glyphs, not just the CSS-variable layer.
+   */
+  previewPrefs: BackgroundPrefs | null;
   /** Optimise + store a user image and switch to it. Returns an error string. */
   setCustomImage: (file: File) => Promise<string | null>;
   /** Forget the stored custom image and fall back to a shipped preset. */
@@ -744,6 +780,8 @@ export const useBackgroundStore = create<BackgroundStore>((set, get) => {
     hydrated: false,
     customUrl: null,
     saving: false,
+    previewing: false,
+    previewPrefs: null,
 
     hydrate: async () => {
       const prefs = loadBackgroundPrefs();
@@ -755,7 +793,26 @@ export const useBackgroundStore = create<BackgroundStore>((set, get) => {
       apply(prefs, customUrl);
     },
 
-    setPrefs: (patch) => commit(patch),
+    setPrefs: (patch) => {
+      // An explicit edit supersedes any active preset preview, so a manual
+      // change is not reverted by a later cancelPreview.
+      set({ previewing: false, previewPrefs: null });
+      commit(patch);
+    },
+
+    preview: (patch) => {
+      // Merge over the SAVED prefs (never mutated by a preview), so
+      // re-previewing a different preset never compounds on a previous one.
+      const next = normalizeBackgroundPrefs({ ...get().prefs, ...patch });
+      apply(next);
+      set({ previewing: true, previewPrefs: next });
+    },
+
+    cancelPreview: () => {
+      if (!get().previewing) return;
+      apply(get().prefs);
+      set({ previewing: false, previewPrefs: null });
+    },
 
     setCustomImage: async (file) => {
       if (file.size > MAX_UPLOAD_BYTES) {
@@ -794,9 +851,10 @@ export const useBackgroundStore = create<BackgroundStore>((set, get) => {
 });
 
 /**
- * Hydrate the background from storage and apply it, once, client-side. Also
- * re-applies on theme changes so the wallpaper-suppression var stays
- * authoritative over the theme's own `--page-bg-image`.
+ * Hydrate the background from storage and apply it, once, client-side. The
+ * theme store re-applies it after every theme write (see `refreshBackground`),
+ * so the wallpaper-suppression var stays authoritative over the theme's own
+ * `--page-bg-image` without a store-to-store subscription.
  */
 export function useHydrateBackground() {
   const hydrate = useBackgroundStore((s) => s.hydrate);
@@ -804,18 +862,6 @@ export function useHydrateBackground() {
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrated, hydrate]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const apply = () => {
-      const s = useBackgroundStore.getState();
-      applyBackgroundToDocument(s.prefs, s.customUrl);
-    };
-    apply();
-    // A wallpaper does not derive from the theme, but re-applying on theme
-    // changes is harmless and keeps the suppression var authoritative.
-    return useThemeStore.subscribe(apply);
-  }, [hydrated]);
 }
 
 /** True when any non-default backdrop is configured (drives the "Custom" badge). */

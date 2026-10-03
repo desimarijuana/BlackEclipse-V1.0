@@ -13,7 +13,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { extractText, isTextExtractable } from "./extract";
+import { extractText, extractDocumentText, isTextExtractable } from "./extract";
 import { SESSION_LIMITS, type SessionFile, type SessionFileKind, type SessionInfo } from "./session-types";
 
 const CHAT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -142,7 +142,7 @@ export async function measureContextChars(chatId: string): Promise<number> {
     if (total >= SESSION_LIMITS.maxTotalDocChars) break;
     try {
       const bytes = await readSessionFile(chatId, "context", file.name);
-      const result = extractText(file.name, bytes);
+      const result = await extractDocumentText(file.name, bytes);
       if (!result.ok || !result.text) continue;
       total += Math.min(result.text.length, SESSION_LIMITS.maxDocChars, SESSION_LIMITS.maxTotalDocChars - total);
     } catch {
@@ -228,7 +228,7 @@ export async function loadContextDocuments(chatId: string): Promise<Array<{ name
     if (total >= SESSION_LIMITS.maxTotalDocChars) break;
     try {
       const bytes = await readSessionFile(chatId, "context", file.name);
-      const result = extractText(file.name, bytes);
+      const result = await extractDocumentText(file.name, bytes);
       if (!result.ok || !result.text) continue;
       const remaining = SESSION_LIMITS.maxTotalDocChars - total;
       const text = result.text.slice(0, remaining);

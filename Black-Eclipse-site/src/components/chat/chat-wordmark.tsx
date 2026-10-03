@@ -14,7 +14,9 @@ import { isWordmarkVisible, useBackgroundStore } from '@/lib/backgrounds';
 import { cn } from '@/lib/utils';
 
 export function ChatWordmark() {
-  const prefs = useBackgroundStore((s) => s.prefs);
+  // While a preset backdrop is being previewed, render the previewed prefs so
+  // the glyphs (text/font/size/color) update live, not just the CSS layer.
+  const prefs = useBackgroundStore((s) => s.previewPrefs ?? s.prefs);
   const {
     text, textFont, textColor, textWeight, textLetterSpacing, textLineHeight,
     textWidth, textItalic, textUppercase, textScale, textOpacity, textPositionY, textAlign,

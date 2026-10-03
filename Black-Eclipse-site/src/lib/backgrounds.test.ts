@@ -6,6 +6,7 @@ import {
   isVectorImage,
   isWordmarkVisible,
   normalizeBackgroundPrefs,
+  normalizePresetBackground,
   resolveBackgroundCss,
   shippedBackground,
 } from './backgrounds';
@@ -113,6 +114,42 @@ describe('normalizeBackgroundPrefs', () => {
     expect(normalizeBackgroundPrefs({ scale: 142.6 }).scale).toBe(143);
     expect(normalizeBackgroundPrefs({ positionX: -9 }).positionX).toBe(0);
     expect(normalizeBackgroundPrefs({ positionY: 140 }).positionY).toBe(100);
+  });
+});
+
+describe('normalizePresetBackground', () => {
+  it('keeps only the keys the snapshot supplied (partial merge)', () => {
+    const snap = normalizePresetBackground({ text: 'MIDNIGHT', textFont: 'Inter, sans-serif' });
+    expect(snap).not.toBeUndefined();
+    // The two supplied keys survive; a wallpaper key the preset omitted is NOT
+    // invented, so merging over live prefs leaves the user's backdrop alone.
+    expect(Object.keys(snap!).sort()).toEqual(['text', 'textFont']);
+    expect(snap!.text).toBe('MIDNIGHT');
+  });
+
+  it('preserves a full solid-mode snapshot with its wordmark', () => {
+    const snap = normalizePresetBackground({
+      mode: 'solid', solidFill: 'gradient', solidColor: '#05060f', solidColor2: '#818cf8',
+      textEnabled: true, text: 'MIDNIGHT', textColor: '#818cf8', textUppercase: true,
+    });
+    expect(snap!.mode).toBe('solid');
+    expect(snap!.solidFill).toBe('gradient');
+    expect(snap!.textEnabled).toBe(true);
+    expect(snap!.textUppercase).toBe(true);
+  });
+
+  it('normalizes supplied values (clamps, rounds, validates)', () => {
+    const snap = normalizePresetBackground({ mode: 'plaid', textScale: 999 });
+    // `mode` is supplied but invalid → normalized to the shipped default.
+    expect(snap!.mode).toBe(DEFAULT_BACKGROUND.mode);
+    expect(snap!.textScale).toBe(40);
+  });
+
+  it('returns undefined for junk, empty, or non-object snapshots', () => {
+    expect(normalizePresetBackground(null)).toBeUndefined();
+    expect(normalizePresetBackground('nope')).toBeUndefined();
+    expect(normalizePresetBackground([])).toBeUndefined();
+    expect(normalizePresetBackground({})).toBeUndefined();
   });
 });
 

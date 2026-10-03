@@ -63,10 +63,13 @@ export function Sidebar({
   // Eclipse mark/name when not customized.
   const appName = useThemeStore((s) => s.theme.appName);
   const logoText = useThemeStore((s) => s.theme.logoText);
+  const logoUrl = useThemeStore((s) => s.theme.logoUrl);
   const logoScale = useThemeStore((s) => s.theme.logoScale);
   const logoBox = { width: `${2 * logoScale}rem`, height: `${2 * logoScale}rem` };
-  // Sidebar brand uses a text monogram (no logo image) — short, clean and
-  // legible at the collapsed width. Falls back to the first letter of the name.
+  // A user-uploaded logo takes precedence over the shipped Eclipse assets; the
+  // text monogram remains the final fallback at the collapsed width.
+  const markSrc = logoUrl || BRAND_MARK_SRC;
+  const wordmarkSrc = logoUrl || BRAND_WORDMARK_SRC;
   const monogram = (logoText || appName.charAt(0) || 'B').slice(0, 2).toUpperCase();
 
   // User-customized menu: order, visibility, and shortcuts come from the
@@ -135,7 +138,7 @@ export function Sidebar({
             /* Collapsed — show only the favicon in its place. */
             <div className="relative flex items-center justify-center shrink-0" style={logoBox}>
               <img
-                src={BRAND_MARK_SRC}
+                src={markSrc}
                 alt={appName}
                 className="h-6 w-6 object-contain transition-all duration-200 group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75"
               />
@@ -150,7 +153,7 @@ export function Sidebar({
           ) : (
             /* Expanded — the proper brand wordmark (mark + name). */
             <img
-              src={BRAND_WORDMARK_SRC}
+              src={wordmarkSrc}
               alt={appName}
               className="h-7 w-auto max-w-[170px] object-contain select-none"
             />

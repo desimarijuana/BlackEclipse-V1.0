@@ -27,6 +27,12 @@ import {
 } from './tokens';
 import { DEFAULT_CHART_PALETTE, normalizeChartPalette, type ChartPalette } from '@/lib/chart-palette';
 import { useChartPaletteStore } from '@/lib/chart-palette-store';
+import {
+  applyBackgroundToDocument,
+  normalizePresetBackground,
+  useBackgroundStore,
+  type BackgroundPrefs,
+} from '@/lib/backgrounds';
 
 export const THEME_STORAGE_KEY = 'be_theme_v1';
 export const THEME_PRESETS_STORAGE_KEY = 'be_theme_presets_v1';
@@ -43,6 +49,12 @@ export interface UserThemePreset {
    * presets saved before this field existed.
    */
   chartPalette?: ChartPalette;
+  /**
+   * The ChatBot-backdrop snapshot captured with the theme (wallpaper / solid
+   * fill + giant wordmark), so re-applying a preset restores the WHOLE look.
+   * Optional for presets saved before this field existed.
+   */
+  background?: Partial<BackgroundPrefs>;
   createdAt: number;
 }
 
@@ -72,6 +84,7 @@ function loadUserPresets(): UserThemePreset[] {
         createdAt: Number(p.createdAt) || Date.now(),
         theme: normalizeTheme(p.theme),
         chartPalette: p.chartPalette ? normalizeChartPalette(p.chartPalette) : undefined,
+        background: normalizePresetBackground(p.background),
       }))
       .filter((p) => p.id.length > 0);
   } catch {
@@ -96,6 +109,28 @@ function makePresetId(): string {
 function currentChartPalette(): ChartPalette {
   const s = useChartPaletteStore.getState();
   return s.previewPalette ?? s.palette ?? DEFAULT_CHART_PALETTE;
+}
+
+/** The ChatBot backdrop currently in effect, captured with a saved preset. */
+function currentBackground(): Partial<BackgroundPrefs> {
+  return { ...useBackgroundStore.getState().prefs };
+}
+
+/** Push a preset's backdrop snapshot onto the background store; no-op when none. */
+function restoreBackground(background: Partial<BackgroundPrefs> | undefined): void {
+  if (!background) return;
+  useBackgroundStore.getState().setPrefs(background);
+}
+
+/**
+ * Re-paint the saved backdrop after a theme write, so the background's
+ * wallpaper-suppression / solid-fill vars stay authoritative over the theme's
+ * own `--page-bg-image`. This replaces the old store-to-store subscription that
+ * made the two modules import each other.
+ */
+export function refreshBackground(): void {
+  const s = useBackgroundStore.getState();
+  applyBackgroundToDocument(s.prefs, s.customUrl);
 }
 
 function buildOverrideCss(theme: EclipseTheme): string {
@@ -218,8 +253,12 @@ export interface ThemeStore {
   setGlass: (patch: Partial<ThemeGlass>) => void;
   /** Patch the dedicated sidebar surface settings. */
   setSidebar: (patch: Partial<ThemeSidebar>) => void;
-  /** Replace the theme wholesale (preset application). */
-  applyPreset: (theme: EclipseTheme) => void;
+  /**
+   * Replace the theme wholesale (preset application). An optional background
+   * snapshot is pushed to the background store in the same step, so applying a
+   * preset restores its ChatBot backdrop alongside its tokens.
+   */
+  applyPreset: (theme: EclipseTheme, background?: Partial<BackgroundPrefs>) => void;
   /**
    * Apply a theme to the document WITHOUT persisting it. Used by the Settings
    * preview toggle so the whole app can be auditioned before committing.
@@ -243,7 +282,7 @@ export interface ThemeStore {
   /** Delete a user preset. */
   deleteUserPreset: (id: string) => void;
   /** Replace a user preset's colors with the given theme (used by import). */
-  importPreset: (theme: EclipseTheme) => void;
+  importPreset: (theme: EclipseTheme, background?: Partial<BackgroundPrefs>) => void;
   /** Restore the shipped Eclipse default and drop inline overrides. */
   reset: () => void;
 }
@@ -254,6 +293,9 @@ function commit(theme: EclipseTheme): EclipseTheme {
   applyFavicon(clean);
   applyDocumentTitle(clean);
   persist(clean);
+  // Re-assert the saved backdrop so its suppression / solid-fill vars stay
+  // authoritative over the theme's own `--page-bg-image`.
+  refreshBackground();
   return clean;
 }
 
@@ -309,7 +351,8 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set({ theme: commit(next), customized: true });
   },
 
-  applyPreset: (theme) => {
+  applyPreset: (theme, background) => {
+    restoreBackground(background);
     set({ theme: commit(theme), customized: true, previewTheme: null });
   },
 
@@ -342,6 +385,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       label: label.trim() || 'My Theme',
       theme: normalizeTheme(get().theme),
       chartPalette: currentChartPalette(),
+      background: currentBackground(),
       createdAt: Date.now(),
     };
     const userPresets = [preset, ...get().userPresets];
@@ -353,7 +397,13 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   updateUserPreset: (id) => {
     const userPresets = get().userPresets.map((p) =>
       p.id === id
-        ? { ...p, theme: normalizeTheme(get().theme), chartPalette: currentChartPalette(), createdAt: Date.now() }
+        ? {
+            ...p,
+            theme: normalizeTheme(get().theme),
+            chartPalette: currentChartPalette(),
+            background: currentBackground(),
+            createdAt: Date.now(),
+          }
         : p,
     );
     persistUserPresets(userPresets);
@@ -363,7 +413,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   applyUserPreset: (id) => {
     const preset = get().userPresets.find((p) => p.id === id);
     if (!preset) return;
-    get().applyPreset(preset.theme);
+    get().applyPreset(preset.theme, preset.background);
     if (preset.chartPalette) {
       useChartPaletteStore.getState().setPalette(preset.chartPalette);
     }
@@ -383,10 +433,10 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set({ userPresets });
   },
 
-  importPreset: (theme) => {
+  importPreset: (theme, background) => {
     // Import stores a new named user preset rather than replacing the active
     // theme, so an import is always non-destructive.
-    get().applyPreset(theme);
+    get().applyPreset(theme, background);
     get().saveUserPreset(theme.appName || 'Imported Theme');
   },
 
@@ -400,6 +450,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         /* ignore */
       }
     }
+    // Restore the shipped backdrop too, so "Reset to Eclipse Default" resets the
+    // ChatBot landing alongside the tokens.
+    useBackgroundStore.getState().reset();
     set({ theme: DEFAULT_ECLIPSE_THEME, customized: false });
   },
 }));

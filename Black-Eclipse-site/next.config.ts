@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // pointer events, which blocks automated UI checks (Playwright) against
   // controls underneath it.
   devIndicators: false,
-  serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "pdfjs-dist"],
 };
 
 export default nextConfig;

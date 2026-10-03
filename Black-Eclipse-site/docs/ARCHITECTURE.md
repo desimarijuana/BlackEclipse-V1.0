@@ -171,12 +171,28 @@ Two mechanisms:
       by name into `be_theme_presets_v1` (save / rename / update / delete) and can be
       exported/imported as JSON. A saved preset also captures the chart/heatmap
       palette in effect (via `bridge.ts`), and re-applying it restores both the
-      theme and chart colors. The panel uses a **draft + preview** model: edits
+      theme and chart colors.
+      A preset is **holistic**: it also carries an optional partial
+      `background` snapshot (`ThemePreset.background` / `UserThemePreset.background`,
+      validated by `normalizePresetBackground` in `backgrounds.ts`). This is what
+      makes one click restyle the **ChatBot landing** too — shipped presets ship a
+      coordinated wallpaper/solid fill + wordmark (e.g. Midnight's indigo radial
+      gradient with a "MIDNIGHT" wordmark), and the panel pushes the snapshot to
+      `useBackgroundStore` on preview/apply via `applyPreset(theme, background)`.
+      Because the snapshot is **partial and merged over live prefs**, a preset that
+      only themes the wordmark keeps the user's chosen wallpaper and vice versa;
+      `saveUserPreset`/`updateUserPreset` capture the current prefs, and export/import
+      round-trip the snapshot alongside the theme. The panel uses a **draft + preview** model: edits
       go to a local draft, `preview()` applies it to the document without
       persisting, and Apply/Discard commit or revert (uncommitted previews are
       cancelled on unmount). Live/draft preview also overlays the chart palette
       (`useChartPaletteStore.setPreview`) so candles and market heatmaps recolor
-      instantly without persisting. Auditioning is **full-screen on the real app**:
+      instantly without persisting, and overlays a selected preset's ChatBot
+      backdrop (`useBackgroundStore.preview`, which sets `previewing` +
+      `previewPrefs`; `ChatWordmark` reads `previewPrefs ?? prefs` so the glyphs
+      update live, not just the CSS layer). `cancelPreview` restores the saved
+      backdrop; a manual background edit (`setPrefs`) also supersedes a preview.
+      Auditioning is **full-screen on the real app**:
       the "Enter full-screen preview" action sets `previewMode`, which hides (not
       unmounts) the Settings dialog in `stock-chat.tsx` so the live-themed app is
       visible and interactive, with a portaled floating **Apply / Discard / Exit**
@@ -218,7 +234,12 @@ Two mechanisms:
       `::before` (so the zoom scales only the art) while the `dim` scrim sits on
       the element itself; the layer reads
       `--app-bg-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
-      fed by `useHydrateBackground` in `stock-chat.tsx`. The default for new
+      fed by `useHydrateBackground` in `stock-chat.tsx` (initial load) and
+      re-asserted by `refreshBackground()` after every theme write, so the
+      background's suppression/solid-fill vars stay authoritative over the
+      theme's own `--page-bg-image`. The theme store and background store do not
+      import each other (that would be a cycle); the theme store calls the
+      background store's adapter instead. The default for new
       users is the shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`).
       The giant landing wordmark (`ChatWordmark`) is **opt-in for Image** (the
       `textEnabled` pref defaults false, so the wallpaper shows alone) and
@@ -247,7 +268,14 @@ Two mechanisms:
       `public/branding/` (`FAVICON.svg` mark, `LOGO-WORDMARK.svg` lockup), exported
       as `BRAND_MARK_SRC` / `BRAND_WORDMARK_SRC` from `tokens.ts`. They are the
       defaults for the sidebar/header mark, the wordmark, and the favicon; a
-      user-uploaded `logoUrl` / `faviconUrl` always overrides them. This is a
+      user-uploaded `logoUrl` / `faviconUrl` always overrides them (the sidebar
+      collapsed mark, the expanded wordmark and the mobile header all read
+      `theme.logoUrl` first, falling back to the shipped assets — the sidebar
+      falls back further to the `logoText` monogram). The Heading-font control now
+      reaches `font-heading` elements: `fontHeading` emits both `--font-serif` and
+      a dedicated `--font-heading` (previously `--font-heading` aliased
+      `--font-sans`, so choosing a Heading font silently did nothing for
+      `font-heading` utilities). This is a
       presentation-only layer; it never touches stored financial data.
       **Continuous controls are throttled.** A native `<input type="color">` (and
       sliders) emit far faster than the app can repaint; committing every event

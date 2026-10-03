@@ -8,6 +8,11 @@
 // This module is pure (no React, no DOM) so it is safe to unit test and to
 // import from server code. The live store lives in `store.ts`.
 
+import type { BackgroundPrefs } from '@/lib/backgrounds';
+
+/** The shipped default wallpaper id (see `SHIPPED_BACKGROUNDS`). */
+const CRYSTAL_WALLPAPER_ID = 'eclipse-1';
+
 export type ThemeDensity = 'compact' | 'comfortable' | 'spacious';
 export type ThemeShadow = 'none' | 'soft' | 'medium' | 'dramatic';
 export type ThemeBackground = 'solid' | 'gradient' | 'grid';
@@ -218,6 +223,15 @@ export interface ThemePreset {
   label: string;
   description: string;
   theme: EclipseTheme;
+  /**
+   * Optional ChatBot-backdrop snapshot. A theme is more than its tokens: the
+   * landing wallpaper and giant wordmark are part of the look, so a preset
+   * carries them here and the customization panel pushes them to the background
+   * store on preview/apply. The snapshot is PARTIAL — it is merged over the
+   * live background prefs, so a preset that only sets the wordmark font keeps
+   * the user's chosen wallpaper image (and vice versa).
+   */
+  background?: Partial<BackgroundPrefs>;
 }
 
 function preset(
@@ -226,11 +240,13 @@ function preset(
   description: string,
   colors: Partial<ThemeColors>,
   extra?: Partial<EclipseTheme>,
+  background?: Partial<BackgroundPrefs>,
 ): ThemePreset {
   return {
     id,
     label,
     description,
+    background,
     theme: {
       ...DEFAULT_ECLIPSE_THEME,
       ...extra,
@@ -238,6 +254,9 @@ function preset(
     },
   };
 }
+
+/** The wordmark font of the shipped Eclipse landing, reused by neutral presets. */
+const ECLIPSE_WORDMARK_FONT = 'var(--font-bodoni), Georgia, serif';
 
 /** Shipped Eclipse-family looks. The first is the brand default. */
 /**
@@ -251,34 +270,59 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: 'eclipse', label: 'Eclipse', description: 'The default green-on-black terminal.', theme: DEFAULT_ECLIPSE_THEME },
   preset('midnight', 'Midnight', 'Cool indigo accent on deep navy.',
     { primary: '#818cf8', accent: '#6366f1', background: '#05060f', surface: '#0d1020', border: '#26304a', text: '#e6e8f2', bullish: '#818cf8', bearish: '#fb7185' },
-    { sidebar: { tint: '#10142a', opacity: 0.9, blur: 20 } }),
+    { sidebar: { tint: '#10142a', opacity: 0.9, blur: 20 } },
+    { mode: 'solid', solidFill: 'gradient', solidColor: '#05060f', solidColor2: '#818cf8', solidGradientType: 'radial',
+      textEnabled: true, text: 'MIDNIGHT', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#818cf8', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
   preset('matrix', 'Matrix', 'Phosphor-green terminal, minimal red.',
-    { primary: '#00ff41', accent: '#22c55e', background: '#000400', surface: '#05130a', border: '#12351f', text: '#d7ffe4', bullish: '#00ff41', bearish: '#ff3b3b' }),
+    { primary: '#00ff41', accent: '#22c55e', background: '#000400', surface: '#05130a', border: '#12351f', text: '#d7ffe4', bullish: '#00ff41', bearish: '#ff3b3b' },
+    undefined,
+    { mode: 'solid', solidFill: 'pattern', solidPattern: 'ascii', solidColor: '#000400', solidPatternOpacity: 20, solidPatternScale: 24,
+      textEnabled: true, text: 'WAKE UP', textFont: 'var(--font-vt323), monospace', textColor: '#00ff41', textUppercase: true, textScale: 18, textOpacity: 26, textAlign: 'center' }),
   preset('ocean', 'Ocean', 'Cold cyan brand with a coral bearish shift.',
     { primary: '#38bdf8', accent: '#22d3ee', background: '#02090f', surface: '#0a1622', border: '#1d3247', text: '#e2f3fb', bullish: '#38bdf8', bearish: '#fb7185' },
-    { sidebar: { tint: '#0b1a2a', opacity: 0.9, blur: 20 } }),
+    { sidebar: { tint: '#0b1a2a', opacity: 0.9, blur: 20 } },
+    { mode: 'solid', solidFill: 'gradient', solidColor: '#02090f', solidColor2: '#38bdf8', solidGradientType: 'radial',
+      textEnabled: true, text: 'OCEAN', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#38bdf8', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
   preset('solar', 'Solar', 'Warm amber brand on charcoal.',
-    { primary: '#fbbf24', accent: '#f59e0b', background: '#0c0803', surface: '#17110a', border: '#3a2c14', text: '#fdf4e3', bullish: '#fbbf24', bearish: '#ff5c5c' }),
+    { primary: '#fbbf24', accent: '#f59e0b', background: '#0c0803', surface: '#17110a', border: '#3a2c14', text: '#fdf4e3', bullish: '#fbbf24', bearish: '#ff5c5c' },
+    undefined,
+    { mode: 'solid', solidFill: 'gradient', solidColor: '#0c0803', solidColor2: '#fbbf24', solidGradientType: 'radial',
+      textEnabled: true, text: 'SOLAR', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#fbbf24', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
   preset('crimson', 'Crimson', 'Rose-forward brand for a warmer terminal.',
-    { primary: '#fb7185', accent: '#f43f5e', background: '#0d0508', surface: '#190c12', border: '#3f1622', text: '#fdeef2', bullish: '#fb7185', bearish: '#ff2d55' }),
+    { primary: '#fb7185', accent: '#f43f5e', background: '#0d0508', surface: '#190c12', border: '#3f1622', text: '#fdeef2', bullish: '#fb7185', bearish: '#ff2d55' },
+    undefined,
+    { mode: 'solid', solidFill: 'gradient', solidColor: '#0d0508', solidColor2: '#fb7185', solidGradientType: 'radial',
+      textEnabled: true, text: 'CRIMSON', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#fb7185', textUppercase: true, textScale: 16, textOpacity: 22, textAlign: 'center' }),
   preset('mono', 'Mono', 'Neutral greyscale with a white brand.',
     { primary: '#e5e5e5', accent: '#a3a3a3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#fafafa', bullish: '#e5e5e5', bearish: '#737373' },
-    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0f0f0f' }, shadow: 'none' }),
+    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0f0f0f' }, shadow: 'none' },
+    { mode: 'solid', solidFill: 'flat', solidColor: '#000000',
+      textEnabled: true, text: 'MONO', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#e5e5e5', textUppercase: true, textScale: 16, textOpacity: 16, textAlign: 'center' }),
   preset('crystal', 'Crystal', 'Bright, high-blur glass over a soft gradient.',
     { primary: '#60a5fa', accent: '#93c5fd', background: '#05070f', surface: '#0b1020', border: '#243047', text: '#eaf1ff', bullish: '#60a5fa', bearish: '#fb7185' },
-    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'gradient', shadow: 'dramatic', sidebar: { tint: '#101a2e', opacity: 0.8, blur: 26 } }),
+    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'gradient', shadow: 'dramatic', sidebar: { tint: '#101a2e', opacity: 0.8, blur: 26 } },
+    { mode: 'image', preset: CRYSTAL_WALLPAPER_ID, fit: 'cover', dim: 40,
+      textEnabled: true, text: 'CRYSTAL', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#93c5fd', textUppercase: true, textScale: 15, textOpacity: 20, textAlign: 'center' }),
   preset('blueprint', 'Blueprint', 'Technical grid, tight radius and flat surfaces.',
     { primary: '#38bdf8', accent: '#0ea5e9', background: '#03070d', surface: '#0a1119', border: '#183042', text: '#e0f2fe', bullish: '#38bdf8', bearish: '#f87171' },
-    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'grid', shadow: 'none', radius: 0.25, sidebar: { tint: '#0a1826', opacity: 0.94, blur: 0 } }),
+    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'grid', shadow: 'none', radius: 0.25, sidebar: { tint: '#0a1826', opacity: 0.94, blur: 0 } },
+    { mode: 'solid', solidFill: 'pattern', solidPattern: 'grid', solidColor: '#03070d', solidPatternOpacity: 22, solidPatternScale: 22,
+      textEnabled: true, text: 'BLUEPRINT', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#38bdf8', textUppercase: true, textScale: 14, textOpacity: 20, textAlign: 'center' }),
   preset('smoked', 'Smoked', 'Opaque dark glass with heavy depth.',
     { primary: '#f59e0b', accent: '#fbbf24', background: '#0a0805', surface: '#141009', border: '#3a2c14', text: '#fdf4e3', bullish: '#f59e0b', bearish: '#ef4444' },
-    { glass: { enabled: true, blur: 12, opacity: 0.82, tint: '#0a0805' }, shadow: 'dramatic' }),
+    { glass: { enabled: true, blur: 12, opacity: 0.82, tint: '#0a0805' }, shadow: 'dramatic' },
+    { mode: 'solid', solidFill: 'gradient', solidColor: '#0a0805', solidColor2: '#f59e0b', solidGradientType: 'linear', solidGradientAngle: 160,
+      textEnabled: true, text: 'SMOKED', textFont: ECLIPSE_WORDMARK_FONT, textColor: '#f59e0b', textUppercase: true, textScale: 16, textOpacity: 20, textAlign: 'center' }),
   preset('bloomberg', 'Bloomberg', 'Dense amber-on-black trading terminal with blue selection.',
     { primary: '#ffa028', accent: '#2d7ff9', background: '#000000', surface: '#0a0a0a', border: '#2b2b2b', text: '#e8e8e8', bullish: '#4ade80', bearish: '#ff4438' },
-    { glass: { enabled: false, blur: 0, opacity: 0.96, tint: '#0a0a0a' }, shadow: 'none', density: 'compact', radius: 0.2 }),
+    { glass: { enabled: false, blur: 0, opacity: 0.96, tint: '#0a0a0a' }, shadow: 'none', density: 'compact', radius: 0.2 },
+    { mode: 'solid', solidFill: 'pattern', solidPattern: 'grid', solidColor: '#000000', solidPatternOpacity: 14, solidPatternScale: 20,
+      textEnabled: true, text: 'TERMINAL', textFont: 'var(--font-plex-mono), monospace', textColor: '#ffa028', textUppercase: true, textScale: 15, textOpacity: 26, textAlign: 'center' }),
   preset('bubudoll', 'Bubudoll', 'Soft candy pink with a cute, rounded ambient glow.',
     { primary: '#ff9ecb', accent: '#ffd1e8', background: '#170b14', surface: '#261323', border: '#4d2540', text: '#ffeaf5', bullish: '#ff9ecb', bearish: '#ff4d6d' },
-    { glass: { enabled: true, blur: 24, opacity: 0.45, tint: '#2a1426' }, background: 'gradient', shadow: 'medium', radius: 1 }),
+    { glass: { enabled: true, blur: 24, opacity: 0.45, tint: '#2a1426' }, background: 'gradient', shadow: 'medium', radius: 1 },
+    { mode: 'solid', solidFill: 'gradient', solidColor: '#170b14', solidColor2: '#ff9ecb', solidGradientType: 'radial',
+      textEnabled: true, text: 'BUBUDOLL', textFont: 'var(--font-playfair), Georgia, serif', textColor: '#ff9ecb', textUppercase: true, textScale: 15, textOpacity: 22, textAlign: 'center' }),
 ];
 
 // ── Color helpers ────────────────────────────────────────────────────────────
@@ -540,7 +584,7 @@ export function pageBackgroundImage(kind: ThemeBackground, brand: string): strin
  * so the General › Theme light/dark switch keeps working.
  */
 export const STRUCTURAL_THEME_VARS: ReadonlySet<string> = new Set([
-  '--font-sans', '--font-serif', '--font-mono', '--radius', '--spacing',
+  '--font-sans', '--font-serif', '--font-heading', '--font-mono', '--radius', '--spacing',
   '--font-scale', '--logo-scale',
   '--glass-blur', '--glass-opacity', '--glass-shadow', '--glass-enabled',
   '--glass-tint-light', '--page-bg-image', '--page-bg-size',
@@ -639,6 +683,7 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     // Typography
     '--font-sans': n.fontUi,
     '--font-serif': n.fontHeading,
+    '--font-heading': n.fontHeading,
     '--font-mono': n.fontMono,
 
     // Shape + density

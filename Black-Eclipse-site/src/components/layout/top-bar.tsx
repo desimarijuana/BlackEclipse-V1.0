@@ -35,6 +35,7 @@ const TAB_PLACEHOLDER: Record<string, string> = {
 export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps) {
   const t = useT();
   const appName = useThemeStore((s) => s.theme.appName);
+  const markSrc = useThemeStore((s) => s.theme.logoUrl) || BRAND_MARK_SRC;
   const [modKey, setModKey] = useState('Ctrl');
   const [indexed, setIndexed] = useState(0);
 
@@ -70,7 +71,7 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
            </button>
          )}
           <div className="flex md:hidden items-center gap-2 text-primary font-medium">
-            <img src={BRAND_MARK_SRC} alt={appName} className="h-6 w-6 object-contain" />
+            <img src={markSrc} alt={appName} className="h-6 w-6 object-contain" />
             <span className="text-foreground text-xs font-mono font-bold tracking-tight">{appName}</span>
           </div>
        </div>

@@ -230,7 +230,6 @@ export function extractText(name: string, bytes: Uint8Array): ExtractResult {
   if (!TEXT_EXTENSIONS.has(ext)) {
     return { ok: false, note: `Unsupported file type: .${ext || "unknown"}` };
   }
-
   let text = Buffer.from(bytes).toString("utf8");
   // Markdown/HTML: strip the noisiest markup so the model reads prose, not
   // tags. (A full renderer would be overkill for context injection.)
@@ -247,4 +246,88 @@ export function extractText(name: string, bytes: Uint8Array): ExtractResult {
   // Drop a UTF-8 BOM if present.
   text = text.replace(/^\uFEFF/, "");
   return bound(text);
+}
+
+// ── Real PDF extraction (pdfjs-dist) ────────────────────────────────────────
+// A hand-rolled regex reader only works on simple PDFs with ASCII text streams.
+// Real-world PDFs (reports, decks, filings) use CID/Identity-H fonts where the
+// text is stored as glyph ids — those yielded NOTHING, the file was silently
+// skipped, and the agent told the user "nothing is attached". pdfjs-dist decodes
+// fonts properly, so it is the PDF path; the regex reader stays as the fallback
+// when pdfjs cannot load (keeping the module usable in a minimal environment).
+
+const MAX_PDF_PAGES = 200;
+
+async function extractPdfWithLib(bytes: Uint8Array): Promise<ExtractResult | null> {
+  try {
+    // pdfjs copies `data` into its own buffer. A Node Buffer is a Uint8Array
+    // VIEW over a shared (pooled) ArrayBuffer, so passing it directly makes
+    // pdfjs read the whole pool — corrupting the document. Hand it an exact,
+    // standalone copy.
+    const data = new Uint8Array(bytes.byteLength);
+    data.set(bytes);
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // No browser worker in a Node server route. pdfjs runs its parser as a
+    // "fake worker" on the main thread, but it still needs the worker MODULE
+    // path to import. The package is externalized from the Next bundle
+    // (next.config serverExternalPackages), so the file resolves on disk.
+    type PdfjsModule = {
+      GlobalWorkerOptions: { workerSrc: string };
+      getDocument: (opts: Record<string, unknown>) => { promise: Promise<any> };
+    };
+    const mod = pdfjs as unknown as PdfjsModule;
+    try {
+      const { createRequire } = await import("node:module");
+      const req = createRequire(import.meta.url);
+      mod.GlobalWorkerOptions.workerSrc = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    } catch {
+      // Fall back to whatever the module set; the parse below may still work.
+    }
+    const doc = await mod.getDocument({
+      data,
+      // Never evaluate embedded JS; use built-in font maps for CID fonts.
+      isEvalSupported: false,
+      useSystemFonts: true,
+      disableFontFace: true,
+    }).promise;
+    const parts: string[] = [];
+    let total = 0;
+    const pageCount = Math.min(doc.numPages, MAX_PDF_PAGES);
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      let line = "";
+      for (const item of content.items) {
+        if ("str" in item && typeof item.str === "string") line += item.str;
+        if ("hasEOL" in item && (item as { hasEOL?: boolean }).hasEOL) {
+          parts.push(line);
+          total += line.length + 1;
+          line = "";
+          if (total > SESSION_LIMITS.maxDocChars) break;
+        }
+      }
+      if (line) { parts.push(line); total += line.length + 1; }
+      if (total > SESSION_LIMITS.maxDocChars) break;
+    }
+    await doc.destroy();
+    const text = parts.join("\n").replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
+    return bound(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Async document extraction for the server upload/context path. Uses pdfjs for
+ * PDFs (real fonts, real text) and the sync extractor for everything else. This
+ * is what `loadContextDocuments` calls, so an attached report is actually read.
+ */
+export async function extractDocumentText(name: string, bytes: Uint8Array): Promise<ExtractResult> {
+  if (extensionOf(name) === "pdf") {
+    const viaLib = await extractPdfWithLib(bytes);
+    if (viaLib) return viaLib;
+    // pdfjs unavailable or failed — fall back to the simple reader.
+    return extractPdfText(bytes);
+  }
+  return extractText(name, bytes);
 }

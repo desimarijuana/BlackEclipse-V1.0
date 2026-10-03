@@ -47,6 +47,7 @@ export {
   useThemeStore,
   useHydrateTheme,
   applyThemeToDocument,
+  refreshBackground,
   THEME_STORAGE_KEY,
   THEME_PRESETS_STORAGE_KEY,
 } from './store';

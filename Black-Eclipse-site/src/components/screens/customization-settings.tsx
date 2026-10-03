@@ -17,12 +17,11 @@
 // Tabs: Theme · Glass & Surfaces · Aurora · Charts · Language & Access.
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
-  Eye, EyeOff, Save, Maximize2, X, PanelLeft,
+  Eye, EyeOff, Save, PanelLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -41,10 +40,21 @@ import {
 } from "@/lib/theme";
 import { useChartPaletteStore } from "@/lib/chart-palette-store";
 import type { ChartPalette } from "@/lib/chart-palette";
+import {
+  normalizePresetBackground,
+  useBackgroundStore,
+  type BackgroundPrefs,
+} from "@/lib/backgrounds";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
+import { PreviewLauncher } from "./customization-preview";
 
 type CustomTab = "general" | "theme" | "glass" | "aurora" | "charts" | "access";
+
+/** The live ChatBot backdrop, captured for export / preset save. */
+function currentBackgroundSnapshot(): Partial<BackgroundPrefs> {
+  return { ...useBackgroundStore.getState().prefs };
+}
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -257,98 +267,6 @@ function ImageField({
   );
 }
 
-/**
- * Full-screen preview launcher. Instead of a tiny fake desktop, this hands the
- * user the REAL app — already wearing the live-preview theme — with a floating
- * Apply / Discard / Exit bar. The Settings modal is hidden (not unmounted) while
- * previewing, so this panel's draft state survives the round-trip.
- */
-function PreviewLauncher({
-  active,
-  onEnter,
-  onExit,
-  onApply,
-  onDiscard,
-  dirty,
-}: {
-  active: boolean;
-  onEnter: () => void;
-  onExit: () => void;
-  onApply: () => void;
-  onDiscard: () => void;
-  dirty: boolean;
-}) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  // Escape returns to Settings — a predictable exit for a mode with no dialog
-  // chrome of its own. Capture phase because the hidden base-ui dialog's dismiss
-  // handler stops Escape propagation during the bubble phase.
-  useEffect(() => {
-    if (!active) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      e.preventDefault();
-      onExit();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [active, onExit]);
-
-  // The bar is portaled to <body> because the Settings popup it lives in is
-  // `display:none` while previewing — a child of a hidden ancestor would never
-  // paint, but a portal escapes that.
-  const bar = active && mounted
-    ? createPortal(
-        // Deliberately NOT a keyboard overlay: the whole point is to interact
-        // with the real app, so page shortcuts must keep working.
-        <div className="fixed inset-x-0 top-3 z-[200] flex justify-center px-3">
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-primary/25 glass-card-strong px-3 py-2 shadow-2xl shadow-black/40">
-            <span className="inline-flex items-center gap-1.5 px-1 text-xs font-semibold text-foreground">
-              <Eye size={13} className="text-primary" />
-              Previewing theme
-            </span>
-            <span className="hidden text-[10px] text-muted-foreground sm:inline">
-              Interact with the real app. Nothing is saved until you apply.
-            </span>
-            <span className="mx-1 hidden h-4 w-px bg-border/50 sm:block" />
-            <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={onDiscard} disabled={!dirty}>
-              <RotateCcw className="mr-1 h-3.5 w-3.5" /> Discard
-            </Button>
-            <Button size="sm" className="rounded-xl cursor-pointer" onClick={onApply} disabled={!dirty}>
-              <Save className="mr-1 h-3.5 w-3.5" /> Apply theme
-            </Button>
-            <Button size="sm" variant="ghost" className="rounded-xl cursor-pointer" onClick={onExit} title="Back to settings">
-              <X className="mr-1 h-3.5 w-3.5" /> Exit preview
-            </Button>
-          </div>
-        </div>,
-        document.body,
-      )
-    : null;
-
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/30 glass-card-subtle px-4 py-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary">
-            <Maximize2 size={15} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-foreground">Preview on the real app</p>
-            <p className="text-[10px] text-muted-foreground">Open the live app full screen to audition your draft theme in place.</p>
-          </div>
-        </div>
-        <Button size="sm" className="rounded-xl cursor-pointer" onClick={onEnter}>
-          <Eye className="mr-1 h-3.5 w-3.5" /> Enter full-screen preview
-        </Button>
-      </div>
-      {bar}
-    </>
-  );
-}
-
 export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.ReactNode } = {}) {
   const t = useT();
   const locale = useLocaleStore((s) => s.locale);
@@ -376,6 +294,8 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   // chart colors. These action selectors are stable, so they never re-render.
   const setChartPreview = useChartPaletteStore((s) => s.setPreview);
   const setChartPalette = useChartPaletteStore((s) => s.setPalette);
+  const previewBackground = useBackgroundStore((s) => s.preview);
+  const cancelBackgroundPreview = useBackgroundStore((s) => s.cancelPreview);
 
   const [tab, setTab] = useState<CustomTab>(generalTab ? "general" : "theme");
   const [draft, setDraft] = useState<EclipseTheme>(theme);
@@ -383,6 +303,11 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   // Apply restores that exact palette (including custom series colors) instead
   // of re-deriving it from the theme. Cleared by any manual color edit.
   const [pendingChartPalette, setPendingChartPalette] = useState<ChartPalette | null>(null);
+  // The backdrop snapshot a selected preset carries (wallpaper / solid fill +
+  // wordmark). Non-null means "this preset also restyles the ChatBot landing",
+  // so the live preview auditions it and Apply persists it. Null leaves the
+  // user's own backdrop untouched.
+  const [pendingBackground, setPendingBackground] = useState<Partial<BackgroundPrefs> | null>(null);
   const [livePreview, setLivePreview] = useState(true);
   const [presetName, setPresetName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -405,18 +330,29 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   useEffect(() => {
     if (livePreview) {
       previewTheme(draft);
+      // A selected preset also previews its ChatBot backdrop; a snapshot is
+      // partial so it merges over the user's live background prefs. Selecting a
+      // preset with no backdrop (or a manual edit) cancels any active background
+      // preview, restoring the user's own saved backdrop.
+      if (pendingBackground) previewBackground(pendingBackground);
+      else cancelBackgroundPreview();
       const base = useChartPaletteStore.getState().palette;
       // A preset with its own chart palette previews that exact palette;
       // otherwise derive market colors from the draft theme.
       setChartPreview(pendingChartPalette ?? chartPaletteFromTheme(draft, base));
     } else {
       cancelPreview();
+      cancelBackgroundPreview();
       clearChartPalettePreview();
     }
-  }, [draft, pendingChartPalette, livePreview, previewTheme, cancelPreview, setChartPreview]);
+  }, [draft, pendingChartPalette, pendingBackground, livePreview, previewTheme, cancelPreview, previewBackground, cancelBackgroundPreview, setChartPreview]);
 
   // Leaving the panel cancels an uncommitted preview so the saved theme wins.
-  useEffect(() => () => { cancelPreview(); clearChartPalettePreview(); }, [cancelPreview]);
+  useEffect(() => () => {
+    cancelPreview();
+    cancelBackgroundPreview();
+    clearChartPalettePreview();
+  }, [cancelPreview, cancelBackgroundPreview]);
 
   // ── Draft mutators ──────────────────────────────────────────────────────
   const patch = (p: Partial<Omit<EclipseTheme, "colors">>) =>
@@ -435,20 +371,28 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     setDraft((d) => normalizeTheme({ ...d, sidebar: { ...d.sidebar, ...p } }));
 
   const applyDraft = () => {
-    applyPreset(draft);
+    // Restore the preset's backdrop AND clear the preview flag in one step:
+    // setPrefs persists and supersedes the preview.
+    applyPreset(draft, pendingBackground ?? undefined);
     // A preset's captured palette wins; otherwise derive from the theme onto
     // whatever chart colors are currently saved.
     const base = useChartPaletteStore.getState().palette;
     setChartPalette(pendingChartPalette ?? chartPaletteFromTheme(draft, base));
     setPendingChartPalette(null);
+    setPendingBackground(null);
   };
   const discardDraft = () => {
     setDraft(theme);
+    setPendingChartPalette(null);
+    setPendingBackground(null);
     cancelPreview();
+    cancelBackgroundPreview();
     clearChartPalettePreview();
   };
   const resetAll = () => {
     setPendingChartPalette(null);
+    setPendingBackground(null);
+    cancelBackgroundPreview();
     resetTheme();
     syncChartPaletteFromTheme(useThemeStore.getState().theme);
   };
@@ -464,15 +408,17 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   // Selecting a preset replaces the draft theme AND prepares its chart/heatmap
   // colors, so the Charts tab, market heatmap and native charts all reflect the
   // choice immediately (live) and on Apply (persisted).
-  const selectShippedPreset = (presetTheme: EclipseTheme) => {
-    const next = normalizeTheme(presetTheme);
+  const selectShippedPreset = (preset: (typeof THEME_PRESETS)[number]) => {
+    const next = normalizeTheme(preset.theme);
     setPendingChartPalette(null);
+    setPendingBackground(normalizePresetBackground(preset.background) ?? null);
     setDraft(next);
   };
   const selectUserPreset = (id: string) => {
     const preset = userPresets.find((p) => p.id === id);
     if (!preset) return;
     setPendingChartPalette(preset.chartPalette ?? null);
+    setPendingBackground(preset.background ?? null);
     setDraft(normalizeTheme(preset.theme));
   };
 
@@ -486,7 +432,10 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
 
   const handleExport = () => {
     try {
-      const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
+      // Export theme + backdrop together so a shared preset reproduces the
+      // whole look. `background` is a partial snapshot of the live prefs.
+      const payload = { ...draft, background: currentBackgroundSnapshot() };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -502,7 +451,9 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        setDraft(normalizeTheme(JSON.parse(String(reader.result))));
+        const parsed = JSON.parse(String(reader.result));
+        setDraft(normalizeTheme(parsed));
+        setPendingBackground(normalizePresetBackground(parsed?.background) ?? null);
       } catch {
         /* invalid file — ignore */
       }
@@ -609,7 +560,12 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
       <PreviewLauncher
         active={previewMode}
         dirty={dirty}
-        onEnter={() => { setLivePreview(true); previewTheme(draft); setPreviewMode(true); }}
+        onEnter={() => {
+          setLivePreview(true);
+          previewTheme(draft);
+          if (pendingBackground) previewBackground(pendingBackground);
+          setPreviewMode(true);
+        }}
         onExit={() => setPreviewMode(false)}
         onApply={() => { applyDraft(); setPreviewMode(false); }}
         onDiscard={() => { discardDraft(); setPreviewMode(false); }}
@@ -872,7 +828,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
                   <button
                     key={preset.id}
                     type="button"
-                    onClick={() => selectShippedPreset(preset.theme)}
+                    onClick={() => selectShippedPreset(preset)}
                     aria-pressed={active}
                     title={preset.description}
                     className={cn(
