@@ -3389,3 +3389,35 @@ tool; a `MAX_DETAIL_CHARS` bound). The event carries display metadata only — i
 is never an authorization. `ActivityItem.detail` is the one new client field; the
 activity reducer already spreads it through. A tool with no safe detail or a
 result with no known shape reports nothing rather than a fabricated line.
+
+## ADR-H122 — Replanning is one bounded node on the existing graph, flag-gated and default off
+
+**Decision.** When a tool step FAILS (one or more tool errors) or STALLS (the
+agent issues the same `(tool,args)` set as the immediately preceding turn), the
+loop may divert through ONE `replan` node before returning to the agent. The node
+appends INERT prose naming what failed or stalled; it authorizes nothing, widens
+no allowlist, and builds no second graph, registry or model adapter. The path is
+FLAG-GATED (`HARNESS_REPLAN_ENABLED`) and DEFAULT OFF; bounded by
+`ReplanBudget.max_replans` (default 2); observable via a persisted `run.replanned`
+event (`replan`, `reason`, `maxReplans`). The trigger predicate, budget and
+directive live in `python/harness/replan.py`; the node sits on the SAME
+`tools → agent` edge in `graph.py`. A stall outranks a failure when both hold.
+
+**Why.** A long tool loop can repeat itself until `maxSteps` and answer nothing —
+`MAX_STEPS_EXCEEDED` is the honest failure but a poor outcome when a revised
+approach was available. The fix must not become the thing the platform forbids
+(ADR-H1): no second agent loop, tool registry or model adapter, and no privilege
+created by a replan. An explicit, bounded, observable revision step satisfies the
+capability without crossing those boundaries.
+
+**Consequences.** `graph.py` gains a `replan` node only when the flag is on (the
+edge mapping is built conditionally, so a disabled run's graph is byte-identical
+to before). `GraphState` gains bounded replan fields (`replans`, `step_failures`,
+`stalled`, `last_turn_keys`, `step_failure_details`). To stay under the file-size
+ratchet, the checkpoint (de)serialization moved to `checkpoint_io.py` and the
+history-bounding + dropped-context helpers moved to `history.py` (both
+re-exported by `graph.py`, so callers/tests are unchanged). An optional,
+best-effort model-authored plan (`replan.model_replan`) is additive and can only
+be text; the deterministic directive is the fallback. Tests:
+`python/tests/test_replan.py`.
+

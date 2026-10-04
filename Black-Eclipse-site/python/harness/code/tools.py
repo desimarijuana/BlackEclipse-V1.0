@@ -652,6 +652,47 @@ def make_code_authorizer(mcp_authorizer: Any = None):
     async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
         name = str(getattr(tool, "name", ""))
         if name.startswith("workspace_") and getattr(tool, "effect", None) == "write":
+            # Per-call approval, opencode-style: a patch apply needs a single-use
+            # approval keyed to the exact changed paths, OR a workspace-wide
+            # "allow session" approval. Without an approvals backend (tests,
+            # zero-config local runs) the write stays admitted and the handler
+            # still enforces binding + autonomy profile.
+            if name == "workspace_patch_apply":
+                approvals = getattr(ctx, "approvals", None) if ctx is not None else None
+                workspace = getattr(ctx, "workspace", None) if ctx is not None else None
+                if approvals is not None and workspace is not None:
+                    import hashlib as _hashlib  # noqa: PLC0415
+
+                    ws_id = str(getattr(workspace, "id", ""))
+                    try:
+                        ops = (args or {}).get("operations") or []
+                        paths = sorted(str(op.get("path", "")) for op in ops if isinstance(op, dict))
+                    except Exception:  # noqa: BLE001
+                        paths = []
+                    digest = _hashlib.sha256(("\x00".join(paths)).encode("utf-8")).hexdigest()
+                    if approvals.consume_kind(kind="code_write", request_key=ws_id, digest=digest, workspace_id=ws_id) is not None:
+                        return True
+                    if approvals.find_active_kind(kind="code_write_session", request_key=ws_id, digest=ws_id) is not None:
+                        return True
+                    try:
+                        approvals.request_kind(
+                            kind="code_write", request_key=ws_id, digest=digest,
+                            effect="write",
+                            run_id=str(getattr(ctx, "run_id", "")),
+                            workspace_id=ws_id,
+                            action_summary=f"Apply code changes to: {', '.join(paths)[:180]}",
+                            risk="medium",
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                    try:
+                        await emit_code_event(ctx, "approval.requested", {
+                            "kind": "code_write", "paths": paths,
+                            "summary": f"Apply code changes to: {', '.join(paths)[:180]}",
+                        })
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return False
             return True
         # A command execution is admitted at this seam; the handler enforces the
         # binding, the autonomy profile (`command.execute`) and the class table,
@@ -746,7 +787,48 @@ async def _patch_apply(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         "filesChanged": result["filesChanged"],
         "totalBytes": result["totalBytes"],
     }
+    # Auto-verify: when the workspace pins a check command (`.black-eclipse/verify.json`,
+    # shape {"command": "..."}), run it right after the edit and fold the result into
+    # the tool output — the model sees test/typecheck failures as the observation and
+    # can fix them, without waiting to be asked. Only `allow`-classified commands run.
+    verify_note = _auto_verify(resolved.root)
+    if verify_note is not None:
+        text += "\n" + verify_note["text"]
+        data["verify"] = verify_note["data"]
     return text, data
+
+
+def _auto_verify(root: Path) -> Optional[dict[str, Any]]:
+    import json as _json  # noqa: PLC0415
+    from . import sandbox as _sandbox  # noqa: PLC0415
+    from . import terminal as _terminal  # noqa: PLC0415
+
+    config = root / ".black-eclipse" / "verify.json"
+    try:
+        payload = _json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    command = str(payload.get("command") or "").strip()
+    if not command:
+        return None
+    verdict = _terminal.classify(command)
+    if verdict.kind != "allow":
+        return {
+            "text": f"Auto-verify skipped: `{command}` is classified `{verdict.kind}`.",
+            "data": {"status": "skipped", "command": command, "verdict": verdict.kind},
+        }
+    try:
+        spec = _terminal.build_run_spec(command, cwd=root)
+        _sandbox.select_backend()
+        raw = _sandbox.run(spec)
+    except Exception as exc:  # noqa: BLE001 - verification must never crash the edit
+        return {"text": f"Auto-verify `{command}` could not run: {exc}", "data": {"status": "error", "error": str(exc)}}
+    digest = (raw.output or "")[-2000:]
+    ok = raw.exit_code == 0 and not raw.timed_out
+    return {
+        "text": f"Auto-verify `{command}`: {'PASS' if ok else 'FAIL'} (exit={raw.exit_code})" + (f"\n{digest}" if digest else ""),
+        "data": {"status": "ok" if ok else "failed", "command": command, "exitCode": raw.exit_code, "timedOut": raw.timed_out, "output": digest},
+    }
 
 
 async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -930,6 +1012,7 @@ _CODE_TOOL_NAMES = (
     "workspace_revert",
     "command_run",
     "terminal_run",
+    "shell_run", "shell_spawn", "process_output", "process_kill", "process_list",
     "code_commit",
     "code_push",
     "code_open_pr",
@@ -964,6 +1047,16 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     from .terminal_tools import terminal_run, terminal_schema  # noqa: PLC0415
 
     _INPUT_SCHEMAS["terminal_run"] = terminal_schema()
+    from .shell_tools import (  # noqa: PLC0415
+        process_kill, process_list, process_output,
+        shell_run, shell_schema, shell_spawn, spawn_schema, pid_schema,
+    )
+
+    _INPUT_SCHEMAS["shell_run"] = shell_schema()
+    _INPUT_SCHEMAS["shell_spawn"] = spawn_schema()
+    _INPUT_SCHEMAS["process_output"] = pid_schema()
+    _INPUT_SCHEMAS["process_kill"] = pid_schema()
+    _INPUT_SCHEMAS["process_list"] = {"type": "object", "properties": {}, "additionalProperties": False}
 
     registry.register(_definition(
         "workspace_status",
@@ -1035,6 +1128,34 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         "scripts, tests, or anything not covered by the fixed checks. Safe tools run "
         "directly; other commands ask the user first; destructive commands are refused.",
         terminal_run, 900_000, permission="write", risk="high", effect="external_action",
+    ))
+    # Real shell through the host shell (PowerShell/CMD/bash): pipes and
+    # redirection work; classified allow/ask/deny, ask needs an approval.
+    registry.register(_definition(
+        "shell_run",
+        "Run a command through the real system shell (PowerShell/CMD/bash) in the project folder. "
+        "Pipes and redirection work. Safe commands run directly; others ask the user first; destructive ones are refused.",
+        shell_run, 900_000, permission="write", risk="high", effect="external_action",
+    ))
+    registry.register(_definition(
+        "shell_spawn",
+        "Start a long-running command in the background through the real shell. Returns a pid; inspect with process_output, stop with process_kill.",
+        shell_spawn, 60_000, permission="write", risk="high", effect="external_action",
+    ))
+    registry.register(_definition(
+        "process_output",
+        "Read the current stdout/stderr and status of a background process started by shell_spawn. Read-only.",
+        process_output, 30_000,
+    ))
+    registry.register(_definition(
+        "process_kill",
+        "Stop a background process started by shell_spawn.",
+        process_kill, 30_000, permission="write", risk="medium", effect="external_action",
+    ))
+    registry.register(_definition(
+        "process_list",
+        "List background processes started by shell_spawn and their states. Read-only.",
+        process_list, 30_000,
     ))
     # The external actions (Phase 5): each external_action, each requiring a
     # single-use, workspace-bound operator approval resolved by actionKind.

@@ -320,6 +320,7 @@ WRITE_TOOLS: tuple[str, ...] = (
     "workspace_patch_apply", "workspace_revert",   # code.write
     "command_run",                                  # code.execute / command.execute
     "terminal_run",                                 # command.execute (generic, gated)
+    "shell_run", "shell_spawn", "process_kill",     # command.execute (real shell)
     "scaffold_kit",                                 # code.write (Phase 9)
 )
 

@@ -144,6 +144,7 @@ def classify(command: str) -> CommandVerdict:
 
 def build_run_spec(
     command: str, *, cwd: Path, timeout_s: Optional[int] = None,
+    env_extra: Optional[dict[str, str]] = None,
 ) -> RunSpec:
     """Build a RunSpec for an allowed command. Raises ValueError on a bad one.
 
@@ -157,10 +158,13 @@ def build_run_spec(
         raise ValueError("There was no command to run.")
     timeout = int(timeout_s or DEFAULT_TIMEOUT_S)
     timeout = max(1, min(timeout, MAX_TIMEOUT_S))
+    base_env = {k: os.environ[k] for k in policy.SECRET_ENV_ALLOWLIST if k in os.environ}
+    if env_extra:
+        base_env.update({str(k): str(v) for k, v in env_extra.items()})
     return RunSpec(
         argv=list(tokens),
         cwd=Path(cwd),
-        env={k: os.environ[k] for k in policy.SECRET_ENV_ALLOWLIST if k in os.environ},
+        env=base_env,
         timeout_s=timeout,
         output_cap_bytes=sandbox.MAX_OUTPUT_CAP_BYTES,
         network=False,

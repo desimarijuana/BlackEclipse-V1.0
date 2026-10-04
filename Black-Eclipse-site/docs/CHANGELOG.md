@@ -6,6 +6,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-04
+
+- **Bounded replanning added to the one execution graph (Phase 11).** A tool step
+  that FAILS or STALLS (the agent re-issues the same `(tool,args)` set as the
+  previous turn) may now divert through ONE `replan` node on the SAME
+  `tools → agent` edge before continuing. The node appends inert prose naming the
+  failures/stall — it authorizes nothing, widens no allowlist, and builds no
+  second loop/registry/adapter. New module `python/harness/replan.py` owns the
+  trigger (`should_replan`; a stall outranks a failure), the bound
+  (`ReplanBudget.max_replans`, default 2), the deterministic directive and an
+  optional best-effort model-authored plan. Flag-gated `HARNESS_REPLAN_ENABLED`
+  (default OFF) — when off the graph is byte-identical to before. Emits a
+  persisted `run.replanned` event. To respect the `graph.py` size ratchet, the
+  checkpoint (de)serialization moved to `python/harness/checkpoint_io.py` and the
+  history-bounding + dropped-context helpers moved to `python/harness/history.py`
+  (both re-exported by `graph.py`, so callers/tests are unchanged). Tests:
+  `python/tests/test_replan.py`. `npm test` and `npx tsc --noEmit` pass.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H122), `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 ## 2026-10-03
 
 - **Preset landing wordmark made smaller.** Shipped-preset ChatBot wordmark
@@ -131,6 +151,43 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   coloring in the chat markdown renderer. Test: `test_chat_code_profile.py`
   updated for the `delegate` addition. Full suite 2474 passed; `tsc` clean.
   no doc change — behavior is additive and documented in module docstrings.
+
+- **Code-turn step/time budget raised (MAX_STEPS_EXCEEDED fix).** A chat turn
+  carrying `edit_verify`/`approve_external` now gets `max_steps >= 24` (code
+  agent preset already had 24) and `runTimeoutMs >= 600s` — previously the
+  finance agent's 8 steps / 120s killed multi-phase coding turns right before
+  the file write. `graph.py`. `tsc` clean. no doc change — budget internals.
+- **Write/execute now require explicit approval in-app.** `make_code_authorizer`
+  creates a pending `code_write` approval (keyed to the changed-path digest)
+  and emits an `approval.requested` event; the terminal authorizer emits the
+  same event for `ask`-classified commands. `python/tests/test_size_budget.py`
+  ratchet budgets updated (graph.py 1859, code/tools.py 1203) for the added
+  guards.
+- **Real shell: `shell_run`/`shell_spawn`/`process_*`.** New `code/shell.py`
+  runs command strings through the detected host shell (PowerShell/CMD/bash)
+  with cwd confined to the workspace root, output caps, timeouts, and a
+  background `ProcessHandle` registry. `code/shell_tools.py` exposes
+  `shell_run` (one-shot), `shell_spawn` (background), `process_output`,
+  `process_kill`, `process_list`; shell classification allows pipes/redirects
+  (unlike the argv-only `terminal_run`) while destructive shapes stay denied
+  and everything else needs the `terminal_command` approval. Wired into
+  `CHAT_CODE_TOOLS`, `CODE_AGENT_TOOLS`, the effect-authorizer chain
+  (`make_shell_authorizer`), and `policy.WRITE_TOOLS`. Smoke-tested against
+  PowerShell. `tsc` clean; targeted tests pass; size ratchets bumped.
+  no doc change — new capability documented in module docstrings.
+- **Visible terminal panel (Ctrl/Cmd + `).** New `TerminalPanel`
+  (`src/components/layout/terminal-panel.tsx`): a glass bottom sheet with
+  command history (arrow keys), colored stdout/stderr, exit code and duration,
+  and copy-friendly mono output. Backed by `POST /api/code/shell`, which
+  proxies to the runtime's new `POST /code/shell`; cwd is confined to the
+  server-resolved workspace root. Documented in the keyboard-shortcuts help.
+  `tsc` clean. no doc change — additive UI.
+- **Intent classifier broadened for filesystem requests.** "Count the files on
+  my desktop" and similar ("list/show/open/read ... files/folder/desktop/path")
+  now classify as `code_change`, so the turn gets the code profile
+  (`edit_verify`) and the model actually receives the shell/filesystem tools
+  instead of honestly refusing with "no filesystem access". Pure finance
+  questions ("price of BTC") still classify `not_code`.
 
 ## 2026-10-02
 
@@ -2581,135 +2638,3 @@ esource_schemes
   or TS agent runtime is proposed.
   docs updated: harness/memory-skills-evolution-plan.md (new), CHANGELOG.md
 - **Memory/skills system review** — Compared Eclipse-Memory with Hermes Agent to identify improvements in retrieval, procedural learning, discoverability, and provider ergonomics; no implementation changes were made. no doc change — analysis-only review
-
-## 2026-09-27
-
-- **UI sounds: reliable playback, new default voice, chat message cue.** Two
-  long-standing defects and one feature:
-  - *Intermittent silence fixed.* `sound-manager.ts` was a Howler singleton that
-    unlocked the `AudioContext` only on the **first** gesture and did a
-    fire-and-forget `ctx.resume()`; whenever the context later drifted to
-    `suspended` (tab hidden, OS audio-focus change, first-gesture race), cues
-    were silently dropped. Rewrote it on the raw **Web Audio API**: one
-    persistent context, armed on *every* pointer/key gesture and on
-    `visibilitychange`/`focus`, with `play()` awaiting `resume()` before
-    starting the buffer and an `onstatechange` re-arm. Decoded buffers are
-    cached by source URL. Dropped the `howler` + `@types/howler` dependencies.
-  - *New default voice.* The `eclipse` pack was re-synthesised as a warm,
-    harmonic, low-volume premium tick set; default master volume raised 8%→12%
-    so cues are clearly present. Added a dedicated `message` cue for an
-    incoming assistant reply and generated the missing per-pack
-    `message.wav` for the other eight packs. Storage key bumped `_v2`→`_v3` so
-    the refreshed cue set/pack applies for existing installs.
-  - *Chat reply sound.* Both chat surfaces now fire `sound.message()` when an
-    assistant turn **finishes** (streaming stays mute): `stock-chat.tsx`
-    (was `sound.success()`) and `chat-dock.tsx` (previously sounded nothing).
-  docs updated: CHANGELOG.md, ARCHITECTURE.md, NAVIGATION.md
-
-- **Trading Calendar redesign (Journal › Calendar).** The month grid was a wall
-  of flat raw-colour boxes with a black weekend overlay and an inconsistent
-  header. Reworked onto the shared design system:
-  - New theme-aware `.cal-cell` / `.cal-chip` classes in `globals.css` — a
-    translucent tint + token-driven P&L colour (`--brand` / `--bearish`) with an
-    inset highlight and **no per-cell backdrop blur** (35 blurred cells is a
-    needless memory cost; the parent card already frosts the backdrop). Light
-    mode gets its own override; the weekend "dim" is now a translucent opacity,
-    not `bg-black/20`.
-  - `month-calendar.tsx` now renders full Mon–Sun **week rows** with a per-row
-    **weekly total column** (`W1…`, net R, trade count, tinted by sign), plus a
-    per-day "best trade" hint and a month-total in the footer. Date number +
-    day net R are on the top row with tabular numerals.
-  - `calendar.tsx` header gained the shared icon tile and a richer 4-up summary
-    strip: Trades, Win Rate (with progress bar), Net R (with a daily
-    net-R sparkline) and Net P&L — each with sub-stats.
-  - `month-calendar-card.tsx` (Overview embed) header restyled to match: icon
-    tile, stat pills tinted with the same cell tokens, consistent nav pill.
-  - Deleted `calendar-heatmap.tsx` — a 195-line component with no importer
-    (dead duplicate of the mini strip; its fixed tooltip also lacked the portal
-     fix). Updated the stale `intensity.ts` comment.
-  docs updated: CHANGELOG.md
-
-- **Trading Calendar — profit/loss tinted cells.** Day cells (and the weekly
-  column) are tinted by result again — green brand wash for a profitable day,
-  red bearish wash for a losing day, neutral for empty — but sitting on the
-  darker `.cal-shell` and keeping the plain `symbol · R` rows with no chip
-  background. Strengthened the `.cal-cell--pos` / `--neg` fill/border opacity so
-  the sign reads clearly against the darker shell.
-  no doc change — presentation-only, no architecture/contract/setup change.
-
-- **Market screener — filters, sorting and taxonomy corrected across the whole
-  universe.** A cluster of defects made the screens disagree with the data:
-  - **Country filter / column.** JDDS stores `Asset.country` inconsistently
-    ("US" vs "United States", plus foreign domiciles). `/api/stocks` normalizes
-    it through `countryToMarketId`, the country dropdown is deduped, and the
-    filter matches every raw form. The client hook no longer forces each row to
-    equal the selected market's domicile — that hidden constraint dropped ~1,516
-    US-listed names stored as "United States" and every cross-listing.
-  - **Header sorting spans the full universe.** `/api/stocks` honours
-    `sort`/`dir` (Asset + Price columns) so a header click orders the whole
-    market before pagination; the page cache resets on sort change and the hook
-    skips re-sorting a server-ordered slice. Nulls-last is applied only to
-    nullable columns (`price`/`changePct` are non-nullable).
-  - **Compounding OR filters.** `type` (multi-select) and `search` both wrote
-    `where.OR`, so the later silently discarded the other; they are now collected
-    into `where.AND`.
-  - **Change filter boundaries** now exclude exactly 0 from Positive/Negative.
-  - **Type multi-select** client matching splits the comma-joined value.
-  - **Missing / broken controls.** Added Dividend Yield + Volume to the Stocks
-    panel (server-side); the Funds "YTD Return" select was a duplicate bound to
-    Change and is now a disabled "Not available" control; crypto category options
-    come from JDDS sectors rather than a drifted hardcoded list.
-  - **Sector/industry taxonomy repaired.** New `src/lib/screener/taxonomy.ts`
-    collapses synonym labels across import sources ("Financials" → "Financial
-    Services", "Consumer Discretionary" → "Consumer Cyclical", "Layer 1 (L1)" →
-    "Layer 1", stablecoin sub-types → "Stablecoins"), applied on read, on filter
-    (DB predicate matches every raw synonym) and on the option list. Sector/
-    industry dropdown options are scoped to the active type filter (so ETF
-    categories and the "Equity" asset class never leak into the Stocks dropdown),
-    null classification is offered as "Unclassified" (matching the table cell,
-    previously "Other" — a real crypto sector), and the combined Sector/Industry
-    dropdown encodes its kind (`sector:` / `industry:`) because PK has names that
-    are both. Every dropdown option now yields rows.
-  docs updated: DATA-FLOW.md, ARCHITECTURE.md, CHANGELOG.md
-
-- **Market screener — second pass (audit follow-up).**
-  - **ATL distance used the ATH value.** `/api/stocks` mapped `atlChangePercent`
-    from `athChangePct`; now uses the distinct `atlChangePct` column.
-  - **Crypto supply/ATH columns sorted lexicographically** ("10.0B" < "2.0B").
-    The client fallback sort uses a numeric accessor keyed on the raw values
-    (`circulatingSupplyRaw`/`maxSupplyRaw`/`athChangePercent`), nulls-last.
-  - **Small-cap boundary mismatch** (`>= 0` server vs `> 0` client) inflated the
-    pagination total; the server now uses an exclusive lower bound.
-  - **ETF/Fund directory silently capped at 100 rows** (asked for 500, API caps
-    at 100, no footer). Both tabs are now genuinely server-paginated with a footer.
-  - **ETF/Fund category dropdown collapsed** to the selected category; the full
-    category list is fetched once and kept separate.
-  - **Funds rendered fabricated zeros.** `ytdReturn`/`expenseRatio`/`rating` are
-    now `null` and render `N/A` instead of `0.00%`/`0%`/zero stars (`FundItem`
-    allows null).
-  - **Markets-tab search box was dead** (bound to the unused stock search state);
-    `useGlobalMarkets` now owns `gmSearch` and filters market cards.
-  - **Country/Industry header sort** no longer uses the server (which ordered the
-    raw, unnormalized column) — it falls back to client sorting so the visible
-    order matches the displayed values.
-  - Minor: Global Markets empty-state keeps the visible Forex/Commodities cards;
-    `colSpan` and the "top N by …" caption reflect the active settings.
-  docs updated: DATA-FLOW.md, CHANGELOG.md
-
-- **Start commands fixed — `black eclipse` / `npm run up` no longer stall on a
-  rebuild, and the doctor repairs in the right directory.** Two distinct bugs
-  made the site *look* like it was not starting:
-  - **Dev wiped the cached production build.** `next dev` deletes
-    `.next/BUILD_ID` on start, which invalidated `scripts/lib/server.js`'s
-    `needsBuild()` hash — so the next `black eclipse` / `npm run up` silently ran
-    a full ~90s production build before serving (looked like a hang on the
-    "site did not start" report). `next.config.ts` now sets `distDir` from
-    `NODE_ENV` (dev → `.next-dev`, prod → `.next`, `NEXT_DIST_DIR` overrides), so
-    a dev run can never clobber the production build. `.next-dev/` is gitignored.
-  - **`doctor.js` ran its repairs with no cwd.** `root` was derived from
-    `__dirname` for the checks, but `fix()`/`run()` exec'd `npm install`,
-    `npx prisma generate`, pip installs, etc. in the caller's directory. Since
-    `black eclipse` can be launched from anywhere via the global npm link, a
-    repair triggered outside the site folder would fail or write in the wrong
-    place. `run()` now pins `cwd: root` (matching `db-guard.js`).
-  no doc change — start-script/config fix, no architecture or contract change.

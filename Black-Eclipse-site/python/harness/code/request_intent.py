@@ -29,6 +29,10 @@ _DIRECTIVE_VERBS = (
     "test", "run", "implement", "write", "update", "change", "modify", "make",
     "move", "edit", "wire", "hook", "patch", "repair", "debug", "upgrade",
     "generate", "rewrite", "extract", "support", "handle", "convert", "migrate",
+    # file-system style directives: without them, "count the files on my desktop"
+    # classified as not_code and the user saw a refusal of all tools.
+    "count", "list", "show", "display", "view", "open", "inspect", "scan",
+    "search", "find", "read", "pull up", "check",
 )
 
 # A software object — a thing a code change acts on. Concrete on purpose: a
@@ -54,6 +58,9 @@ _SOFTWARE_OBJECTS = (
     "screener", "screen", "indicator", "automation", "integration",
     "plugin", "extension", "backend", "frontend", "ui", "report generator",
     "tracker", "chart",
+    # places a user asks the agent to read/write in
+    "desktop", "desktop folder", "folder", "directory", "files", "file system",
+    "filesystem", "path",
 )
 
 # A question ABOUT code is read-only. These openers plus a software object (or a

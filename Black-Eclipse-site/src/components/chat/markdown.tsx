@@ -148,7 +148,25 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
       return (
         <div className="group/code relative">
           <pre className="glass-card-subtle overflow-x-auto rounded-xl border border-white/10 dark:border-white/5 p-3 text-[0.85em] scrollbar-hide">
-            <code className="font-mono">{block.value}</code>
+            {block.language === 'diff' ? (
+              <code className="font-mono block">
+                {block.value.split('\n').map((line, i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      'block',
+                      line.startsWith('+') && !line.startsWith('+++') && 'bg-emerald-500/10 text-emerald-300',
+                      line.startsWith('-') && !line.startsWith('---') && 'bg-rose-500/10 text-rose-300',
+                      (line.startsWith('@@') ) && 'text-sky-300/80',
+                    )}
+                  >
+                    {line || ' '}
+                  </span>
+                ))}
+              </code>
+            ) : (
+              <code className="font-mono">{block.value}</code>
+            )}
           </pre>
           <CopyButton
             value={block.value}

@@ -28,14 +28,17 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
     ToolMessage,
-    messages_from_dict,
-    messages_to_dict,
 )
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 from .agents import DEFAULT_AGENT_ID, get_agent
+from .checkpoint_io import (
+    checkpoint_payload_of as _checkpoint_payload_of,
+    restore_messages as _restore_messages,
+    serialize_messages as _serialize_messages,
+)
 from .code.workspace import resolve_workspace
 from .events import EventBus, RunEmitter
 from .model_stream import (
@@ -48,50 +51,8 @@ from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
 from .tools import DataBridge, ToolContext, ToolRegistry
 
-# A checkpoint payload is a bounded reference, not a second trace. Serialized
-# messages are capped so a pathological run cannot bloat the checkpoint table.
-MAX_CHECKPOINT_MESSAGES = 60
-MAX_CHECKPOINT_MESSAGE_CHARS = 12_000
-
-
-def _serialize_messages(messages: list[BaseMessage]) -> list[dict[str, Any]]:
-    """Serialize the conversation tail for a checkpoint (bounded).
-
-    Keeps the most recent messages, truncating each message's text, so a resume
-    has enough to continue without duplicating the whole trace.
-    """
-    tail = messages[-MAX_CHECKPOINT_MESSAGES:]
-    out: list[dict[str, Any]] = []
-    for msg in tail:
-        try:
-            dumped = messages_to_dict([msg])[0]
-        except Exception:  # noqa: BLE001 - an unserializable message is skipped
-            continue
-        data = dumped.get("data", {})
-        if isinstance(data.get("content"), str) and len(data["content"]) > MAX_CHECKPOINT_MESSAGE_CHARS:
-            data["content"] = data["content"][:MAX_CHECKPOINT_MESSAGE_CHARS]
-        out.append(dumped)
-    return out
-
-
-def _restore_messages(serialized: list[dict[str, Any]]) -> list[BaseMessage]:
-    """Rebuild a message list from a checkpoint's serialized tail."""
-    if not serialized:
-        return []
-    try:
-        return list(messages_from_dict(serialized))
-    except Exception:  # noqa: BLE001 - an unreadable payload yields no seed
-        return []
-
-
-def _checkpoint_payload_of(state: dict[str, Any]) -> dict[str, Any]:
-    """A minimal terminal checkpoint payload from a final graph state."""
-    return {
-        "step": state.get("step", 0),
-        "toolCalls": state.get("tool_calls", 0),
-        "toolErrors": state.get("tool_errors", 0),
-        "messages": _serialize_messages(state.get("messages", []) or []),
-    }
+# Checkpoint (de)serialization lives in `checkpoint_io.py` so this execution
+# graph stays under its size ratchet; imported above under the old local names.
 
 
 def _resume_error(
@@ -115,6 +76,14 @@ class GraphState(TypedDict, total=False):
     completion_tokens: int
     final: Optional[str]
     error: Optional[dict[str, Any]]
+    # Phase 11 (bounded replanning): the replan count, the failures in the most
+    # recent tool step, whether that step repeated the prior one, and the details
+    # the replan directive names. Absent/zero for an ordinary run.
+    replans: int
+    step_failures: int
+    stalled: bool
+    last_turn_keys: list[str]
+    step_failure_details: list[dict[str, Any]]
 
 
 def _stable_key(name: str, args: dict[str, Any]) -> str:
@@ -199,6 +168,10 @@ def _effect_authorizer(
     from .code.terminal_tools import make_terminal_authorizer  # noqa: PLC0415
 
     code_authorizer = make_terminal_authorizer(code_authorizer)
+
+    from .code.shell_tools import make_shell_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_shell_authorizer(code_authorizer)
 
     if approvals is None or not workspace_id:
         return code_authorizer
@@ -314,12 +287,12 @@ def resolve_surface(
 
     settings = settings or {}
     disabled = surface_disabled_tools(settings)
-    # A code-agent run with no explicit autonomy resolves to the safest profile
-    # (plan_only), so write/execute tools are removed by construction. An
-    # ordinary finance run keeps `autonomy=None` and is never narrowed.
+    # A code-agent run with no explicit autonomy resolves to edit_verify, so
+    # write/execute tools are available by default; an ordinary finance run keeps
+    # `autonomy=None` and is never narrowed.
     effective_autonomy = autonomy
     if effective_autonomy is None and agent.id == "code-agent":
-        effective_autonomy = "plan_only"
+        effective_autonomy = "edit_verify"
     # Phase 14: a CHAT coding turn carries an autonomy on the finance agent. Apply
     # the chat code profile HERE, after the existing autonomy narrowing, so there
     # is exactly ONE place a run's profile is computed and `plan_only` still
@@ -382,10 +355,23 @@ def build_graph(
     max_steps: int = agent.maxSteps or 8
     tool_timeout_ms = agent.toolTimeoutMs or 20_000
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
+    if request.autonomy in ("edit_verify", "approve_external"):
+        max_steps = max(max_steps, 24); run_timeout_s = max(run_timeout_s, 600.0)
     # A hard total tool-call budget. A skill manifest declares
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
     max_tool_calls: Optional[int] = agent.maxToolCalls
+    # Phase 11: bounded replanning is FLAG-GATED and DEFAULT OFF. When enabled, a
+    # failed or stalled tool step routes through ONE `replan` node (a revised
+    # approach) before the agent continues — never a second loop or registry.
+    from .replan import (  # noqa: PLC0415
+        ReplanBudget,
+        build_replan_instruction,
+        replan_enabled,
+        should_replan,
+    )
+
+    replan_budget: Optional[ReplanBudget] = ReplanBudget() if replan_enabled() else None
     # `allowed` is the policy-resolved surface from `execute_run` (a disabled
     # store's tool already removed). Fall back to the raw allowlist for direct
     # callers/tests that build a graph without resolving the surface.
@@ -457,6 +443,7 @@ def build_graph(
             "step": state.get("step", 0),
             "toolCalls": state.get("tool_calls", 0),
             "toolErrors": state.get("tool_errors", 0),
+            "replans": state.get("replans", 0),
             "promptTokens": state.get("prompt_tokens", 0),
             "completionTokens": state.get("completion_tokens", 0),
             "pendingToolCalls": pending,
@@ -607,6 +594,11 @@ def build_graph(
         # The agent step that issued these calls — the resume idempotency key
         # scopes a call to (runId, stepIndex, toolCallId).
         step_index = state.get("step", 0)
+        # Phase 11 replanning signals: the keys of THIS turn, the failures in it,
+        # and (compared against the prior turn) whether the agent is stalling.
+        prev_keys = list(state.get("last_turn_keys") or [])
+        turn_keys: list[str] = []
+        failure_details: list[dict[str, Any]] = []
 
         # Duplicate suppression is scoped to THIS agent step (one model turn),
         # not the whole run. The guard exists to stop one turn from issuing the
@@ -643,6 +635,7 @@ def build_graph(
                 except Exception:  # noqa: BLE001 - audit must not break the run
                     pass
                 tool_errors += 1
+                failure_details.append({"name": name, "code": "TOOL_BUDGET_EXCEEDED"})
                 out_messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
                 continue
 
@@ -659,6 +652,7 @@ def build_graph(
             })
 
             key = _stable_key(name, args)
+            turn_keys.append(key)
             # Resume idempotency: if this exact call already executed in a prior
             # attempt of this run, REUSE its recorded result instead of running it
             # again. This is what makes resume safe for a side-effecting tool.
@@ -670,6 +664,7 @@ def build_graph(
                 result_text = already["text"]
                 if not already["ok"]:
                     tool_errors += 1
+                    failure_details.append({"name": name, "code": "TOOL_ERROR"})
                 await emitter.emit(
                     "tool.completed" if already["ok"] else "tool.failed",
                     {"name": name, "toolCallId": call_id, "resumed": True,
@@ -682,6 +677,7 @@ def build_graph(
                 )
                 await emitter.emit("tool.failed", {"name": name, "toolCallId": call_id, "code": "TOOL_FORBIDDEN"})
                 tool_errors += 1
+                failure_details.append({"name": name, "code": "TOOL_FORBIDDEN"})
             else:
                 seen_calls[key] = seen_calls.get(key, 0) + 1
                 result = await registry.execute(
@@ -722,6 +718,9 @@ def build_graph(
                         )
                 else:
                     tool_errors += 1
+                    failure_details.append(
+                        {"name": name, "code": result.error.code if result.error else "TOOL_ERROR"}
+                    )
                     await emitter.emit(
                         "tool.failed",
                         {
@@ -739,9 +738,16 @@ def build_graph(
             out_messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
 
         store.update_run(request.runId, toolCalls=tool_calls, toolErrors=tool_errors)
+        step_failures = tool_errors - int(state.get("tool_errors", 0) or 0)
+        turn_set = sorted(set(turn_keys))
+        stalled = bool(turn_set) and turn_set == sorted(set(prev_keys))
         tool_done: GraphState = {
             **state, "messages": [*state["messages"], *out_messages],
             "tool_calls": tool_calls, "tool_errors": tool_errors,
+            "step_failures": step_failures,
+            "stalled": stalled,
+            "last_turn_keys": turn_set,
+            "step_failure_details": failure_details,
         }
         # Durable boundary: a checkpoint after the tool results are recorded.
         await _write_checkpoint("tool_results", tool_done)
@@ -760,7 +766,51 @@ def build_graph(
     def route_after_tools(state: GraphState) -> str:
         if state.get("step", 0) >= max_steps:
             return "exhausted"
+        # Phase 11: only when the flag wired a replan node AND a bounded replan
+        # remains do we divert through one revision step.
+        if replan_budget is not None and should_replan(
+            replans=int(state.get("replans", 0) or 0),
+            budget=replan_budget,
+            step_failures=int(state.get("step_failures", 0) or 0),
+            stalled=bool(state.get("stalled")),
+        ):
+            return "replan"
         return "agent"
+
+    async def replan_node(state: GraphState) -> GraphState:
+        """One bounded revision step on the SAME loop (Phase 11).
+
+        It appends INERT prose naming what failed or stalled; it authorizes
+        nothing and cannot widen the allowlist. The model may act on it or
+        ignore it. `run.replanned` makes the diversion honest and observable.
+        """
+        reason = should_replan(
+            replans=int(state.get("replans", 0) or 0),
+            budget=replan_budget,
+            step_failures=int(state.get("step_failures", 0) or 0),
+            stalled=bool(state.get("stalled")),
+        ) or "tool_failures"
+        replans = int(state.get("replans", 0) or 0) + 1
+        instruction = build_replan_instruction(
+            reason,
+            failures=state.get("step_failure_details") or [],
+            stalled_calls=state.get("last_turn_keys") or [],
+        )
+        await emitter.emit("run.replanned", {
+            "replan": replans,
+            "reason": reason,
+            "maxReplans": replan_budget.max_replans if replan_budget else 0,
+        })
+        revised: GraphState = {
+            **state,
+            "replans": replans,
+            "messages": [*state["messages"], HumanMessage(content=instruction)],
+            # Clear the trigger so only a new failure/stall causes another replan.
+            "step_failures": 0,
+            "stalled": False,
+        }
+        await _write_checkpoint("replan", revised)
+        return revised
 
     async def exhausted_node(state: GraphState) -> GraphState:
         message = f"Reached the maximum of {max_steps} steps without a final answer."
@@ -775,7 +825,15 @@ def build_graph(
     graph.add_node("exhausted", exhausted_node)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
-    graph.add_conditional_edges("tools", route_after_tools, {"agent": "agent", "exhausted": "exhausted"})
+    if replan_budget is not None:
+        graph.add_node("replan", replan_node)
+        graph.add_conditional_edges(
+            "tools", route_after_tools,
+            {"replan": "replan", "agent": "agent", "exhausted": "exhausted"},
+        )
+        graph.add_edge("replan", "agent")
+    else:
+        graph.add_conditional_edges("tools", route_after_tools, {"agent": "agent", "exhausted": "exhausted"})
     graph.add_edge("exhausted", END)
     return graph.compile()
 
@@ -1405,8 +1463,8 @@ async def _post_run_analysis(
         return None
 
 
-MAX_HISTORY_TURNS = 20
-MAX_HISTORY_CHARS = 40_000
+# `MAX_HISTORY_TURNS` / `MAX_HISTORY_CHARS` and the history-bounding helpers live
+# in `history.py` (re-exported below) so this graph stays under its size ratchet.
 
 
 def _history_budget(
@@ -1606,174 +1664,18 @@ async def _retry_with_tighter_budget(
     return retried_state, tighter_budget
 
 
-def _bounded_history(
-    request: RunRequest, budget: Optional[Any] = None,
-) -> tuple[list[Any], list[Any]]:
-    """Return `(kept, dropped)` turns under the history bound.
-
-    `kept` is the oldest-first list actually prompted; `dropped` is the prefix
-    the bound removed. A history under the bound drops nothing — `dropped` is
-    empty and the caller must behave exactly as before.
-
-    The bound comes from the per-run measured `budget` when it is effective (the
-    resolved model's window is known); otherwise it falls back to the module
-    constants. The fallback is byte-for-byte today's behaviour, which is the
-    safety property for an unknown window.
-    """
-    history = request.input.history or []
-    if budget is not None and getattr(budget, "effective", False):
-        max_turns = int(getattr(budget, "max_history_turns", MAX_HISTORY_TURNS))
-        max_chars = int(getattr(budget, "max_history_chars", MAX_HISTORY_CHARS))
-    else:
-        max_turns = MAX_HISTORY_TURNS
-        max_chars = MAX_HISTORY_CHARS
-    if not history:
-        return [], []
-    trimmed = list(history[-max_turns:]) if max_turns > 0 else []
-    dropped = list(history[: max(0, len(history) - max_turns)]) if max_turns > 0 else list(history)
-    # Also cap total characters, dropping oldest turns first.
-    total = sum(len(t.content) for t in trimmed)
-    while trimmed and total > max_chars:
-        total -= len(trimmed[0].content)
-        dropped.append(trimmed[0])
-        trimmed = trimmed[1:]
-    return trimmed, dropped
+# History bounding + dropped-context extraction live in `history.py` (size
+# ratchet) and are re-exported here so existing callers/tests are unchanged.
+from .history import (  # noqa: E402,F401
+    MAX_HISTORY_CHARS,
+    MAX_HISTORY_TURNS,
+    _bounded_history,
+    _dropped_context_block,
+    _history_messages,
+    _model_extract_dropped,
+)
 
 
-def _history_messages(request: RunRequest, budget: Optional[Any] = None) -> list[BaseMessage]:
-    """Prior conversation turns, oldest first, bounded so a long chat cannot
-    blow the context window. Keeps the MOST RECENT turns when trimming."""
-    trimmed, _dropped = _bounded_history(request, budget)
-    return [
-        HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
-        for t in trimmed
-    ]
-
-
-async def _dropped_context_block(
-    request: RunRequest,
-    memory_service: Optional[Any],
-    emitter: RunEmitter,
-    budget: Optional[Any] = None,
-    *,
-    emit: bool = True,
-) -> tuple[list[BaseMessage], str, list[Any]]:
-    """The bounded history messages plus an inert dropped-context block ("").
-
-    Returns `(messages, block, dropped_turns)`. When the history is under the
-    bound nothing is dropped, so no block is produced and the message list is
-    byte-identical to the pre-change behaviour. Extraction is deterministic-first
-    and produces INERT candidates only. It is fail-closed: if extraction cannot
-    complete, NO block is emitted (never a lossy summary) and an honest event is
-    recorded. Extraction never blocks or fails the run.
-
-    `emit=False` suppresses the extraction event, used when `execute_run`
-    re-derives the history after measuring the dropped block's own cost (so the
-    event is emitted exactly once).
-    """
-    kept, dropped = _bounded_history(request, budget)
-    messages = [
-        HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
-        for t in kept
-    ]
-    if not dropped:
-        return messages, "", dropped
-    try:
-        from .eclipse_memory.dropped_context import (  # noqa: PLC0415
-            MAX_ITEMS,
-            DroppedTurn,
-            extract_dropped_context,
-            render_dropped_context_block,
-        )
-
-        settings: dict[str, Any] = {}
-        if memory_service is not None:
-            try:
-                settings = memory_service.policy.get_all()
-            except Exception:  # noqa: BLE001 - policy read failure is not fatal
-                settings = {}
-        result = extract_dropped_context(
-            [DroppedTurn(role=t.role, content=t.content) for t in dropped],
-            settings=settings, user_id=request.userId,
-        )
-        model_used = False
-        # Optional, policy-gated model-assisted extraction. It is additive to the
-        # deterministic pass, inert, bounded, and fail-closed: any failure leaves
-        # the deterministic result untouched and emits no lossy summary.
-        if settings.get("dropped_context_model_extraction") and memory_service is not None:
-            try:
-                model_items = await _model_extract_dropped(
-                    request, [DroppedTurn(role=t.role, content=t.content) for t in dropped],
-                )
-                if model_items:
-                    merged = list(result.items)
-                    seen = {(i.action, i.content) for i in merged}
-                    for item in model_items:
-                        key = (item.action, item.content)
-                        if key not in seen:
-                            merged.append(item)
-                            seen.add(key)
-                    result.items = merged[:MAX_ITEMS]
-                    model_used = True
-            except Exception:  # noqa: BLE001 - model extraction must never break the run
-                model_used = False
-        block = render_dropped_context_block(result)
-        try:
-            if emit:
-                await emitter.emit(
-                    "memory.dropped_context_extracted",
-                    {
-                        "droppedTurns": len(dropped),
-                        "scanned": result.scanned,
-                        "candidates": len(result.items),
-                        "emitted": bool(block),
-                        "ok": result.ok,
-                        "modelAssisted": model_used,
-                        "reason": result.reason or None,
-                    },
-                )
-        except Exception:  # noqa: BLE001
-            pass
-        return messages, block, dropped
-    except Exception as exc:  # noqa: BLE001 - extraction must never break a run
-        try:
-            if emit:
-                await emitter.emit("memory.dropped_context_failed", {"error": str(exc), "droppedTurns": len(dropped)})
-        except Exception:  # noqa: BLE001
-            pass
-        # Fail closed: emit no block at all, carry on.
-        return messages, "", dropped
-
-
-
-async def _model_extract_dropped(
-    request: RunRequest, turns: list[Any],
-) -> list[Any]:
-    """Optionally ask the run's own model for INERT candidates from dropped turns.
-
-    Uses the SAME model/provider the run already resolved (no new dependency, no
-    extra client). Bounded by a short timeout and the extractor's own item cap.
-    Any failure returns [] — the deterministic extraction is unaffected and the
-    caller emits no lossy summary. Never raises to the caller.
-    """
-    from .eclipse_memory.dropped_context import (  # noqa: PLC0415
-        build_extraction_prompt,
-        parse_extraction_response,
-    )
-
-    prompt = build_extraction_prompt(turns)
-    if not prompt:
-        return []
-    try:
-        model = build_chat_model(request.modelSettings)
-        response = await asyncio.wait_for(
-            model.ainvoke([HumanMessage(content=prompt)]), timeout=20.0,
-        )
-    except Exception:  # noqa: BLE001 - absence/failure is not an error here
-        return []
-    text = _text(response)
-    parsed = parse_extraction_response(text)
-    return parsed.items if parsed.ok else []
 
 
 # Per-run context blocks + memory/learning outcome helpers were extracted to

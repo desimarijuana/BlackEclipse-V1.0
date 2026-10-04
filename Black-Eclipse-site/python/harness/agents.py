@@ -137,6 +137,8 @@ CODE_AGENT_TOOLS = [
     # Generic terminal (Phase D) — effectful; removed at plan_only. Safe
     # commands run directly, others need a per-command approval.
     "terminal_run",
+    # Real shell (PowerShell/CMD/bash) with background processes.
+    "shell_run", "shell_spawn", "process_output", "process_kill", "process_list",
     # Verification (Phase 4) — the final answer is checked against the ledger.
     # Memory/session recall stays available: read-only context, NOT the finance family.
     "memory", "skill_list", "skill_view", "session_search", "session_open",
@@ -175,7 +177,11 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list", "workspace_search",
     "workspace_read", "workspace_docs",
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
-    "command_run", "terminal_run", "scaffold_kit", "analysis_run",
+    "command_run", "terminal_run", "shell_run", "shell_spawn",
+    "process_output", "process_kill", "process_list",
+    "scaffold_kit", "analysis_run",
+    # parallel read-only explore children for large codebases
+    "delegate",
     # read-only context, unchanged from ECLIPSE_AGENT
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     # finance tools stay available: a code change may need the vault for a fixture

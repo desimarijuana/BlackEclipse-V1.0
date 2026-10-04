@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-02
+last-verified: 2026-10-04
 ---
 
 # Harness Architecture
@@ -71,6 +71,9 @@ Two boundaries, both deliberate:
 | `memory_providers/` | the M8 external-memory-provider layer: `protocol.py` (`MemoryProvider` contract + typed request/response, external `provenance`/`verified=false` defaults), `native.py`, `mcp.py` (read-only-first, L2 write-gated, no automatic writes), `registry.py`, `routing.py` (native-first + external fencing, never promotes), `diagnostics.py` |
 | `eclipse_memory/profiles.py` | the M4 named-profile registry (`ProfileRegistry`) + directory projection under `.black-eclipse/profiles/<id>/`; metadata only, READ-ONLY inheritance, no memory content |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
+| `replan.py` | **Phase 11**: bounded replanning — the trigger (`should_replan`), the bound (`ReplanBudget`), the deterministic directive (`build_replan_instruction`) and the optional model-authored plan (`model_replan`). The `replan` node rides the SAME graph; flag-gated `HARNESS_REPLAN_ENABLED`, default OFF (ADR-H122) |
+| `history.py` | history bounding (`_bounded_history`/`_history_messages`) + the inert dropped-context block, extracted from `graph.py` (size ratchet) and re-exported there |
+| `checkpoint_io.py` | checkpoint (de)serialization (`serialize_messages`/`restore_messages`/`checkpoint_payload_of`), extracted from `graph.py` (size ratchet) and re-exported there |
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
@@ -465,6 +468,28 @@ tool that does not exist) therefore produces an answer from the evidence it
 gathered instead of `MAX_STEPS_EXCEEDED`. If the forced turn still yields no
 text, the run fails honestly rather than reporting a blank "completed".
 
+### Bounded replanning (Phase 11)
+
+When a tool step FAILS (one or more tool errors) or STALLS (the agent re-issues
+the same `(tool,args)` set as the immediately preceding turn), the loop may
+divert through ONE `replan` node on the SAME `tools → agent` edge before
+continuing:
+
+```
+tools —(failed / stalled, budget remains)→ replan → agent
+```
+
+`replan.py` owns the trigger (`should_replan`, a stall outranks a failure), the
+bound (`ReplanBudget.max_replans`, default 2) and the deterministic directive
+(`build_replan_instruction`). The `replan` node appends INERT prose naming the
+failures/stall; it authorizes nothing and cannot widen the allowlist. It emits a
+persisted `run.replanned` event (`replan`, `reason`, `maxReplans`), so a
+diversion is honest and observable. The path is FLAG-GATED
+(`HARNESS_REPLAN_ENABLED`, default OFF); when off, `build_graph` adds no node and
+the graph is byte-identical to before. An optional, best-effort model-authored
+plan (`replan.model_replan`) is additive — it can only be text. Decision:
+ADR-H122.
+
 ### The composable workflow graph (Phase 5)
 
 Orchestration lives ON TOP of the one execution plane — it does not replace
@@ -630,7 +655,8 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 - `scripts/doctor.js` repairs it before `dev`/`start`.
 - `scripts/test-python.js` runs the pytest suite (wired into `npm test`).
 - Env: `HARNESS_PY_URL` / `HARNESS_PY_HOST` / `HARNESS_PY_PORT` (default
-  `http://127.0.0.1:8765`), `HARNESS_CALLBACK_URL`, `AGENT_MEMORY_DB_PATH`.
+  `http://127.0.0.1:8765`), `HARNESS_CALLBACK_URL`, `AGENT_MEMORY_DB_PATH`,
+  `HARNESS_REPLAN_ENABLED` (bounded replanning, default OFF).
 - The runtime is spawned automatically on first use. If it cannot start, agent
   runs return **503 "runtime unavailable"** — never a fake agent.
 - **Stable database location.** `eclipse-memory.db` and `agent-memory.db` default

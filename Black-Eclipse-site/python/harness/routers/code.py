@@ -26,7 +26,7 @@ _AUTONOMY_PROFILES = ("plan_only", "edit_verify", "approve_external")
 
 
 class CreateTaskRequest(BaseModel):
-    """Create a code task. `autonomy` defaults to plan_only (safest)."""
+    """Create a code task. `autonomy` defaults to edit_verify."""
 
     query: str = Field(min_length=1, max_length=4000)
     autonomy: Optional[str] = None
@@ -93,6 +93,43 @@ def classify_intent(body: CodeIntentRequest, _: bool = Depends(require_operator)
     }}
 
 
+class ShellRunRequest(BaseModel):
+    command: str = Field(min_length=1, max_length=4000)
+    cwd: Optional[str] = None  # relative to the resolved root; must stay inside it
+    timeoutS: Optional[int] = Field(default=None, ge=1, le=900)  # noqa: N815
+
+
+@router.post("/code/shell")
+def code_shell(body: ShellRunRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Run one command through the host shell for the in-app terminal panel.
+
+    Operator-gated like every other code route; cwd is confined to the
+    server-resolved workspace root, so the panel cannot escape it.
+    """
+    from ..code import shell as shell_mod  # noqa: PLC0415
+    from ..code.workspace import default_root  # noqa: PLC0415
+
+    root = default_root()
+    if root is None:
+        raise HTTPException(status_code=503, detail="no workspace root")
+    cwd = root
+    if body.cwd:
+        candidate = (root / body.cwd).resolve()
+        try:
+            candidate.relative_to(root.resolve())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="cwd must stay inside the workspace")
+        if candidate.is_dir():
+            cwd = candidate
+    result = shell_mod.run(body.command, cwd=cwd, timeout_s=body.timeoutS)
+    return {"success": True, "result": {
+        "command": result.command, "cwd": result.cwd, "exitCode": result.exit_code,
+        "stdout": result.stdout, "stderr": result.stderr,
+        "durationMs": result.duration_ms, "timedOut": result.timed_out,
+        "truncated": result.truncated, "status": result.status,
+    }}
+
+
 # ── Task lifecycle ──────────────────────────────────────────────────────────
 
 
@@ -115,7 +152,7 @@ def code_root(_: bool = Depends(require_operator)) -> dict[str, Any]:
 
 @router.post("/code/tasks")
 async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
-    """Create and run a code task. The autonomy defaults to plan_only."""
+    """Create and run a code task. The autonomy defaults to edit_verify."""
     autonomy = _resolve_autonomy(body.autonomy)
     run_id = body.runId or f"code_{abs(hash(body.query)) & 0xFFFFFFFF:08x}_{int(__import__('time').time())}"
     if body.modelSettings is None:

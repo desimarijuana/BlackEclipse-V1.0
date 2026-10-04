@@ -16,6 +16,7 @@ authorizer as approvable — it is refused in the handler AND at the authorizer.
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +32,29 @@ from .worktree import WorkspaceError
 from .tools import _ensure_code_workspace
 
 APPROVAL_KIND = "terminal_command"
+
+# A persistent per-workspace shell session: the cwd and any `export`ed variables
+# survive across `terminal_run` calls, so the model can `cd src`, export, and
+# later commands run in that place with those variables. Reset by a fresh
+# workspace id; confined to the worktree root (never escapes the binding).
+_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+def _session(ws_id: str) -> dict[str, Any]:
+    sess = _SESSIONS.get(ws_id)
+    if sess is None:
+        sess = {"cwd": Path("."), "env": {}}
+        _SESSIONS[ws_id] = sess
+    return sess
+
+
+def _resolve_session_cwd(root: Path, sess: dict[str, Any]) -> Path:
+    candidate = (root / sess["cwd"]).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return root
+    return candidate if candidate.is_dir() else root
 
 
 class TerminalRunInput(BaseModel):
@@ -64,6 +88,17 @@ def make_terminal_authorizer(inner: Any = None):
                 return bool(await inner(tool, args, ctx))
             return False
         command = str((args or {}).get("command") or "")
+        # Session mutations (cd / export / set / pwd) never spawn a process —
+        # the handler rewrites them into session state, so they are always allow.
+        head = command.strip().split(None, 1)[0].casefold() if command.strip() else ""
+        if head in ("cd", "chdir", "export", "set", "pwd"):
+            if head in ("export", "set"):
+                import shlex as _shlex  # noqa: PLC0415
+                try:
+                    _shlex.split(command, posix=True)
+                except ValueError:
+                    return False
+            return True
         verdict = terminal_mod.classify(command)
         if verdict.kind == "deny":
             return False
@@ -95,6 +130,11 @@ def make_terminal_authorizer(inner: Any = None):
             )
         except Exception:  # noqa: BLE001 - a request failure must not crash the call
             pass
+        try:
+            from .tools import emit_code_event as _emit  # noqa: PLC0415
+            await _emit(ctx, "approval.requested", {"kind": APPROVAL_KIND, "command": command[:180]})
+        except Exception:  # noqa: BLE001
+            pass
         return False
 
     return authorize
@@ -118,8 +158,42 @@ async def terminal_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
     except WorkspaceError as exc:
         return _command_refusal(exc.code, exc.reason, command_class="terminal")
 
+    # Session mutations are handled WITHOUT spawning a process: `cd` moves the
+    # persistent cwd, `export KEY=VAL` / `set KEY=VAL` persists an env var, and
+    # `pwd` reports the persistent cwd. There is still no shell, so a `cd`
+    # cannot be chained with another command.
+    sess = _session(cw.id)
     try:
-        spec = terminal_mod.build_run_spec(model.command, cwd=resolved.root, timeout_s=model.timeoutS)
+        tokens = terminal_mod.shlex.split(model.command.strip(), posix=True)
+    except ValueError:
+        tokens = []
+    if tokens and tokens[0].casefold() in ("cd", "chdir"):
+        target = tokens[1] if len(tokens) > 1 and tokens[1] not in ("", "~") else "."
+        new_cwd = (resolved.root / sess["cwd"] / target).resolve() if target not in ("/", "\\") else resolved.root
+        try:
+            new_cwd.relative_to(resolved.root.resolve())
+        except ValueError:
+            return ("Refused: that folder is outside the workspace.", {"status": "refused", "code": "PATH_ESCAPE"})
+        if not new_cwd.is_dir():
+            return (f"There is no folder `{target}` here.", {"status": "not_found", "cwd": str(new_cwd)})
+        sess["cwd"] = new_cwd.relative_to(resolved.root.resolve())
+        return (f"cwd is now {sess['cwd'] or '.'}", {"status": "ok", "cwd": str(new_cwd)})
+    if tokens and tokens[0].casefold() in ("export", "set") and len(tokens) > 1:
+        for assignment in tokens[1:]:
+            if "=" in assignment:
+                key, _, value = assignment.partition("=")
+                sess["env"][key] = value
+        return (f"Set {len(tokens) - 1 if tokens else 0} variable(s) for this session.", {"status": "ok", "envKeys": sorted(sess['env'])})
+    if tokens and tokens[0].casefold() == "pwd":
+        cwd_now = _resolve_session_cwd(resolved.root, sess)
+        return (str(cwd_now), {"status": "ok", "cwd": str(cwd_now)})
+
+    session_cwd = _resolve_session_cwd(resolved.root, sess)
+    try:
+        spec = terminal_mod.build_run_spec(
+            model.command, cwd=session_cwd, timeout_s=model.timeoutS,
+            env_extra=sess["env"] or None,
+        )
     except ValueError as exc:
         return _command_refusal("COMMAND_NOT_ALLOWLISTED", str(exc), command_class="terminal")
 
@@ -171,7 +245,8 @@ def terminal_schema() -> dict[str, Any]:
             "command": {
                 "type": "string",
                 "description": "The exact command line to run, e.g. `python script.py` or `npm test`. "
-                               "Runs without a shell. Safe tools run directly; others ask first; destructive ones are refused.",
+                               "Runs without a shell. Safe tools run directly; others ask first; destructive ones are refused. "
+                               "`cd <dir>`, `export KEY=VAL` and `pwd` persist across calls in this workspace's session.",
             },
             "timeoutS": {"type": "integer", "description": "Wall-clock limit in seconds (default 120, max 900)."},
             "note": {"type": "string", "description": "Why this command is wanted; recorded in the trace."},

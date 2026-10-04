@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-09-18
+last-verified: 2026-10-04
 ---
 
 # Architecture
@@ -1546,7 +1546,7 @@ violation and should be corrected before it lands.
 | **Frontend / terminal UI** | `src/components/` | Screens, layout, chat, chart, journal, workspace/UI shells. Client-only; `'use client'` where stateful. |
 | **Shared infrastructure** | `src/lib/`, `src/hooks/`, `src/types/` | Pure logic, data access, domain modules, React hooks, shared types. Imported by both frontend and backend. |
 | **Backend** | `src/app/api/**/route.ts`, `src/app/api/**` handlers, `scripts/`, `prisma/` | Thin route handlers, background workers (`src/instrumentation.ts`), importers, schema/DB. |
-| **Harness** | `python/harness/` (runtime) + `src/lib/harness/` (front door) | The agent runtime (agents, tools, providers, loop, events, persistence) is Python; Next.js validates/resolves/proxies and serves the read-only JDdS bridge. See below and `docs/harness/architecture.md`. |
+| **Harness** | `python/harness/` (runtime) + `src/lib/harness/` (front door) | The agent runtime (agents, tools, providers, loop, events, persistence) is Python; Next.js validates/resolves/proxies and serves the read-only JDdS bridge. The one `StateGraph` loop supports bounded, flag-gated replanning (`HARNESS_REPLAN_ENABLED`, `replan.py`, ADR-H122) on the same `tools → agent` edge — never a second loop. See below and `docs/harness/architecture.md`. |
 
 **Rules that follow from this:**
 - A backend route may import from `src/lib/`, `src/hooks/`, `src/types/` — but

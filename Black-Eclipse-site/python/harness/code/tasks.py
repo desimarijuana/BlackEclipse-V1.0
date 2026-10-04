@@ -36,7 +36,7 @@ TASK_CANCELLED = "task.cancelled"
 TASK_DISCARDED = "task.discarded"
 
 # The autonomy a code run uses when the caller supplied none.
-DEFAULT_AUTONOMY = "plan_only"
+DEFAULT_AUTONOMY = "edit_verify"
 
 
 def _bounded_list(values: Any, limit: int = 50) -> list[str]:

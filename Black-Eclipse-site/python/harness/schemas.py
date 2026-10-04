@@ -251,6 +251,7 @@ EventLiteral = Literal[
     "run.completed",
     "run.failed",
     "run.cancelled",
+    "run.replanned",
 ]
 
 

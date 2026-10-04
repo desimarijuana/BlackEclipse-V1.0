@@ -19,7 +19,9 @@ EXPECTED = (
     "workspace_status", "workspace_list", "workspace_search",
     "workspace_read", "workspace_docs",
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
-    "command_run", "terminal_run", "scaffold_kit", "analysis_run",
+    "command_run", "terminal_run", "shell_run", "shell_spawn",
+    "process_output", "process_kill", "process_list",
+    "scaffold_kit", "analysis_run", "delegate",
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     "market_get_quote", "fundamentals_get_financials", "research_search",
 )
@@ -45,9 +47,8 @@ def test_the_profile_is_a_strict_subset_of_the_edit_verify_surface() -> None:
     # widest legal edit_verify surface. Every chat tool must be permitted there.
     full = set(allowed_tools("edit_verify", tuple(ECLIPSE_AGENT.tools) + tuple(CODE_AGENT_TOOLS)))
     assert set(CHAT_CODE_TOOLS) <= full
-    # Strict: the profile deliberately omits the code-agent's extra capabilities
-    # (`delegate`) and the external actions.
-    assert "delegate" not in CHAT_CODE_TOOLS
+    # The profile omits only the external actions.
+    assert "delegate" in CHAT_CODE_TOOLS  # parallel explore children
     assert not (set(EXTERNAL_ACTION_TOOLS) & set(CHAT_CODE_TOOLS))
 
 

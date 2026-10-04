@@ -169,6 +169,30 @@ export interface CodeIntent {
   signals: string[];
 }
 
+export interface ShellResult {
+  command: string;
+  cwd: string;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  timedOut: boolean;
+  truncated: boolean;
+  status: string;
+}
+
+export async function runShell(
+  command: string,
+  opts: { cwd?: string; timeoutS?: number } = {},
+): Promise<ShellResult> {
+  const body = await request<{ success: boolean; result: ShellResult }>("/code/shell", {
+    method: "POST",
+    body: JSON.stringify({ command, cwd: opts.cwd, timeoutS: opts.timeoutS }),
+    timeoutMs: (opts.timeoutS ?? 120) * 1000 + 10_000,
+  });
+  return body.result;
+}
+
 export async function classifyCodeIntent(
   query: string,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
