@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Annotated, Any, Optional
 
 from langchain_core.messages import (
@@ -47,6 +48,7 @@ from .model_stream import (
     message_text as _text,
 )
 from .models import build_chat_model
+from .model_runtime import ErrorClass, ModelError, classify_exception, get_runtime
 from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
 from .tools import DataBridge, ToolContext, ToolRegistry
@@ -124,6 +126,25 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
     return get_agent(request.agentId or DEFAULT_AGENT_ID)
 
 
+def _task_profile_of(request: RunRequest, agent: AgentConfig) -> str:
+    """The task profile the ModelRouter scores against for this run (spec §14)."""
+    from .model_runtime.integration import task_profile_of
+
+    return task_profile_of(request, agent)
+
+
+def _runtime_requirements(request: RunRequest) -> dict[str, Any]:
+    """Routing requirements a run may carry via its input context (additive)."""
+    from .model_runtime.integration import runtime_requirements
+
+    return runtime_requirements(request)
+
+
+def _runtime_policy_overrides(request: RunRequest) -> dict[str, Any]:
+    """User/workflow routing overrides read from `input.context.modelPolicy`."""
+    from .model_runtime.integration import runtime_policy_overrides
+
+    return runtime_policy_overrides(request)
 def _resolve_direct(request: Any) -> bool:
     """Whether a run edits the real folder or a disposable copy.
 
@@ -378,7 +399,23 @@ def build_graph(
     if allowed is None:
         allowed = effective_allowlist(agent, registry)
 
-    model = build_chat_model(request.modelSettings)
+    # ── Model runtime (provider-agnostic) ──────────────────────────────────
+    # The agent no longer talks to a provider. It asks the ModelRuntime to
+    # resolve the run's settings through the ModelRouter, then builds the model
+    # THROUGH the runtime. The module-level `build_chat_model` is passed as the
+    # builder so the existing test seam (and the single construction path) is
+    # preserved; the runtime still owns routing, health and usage accounting.
+    runtime = get_runtime()
+    resolution = runtime.resolve_for_run(
+        request.modelSettings,
+        task=_task_profile_of(request, agent),
+        requirements=_runtime_requirements(request),
+        policy_overrides=_runtime_policy_overrides(request),
+    )
+    model = runtime.build(
+        resolution.settings, builder=build_chat_model, adapter=resolution.adapter
+    )
+    model = runtime.prepare_model(model, resolution)
     lc_tools = registry.langchain_tools(allowed)
     model_with_tools = model.bind_tools(lc_tools) if lc_tools else model
 
@@ -479,11 +516,19 @@ def build_graph(
             if finalizing
             else state["messages"]
         )
+        _step_started = time.monotonic()
         try:
             response = await _ainvoke_streaming(
                 active_model, model_messages, run_timeout_s, emitter, finalizing
             )
         except asyncio.TimeoutError:
+            runtime.record_step(
+                resolution,
+                latency_ms=(time.monotonic() - _step_started) * 1000.0,
+                ok=False,
+                error=ModelError(error_class=ErrorClass.TIMEOUT, message="model call timed out"),
+                run_id=request.runId,
+            )
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}})
             return {**state, "step": step, "error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}}
         except Exception as exc:  # noqa: BLE001
@@ -506,14 +551,38 @@ def build_graph(
                 if window is None:
                     window = resolve_context_window(provider, model_name)
                 code, message = context_overflow_error(provider, model_name, window)
+                runtime.record_step(
+                    resolution,
+                    latency_ms=(time.monotonic() - _step_started) * 1000.0,
+                    ok=False,
+                    error=ModelError(
+                        error_class=ErrorClass.CONTEXT_OVERFLOW, message=message,
+                        provider_id=provider, model_id=model_name,
+                    ),
+                    run_id=request.runId,
+                )
                 await emitter.emit(
                     "context.overflow",
                     {"step": step, "provider": provider, "windowKnown": window is not None},
                 )
                 return {**state, "step": step, "error": {"code": code, "message": message}}
+            runtime.record_step(
+                resolution,
+                latency_ms=(time.monotonic() - _step_started) * 1000.0,
+                ok=False,
+                error=classify_exception(exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model),
+                run_id=request.runId,
+            )
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": str(exc)}})
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": str(exc)}}
 
+        runtime.record_step(
+            resolution,
+            response=response,
+            latency_ms=(time.monotonic() - _step_started) * 1000.0,
+            ok=True,
+            run_id=request.runId,
+        )
         tool_calls = getattr(response, "tool_calls", None) or []
         # On the final step we do NOT execute tools — the model must answer. If a
         # provider still returned tool calls, drop them so routing falls through
@@ -1311,7 +1380,17 @@ async def _maybe_research(
         return await layer.retrieve(req)
 
     try:
-        model = build_chat_model(request.modelSettings)
+        # Route research through the ModelRuntime for the financial_research task
+        # profile (reasoning + tools + context), still building via the one
+        # factory so the graph's test seam is preserved.
+        _runtime = get_runtime()
+        _resolution = _runtime.resolve_for_run(
+            request.modelSettings, task="financial_research"
+        )
+        model = _runtime.build(
+            _resolution.settings, builder=build_chat_model, adapter=_resolution.adapter
+        )
+        model = _runtime.prepare_model(model, _resolution)
     except Exception as exc:  # noqa: BLE001 - a supported request must not fall through ungated
         await emitter.emit("research.failed", {"error": str(exc)})
         return {

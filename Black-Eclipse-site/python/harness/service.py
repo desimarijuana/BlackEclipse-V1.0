@@ -18,6 +18,7 @@ from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
 from .memory_tools import register_memory_tools
+from .model_runtime import get_runtime
 from .persistence import AgentMemoryStore
 from .retrieval.cache import RetrievalCache
 from .retrieval_tools import register_retrieval_tools
@@ -162,6 +163,30 @@ class AgenticService:
 
         self.memory_router = build_memory_router(self.memory, mcp_manager=self.mcp)
 
+        # Model Runtime (provider-agnostic model layer): route usage/health into
+        # this service's own store so model requests are persisted in
+        # agent-memory.db — never in the financial JDdS vault.
+        try:
+            from .model_runtime.store import ModelRuntimeStore
+
+            self.model_runtime_store = ModelRuntimeStore(self.store)
+            get_runtime().install_persistence(self.model_runtime_store)
+            get_runtime().set_observer(self._observe_model_event)
+        except Exception:  # noqa: BLE001 - accounting wiring must not block boot
+            self.model_runtime_store = None
+            log.warning("model runtime persistence wiring skipped", exc_info=True)
+
+    def _observe_model_event(self, event_type: str, data: dict[str, Any]) -> None:
+        """Forward model-runtime observability events onto the harness bus.
+
+        These carry no run id (a routing decision can precede the run's emitter)
+        so they are published as process-level events, not persisted per run.
+        """
+        try:
+            self.bus.publish({"type": event_type, "data": data, "at": __import__("time").time()})
+        except Exception:  # noqa: BLE001 - observability must never break a run
+            pass
+
     def _selected_trusted_root(self) -> Optional[str]:
         """The path of the selected trusted root, or None. Never raises."""
         try:
@@ -304,7 +329,11 @@ class AgenticService:
 
             from .models import build_chat_model
 
-            model = build_chat_model(settings)
+            runtime = get_runtime()
+            resolution = runtime.resolve_for_run(settings, task="simple_chat")
+            model = runtime.build(
+                resolution.settings, builder=build_chat_model, adapter=resolution.adapter
+            )
             # Best-effort token cap (providers that accept `max_tokens`).
             try:
                 bound = model.bind(max_tokens=policy.clamped_max_tokens())

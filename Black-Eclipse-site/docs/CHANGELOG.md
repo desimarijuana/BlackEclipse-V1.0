@@ -8,6 +8,96 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-04
 
+- **Reverted the General › Theme "ChatBot background" card.**
+  The color option already lives under Settings › General › Background
+  (`background-settings.tsx`), so the duplicate card added earlier today in
+  `customization-settings.tsx` was removed and that file restored.
+
+- **Eclipse preset landing defaults pinned to the brand greens.**
+  `src/lib/theme/tokens.ts`: the `eclipse` preset's ChatBot landing now uses
+  `solidColor: '#131615'` and wordmark `textColor: '#e6ffe5'` (previously both
+  derived from the accent/primary mix). `npx tsc --noEmit` clean; `vitest` passed.
+  no doc change — preset token values only, no contract/shape change.
+
+- **Dedicated "ChatBot background" color in Settings › General › Theme.**
+  Added a "ChatBot background" card to the theme Colors area
+  (`src/components/screens/customization-settings.tsx`) that sets the flat
+  backdrop color of the empty ChatBot landing only, independent of the app-wide
+  page `background` token. It stores into the background store's `solidColor`
+  (`mode: solid` + `solidFill: flat`); empty follows the page color. The edit is
+  tracked as a separate draft value so it respects the panel's live-preview /
+  Apply / Discard model, overrides a selected preset's snapshot solid color, and
+  counts toward `dirty`. `vitest` passed; `npx tsc --noEmit` clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Fix: Settings › AI could not add an API key or select most providers.**
+  Root cause was the keyless-local key sentinel `"local"`: a local endpoint
+  (Ollama) persisted `apiKey:"local"` in `llm_config`, and switching to a hosted
+  provider kept it, so `getLLMConfig` never fell back to the provider-key vault
+  and the runtime sent `"local"` as the credential (HTTP 401). `src/lib/settings.ts`
+  now defines `LOCAL_KEY_SENTINEL`, drops it on save (it is never a credential),
+  and `getLLMConfig` ignores it once the endpoint is remote; `setLLMConfig` also
+  accepts a remote provider when the vault or environment holds the key instead
+  of demanding a plaintext key. `LLMProviderName` and the Settings "Mode" select
+  now expose every provider preset (they previously allowed only 5 values, so
+  most providers were unselectable and the model catalog could not resolve).
+  Preset/provider selection now sets the provider id + base URL + default model
+  together, and the Model field is a real dropdown of the runtime catalog's known
+  models plus a free-text custom id (the previous `<datalist>` was not surfaced
+  by the input primitive). Regression tests: `src/lib/settings.test.ts`.
+  `vitest` 2074 passed; `pytest` 2542 passed; `npx tsc --noEmit` clean.
+  docs updated: `docs/CHANGELOG.md`
+
+- **Model Control Center front door + UI.** The provider-agnostic Model Runtime
+  is now reachable from Next.js. Server/browser clients
+  `src/lib/harness/model-runtime-{client,browser}.ts` proxy the runtime's
+  operator-gated `/model-runtime/*` routes via `src/app/api/harness/model-runtime/**`
+  (providers, models, routing, routing/decisions, route [pure computation],
+  health, usage). A mounted screen `src/components/screens/model-runtime/`
+  (`model-runtime-screen.tsx` + providers/models/routing/usage/health/debug
+  panes) is the Model Control Center: it lists providers/models with capability
+  states and pricing (unknown stays unknown), shows task routing, usage/cost,
+  provider health and   the routing debug view ("why this model"). Mounted via
+  AppTab `model-runtime` (`src/lib/app-tabs.ts`, `src/components/layout/sidebar.tsx`,
+  the keep-alive block in `src/components/screens/stock-chat.tsx`, the sidebar
+  entry in `src/lib/sidebar/config.ts`), i18n `modelRuntime.*`/`nav.modelRuntime`,
+  and the global-search page `page-model-runtime`. User routing overrides
+  (spec §44) round-trip through `LLMConfig.routingPolicy` → the run's
+  `input.context.modelPolicy` → the runtime's `RoutingRequirements`, toggleable
+  in the Routing pane ("local models only", "avoid paid models").
+  Tests: `src/lib/harness/model-runtime-browser.test.ts`,
+  `src/components/screens/model-runtime/model-runtime-screens.test.ts`,
+  `src/lib/harness/run-service.test.ts`,
+  `python/tests/test_model_runtime_api.py`. `vitest` 2068 passed; `pytest`
+  2542 passed; `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Provider-agnostic Model Runtime layer (the agent no longer talks to a
+  provider).** New package `python/harness/model_runtime/` implements
+  `Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider`: provider and
+  model registries seeded from the existing `PROVIDER_CATALOG`; capability
+  detection as states (supported/unsupported/unknown/degraded); 15 task profiles;
+  dynamically-resolved aliases (`eclipse-fast|smart|reasoning|coder|vision|cheap|local`);
+  a scoring router (capability/quality/reliability/latency/availability/context/cost,
+  configurable weights) with an explainable decision trace; fallback + error-classified
+  retry with backoff; health/circuit-breaker/rate-limit managers; normalized
+  token/cost/latency/budget tracking; normalized streaming, tool schemas,
+  structured output and reasoning. `build_chat_model` is reused as the
+  adapter's construction primitive (one path, one source of provider facts).
+  `graph.py`, `history.py`, `learning_review.py` and the MCP sampling factory now
+  ROUTE and BUILD through the runtime while still invoking the module-level
+  factory, so the existing test seam and all 2535 harness tests are unchanged.
+  A concrete `ModelSettings` provider/model remains the explicit override;
+  cross-provider fallback and in-place retry are flag-gated
+  (`HARNESS_MODEL_FALLBACK` default OFF, `HARNESS_MODEL_RETRIES` default 1).
+  Model usage/health persist to the runtime's OWN `ModelRequest`/`ModelHealth`
+  tables on `agent-memory.db` (never JDdS); read-only `/model-runtime/*` routes
+  are operator-gated. Tests: `python/tests/test_model_runtime.py` (54).
+  `pytest` 2535 passed; `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H123), `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **Bounded replanning added to the one execution graph (Phase 11).** A tool step
   that FAILS or STALLS (the agent re-issues the same `(tool,args)` set as the
   previous turn) may now divert through ONE `replan` node on the SAME
@@ -25,6 +115,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_replan.py`. `npm test` and `npx tsc --noEmit` pass.
   docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
   (ADR-H122), `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Preset ChatBot wordmark font unified to Michroma.** Every shipped theme
+  preset's giant ChatBot landing wordmark (the "ECLIPSE AGENT" text) now uses
+  Michroma (`var(--font-michroma)`), replacing the per-preset Bodoni / VT323 /
+  IBM Plex Mono / Playfair choices. `src/lib/theme/tokens.ts`: `ECLIPSE_WORDMARK_FONT`
+  → `PRESET_WORDMARK_FONT` and all 12 presets reference it (size, opacity and
+  uppercase unchanged). `vitest` 2074 passed; `npx tsc --noEmit` clean.
+  no doc change — theme-token value only, no contract/shape change.
 
 ## 2026-10-03
 

@@ -89,6 +89,10 @@ const EditorScreen = dynamic(
   () => import('@/components/screens/editor/editor-screen').then((m) => m.EditorScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const ModelRuntimeScreen = dynamic(
+  () => import('@/components/screens/model-runtime/model-runtime-screen').then((m) => m.ModelRuntimeScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -1122,6 +1126,14 @@ function StockChatContent() {
           {visited.has('editor') && (
             <div className={cn('w-full h-full', activeTab === 'editor' ? '' : 'hidden')}>
               <EditorScreen />
+            </div>
+          )}
+
+          {visited.has('model-runtime') && (
+            <div className={cn('w-full h-full', activeTab === 'model-runtime' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto">
+                <ModelRuntimeScreen />
+              </div>
             </div>
           )}
 

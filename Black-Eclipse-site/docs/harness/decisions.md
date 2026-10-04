@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-10-02
+last-verified: 2026-10-04
 ---
 
 # Harness Decisions
@@ -3420,4 +3420,47 @@ re-exported by `graph.py`, so callers/tests are unchanged). An optional,
 best-effort model-authored plan (`replan.model_replan`) is additive and can only
 be text; the deterministic directive is the fallback. Tests:
 `python/tests/test_replan.py`.
+
+## ADR-H123 — The model layer is a provider-agnostic runtime, not a per-run factory
+
+**Decision.** Eclipse gains a `ModelRuntime` layer (`python/harness/model_runtime/`)
+that is the ONLY interface the rest of Eclipse uses to reach a model:
+
+    Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider
+
+`build_chat_model` is demoted from "the model seam" to a low-level construction
+primitive that provider adapters delegate to; no agent, tool, memory or financial
+logic names a provider. The runtime owns: a provider registry and a model
+registry seeded from the existing `PROVIDER_CATALOG`; capability detection as
+states (`supported` / `unsupported` / `unknown` / `degraded`); task profiles;
+logical aliases resolved dynamically; a scoring router (capability, quality,
+reliability, latency, availability, context, cost) with configurable weights;
+fallback and error-aware retry with exponential backoff + jitter; health, circuit
+breaker and rate-limit managers; normalized token/cost/latency/budget tracking;
+normalized streaming, tool schemas, structured output and reasoning; and an
+explainable routing decision trace. Persistence lives in the runtime's OWN
+`ModelRequest` / `ModelHealth` tables on `agent-memory.db` — never JDdS (spec §37).
+
+**Why.** The agent was hard-wired to one resolved provider per run with no
+health, fallback, cost or capability awareness, so "switch model" meant editing
+the graph. A financial platform must let the model change without changing what
+the data means: model selection must be observable, cost measurable, failures
+recoverable and capabilities explicit, while the Evidence engine stays the sole
+source of financial truth. Reusing `PROVIDER_CATALOG` and `build_chat_model` keeps
+one source of provider facts and one construction path rather than a second copy.
+
+**Consequences.** `graph.py` resolves and builds through the runtime but still
+invokes the module-level factory, so the existing test seam (dozens of
+`monkeypatch.setattr(graph_module, "build_chat_model", …)`) and all 2535 harness
+tests are unchanged. A concrete provider/model in `ModelSettings` stays the
+explicit override (spec §44); the router only changes it when it can build with
+the run's credentials (same provider) or a keyless local provider, so it never
+silently routes to a paid provider the operator did not configure (spec §31/§45).
+Cross-provider fallback and in-place retry are flag-gated
+(`HARNESS_MODEL_FALLBACK` default OFF, `HARNESS_MODEL_RETRIES` default 1) so
+single-credential zero-config behaviour is byte-identical. Model usage/health
+persist to `agent-memory.db` via `model_runtime/store.py`; read-only inspection
+routes (`/model-runtime/*`) are operator-gated. Tests:
+`python/tests/test_model_runtime.py`.
+
 

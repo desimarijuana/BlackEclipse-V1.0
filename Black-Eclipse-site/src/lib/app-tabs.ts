@@ -26,4 +26,5 @@ export type AppTab =
   | 'memory'
   | 'code'
   | 'jobs'
-  | 'editor';
+  | 'editor'
+  | 'model-runtime';

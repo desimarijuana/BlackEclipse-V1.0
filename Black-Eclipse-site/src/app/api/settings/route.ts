@@ -22,6 +22,8 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
     // The declared context window is not a secret; it round-trips so the UI can
     // show/edit it. Absent = unknown.
     contextWindow: llm.contextWindow,
+    // The model-routing preference is not a secret either; round-trip it.
+    routingPolicy: llm.routingPolicy,
   };
 }
 

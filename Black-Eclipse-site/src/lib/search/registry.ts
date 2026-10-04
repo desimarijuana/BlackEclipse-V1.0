@@ -180,6 +180,7 @@ registerPage({ id: 'page-skills', kind: 'page', title: 'Skills', aliases: ['skil
 registerPage({ id: 'page-memory', kind: 'page', title: 'Eclipse Memory', aliases: ['memory', 'eclipse memory', 'agent memory', 'memory control room'], keywords: ['memory', 'eclipse memory', 'agent', 'persistence', 'audit'], icon: 'memory', tab: 'memory', rankBoost: 1.1 });
 registerPage({ id: 'page-code', kind: 'page', title: 'Code Tasks', aliases: ['code tasks', 'tasks', 'changes', 'what eclipse built', 'code'], keywords: ['code', 'tasks', 'changes', 'build', 'edit'], icon: 'code', tab: 'code', rankBoost: 1.1 });
 registerPage({ id: 'page-jobs', kind: 'page', title: 'Scheduled Jobs', aliases: ['jobs', 'scheduled jobs', 'automations', 'schedule', 'recurring'], keywords: ['jobs', 'scheduled', 'automations', 'schedule', 'recurring'], icon: 'calendar', tab: 'jobs', rankBoost: 1.1 });
+registerPage({ id: 'page-model-runtime', kind: 'page', title: 'Model Control Center', aliases: ['models', 'model control center', 'ai models', 'providers', 'model routing', 'which model'], keywords: ['models', 'model', 'providers', 'routing', 'ai', 'usage', 'health', 'cost'], icon: 'bot', tab: 'model-runtime', rankBoost: 1.15 });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
 // Market Regime — not a tab. Selecting it opens the top-bar Market Regime panel

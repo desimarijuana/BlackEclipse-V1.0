@@ -55,9 +55,15 @@ export async function setConfigJSON(key: string, value: unknown): Promise<void> 
 // ─── LLM / Agent provider configuration ────────────────────────────────
 
 // `openai` is the default OpenAI-compatible family: any preset (Groq, Mistral,
-// DeepSeek, OpenRouter, …) is stored as `openai` plus its own baseUrl/model, so
-// the runtime needs no per-provider branch.
-export type LLMProviderName = "auto" | "openai" | "ollama" | "anthropic" | "mock";
+// DeepSeek, OpenRouter, …) is stored as its own preset id plus its baseUrl/model,
+// matching the Python runtime's `PROVIDER_CATALOG` ids so provider-specific
+// construction (Anthropic, Google, Mistral, Groq) is honoured. `auto` resolves
+// from the environment; `mock` is the offline stub.
+export type LLMProviderName =
+  | "auto" | "mock"
+  | "openai" | "anthropic" | "google" | "mistral" | "groq"
+  | "ollama" | "lmstudio" | "deepseek" | "xai" | "openrouter"
+  | "together" | "perplexity" | "fireworks" | "custom";
 
 export interface LLMConfig {
   provider: LLMProviderName;
@@ -71,6 +77,21 @@ export interface LLMConfig {
    * the conservative ceiling applies — it is never fabricated.
    */
   contextWindow?: number;
+  /**
+   * Optional model-routing preference (spec §44). Sent to the runtime as
+   * `input.context.modelPolicy`, where it outranks the automatic router. Absent
+   * means normal routing. Every field is opt-in and additive.
+   */
+  routingPolicy?: {
+    /** Restrict to local models only ("Use local models only"). */
+    localOnly?: boolean;
+    /** Prefer models that cost nothing ("Don't use paid models"). */
+    preferFree?: boolean;
+    /** Restrict to these provider ids. */
+    allowedProviders?: string[];
+    /** Never use these provider ids. */
+    deniedProviders?: string[];
+  };
 }
 
 export const DEFAULT_LLM_CONFIG: LLMConfig = {
@@ -79,6 +100,13 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   apiKey: "",
   model: "gpt-4o-mini",
 };
+
+/**
+ * The placeholder stored for a keyless local endpoint (some OpenAI-compatible
+ * clients require a non-empty key string). It is NOT a credential and is never
+ * sent to a remote provider — see `getLLMConfig`/`setLLMConfig`.
+ */
+export const LOCAL_KEY_SENTINEL = "local";
 
 const LLM_KEY = "llm_config";
 
@@ -123,12 +151,19 @@ async function readLLMConfigRaw(): Promise<LLMConfig> {
  * for the key. When the LLM config has no key of its own, the provider-key
  * vault entry for the matching preset is used — so a key entered once (in the
  * AI provider list) powers the runtime with no second key field to sync.
+ *
+ * The `"local"` sentinel is NOT a real credential: it is a placeholder some
+ * clients require for keyless local servers. It must never shadow a vault/env
+ * key once the endpoint is remote, otherwise switching from Ollama to a hosted
+ * provider would send `"local"` and fail with 401 (the "can't add my API key"
+ * bug).
  */
 export async function getLLMConfig(): Promise<LLMConfig> {
   const cfg = await readLLMConfigRaw();
-  if (cfg.apiKey) return cfg;
+  const hasRealKey = Boolean(cfg.apiKey) && cfg.apiKey !== LOCAL_KEY_SENTINEL;
+  if (hasRealKey) return cfg;
   const envVar = llmKeyEnvVar(cfg.baseUrl);
-  if (!envVar) return cfg;
+  if (!envVar) return { ...cfg, apiKey: isLocalBaseUrl(cfg.baseUrl) ? LOCAL_KEY_SENTINEL : cfg.apiKey };
   const apiKey = process.env[envVar] || (await storedProviderKey(envVar)) || "";
   return { ...cfg, apiKey };
 }
@@ -146,13 +181,25 @@ export async function setLLMConfig(
   // An explicit `null` clears the declared window (a plain `undefined` cannot —
   // JSON.stringify drops it, so the merge would silently keep the old value).
   if (config.contextWindow === null) delete merged.contextWindow;
-  // A remote provider needs a key; a local one does not.
+  // An explicit `null` clears the routing preference similarly.
+  if ((config as { routingPolicy?: unknown }).routingPolicy === null) delete merged.routingPolicy;
+
+  // A `"local"` sentinel is never a real key; drop it here so it cannot survive
+  // a switch to a remote endpoint and be sent as the credential.
+  if (merged.apiKey === LOCAL_KEY_SENTINEL) merged.apiKey = "";
+
   if (merged.provider !== "mock" && !merged.apiKey && !isLocalBaseUrl(merged.baseUrl)) {
-    throw new Error("An API key is required for a remote LLM provider");
+    // The key may legitimately live in the provider-key vault or the environment
+    // (the single key home for a preset). Only refuse when neither holds one.
+    const envVar = llmKeyEnvVar(merged.baseUrl);
+    const vaultKey = envVar ? process.env[envVar] || (await storedProviderKey(envVar)) : "";
+    if (!vaultKey) {
+      throw new Error("An API key is required for a remote LLM provider");
+    }
   }
   if (merged.provider !== "mock" && !merged.apiKey && isLocalBaseUrl(merged.baseUrl)) {
     // Local servers ignore the key but some clients require a non-empty string.
-    merged.apiKey = "local";
+    merged.apiKey = LOCAL_KEY_SENTINEL;
   }
   await setConfigJSON(LLM_KEY, merged);
   return merged;

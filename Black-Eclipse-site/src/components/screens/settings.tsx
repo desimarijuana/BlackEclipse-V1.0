@@ -34,8 +34,8 @@ import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
-import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
-import { useModelCatalog, modelsForProvider } from "@/lib/agent/model-catalog";
+import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl, getLLMPreset } from "@/lib/agent/presets";
+import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
 import {
@@ -46,7 +46,15 @@ import {
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-type LLMProviderName = "auto" | "openai" | "ollama" | "anthropic" | "mock";
+// Matches the Python runtime's `PROVIDER_CATALOG` ids exactly, so provider-
+// specific construction (Anthropic, Google, Mistral, Groq) is honoured instead
+// of every provider being flattened to `openai`. `auto` resolves from the
+// environment; `mock` is the offline stub.
+type LLMProviderName =
+  | "auto" | "mock"
+  | "openai" | "anthropic" | "google" | "mistral" | "groq"
+  | "ollama" | "lmstudio" | "deepseek" | "xai" | "openrouter"
+  | "together" | "perplexity" | "fireworks" | "custom";
 
 interface LLMConfig {
   provider: LLMProviderName;
@@ -137,10 +145,21 @@ function resolveSection(raw: string | undefined): SectionId {
 }
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
-  openai: "OpenAI-compatible endpoint",
-  ollama: "Ollama (local)",
-  anthropic: "Anthropic",
   mock: "Mock (offline)",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google Gemini",
+  mistral: "Mistral",
+  groq: "Groq",
+  ollama: "Ollama (local)",
+  lmstudio: "LM Studio (local)",
+  deepseek: "DeepSeek",
+  xai: "xAI (Grok)",
+  openrouter: "OpenRouter",
+  together: "Together AI",
+  perplexity: "Perplexity",
+  fireworks: "Fireworks AI",
+  custom: "Custom endpoint",
 };
 
 // ─── Small building blocks ──────────────────────────────────────────────
@@ -477,15 +496,17 @@ export function Settings({
 
   // The vault env var that stores the selected provider's key (if it is a
   // known preset). The AI section's key editor is keyed off this.
-  const activeKeyEnvVar = presetForBaseUrl(llm.baseUrl)?.envVar;
+  const activePreset = presetForBaseUrl(llm.baseUrl);
+  const activeKeyEnvVar = activePreset?.envVar;
 
   // The declared model list + context window for the currently selected
-  // provider, from the runtime catalog. `provider` = the provider kind; when the
-  // mode is `auto` or the provider is not in the catalog, fall back to the
-  // preset id (the base URL identifies the vendor). Never an allowlist.
+  // provider, from the runtime catalog. `provider` = the runtime provider id
+  // (preset id); when the mode is `auto`/`mock` or the provider is not in the
+  // catalog, fall back to the preset id (the base URL identifies the vendor).
+  // Never an allowlist.
   const activeCatalogProvider =
     (llm.provider !== "auto" && llm.provider !== "mock" ? modelCatalog[llm.provider] : undefined) ??
-    modelCatalog[presetForBaseUrl(llm.baseUrl)?.id ?? ""];
+    modelCatalog[activePreset?.id ?? ""];
   const activeModelOptions = activeCatalogProvider?.models ?? [];
   const activeWindow =
     activeCatalogProvider?.modelWindows?.[llm.model] ??
@@ -744,7 +765,13 @@ export function Settings({
                       <button
                         key={preset.id}
                         onClick={() =>
-                          updateLlm({ baseUrl: preset.baseUrl, model: preset.model }, 0)
+                          // Selecting a provider sets its runtime id + base URL +
+                          // default model together, so the model picker and the
+                          // provider-specific construction resolve correctly.
+                          updateLlm(
+                            { provider: preset.id as LLMProviderName, baseUrl: preset.baseUrl, model: preset.model, contextWindow: null },
+                            0
+                          )
                         }
                         className={cn(
                           "text-left rounded-xl border px-3.5 py-3 transition-all cursor-pointer",
@@ -792,24 +819,48 @@ export function Settings({
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field
                       label="Model"
-                      hint="Pick a known model or type any id this provider expects."
+                      hint="Choose a known model or type any id this provider expects."
                     >
-                      {/* A native datalist gives a dropdown of the runtime's
-                          declared models AND still accepts a custom id — never an
-                          allowlist. When the catalog is empty it is a plain field. */}
-                      <Input
-                        value={llm.model}
-                        onChange={(e) => updateLlm({ model: e.target.value })}
-                        placeholder="gpt-4o-mini / llama3.1"
-                        className="font-mono"
-                        list={activeModelOptions.length > 0 ? "llm-model-options" : undefined}
-                      />
-                      {activeModelOptions.length > 0 && (
-                        <datalist id="llm-model-options">
-                          {activeModelOptions.map((m) => (
-                            <option key={m} value={m} />
-                          ))}
-                        </datalist>
+                      {/* A real select of the runtime's declared models when the
+                          catalog knows them, PLUS a free-text field — so picking
+                          is a click and a custom id is still typeable (never an
+                          allowlist). When the catalog is empty only the free-text
+                          field shows. */}
+                      {activeModelOptions.length > 0 ? (
+                        <div className="space-y-2">
+                          <Select
+                            value={activeModelOptions.includes(llm.model) ? llm.model : "__custom__"}
+                            onValueChange={(v) => {
+                              if (v && v !== "__custom__") updateLlm({ model: v }, 0);
+                              else updateLlm({ model: "" }, 0);
+                            }}
+                          >
+                            <SelectTrigger className="w-full font-mono">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {activeModelOptions.map((m) => (
+                                <SelectItem key={m} value={m}>
+                                  {m}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="__custom__">Custom model id…</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            value={llm.model}
+                            onChange={(e) => updateLlm({ model: e.target.value })}
+                            placeholder="Or type a custom model id"
+                            className="font-mono"
+                          />
+                        </div>
+                      ) : (
+                        <Input
+                          value={llm.model}
+                          onChange={(e) => updateLlm({ model: e.target.value })}
+                          placeholder="gpt-4o-mini / llama3.1"
+                          className="font-mono"
+                        />
                       )}
                       <p className="text-[10px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
                         {activeWindowKnown ? (
@@ -826,16 +877,38 @@ export function Settings({
                         )}
                       </p>
                     </Field>
-                    <Field label="Mode" hint="Auto follows environment variables.">
-                      <Select value={llm.provider} onValueChange={(v) => updateLlm({ provider: v as LLMProviderName }, 0)}>
+                    <Field label="Mode" hint="Auto follows environment variables. A named provider uses its own API.">
+                      <Select
+                        value={llm.provider}
+                        onValueChange={(v) => {
+                          if (!v) return;
+                          const preset = getLLMPreset(v);
+                          // Selecting a known provider also applies its base URL
+                          // + default model, unless the operator already pointed
+                          // the same provider at a custom endpoint.
+                          if (preset) {
+                            const sameEndpoint = presetForBaseUrl(llm.baseUrl)?.id === preset.id;
+                            updateLlm(
+                              sameEndpoint
+                                ? { provider: v as LLMProviderName }
+                                : { provider: v as LLMProviderName, baseUrl: preset.baseUrl, model: preset.model, contextWindow: null },
+                              0
+                            );
+                          } else {
+                            updateLlm({ provider: v as LLMProviderName }, 0);
+                          }
+                        }}
+                      >
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="auto">Auto (env)</SelectItem>
-                          <SelectItem value="openai">Use this endpoint</SelectItem>
-                          <SelectItem value="ollama">Ollama (local)</SelectItem>
-                          <SelectItem value="anthropic">Anthropic</SelectItem>
+                          {LLM_PRESETS.map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.name}
+                            </SelectItem>
+                          ))}
                           <SelectItem value="mock">Mock (offline)</SelectItem>
                         </SelectContent>
                       </Select>

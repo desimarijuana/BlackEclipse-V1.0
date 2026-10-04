@@ -284,7 +284,8 @@ def _model_outcomes(service: Any, run: dict[str, Any], model_settings: Any) -> l
     The model may only return a strict JSON object; unknown categories and any
     content that fails the gate are dropped. It can never write or activate.
     """
-    from .models import build_chat_model  # local import: keep the module light
+    from .model_runtime import get_runtime  # local import: keep the module light
+    from .models import build_chat_model
 
     prompt = (
         "You review a completed assistant run to decide whether anything is worth "
@@ -297,7 +298,11 @@ def _model_outcomes(service: Any, run: dict[str, Any], model_settings: Any) -> l
         f"USER TURN:\n{(run.get('input', {}) or {}).get('query', '')[:1500]}\n\n"
         f"FINAL ANSWER:\n{(run.get('output') or '')[:3000]}"
     )
-    model = build_chat_model(model_settings)
+    _runtime = get_runtime()
+    _resolution = _runtime.resolve_for_run(model_settings, task="classification")
+    model = _runtime.build(
+        _resolution.settings, builder=build_chat_model, adapter=_resolution.adapter
+    )
     result = model.invoke(prompt)
     text = getattr(result, "content", "") or ""
     if isinstance(text, list):

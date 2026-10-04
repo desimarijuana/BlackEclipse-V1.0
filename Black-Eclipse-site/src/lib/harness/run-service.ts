@@ -121,6 +121,22 @@ async function resolveModelSettings() {
 }
 
 /**
+ * The runtime `input.context.modelPolicy` built from the LLM routing preference
+ * (spec §44). Empty by default, so normal routing is byte-identical when the
+ * operator never set a preference.
+ */
+function routingPolicyContext(cfg: Awaited<ReturnType<typeof getLLMConfig>>): Record<string, unknown> {
+  const p = cfg.routingPolicy;
+  if (!p) return {};
+  const policy: Record<string, unknown> = {};
+  if (p.localOnly) policy.local_only = true;
+  if (p.preferFree) policy.prefer_free = true;
+  if (p.allowedProviders?.length) policy.allowed_providers = p.allowedProviders;
+  if (p.deniedProviders?.length) policy.denied_providers = p.deniedProviders;
+  return Object.keys(policy).length ? { modelPolicy: policy } : {};
+}
+
+/**
  * Start a conversational run in the background and return its run id.
  *
  * The caller streams `/api/harness/runs/<id>/stream` for live status + tokens,
@@ -140,7 +156,14 @@ export async function startChatRun(
     documents: documents.length ? documents : undefined,
   });
   const agent = await getAgentPreset("eclipse-agent");
+  const cfg = await getLLMConfig();
   const modelSettings = await resolveModelSettings();
+  // User routing preference (spec §44): merged into the run's context, where the
+  // runtime's ModelRouter treats it as an override over automatic selection.
+  const policyContext = routingPolicyContext(cfg);
+  if (Object.keys(policyContext).length) {
+    input.context = { ...(input.context ?? {}), ...policyContext };
+  }
   if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
     throw new HarnessError(
       "PROVIDER_NOT_CONFIGURED",
@@ -181,7 +204,12 @@ export async function startRun(
   // Validate the agent id against the runtime's authoritative presets (this
   // also warms the cache) without sending a prompt copy.
   const agent = await getAgentPreset(options.agentId);
+  const cfg = await getLLMConfig();
   const modelSettings = await resolveModelSettings();
+  const policyContext = routingPolicyContext(cfg);
+  if (Object.keys(policyContext).length) {
+    input.context = { ...(input.context ?? {}), ...policyContext };
+  }
 
   if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
     throw new HarnessError(

@@ -53,7 +53,8 @@ Two boundaries, both deliberate:
 | `schemas.py` | pydantic wire contracts mirroring the TS types |
 | `prompts.py` | system prompts as data (the **Eclipse Agent** prompt lives here) |
 | `agents.py` | agent definitions + presets (**authored in Python**) |
-| `models.py` | universal provider catalog + LangChain chat-model factory |
+| `models.py` | universal provider catalog + LangChain chat-model factory (the low-level construction primitive provider adapters delegate to) |
+| `model_runtime/` | **the provider-agnostic model layer** (`Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider`): `runtime.py` (`ModelRuntime`, the one interface; routing + retry/fallback + accounting), `registry.py` (provider/model/capability/pricing registries seeded from `PROVIDER_CATALOG`), `routing.py` (`ModelRouter` + scoring + task profiles + aliases + `RoutingDecision` trace), `capability.py` (state-based capability detection/probes), `health.py` (`HealthManager`, `CircuitBreaker`, `RateLimitManager`), `usage.py` (`UsageStore`/`CostTracker`/`LatencyTracker`/`BudgetManager`), `structured.py` (parse/validate/repair), `providers/` (isolated adapters delegating construction to `build_chat_model`), `catalog.py` (task profiles, aliases, capability/pricing/performance data), `store.py` (`ModelRequest`/`ModelHealth` tables on `agent-memory.db`), `integration.py` (run→task-profile mapping) |
 | `tools.py` | tool registry: validation, permission, risk, timeout, execute |
 | `finance_tools.py` | the Phase-1 JDdS-backed tools (kept for compatibility) |
 | `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
@@ -416,6 +417,43 @@ vendor:
 provider package in `requirements.txt`). Credentials arrive per run from the TS
 vault and are never persisted by the runtime.
 
+### The Model Runtime (provider-agnostic layer)
+
+`build_chat_model` is the low-level construction primitive. Everything above it
+goes through the **ModelRuntime**, which is the only model interface the rest of
+Eclipse uses:
+
+```
+Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider
+```
+
+- **Selection.** The router scores every registered model against a task profile
+  (capability, quality, reliability, latency, availability, context, cost) with
+  configurable weights, and returns an explainable `RoutingDecision` (candidates,
+  per-dimension breakdown, reason, ordered fallbacks). A concrete
+  `ModelSettings.provider/model` is the explicit override; logical aliases
+  (`eclipse-fast|smart|reasoning|coder|vision|cheap|local`) resolve dynamically.
+- **Capabilities** are states (`supported`/`unsupported`/`unknown`/`degraded`),
+  never bare booleans; a required `unknown` does not satisfy a requirement.
+- **Failure handling.** Errors are classified into one normalized vocabulary;
+  retry is error-aware (exponential backoff + jitter) and fallback respects
+  required capabilities. Both are flag-gated (`HARNESS_MODEL_FALLBACK` default
+  OFF, `HARNESS_MODEL_RETRIES` default 1) and only build a candidate when the
+  runtime can — same provider or a keyless local one — so a single-credential
+  run never silently routes to an unconfigured paid provider.
+- **Health** is tracked with rolling windows, a per-key circuit breaker and a
+  rate-limit manager; **usage/cost/latency** are normalized and persisted to the
+  runtime's OWN `ModelRequest`/`ModelHealth` tables on `agent-memory.db` (never
+  JDdS). Pricing that is unknown stays `NULL`, never 0.
+- **Streaming, tool schemas, structured output and reasoning** are normalized so
+  the UI and the graph see one shape whatever the provider.
+- Read-only inspection: `/model-runtime/{providers,models,routing,route,health,usage}`
+  (operator-gated; `/route` is the routing debug view).
+
+The model layer provides intelligence only — it is never a source of financial
+truth. Evidence, provenance, citations and point-in-time validity remain owned by
+the Evidence/Research engine.
+
 ### The execution graph
 
 ```
@@ -588,9 +626,20 @@ market data.
 | `capability.ts` | the truthful per-market capability matrix (recognition vs actual route capability) |
 | `agent-presets.ts` | fetches + caches agent presets from the runtime (no local copy) |
 | `runtime-config.ts`, `runtime-auth.ts` | package probe list, callback secret/base URL |
+| `model-runtime-client.ts` | server proxy for the runtime's `/model-runtime/*` inspection routes (operator token; no model logic) |
+| `model-runtime-browser.ts` | client-safe fetch wrapper + pure render helpers for the Model Control Center (no `child_process`) |
 | `errors.ts`, `ids.ts` | structured errors, run id |
 
 There is **no** run loop, tool registry or model adapter on the TS side.
+
+### Model Control Center
+
+`src/components/screens/model-runtime/` renders the model layer: provider/model
+lists with capability states and pricing, task routing, usage/cost, health, and
+the routing debug view ("why this model"). It reads
+`src/app/api/harness/model-runtime/**` (proxied by `model-runtime-client.ts`).
+The UI is read-only and never sees a credential; provider configuration stays in
+Settings › AI. Mounted as AppTab `model-runtime`.
 
 ### Streaming chat routes
 

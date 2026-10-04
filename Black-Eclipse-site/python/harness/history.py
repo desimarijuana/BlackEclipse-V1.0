@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from .events import RunEmitter
 from .model_stream import message_text as _text
 from .models import build_chat_model
+from .model_runtime import get_runtime
 from .schemas import RunRequest
 
 MAX_HISTORY_TURNS = 20
@@ -179,7 +180,13 @@ async def _model_extract_dropped(
     if not prompt:
         return []
     try:
-        model = build_chat_model(request.modelSettings)
+        # Build through the ModelRuntime (task=background_task: a cheap model is
+        # appropriate for extraction) while preserving this module's test seam.
+        _runtime = get_runtime()
+        _resolution = _runtime.resolve_for_run(request.modelSettings, task="background_task")
+        model = _runtime.build(
+            _resolution.settings, builder=build_chat_model, adapter=_resolution.adapter
+        )
         response = await asyncio.wait_for(
             model.ainvoke([HumanMessage(content=prompt)]), timeout=20.0,
         )

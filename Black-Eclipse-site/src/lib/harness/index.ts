@@ -45,4 +45,25 @@ export {
   cancelRunInRuntime,
   HarnessRuntimeUnavailable,
 } from "./python-client";
+export {
+  listRuntimeProviders,
+  listRuntimeModels,
+  getRuntimeRouting,
+  getRuntimeDecisions,
+  routeModel,
+  getRuntimeHealth,
+  getRuntimeUsage,
+} from "./model-runtime-client";
+export type {
+  CapabilityState,
+  PricingKind,
+  RuntimeProviderView,
+  RuntimeModelView,
+  RuntimeRouteDecisionView,
+  RuntimeRouteCandidateView,
+  RuntimeRoutingView,
+  RuntimeHealthView,
+  RuntimeUsageView,
+  RouteQuery,
+} from "./model-runtime-client";
 export { ensurePythonRuntime, HARNESS_PY_URL } from "./python-runtime";

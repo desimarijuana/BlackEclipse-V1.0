@@ -40,6 +40,7 @@ from .deps import (
     service,
 )
 from .models import list_providers
+from .model_runtime import ALIASES, get_runtime
 from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
@@ -284,6 +285,73 @@ def get_receipt(run_id: str) -> dict[str, Any]:
 @app.get("/models")
 def models() -> dict[str, Any]:
     return {"success": True, "providers": list_providers()}
+
+
+# ── Model Runtime (provider-agnostic model layer) ───────────────────────────
+# Read-only inspection endpoints. They never call a provider and never expose
+# credentials; the routing debug endpoint is pure computation.
+@app.get("/model-runtime/providers")
+def model_runtime_providers(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    return {"success": True, "providers": [p.to_dict() for p in get_runtime().providers.list_providers()]}
+
+
+@app.get("/model-runtime/models")
+def model_runtime_models(provider: Optional[str] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    runtime = get_runtime()
+    models = runtime.models.list_models(provider_id=provider)
+    return {"success": True, "models": [m.to_dict() for m in models]}
+
+
+@app.get("/model-runtime/routing")
+def model_runtime_routing(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    runtime = get_runtime()
+    return {
+        "success": True,
+        "taskProfiles": runtime.task_profiles.names(),
+        "aliases": sorted(ALIASES.keys()),
+        "policy": {
+            "baseWeights": runtime.policy.base_weights,
+            "fallbackDepth": runtime.policy.fallback_depth,
+            "fallbackEnabled": runtime.fallback_enabled,
+        },
+    }
+
+
+@app.get("/model-runtime/routing/decisions")
+def model_runtime_decisions(limit: int = 20, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    return {"success": True, "decisions": get_runtime().recent_decisions(limit)}
+
+
+@app.post("/model-runtime/route")
+def model_runtime_route(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Explain which model the router would pick for a task (debug view §43)."""
+    runtime = get_runtime()
+    decision = runtime.route(
+        model=payload.get("model"),
+        task=payload.get("task"),
+        requirements=payload.get("requirements") or {},
+        policy_overrides=payload.get("policy") or {},
+    )
+    return {"success": True, "decision": decision.to_dict()}
+
+
+@app.get("/model-runtime/health")
+def model_runtime_health(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    return {"success": True, **get_runtime().health_report()}
+
+
+@app.get("/model-runtime/usage")
+def model_runtime_usage(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    runtime = get_runtime()
+    summary = runtime.usage_summary()
+    store = getattr(service, "model_runtime_store", None)
+    if store is not None:
+        summary["persisted"] = {
+            "recentRequests": store.list_model_requests(50),
+            "health": store.model_health_summary(),
+        }
+    return {"success": True, **summary}
+
 
 
 @app.get("/agents")

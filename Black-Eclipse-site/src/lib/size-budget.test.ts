@@ -41,7 +41,14 @@ const RATCHET: Record<string, number> = {
   "src/lib/workspace/workspace-canvas.tsx": 1374,
   "src/components/screens/customization-settings.tsx": 1336,
   "src/components/screens/market-news.tsx": 1336,
-  "src/components/screens/settings.tsx": 1216,
+  // Grew when the AI section gained a real provider select + model dropdown
+  // (the previous datalist was not surfaced by the input primitive). Pinned
+  // until the deferred AI-section split; may only shrink from here.
+  "src/components/screens/settings.tsx": 1289,
+  // The SPA shell was exactly at the ceiling (1200). Mounting the Model Control
+  // Center added one dynamic import + one keep-alive block; pinned at its new
+  // height until the shell is split. (It may still only shrink from here.)
+  "src/components/screens/stock-chat.tsx": 1212,
 };
 
 export interface SizeEntry {

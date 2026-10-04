@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-10-02
+last-verified: 2026-10-04
 ---
 
 # Navigation — Where Things Live
@@ -158,6 +158,9 @@ Black-Eclipse-site/
 | Work on the skill front door / API | `src/lib/harness/skills-client.ts` (server), routes `src/app/api/skills/`, `src/app/api/learning/`, `src/app/api/skill-executions/`, `src/app/api/skill-drafts/`, `src/app/api/evaluations/` |
 | Change an agent's system prompt / identity | `python/harness/prompts.py` (e.g. `ECLIPSE_AGENT_SYSTEM_PROMPT`), composed in `agents.py` — authoritative in Python |
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
+| Work on model selection / the provider-agnostic Model Runtime (routing, fallback, health, cost, aliases) | `python/harness/model_runtime/` (`runtime.py` = `ModelRuntime`, the one interface; `routing.py` = `ModelRouter`+scoring+task profiles+aliases+`RoutingDecision`; `registry.py` = provider/model/capability/pricing registries; `capability.py`; `health.py` = `HealthManager`/`CircuitBreaker`/`RateLimitManager`; `usage.py` = `UsageStore`/`CostTracker`/`LatencyTracker`/`BudgetManager`; `structured.py`; `providers/` adapters; `catalog.py` = profiles/aliases/pricing data; `store.py` = `ModelRequest`/`ModelHealth` tables on `agent-memory.db`; `integration.py` = run→task-profile); routes `/model-runtime/*` in `python/harness/main.py`; ADR-H123 |
+| Work on the Model Control Center UI / model-runtime API | Python routes `/model-runtime/*` (`python/harness/main.py`); front door `src/lib/harness/model-runtime-{client,browser}.ts` + `src/app/api/harness/model-runtime/**`; UI `src/components/screens/model-runtime/` (`model-runtime-screen.tsx` + providers/models/routing/usage/health/debug panes); i18n `modelRuntime.*`/`nav.modelRuntime`; AppTab `model-runtime` |
+| Add a model provider adapter / a provider family | An adapter in `python/harness/model_runtime/providers/` delegating construction to `python/harness/models.py` `build_chat_model`; register it in `providers/__init__.py` `adapter_for`; add the `ProviderSpec` in `models.py` `PROVIDER_CATALOG` and capability priors in `model_runtime/catalog.py` |
 | Work on hybrid financial retrieval / source selection | `python/harness/retrieval/` (`authority.py` = the ONE ordering + decision authority, `planner.py` = adapts it to a plan, `layer.py` = orchestrator, `structured.py`/`web.py` = providers, `cache.py`, `parallel.py`, `validate.py`, `conflicts.py`, `aggregate.py`); tools in `python/harness/retrieval_tools.py` |
 | Add/edit a retrieval data type or provider | `retrieval/contract.py` (`DataType`), `retrieval/authority.py` (`AUTHORITY`, `DataTypeAuthority`, `decide_source`; ADR-H115/H116), `retrieval/policies.py` (freshness + TTL) — new provider implements `retrieval/sources.py` `RetrievalSource` |
 | Work on evidence-grounded answering (Phase 4) | `python/harness/research/` (`mandate.py` = typed mandate + narrow classifier, `coverage.py` = per-leg evidence gate, `claims.py` = structured claims + deterministic validator, `calculations.py` = derived metrics, `citations.py` = citations + response metadata, `failures.py` = failure classes, `periods.py` = canonical period parsing, `ids.py` = stable content digests, `synthesis.py` = bounded model synthesizer, `supersession.py` = restatement chains, `run.py` = live-chat integration, `receipt.py` = durable receipt, `engine.py` = orchestration); progress `docs/harness/phase-4-progress.md` |

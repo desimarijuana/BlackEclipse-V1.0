@@ -1569,6 +1569,7 @@ for the existing chat/research surfaces.
 | Harness concern | Home | Notes |
 |---|---|---|
 | Agents, tools, model providers, LangGraph loop, events | `python/harness/` (**built**) | FastAPI + LangChain + LangGraph. The runtime owns execution; TS never runs an agent loop. |
+| Model selection / the provider-agnostic Model Runtime | `python/harness/model_runtime/` (**built**) | `Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider`. Routing, fallback, retry, health/circuit breaker, rate limits, usage/cost/latency/budget, capabilities, aliases, structured output, decision tracing. `build_chat_model` is the adapter's construction primitive; no agent names a provider. ADR-H123. |
 | Run persistence + agent memory/skills | `python/harness/persistence.py` + `python/harness/eclipse_memory/` (**built**) | Two separate SQLite stores: `agent-memory.db` (runs, events, tool executions, retrieval/receipt records) and `eclipse-memory.db` (durable memory + the skill lifecycle). Neither is JDdS. See `harness/decisions.md` ADR-H5 and ADR-026. |
 | Front door (validation, vault resolution, proxy) | `src/lib/harness/` (**built**) | `run-service.ts` resolves agent + LLM config; `python-client.ts`/`python-runtime.ts` proxy and spawn the service. |
 | Hybrid financial data + web research (Phase 2) | `python/harness/retrieval/` (**built**) | Provider-agnostic retrieval layer: task-aware source selection, structured + web research, normalization, freshness cache, parallel retrieval, validation, conflict handling, evidence aggregation. |

@@ -130,6 +130,28 @@ describe("startRun", () => {
     await startRun({ input: { query: "x" } });
     expect("contextWindow" in runViaRuntime.mock.calls[0][0].modelSettings).toBe(false);
   });
+
+  it("forwards a user routing preference as input.context.modelPolicy", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "test-key",
+      model: "gpt-4o-mini",
+      routingPolicy: { localOnly: true, preferFree: true },
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_p", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect(runViaRuntime.mock.calls[0][0].input.context.modelPolicy).toEqual({
+      local_only: true,
+      prefer_free: true,
+    });
+  });
+
+  it("sends no model policy when the operator set no routing preference", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_np", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect(runViaRuntime.mock.calls[0][0].input.context?.modelPolicy).toBeUndefined();
+  });
 });
 
 describe("chatWithAgent code profile (Phase 14)", () => {
