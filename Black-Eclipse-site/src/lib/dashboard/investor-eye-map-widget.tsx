@@ -107,6 +107,7 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
   const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
+  const selectedEvent = useInvestorEyeStore((s) => s.selectedEvent);
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const setSelectedEvent = useInvestorEyeStore((s) => s.setSelectedEvent);
@@ -171,6 +172,7 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
       className="absolute inset-0"
       layers={layers}
       onSelectCountry={(iso2) => handleSelectCountry(iso2)}
+      selectedEventKey={selectedEvent ? (selectedEvent.id ?? selectedEvent.dedupKey) : null}
       mode={mapMode}
       skin={mapSkin}
       showStars={showStars}

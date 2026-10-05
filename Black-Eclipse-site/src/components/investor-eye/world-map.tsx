@@ -30,6 +30,12 @@ import { Starfield } from './starfield';
 interface WorldMapProps {
   layers: MapLayer[];
   highlightPoints?: Array<{ iso2: string; name: string; lon: number; lat: number }>;
+  /**
+   * Key (`id ?? dedupKey`) of the selected event. A trade line matching it is
+   * emphasised and the other routes dimmed, so clicking a link answers "what is
+   * traded on THIS route?".
+  */
+  selectedEventKey?: string | null;
   onSelectCountry?: (iso2: string, name: string) => void;
   mode?: MapMode;
   /** Surface skin: blue "lit planet" vs the plain black terminal look. */
@@ -64,7 +70,7 @@ function ensureGlobeSupport(): Promise<boolean> {
 /** Hard ceiling on globe initialisation before falling back to the flat map. */
 const GLOBE_INIT_TIMEOUT_MS = 20_000;
 
-export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d', skin = 'glow', showStars = true, showCountryLabels = true, onModeUnavailable, className }: WorldMapProps) {
+export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCountry, mode = '2d', skin = 'glow', showStars = true, showCountryLabels = true, onModeUnavailable, className }: WorldMapProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const featuresRef = useRef<GeoFeature[]>([]);
@@ -100,6 +106,8 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
   onSelectCountryRef.current = onSelectCountry;
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const selectedEventKeyRef = useRef(selectedEventKey);
+  selectedEventKeyRef.current = selectedEventKey;
   const geoReadyRef = useRef(false);
   /**
    * Equirectangular world texture for the 3D globe (drawn once per skin, then
@@ -211,7 +219,8 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
         setChartNonce((n) => n + 1);
         bindLayerEvents(chart, layersRef.current, { onCountryClick: handleCountryClick });
         chart.setOption(buildMapOption({
-          layers: layersRef.current, highlightPoints, mode, skin, showCountryLabels,
+          layers: layersRef.current, highlightPoints, selectedEventKey: selectedEventKeyRef.current,
+          mode, skin, showCountryLabels,
           globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
           width: ref.current.clientWidth, height: ref.current.clientHeight,
         }));
@@ -262,13 +271,13 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     // keep the heatmap's colouring after the layer was switched off.
     chart.setOption(
       buildMapOption({
-        layers, highlightPoints, mode, skin, showCountryLabels,
+        layers, highlightPoints, selectedEventKey, mode, skin, showCountryLabels,
         globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
         width: box.width, height: box.height,
       }),
       { replaceMerge: ['series', 'visualMap'] } as never,
     );
-  }, [layers, highlightPoints, mode, skin, showCountryLabels, glReady, texVersion, box, handleCountryClick]);
+  }, [layers, highlightPoints, selectedEventKey, mode, skin, showCountryLabels, glReady, texVersion, box, handleCountryClick]);
 
   /**
    * GLOBE country picking.

@@ -8,6 +8,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **Investor Eye Trade layer: selecting a route now isolates it.** Clicking a
+  trade line selected the event but left every route on the map equally loud, so
+  you could not see *which* link the click referred to or what it connected. The
+  selected route now draws full-strength (thicker, opaque) while every other
+  route dims to 10% opacity, the flow animation stops, and the two endpoint
+  countries get glowing labelled markers — so "what is traded between X and Y"
+  reads straight off the map. The line datum now carries
+  `fromName`/`toName`/`fromIso`/`toIso`/`eventKey`, and a dedicated `tradeTooltip`
+  leads with the ROUTE and the traded goods instead of a generic event blurb.
+  `selectedEventKey` is threaded `WorldMap` → `buildMapOption` on the main screen,
+  full-page map, and dashboard widget. Tests: `layers.test.ts` (+1),
+  `map-echarts.test.ts` (+3). `npx tsc --noEmit` clean; `vitest` passed.
+  no doc change — behaviour within the existing `lines` layer contract.
+
 - **Terminal/Shell/Process execution subsystem — the execution backbone.**
   Added `python/harness/terminal/` (one `TerminalManager` shared by agent tools and
   the UI): persistent shells (`open_shell`/`run_shell_command`/`write_shell_input`/

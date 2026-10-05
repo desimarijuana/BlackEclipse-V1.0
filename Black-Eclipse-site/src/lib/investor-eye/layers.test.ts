@@ -387,6 +387,22 @@ describe('buildTradeLayer', () => {
     layer.onClick!(layer.data()[0]);
     expect(picked[0]?.id).toBe('t1');
   });
+
+  it('carries the route endpoints and traded goods on each line', () => {
+    // A trade line's whole meaning is the pair of endpoints, so the datum must
+    // carry them (plus the event key) for the map's selection emphasis and the
+    // route tooltip.
+    const e = event({ id: 'r1', eventType: 'trade', countries: ['US', 'CN'], commodities: ['Crude Oil'] });
+    const d = buildTradeLayer([e], countries).data()[0];
+    const payload = d.data as { fromName: string; toName: string; eventKey: string };
+    expect(payload.fromName).toBe('United States');
+    expect(payload.toName).toBe('China');
+    expect(payload.eventKey).toBe('r1');
+    const tip = buildTradeLayer([e], countries).tooltip!(d);
+    expect(tip.rows.find((r) => r.label === 'Route')?.value).toContain('United States');
+    expect(tip.rows.find((r) => r.label === 'Traded goods')?.value).toContain('Crude Oil');
+    expect(tip.note?.toLowerCase()).toContain('observed');
+  });
 });
 
 describe('category event layers', () => {

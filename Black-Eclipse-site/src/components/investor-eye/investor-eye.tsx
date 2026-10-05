@@ -425,6 +425,7 @@ export function InvestorEyeScreen() {
             className="absolute inset-0"
             layers={layers}
             highlightPoints={highlightPoints}
+            selectedEventKey={selectedEvent ? (selectedEvent.id ?? selectedEvent.dedupKey) : null}
             onSelectCountry={handleSelectCountry}
             mode={mapMode}
             skin={mapSkin}

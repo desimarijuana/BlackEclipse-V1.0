@@ -605,7 +605,13 @@ export function buildTradeLayer(
         data: {
           from: [a.lon, a.lat],
           to: [b.lon, b.lat],
+          fromName: a.name,
+          toName: b.name,
+          fromIso: a.iso2,
+          toIso: b.iso2,
           event: e,
+          /** Stable key so the map can emphasise the clicked line. */
+          eventKey: e.id ?? e.dedupKey,
           relation: 'OBSERVED',
         },
       });
@@ -620,13 +626,42 @@ export function buildTradeLayer(
     zIndex: 35,
     data: () => lines,
     tooltip: (datum) => {
-      const d = datum.data as { event: NormalizedEvent };
-      return eventTooltip(d.event);
+      const d = datum.data as { event: NormalizedEvent; fromName?: string; toName?: string };
+      return tradeTooltip(d.event, d.fromName, d.toName);
     },
     onClick: (datum) => {
       const d = datum.data as { event: NormalizedEvent };
       onSelect?.(d.event);
     },
+  };
+}
+
+/**
+ * Tooltip for a trade ROUTE. Unlike a generic event tooltip, a trade line's
+ * whole meaning is the pair of endpoints, so the route leads and the traded
+ * goods/provenance follow. This is the "can I see what is being traded between
+ * these two?" answer.
+ */
+function tradeTooltip(event: NormalizedEvent, fromName?: string, toName?: string): TooltipContent {
+  if (!event || typeof event !== 'object' || typeof event.eventType !== 'string') {
+    return { title: 'Trade link', rows: [{ label: 'Detail', value: 'unavailable' }] };
+  }
+  const route = fromName && toName ? `${fromName} ↔ ${toName}` : event.countries.join(' ↔ ') || 'Trade link';
+  const rows: Array<{ label: string; value: string }> = [
+    { label: 'Route', value: route },
+    { label: 'Type', value: event.eventType.replace(/_/g, ' ') },
+    { label: 'Severity', value: event.severity },
+  ];
+  if (event.commodities.length > 0) rows.push({ label: 'Traded goods', value: event.commodities.join(', ') });
+  if (event.channels.length > 0) rows.push({ label: 'Channels', value: event.channels.join(', ') });
+  rows.push({ label: 'First detected', value: formatUtc(event.publishedAt) });
+  rows.push({ label: 'Sources', value: String(event.sourceCount) });
+  return {
+    title: event.title,
+    subtitle: event.summary,
+    rows,
+    note:
+      'A link is drawn only when the same event names both countries — an observed co-mention, not a confirmed trade flow.',
   };
 }
 

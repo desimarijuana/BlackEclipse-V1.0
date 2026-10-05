@@ -312,6 +312,13 @@ export interface MapOptionOptions {
   /** Draw country names. Defaults to true. */
   showCountryLabels?: boolean;
   /**
+   * Key (`id ?? dedupKey`) of the currently selected event. When it matches a
+   * trade line, that route is drawn emphasised and every other route dimmed, so
+   * a click answers "what is traded on THIS link?" instead of leaving the whole
+   * web equally loud.
+   */
+  selectedEventKey?: string | null;
+  /**
    * Hovered/highlighted country OUTLINE, as `[lon, lat]` rings. The 2D `geo`
    * component highlights a country natively on hover, but the 3D globe is a
    * texture with no per-country geometry — so the globe draws the picked
@@ -616,12 +623,33 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
   }
 
   // Directional lines (trade). `lines` needs explicit coords + data.
+  const selectedEventKey = options.selectedEventKey ?? null;
   for (const layer of enabled) {
     if (layer.type !== 'lines') continue;
     const data = layer.data();
+    // When a trade link is selected, each line is tagged so the click target
+    // stands out and the rest recede — the map answers "what is traded on this
+    // route" instead of showing every route at equal weight.
+    const hasSelection = selectedEventKey != null
+      && data.some((d) => (d.data as { eventKey?: string }).eventKey === selectedEventKey);
     const lineData = data.map((d) => {
-      const payload = d.data as { from: [number, number]; to: [number, number] };
-      return { coords: [payload.from, payload.to], _datum: d };
+      const payload = d.data as { from: [number, number]; to: [number, number]; eventKey?: string; fromIso?: string };
+      const selected = hasSelection && payload.eventKey === selectedEventKey;
+      // Per-item style: the selected route stays full-strength, siblings fade
+      // back so the chosen trade link is unambiguous.
+      return {
+        coords: [payload.from, payload.to],
+        _datum: d,
+        selected,
+        fromIso: payload.fromIso,
+        ...(hasSelection
+          ? {
+              lineStyle: selected
+                ? { width: isGlobe ? 3 : 2.4, opacity: 1, color: layerColor(layer.id) }
+                : { width: isGlobe ? 1 : 0.8, opacity: 0.1, color: layerColor(layer.id) },
+            }
+          : {}),
+      };
     });
 
     // On the globe, draw a wide translucent pass under the thin bright pass —
@@ -649,8 +677,12 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       type: isGlobe ? 'lines3D' : 'lines',
       coordinateSystem: coordSystem,
       z: layer.zIndex,
-      // 2D lines support a flowing effect; lines3D does not.
-      ...(isGlobe ? {} : { effect: { show: data.length <= 60, period: 4, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 } }),
+      // 2D lines support a flowing effect; lines3D does not. The flow animation
+      // is dropped once a single route is selected, so the emphasis reads as a
+      // pinpoint rather than a moving target.
+      ...(isGlobe || hasSelection
+        ? {}
+        : { effect: { show: data.length <= 60, period: 4, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 } }),
       lineStyle: {
         color: layerColor(layer.id),
         width: isGlobe ? 1.4 : 1,
@@ -660,6 +692,51 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       data: lineData,
       tooltip: layer.tooltip ? { formatter: tooltipFormatter(layer) } : undefined,
     } as never);
+
+    // Endpoint markers for the SELECTED route: two glowing nodes labelling the
+    // countries the clicked link connects, so "what is traded between X and Y"
+    // is readable straight off the map.
+    const endpoints = hasSelection
+      ? data.filter((d) => (d.data as { eventKey?: string }).eventKey === selectedEventKey)
+          .flatMap((d) => {
+            const p = d.data as { from: [number, number]; to: [number, number]; fromName?: string; toName?: string };
+            return [
+              { name: p.fromName ?? '', value: isGlobe ? p.from : [p.from[0], p.from[1], 1] },
+              { name: p.toName ?? '', value: isGlobe ? p.to : [p.to[0], p.to[1], 1] },
+            ];
+          })
+      : [];
+    if (endpoints.length > 0) {
+      series.push({
+        id: `${layer.id}__endpoints`,
+        name: layer.name,
+        type: isGlobe ? 'scatter3D' : 'effectScatter',
+        coordinateSystem: coordSystem,
+        z: layer.zIndex + 1,
+        silent: true,
+        ...(isGlobe
+          ? { symbolSize: 9, itemStyle: { color: layerColor(layer.id), opacity: 0.95 } }
+          : {
+              showEffectOn: 'render',
+              rippleEffect: { brushType: 'stroke', scale: 3, period: 5 },
+              symbolSize: 8,
+              symbol: 'circle',
+              itemStyle: { color: layerColor(layer.id), borderColor: 'rgba(8,9,12,0.9)', borderWidth: 1.5 },
+            }),
+        label: {
+          show: true,
+          position: 'right',
+          formatter: (p: { name?: string }) => p.name ?? '',
+          fontSize: 9,
+          fontWeight: 600,
+          color: '#f5f5f4',
+          textShadowColor: 'rgba(2,8,20,0.9)',
+          textShadowBlur: 3,
+        },
+        data: endpoints,
+        tooltip: { show: false },
+      } as never);
+    }
   }
 
   // Country names, plotted at the gazetteer centroid as a scatter series whose

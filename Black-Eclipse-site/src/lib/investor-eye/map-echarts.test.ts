@@ -5,8 +5,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildMapOption, hasDrawableBox, unwrapDatum } from './map-echarts';
-import { buildConflictLayer, buildEventsLayer, buildEventHeatmapLayer, severityColor, SYMBOL_PATHS } from './layers';
-import type { LayerDatum, MapLayer, NormalizedEvent } from './types';
+import { buildConflictLayer, buildEventsLayer, buildEventHeatmapLayer, buildTradeLayer, severityColor, SYMBOL_PATHS } from './layers';
+import type { LayerDatum, MapLayer, NormalizedEvent, CountrySummary } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {
@@ -63,6 +63,52 @@ describe('buildMapOption heatmap visualMap scoping', () => {
     // mapping (and with it the purple event pins).
     const opt = optionWithHeatmap(false) as unknown as { visualMap?: unknown };
     expect(opt.visualMap).toBeUndefined();
+  });
+});
+
+describe('trade line selection emphasis', () => {
+  const countries: CountrySummary[] = [
+    { iso2: 'US', name: 'United States', region: 'NA', lon: -98.5, lat: 39.8, eventCount: 1, markets: [] },
+    { iso2: 'CN', name: 'China', region: 'EA', lon: 104.2, lat: 35.9, eventCount: 1, markets: [] },
+    { iso2: 'DE', name: 'Germany', region: 'EU', lon: 10.4, lat: 51.2, eventCount: 1, markets: [] },
+  ];
+  function twoTrades() {
+    const a = event({ id: 'ta', eventType: 'trade', countries: ['US', 'CN'], lon: -98, lat: 39 });
+    const b = event({ id: 'tb', eventType: 'trade', countries: ['CN', 'DE'], lon: 104, lat: 36 });
+    return buildTradeLayer([a, b], countries, () => {});
+  }
+
+  it('does not dim any route when nothing is selected', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d' });
+    const s = (opt.series as unknown as Array<{ id: string; data: Array<{ lineStyle?: { opacity?: number } }> }>)
+      .find((x) => x.id === 'trade')!;
+    // No per-item lineStyle override ⇒ every route keeps the base styling.
+    expect(s.data.every((d) => d.lineStyle === undefined)).toBe(true);
+  });
+
+  it('emphasises the selected route and dims the rest', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d', selectedEventKey: 'ta' });
+    const series = opt.series as unknown as Array<{ id: string; data: Array<{ lineStyle?: { opacity?: number; width?: number } }> }>;
+    const s = series.find((p) => p.id === 'trade')!;
+    const selected = s.data.filter((d) => (d.lineStyle?.opacity ?? 0) === 1);
+    const dimmed = s.data.filter((d) => (d.lineStyle?.opacity ?? 1) < 1);
+    expect(selected).toHaveLength(1);
+    expect(dimmed).toHaveLength(1);
+
+    // The two endpoints of the selected route are labelled on the map.
+    const endpoints = series.find((p) => p.id === 'trade__endpoints')!;
+    expect(endpoints.data).toHaveLength(2);
+  });
+
+  it('leaves every route untouched when the selection is not a trade route', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d', selectedEventKey: 'not-a-trade' });
+    const s = (opt.series as unknown as Array<{ id: string; data: Array<{ lineStyle?: unknown }> }>)
+      .find((x) => x.id === 'trade')!;
+    expect(s.data.every((d) => d.lineStyle === undefined)).toBe(true);
+    expect((opt.series as unknown as Array<{ id: string }>).some((x) => x.id === 'trade__endpoints')).toBe(false);
   });
 });
 
