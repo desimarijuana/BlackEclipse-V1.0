@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Database, Plus, RefreshCcw, Trash2, Play, ChevronLeft, Check,
   AlertCircle, Loader2, Globe, KeyRound, ArrowRight,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

@@ -10,7 +10,7 @@
 // Center market tab; picking an explicit market pins just this card.
 
 import React from 'react';
-import { ChevronDown, Globe } from 'lucide-react';
+import { ChevronDown, Globe } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useWidgetConfigApi } from '@/lib/workspace/widget-config-context';
 import { MARKET_FOLLOW, MARKET_OPTIONS, marketViewName, useActiveMarket, useWidgetMarket } from '@/lib/dashboard/market-views';

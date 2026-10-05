@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Wrench } from "lucide-react";
+import { Wrench } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { MCPApprovalView } from "@/lib/harness/mcp-types";

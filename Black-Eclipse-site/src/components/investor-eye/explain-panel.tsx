@@ -14,7 +14,7 @@
 // says so, rather than pretending to work.
 
 import { useEffect, useState } from 'react';
-import { Sparkles, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Sparkles, Loader2, AlertTriangle, RefreshCw } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 interface ExplainResponse {

@@ -12,7 +12,7 @@
 // handled here.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, PanelLeft, PanelRight, Plus, RefreshCw, Settings2 } from 'lucide-react';
+import { Check, PanelLeft, PanelRight, Plus, RefreshCw, Settings2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';

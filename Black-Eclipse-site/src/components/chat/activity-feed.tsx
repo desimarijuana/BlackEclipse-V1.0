@@ -12,7 +12,7 @@
 // Both render the same `ActivityItemRow`; only density differs.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronRight, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, Loader2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ActivityItem, ResponseStatus } from '@/lib/agent/response-model';
 import { ActivityItemRow } from './activity-item';

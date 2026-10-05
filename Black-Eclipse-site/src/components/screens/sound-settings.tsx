@@ -13,7 +13,7 @@
 import { useRef, useState } from "react";
 import {
   Volume2, VolumeX, Play, Upload, RotateCcw, Check, Music2,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";

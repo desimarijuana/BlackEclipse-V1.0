@@ -4,7 +4,7 @@
 
 import React, { useMemo, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { ChevronLeft, ChevronRight, Plus, CalendarRange, Trophy, Percent } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, CalendarRange, Trophy, Percent } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
 import { QuickAddTrade } from './quick-add-trade';

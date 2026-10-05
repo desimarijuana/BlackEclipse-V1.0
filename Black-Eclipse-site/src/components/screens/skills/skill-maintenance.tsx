@@ -7,7 +7,7 @@
 // are exempt and labelled as such.
 
 import { useCallback, useEffect, useState } from "react";
-import { Pin, PinOff, RefreshCw, Wrench } from "lucide-react";
+import { Pin, PinOff, RefreshCw, Wrench } from "@/lib/icons";
 import {
   getSkillMaintenance, runSkillMaintenance, pinSkillVersion,
 } from "@/lib/harness/skills-browser";

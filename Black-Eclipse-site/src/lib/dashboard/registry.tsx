@@ -11,7 +11,7 @@ import {
   Globe, LayoutDashboard, Newspaper, PieChart, TrendingUp, Wallet,
   LineChart, Coins, Droplets, Flame, Radio, FileText, Bot, Scissors,
   StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye, MapPin,
-} from 'lucide-react';
+} from '@/lib/icons';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';

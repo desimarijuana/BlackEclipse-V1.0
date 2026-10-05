@@ -10,7 +10,7 @@ import {
   Trash2,
   Loader2,
   ChevronUp,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { sessionFileUrl } from '@/lib/chat/session-client';
 import type { SessionController } from '@/lib/chat/use-session';

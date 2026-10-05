@@ -10,7 +10,7 @@
 // rather than a dash that could be mistaken for "no move".
 
 import { useEffect, useState } from 'react';
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { reactionWindowLabel, type ReactionWindow } from '@/lib/investor-eye/reaction';
 

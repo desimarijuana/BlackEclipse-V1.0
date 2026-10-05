@@ -10,7 +10,7 @@
 // The channel→asset hop is INFERRED (a documented rule); the event, country and
 // asset print are OBSERVED.
 
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight } from '@/lib/icons';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_RISK_TOPIC } from '@/lib/investor-eye/topics';
 import type { Transmission } from '@/lib/investor-eye/analytics';

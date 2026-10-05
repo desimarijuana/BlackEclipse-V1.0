@@ -6,7 +6,7 @@
 // the graph derived for that company. No invented supply chains (spec §34).
 
 import { useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X } from '@/lib/icons';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_GRAPH_TOPIC } from '@/lib/investor-eye/topics';
 import { countryByIso2 } from '@/lib/investor-eye/countries';

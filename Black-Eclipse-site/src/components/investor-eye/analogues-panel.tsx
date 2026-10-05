@@ -11,7 +11,7 @@
 // disclaimer is rendered verbatim — a past move is not a prediction.
 
 import { useEffect, useState } from 'react';
-import { Loader2, TrendingUp } from 'lucide-react';
+import { Loader2, TrendingUp } from '@/lib/icons';
 import type { Provenance } from '@/lib/investor-eye/types';
 
 interface AnaloguesResponse {

@@ -8,7 +8,7 @@
 // zero that reads as "nothing is happening".
 
 import React, { useMemo } from 'react';
-import { ScanEye } from 'lucide-react';
+import { ScanEye } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
 import type { WidgetConfigField } from '@/lib/workspace/widget-def';

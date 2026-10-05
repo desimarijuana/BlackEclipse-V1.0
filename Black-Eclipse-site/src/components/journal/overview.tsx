@@ -4,7 +4,7 @@
 // KPI strip + equity curve + best/worst dimensions + recent trades + insights.
 
 import React, { useMemo } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
 import { EquityCurveChart, DimensionBarChart, WinLossChart, DrawdownChart, DailyPerformanceChart, RDistributionChart, fmtR, fmtMoney } from './charts';

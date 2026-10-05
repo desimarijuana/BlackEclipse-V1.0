@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import {
   Activity, BarChart3, Briefcase, Coins, Globe, Landmark, LineChart, LayoutGrid, Orbit, Search, Zap,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { DASHBOARD_TEMPLATES } from '@/lib/dashboard/templates';

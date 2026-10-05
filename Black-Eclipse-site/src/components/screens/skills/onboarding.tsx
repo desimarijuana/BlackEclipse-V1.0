@@ -6,7 +6,7 @@
 // starter content carries visible `bundled` provenance and is removable.
 
 import { useEffect, useState } from "react";
-import { GraduationCap, Sparkles, X } from "lucide-react";
+import { GraduationCap, Sparkles, X } from "@/lib/icons";
 import { getOnboarding } from "@/lib/harness/skills-browser";
 import type { OnboardingContent } from "@/lib/harness/skills-types";
 import { LoadingState } from "./skill-ui";

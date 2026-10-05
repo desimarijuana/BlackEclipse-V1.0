@@ -8,7 +8,7 @@
 // no positive volume the panel says so instead of drawing a zeroed-out chart.
 
 import React, { useMemo, useState } from 'react';
-import { Activity, BarChart3, Info } from 'lucide-react';
+import { Activity, BarChart3, Info } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { VolumeSummary } from '@/lib/heatmap';
 /** Compact currency formatter (1.2B / 945.0M / 12.3K). */

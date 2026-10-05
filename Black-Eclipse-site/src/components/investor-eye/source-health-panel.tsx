@@ -14,7 +14,7 @@
 // temporary upstream limit is never mistaken for a broken integration.
 
 import { useEffect, useState } from 'react';
-import { Activity, Loader2, ChevronDown, ChevronRight, ExternalLink, ShieldAlert } from 'lucide-react';
+import { Activity, Loader2, ChevronDown, ChevronRight, ExternalLink, ShieldAlert } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 interface CatalogInfo {

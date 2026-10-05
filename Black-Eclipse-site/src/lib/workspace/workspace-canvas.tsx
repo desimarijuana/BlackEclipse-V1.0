@@ -22,7 +22,7 @@ import {
 } from '@dnd-kit/core';
 import {
   ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Sparkles, Trash2, X,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';

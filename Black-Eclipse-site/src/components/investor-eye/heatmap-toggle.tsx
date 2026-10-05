@@ -15,7 +15,7 @@
 // header recipe (`glass-button`), `accent` is the dashboard widget's recipe
 // (`bg-accent/30` + hairline border), so the toggle never looks bolted on.
 
-import { Flame } from 'lucide-react';
+import { Flame } from '@/lib/icons';
 import { useInvestorEyeStore } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 

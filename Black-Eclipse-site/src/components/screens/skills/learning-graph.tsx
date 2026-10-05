@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts";
-import { Maximize2 } from "lucide-react";
+import { Maximize2 } from "@/lib/icons";
 import type { JourneyEdge, JourneyNode, LearningJourney } from "@/lib/harness/skills-types";
 
 // Node kind → colour. Mirrors the badge palette used in the list view.

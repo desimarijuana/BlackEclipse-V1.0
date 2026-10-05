@@ -7,7 +7,7 @@
 import { useState } from "react";
 import {
   AlertTriangle, CheckCircle2, FileWarning, Loader2, ShieldCheck, XCircle,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SkillDetail } from "@/lib/harness/skills-types";

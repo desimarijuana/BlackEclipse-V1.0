@@ -6,7 +6,7 @@
 // gives the user a one-click way to remove it (which also stops it coming back).
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Database, Trash2, X } from 'lucide-react';
+import { Database, Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 interface DemoState {

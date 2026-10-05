@@ -7,7 +7,7 @@
 // permission. This panel creates/edits and resolves bundles.
 
 import { useCallback, useEffect, useState } from "react";
-import { Boxes, Plus, RefreshCcw, Trash2, X } from "lucide-react";
+import { Boxes, Plus, RefreshCcw, Trash2, X } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";

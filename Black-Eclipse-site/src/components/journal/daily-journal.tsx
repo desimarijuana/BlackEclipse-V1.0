@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { Save, Check, ArrowLeft } from 'lucide-react';
+import { Save, Check, ArrowLeft } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { fmtR, fmtMoney } from './charts';
 

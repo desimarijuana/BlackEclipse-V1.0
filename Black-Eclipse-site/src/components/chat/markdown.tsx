@@ -1,5 +1,7 @@
+'use client';
+
 import { Fragment, ReactNode } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import {
   BlockNode,

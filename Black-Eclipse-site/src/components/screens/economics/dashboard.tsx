@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, TrendingUp, TrendingDown, Activity, Gauge } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, Activity, Gauge } from '@/lib/icons';
 
 // ─── Decision widgets for the Economics page ─────────────────────────────
 // Each widget fetches a small set of FRED series and renders a decision

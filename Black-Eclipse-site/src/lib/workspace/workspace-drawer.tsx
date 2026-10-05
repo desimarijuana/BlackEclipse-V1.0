@@ -5,7 +5,7 @@
 // Confirm dialogs guard template apply and reset.
 
 import React, { useState } from 'react';
-import { LayoutTemplate, Plus, RotateCcw, X } from 'lucide-react';
+import { LayoutTemplate, Plus, RotateCcw, X } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import type { WorkspaceController } from './use-workspace';

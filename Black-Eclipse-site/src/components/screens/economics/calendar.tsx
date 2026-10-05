@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles } from '@/lib/icons';
 
 interface CalendarEvent {
   id: string;

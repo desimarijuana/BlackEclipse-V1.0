@@ -8,7 +8,7 @@
 // same permission/execution gate as any other skill.
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FolderGit2, ShieldCheck, ShieldOff, History } from "lucide-react";
+import { CheckCircle2, FolderGit2, ShieldCheck, ShieldOff, History } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {

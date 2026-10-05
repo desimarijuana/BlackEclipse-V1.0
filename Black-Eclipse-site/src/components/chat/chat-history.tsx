@@ -1,6 +1,8 @@
+'use client';
+
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ArrowDown, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';

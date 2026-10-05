@@ -25,7 +25,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, ChevronDown, ExternalLink, Loader2, Pause, Play, Plus,
   Radio, RotateCcw, Settings2, Trash2, Volume2, VolumeX,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { WidgetConfigField } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';

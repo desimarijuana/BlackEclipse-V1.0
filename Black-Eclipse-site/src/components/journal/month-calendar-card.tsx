@@ -6,7 +6,7 @@
 // Add-trade / CSV import; this is just the grid plus prev/next.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
 import { formatMonthLabel } from '@/lib/journal/dates';

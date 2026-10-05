@@ -13,7 +13,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChartCandlestick, Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from 'lucide-react';
+import { ChartCandlestick, Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { canHandleKeyboardEvent, isKeyboardScopeVisible, matchesShortcut } from '@/lib/keyboard';

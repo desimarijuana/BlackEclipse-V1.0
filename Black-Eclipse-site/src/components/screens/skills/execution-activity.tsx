@@ -5,7 +5,7 @@
 // redacts tool text), so nothing here leaks credentials.
 
 import { useState } from "react";
-import { Activity, AlertCircle, ChevronDown, ChevronRight, Loader2, RefreshCcw } from "lucide-react";
+import { Activity, AlertCircle, ChevronDown, ChevronRight, Loader2, RefreshCcw } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";

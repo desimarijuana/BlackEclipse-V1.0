@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Palette, Sparkles, RotateCcw, Check, TrendingUp, TrendingDown, Minus,
-} from "lucide-react";
+} from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";

@@ -21,7 +21,7 @@
 // back — the field starts empty and shows only a masked hint.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertCircle, Check, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plug, Save, Search, Trash2, Wrench } from "lucide-react";
+import { Activity, AlertCircle, Check, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plug, Save, Search, Trash2, Wrench } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";

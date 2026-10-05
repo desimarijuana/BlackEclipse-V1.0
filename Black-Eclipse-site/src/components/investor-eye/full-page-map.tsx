@@ -11,7 +11,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Minimize2, X, ScanEye } from 'lucide-react';
+import { Minimize2, X, ScanEye } from '@/lib/icons';
 import { WorldMap } from './world-map';
 import { EventPanel } from './event-panel';
 import { LayerController } from './layer-controller';

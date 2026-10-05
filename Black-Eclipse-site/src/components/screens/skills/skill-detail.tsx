@@ -10,7 +10,7 @@ import {
   AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, ChevronDown, ChevronRight,
   FlaskConical, GitBranch, History, Info, LineChart, Pencil, Play, Power, ScrollText, ShieldCheck,
   Trash2, XCircle,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SkillDetail as SkillDetailType, SkillVersionHistoryEntry } from "@/lib/harness/skills-types";

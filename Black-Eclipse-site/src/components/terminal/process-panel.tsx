@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, RotateCcw, Square, XCircle } from "lucide-react";
+import { RefreshCw, RotateCcw, Square, XCircle } from "@/lib/icons";
 import {
   killTerminalProcess,
   listTerminalProcesses,

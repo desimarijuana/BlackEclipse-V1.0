@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { GitBranch, Minimize2, RefreshCcw, X } from "lucide-react";
+import { GitBranch, Minimize2, RefreshCcw, X } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { learningJourney } from "@/lib/harness/skills-browser";

@@ -9,7 +9,7 @@ import React from 'react';
 import {
   Copy, Grid2x2, LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Plus,
   RotateCcw, Save, Settings2, Trash2,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { ToolbarMenu } from '@/components/chart/toolbar-menu';
 import { GRID_PRESETS, MARKET_PANEL_TYPES, type MarketPanelType } from '@/lib/market-workspace/types';

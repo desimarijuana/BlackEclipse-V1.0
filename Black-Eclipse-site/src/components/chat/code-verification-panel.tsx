@@ -12,7 +12,7 @@
 // jargon gate can scan it.
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShieldAlert, ShieldCheck } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import { claimStatusKey, coerceCodeVerification } from '@/lib/harness/code-browser';

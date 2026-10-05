@@ -9,7 +9,7 @@
 // snapshot to restore.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { BookmarkPlus, History, RotateCcw, Trash2, Loader2 } from "lucide-react";
+import { BookmarkPlus, History, RotateCcw, Trash2, Loader2 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import {
   createCheckpoint,

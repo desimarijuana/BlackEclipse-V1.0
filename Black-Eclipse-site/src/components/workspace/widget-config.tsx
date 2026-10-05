@@ -7,7 +7,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Search } from 'lucide-react';
+import { X, Search } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { WidgetConfigField, WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';

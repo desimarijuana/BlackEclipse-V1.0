@@ -7,7 +7,7 @@
 
 import {
   AlertCircle, Brain, Database, Loader2, MessageSquare, Wrench,
-} from "lucide-react";
+} from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { MemoryRecord } from "@/lib/harness/eclipse-memory-types";
 

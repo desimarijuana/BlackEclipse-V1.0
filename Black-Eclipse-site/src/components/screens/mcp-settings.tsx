@@ -16,7 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle, Check, ChevronDown, Loader2, Plug, Plus, RefreshCcw,
   ShieldAlert, Trash2, Unplug, Wrench,
-} from "lucide-react";
+} from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

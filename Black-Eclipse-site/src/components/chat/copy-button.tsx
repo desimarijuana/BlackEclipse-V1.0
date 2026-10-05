@@ -5,7 +5,7 @@
 // and never throws when the clipboard is unavailable (e.g. insecure context).
 
 import { useCallback, useRef, useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 export interface CopyButtonProps {

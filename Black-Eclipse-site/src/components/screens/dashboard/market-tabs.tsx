@@ -10,7 +10,7 @@
 
 import React, { useRef, useState } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { Globe, LayoutGrid } from 'lucide-react';
+import { Globe, LayoutGrid } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { TabBar, type TabItem } from '@/components/ui/tab-bar';
 import { useMarketViews } from '@/lib/dashboard/market-views';

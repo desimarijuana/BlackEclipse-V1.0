@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCcw, Search, Settings2, X } from 'lucide-react';
+import { RotateCcw, Search, Settings2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { registerTopic, jsonTopic, useTopic } from '@/lib/workspace/data-hub';
 import { useCommandStore } from '@/lib/search/store';

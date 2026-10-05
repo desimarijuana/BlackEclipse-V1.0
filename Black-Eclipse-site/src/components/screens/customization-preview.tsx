@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Eye, Maximize2, RotateCcw, Save, X } from "lucide-react";
+import { Eye, Maximize2, RotateCcw, Save, X } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 
 /**

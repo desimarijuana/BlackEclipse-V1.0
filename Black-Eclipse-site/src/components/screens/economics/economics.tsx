@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { Globe, LineChart, Activity, CalendarDays } from 'lucide-react';
+import { Globe, LineChart, Activity, CalendarDays } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { ECON_SOURCES } from '@/lib/economics/sources';

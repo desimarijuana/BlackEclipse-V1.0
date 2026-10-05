@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   ArrowUp, ArrowDown, ArrowUpRight, ArrowDownRight, ArrowRight, Sparkles,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { currencyCodeFor as currencyFor } from '@/lib/market-currency';

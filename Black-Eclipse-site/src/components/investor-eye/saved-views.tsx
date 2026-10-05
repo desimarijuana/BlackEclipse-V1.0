@@ -9,7 +9,7 @@
 // stale observation.
 
 import { useState } from 'react';
-import { Bookmark, Plus, Trash2, X } from 'lucide-react';
+import { Bookmark, Plus, Trash2, X } from '@/lib/icons';
 import { useInvestorEyeStore } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 

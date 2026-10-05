@@ -9,7 +9,7 @@
 // business logic lives in `lib/investor-eye/`; this component only wires.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScanEye, Search, RefreshCw, X, Loader2, Maximize2 } from 'lucide-react';
+import { ScanEye, Search, RefreshCw, X, Loader2, Maximize2 } from '@/lib/icons';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/lib/investor-eye/topics';
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';

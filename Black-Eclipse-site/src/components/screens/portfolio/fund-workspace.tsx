@@ -6,7 +6,7 @@ import React, { useMemo, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
   ArrowLeft, Plus, RefreshCw,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { fmtPct, fmtUsd } from '@/lib/portfolio-analysis';
 import { CustomizableWorkspace } from '@/components/workspace/customizable-workspace';

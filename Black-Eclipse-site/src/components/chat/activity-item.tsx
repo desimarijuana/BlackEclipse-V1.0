@@ -10,7 +10,7 @@
 // a developer-facing view is allowed to show.
 
 import { useState } from 'react';
-import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, ShieldAlert, Wrench } from 'lucide-react';
+import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, ShieldAlert, Wrench } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { ActivityItem } from '@/lib/agent/response-model';

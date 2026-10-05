@@ -12,7 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot, Copy, GripVertical, Link2, Maximize2, MoreHorizontal, Trash2,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { ChartWidget } from '@/components/chart/chart-widget';
 import { PanelHeader, PanelPill } from './panel-header';

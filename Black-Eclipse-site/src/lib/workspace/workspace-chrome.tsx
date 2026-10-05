@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
-import { GripVertical, Plus, Sparkles } from 'lucide-react';
+import { GripVertical, Plus, Sparkles } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { WorkspaceSection } from './types';
 

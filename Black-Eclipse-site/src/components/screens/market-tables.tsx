@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
+import { ArrowUp, ArrowDown, Sparkles } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './market-loaders';

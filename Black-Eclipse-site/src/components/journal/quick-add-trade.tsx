@@ -10,7 +10,7 @@
 // forms) and calls `onAdded` so the screen refreshes analytics + trades.
 
 import React, { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus } from '@/lib/icons';
 import {
   Dialog,
   DialogContent,

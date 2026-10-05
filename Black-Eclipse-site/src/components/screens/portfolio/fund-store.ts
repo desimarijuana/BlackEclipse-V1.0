@@ -1,3 +1,5 @@
+'use client';
+
 // ── Guest fund store ─────────────────────────────────────────────────────────
 // localStorage-backed fund book: each fund owns its transaction ledger.
 // Seeded demo funds are protected from deletion. Export/import as JSON or CSV.
@@ -5,7 +7,7 @@
 import {
   Briefcase, Car, Coins, Flame, Gem, GraduationCap, Heart, Home, Landmark,
   PiggyBank, Plane, Rocket, Shield, Sprout, Target, TrendingUp,
-} from 'lucide-react';
+} from '@/lib/icons';
 import type { ComponentType } from 'react';
 import { newTxId, type Fund, type Transaction } from '@/lib/portfolio/types';
 

@@ -6,7 +6,7 @@
 // (natural-language) tabs.
 
 import React, { useState } from 'react';
-import { Sparkles, Loader2, X } from 'lucide-react';
+import { Sparkles, Loader2, X } from '@/lib/icons';
 
 interface AiReviewProps {
   query: string;

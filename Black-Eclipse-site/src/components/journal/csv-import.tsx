@@ -5,7 +5,7 @@
 // generic) with auto-detection, format selection, and template downloads.
 
 import React, { useRef, useState } from 'react';
-import { Upload, Loader2, X, Check, Download } from 'lucide-react';
+import { Upload, Loader2, X, Check, Download } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { IMPORT_FORMATS, type ImportFormat } from '@/lib/journal/import';
 

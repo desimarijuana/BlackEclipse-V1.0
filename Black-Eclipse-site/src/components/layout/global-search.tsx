@@ -36,7 +36,7 @@ import {
   SquareCode,
   CalendarClock,
   type LucideIcon,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useCommandStore, visitRecencyScore } from '@/lib/search/store';
@@ -924,7 +924,7 @@ const RowButton = memo(function RowButton({
             )}
             title={row.pinned ? 'Unpin' : 'Pin'}
           >
-            <Pin size={13} className={row.pinned ? 'fill-current' : ''} />
+            <Pin size={13} weight={row.pinned ? 'fill' : 'regular'} />
           </button>
         </div>
       )}

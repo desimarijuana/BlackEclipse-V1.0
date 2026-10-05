@@ -9,7 +9,7 @@
 // server is connected (a server can be connected AND rejected).
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import type { MCPServerView, MCPVerifyResult } from "@/lib/harness/mcp-types";
 

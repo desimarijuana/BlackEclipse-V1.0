@@ -11,7 +11,7 @@
 // signal that makes the distinction possible.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertCircle, BarChart3, Coins, Cpu, Loader2, RefreshCcw, Wrench } from "lucide-react";
+import { Activity, AlertCircle, BarChart3, Coins, Cpu, Loader2, RefreshCcw, Wrench } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";

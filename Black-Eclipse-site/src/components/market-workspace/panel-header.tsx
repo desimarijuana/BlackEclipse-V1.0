@@ -12,7 +12,7 @@
 import React from 'react';
 import {
   Activity, AlertTriangle, ChevronDown, ChevronUp, Layers, RefreshCw, Settings2, Trash2,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import {
   formatCompact, formatInstrumentPrice, formatPercent,

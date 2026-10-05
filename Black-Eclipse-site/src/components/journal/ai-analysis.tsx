@@ -6,7 +6,7 @@
 // fabricates numbers.
 
 import React, { useState } from 'react';
-import { Sparkles, Loader2, X } from 'lucide-react';
+import { Sparkles, Loader2, X } from '@/lib/icons';
 import type { JournalAnalytics } from '@/lib/journal/types';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 

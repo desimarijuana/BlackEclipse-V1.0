@@ -16,7 +16,7 @@
 // dressing up its actor string as reporting.
 
 import { useEffect, useState } from 'react';
-import { X, ExternalLink, MapPin, Loader2 } from 'lucide-react';
+import { X, ExternalLink, MapPin, Loader2 } from '@/lib/icons';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { actorTypeLabel } from '@/lib/investor-eye/cameo';
 import { countryByIso2, countryByIso3 } from '@/lib/investor-eye/countries';

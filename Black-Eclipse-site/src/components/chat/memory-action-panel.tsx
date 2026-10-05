@@ -10,7 +10,7 @@
 // Presentation only — all logic lives in `lib/chat/memory-action.ts`.
 
 import { useState } from 'react';
-import { Brain, Check, Info, ListChecks, Loader2, RotateCcw, ShieldAlert } from 'lucide-react';
+import { Brain, Check, Info, ListChecks, Loader2, RotateCcw, ShieldAlert } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { buildMemoryRunView } from '@/lib/chat/memory-action';
 import { learnFromRun } from '@/lib/harness/skills-browser';

@@ -3,7 +3,7 @@
 // ── Journal Reviews — Weekly Review + Monthly Trading Wrapped ────────────────
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { MessageSquareText, TrendingUp, TrendingDown, CalendarRange, Award, Flame, Sparkles } from 'lucide-react';
+import { MessageSquareText, TrendingUp, TrendingDown, CalendarRange, Award, Flame, Sparkles } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { TabBar } from '@/components/ui/tab-bar';
 import { fmtR, fmtMoney } from './charts';

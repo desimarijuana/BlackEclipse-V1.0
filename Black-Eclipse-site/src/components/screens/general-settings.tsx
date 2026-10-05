@@ -10,7 +10,7 @@
 // persist callback, keeping the merge additive and the parent shell thin.
 
 import { useEffect, useState } from "react";
-import { RotateCcw, ShieldCheck } from "lucide-react";
+import { RotateCcw, ShieldCheck } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";

@@ -26,7 +26,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowUp, Bot, Maximize2, Mic, Minimize2, Minus, Pause, Plus, SquarePen, Trash2,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { sound } from '@/lib/sounds';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';

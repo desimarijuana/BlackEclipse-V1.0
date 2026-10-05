@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import {
   AlertCircle, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";

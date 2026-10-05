@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Globe, GripVertical, Sliders, ArrowUpRight } from 'lucide-react';
+import { Globe, GripVertical, Sliders, ArrowUpRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { TableLoading } from './market-loaders';
 import { priceWithCurrency, formatUsdPrice, fmtCap } from '@/lib/screener/format';

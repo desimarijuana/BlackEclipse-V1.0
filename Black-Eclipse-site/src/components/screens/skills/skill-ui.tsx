@@ -5,7 +5,7 @@
 // Uses the existing frosted-glass classes (see the black-eclipse-ui skill) — no
 // new visual language.
 
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { EvaluationStatus, SkillRisk, SkillStatus } from "@/lib/harness/skills-types";
 

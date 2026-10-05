@@ -4,7 +4,7 @@
 // Emotion performance, confidence correlation, and biggest behavioral leaks.
 
 import React, { useMemo } from 'react';
-import { Brain, AlertTriangle, Target } from 'lucide-react';
+import { Brain, AlertTriangle, Target } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
 import { DimensionBarChart, fmtR } from './charts';

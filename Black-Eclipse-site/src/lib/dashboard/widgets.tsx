@@ -7,7 +7,7 @@
 // UNAVAILABLE state instead of fake data.
 
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Search, Star, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Search, Star, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useChartPalette } from '@/lib/chart-palette-store';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
@@ -527,7 +527,7 @@ export function WatchlistWidget() {
           )}
           title="Show favourites only"
         >
-          <Star size={10} className={favOnly ? 'fill-amber-400' : ''} /> Favs
+          <Star size={10} weight={favOnly ? 'fill' : 'regular'} /> Favs
         </button>
         <AddSymbolInput onAdd={add} existing={symbols} />
       </div>
@@ -546,7 +546,7 @@ export function WatchlistWidget() {
                 className={cn('shrink-0 cursor-pointer transition-colors', favorite ? 'text-amber-400' : 'text-muted-foreground/30 hover:text-amber-400')}
                 title={favorite ? 'Remove from favourites' : 'Add to favourites'}
               >
-                <Star size={11} className={favorite ? 'fill-amber-400' : ''} />
+                <Star size={11} weight={favorite ? 'fill' : 'regular'} />
               </button>
               <span className="font-mono font-bold text-foreground w-14 truncate shrink-0">{symbol}</span>
               <div className="min-w-0 flex-1">

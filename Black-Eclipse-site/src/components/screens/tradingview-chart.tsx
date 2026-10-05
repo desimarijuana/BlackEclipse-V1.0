@@ -7,7 +7,7 @@ import type { EChartsOption } from 'echarts';
 import {
   X, TrendingUp, TrendingDown, BarChart2, ShieldAlert, Layers, Info,
   Sparkles, BookOpen, HelpCircle, Landmark, Gauge, ChartCandlestick, Activity,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
 import { ChartWidget } from '@/components/chart/chart-widget';

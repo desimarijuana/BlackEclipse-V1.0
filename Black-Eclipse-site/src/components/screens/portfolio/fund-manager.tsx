@@ -8,7 +8,7 @@ import {
   Briefcase, Car, ChartPie, Coins, FileJson, FileSpreadsheet, Flame, Gem, GraduationCap,
   Heart, Home, Landmark, PiggyBank, Plane, PencilLine, Plus, Rocket, Shield,
   Sprout, Target, Trash2, TrendingUp, Upload,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useChartPalette } from '@/lib/chart-palette-store';

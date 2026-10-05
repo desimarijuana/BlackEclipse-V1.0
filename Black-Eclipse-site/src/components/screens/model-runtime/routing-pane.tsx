@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
-import { ArrowRight, Save } from 'lucide-react';
+import { ArrowRight, Save } from '@/lib/icons';
 import type { RuntimeRoutingView } from '@/lib/harness/model-runtime-browser';
 import { dynKey } from '@/lib/harness/model-runtime-browser';
 import { EmptyState } from './providers-pane';

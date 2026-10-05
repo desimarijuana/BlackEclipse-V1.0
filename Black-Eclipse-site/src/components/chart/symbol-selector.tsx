@@ -7,7 +7,7 @@
 // everywhere. Also the drag SOURCE for dragging a symbol onto a chart panel.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 export interface SymbolSuggestion {

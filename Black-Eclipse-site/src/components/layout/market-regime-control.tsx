@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowRight, Bell, HelpCircle,
   Minus, Newspaper, RefreshCw, TrendingDown, TrendingUp, X,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useRegime } from '@/lib/regime/client';

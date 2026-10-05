@@ -10,7 +10,7 @@ import React from 'react';
 import {
   Activity, CandlestickChart, TrendingUp, Gauge, Globe as GlobeIcon, LineChart,
   Table2, Newspaper, Landmark, Flame, Coins, Percent, ArrowUpDown,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { MARKET_SEEDS } from '@/lib/scraper/markets';

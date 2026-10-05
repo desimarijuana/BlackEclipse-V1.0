@@ -9,7 +9,7 @@
 // lives here now so there is a single background surface.
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Image as ImageIcon, RotateCcw, Trash2, Upload, Type } from "lucide-react";
+import { Check, Image as ImageIcon, RotateCcw, Trash2, Upload, Type } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

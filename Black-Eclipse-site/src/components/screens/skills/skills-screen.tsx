@@ -7,7 +7,7 @@
 // every mutating action is re-checked server-side.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb, Sparkles, Wrench } from "lucide-react";
+import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb, Sparkles, Wrench } from "@/lib/icons";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import {

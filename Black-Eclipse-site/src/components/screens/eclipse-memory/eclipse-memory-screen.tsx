@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Activity, AlertCircle, Brain, Database, FileText, Lightbulb, Loader2, Lock, MessageSquare, Plug, Plus,
   RefreshCcw, Search, Settings2, ShieldCheck, Trash2, Wrench, X,
-} from "lucide-react";
+} from "@/lib/icons";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import { Button } from "@/components/ui/button";

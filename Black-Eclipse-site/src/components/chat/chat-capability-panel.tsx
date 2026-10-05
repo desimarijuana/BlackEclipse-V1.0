@@ -12,7 +12,7 @@
 // `code.chat.*` so the plain-language gate can scan it.
 
 import { useState } from 'react';
-import { Hammer, Search } from 'lucide-react';
+import { Hammer, Search } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import { coerceChatCapability, headlineKey } from '@/lib/harness/chat-capability-view';

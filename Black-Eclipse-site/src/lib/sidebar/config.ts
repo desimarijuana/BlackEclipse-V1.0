@@ -12,7 +12,7 @@ import {
   LayoutDashboard, ChartCandlestick, ScanSearch, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain,
   SquareCode, CalendarClock, FileCode2, Cpu, type LucideIcon,
-} from 'lucide-react';
+} from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
 
 /** The two top-level sidebar modes. A section belongs to one, or to both. */

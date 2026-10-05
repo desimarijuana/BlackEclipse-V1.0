@@ -11,7 +11,7 @@ import type { EChartsOption } from 'echarts';
 import {
   Activity, Brain, ChartLine, Gauge, Grid3x3, HeartPulse, Layers, Maximize2,
   Minimize2, PieChart, Table2, Wallet,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { fmtK, fmtPct, fmtUsd } from '@/lib/portfolio-analysis';
 import { computeMonteCarlo } from '@/lib/portfolio-analysis';

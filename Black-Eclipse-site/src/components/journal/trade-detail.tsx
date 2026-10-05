@@ -3,7 +3,7 @@
 // ── Trade Detail — market context, replay chart, and similar trades ──────────
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, Activity, Layers, ImagePlus, Trash2, PencilLine, Check } from 'lucide-react';
+import { X, Activity, Layers, ImagePlus, Trash2, PencilLine, Check } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
 import { TradeReplayChart, type ReplayBar, type ReplayTrade } from './trade-replay';

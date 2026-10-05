@@ -5,7 +5,7 @@
 // marked; a blocked/failed mandatory dimension blocks promotion.
 
 import { useEffect, useState } from "react";
-import { AlertCircle, FlaskConical, RefreshCcw } from "lucide-react";
+import { AlertCircle, FlaskConical, RefreshCcw } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SkillEvaluationRecord, SkillSummary } from "@/lib/harness/skills-types";

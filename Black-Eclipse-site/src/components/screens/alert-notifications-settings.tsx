@@ -5,7 +5,7 @@
 // Status is honest: "connected" only when required creds are actually set.
 
 import { useEffect, useState } from "react";
-import { Bell, Save, Check, Monitor } from "lucide-react";
+import { Bell, Save, Check, Monitor } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

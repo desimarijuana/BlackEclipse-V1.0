@@ -3,7 +3,7 @@
 // ── Journal Playbook — define trading strategies ───────────────────────────────
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, Check, X } from 'lucide-react';
+import { Plus, Check, X } from '@/lib/icons';
 
 interface StrategyRule { id: string; text: string; category?: string | null; }
 interface Strategy { id: string; name: string; description?: string | null; markets: string; confirmation?: string | null; entry?: string | null; rules: StrategyRule[]; }

@@ -6,7 +6,7 @@
 // and a notification bell. Mount it under any CustomizableWorkspace.
 
 import React, { useEffect, useState } from 'react';
-import { Bell, Cpu, Gauge, LayoutGrid, Radio, Timer } from 'lucide-react';
+import { Bell, Cpu, Gauge, LayoutGrid, Radio, Timer } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 export interface StatusBarProps {

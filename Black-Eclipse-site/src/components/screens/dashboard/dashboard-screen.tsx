@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
   ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Maximize2, Minimize2, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
 import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';

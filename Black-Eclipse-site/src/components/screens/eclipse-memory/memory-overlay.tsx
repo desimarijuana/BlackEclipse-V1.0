@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { X } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 
 /** Shared behaviour for every overlay: Escape-to-close + body scroll lock. */

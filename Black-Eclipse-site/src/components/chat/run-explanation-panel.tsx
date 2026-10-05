@@ -9,7 +9,7 @@
 // redacts secret-shaped content. Loaded on demand (only when expanded).
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Search } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 
 interface Explanation {

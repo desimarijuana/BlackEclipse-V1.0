@@ -11,7 +11,7 @@
 // are clickable and select the event on the map (spec §13).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Radio } from 'lucide-react';
+import { Radio } from '@/lib/icons';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import type { NormalizedEvent } from '@/lib/investor-eye/types';
 import { SEVERITY_COLORS } from '@/lib/investor-eye/layers';

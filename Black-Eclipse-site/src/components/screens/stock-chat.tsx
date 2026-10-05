@@ -93,7 +93,7 @@ const ModelRuntimeScreen = dynamic(
   () => import('@/components/screens/model-runtime/model-runtime-screen').then((m) => m.ModelRuntimeScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
-import { Newspaper, ArrowLeft } from 'lucide-react';
+import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { MarketRegimeControl } from '@/components/layout/market-regime-control';

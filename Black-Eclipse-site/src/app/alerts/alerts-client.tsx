@@ -6,7 +6,7 @@ import { useListNavigation } from "@/hooks/use-list-navigation";
 import {
   Bell, Plus, Save, Trash2, Pencil, FlaskConical, X,
   CircleDot, History, Check, Zap, PencilLine, Inbox,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

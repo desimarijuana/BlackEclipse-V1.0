@@ -10,7 +10,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Activity, ArrowUpRight, BarChart3, Building2, CalendarClock,
   Gauge, RefreshCw, TrendingUp,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { useEChart, baseChartOption } from '@/components/screens/portfolio/use-echart';
 import { useChartPalette } from '@/lib/chart-palette-store';

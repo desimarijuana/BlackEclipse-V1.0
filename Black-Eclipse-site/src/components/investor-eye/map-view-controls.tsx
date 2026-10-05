@@ -12,7 +12,7 @@
 // option in place: no data refetch, no chart rebuild (except the projection
 // switch, which legitimately swaps the base component).
 
-import { Layers2, Sparkles, Sun, Type } from 'lucide-react';
+import { Layers2, Sparkles, Sun, Type } from '@/lib/icons';
 import { MAP_SKINS, useInvestorEyeStore, type MapMode } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 

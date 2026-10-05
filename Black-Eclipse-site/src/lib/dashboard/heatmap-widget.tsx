@@ -13,7 +13,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EChartsOption } from 'echarts';
-import { Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import { Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from '@/lib/icons';
 import { useEChart } from '@/components/screens/portfolio/use-echart';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { useChartPalette } from '@/lib/chart-palette-store';

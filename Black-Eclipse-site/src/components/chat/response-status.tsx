@@ -6,7 +6,7 @@
 // thinking while it is waiting on a tool, and never keeps spinning after a
 // terminal state.
 
-import { AlertTriangle, Check, Loader2, OctagonX } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, OctagonX } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ActivityItem, ResponseStatus } from '@/lib/agent/response-model';
 

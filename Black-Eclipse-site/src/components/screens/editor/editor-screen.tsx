@@ -13,7 +13,7 @@
 // is the working core.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, FilePlus, FolderPlus, Plus, Trash2, X } from 'lucide-react';
+import { ChevronRight, FilePlus, FolderPlus, Plus, Trash2, X } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
 import {

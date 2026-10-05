@@ -22,7 +22,7 @@ import {
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
   Eye, EyeOff, Save, PanelLeft,
-} from "lucide-react";
+} from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

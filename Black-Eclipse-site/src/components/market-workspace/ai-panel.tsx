@@ -6,7 +6,7 @@
 // NEVER covers the chart: it lives beside it (drawer / side panel) or below it.
 
 import React, { useMemo } from 'react';
-import { Bot, Brain, ShieldAlert, TrendingDown, TrendingUp } from 'lucide-react';
+import { Bot, Brain, ShieldAlert, TrendingDown, TrendingUp } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useChartBars } from '@/lib/chart/subscription-manager';
 import { analyzeForAi, type AiMarketView } from '@/lib/market-workspace/ai-analysis';

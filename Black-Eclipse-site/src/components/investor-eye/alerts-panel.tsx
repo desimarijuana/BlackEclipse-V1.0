@@ -10,7 +10,7 @@
 // JSON, mutated through a guarded POST/DELETE.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, Plus, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bell, Plus, Trash2, Loader2, ChevronDown, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { EventAlertRule, RuleMatch } from '@/lib/investor-eye/alert-rules';
 import { RULE_PRESETS, ALERT_SEVERITIES } from '@/lib/investor-eye/alert-rules';

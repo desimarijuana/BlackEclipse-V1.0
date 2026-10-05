@@ -11,7 +11,7 @@ import {
   Search, SearchX, RefreshCw, LineChart, X, PenTool, MousePointer2, Undo2, Redo2, Trash2, Lock, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Plus,
   TrendingUp, TrendingDown, Minus, MoveVertical, Square, GitBranch, Type, ArrowUpRight, Ruler, MoveDiagonal, ArrowLeftRight, Spline, Waypoints, Pipette,
   type LucideIcon,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { getChartPalette, useChartPalette } from '@/lib/chart-palette-store';

@@ -6,7 +6,7 @@
 // fabricated.
 
 import React, { useMemo } from 'react';
-import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, Lightbulb } from 'lucide-react';
+import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, Lightbulb } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics } from '@/lib/journal/types';
 import { fmtR } from './charts/echarts-container';

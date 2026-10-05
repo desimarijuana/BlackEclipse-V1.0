@@ -5,7 +5,7 @@
 // "details" affordance. It never leads with a diff hunk or a tree digest.
 
 import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
 

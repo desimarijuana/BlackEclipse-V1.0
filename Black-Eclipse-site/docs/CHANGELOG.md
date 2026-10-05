@@ -8,6 +8,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **Icon set switched from Lucide to Phosphor behind one aliased module.** Every
+  icon now renders Phosphor (`@phosphor-icons/react`) via a new central surface
+  `src/lib/icons/index.ts`, which re-exports each glyph under its original Lucide
+  name (plus `LucideIcon`), so all ~165 importing modules keep their existing call
+  sites and only the import specifier changed (`lucide-react` → `@/lib/icons`).
+  This gives the dark glass UI a distinctive shape language and Phosphor weights
+  (fill/duotone). Selected/active states were converted from `fill="currentColor"`
+  to `weight="fill"` (Phosphor outlines are filled paths, so `fill="none"` would
+  erase the glyph). `components/chat/{chat-history,markdown}.tsx` and
+  `components/screens/portfolio/fund-store.ts` gained a `'use client'` boundary
+  because Phosphor icons read `useContext`. `lucide-react` removed. `npx tsc
+  --noEmit` clean; `next build` succeeded; `vitest` 187 files / 2112 tests passed.
+  docs updated: `docs/NAVIGATION.md`, `docs/DECISIONS.md`, `skills/ARCHITECT.md`
+  (ADR-041).
+
 - **Investor Eye Trade layer: selecting a route now isolates it.** Clicking a
   trade line selected the event but left every route on the map equally loud, so
   you could not see *which* link the click referred to or what it connected. The

@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ResearchCitation, ResearchMetadata } from '@/lib/harness/types';
 import {

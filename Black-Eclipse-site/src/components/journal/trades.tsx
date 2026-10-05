@@ -8,7 +8,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
 import { fmtR, fmtMoney } from './charts/echarts-container';

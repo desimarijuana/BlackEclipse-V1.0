@@ -16,7 +16,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from 'lucide-react';
+import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from '@/lib/icons';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VolumeAnalyticsPanel } from './volume-analytics';

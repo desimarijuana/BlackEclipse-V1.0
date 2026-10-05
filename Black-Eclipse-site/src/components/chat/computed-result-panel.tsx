@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Calculator, ChevronDown, ChevronRight } from 'lucide-react';
+import { Calculator, ChevronDown, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import {

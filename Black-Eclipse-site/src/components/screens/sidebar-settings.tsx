@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import {
   PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Sparkles, Keyboard, EyeOff,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

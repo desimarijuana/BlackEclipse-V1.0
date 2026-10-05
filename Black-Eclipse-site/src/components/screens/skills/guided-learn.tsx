@@ -8,7 +8,7 @@
 // promotion.
 
 import { useState } from "react";
-import { GraduationCap, Loader2, ShieldAlert, WandSparkles } from "lucide-react";
+import { GraduationCap, Loader2, ShieldAlert, WandSparkles } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";

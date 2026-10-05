@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import * as echarts from 'echarts';
-import { Download, Loader2, Search, KeyRound, Sparkles, X } from 'lucide-react';
+import { Download, Loader2, Search, KeyRound, Sparkles, X } from '@/lib/icons';
 import type { EconSource } from '@/lib/economics/sources';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { computeStats, sortByDate, type EconPoint } from '@/lib/economics/fetch';

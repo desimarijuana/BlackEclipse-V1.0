@@ -6,7 +6,7 @@
 // has no traffic. Credentials are configured in Settings › AI, never here.
 
 import { useT } from '@/lib/i18n/use-t';
-import { CheckCircle2, CircleSlash, MinusCircle } from 'lucide-react';
+import { CheckCircle2, CircleSlash, MinusCircle } from '@/lib/icons';
 import type { RuntimeModelView, RuntimeProviderView } from '@/lib/harness/model-runtime-browser';
 import { healthBucket, dynKey, type HealthRow } from '@/lib/harness/model-runtime-browser';
 

@@ -8,7 +8,7 @@
 // credential. Plain, human sentences are i18n keys.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Boxes, Gauge, GitBranch, Layers, RefreshCw } from 'lucide-react';
+import { Activity, Boxes, Gauge, GitBranch, Layers, RefreshCw } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { TabBar, type TabItem } from '@/components/ui/tab-bar';
 import {

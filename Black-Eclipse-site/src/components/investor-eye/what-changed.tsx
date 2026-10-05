@@ -6,7 +6,7 @@
 // predictions (spec §23).
 
 import { useMemo } from 'react';
-import { ArrowUpRight, Minus } from 'lucide-react';
+import { ArrowUpRight, Minus } from '@/lib/icons';
 import type { MarketObservation, NormalizedEvent } from '@/lib/investor-eye/types';
 import { formatPct } from '@/lib/investor-eye/format';
 import { cn } from '@/lib/utils';

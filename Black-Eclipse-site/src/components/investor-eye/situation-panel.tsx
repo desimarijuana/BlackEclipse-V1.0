@@ -16,7 +16,7 @@
 //     window, it says so instead of reporting a misleading "1".
 
 import { useEffect, useState } from 'react';
-import { Layers, Loader2, TrendingUp } from 'lucide-react';
+import { Layers, Loader2, TrendingUp } from '@/lib/icons';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { timeInZone } from '@/lib/investor-eye/format';
 import { useDisplayTimeZone } from '@/lib/timezone';

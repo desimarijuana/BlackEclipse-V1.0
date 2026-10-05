@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as echarts from 'echarts';
-import { Maximize2, Minimize2, X } from 'lucide-react';
+import { Maximize2, Minimize2, X } from '@/lib/icons';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_GRAPH_TOPIC } from '@/lib/investor-eye/topics';
 import type { GraphLink, GraphNode, RelationshipGraph, RelationClass } from '@/lib/investor-eye/types';

@@ -7,7 +7,7 @@ import {
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
   Info, Briefcase, Building2, Globe, RefreshCw, ArrowLeft,
   Eye, CalendarClock,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
 import { TradingViewChart } from './tradingview-chart';

@@ -5,7 +5,7 @@
 // is mounted once in the Journal header and reachable from every sub-tab.
 
 import React, { useEffect, useState } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
 export const SESSIONS = ['Asia', 'London', 'New York', 'Sydney', 'Tokyo'];

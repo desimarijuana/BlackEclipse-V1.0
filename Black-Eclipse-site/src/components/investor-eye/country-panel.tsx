@@ -6,7 +6,7 @@
 // (from the real fetch layer). Missing data is stated, never zero-filled.
 
 import { useEffect, useState } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2 } from '@/lib/icons';
 import type { NormalizedEvent, Provenance } from '@/lib/investor-eye/types';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { cn } from '@/lib/utils';

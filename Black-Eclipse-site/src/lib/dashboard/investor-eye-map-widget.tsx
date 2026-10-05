@@ -19,7 +19,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
-import { Layers2, Loader2, Maximize2, Minimize2, ScanEye } from 'lucide-react';
+import { Layers2, Loader2, Maximize2, Minimize2, ScanEye } from '@/lib/icons';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { registerStateTopic } from '@/lib/investor-eye/topics';
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';

@@ -20,7 +20,7 @@
 // a key — env-gated providers route to the section that sets it.
 
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, Loader2, Plus, Wrench } from "lucide-react";
+import { Check, ChevronDown, Loader2, Plus, Wrench } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCommandStore } from "@/lib/search/store";

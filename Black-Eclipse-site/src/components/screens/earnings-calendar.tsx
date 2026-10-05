@@ -9,7 +9,7 @@
 // state — rows are never fabricated. Clicking a row opens that symbol's chart.
 
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { useCommandStore } from '@/lib/search/store';

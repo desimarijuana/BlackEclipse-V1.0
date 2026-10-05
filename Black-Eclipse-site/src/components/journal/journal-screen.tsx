@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles } from 'lucide-react';
+import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { useSubroute } from '@/hooks/use-subroute';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';

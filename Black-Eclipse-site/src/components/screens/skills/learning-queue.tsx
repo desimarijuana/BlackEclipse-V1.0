@@ -7,7 +7,7 @@
 import { useState } from "react";
 import {
   AlertCircle, FileText, Lightbulb, Loader2, RefreshCcw, ShieldCheck, ThumbsDown, WandSparkles,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";

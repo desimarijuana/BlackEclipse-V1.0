@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { RefreshCw, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Loader2, Sparkles, AlertTriangle } from '@/lib/icons';
 
 interface SnapshotMetric {
   id: string;

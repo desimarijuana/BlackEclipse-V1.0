@@ -8,7 +8,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Bell, CalendarDays, DollarSign, Layers, LineChart, Newspaper, Search, Star, X,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { useQuoteBatch } from '@/lib/chart/subscription-manager';
@@ -101,7 +101,7 @@ function WatchlistPanel({ onPick }: { onPick?: (symbol: string) => void }) {
                   onClick={(e) => { e.stopPropagation(); toggleFavorite(symbol); }}
                   className={cn('shrink-0 cursor-pointer', favorite ? 'text-amber-400' : 'text-muted-foreground/30 hover:text-amber-400')}
                 >
-                  <Star size={10} className={favorite ? 'fill-amber-400' : ''} />
+                  <Star size={10} weight={favorite ? 'fill' : 'regular'} />
                 </button>
                 <span className="w-14 shrink-0 truncate font-mono font-bold text-foreground">{symbol}</span>
                 <span className="min-w-0 flex-1 truncate text-[9px] text-muted-foreground">{q?.name ?? ''}</span>
