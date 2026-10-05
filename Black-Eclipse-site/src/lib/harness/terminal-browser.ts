@@ -90,8 +90,20 @@ export function listTerminalSessions(): Promise<TerminalSessionInfo[]> {
   return api<{ sessions: TerminalSessionInfo[] }>("/api/terminal/sessions").then((b) => b.sessions ?? []);
 }
 
+export function getTerminalResources(): Promise<Record<string, unknown>> {
+  return api("/api/terminal/resources");
+}
+
 export function openTerminalSession(
-  opts: { shell?: string; runtime?: string; cwd?: string; rows?: number; columns?: number } = {},
+  opts: {
+    shell?: string;
+    runtime?: string;
+    cwd?: string;
+    rows?: number;
+    columns?: number;
+    /** A durable terminal id: reopening reattaches to the same shell. */
+    owner?: string;
+  } = {},
 ): Promise<TerminalSessionInfo> {
   return api<{ session: TerminalSessionInfo }>("/api/terminal/sessions", {
     method: "POST",
@@ -126,6 +138,40 @@ export function sendTerminalSessionControl(sessionId: string, key: "c" | "d" | "
     method: "POST",
     body: JSON.stringify({ signal: key }),
   });
+}
+
+export interface RawStream {
+  text: string;
+  nextSequence: number;
+  running: boolean;
+  cwd: string;
+  droppedLines: number;
+}
+
+export function sendTerminalRaw(sessionId: string, data: string): Promise<unknown> {
+  return api(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/raw`, {
+    method: "POST",
+    body: JSON.stringify({ data }),
+  });
+}
+
+export function streamTerminalOutput(
+  sessionId: string,
+  since: number,
+  timeout = 15,
+  signal?: AbortSignal,
+): Promise<RawStream> {
+  const params = new URLSearchParams({ since: String(since), timeout: String(timeout) });
+  return api<RawStream & { text: string }>(
+    `/api/terminal/sessions/${encodeURIComponent(sessionId)}/stream?${params.toString()}`,
+    { signal },
+  ).then((b) => ({
+    text: b.text ?? "",
+    nextSequence: b.nextSequence ?? since,
+    running: b.running ?? false,
+    cwd: b.cwd ?? "",
+    droppedLines: b.droppedLines ?? 0,
+  }));
 }
 
 export function executeTerminalCommand(

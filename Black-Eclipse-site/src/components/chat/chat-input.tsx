@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X, ChevronDown, Check, Cpu, KeyRound } from 'lucide-react';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { useCommandStore } from '@/lib/search/store';
+import { useHydrateEnabledModels, compactModels, useEnabledModelsStore } from '@/lib/agent/enabled-models';
+import { ManageModelsDialog } from '@/components/screens/manage-models-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -246,6 +248,9 @@ function ModelSelector({ state }: { state: ChatModelState }) {
   const [custom, setCustom] = useState("");
   const label = state.displayModel || state.providerLabel || "Model";
   const current = state.providers.find((p) => p.id === state.selectedProvider);
+  useHydrateEnabledModels();
+  const enabledFor = useEnabledModelsStore((s) => s.enabledFor);
+  const isCurated = useEnabledModelsStore((s) => s.isCurated);
 
   const submitCustom = () => {
     const v = custom.trim();
@@ -278,44 +283,102 @@ function ModelSelector({ state }: { state: ChatModelState }) {
             </div>
           )}
           {(() => {
-            // The active provider's declared models, ALWAYS including the current
-            // model (even when the provider is `auto`/`mock` or uncatalogued), so
-            // the list is never empty and the current choice is always shown.
-            const models = current?.models ?? [];
-            const list =
-              state.selectedModel && !models.includes(state.selectedModel)
-                ? [state.selectedModel, ...models]
-                : models;
-            if (list.length === 0) {
+            // Every provider the operator can use right now (a keyless local
+            // server, or a key that resolves from env/vault). Models from ALL of
+            // them are listed — the active provider first — so a second
+            // connected provider is usable directly, without first switching the
+            // active provider. Selecting a model here switches the active
+            // provider to that model's provider.
+            const usable = state.providers.filter((p) => p.keyless || p.available);
+            const ordered = [
+              ...state.providers.filter((p) => p.id === state.selectedProvider),
+              ...usable.filter((p) => p.id !== state.selectedProvider),
+            ];
+            // Fall back to the current provider alone when none report usable
+            // (runtime/settings not ready) so the menu is never empty.
+            const groups = ordered.length ? ordered : (current ? [current] : []);
+            if (groups.length === 0) {
               return !state.loading ? (
                 <div className="px-2 py-1.5 text-[11px] text-muted-foreground">No declared models</div>
               ) : null;
             }
-            return list.map((m) => (
-              <DropdownMenuItem key={m} onClick={() => state.setModel(m)} className="gap-2">
-                <Check size={13} className={cn("shrink-0", m === state.selectedModel ? "opacity-100 text-primary" : "opacity-0")} />
-                <span className="font-mono truncate">{m}</span>
-              </DropdownMenuItem>
-            ));
+            return groups.map((p) => {
+              const all = p.models ?? [];
+              // Only the ENABLED (or, when uncurated, a capped slice) reach the
+              // menu, so a provider listing hundreds of models never floods it.
+              const curated = isCurated(p.id);
+              const { models, truncated } = compactModels(p.id, all, {
+                explicitEnabled: curated ? enabledFor(p.id) : null,
+                selected: p.id === state.selectedProvider ? state.selectedModel : undefined,
+              });
+              const list =
+                p.id === state.selectedProvider && state.selectedModel && !models.includes(state.selectedModel)
+                  ? [state.selectedModel, ...models]
+                  : models;
+              const manageable = all.length > 0 && (curated || truncated || all.length > 1);
+              if (list.length === 0 && !manageable) return null;
+              return (
+                <div key={p.id}>
+                  <DropdownMenuLabel className="flex items-center justify-between gap-2">
+                    <span className="truncate">{p.label}</span>
+                    <span className="flex items-center gap-1.5">
+                      {p.keyless ? (
+                        <span className="text-[9px] font-normal text-muted-foreground/60">local</span>
+                      ) : p.available ? (
+                        <span className="text-[9px] font-normal text-emerald-400/70">key set</span>
+                      ) : null}
+                      {manageable && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); state.openManageModels(p.id); }}
+                          className="inline-flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground/70 hover:text-foreground cursor-pointer"
+                          title={`Manage ${p.label} models`}
+                        >
+                          <Layers size={10} /> Manage
+                        </button>
+                      )}
+                    </span>
+                  </DropdownMenuLabel>
+                  {list.length === 0 && (
+                    <div className="px-2 py-1.5 text-[10px] text-muted-foreground/70">
+                      None enabled — open Manage to choose models.
+                    </div>
+                  )}
+                  {list.map((m) => {
+                    const selected = p.id === state.selectedProvider && m === state.selectedModel;
+                    return (
+                      <DropdownMenuItem
+                        key={`${p.id}:${m}`}
+                        onClick={() => { if (!selected) state.select(p.id, m); }}
+                        className="gap-2"
+                      >
+                        <Check size={13} className={cn("shrink-0", selected ? "opacity-100 text-primary" : "opacity-0")} />
+                        <span className="font-mono truncate">{m}</span>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </div>
+              );
+            });
           })()}
           </div>
         </DropdownMenuGroup>
-        {state.canDiscover && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={state.discovering}
-              closeOnClick={false}
-              onClick={() => {
-                void state.discover();
-              }}
-              className="gap-2 text-primary/90"
-            >
-              <Loader2 size={13} className={cn("shrink-0", state.discovering && "animate-spin")} />
-              {state.discovering ? "Discovering…" : "Discover installed models"}
-            </DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={!state.canDiscover}
+          closeOnClick={false}
+          onClick={() => {
+            // Discover then immediately open Manage so the operator curates the
+            // catalog instead of it being poured into the menu.
+            void state.discoverProvider().finally(() => state.openManageModels());
+          }}
+          className="gap-2 text-primary/90"
+        >
+          {state.discovering
+            ? <Loader2 size={13} className="shrink-0 animate-spin" />
+            : <Layers size={13} className="shrink-0" />}
+          Manage models…
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className="gap-2">
@@ -396,6 +459,17 @@ function ModelSelector({ state }: { state: ChatModelState }) {
           )}
         </DropdownMenuGroup>
       </DropdownMenuContent>
+      {state.manageTarget && (
+        <ManageModelsDialog
+          providerId={state.manageTarget.id}
+          providerLabel={state.manageTarget.label}
+          allModels={state.manageTarget.models ?? []}
+          selected={state.selectedProvider === state.manageTarget.id ? state.selectedModel : undefined}
+          onDiscover={() => state.discoverProvider(state.manageTarget!.id)}
+          canDiscover={state.canDiscover}
+          onClose={state.closeManageModels}
+        />
+      )}
     </DropdownMenu>
   );
 }

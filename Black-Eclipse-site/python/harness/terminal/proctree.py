@@ -119,4 +119,101 @@ def descendants(pid: Optional[int], *, max_depth: int = 6) -> list[int]:
     return out
 
 
-__all__ = ["descendants", "parent_map"]
+def process_map() -> dict[int, tuple[int, str]]:
+    """``{pid: (ppid, image_name)}`` for every process, from the OS.
+
+    Used where a caller needs to know WHICH process a pid is (e.g. "are any
+    python processes still descendants of me?"), not just the parent links.
+    Empty when the snapshot is unavailable.
+    """
+    try:
+        if os.name == "nt":
+            return _process_map_windows()
+        return _process_map_posix()
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _process_map_windows() -> dict[int, tuple[int, str]]:  # pragma: no cover - Windows
+    import ctypes
+    from ctypes import wintypes
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    class PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_char * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE_VALUE:
+        return {}
+    out: dict[int, tuple[int, str]] = {}
+    try:
+        entry = PROCESSENTRY32()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+        if kernel32.Process32First(snapshot, ctypes.byref(entry)):
+            while True:
+                name = entry.szExeFile.decode("utf-8", "replace")
+                out[int(entry.th32ProcessID)] = (int(entry.th32ParentProcessID), name)
+                if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                    break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return out
+
+
+def _process_map_posix() -> dict[int, tuple[int, str]]:
+    out: dict[int, tuple[int, str]] = {}
+    proc = "/proc"
+    if not os.path.isdir(proc):
+        return out
+    for name in os.listdir(proc):
+        if not name.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc, name, "stat"), encoding="utf-8", errors="replace") as handle:
+                data = handle.read()
+        except OSError:
+            continue
+        close = data.rfind(")")
+        if close < 0:
+            continue
+        comm = data[data.find("(") + 1:close]
+        fields = data[close + 1:].split()
+        if len(fields) >= 2:
+            try:
+                out[int(name)] = (int(fields[1]), comm)
+            except ValueError:
+                continue
+    return out
+
+
+def descendant_pids_matching(pid: Optional[int], name_substring: str) -> list[int]:
+    """Descendants of ``pid`` whose image name contains ``name_substring``.
+
+    A precise orphan check: "did MY child of this kind survive?" rather than a
+    machine-wide process count that another test could perturb.
+    """
+    if not pid:
+        return []
+    mapping = process_map()
+    if not mapping:
+        return []
+    want = name_substring.casefold()
+    matches = {p for p, (_ppid, name) in mapping.items() if want in name.casefold()}
+    return [p for p in descendants(pid) if p in matches]
+
+
+__all__ = ["descendant_pids_matching", "descendants", "parent_map", "process_map"]

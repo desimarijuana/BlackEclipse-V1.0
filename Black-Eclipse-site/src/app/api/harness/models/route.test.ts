@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const listModelProviders = vi.fn();
 const listRuntimeModels = vi.fn();
+const readDiscoveredModels = vi.fn();
 
 vi.mock("@/lib/harness", async () => {
   const actual = await vi.importActual<typeof import("@/lib/harness")>("@/lib/harness");
@@ -16,11 +17,17 @@ vi.mock("@/lib/harness", async () => {
   };
 });
 
+vi.mock("@/lib/agent/discovered-models", () => ({
+  readDiscoveredModels: (...a: unknown[]) => readDiscoveredModels(...a),
+}));
+
 import { GET } from "@/app/api/harness/models/route";
 
 beforeEach(() => {
   listModelProviders.mockReset();
   listRuntimeModels.mockReset();
+  readDiscoveredModels.mockReset();
+  readDiscoveredModels.mockResolvedValue({ providers: {}, updatedAt: new Date(0).toISOString() });
   listModelProviders.mockResolvedValue([
     { id: "ollama", models: ["llama3.1", "llama3.2"] },
     { id: "openai", models: ["gpt-4o-mini"] },
@@ -54,5 +61,19 @@ describe("GET /api/harness/models", () => {
     const res = await GET();
     const body = await res.json();
     expect(body.providers.find((p: { id: string }) => p.id === "ollama").models).toContain("llama3.1");
+  });
+
+  it("merges the durable discovered snapshot even when the runtime registry is empty", async () => {
+    readDiscoveredModels.mockResolvedValue({
+      providers: { ollama: ["qwen3:32b", "deepseek-v4.1-flash:cloud"] },
+      updatedAt: new Date().toISOString(),
+    });
+    listRuntimeModels.mockResolvedValue([]);
+    const res = await GET();
+    const body = await res.json();
+    const ollama = body.providers.find((p: { id: string }) => p.id === "ollama");
+    expect(ollama.models).toContain("qwen3:32b");
+    expect(ollama.models).toContain("deepseek-v4.1-flash:cloud");
+    expect(ollama.models).toContain("llama3.1");
   });
 });

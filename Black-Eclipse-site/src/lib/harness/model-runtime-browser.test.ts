@@ -39,13 +39,32 @@ describe('model runtime browser client', () => {
     it('posts connection details to the provider discover route and normalizes the result', async () => {
       const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
         ok: true,
-        json: async () => ({ success: true, ok: true, detail: null, models: [{ id: 'llama3.2' }] }),
+        json: async () => ({
+          success: true,
+          ok: true,
+          detail: null,
+          models: [{ id: 'llama3.2' }],
+          served: ['llama3.2'],
+        }),
       }));
       vi.stubGlobal('fetch', fetchMock);
       const res = await discoverRuntimeModels('ollama', { baseUrl: 'http://localhost:11434/v1' });
       expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/harness/model-runtime/providers/ollama/discover');
       expect(res.ok).toBe(true);
       expect(res.models[0]?.id).toBe('llama3.2');
+      expect(res.served).toEqual(['llama3.2']);
+    });
+
+    it('normalizes a missing served list to an empty array', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({ success: true, ok: true, detail: null, models: [{ id: 'x' }] }),
+        })),
+      );
+      const res = await discoverRuntimeModels('ollama', { baseUrl: 'http://localhost:11434/v1' });
+      expect(res.served).toEqual([]);
     });
 
     it('surfaces an honest failure instead of a silent empty success', async () => {

@@ -31,6 +31,7 @@ from ..persistence import now_iso
 from . import redaction
 from .buffer import RingBuffer
 from . import proctree
+from .resources import ResourceLimits
 from .spawn import SpawnedProcess, spawn_process
 from .types import (
     TERMINAL_STATES,
@@ -86,6 +87,7 @@ class _Record:
     spawned: Optional[SpawnedProcess] = None
     stop_requested: bool = False
     timed_out: bool = False
+    runaway: Optional[dict[str, Any]] = None
 
     def info(self) -> dict[str, Any]:
         return {
@@ -109,6 +111,7 @@ class _Record:
             "taskId": self.task_id,
             "purpose": self.purpose,
             "health": self.health,
+            "runaway": self.runaway,
             "error": self.last_error.to_dict() if self.last_error else None,
         }
 
@@ -134,7 +137,16 @@ class ProcessManager:
         self._store = store
         self._on_event = on_event
         self._port_resolver = port_resolver
+        self._limits = ResourceLimits.from_env()
         self._next_pid_hint = 1
+
+    @property
+    def limits(self) -> ResourceLimits:
+        return self._limits
+
+    def _active_count(self) -> int:
+        with self._lock:
+            return sum(1 for r in self._procs.values() if r.state not in TERMINAL_STATES)
 
     # ── Event / persistence seams ──────────────────────────────────────────────
 
@@ -171,7 +183,21 @@ class ProcessManager:
         purpose: Optional[str] = None,
         parent_pid: Optional[int] = None,
     ) -> dict[str, Any]:
-        """Start a background process and return its record immediately."""
+        """Start a background process and return its record immediately.
+
+        A runaway guard refuses to exceed the configured number of ACTIVE
+        processes; it is a structured refusal, never an automatic kill of an
+        existing process.
+        """
+        if self._active_count() >= self._limits.max_processes:
+            self._emit("process.refused", {"reason": "PROCESS_LIMIT", "limit": self._limits.max_processes})
+            return {
+                "processId": None, "state": "FAILED", "runtime": runtime,
+                "error": {
+                    "type": "PROCESS_LIMIT", "category": ErrorCategory.RUNTIME_ERROR.value,
+                    "message": f"too many processes are already running (limit {self._limits.max_processes})",
+                },
+            }
         process_id = "proc_" + uuid.uuid4().hex[:12]
         created = now_iso()
         record = _Record(
@@ -510,8 +536,57 @@ class ProcessManager:
                 result["httpOk"] = False
                 result["httpError"] = str(exc)
                 result["ready"] = False
+        # Runaway detection: REPORT, never auto-kill. A process flagged runaway is
+        # long-lived or has produced an outsized buffer. The operator decides.
+        runaway = self._runaway_flags(record)
+        if runaway:
+            result["runaway"] = runaway
+            if record.runaway != runaway:
+                self._emit("process.runaway", {"processId": process_id, **runaway})
+        elif record.runaway is not None:
+            record.runaway = None
         record.health = result
         return result
+
+    def _runaway_flags(self, record: _Record) -> Optional[dict[str, Any]]:
+        reasons: list[str] = []
+        snapshot = record.buffer.snapshot()
+        if snapshot.get("totalBytes", 0) > self._limits.max_output_bytes:
+            reasons.append("output")
+        if record.started_at:
+            try:
+                from datetime import datetime
+
+                started = datetime.fromisoformat(record.started_at)
+                age = (datetime.fromisoformat(now_iso()) - started).total_seconds()
+                if age > self._limits.runaway_seconds:
+                    reasons.append("lifetime")
+            except Exception:  # noqa: BLE001
+                pass
+        return {"reasons": reasons, "limits": self._limits.to_dict()} if reasons else None
+
+    def resource_report(self) -> dict[str, Any]:
+        """A snapshot for the resource tool: limits + the processes that are active."""
+        from .resources import system_resources
+
+        with self._lock:
+            live = [r for r in self._procs.values() if r.state not in TERMINAL_STATES]
+        active = []
+        for r in live:
+            flags = self._runaway_flags(r)
+            r.runaway = flags
+            if flags:
+                self._emit("process.runaway", {"processId": r.process_id, **flags})
+            active.append({
+                "processId": r.process_id, "pid": r.pid,
+                "command": redaction.redact_command(r.command), "state": r.state, "runaway": flags,
+            })
+        return {
+            "system": system_resources(),
+            "limits": self._limits.to_dict(),
+            "activeProcesses": len(active),
+            "processes": active,
+        }
 
     def process_ids_for_pid_or_descendants(self, pid: Optional[int]) -> list[str]:
         """Every managed process whose pid is ``pid`` or a descendant of it."""

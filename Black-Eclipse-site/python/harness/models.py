@@ -44,10 +44,12 @@ class ProviderSpec:
     keyless: bool = False
     # OpenAI-compatible endpoints beyond the first-party ones.
     openai_compatible: bool = False
-    # True when the provider can only enumerate its models at RUNTIME (a local
-    # server lists its installed models; a router fronts a changing catalog). The
-    # UI offers a live discovery probe for these. False = the declared list is the
-    # whole story (a fixed hosted API).
+    # True when the provider can enumerate its models on demand (a local server
+    # lists its installed models; a hosted API or router lists its live
+    # catalog). The UI offers a "Discover" probe for these, and the result is
+    # merged into the picker (and cached) so the operator sees the real,
+    # current model ids — never only the declared sample. False = the declared
+    # list is the whole story.
     dynamic_discovery: bool = False
     # The provider's conservative context window (tokens), or None when it is
     # genuinely unknown. This is the FALLBACK when no model-specific value
@@ -70,33 +72,33 @@ class ProviderSpec:
 PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     # OpenAI current text models are 128k; the older gpt-3.5-turbo is 16k. The
     # provider row is the floor for an unrecognised OpenAI model.
-    "openai": ProviderSpec("openai", "OpenAI", "openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", openai_compatible=True, context_window=128_000),
+    "openai": ProviderSpec("openai", "OpenAI", "openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=128_000),
     # Anthropic Claude 3.x text models are 200k.
-    "anthropic": ProviderSpec("anthropic", "Anthropic", "anthropic", "https://api.anthropic.com", "claude-3-5-sonnet-latest", "ANTHROPIC_API_KEY", context_window=200_000),
+    "anthropic": ProviderSpec("anthropic", "Anthropic", "anthropic", "https://api.anthropic.com", "claude-3-5-sonnet-latest", "ANTHROPIC_API_KEY", dynamic_discovery=True, context_window=200_000),
     # Gemini 1.5/2.0 are 1M input tokens.
-    "google": ProviderSpec("google", "Google Gemini", "google", None, "gemini-2.0-flash", "GEMINI_API_KEY", context_window=1_000_000),
+    "google": ProviderSpec("google", "Google Gemini", "google", None, "gemini-2.0-flash", "GEMINI_API_KEY", dynamic_discovery=True, context_window=1_000_000),
     # Mistral model windows vary (7B is 32k, Large is 128k); the row is the 32k
     # floor, with a model-specific 128k for the large family below.
-    "mistral": ProviderSpec("mistral", "Mistral", "mistral", "https://api.mistral.ai/v1", "mistral-large-latest", "MISTRAL_API_KEY", openai_compatible=True, context_window=32_000),
+    "mistral": ProviderSpec("mistral", "Mistral", "mistral", "https://api.mistral.ai/v1", "mistral-large-latest", "MISTRAL_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=32_000),
     # Groq hosts many small 8k models; the row is that floor, with a 128k
     # model-specific value for the Llama-3.3 family below.
-    "groq": ProviderSpec("groq", "Groq", "groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "GROQ_API_KEY", openai_compatible=True, context_window=8_192),
+    "groq": ProviderSpec("groq", "Groq", "groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "GROQ_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=8_192),
     # Local servers: the window is chosen by the operator's loaded model, which
     # the runtime cannot know. Unknown stays unknown (conservative ceiling).
     "ollama": ProviderSpec("ollama", "Ollama (local)", "openai", "http://localhost:11434/v1", "llama3.1", "OLLAMA_BASE_URL", keyless=True, openai_compatible=True, dynamic_discovery=True),
     "lmstudio": ProviderSpec("lmstudio", "LM Studio (local)", "openai", "http://localhost:1234/v1", "local-model", keyless=True, openai_compatible=True, dynamic_discovery=True),
     # DeepSeek V3 chat models are 64k.
-    "deepseek": ProviderSpec("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/v1", "deepseek-chat", "DEEPSEEK_API_KEY", openai_compatible=True, context_window=64_000),
+    "deepseek": ProviderSpec("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/v1", "deepseek-chat", "DEEPSEEK_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=64_000),
     # Grok 2 is 131k.
-    "xai": ProviderSpec("xai", "xAI (Grok)", "openai", "https://api.x.ai/v1", "grok-2-latest", "XAI_API_KEY", openai_compatible=True, context_window=131_072),
+    "xai": ProviderSpec("xai", "xAI (Grok)", "openai", "https://api.x.ai/v1", "grok-2-latest", "XAI_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=131_072),
     # A router fronts models with wildly different windows. Do not guess.
     "openrouter": ProviderSpec("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini", "OPENROUTER_API_KEY", openai_compatible=True, dynamic_discovery=True),
     # Together/Fireworks host many model families of different sizes. Only the
     # known Llama-3.3 entry is declared (below); the row is left unknown.
-    "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True),
+    "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True, dynamic_discovery=True),
     # Perplexity sonar is ~128k.
-    "perplexity": ProviderSpec("perplexity", "Perplexity", "openai", "https://api.perplexity.ai", "sonar", "PERPLEXITY_API_KEY", openai_compatible=True, context_window=128_000),
-    "fireworks": ProviderSpec("fireworks", "Fireworks AI", "openai", "https://api.fireworks.ai/inference/v1", "accounts/fireworks/models/llama-v3p3-70b-instruct", "FIREWORKS_API_KEY", openai_compatible=True),
+    "perplexity": ProviderSpec("perplexity", "Perplexity", "openai", "https://api.perplexity.ai", "sonar", "PERPLEXITY_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=128_000),
+    "fireworks": ProviderSpec("fireworks", "Fireworks AI", "openai", "https://api.fireworks.ai/inference/v1", "accounts/fireworks/models/llama-v3p3-70b-instruct", "FIREWORKS_API_KEY", openai_compatible=True, dynamic_discovery=True),
     # Any endpoint not listed: give a base URL and a model id.
     "custom": ProviderSpec("custom", "Custom (OpenAI-compatible)", "openai", None, "", keyless=True, openai_compatible=True, dynamic_discovery=True),
 }

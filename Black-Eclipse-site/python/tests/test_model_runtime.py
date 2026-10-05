@@ -660,6 +660,40 @@ def test_adapter_for_provider_family() -> None:
     assert adapter_for(kind="openai_compatible", provider_id="ollama").kind == "openai_compatible"
 
 
+def test_remote_providers_expose_dynamic_discovery() -> None:
+    # A hosted API/router enumerates its own live catalog just like a local
+    # server, so the operator can pull the real model ids instead of only the
+    # declared sample. Every provider that CAN list its models must advertise it,
+    # and every adapter it routes to must implement the probe (not inherit the
+    # empty base implementation).
+    from harness.models import PROVIDER_CATALOG
+    from harness.model_runtime.providers import adapter_for
+    from harness.model_runtime.providers.base import ProviderAdapter
+
+    for pid in [
+        "openai", "anthropic", "google", "mistral", "groq",
+        "deepseek", "xai", "openrouter", "together", "perplexity",
+        "fireworks", "ollama", "lmstudio", "custom",
+    ]:
+        spec = PROVIDER_CATALOG[pid]
+        assert spec.dynamic_discovery, f"{pid} should advertise dynamic discovery"
+        adapter = adapter_for(kind=spec.kind, provider_id=pid)
+        # A discovery-capable provider must NOT fall back to the empty base probe.
+        assert type(adapter).discover_models is not ProviderAdapter.discover_models, (
+            f"{pid} has no discovery probe"
+        )
+
+
+def test_openai_models_parser_tolerates_wild_shapes() -> None:
+    from harness.model_runtime.providers.openai import _parse_openai_models
+
+    assert _parse_openai_models({"data": [{"id": "a"}, {"id": "b"}]}) == ["a", "b"]
+    assert _parse_openai_models({"models": ["a", "b"]}) == ["a", "b"]
+    assert _parse_openai_models(["a", "b"]) == ["a", "b"]
+    assert _parse_openai_models({"unexpected": 1}) == []
+    assert _parse_openai_models(None) == []
+
+
 def test_run_is_constrained_only_for_keyless_fallback() -> None:
     rt = _runtime_with([
         _model("openai", "gpt-4o-mini", capabilities=_caps(text="supported", reasoning="supported", tool_calling="supported")),

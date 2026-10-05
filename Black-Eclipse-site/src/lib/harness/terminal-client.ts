@@ -139,6 +139,10 @@ export async function getTerminalSystem(): Promise<Record<string, unknown>> {
   return request("/terminal/system", { method: "GET" });
 }
 
+export async function getTerminalResources(): Promise<Record<string, unknown>> {
+  return request("/terminal/resources", { method: "GET" });
+}
+
 // ── Foreground execution ────────────────────────────────────────────────────
 
 export async function executeTerminalCommand(

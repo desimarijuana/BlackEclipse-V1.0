@@ -30,7 +30,7 @@ EXPECTED = (
     "start_process", "stop_process", "restart_process", "kill_process",
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
-    "list_ports", "terminal_capabilities", "system_info",
+    "list_ports", "terminal_capabilities", "system_info", "resource_report",
     "scaffold_kit", "analysis_run", "delegate",
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     "market_get_quote", "fundamentals_get_financials", "research_search",

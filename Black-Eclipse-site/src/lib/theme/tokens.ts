@@ -725,6 +725,12 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     // Surfaces
     '--background': background,
     '--card': surface,
+    // Triplet form of the surface/card color so the frosted-glass tiers
+    // (`.glass-card`, `-strong`, `-subtle`, tooltips, buttons) can build a
+    // translucent tint from ONE theme color. Without this the glass recipe used
+    // a hardcoded rgba(18,18,20) and the Surface control only recolored flat
+    // `bg-card` blocks, so editing Surface barely changed the UI.
+    '--card-rgb': hexToRgbTriplet(surface),
     '--card-foreground': text,
     '--popover': surface,
     '--popover-foreground': text,

@@ -17,7 +17,7 @@ import {
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, Volume2, BarChart3,
   GitBranch, Plug,
-} from "lucide-react";
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { GitPanel } from "./git-panel";
 import { TopLoader } from "@/components/ui/top-loader";
@@ -523,7 +523,7 @@ export function Settings({
     <div ref={modalRef} className="flex h-full w-full overflow-hidden" tabIndex={-1}>
       {/* Left nav rail — same neutral grey `sidebar-root` surface as the main
           app sidebar so the chrome stays consistent. */}
-      <aside className="sidebar-root hidden md:flex w-52 shrink-0 flex-col glass-card-strong">
+      <aside className="sidebar-root hidden md:flex w-60 shrink-0 flex-col glass-card-strong">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/30 bg-white/[0.06]">
             <Cog className="text-foreground" size={20} />

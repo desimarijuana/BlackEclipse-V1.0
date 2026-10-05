@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from 'lucide-react';
+import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from '@/lib/icons';
 import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
@@ -126,7 +126,7 @@ export function Sidebar({
   const sidebarContent = (
     <div 
       className={`sidebar-root h-full flex flex-col glass-card-strong border-r-0 shrink-0 justify-between select-none text-foreground font-sans relative transition-all duration-300 group/sidebar ${
-        isCollapsed ? 'w-12 px-0 items-center' : 'w-52 px-4'
+        isCollapsed ? 'w-12 px-0 items-center' : 'w-60 px-4'
       }`}
     >
       {/* Brand logo header */}
@@ -359,7 +359,7 @@ export function Sidebar({
 
       {/* Desktop sidebar */}
       <div className={`hidden md:block h-screen select-none z-50 shrink-0 transition-all duration-300 ${
-        isCollapsed ? 'w-12' : 'w-52'
+        isCollapsed ? 'w-12' : 'w-60'
       }`}>
         {sidebarContent}
       </div>
@@ -368,7 +368,7 @@ export function Sidebar({
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-40 flex">
           <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={onCloseMobile} />
-          <div className="relative flex w-52 h-full animate-slide-in">
+          <div className="relative flex w-60 h-full animate-slide-in">
             {sidebarContent}
             <button
               onClick={onCloseMobile}

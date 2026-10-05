@@ -37,7 +37,7 @@ CODE_NAVIGATOR_TOOLS = [
     "start_process", "stop_process", "restart_process", "kill_process",
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
-    "list_ports", "terminal_capabilities", "system_info",
+    "list_ports", "terminal_capabilities", "system_info", "resource_report",
 ]
 
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path
@@ -160,7 +160,7 @@ CODE_AGENT_TOOLS = [
     "start_process", "stop_process", "restart_process", "kill_process",
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
-    "list_ports", "terminal_capabilities", "system_info",
+    "list_ports", "terminal_capabilities", "system_info", "resource_report",
     # Verification (Phase 4) — the final answer is checked against the ledger.
     # Memory/session recall stays available: read-only context, NOT the finance family.
     "memory", "skill_list", "skill_view", "session_search", "session_open",
@@ -209,7 +209,7 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "start_process", "stop_process", "restart_process", "kill_process",
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
-    "list_ports", "terminal_capabilities", "system_info",
+    "list_ports", "terminal_capabilities", "system_info", "resource_report",
     "scaffold_kit", "analysis_run",
     # parallel read-only explore children for large codebases
     "delegate",

@@ -104,25 +104,29 @@ def detect_wsl() -> WslInfo:
     return WslInfo(available=True, distributions=tuple(names), default=names[0])
 
 
-def _docker_available() -> bool:
-    """Docker is DETECTED, never installed or fabricated.
-
-    The interface exists (`terminal/runtimes.py::DockerRuntime`) but is not
-    implemented; detection only decides whether the capability report claims it.
-    """
-    return _which("docker") is not None
-
-
 def capabilities() -> TerminalCapabilities:
-    """The honest capability report for this host."""
+    """The honest capability report for this host.
+
+    The runtimes list names the ones that can actually serve a command right now:
+    `local`, `wsl` (when installed), `docker` (when a container is configured and
+    the daemon answers) and `ssh` (when a host is configured and the client is
+    installed). `docker`/`ssh` booleans mirror that availability, so a capability
+    is never claimed that would refuse at call time.
+    """
     shells = detect_shells()
     wsl = detect_wsl()
     from .pty_backend import pty_available
+    from .runtimes import DockerRuntime, SSHRuntime
 
+    docker = DockerRuntime()
+    ssh = SSHRuntime()
     runtimes: list[str] = ["local"]
     if wsl.available:
         runtimes.append("wsl")
-    # Docker/SSH interfaces exist but are NOT implemented in Phase 1.
+    if docker.available:
+        runtimes.append("docker")
+    if ssh.available:
+        runtimes.append("ssh")
     return TerminalCapabilities(
         platform=("windows" if os.name == "nt" else platform.system().lower()),
         architecture=platform.machine() or "unknown",
@@ -133,8 +137,8 @@ def capabilities() -> TerminalCapabilities:
         pty=pty_available(),
         process_management=True,
         port_detection=True,
-        docker=_docker_available(),
-        ssh=_which("ssh") is not None,
+        docker=docker.available,
+        ssh=ssh.available,
     )
 
 

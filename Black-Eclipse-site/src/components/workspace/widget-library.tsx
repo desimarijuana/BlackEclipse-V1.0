@@ -7,7 +7,7 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Star, X } from 'lucide-react';
+import { Search, Star, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { WIDGET_CATEGORY_LABEL, type WidgetCategory, type WidgetDefinition } from '@/lib/workspace/widget-def';
 
@@ -243,7 +243,7 @@ function WidgetRow({
           fav ? 'text-amber-400' : 'text-muted-foreground/40 hover:text-amber-400')}
         title={fav ? 'Remove from favorites' : 'Add to favorites'}
       >
-        <Star size={13} fill={fav ? 'currentColor' : 'none'} />
+        <Star size={13} weight={fav ? 'fill' : 'regular'} />
       </button>
     </div>
   );

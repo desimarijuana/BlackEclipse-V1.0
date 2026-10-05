@@ -74,28 +74,19 @@ def test_failing_fixture_exit_nonzero():
 # ── timeout + process-tree kill (no orphan) ─────────────────────────────────
 
 
-def _count_python_children() -> int:
-    """A best-effort count of python processes, for the orphan assertion.
+def _orphan_python_descendants() -> int:
+    """How many python processes are DESCENDANTS of THIS test process.
 
-    Uses `tasklist` (the same tool the acceptance gate uses) rather than `wmic`,
-    which is absent on newer Windows builds.
+    Counting descendants (rather than every python process on the machine) makes
+    the orphan assertion precise: an unrelated python process — another test, a
+    dev server, the agent runtime — cannot perturb it. Requires the OS parent map;
+    returns -1 when unavailable so the caller can skip.
     """
-    if os.name != "nt":
-        return 0
-    import subprocess
+    from harness.terminal import proctree
 
-    for image in ("python.exe", "python3.exe"):
-        try:
-            out = subprocess.run(
-                ["tasklist", "/FI", f"IMAGENAME eq {image}", "/NH"],
-                capture_output=True, text=True, timeout=10,
-            )
-        except Exception:  # noqa: BLE001
-            continue
-        lines = [ln for ln in out.stdout.splitlines() if image in ln]
-        if out.returncode == 0:
-            return len(lines)
-    return -1
+    if not proctree.process_map():
+        return -1
+    return len(proctree.descendant_pids_matching(os.getpid(), "python"))
 
 
 def test_infinite_loop_is_killed_timed_out():
@@ -107,15 +98,14 @@ def test_infinite_loop_is_killed_timed_out():
 
 
 def test_kill_leaves_no_orphan_python_process():
-    before = _count_python_children()
     result = _run_fixture("infinite_check.py", timeout_s=1)
     assert result.timed_out is True
     time.sleep(1.0)
-    after = _count_python_children()
-    if before < 0 or after < 0:
+    orphans = _orphan_python_descendants()
+    if orphans < 0:
         pytest.skip("process enumeration unavailable on this host")
-    # The killed child must not persist as a new python process.
-    assert after <= before
+    # The killed child must not persist as a new python process under this test.
+    assert orphans == 0
 
 
 # ── output cap honesty ──────────────────────────────────────────────────────

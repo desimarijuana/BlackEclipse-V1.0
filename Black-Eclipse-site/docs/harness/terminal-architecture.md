@@ -32,13 +32,15 @@ python/harness/terminal/
   buffer.py          RingBuffer (sequenced, bounded) + head/tail model truncation
   port_manager.py    listening ports + conflicts (OS table, never a hard-coded list)
   shell_detect.py    shells / WSL / capabilities
-  runtimes.py        Local, WSL (real); Docker, SSH (honest NOT_IMPLEMENTED)
+  runtimes.py        Local, WSL, Docker, SSH (all real; each probes + refuses honestly)
+  resources.py       CPU/memory telemetry + runaway limits (no psutil dependency)
   redaction.py       secrets never reach the model/log
   store.py           TerminalSession / ProcessRecord / TerminalCommand rows
   recovery.py        reconcile persisted state on boot
   runtime.py         the process-wide singleton + EventBus bridge
   tools.py           the agent tool surface + effect authorizer
 python/harness/routers/terminal.py    the operator-gated HTTP surface
+src/components/terminal/xterm-terminal.tsx   the real xterm.js terminal (UI)
 ```
 
 The agent reaches it through the ONE `ToolRegistry`; the UI through
@@ -56,9 +58,15 @@ second execution path.
   crash, or a `timeoutMs` the caller chose ends it.
 
 `open_shell` + `run_shell_command` are the third shape: a **persistent shell** whose
-`cd` and `export` survive across commands. A real PTY is used when a PTY library
-(`pywinpty`/`ptyprocess`) is installed; otherwise a piped persistent shell is used
-and `capabilities.pty` reports `false` — the fallback is never called a PTY.
+`cd` and `export` survive across commands. A real PTY (`pywinpty` on Windows,
+`ptyprocess` elsewhere) is installed by default (platform markers in
+`python/requirements.txt`) so `capabilities.pty` is `true` out of the box; if a PTY
+library is genuinely absent the session falls back to a piped persistent shell and
+reports `pty: false` — the fallback is never called a PTY. A `cd`/`export` is sent
+to the REAL shell (not just tracked) and the resulting prompt is read back via the
+sentinel, then confined to the workspace; a command that moved the shell outside
+the root is refused and the shell is returned to the root. The agent-facing text
+has ANSI stripped; the UI reads the raw buffer so a real terminal can render.
 
 ## Process lifecycle
 
@@ -114,13 +122,78 @@ closed. Nothing is fabricated and nothing is silently adopted.
 `terminal.process.crashed`, `terminal.port.*`, …), carrying `runId` when known so a
 run's SSE consumer sees them.
 
+## Runtimes
+
+| Runtime | Commands | Background processes | Interactive sessions |
+|---|---|---|---|
+| `local` | yes | yes | yes |
+| `wsl` | yes | yes | yes |
+| `docker` | yes (`docker exec -i`) | yes | no — refuses `NOT_IMPLEMENTED` |
+| `ssh` | yes (`ssh <host> <cmd>`) | yes | no — refuses `NOT_IMPLEMENTED` |
+
+Docker and SSH are configured by the operator, never guessed:
+`HARNESS_TERMINAL_DOCKER_CONTAINER` (+ `_WORKDIR`, default `/workspace`), and
+`HARNESS_TERMINAL_SSH_HOST`. SSH uses the host's own OpenSSH config and agent
+(`BatchMode=yes`); the subsystem never reads, stores or forwards a key or
+password. Each runtime probes availability and refuses with `RUNTIME_UNAVAILABLE`
+when unconfigured — `select_runtime` never degrades to local.
+
+## Resource monitoring and runaway protection
+
+`resources.system_resources()` reads CPU count, memory and load directly from the
+OS (`GlobalMemoryStatusEx` / `sysconf` / `/proc/meminfo`, load average where the
+platform exposes it) — **no `psutil` dependency**. `ResourceLimits` (env
+`HARNESS_TERMINAL_MAX_PROCESSES` / `_RUNAWAY_SECONDS` / `_MAX_OUTPUT_BYTES`) bounds
+the subsystem: a start past `maxProcesses` is refused `PROCESS_LIMIT`, and a
+process whose output buffer or lifetime exceeds its bound is FLAGGED `runaway`
+(never auto-killed) with a `terminal.process.runaway` event. `resource_report`
+and `system_info` surface the snapshot; the UI's Processes view shows the flag.
+
+## Terminal UI
+
+The terminal opens from a button at the **header's right edge** (next to the search
+bar) and from **Ctrl/Cmd + `**. Both drive one shared `useTerminalStore`
+(`src/lib/terminal/store.ts`), so the button and the shortcut are the same control
+and cannot disagree. The shortcut listener (`src/components/layout/terminal-keybind.tsx`)
+lives in the root layout, listens in the **capture phase on `window`**, and matches
+`event.code === 'Backquote'` (layout-independent; `event.key` varies by keyboard),
+calling `preventDefault`/`stopPropagation` so neither the browser nor a focused
+xterm can swallow it. The open state is persisted; the panel has an expand/restore
+control and a "New" shell action.
+
+The panel **docks bottom, docks right (full height), or opens full page** (a
+persisted choice). The terminal fills its host, so the PTY is resized on every
+placement change; the shell is not remounted when the placement changes.
+
+Input is sent as an **ordered queue**: the client keeps one request in flight and
+coalesces keystrokes typed during a round-trip, and the runtime serializes PTY
+writes with a per-session lock — together this keeps byte order exactly the typing
+order (without it, "terminal" arrived as "terimnal").
+
+The Terminal tab itself is a **real** interactive terminal: **xterm.js**
+(`src/components/terminal/xterm-terminal.tsx`) rendering a live PTY-backed shell
+in the runtime.
+
+* **Input** — every keystroke goes straight to the PTY
+  (`POST /terminal/sessions/{id}/raw`), so interactive programs (a REPL, a prompt,
+  `vim`, Ctrl+C, arrow keys, TUI apps) all work.
+* **Output** — a long-poll stream (`GET /terminal/sessions/{id}/stream`) delivers
+  raw bytes with ANSI preserved (~0.06 s latency, not a timer), so xterm renders
+  colours and layout. The backend strips its hidden cwd sentinel from the display.
+* **Resize** — the window is fit to the panel and the PTY is resized to match.
+* **Durability** — the session lives in the Python runtime, so closing the panel
+  or reloading the page does NOT kill the shell. The panel passes a durable
+  `owner` id and reattaches to the same shell; "New shell" rotates the id to open a
+  fresh one. The Processes and Ports tabs read the same backend the agent tools use.
+
 ## Adding a runtime
 
 Implement the `ExecutionRuntime` protocol in `runtimes.py` (`available`,
-`describe`, `build_argv`, `map_path`) and add a branch to `select_runtime`. An
-unavailable runtime MUST raise `RuntimeUnavailable`; `select_runtime` never
-degrades. Docker and SSH are declared this way and currently refuse with
-`NOT_IMPLEMENTED`.
+`describe`, `shell_for`, `build_argv`, `map_path`, `extra_env`) and add a branch to
+`select_runtime`. An unavailable runtime MUST raise `RuntimeUnavailable`;
+`select_runtime` never degrades. `extra_env()` names only the non-secret host
+variables the client needs (e.g. `DOCKER_HOST`, `SSH_AUTH_SOCK`), merged over the
+scrubbed base environment.
 
 ## Why the shell tool still exists
 
@@ -131,6 +204,9 @@ share the same classifier (`code/shell_tools.py::_verdict`) and approval model.
 ## Tests
 
 `python/tests/test_terminal_*.py` — buffer, shell/runtimes/ports, process
-lifecycle, sessions, store/recovery, tools-through-the-registry, HTTP router, and
-`test_terminal_e2e.py` (create → serve → detect port → health-check → modify →
-restart → verify → stop → confirm the port is released).
+(lifecycle, trees, signals, restart, crash, health), sessions (incl. real PTY),
+store/recovery, resources/runaway limits, tools-through-the-registry, HTTP router,
+and `test_terminal_e2e.py` (create →
+serve → detect port → health-check → modify → restart → verify → stop → confirm
+the port is released). Docker/SSH are unit-tested with `shutil.which`/`_docker_status`
+stubbed, so they are covered without requiring a daemon or a remote host.

@@ -20,6 +20,38 @@
 // loopback hosts are local.
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
+/**
+ * The hostname of a host:port pair, lowercased, brackets removed. Handles IPv6
+ * (`[::1]:3000` -> `::1`).
+ */
+function hostnameOf(host: string): string {
+  const raw = (host || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.startsWith("[")) {
+    const close = raw.indexOf("]");
+    return close >= 0 ? raw.slice(1, close) : raw.replace(/[[\]]/g, "");
+  }
+  return raw.split(":")[0];
+}
+
+/**
+ * Normalize a host for SAME-ORIGIN comparison. Every loopback alias
+ * (`localhost`, `127.0.0.1`, `::1`) names the SAME machine, so they are folded to
+ * one key (keeping the port). A browser on `localhost:3000` posting to a server
+ * whose `request.url` says `127.0.0.1:3000` is the same origin and must be
+ * allowed; treating them as different is what produced spurious 403s and made
+ * the whole UI's mutations fail. A real (non-loopback) host is returned
+ * unchanged, so cross-site requests are still blocked.
+ */
+function normalizeHost(host: string): string {
+  const name = hostnameOf(host);
+  if (LOCAL_HOSTS.has(name)) {
+    const port = (host || "").includes(":") ? (host || "").split(":").pop() : "";
+    return `loopback:${port ?? ""}`;
+  }
+  return (host || "").toLowerCase();
+}
+
 function requestHost(request: Request): string {
   try {
     return new URL(request.url).host;
@@ -39,9 +71,7 @@ function originHost(request: Request): string | null {
 }
 
 function isLocalHost(host: string): boolean {
-  if (!host) return false;
-  const hostname = host.split(":")[0].toLowerCase();
-  return LOCAL_HOSTS.has(hostname);
+  return LOCAL_HOSTS.has(hostnameOf(host));
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -77,10 +107,12 @@ export function checkMutationAllowed(request: Request): GuardResult {
 
   // 2) Same-origin browser requests are trusted (the app's own UI).
   //    Browsers always attach Origin to cross-site POSTs; a matching Origin
-  //    means the call came from a page served by this app.
+  //    means the call came from a page served by this app. Loopback aliases
+  //    (`localhost` / `127.0.0.1` / `::1`) are the same origin, so they are
+  //    compared normalized rather than byte-for-byte.
   if (origin !== null) {
-    if (origin === host) return { allowed: true };
-    // Origin present but mismatched -> cross-site request forgery attempt.
+    if (normalizeHost(origin) === normalizeHost(host)) return { allowed: true };
+    // Origin present but genuinely mismatched -> cross-site request forgery.
     return { allowed: false, reason: "Cross-origin requests are not allowed" };
   }
 

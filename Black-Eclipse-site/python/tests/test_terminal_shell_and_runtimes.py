@@ -100,13 +100,49 @@ def test_local_runtime_is_available_and_wraps_the_shell():
     assert len(argv) > 1
 
 
-def test_docker_and_ssh_refuse_honestly_not_fall_back():
-    for name in ("docker", "ssh"):
-        runtime = runtimes.select_runtime(name)
-        assert runtime.available is False
-        with pytest.raises(RuntimeUnavailable) as info:
-            runtime.build_argv("x", shell=None, cwd=".")
-        assert info.value.code == "NOT_IMPLEMENTED"
+def test_docker_and_ssh_refuse_honestly_when_unconfigured():
+    # Both runtimes are IMPLEMENTED but require operator configuration (a
+    # container / a host). Unconfigured, they REFUSE — never fall back to local.
+    with pytest.raises(RuntimeUnavailable) as docker_info:
+        runtimes.select_runtime("docker")
+    assert docker_info.value.code == "RUNTIME_UNAVAILABLE"
+    with pytest.raises(RuntimeUnavailable) as ssh_info:
+        runtimes.select_runtime("ssh")
+    assert ssh_info.value.code == "RUNTIME_UNAVAILABLE"
+    # The raw runtimes describe themselves honestly.
+    assert runtimes.DockerRuntime().available is False
+    assert runtimes.SSHRuntime().available is False
+    assert runtimes.DockerRuntime().describe()["implemented"] is True
+    assert runtimes.SSHRuntime().describe()["implemented"] is True
+
+
+def test_docker_build_argv_when_configured(monkeypatch):
+    # When a container is configured, the argv is a real `docker exec`.
+    monkeypatch.setattr(runtimes, "_docker_status", lambda: (True, ""))
+    monkeypatch.setattr(runtimes.shutil, "which", lambda name: "C:/docker.exe" if name == "docker" else None)
+    runtime = runtimes.DockerRuntime(container="mybox", workdir="/app")
+    assert runtime.available is True
+    argv = runtime.build_argv("npm test", shell=None, cwd="/app")
+    assert argv[:3] == ["C:/docker.exe", "exec", "-i"]
+    assert "mybox" in argv and argv[-1] == "cd /app && npm test"
+    # A session inside a container is not supported and refuses.
+    with pytest.raises(RuntimeUnavailable) as info:
+        runtime.shell_for(None)
+    assert info.value.code == "NOT_IMPLEMENTED"
+    # Docker context env is forwarded (host config, not a secret).
+    monkeypatch.setenv("DOCKER_HOST", "tcp://127.0.0.1:2375")
+    assert runtime.extra_env().get("DOCKER_HOST") == "tcp://127.0.0.1:2375"
+
+
+def test_ssh_build_argv_when_configured(monkeypatch):
+    monkeypatch.setattr(runtimes.shutil, "which", lambda name: "C:/ssh.exe" if name == "ssh" else None)
+    runtime = runtimes.SSHRuntime(host="build-box")
+    assert runtime.available is True
+    argv = runtime.build_argv("make", shell=None, cwd="/srv/app")
+    assert argv[0] == "C:/ssh.exe"
+    assert "-o" in argv and "BatchMode=yes" in argv
+    assert argv[-1] == "cd /srv/app && make"
+    assert runtime.map_path("/srv/app") == "/srv/app"
 
 
 def test_wsl_runtime_refuses_when_not_installed():
@@ -130,11 +166,14 @@ def test_unknown_runtime_refuses():
     assert info.value.code == "INVALID_ARGUMENT"
 
 
-def test_describe_runtimes_reports_docker_and_ssh_unimplemented():
+def test_describe_runtimes_reports_docker_and_ssh_implemented_but_optional():
     described = runtimes.describe_runtimes()
     assert described["local"]["available"] is True
-    assert described["docker"]["implemented"] is False
-    assert described["ssh"]["implemented"] is False
+    # Implemented, but unavailable until an operator configures a container/host.
+    assert described["docker"]["implemented"] is True
+    assert described["ssh"]["implemented"] is True
+    assert described["docker"]["available"] is False
+    assert described["ssh"]["available"] is False
 
 
 # ── PortManager parsing ────────────────────────────────────────────────────────

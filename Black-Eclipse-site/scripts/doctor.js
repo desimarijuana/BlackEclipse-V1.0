@@ -192,6 +192,18 @@ if (py) {
       fix("Python JSON Schema validator", `"${py}" -m pip install -r "${requirements}"`);
     }
   }
+
+  // 5e. Real pseudo-terminal for the terminal subsystem's persistent shells
+  //     (pywinpty on Windows, ptyprocess elsewhere). OPTIONAL: without it the
+  //     session layer falls back to a piped shell and reports `pty: false`, so
+  //     this is a best-effort repair, never a hard failure.
+  const ptyModule = process.platform === "win32" ? "winpty" : "ptyprocess";
+  if (run(`"${py}" -c "import ${ptyModule}"`, { timeout: 20000 }).status !== 0) {
+    const requirements = path.join(root, "python", "requirements.txt");
+    if (fs.existsSync(requirements)) {
+      fix("Python PTY support (optional)", `"${py}" -m pip install -r "${requirements}"`);
+    }
+  }
 } else {
   console.log("[setup] Python not found — live prices and the agent runtime are disabled.");
   console.log("        Install from https://python.org, then:");

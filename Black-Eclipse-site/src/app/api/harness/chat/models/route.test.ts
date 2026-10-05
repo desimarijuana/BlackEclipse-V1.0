@@ -8,6 +8,7 @@ const getLLMConfig = vi.fn();
 const listModelProviders = vi.fn();
 const listRuntimeModels = vi.fn();
 const resolveProviderKey = vi.fn();
+const readDiscoveredModels = vi.fn();
 
 vi.mock("@/lib/settings", () => ({ getLLMConfig: (...a: unknown[]) => getLLMConfig(...a) }));
 vi.mock("@/lib/harness", () => ({
@@ -15,6 +16,9 @@ vi.mock("@/lib/harness", () => ({
   listRuntimeModels: (...a: unknown[]) => listRuntimeModels(...a),
 }));
 vi.mock("@/lib/provider-keys", () => ({ resolveProviderKey: (...a: unknown[]) => resolveProviderKey(...a) }));
+vi.mock("@/lib/agent/discovered-models", () => ({
+  readDiscoveredModels: (...a: unknown[]) => readDiscoveredModels(...a),
+}));
 
 import { GET } from "@/app/api/harness/chat/models/route";
 
@@ -23,6 +27,7 @@ beforeEach(() => {
   listModelProviders.mockReset();
   listRuntimeModels.mockReset();
   resolveProviderKey.mockReset();
+  readDiscoveredModels.mockReset();
   getLLMConfig.mockResolvedValue({ provider: "deepseek", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" });
   listModelProviders.mockResolvedValue([
     { id: "deepseek", models: ["deepseek-chat", "deepseek-reasoner"], dynamicDiscovery: false },
@@ -30,6 +35,7 @@ beforeEach(() => {
   ]);
   listRuntimeModels.mockResolvedValue([]);
   resolveProviderKey.mockResolvedValue(null);
+  readDiscoveredModels.mockResolvedValue({ providers: {}, served: {}, updatedAt: new Date(0).toISOString() });
 });
 
 describe("GET /api/harness/chat/models", () => {
@@ -94,5 +100,42 @@ describe("GET /api/harness/chat/models", () => {
     const body = await res.json();
     const ollama = body.providers.find((p: { id: string }) => p.id === "ollama");
     expect(ollama.models).toContain("llama3.1");
+  });
+
+  it("reports only genuinely-served models in `served`, never declared placeholders", async () => {
+    // A local server that was probed: the durable snapshot records the served
+    // subset separately from the declared list, so the composer can pick a
+    // default that will not 404.
+    readDiscoveredModels.mockResolvedValue({
+      providers: { ollama: ["llama3.1", "deepseek-v4.1-flash:cloud"] },
+      served: { ollama: ["deepseek-v4.1-flash:cloud"] },
+      updatedAt: new Date().toISOString(),
+    });
+    const res = await GET();
+    const body = await res.json();
+    const ollama = body.providers.find((p: { id: string }) => p.id === "ollama");
+    expect(ollama.models).toContain("llama3.1");
+    expect(ollama.models).toContain("deepseek-v4.1-flash:cloud");
+    expect(ollama.served).toEqual(["deepseek-v4.1-flash:cloud"]);
+    expect(ollama.served).not.toContain("llama3.1");
+  });
+
+  it("includes runtime-discovered (dynamic) models in `served` but not declared ones", async () => {
+    listRuntimeModels.mockResolvedValue([
+      { id: "deepseek-v4.1-flash:cloud", providerId: "ollama", metadata: { dynamic: true } },
+      { id: "llama3.1", providerId: "ollama", metadata: { dynamic: false } },
+    ]);
+    const res = await GET();
+    const body = await res.json();
+    const ollama = body.providers.find((p: { id: string }) => p.id === "ollama");
+    expect(ollama.served).toContain("deepseek-v4.1-flash:cloud");
+    expect(ollama.served).not.toContain("llama3.1");
+  });
+
+  it("returns an empty `served` list when nothing has been probed", async () => {
+    const res = await GET();
+    const body = await res.json();
+    const ollama = body.providers.find((p: { id: string }) => p.id === "ollama");
+    expect(ollama.served).toEqual([]);
   });
 });

@@ -465,6 +465,17 @@ Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider
   failed probe returns `ok:false` + reason, never a silent empty success.
   `ProviderSpec.dynamicDiscovery` (surfaced on the catalog) marks the providers
   for which the UI offers this probe.
+- **The probe reports `served` separately from the merged registry.** The
+  registered `models` list is the provider's live list MERGED with the static
+  catalog's declared sample, so it cannot tell an installed model from a
+  placeholder that is not installed at all (Ollama declares `llama3.1`, which a
+  box running only cloud models does not serve). `ModelRuntime.discover_served`
+  returns the provider's OWN ids before the merge, and the discover route returns
+  them as `served`. The front door stores `served` in the
+  `discovered_models_v1` snapshot (replaced per probe, not merged — it must
+  reflect the server *now*), `/api/harness/chat/models` reports it per provider,
+  and `useChatModel` defaults to a served model so a run never 404s on an
+  uninstalled placeholder. An explicit user pick is never overridden.
 
 The model layer provides intelligence only — it is never a source of financial
 truth. Evidence, provenance, citations and point-in-time validity remain owned by

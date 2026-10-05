@@ -125,7 +125,7 @@ def test_all_terminal_tools_are_registered(manager):
         "stop_process", "kill_process", "restart_process", "list_processes",
         "process_status", "read_process_output", "write_process_input",
         "send_signal", "process_tree", "process_health",
-        "list_ports", "terminal_capabilities", "system_info",
+        "list_ports", "terminal_capabilities", "system_info", "resource_report",
     }
     assert expected <= names
 

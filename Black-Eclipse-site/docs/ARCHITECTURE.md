@@ -815,15 +815,65 @@ attaches as context and the answers the agent produces:
   `GET /api/harness/chat/models`, which reports each preset's models (runtime
   catalog, falling back to the preset default when the runtime is down) and its
   availability derived server-side from the real env/vault (`available` is a
-  boolean — a key is never returned). Selecting a model persists it to the
-  settings vault (`POST /api/settings`) — the single source the runtime reads —
-  so the next message uses it, AND sends it per-turn as `model` for
-  belt-and-suspenders; switching provider persists the provider + base URL + its
-  default model together. A failed save shows the error and reverts. Local/
-  router providers get a live `discover` action; a "Custom model id…" entry types
-  any id. It never fabricates a list — with no data it still renders and lets a
-  custom id be entered. (The old hardcoded "Flash-Lite/Flash/Pro" selector was
-  removed precisely because it was fake.)
+  boolean — a key is never returned). The top level lists the models of EVERY
+  provider usable right now (keyless local servers + any provider with a
+  resolving key), the active provider first, so a second connected provider is
+  usable directly without first switching the active provider — selecting a
+  model switches the active provider to that model's provider. Selecting a model
+  persists it to the settings vault (`POST /api/settings`) — the single source
+  the runtime reads — so the next message uses it, AND sends it per-turn as
+  `model` for belt-and-suspenders; switching provider persists the provider +
+  base URL + its default model together. A failed save shows the error and
+  reverts. Local/router providers get a live `discover` action; a "Custom model
+  id…" entry types any id. It never fabricates a list — with no data it still
+  renders and lets a custom id be entered. (The old hardcoded
+  "Flash-Lite/Flash/Pro" selector was removed precisely because it was fake.)
+- **Discovered models are durable, not re-probed every time.** A "Discover
+  installed models" probe registers the provider's models into the Python
+  runtime's in-process `ModelRegistry`, which is rebuilt on every runtime restart
+  and was lost on reload — forcing the operator to click Discover again and
+  again. The `POST /model-runtime/providers/{id}/discover` route now also merges
+  the found ids into a durable snapshot in `SystemConfig`
+   (`src/lib/agent/discovered-models.ts`, key `discovered_models_v1`; a
+   convenience list merged per provider, never an allowlist). Both catalog routes
+   (`/api/harness/models`, `/api/harness/chat/models`) merge that snapshot first,
+   then the runtime registry, so discovered models survive a reload AND a runtime
+   restart without re-probing. The snapshot also carries `served` — the provider's
+   OWN ids before the catalog merge (replaced per probe, not merged). That set
+   distinguishes an installed model from a declared placeholder the server does
+   not serve, so the composer's default can resolve to a model that will not
+   `404` (the `llama3.1`-on-a-cloud-only-Ollama failure); an explicit user pick is
+   never overridden.
+- **Every provider can enumerate its live models — not just local servers.**
+  Discovery used to be gated on local servers + routers (`Ollama`/LM Studio/
+  OpenRouter); a hosted API (OpenAI, Groq, DeepSeek, Mistral, Anthropic,
+  Gemini, xAI, Together, Perplexity, Fireworks) showed only its declared sample.
+  Now `ProviderSpec.dynamic_discovery` is true for all of them, and the probe is
+  protocol-generic in `python/harness/model_runtime/providers/`:
+  `probe_openai_models` (`openai.py`) handles `GET {base}/models` with a
+  `Bearer` key for every OpenAI-protocol family (`OpenAIAdapter`,
+  `OpenAICompatibleAdapter`, and Mistral/Groq via `first_party.py`), while
+  `AnthropicAdapter`/`GoogleAdapter` override `discover_models` for their own
+  list shapes. Because the browser never holds a provider key, the Next discover
+  route (`src/app/api/harness/model-runtime/providers/[id]/discover/route.ts`)
+  resolves it server-side from the env/vault (`resolveProviderKey(preset.envVar)`)
+  and falls back to the preset base URL, so a private endpoint (which would 401
+  keyless) enumerates too. The result is cached in the durable snapshot above.
+- **Big catalogs are curated, not dumped: the Manage models dialog.** A provider
+  can list hundreds or thousands of models (OpenRouter returned 466; Ollama can
+  list many), which is unusable in a dropdown. Discovery now flows into a
+  **Manage models** dialog (`src/components/screens/manage-models-dialog.tsx`):
+  a searchable, checkbox list of the full catalog where the operator enables only
+  the models they use. Enabled ids persist per provider in localStorage via the
+  shared zustand store `src/lib/agent/enabled-models.ts` (`be_enabled_models_v1`).
+  The pure `compactModels()` helper applies that curation wherever a compact
+  picker renders (Settings `ModelPicker` and the composer `ModelSelector`): a
+  curated provider shows exactly its enabled ids (capped otherwise at
+  `MODEL_LIST_SOFT_LIMIT`, with a "Manage" affordance), while an uncurated one
+  shows the declared list up to the limit. This is a client-side FILTER, never an
+  allowlist — the runtime still accepts any id and the "Custom model id…" entry
+  always works. Both surfaces share one dialog and one store, so a curation made
+  in Settings is immediately reflected in the composer.
 
 ### ChatDock (the Command Center assistant composer)
 

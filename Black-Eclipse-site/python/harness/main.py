@@ -332,18 +332,24 @@ async def model_runtime_discover(
         model=payload.get("model") or provider.metadata.get("defaultModel") or "",
     )
     try:
-        discovered = await runtime.discover(settings, provider_id=provider_id)
+        # The raw served ids (the provider's own list) plus the merged registry
+        # view. `served` is what is genuinely installed/served — the registry
+        # view also holds declared placeholders that may not exist.
+        served = await runtime.discover_served(settings, provider_id=provider_id)
+        discovered = runtime.models.discover_models(provider_id, served)
     except Exception as exc:  # noqa: BLE001 - a probe failure is reported, not fatal
         return {
             "success": True,
             "ok": False,
             "detail": str(exc) or "discovery failed",
             "models": [],
+            "served": [],
         }
     return {
         "success": True,
         "ok": True,
         "models": [m.to_dict() for m in discovered],
+        "served": [s for s in served if s],
     }
 
 

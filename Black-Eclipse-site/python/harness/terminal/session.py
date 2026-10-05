@@ -153,6 +153,14 @@ class ShellSession:
         self._live = _Live()
         self._closed = False
         self._marker_scan_seq = 0
+        #: Wakes a live UI stream the instant new output arrives, so a terminal
+        #: renders with low latency instead of polling on a timer.
+        self._output_cv = threading.Condition()
+        #: Serializes writes to the PTY. A terminal sends one HTTP request per
+        #: keystroke, so many threads can call `write_raw` at once; without this
+        #: lock their bytes interleave (and pywinpty's write is not reentrant),
+        #: which is why typed commands arrived jumbled or never reached the shell.
+        self._write_lock = threading.Lock()
         self._spawn(use_pty=use_pty)
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
@@ -173,7 +181,9 @@ class ShellSession:
                 self.pid = getattr(self._live.pty._impl, "pid", None)
                 threading.Thread(target=self._pump_pty, daemon=True).start()
                 self.status = "running"
-                self._notify("session ready\n")
+                # No synthetic banner: a real PTY prints its own prompt. We only
+                # wake any waiting UI stream so it re-reads immediately.
+                self._wake()
                 return
             self._live.pty = None
         # Piped persistent shell fallback.
@@ -192,7 +202,7 @@ class ShellSession:
         threading.Thread(target=self._pump, args=(self._live.proc.stderr, StreamName.STDERR.value), daemon=True).start()
         threading.Thread(target=self._watch_exit, daemon=True).start()
         self.status = "running"
-        self._notify("session ready\n")
+        self._wake()
 
     def _supports_stdio_dash(self) -> bool:
         return self.shell.kind in ("powershell", "cmd")
@@ -217,6 +227,11 @@ class ShellSession:
 
     def _notify(self, text: str) -> None:
         self.buffer.note(text, now_iso())
+        self._wake()
+
+    def _wake(self) -> None:
+        with self._output_cv:
+            self._output_cv.notify_all()
 
     def _pump(self, stream: Any, stream_name: str) -> None:
         try:
@@ -227,6 +242,8 @@ class ShellSession:
                     self._absorb_marker(line)
                     continue
                 self.buffer.append(stream_name, line, now_iso())
+                with self._output_cv:
+                    self._output_cv.notify_all()
         except (OSError, ValueError):
             pass
         finally:
@@ -243,6 +260,8 @@ class ShellSession:
                 break
             if chunk:
                 self.buffer.append(StreamName.STDOUT.value, chunk, now_iso())
+                with self._output_cv:
+                    self._output_cv.notify_all()
             elif self._live.pty and not self._live.pty.isalive():
                 break
             else:
@@ -250,6 +269,22 @@ class ShellSession:
         self._live.alive = False
         if self.status == "running":
             self.status = "exited"
+        with self._output_cv:
+            self._output_cv.notify_all()
+
+    def wait_for_output(self, since_sequence: int, timeout: float) -> dict[str, Any]:
+        """Block until output past ``since_sequence`` arrives, or the timeout elapses.
+
+        This is what backs a live terminal stream: the caller long-polls with its
+        last cursor and gets new data the instant it lands, instead of a fixed
+        poll interval. Returns the same shape as `read`.
+        """
+        window = self.read(since_sequence=since_sequence)
+        if window["count"] > 0 or timeout <= 0 or not self.is_alive():
+            return window
+        with self._output_cv:
+            self._output_cv.wait(timeout=timeout)
+        return self.read(since_sequence=since_sequence)
 
     def _absorb_marker(self, line: str) -> None:
         # Only a sentinel followed by a real path is the RESULT; the PTY echo of
@@ -315,18 +350,24 @@ class ShellSession:
             }
 
     def write_raw(self, data: str) -> bool:
-        """Write raw bytes to the shell's stdin (control chars pass through in PTY)."""
-        if self.pty and self._live.pty is not None:
-            return self._live.pty.write(data)
-        proc = self._live.proc
-        if proc is None or proc.stdin is None:
-            return False
-        try:
-            proc.stdin.write(data)
-            proc.stdin.flush()
-            return True
-        except (OSError, ValueError):
-            return False
+        """Write raw bytes to the shell's stdin (control chars pass through in PTY).
+
+        Serialized by `_write_lock`: a terminal UI sends one request per keystroke,
+        so concurrent writes must not interleave (and pywinpty's write is not
+        reentrant). The lock keeps the byte order exactly the typing order.
+        """
+        with self._write_lock:
+            if self.pty and self._live.pty is not None:
+                return self._live.pty.write(data)
+            proc = self._live.proc
+            if proc is None or proc.stdin is None:
+                return False
+            try:
+                proc.stdin.write(data)
+                proc.stdin.flush()
+                return True
+            except (OSError, ValueError):
+                return False
 
     def write_input(self, data: str, *, newline: bool = True) -> bool:
         payload = data if (not newline or data.endswith(("\n", "\r"))) else data + ("\r" if self.pty else "\n")
@@ -508,7 +549,10 @@ class SessionManager:
         with self._lock:
             return self._sessions.get(session_id)
 
-    def list(self, *, workspace_id: Optional[str] = None, agent_id: Optional[str] = None) -> list[dict[str, Any]]:
+    def list(
+        self, *, workspace_id: Optional[str] = None, agent_id: Optional[str] = None,
+        owner: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
         with self._lock:
             sessions = list(self._sessions.values())
         out: list[dict[str, Any]] = []
@@ -516,6 +560,8 @@ class SessionManager:
             if workspace_id is not None and session.workspace_id != workspace_id:
                 continue
             if agent_id is not None and session.agent_id != agent_id:
+                continue
+            if owner is not None and session.owner != owner:
                 continue
             out.append(session.info().to_dict())
         return out

@@ -154,6 +154,7 @@ class TerminalManager:
         try:
             exec_runtime = self._runtime(runtime, distro=distro)
             argv = exec_runtime.build_argv(command, shell=shell, cwd=str(directory))
+            runtime_env = exec_runtime.extra_env()
         except RuntimeUnavailable as exc:
             category = (ErrorCategory.NOT_IMPLEMENTED.value if exc.code == "NOT_IMPLEMENTED" else ErrorCategory.RUNTIME_UNAVAILABLE.value)
             self.emit("runtime.unavailable", {"runtime": runtime, "code": exc.code})
@@ -164,7 +165,8 @@ class TerminalManager:
                 error=CommandError(type="RUNTIME_UNAVAILABLE", category=category, message=exc.reason),
             )
         timeout_s = max(1, min(int(timeout_ms // 1000 or 1), MAX_TIMEOUT_MS // 1000))
-        extra = dict(session_env or {})
+        extra = dict(runtime_env or {})
+        extra.update(session_env or {})
         extra.update(env or {})
         try:
             spec = RunSpec(
@@ -243,6 +245,19 @@ class TerminalManager:
         session = self.sessions.open(**kwargs)
         return session.info().to_dict()
 
+    def attach_or_open_shell(self, *, owner: str, **kwargs: Any) -> dict[str, Any]:
+        """Reuse an existing live session for ``owner``, or open a new one.
+
+        A UI terminal calls this so reopening the panel (or reloading the page)
+        reattaches to the same shell instead of leaking a new PTY each time. Only
+        sessions owned by ``owner`` and still alive are reused.
+        """
+        for info in self.sessions.list(owner=owner):  # type: ignore[call-arg]
+            existing = self.sessions.get(info["sessionId"])
+            if existing is not None and existing.is_alive():
+                return existing.info().to_dict()
+        return self.sessions.open(owner=owner, **kwargs).info().to_dict()
+
     def close_shell(self, session_id: str) -> bool:
         return self.sessions.close(session_id)
 
@@ -310,6 +325,30 @@ class TerminalManager:
         session = self.sessions.get(session_id)
         return session.send_control(key) if session else False
 
+    def send_shell_raw(self, session_id: str, data: str) -> bool:
+        """Write raw bytes to the shell's stdin (a keystroke, a paste, Enter).
+
+        This is what a real terminal UI uses: every key goes straight to the PTY,
+        so interactive programs (vim, a REPL, a prompt) work. The agent tools use
+        the higher-level `run_in_shell`; the UI uses this.
+        """
+        session = self.sessions.get(session_id)
+        return session.write_raw(data) if session else False
+
+    def stream_shell_output(self, session_id: str, *, since_sequence: int = 0, timeout_s: float = 15.0) -> Optional[dict[str, Any]]:
+        """Long-poll for new session output, without ANSI stripping.
+
+        The UI renders the raw stream (a terminal must); it filters the sentinel
+        out for display.
+        """
+        session = self.sessions.get(session_id)
+        if session is None:
+            return None
+        window = session.wait_for_output(since_sequence, timeout_s)
+        window["running"] = session.is_alive()
+        window["cwd"] = session.cwd
+        return window
+
     # ── Background processes ──────────────────────────────────────────────────────
 
     def start_process(
@@ -332,13 +371,16 @@ class TerminalManager:
         try:
             exec_runtime = self._runtime(runtime, distro=distro)
             argv = exec_runtime.build_argv(command, shell=shell, cwd=str(directory))
+            runtime_env = exec_runtime.extra_env()
         except RuntimeUnavailable as exc:
             return {
                 "processId": None, "state": "FAILED", "runtime": runtime,
                 "error": {"type": "RUNTIME_UNAVAILABLE", "category": "RUNTIME_UNAVAILABLE" if exc.code != "NOT_IMPLEMENTED" else "NOT_IMPLEMENTED", "message": exc.reason},
             }
+        merged_env = dict(runtime_env or {})
+        merged_env.update(env or {})
         info = self.processes.start_process(
-            argv=argv, cwd=str(directory), env=sandbox_mod.build_env(env or None),
+            argv=argv, cwd=str(directory), env=sandbox_mod.build_env(merged_env or None),
             command=command, runtime=runtime, shell=(shell or (exec_runtime.name if runtime == "local" else runtime)),
             workspace_id=workspace_id, agent_id=agent_id, run_id=run_id, task_id=task_id, purpose=purpose,
         )

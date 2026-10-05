@@ -68,7 +68,7 @@
  * actually blurred — which is exactly the "no frost" look.
  * Light mode flips to a white frost via a .dark override below. */
 .ws-glass {
-  background: rgba(20, 20, 22, 0.62);
+  background: rgb(var(--card-rgb, 20 20 22) / 0.62);
   border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(18px) saturate(1.35);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -897,7 +897,7 @@ input[type="range"]::-moz-range-thumb:hover {
  * that is itself a backdrop-filter layer, so low-opacity fills had nothing
  * meaningful to sample. Give it the real recipe instead. */
 .fund-tabs-glass {
-  background: rgba(18, 18, 20, 0.55);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
   /* Explicit right-edge inset line helps when the border is visually weakened
      by frosted rendering + overflow clipping on the last tab. */
@@ -917,7 +917,7 @@ html:not(.dark) .fund-tabs-glass {
 /* Unified tab strip — frosted glass menu shared across every page's tabs.
    Same recipe as the portfolio fund tabs so all tab bars look identical. */
 .tab-bar-glass {
-  background: rgba(18, 18, 20, 0.55);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.30),
@@ -935,7 +935,7 @@ html:not(.dark) .tab-bar-glass {
 /* Restrained tab strip — the control-strip tier. Same family as
    .glass-card-subtle so a tab row reads as chrome, not as a hero card. */
 .tab-bar-subtle {
-  background: rgba(18, 18, 20, 0.40);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.40);
   backdrop-filter: blur(16px) saturate(1.3);
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.20),
@@ -951,7 +951,7 @@ html:not(.dark) .tab-bar-subtle {
 /* On-chart candle timer — black frosted-glass pill. ALWAYS keeps a real
    backdrop blur (frosted glass), never a flat translucent fill. */
 .glass-ticker {
-  background: rgba(18, 18, 20, 0.55);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.30),
@@ -967,7 +967,7 @@ html:not(.dark) .glass-ticker {
 }
 
 /* Floating fund-actions popover — matches the frosted menu recipe. */.fund-menu-glass {
-  background: rgba(16, 16, 18, 0.78);
+  background: rgb(var(--card-rgb, 16 16 18) / 0.78);
   backdrop-filter: blur(22px) saturate(1.4);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -981,7 +981,7 @@ html:not(.dark) .fund-menu-glass {
  * Shares the app's frosted recipe (translucent dark tint + strong blur +
  * saturation boost + hairline border + inset top highlight). */
 .command-glass {
-  background: rgba(16, 16, 18, 0.78);
+  background: rgb(var(--card-rgb, 16 16 18) / 0.78);
   backdrop-filter: blur(22px) saturate(1.4);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -992,7 +992,7 @@ html:not(.dark) .command-glass {
 
 /* Compact header variant - smaller blur radius and shadow. */
 .command-glass-bar {
-  background: rgba(20, 20, 22, 0.55);
+  background: rgb(var(--card-rgb, 20 20 22) / 0.55);
   backdrop-filter: blur(16px) saturate(1.3);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
@@ -1006,7 +1006,7 @@ html:not(.dark) .command-glass-bar {
  * strong blur + saturation boost + inset top/right highlight lines + soft
  * drop shadow. Three opacity tiers for different surfaces. */
 .glass-card {
-  background: rgba(18, 18, 20, 0.55);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.30),
@@ -1023,7 +1023,7 @@ html:not(.dark) .glass-card {
 
 /* Stronger tier — modals, drawers, popovers, overlays. */
 .glass-card-strong {
-  background: rgba(16, 16, 18, 0.85);
+  background: rgb(var(--card-rgb, 16 16 18) / 0.85);
   backdrop-filter: blur(22px) saturate(1.4);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -1034,7 +1034,7 @@ html:not(.dark) .glass-card-strong {
 
 /* Subtle tier — small tiles, table headers, chips. */
 .glass-card-subtle {
-  background: rgba(18, 18, 20, 0.40);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.40);
   backdrop-filter: blur(16px) saturate(1.3);
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.20),
@@ -1055,7 +1055,7 @@ html:not(.dark) .glass-card-subtle {
  * behind the element, so an ancestor with transform/filter/backdrop-filter
  * (a backdrop root) scopes the blur to nothing and the glass reads flat. */
 .glass-tooltip {
-  background: rgba(18, 18, 20, 0.5);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.5);
   backdrop-filter: blur(18px) saturate(1.35);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
@@ -1079,7 +1079,7 @@ html:not(.dark) .glass-tooltip {
  * IMPORTANT: keep the tint translucent (<=0.55) — a high-opacity fill hides
  * the blur entirely and reads as a flat panel, which is NOT frosted glass. */
 .glass-drawer {
-  background: linear-gradient(180deg, rgba(26, 26, 30, 0.48), rgba(14, 14, 16, 0.58));
+  background: linear-gradient(180deg, rgb(var(--card-rgb, 26 26 30) / 0.48), rgb(var(--card-rgb, 14 14 16) / 0.58));
   backdrop-filter: blur(32px) saturate(1.6);
   box-shadow:
     0 16px 48px rgba(0, 0, 0, 0.50),
@@ -1097,14 +1097,14 @@ html:not(.dark) .glass-drawer {
 /* Frosted-glass button — translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
 .glass-button {
-  background: rgba(18, 18, 20, 0.45);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.45);
   backdrop-filter: blur(16px) saturate(1.35);
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .glass-button:hover {
-  background: rgba(30, 30, 34, 0.60);
+  background: rgb(var(--card-rgb, 30 30 34) / 0.60);
 }
 html:not(.dark) .glass-button {
   background: rgba(255, 255, 255, 0.55);

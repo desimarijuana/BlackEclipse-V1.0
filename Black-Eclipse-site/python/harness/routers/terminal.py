@@ -36,6 +36,9 @@ class OpenShellRequest(BaseModel):
     cwd: Optional[str] = Field(default=None, max_length=1_000)
     rows: int = Field(default=24, ge=1, le=500)
     columns: int = Field(default=80, ge=1, le=500)
+    # A durable UI terminal id: reopen reattaches to the same shell. Never sent
+    # by an agent tool (an agent always gets its own fresh session).
+    owner: Optional[str] = Field(default=None, max_length=128)
 
 
 class RunShellRequest(BaseModel):
@@ -63,6 +66,10 @@ class StartProcessRequest(BaseModel):
 
 class SignalRequest(BaseModel):
     signal: str = Field(min_length=1, max_length=16)
+
+
+class RawInputRequest(BaseModel):
+    data: str = Field(max_length=20_000)
 
 
 def _root_or_400():
@@ -126,10 +133,19 @@ def open_session(body: OpenShellRequest, _: bool = Depends(require_operator)) ->
         raise HTTPException(status_code=503, detail=exc.reason) from exc
     cwd = _confine(_root_or_400(), body.cwd)
     try:
-        info = service.terminal.open_shell(
-            shell_name=body.shell, runtime=body.runtime, cwd=str(cwd),
-            rows=body.rows, columns=body.columns,
-        )
+        # The UI requests a durable owner (its terminal-1 / terminal-2 id) so a
+        # panel reopen reattaches to the same shell. The agent tools never pass
+        # an owner, so they always get a fresh session.
+        if body.owner:
+            info = service.terminal.attach_or_open_shell(
+                owner=body.owner, shell_name=body.shell, runtime=body.runtime,
+                cwd=str(cwd), rows=body.rows, columns=body.columns,
+            )
+        else:
+            info = service.terminal.open_shell(
+                shell_name=body.shell, runtime=body.runtime, cwd=str(cwd),
+                rows=body.rows, columns=body.columns,
+            )
     except Exception as exc:  # noqa: BLE001 - a failed start is a 503
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"success": True, "session": info}
@@ -176,6 +192,35 @@ def read_session_output(
     if window is None:
         raise HTTPException(status_code=404, detail="no such session")
     return {"success": True, "output": window}
+
+
+@router.post("/terminal/sessions/{session_id}/raw")
+def send_session_raw(session_id: str, body: RawInputRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Write raw keystrokes to a session's PTY — the live terminal's input path."""
+    if not service.terminal.send_shell_raw(session_id, body.data):
+        raise HTTPException(status_code=404, detail="no such session")
+    return {"success": True}
+
+
+@router.get("/terminal/sessions/{session_id}/stream")
+async def stream_session_output(
+    session_id: str, since: int = 0, timeout: float = 15.0,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Long-poll the raw (ANSI-preserving) session output for a live terminal.
+
+    Blocks up to `timeout` seconds until new output arrives, so the UI renders
+    with low latency. The caller passes its last cursor as `since`.
+    """
+    from fastapi.concurrency import run_in_threadpool  # noqa: PLC0415
+
+    window = await run_in_threadpool(
+        service.terminal.stream_shell_output, session_id,
+        since_sequence=int(since), timeout_s=min(max(float(timeout), 0.0), 30.0),
+    )
+    if window is None:
+        raise HTTPException(status_code=404, detail="no such session")
+    return {"success": True, **window}
 
 
 @router.post("/terminal/sessions/{session_id}/control")
@@ -282,6 +327,12 @@ def list_ports(port: Optional[int] = None, _: bool = Depends(require_operator)) 
     if port is not None:
         return {"success": True, "port": port, "owner": service.terminal.find_port_conflict(port)}
     return {"success": True, "ports": service.terminal.list_ports(), "summary": service.terminal.port_summary()}
+
+
+@router.get("/terminal/resources")
+def resource_report(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """CPU/memory and the active processes, plus any flagged as running away."""
+    return {"success": True, **service.terminal.processes.resource_report()}
 
 
 @router.get("/terminal/system")

@@ -80,6 +80,14 @@ describe('themeCssVars', () => {
     expect(vars['--font-scale']).toBe('1.2');
     expect(vars['--logo-scale']).toBe('1.4');
   });
+
+  it('emits a card-rgb triplet so frosted glass can follow the Surface color', () => {
+    // The glass tiers build their tint from `--card-rgb`; without it they fell
+    // back to a hardcoded rgba(18,18,20) and the Surface control barely changed
+    // the UI.
+    const vars = themeCssVars(normalizeTheme({ colors: { surface: '#102030' } }));
+    expect(vars['--card-rgb']).toBe('16 32 48');
+  });
 });
 
 describe('deriveThemeColors', () => {

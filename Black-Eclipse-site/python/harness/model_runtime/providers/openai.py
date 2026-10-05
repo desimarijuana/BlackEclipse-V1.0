@@ -17,6 +17,22 @@ from .base import ProviderAdapter
 class OpenAIAdapter(ProviderAdapter):
     kind = "openai"
 
+    async def discover_models(self, settings) -> list[str]:  # type: ignore[override]
+        """List an OpenAI-family provider's models via `GET {base_url}/models`.
+
+        OpenAI's protocol is the great unifier: OpenAI itself, Groq, Mistral,
+        DeepSeek, xAI, Together, Fireworks, Perplexity, OpenRouter, Ollama, LM
+        Studio and any custom endpoint all expose a `{base_url}/models` list in
+        the same `{data:[{id}]}` shape. The probe sends the resolved key as a
+        `Bearer` token, so a private endpoint (OpenAI, Groq, …) enumerates too,
+        and it does NOT assume localhost — any remote base URL works.
+
+        A reachable endpoint that lists no models returns an empty list. A probe
+        that cannot be completed raises, so the caller reports an honest failure
+        instead of a misleading empty success.
+        """
+        return await probe_openai_models(settings)
+
     def apply_reasoning(self, model: Any, reasoning: Optional[ReasoningRequest]) -> Any:
         """Translate normalized reasoning into OpenAI's `reasoning_effort`.
 
@@ -34,41 +50,67 @@ class OpenAIAdapter(ProviderAdapter):
         return model
 
 
+async def probe_openai_models(settings: Any) -> list[str]:
+    """Probe `{base_url}/models` for any OpenAI-protocol provider.
+
+    Shared by `OpenAIAdapter` and the first-party OpenAI-protocol adapters
+    (Mistral, Groq) so there is one discovery implementation. Returns the model
+    ids; raises on an unreachable endpoint.
+    """
+    base_url = getattr(settings, "base_url", None)
+    if not base_url:
+        return []
+    try:
+        import httpx  # noqa: PLC0415 - optional at import time
+
+        headers = {}
+        api_key = getattr(settings, "api_key", None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:  # noqa: BLE001 - re-raised as a clear failure
+        raise RuntimeError(f"could not reach {base_url}/models: {exc}") from exc
+    return _parse_openai_models(payload)
+
+
+def _parse_openai_models(payload: Any) -> list[str]:
+    """Extract model ids from an OpenAI-style `{data:[{id}]}` payload.
+
+    Tolerates the shapes seen in the wild: `data` as a list of objects with an
+    `id`, a bare list of id strings, or a top-level `models` list. Never
+    fabricates an id.
+    """
+    if isinstance(payload, dict):
+        entries = payload.get("data")
+        if not isinstance(entries, list):
+            entries = payload.get("models")
+    else:
+        entries = payload if isinstance(payload, list) else None
+    if not isinstance(entries, list):
+        return []
+    ids: list[str] = []
+    for item in entries:
+        if isinstance(item, dict):
+            value = item.get("id") or item.get("name")
+        else:
+            value = item
+        if value:
+            ids.append(str(value))
+    return ids
+
+
 class OpenAICompatibleAdapter(OpenAIAdapter):
     """A local/custom OpenAI-compatible server or an aggregator router.
 
     Same transport as OpenAI; discovery differs (a local server lists its own
-    models, a router fronts hundreds).
+    models, a router fronts hundreds). Discovery is inherited from
+    `OpenAIAdapter` — a `{base_url}/models` probe with the resolved key.
     """
 
     kind = "openai_compatible"
-
-    async def discover_models(self, settings) -> list[str]:  # type: ignore[override]
-        """Probe the `/models` endpoint of an OpenAI-compatible base URL.
-
-        A reachable endpoint that lists no models returns an empty list. A probe
-        that cannot be completed raises, so the caller can report an honest
-        failure instead of a misleading empty success.
-        """
-        base_url = settings.base_url
-        if not base_url:
-            return []
-        try:
-            import httpx  # noqa: PLC0415 - optional at import time
-
-            headers = {}
-            if settings.api_key:
-                headers["Authorization"] = f"Bearer {settings.api_key}"
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                response = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
-                response.raise_for_status()
-                payload = response.json()
-        except Exception as exc:  # noqa: BLE001 - re-raised as a clear failure
-            raise RuntimeError(f"could not reach {base_url}/models: {exc}") from exc
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if isinstance(data, list):
-            return [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
-        return []
 
 
 class OllamaAdapter(OpenAICompatibleAdapter):
@@ -79,4 +121,10 @@ class LocalAdapter(OpenAICompatibleAdapter):
     kind = "openai_compatible"
 
 
-__all__ = ["LocalAdapter", "OllamaAdapter", "OpenAIAdapter", "OpenAICompatibleAdapter"]
+__all__ = [
+    "LocalAdapter",
+    "OllamaAdapter",
+    "OpenAIAdapter",
+    "OpenAICompatibleAdapter",
+    "probe_openai_models",
+]

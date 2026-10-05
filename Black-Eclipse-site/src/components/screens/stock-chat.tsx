@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
+import { TerminalDock } from '@/components/terminal/terminal-dock';
+import { hydrateTerminalStore, useTerminalStore } from '@/lib/terminal/store';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
@@ -798,6 +800,14 @@ function StockChatContent() {
   }, []);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const appRootRef = useRef<HTMLDivElement>(null);
+  // Hydrate the terminal's persisted open state/placement once on the client, so
+  // the shell can reserve the docked region on first paint without a mismatch.
+  const terminalOpen = useTerminalStore((s) => s.open);
+  const terminalPlacement = useTerminalStore((s) => s.placement);
+  useEffect(() => {
+    hydrateTerminalStore();
+  }, []);
+
   // Focus mode is chat-only: leave it the moment another tab is opened, and
   // never keep it on while the settings modal is up.
   useEffect(() => {
@@ -849,7 +859,7 @@ function StockChatContent() {
 
   return (
     <TooltipProvider delay={0}>
-    <div ref={appRootRef} className="app-page-bg relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
+    <div ref={appRootRef} className="app-page-bg relative flex flex-col h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
       {/* Keyboard users can jump straight past the sidebar to the main content. */}
       <a href="#main-content" className="skip-to-content">
         {t('a11y.skipToContent')}
@@ -860,27 +870,31 @@ function StockChatContent() {
           Not a header control. */}
       <MarketRegimeControl />
 
-      <Sidebar 
-        activeTab={activeTab} 
-        onChangeTab={setActiveTab} 
-        conversations={conversations}
-        activeConversationId={activeConversationId}
-        onSelectConversation={handleSelectConversation}
-        onNewChat={handleNewChat}
-        onDeleteConversation={handleDeleteConversation}
-        onOpenSettings={() => setSettingsOpen(true)}
-        mobileOpen={mobileMenuOpen}
-        onCloseMobile={() => setMobileMenuOpen(false)}
-        hidden={focusMode}
-      />
+      {/* The primary row: sidebar | main column | optional right-docked terminal.
+          The terminal is a REAL column here, so the main panel shrinks to make
+          room instead of being overlapped. */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
+        <Sidebar 
+          activeTab={activeTab} 
+          onChangeTab={setActiveTab} 
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          onSelectConversation={handleSelectConversation}
+          onNewChat={handleNewChat}
+          onDeleteConversation={handleDeleteConversation}
+          onOpenSettings={() => setSettingsOpen(true)}
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
+          hidden={focusMode}
+        />
 
-      <div
-        className={cn(
-          'flex-1 flex flex-col relative z-10 overflow-hidden min-w-0 h-full',
-          activeTab !== 'chat' &&
-            'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
-        )}
-      >
+        <div
+          className={cn(
+            'flex-1 flex flex-col relative z-10 overflow-hidden min-w-0 h-full',
+            activeTab !== 'chat' &&
+              'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
+          )}
+        >
         {/* ChatBot wallpaper. Sits in the main content panel (right of the
             sidebar) so it resizes with the panel and stays fully visible when
             the sidebar opens/closes. Rendered only on the chat landing (empty
@@ -1174,7 +1188,15 @@ function StockChatContent() {
               floats over an inactive keep-alive tab. */}
           <ChatDock visible={activeTab !== 'chat' && !settingsOpen} />
         </div>
+        {/* Right-docked terminal: a real column beside the main panel. */}
+        <TerminalDock slot="right" />
+        </div>
       </div>
+
+      {/* Bottom-docked terminal: a real strip below the row, above the footer. */}
+      <TerminalDock slot="bottom" />
+      {/* Full-page terminal: an overlay, since nothing else is visible behind it. */}
+      <TerminalDock slot="full" />
 
       <Dialog
         open={settingsOpen}

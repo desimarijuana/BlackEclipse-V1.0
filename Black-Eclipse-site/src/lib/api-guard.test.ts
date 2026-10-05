@@ -32,6 +32,36 @@ describe("checkMutationAllowed", () => {
     expect(checkMutationAllowed(r).allowed).toBe(false);
   });
 
+  it("treats loopback aliases as the same origin", () => {
+    // `localhost` and `127.0.0.1` are the same machine. A browser tab on one
+    // posting to a server whose request.url reports the other must be allowed —
+    // this mismatch was 403-ing every mutation (the terminal included).
+    const a = new Request("http://127.0.0.1:3000/api/x", {
+      method: "POST",
+      headers: { origin: "http://localhost:3000" },
+    });
+    expect(checkMutationAllowed(a).allowed).toBe(true);
+    const b = new Request("http://localhost:3000/api/x", {
+      method: "POST",
+      headers: { origin: "http://127.0.0.1:3000" },
+    });
+    expect(checkMutationAllowed(b).allowed).toBe(true);
+    // A DIFFERENT port is still a different origin.
+    const c = new Request("http://127.0.0.1:4000/api/x", {
+      method: "POST",
+      headers: { origin: "http://127.0.0.1:3000" },
+    });
+    expect(checkMutationAllowed(c).allowed).toBe(false);
+  });
+
+  it("still blocks a loopback origin on a real remote host", () => {
+    const r = new Request("https://terminal.example.com/api/x", {
+      method: "POST",
+      headers: { origin: "http://localhost:3000" },
+    });
+    expect(checkMutationAllowed(r).allowed).toBe(false);
+  });
+
   it("rejects non-browser (no Origin) requests on a public host", () => {
     const r = req({ url: "https://terminal.example.com/api/refresh", origin: null });
     expect(checkMutationAllowed(r).allowed).toBe(false);

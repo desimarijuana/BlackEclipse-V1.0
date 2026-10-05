@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Menu, Search, Command } from 'lucide-react';
+import { Menu, Search, Command, Terminal } from '@/lib/icons';
 import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
 import { PriceRibbon } from '@/components/layout/price-ribbon';
 import { useT } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC } from '@/lib/theme';
+import { cn } from '@/lib/utils';
+import { useTerminalStore } from '@/lib/terminal/store';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -76,29 +78,56 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
           </div>
        </div>
 
-       {/* Live price ribbon (flexible, fills the middle) + frosted search bar */}
-       <div className="flex-1 flex items-center justify-end gap-2 md:gap-3 min-w-0 px-2">
-          <PriceRibbon className="flex-1" />
-          <button
-            onClick={() => useCommandStore.getState().setOpen(true)}
-            className="command-glass-bar group flex w-[38%] min-w-0 max-w-md shrink items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
-            title="Search & command center (⌘K)"
-          >
-            <Search size={16} className="text-muted-foreground/70 shrink-0 transition-colors group-hover:text-primary" />
-            <span className="flex-1 truncate text-sm text-muted-foreground/80 font-mono">
-              {placeholder}
-            </span>
-            {indexed > 0 && (
-              <span className="hidden lg:inline-flex shrink-0 items-center gap-1 text-[10px] font-mono text-muted-foreground/40" title={`${indexed.toLocaleString()} instruments indexed`}>
-                {indexed.toLocaleString()} indexed
+         {/* Live price ribbon (flexible, fills the middle) + search + terminal */}
+         <div className="flex-1 flex items-center justify-end gap-2 md:gap-3 min-w-0 px-2">
+            <PriceRibbon className="flex-1" />
+            <button
+              onClick={() => useCommandStore.getState().setOpen(true)}
+              className="command-glass-bar group flex w-[38%] min-w-0 max-w-md shrink items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
+              title="Search & command center (⌘K)"
+            >
+              <Search size={16} className="text-muted-foreground/70 shrink-0 transition-colors group-hover:text-primary" />
+              <span className="flex-1 truncate text-sm text-muted-foreground/80 font-mono">
+                {placeholder}
               </span>
-            )}
-            <kbd className="hidden sm:inline-flex items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-              {modKey === '⌘' ? <Command size={11} /> : <span>{modKey}</span>}
-              K
-            </kbd>
-          </button>
-       </div>
-    </div>
+              {indexed > 0 && (
+                <span className="hidden lg:inline-flex shrink-0 items-center gap-1 text-[10px] font-mono text-muted-foreground/40" title={`${indexed.toLocaleString()} instruments indexed`}>
+                  {indexed.toLocaleString()} indexed
+                </span>
+              )}
+              <kbd className="hidden sm:inline-flex items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+                {modKey === '⌘' ? <Command size={11} /> : <span>{modKey}</span>}
+                K
+              </kbd>
+            </button>
+            <TerminalButton />
+         </div>
+     </div>
+  );
+}
+
+/**
+ * The terminal toggle, at the header's right edge. It reads/writes the shared
+ * `useTerminalStore`, so it and the Ctrl/Cmd + ` shortcut are the same control.
+ */
+function TerminalButton() {
+  const open = useTerminalStore((s) => s.open);
+  const toggle = useTerminalStore((s) => s.toggle);
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label="Toggle terminal"
+      aria-pressed={open}
+      title="Terminal (Ctrl/Cmd + `)"
+      className={cn(
+        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors',
+        open
+          ? 'bg-white/[0.08] text-primary'
+          : 'text-muted-foreground/70 hover:bg-accent hover:text-foreground',
+      )}
+    >
+      <Terminal size={18} />
+    </button>
   );
 }

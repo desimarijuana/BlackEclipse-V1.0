@@ -116,6 +116,38 @@ def test_health_and_usage_shapes(client: TestClient) -> None:
     assert "requests" in body and "totalTokens" in body
 
 
+def test_discover_returns_served_ids_separately_from_the_merged_registry(
+    client: TestClient, monkeypatch
+) -> None:
+    # A local server that serves only ONE model the catalog has never heard of:
+    # the merged `models` list still includes the declared placeholder, while
+    # `served` is exactly what the provider reported. The composer relies on that
+    # distinction to pick a default that will not 404.
+    from harness.model_runtime.providers import openai as openai_adapter
+
+    async def fake_discover(self, settings):  # noqa: ANN001
+        return ["glm-5.3:cloud"]
+
+    monkeypatch.setattr(
+        openai_adapter.OpenAICompatibleAdapter, "discover_models", fake_discover
+    )
+
+    res = client.post(
+        "/model-runtime/providers/ollama/discover",
+        json={"baseUrl": "http://localhost:11434/v1"},
+        headers=_operator_headers(),
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["served"] == ["glm-5.3:cloud"]
+    merged_ids = {m["id"] for m in body["models"]}
+    assert "glm-5.3:cloud" in merged_ids
+    # The declared placeholder is present in the merged view, but NOT served.
+    assert "llama3.1" in merged_ids
+    assert "llama3.1" not in body["served"]
+
+
 def test_discover_unknown_provider_is_404(client: TestClient) -> None:
     res = client.post(
         "/model-runtime/providers/not-a-provider/discover",

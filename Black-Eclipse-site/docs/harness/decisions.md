@@ -3527,3 +3527,55 @@ in place. New tables are additive on `agent-memory.db`. Tests:
 `python/tests/test_terminal_{buffer,shell_and_runtimes,process,session,store_and_recovery,tools,api,e2e}.py`.
 Full suite green; `npx tsc --noEmit` clean.
 
+
+## ADR-H127 — Real PTY by default; Docker/SSH runtimes; runaway is reported, never auto-killed
+
+**Status:** Accepted (2026-10-05)
+
+**Context.** ADR-H126 shipped the terminal subsystem with four explicit
+limitations: a piped fallback when no PTY library was installed, Docker/SSH
+runtimes that only declared an interface, and no resource telemetry or
+runaway-process policy. A coding harness that cannot render a real interactive
+prompt, run a build inside the project's container, or notice a spinning process
+is missing the things its execution loop is most often pointed at.
+
+**Decision.**
+
+1. **Real PTY is the default.** `pywinpty` (Windows) / `ptyprocess` (POSIX) are
+   declared in `python/requirements.txt` behind platform markers, so the default
+   install yields a genuine ConPTY/forkpty (`pty: true`). The agent-facing session
+   text has ANSI stripped; the UI reads the raw buffer so a real terminal can
+   render. A `cd`/`export` is sent to the REAL shell, the resulting cwd is read
+   from the shell's own prompt via the sentinel, then confined to the workspace; a
+   command that leaves the root is refused and the shell returned to the root. The
+   piped fallback remains, and stays honestly reported as `pty: false`.
+2. **Docker and SSH are implemented** for command execution and background
+   processes, behind operator config (`HARNESS_TERMINAL_DOCKER_CONTAINER`/`_WORKDIR`,
+   `HARNESS_TERMINAL_SSH_HOST`). Interactive sessions for them refuse
+   `NOT_IMPLEMENTED` (a session needs a shell we drive directly). SSH uses the
+   host's own OpenSSH config/agent with `BatchMode=yes`; the subsystem never reads,
+   stores or forwards a key or password. A new `extra_env()` lets a runtime forward
+   only the non-secret host variables its client needs (`DOCKER_HOST`,
+   `SSH_AUTH_SOCK`), merged over the scrubbed base environment.
+3. **Runaway is reported, never auto-killed.** `resources.py` reads CPU/memory
+   directly from the OS (no `psutil`). `ResourceLimits` refuses a start past
+   `maxProcesses` with `PROCESS_LIMIT`, and flags — but never kills — a process
+   whose output buffer or lifetime exceeds its bound, emitting
+   `terminal.process.runaway`. A legitimate long-running dev server is exactly the
+   case this must not mistake for a fault.
+
+**Why.** The alternative — keeping the four limitations — would leave the harness
+unable to do the interactive work it exists for, and the alternative to (3), an
+auto-kill, would destroy a user's server on a heuristic. The honest middle is:
+real capability by default where the platform supports it, operator configuration
+for the remote surfaces, and a report-and-let-the-operator-decide rule for a
+possible runaway.
+
+**Consequences.** `requirements.txt` gains two optional-but-default deps (with
+markers, so neither is installed needlessly). `runtimes.py` grows past its prior
+stub; `shell_detect.capabilities()` now lists a runtime only when it can actually
+serve a command. `policy.SECRET_ENV_ALLOWLIST` is unchanged — runtime-specific vars
+come from `extra_env()` per call, not the global allowlist. Tests:
+`test_terminal_resources.py`, the Docker/SSH unit cases, and real-PTY session
+coverage. Full Python suite green (2636); Vitest 2093; tsc clean; eval gates PASS.
+

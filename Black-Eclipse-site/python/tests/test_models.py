@@ -29,13 +29,11 @@ def test_list_providers_shape():
 
 def test_list_providers_marks_runtime_discoverable_endpoints():
     providers = {p["id"]: p for p in models.list_providers()}
-    # A local server / router can only be enumerated at runtime.
-    assert providers["ollama"]["dynamicDiscovery"] is True
-    assert providers["lmstudio"]["dynamicDiscovery"] is True
-    assert providers["openrouter"]["dynamicDiscovery"] is True
-    assert providers["custom"]["dynamicDiscovery"] is True
-    # A fixed hosted API declares its whole model list statically.
-    assert providers["openai"]["dynamicDiscovery"] is False
+    # Every provider can enumerate its models on demand: a local server lists
+    # what is installed, and a hosted API/router lists its live catalog, so the
+    # operator sees real current model ids rather than only a declared sample.
+    for provider in ("ollama", "lmstudio", "openrouter", "custom", "openai"):
+        assert providers[provider]["dynamicDiscovery"] is True, provider
 
 
 def test_unknown_provider_raises():

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listModelProviders, listRuntimeModels, HarnessRuntimeUnavailable } from "@/lib/harness";
+import { readDiscoveredModels } from "@/lib/agent/discovered-models";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +13,18 @@ export async function GET() {
   try {
     const providers = await listModelProviders();
 
-    // Best-effort: the runtime's in-process registry holds dynamically
-    // discovered models. When the registry call fails the declared catalog is
-    // returned unchanged, so the picker never breaks.
+    // Every place a discovered model can live, merged in order of durability:
+    //   1. the durable SystemConfig snapshot (survives a runtime restart),
+    //   2. the runtime's in-process registry (freshest, lost on restart).
     const discoveredByProvider = new Map<string, string[]>();
+    try {
+      const snapshot = await readDiscoveredModels();
+      for (const [id, ids] of Object.entries(snapshot.providers)) {
+        discoveredByProvider.set(id, [...ids]);
+      }
+    } catch {
+      // No durable snapshot — the runtime registry below still contributes.
+    }
     try {
       const models = await listRuntimeModels();
       for (const m of models) {

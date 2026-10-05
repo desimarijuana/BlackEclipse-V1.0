@@ -105,7 +105,8 @@ def test_capabilities_report_pty_and_runtimes_honestly(tmp_path):
     caps = mgr.capabilities()
     assert "local" in caps["runtimes"]
     assert isinstance(caps["pty"], bool)
-    assert caps["runtimesDetailed"]["docker"]["implemented"] is False
-    assert caps["runtimesDetailed"]["ssh"]["implemented"] is False
+    # Implemented, but optional: unavailable until an operator configures them.
+    assert caps["runtimesDetailed"]["docker"]["implemented"] is True
+    assert caps["runtimesDetailed"]["ssh"]["implemented"] is True
     assert caps["runtimesDetailed"]["local"]["available"] is True
     store.close()

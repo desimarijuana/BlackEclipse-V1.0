@@ -106,3 +106,55 @@ def test_unknown_runtime_is_refused_on_session_open(app):
     with TestClient(application) as client:
         res = client.post("/terminal/sessions", json={"runtime": "docker"})
         assert res.status_code == 503
+
+
+def test_ui_owner_reattaches_to_the_same_session(app):
+    application, _ = app
+    with TestClient(application) as client:
+        first = client.post("/terminal/sessions", json={"owner": "term-ui-1"}).json()["session"]
+        second = client.post("/terminal/sessions", json={"owner": "term-ui-1"}).json()["session"]
+        assert first["sessionId"] == second["sessionId"]
+        # A different owner is a different shell.
+        other = client.post("/terminal/sessions", json={"owner": "term-ui-2"}).json()["session"]
+        assert other["sessionId"] != first["sessionId"]
+
+
+def test_raw_input_and_stream_round_trip(app):
+    application, manager = app
+    with TestClient(application) as client:
+        opened = client.post("/terminal/sessions", json={"owner": "term-ui-raw"}).json()["session"]
+        sid = opened["sessionId"]
+        # Wait for the shell prompt, then send raw keystrokes like xterm.onData.
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if ">" in manager.read_shell_output(sid, tail=50).get("text", "") or opened["pty"] is False:
+                break
+            time.sleep(0.2)
+        res = client.post(f"/terminal/sessions/{sid}/raw", json={"data": "echo raw_ok\r"})
+        assert res.status_code == 200
+        got = ""
+        cursor = 0
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and "raw_ok" not in got:
+            body = client.get(f"/terminal/sessions/{sid}/stream", params={"since": cursor, "timeout": 2}).json()
+            cursor = body["nextSequence"]
+            got += body["text"]
+        assert "raw_ok" in got, got
+        assert body["running"] is True
+
+
+def test_resources_route_reports_limits(app):
+    application, _ = app
+    with TestClient(application) as client:
+        body = client.get("/terminal/resources").json()
+        assert body["success"] is True
+        assert "limits" in body and "maxProcesses" in body["limits"]
+        assert body["system"]["cpuCount"] >= 1
+
+
+def test_unavailable_runtime_is_refused_on_execute(app):
+    application, _ = app
+    with TestClient(application) as client:
+        res = client.post("/terminal/execute", json={"command": "echo x", "runtime": "docker"})
+        assert res.status_code == 200
+        assert res.json()["result"]["status"] == "unavailable"

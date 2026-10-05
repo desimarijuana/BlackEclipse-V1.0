@@ -221,8 +221,16 @@ class ModelRuntime:
     def register_model(self, model: ModelInfo) -> None:
         self.models.register_model(model)
 
-    async def discover(self, settings: Any, *, provider_id: Optional[str] = None) -> list[ModelInfo]:
-        """Discover a provider's models and register them (best-effort)."""
+    async def discover_served(self, settings: Any, *, provider_id: Optional[str] = None) -> list[str]:
+        """The RAW model ids a live provider actually serves (best-effort).
+
+        This is the provider's own list, BEFORE it is merged into the registry.
+        It is the authoritative "what is installed/served" signal: the static
+        catalog's declared models (Ollama's `llama3.1`, LM Studio's
+        `local-model`) may not be installed at all, so the registry merge cannot
+        distinguish a served declared model from an absent placeholder. Callers
+        that need to pick a default that will not 404 use this.
+        """
         provider_id = provider_id or getattr(settings, "provider", None)
         if not provider_id:
             return []
@@ -230,7 +238,14 @@ class ModelRuntime:
         if provider is None:
             return []
         adapter = adapter_for(kind=provider.kind, provider_id=provider_id)
-        model_ids = await adapter.discover_models(settings)
+        return await adapter.discover_models(settings)
+
+    async def discover(self, settings: Any, *, provider_id: Optional[str] = None) -> list[ModelInfo]:
+        """Discover a provider's models and register them (best-effort)."""
+        provider_id = provider_id or getattr(settings, "provider", None)
+        if not provider_id:
+            return []
+        model_ids = await self.discover_served(settings, provider_id=provider_id)
         return self.models.discover_models(provider_id, model_ids)
 
     async def health_check_provider(self, settings: Any) -> dict[str, Any]:

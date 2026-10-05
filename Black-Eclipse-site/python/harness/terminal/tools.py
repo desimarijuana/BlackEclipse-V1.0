@@ -36,7 +36,7 @@ _TERMINAL_TOOL_NAMES = (
     "start_process", "stop_process", "restart_process", "kill_process",
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
-    "list_ports", "terminal_capabilities", "system_info",
+    "list_ports", "terminal_capabilities", "system_info", "resource_report",
 )
 
 _PROFILE_DENIED = ("PROFILE_DENIED", "this task isn't set up to run commands")
@@ -273,10 +273,15 @@ async def execute_command(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
     # Defense in depth: re-classify in the handler. A `deny` shape never runs even
     # if the effect authorizer is bypassed; an `ask` was already approved upstream.
     from ..code.shell_tools import _verdict  # noqa: PLC0415
+    from .runtimes import RuntimeUnavailable, select_runtime  # noqa: PLC0415
 
     verdict = _verdict(model.command)
     if verdict.kind == "deny":
         return _refusal("COMMAND_NOT_ALLOWLISTED", verdict.reason)
+    try:
+        select_runtime(model.runtime)
+    except RuntimeUnavailable as exc:
+        return _refusal("RUNTIME_UNAVAILABLE", exc.reason)
     from ..code.tools import emit_code_event  # noqa: PLC0415
 
     meta = _context_meta(ctx)
@@ -476,10 +481,15 @@ async def start_process(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
     # Defense in depth: a destructive shape never starts, even if the authorizer
     # is bypassed. An `ask` command was already approved upstream.
     from ..code.shell_tools import _verdict  # noqa: PLC0415
+    from .runtimes import RuntimeUnavailable, select_runtime  # noqa: PLC0415
 
     verdict = _verdict(model.command)
     if verdict.kind == "deny":
         return _refusal("COMMAND_NOT_ALLOWLISTED", verdict.reason)
+    try:
+        select_runtime(model.runtime)
+    except RuntimeUnavailable as exc:
+        return _refusal("RUNTIME_UNAVAILABLE", exc.reason)
     meta = _context_meta(ctx)
     info = manager.start_process(
         command=model.command, cwd=str(cwd), shell=model.shell, runtime=model.runtime,
@@ -674,9 +684,12 @@ async def system_info(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
     manager = _manager()
     if manager is None:
         return _refusal(*_NO_RUNTIME)
+    import asyncio as _asyncio
+
     caps = manager.capabilities()
     processes = manager.list_processes()
     ports = manager.list_ports()
+    resources = await _asyncio.to_thread(manager.processes.resource_report)
     running = [p for p in processes if p["state"] == "RUNNING"]
     data = {
         "platform": caps["platform"],
@@ -690,13 +703,34 @@ async def system_info(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
         "runningCount": len(running),
         "sessionCount": len(manager.list_shells()),
         "listeningPorts": len(ports),
-        "cpuCount": os.cpu_count(),
+        "cpuCount": resources["system"]["cpuCount"],
+        "memoryUsedPct": resources["system"]["memoryUsedPct"],
+        "resourceLimits": resources["limits"],
     }
     text = (
         f"{data['platform']}/{data['architecture']}: {data['runningCount']} running process(es), "
-        f"{data['sessionCount']} session(s), {data['listeningPorts']} listening port(s)."
+        f"{data['sessionCount']} session(s), {data['listeningPorts']} listening port(s); "
+        f"memory {data['memoryUsedPct']}% used."
     )
     return text, {"status": "ok", **data}
+
+
+async def resource_report(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    manager = _manager()
+    if manager is None:
+        return _refusal(*_NO_RUNTIME)
+    import asyncio as _asyncio
+
+    report = await _asyncio.to_thread(manager.processes.resource_report)
+    system = report["system"]
+    text = (
+        f"{system['cpuCount']} CPUs; memory {system['memoryUsedPct']}% used; "
+        f"{report['activeProcesses']} active process(es) (limit {report['limits']['maxProcesses']})."
+    )
+    runaway = [p["processId"] for p in report["processes"] if p.get("runaway")]
+    if runaway:
+        text += f" Possibly running away: {', '.join(runaway)}."
+    return text, {"status": "ok", **report}
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -760,6 +794,7 @@ def terminal_schemas() -> dict[str, dict[str, Any]]:
         "list_ports": _obj({"port": {"type": "integer", "description": "Optional: report whether one specific port is in use."}}),
         "terminal_capabilities": _obj({}),
         "system_info": _obj({}),
+        "resource_report": _obj({}),
     }
 
 
@@ -775,7 +810,7 @@ def register_terminal_tools(registry: Any) -> list[str]:
     read_tools = {
         "list_terminal_sessions", "terminal_session_status", "read_shell_output",
         "list_processes", "process_status", "read_process_output", "process_tree", "process_health",
-        "list_ports", "terminal_capabilities", "system_info",
+        "list_ports", "terminal_capabilities", "system_info", "resource_report",
     }
     handlers = {
         "execute_command": execute_command,
@@ -793,7 +828,7 @@ def register_terminal_tools(registry: Any) -> list[str]:
         "read_process_output": read_process_output, "write_process_input": write_process_input,
         "send_signal": send_signal, "process_tree": process_tree, "process_health": process_health,
         "list_ports": list_ports, "terminal_capabilities": terminal_capabilities,
-        "system_info": system_info,
+        "system_info": system_info, "resource_report": resource_report,
     }
     descriptions = {
         "execute_command": "Run a command in the project folder and wait for it to finish. Returns bounded stdout, the exit code and a structured error when it fails.",
@@ -820,6 +855,7 @@ def register_terminal_tools(registry: Any) -> list[str]:
         "list_ports": "List the ports currently in use, or report who holds one specific port. Read-only.",
         "terminal_capabilities": "Report what this computer can actually do: shells, runtimes, pty, docker, ssh. Read-only.",
         "system_info": "Report the host and the current terminal activity (processes, sessions, ports). Read-only.",
+        "resource_report": "Report CPU, memory and how many processes are running, plus any that look like they are running away. Read-only.",
     }
     added: list[str] = []
     for name in _TERMINAL_TOOL_NAMES:

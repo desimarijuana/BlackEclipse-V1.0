@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star } from 'lucide-react';
+import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star } from '@/lib/icons';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
@@ -571,7 +571,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 : 'bg-accent hover:bg-accent/80 text-accent-foreground border-border/40'
             }`}
           >
-            <Bookmark size={13} className="mr-1.5" fill={savedIds.has(selectedNews.id) ? 'currentColor' : 'none'} />
+            <Bookmark size={13} className="mr-1.5" weight={savedIds.has(selectedNews.id) ? 'fill' : 'regular'} />
             {savedIds.has(selectedNews.id) ? 'Saved' : 'Save'}
           </Button>
           <Button
@@ -732,7 +732,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                   : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground'
               }`}
             >
-              <Star size={12} fill={myStocksOnly ? 'currentColor' : 'none'} /> My Stocks
+              <Star size={12} weight={myStocksOnly ? 'fill' : 'regular'} /> My Stocks
             </button>
             <button
               onClick={() => {
@@ -748,7 +748,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                   : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground'
               }`}
             >
-              <Bookmark size={12} fill={savedView ? 'currentColor' : 'none'} /> Saved{savedIds.size > 0 ? ` (${savedIds.size})` : ''}
+              <Bookmark size={12} weight={savedView ? 'fill' : 'regular'} /> Saved{savedIds.size > 0 ? ` (${savedIds.size})` : ''}
             </button>
             <FilterSelect
               selectRef={filterRef}
@@ -1179,7 +1179,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                       }`}
                       title={savedIds.has(item.id) ? 'Remove bookmark' : 'Bookmark article'}
                     >
-                      <Bookmark size={13} fill={savedIds.has(item.id) ? 'currentColor' : 'none'} />
+                      <Bookmark size={13} weight={savedIds.has(item.id) ? 'fill' : 'regular'} />
                     </button>
                     <span className="flex-1" />
                     <Button

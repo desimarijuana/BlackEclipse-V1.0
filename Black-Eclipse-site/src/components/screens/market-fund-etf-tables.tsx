@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ArrowUp, ArrowDown, Info, Sparkles, Star } from 'lucide-react';
+import { ArrowUp, ArrowDown, Info, Sparkles, Star } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './market-loaders';
@@ -296,7 +296,7 @@ export function FundEtfTables(props: FundEtfTablesProps) {
                                 <Star 
                                   key={idx} 
                                   size={11} 
-                                  fill={idx < (fund.rating ?? 0) ? 'currentColor' : 'none'}
+                                  weight={idx < (fund.rating ?? 0) ? 'fill' : 'regular'}
                                   className={idx < (fund.rating ?? 0) ? 'text-amber-400' : 'text-muted-foreground/30'}
                                 />
                               ))}

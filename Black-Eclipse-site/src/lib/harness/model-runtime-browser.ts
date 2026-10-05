@@ -55,6 +55,8 @@ export interface DiscoveryResult {
   ok: boolean;
   detail: string | null;
   models: RuntimeModelView[];
+  /** The provider's OWN served model ids (before the registry merge). */
+  served: string[];
 }
 
 /** Probe a live provider (Ollama/router) and register the models it serves. */
@@ -62,7 +64,12 @@ export async function discoverRuntimeModels(
   providerId: string,
   connection: { baseUrl?: string | null; apiKey?: string | null; model?: string | null },
 ): Promise<DiscoveryResult> {
-  const body = await api<{ ok: boolean; detail?: string | null; models: RuntimeModelView[] }>(
+  const body = await api<{
+    ok: boolean;
+    detail?: string | null;
+    models: RuntimeModelView[];
+    served?: string[];
+  }>(
     `/api/harness/model-runtime/providers/${encodeURIComponent(providerId)}/discover`,
     {
       method: "POST",
@@ -73,7 +80,12 @@ export async function discoverRuntimeModels(
       }),
     },
   );
-  return { ok: Boolean(body.ok), detail: body.detail ?? null, models: body.models ?? [] };
+  return {
+    ok: Boolean(body.ok),
+    detail: body.detail ?? null,
+    models: body.models ?? [],
+    served: Array.isArray(body.served) ? body.served.filter((m) => typeof m === "string" && m) : [],
+  };
 }
 
 export async function getRuntimeRouting(): Promise<RuntimeRoutingView> {

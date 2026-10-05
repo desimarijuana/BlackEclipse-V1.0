@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { X } from "lucide-react"
+import { X } from "@/lib/icons"
 import { cn } from "@/lib/utils"
 
 export interface TabItem {
@@ -81,16 +81,26 @@ export function TabBar({
           'group flex items-center gap-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0',
           variant === 'glass' ? 'px-4 py-2' : 'px-3 py-1.5',
           active
-            ? 'bg-primary/15 text-primary'
+            ? 'text-primary'
             : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
           onReorder && 'cursor-grab active:cursor-grabbing',
           onReorder && overId === item.id && dragId !== item.id && 'ring-1 ring-primary/60 bg-primary/5',
           dragId === item.id && 'opacity-40',
         )
+        // The active pill carries the secondary brand tint (`--brand-accent`):
+        // a subtle primary→accent wash + accent hairline, so editing the theme's
+        // "Accent" color visibly changes the active state everywhere tabs are used.
+        const activeStyle = active
+          ? {
+              backgroundImage:
+                'linear-gradient(135deg, rgb(var(--brand-rgb) / 0.20), rgb(var(--brand-accent-rgb) / 0.20))',
+              boxShadow: 'inset 0 0 0 1px rgb(var(--brand-accent-rgb) / 0.35)',
+            }
+          : undefined
 
         if (item.editing) {
           return (
-            <div key={item.id} className={classNameForTab} aria-pressed={active}>
+            <div key={item.id} className={classNameForTab} style={activeStyle} aria-pressed={active}>
               {item.label}
             </div>
           )
@@ -114,6 +124,7 @@ export function TabBar({
             onDragEnd={onReorder ? () => { setDragId(null); setOverId(null) } : undefined}
             aria-pressed={active}
             className={classNameForTab}
+            style={activeStyle}
             title={onReorder ? 'Drag to reorder · double-click to rename' : undefined}
           >
             {Icon && <Icon size={12} />}
