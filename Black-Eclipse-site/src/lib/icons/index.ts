@@ -364,7 +364,7 @@ export {
   Phosphor_ArrowCounterClockwise as RotateCcw,
   Phosphor_Ruler as Ruler,
   Phosphor_FloppyDisk as Save,
-  Phosphor_Scan as ScanEye,
+  Phosphor_Eye as ScanEye,
   Phosphor_Scan as ScanSearch,
   Phosphor_Scissors as Scissors,
   Phosphor_Scroll as ScrollText,

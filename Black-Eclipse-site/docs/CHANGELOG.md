@@ -8,6 +8,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **Investor Eye icon now shows an actual eye.** Phosphor has no "scan eye"
+  glyph, so the `ScanEye` alias (sidebar entry, dashboard widget, full-page map,
+  global search) mapped to the scanner crosshair (`Scan`) — it read as a scan,
+  not an eye. It now maps to Phosphor `Eye` in `src/lib/icons/index.ts`.
+  `npx tsc --noEmit` clean.
+  no doc change — icon mapping fix within the ADR-041 contract.
+
 - **Icon set switched from Lucide to Phosphor behind one aliased module.** Every
   icon now renders Phosphor (`@phosphor-icons/react`) via a new central surface
   `src/lib/icons/index.ts`, which re-exports each glyph under its original Lucide
