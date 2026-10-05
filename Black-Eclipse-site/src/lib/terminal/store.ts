@@ -94,6 +94,26 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   newShell: () => set((s) => ({ generation: s.generation + 1, open: true })),
 }));
 
+const OWNER_KEY = 'eclipse-terminal-owner';
+
+/**
+ * A stable per-browser terminal id. The dock and a pop-out/new-window terminal
+ * share it, so they all attach to the SAME running shell instead of each opening
+ * a fresh one.
+ */
+export function terminalOwnerId(): string {
+  if (typeof window === 'undefined') return 'terminal-ui';
+  try {
+    const existing = window.localStorage.getItem(OWNER_KEY);
+    if (existing) return existing;
+    const created = `terminal-ui-${Math.random().toString(36).slice(2, 10)}`;
+    window.localStorage.setItem(OWNER_KEY, created);
+    return created;
+  } catch {
+    return 'terminal-ui';
+  }
+}
+
 /**
  * Hydrate the persisted open state and placement ONCE on the client, after mount,
  * so SSR and the first client render agree (no hydration mismatch).

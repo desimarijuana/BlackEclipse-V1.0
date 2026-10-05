@@ -84,7 +84,7 @@ export function PreviewLauncher({
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/30 glass-card-subtle px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary">
             <Maximize2 size={15} />
@@ -94,7 +94,7 @@ export function PreviewLauncher({
             <p className="text-[10px] text-muted-foreground">Open the live app full screen to audition your draft theme in place.</p>
           </div>
         </div>
-        <Button size="sm" className="rounded-xl cursor-pointer" onClick={onEnter}>
+        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={onEnter}>
           <Eye className="mr-1 h-3.5 w-3.5" /> Enter full-screen preview
         </Button>
       </div>

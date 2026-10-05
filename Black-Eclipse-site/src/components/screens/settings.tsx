@@ -30,7 +30,7 @@ import { MCPSettingsPanel } from "./mcp-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
-import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, useProviderHealth } from "./provider-registry-panel";
+import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
@@ -442,16 +442,6 @@ export function Settings({
 
   const GROUPS: Array<"Personalize" | "Intelligence" | "System"> = ["Personalize", "Intelligence", "System"];
 
-  // Rail attention dots: sections whose providers still need a key.
-  const { health: homeHealth } = useProviderHealth();
-  const ATTENTION: Record<string, number> = {
-    ai: homeHealth.ai.needsKey,
-    "investor-eye": homeHealth["investor-eye"].needsKey,
-    economics: homeHealth.economics.needsKey,
-    news: homeHealth.news.needsKey,
-    market: homeHealth.market.needsKey,
-  };
-
   const needle = query.trim().toLowerCase();
   const visibleNav = useMemo(() => {
     if (!needle) return NAV;
@@ -581,15 +571,9 @@ export function Settings({
                     >
                       <span className="flex items-center gap-3 min-w-0">
                         <Icon size={15} className={cn("shrink-0", active ? "text-foreground" : "text-muted-foreground")} />
-                        <span className="flex flex-col items-start leading-tight">
+                        <span className="flex flex-col items-start text-left leading-tight">
                           <span className="flex items-center gap-1.5">
                             {item.label}
-                            {ATTENTION[item.id] > 0 && !active && (
-                              <span
-                                className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
-                                title={`${ATTENTION[item.id]} provider${ATTENTION[item.id] === 1 ? "" : "s"} need a key`}
-                              />
-                            )}
                           </span>
                           <span className="text-[9px] text-muted-foreground font-normal tracking-wide hidden lg:block">{item.desc}</span>
                         </span>
@@ -629,16 +613,11 @@ export function Settings({
                     >
                       <Icon size={13} className={active ? "text-foreground" : "text-muted-foreground"} />
                       {item.label}
-                      {ATTENTION[item.id] > 0 && !active && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      )}
                     </button>
                   );
                 })}
               </div>
             </div>
-
-            <SettingsStatusHeader />
 
             {section === "general" && (
               <div className="animate-fade-in-up">
@@ -959,9 +938,6 @@ export function Settings({
             </span>
           )}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground font-mono">
-              {feeds.filter((f) => f.enabled).length}/{feeds.length} feeds live
-            </span>
             <Button
               variant="outline"
               size="sm"

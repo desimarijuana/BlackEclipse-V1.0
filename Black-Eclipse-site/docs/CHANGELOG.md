@@ -22,6 +22,43 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `npx tsc --noEmit` clean; investor-eye tests pass.
   no doc change — behaviour within the existing `lines` layer contract.
 
+- **Added white-background theme presets (`White`, `Paper`, `Snow`, `Ivory`).**
+  A new internal `scheme: 'dark' | 'light'` token on `EclipseTheme` lets a
+  preset switch the whole app to a light look in one click — selectable from the
+  normal preset grid, no separate mode toggle. `applyThemeToDocument` owns the
+  `dark` class (was hardcoded in `layout.tsx`, which now only seeds the dark
+  default plus a pre-paint script to avoid a flash) and scopes color vars to
+  `html.dark` / `html:not(.dark)` by scheme; light presets carry dark ink text,
+  white surfaces, a light landing and a dark wordmark. Charts resolve
+  grid/axis/tooltip chrome from the scheme (`eclipse-provider.ts`), and a scoped
+  compatibility layer in `globals.css` remaps hardcoded dark neutral utilities
+  (`border-white/*`, `bg-black/*`, `bg-white/*`, `text-white/*`, near-black
+  hexes, aurora glow) when light. Verified with `npx tsc --noEmit`,
+  `npm run test` (188 files, all pass) and `npm run build`.
+  docs updated: `ARCHITECTURE.md`, `NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Settings: removed the yellow "providers need a key" attention dots.** The
+  rail and mobile pill indicators (and the `ATTENTION` map / `useProviderHealth`
+  wiring behind them) are gone (`settings.tsx`). `npx tsc --noEmit` clean.
+  no doc change — UI-surface removal only.
+
+- **General settings: folded the full-screen preview launcher into the sticky
+  Live-preview/Apply card, and fixed the rail item text alignment.** The
+  "Preview on the real app" row is now a section inside the sticky card
+  (`customization-settings.tsx` / `customization-preview.tsx`) instead of a
+  separate card below it. The left-nav buttons inherited browser-default
+  `text-align: center`, so wrapped description lines centered under the icon;
+  added `text-left` (`settings.tsx`). `npx tsc --noEmit` clean.
+  no doc change — UI-surface layout fix only.
+
+- **Settings cleanup: removed the provider-count status banner and the footer
+  "N/M feeds live" readout.** Dropped the `SettingsStatusHeader` component
+  (`provider-registry-panel.tsx`) and its render in `settings.tsx`; the footer
+  keeps only the save-state line and the Reload button. `npx tsc --noEmit`
+  clean; `vitest` green apart from a pre-existing `stock-chat.tsx` size-budget
+  failure (unrelated, file not touched).
+  no doc change — copy/UI-surface removal only.
+
 - **Restored a green size-budget guard after the terminal/model work grew the
   SPA shell.** `stock-chat.tsx` reached 1237 lines (terminal-dock plumbing plus
   the focus-mode "tuck the terminal" effect) while its ratchet stayed pinned at
@@ -101,6 +138,38 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   A prior commit narrowed the desktop sidebar and the Settings rail from `w-60`
   to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
   `settings.tsx` rail). no doc change — layout fix; no contract change.
+
+- **Terminal: narrow-screen overlap fix, detach pop-out, and a new-window terminal.**
+  Three fixes/features. (1) Overlap in sidebar/narrow mode: the right dock was a
+  fixed-width column at every width, so on a narrow viewport it covered the main
+  panel; it now collapses to a bottom strip below `md` (`md:w-[24rem] lg:w-[26rem]`,
+  else full-width strip) and the header wraps instead of crowding, so nothing
+  overlaps. (2) The stray `?1;2c` in the terminal: xterm answers the shell's
+  Device-Attributes query (`ESC[c`) with `ESC[?1;2c`; we forward every keystroke to
+  the PTY, so PowerShell echoed it literally. The answer and its echo are now
+  filtered from the DISPLAY stream (`stripTerminalNoise`); terminal output is
+  otherwise untouched. (3) Detach + new window: a detach control turns the docked
+  terminal into a draggable floating pop-out sharing the same session, and a
+  new-window control opens `/terminal?session=<id>`, a standalone page
+  (`terminal-window.tsx`) that ATTACHES to the running shell (or opens its own if
+  no id). Added `terminalOwnerId()` so the dock, pop-out and window share one owner.
+  Added `ArrowDownToLine`/`SquareArrowOutUpRight` to the icon surface. Full Python
+  suite green; Vitest **2139 passed**; `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/terminal-architecture.md`.
+
+- **Terminal is now a real docked region, not a floating overlay.** It no longer
+  overlaps the app (including the ChatBot). The app shell reserves the space: docked
+  **bottom** the terminal is a strip inside the shell below the main content, docked
+  **right** it is a full-height column beside the main panel (which shrinks), and
+  **full page** it covers the window. Sidebar + main column + right dock are one flex
+  row, with the bottom dock below it; the terminal is no longer `fixed` in the root
+  layout (the floating `terminal-panel.tsx` is deleted). Placement is persisted and
+  the shell hydrates it on mount (`useTerminalShell`), so the docked region reserves
+  its space on first paint. The terminal refits and the PTY resizes on every
+  placement change, and the shell is preserved across placement switches (bottom →
+  right keeps history). Fixed a latent `api-guard` same-origin check in the same
+  change (see above). Extracted `useTerminalShell` to keep `stock-chat.tsx` within its
+  size ratchet. docs updated: `docs/harness/terminal-architecture.md`.
 
 - **Terminal: fix typing and add bottom / right / full-page placement.** Three real
   bugs fixed. (1) Typing did nothing: the mutation guard compared `Origin`

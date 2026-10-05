@@ -23,16 +23,36 @@ function stripSentinel(text: string): string {
     .join("\r\n");
 }
 
+//: xterm.js ANSWERS Device-Attributes queries (`ESC [ c`) with `ESC [ ? 1 ; 2 c`.
+//: We forward every keystroke to the PTY, so that answer reaches PowerShell,
+//: which echoes it literally — the stray `?1;2c` seen on screen. The PTY does not
+//: need the answer, so it is dropped from the DISPLAY stream (the shell's own
+//: echo of the exact bytes is dropped too). Terminal output is never silently
+//: altered beyond this documented sequence.
+const _DA_REPLY = /\x1b\[\?1;\d+c|\?1;\d+c/g;
+function stripTerminalNoise(text: string): string {
+  if (!text.includes("\x1b[?") && !text.includes("?1;")) return text;
+  return text.replace(_DA_REPLY, "");
+}
+
 interface XtermTerminalProps {
   /** A shell name from the capability report (defaults to the host shell). */
   shell?: string;
   runtime?: string;
   /** A durable terminal id so reopening the panel reattaches to this shell. */
   owner?: string;
+  /**
+   * Attach to an EXISTING session instead of opening one. A pop-out / new-window
+   * terminal uses this so it shares the dock's running shell; it never closes the
+   * session on unmount (the dock owns its lifecycle).
+   */
+  sessionId?: string;
   /** The height class of the host box. Changing it refits the terminal. */
   heightClass?: string;
   /** Fill the parent's height instead of a fixed height (for a docked region). */
   fill?: boolean;
+  /** Called once a session is attached, so a parent can drive pop-out/new-window. */
+  onSession?: (info: { sessionId: string; shell: string }) => void;
 }
 
 /**
@@ -43,7 +63,15 @@ interface XtermTerminalProps {
  * latency and the window is resized to match. The session lives in the Python
  * runtime, so it survives this panel unmounting.
  */
-export function XtermTerminal({ shell, runtime = "local", owner, heightClass = "h-64", fill = false }: XtermTerminalProps) {
+export function XtermTerminal({
+  shell,
+  runtime = "local",
+  owner,
+  sessionId,
+  heightClass = "h-64",
+  fill = false,
+  onSession,
+}: XtermTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -100,7 +128,7 @@ export function XtermTerminal({ shell, runtime = "local", owner, heightClass = "
         abortRef.current = new AbortController();
         const chunk = await streamTerminalOutput(id, cursorRef.current, 15, abortRef.current.signal);
         cursorRef.current = chunk.nextSequence;
-        if (chunk.text) termRef.current?.write(stripSentinel(chunk.text));
+        if (chunk.text) termRef.current?.write(stripTerminalNoise(stripSentinel(chunk.text)));
         if (!chunk.running) {
           termRef.current?.write("\r\n\x1b[90m[session ended]\x1b[0m\r\n");
           setStatus("closed");
@@ -164,22 +192,31 @@ export function XtermTerminal({ shell, runtime = "local", owner, heightClass = "
       focusTerm = () => term.focus();
       host.addEventListener("pointerdown", focusTerm);
 
-      // Open a persistent PTY session in the runtime.
+      // Open a fresh PTY session, or ATTACH to an existing one (a pop-out window
+      // sharing the dock's shell).
       try {
-        const session = await openTerminalSession({
-          shell,
-          runtime,
-          owner,
-          rows: term.rows,
-          columns: term.cols,
-        });
+        let attached: { sessionId: string; shell: string; cwd: string; pty: boolean };
+        if (sessionId) {
+          attached = { sessionId, shell: shell ?? "", cwd: "", pty: true };
+        } else {
+          const session = await openTerminalSession({
+            shell,
+            runtime,
+            owner,
+            rows: term.rows,
+            columns: term.cols,
+          });
+          attached = session;
+        }
         if (disposed) {
-          void closeTerminalSession(session.sessionId);
+          // Only close a session we OPENED; an attached one belongs to the dock.
+          if (!sessionId) void closeTerminalSession(attached.sessionId);
           return;
         }
-        sessionRef.current = session.sessionId;
-        setMeta({ shell: session.shell, cwd: session.cwd, pty: session.pty });
+        sessionRef.current = attached.sessionId;
+        setMeta({ shell: attached.shell || (shell ?? ""), cwd: attached.cwd, pty: attached.pty });
         setStatus("open");
+        onSession?.({ sessionId: attached.sessionId, shell: attached.shell || (shell ?? "") });
         term.focus();
         void pump();
       } catch (err) {
@@ -221,7 +258,7 @@ export function XtermTerminal({ shell, runtime = "local", owner, heightClass = "
       termRef.current?.dispose();
       termRef.current = null;
     };
-  }, [shell, runtime, owner, pump, queueInput]);
+  }, [shell, runtime, owner, sessionId, onSession, pump, queueInput]);
 
   // When the panel changes placement, its host box resizes; the existing
   // ResizeObserver handles the refit, so nothing more is needed here. This effect

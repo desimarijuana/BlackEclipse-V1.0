@@ -161,9 +161,36 @@ calling `preventDefault`/`stopPropagation` so neither the browser nor a focused
 xterm can swallow it. The open state is persisted; the panel has an expand/restore
 control and a "New" shell action.
 
-The panel **docks bottom, docks right (full height), or opens full page** (a
-persisted choice). The terminal fills its host, so the PTY is resized on every
-placement change; the shell is not remounted when the placement changes.
+The terminal is a **real docked region the app layout reserves space for**, not a
+floating overlay — so it never covers the app (or the ChatBot). `TerminalDock`
+(`src/components/terminal/terminal-dock.tsx`) is rendered by the shell
+(`stock-chat.tsx`) in three slots:
+
+* **bottom** — a strip inside the shell, below the main content (the main column
+  shrinks to `h-80` above it);
+* **right** — a full-height column beside the main panel, as a sibling in one flex
+  row (`sidebar | main | terminal`), so the main panel shrinks by the dock's width;
+* **full page** — the only floating slot, because nothing else is visible behind it.
+
+Only the slot matching the chosen placement renders; the choice is persisted and
+hydrated on mount (`useTerminalShell`). The terminal refits and the PTY resizes on
+every placement change, and the shell is preserved across switches (bottom → right
+keeps its history). In focus mode the terminal is tucked away.
+
+**Narrow screens.** The right column collapses to a bottom strip below `md`
+(`md:w-[24rem] lg:w-[26rem]`), so a side dock can never overlap the main panel in
+sidebar/mobile mode; the header wraps rather than crowding.
+
+**Detach & new window.** A detach control turns the dock into a draggable floating
+pop-out that SHARES the running session; a new-window control opens
+`/terminal?session=<id>` — a standalone page (`terminal-window.tsx` +
+`src/app/terminal/page.tsx`) that attaches to the same shell, or opens its own when
+no id is given. `terminalOwnerId()` keeps the dock, pop-out and window on one owner.
+
+**Device-Attributes noise.** xterm.js answers the shell's `ESC[c` query with
+`ESC[?1;2c`; because every keystroke is forwarded to the PTY, the shell echoed it
+as `?1;2c`. The reply and its echo are filtered from the display stream
+(`stripTerminalNoise`) — the only sequence the UI alters.
 
 Input is sent as an **ordered queue**: the client keeps one request in flight and
 coalesces keystrokes typed during a round-trip, and the runtime serializes PTY

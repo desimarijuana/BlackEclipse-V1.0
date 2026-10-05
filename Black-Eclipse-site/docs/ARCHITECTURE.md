@@ -136,11 +136,23 @@ Two mechanisms:
    `localStorage`, not the DB.
      - **Centralized theming.** `src/lib/theme/` owns one serializable
       `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
-      glass, shadow, background, glow/animation). The store flattens it to CSS
-      custom properties and injects them via a managed
-      `<style id="eclipse-theme-overrides">`; color tokens are scoped to
-      `html.dark` so the General › Theme light/dark switch keeps working, while
-      typography/shape/scale/glass tokens apply globally. Because components and
+      glass, shadow, background, **scheme**, glow/animation). The store flattens
+      it to CSS custom properties and injects them via a managed
+      `<style id="eclipse-theme-overrides">`; color tokens are scoped by the
+      theme's `scheme` — `html.dark` for dark, `html:not(.dark)` for light — while
+      typography/shape/scale/glass tokens apply globally. **`scheme` is the source
+      of truth for the `<html class="dark">` flag**: the store toggles it on every
+      apply (it was previously hardcoded in `layout.tsx`, which now only seeds the
+      dark default plus a small pre-paint script that removes `dark` for a saved
+      light theme to avoid a flash). This is what makes a **light/`White` preset**
+      work end to end: applying it drops `dark`, activating both the `:root` light
+      token block and every `html:not(.dark)` recipe (glass, sidebar, calendar,
+      ws-glass). Components that hardcoded dark-only neutral utilities
+      (`border-white/*`, `bg-black/*`, `bg-white/*`, `text-white/*`, a few
+      near-black hexes) are remapped to light equivalents by a scoped
+      compatibility layer at the bottom of `globals.css`; canvas charts resolve
+      their grid/axis/tooltip chrome from the scheme in `eclipse-provider.ts`.
+      Because components and
       charts already read `--primary` / `--font-mono` / `--radius` / `--bullish` /
       `--bearish` / `--font-scale`, one theme object recolors the whole app with no
       per-component wiring. `ThemeColors` exposes the eight core tokens plus four

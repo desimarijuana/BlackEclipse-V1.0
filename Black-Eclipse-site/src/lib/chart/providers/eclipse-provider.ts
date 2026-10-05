@@ -17,8 +17,62 @@ import type {
   IndicatorResult, Timeframe,
 } from '@/lib/chart/types';
 
-const GRID = 'rgba(255,255,255,0.04)';
-const AXIS = 'rgba(160,160,160,0.8)';
+/**
+ * Chart chrome tuned for the active color scheme. ECharts renders to a
+ * canvas, so it cannot read the theme's CSS custom properties directly — the
+ * colors are resolved here at render time. Read the `dark` class off <html>
+ * (the scheme token the theme store owns) rather than guessing from the
+ * background, so the grid/tooltip/axis always match the surrounding chrome.
+ */
+interface ChartChrome {
+  grid: string;
+  axis: string;
+  axisDim: string;
+  pointerBg: string;
+  pointerText: string;
+  tooltipBg: string;
+  tooltipBorder: string;
+  tooltipText: string;
+  tooltipShadow: string;
+  zoomBg: string;
+  tagBg: string;
+}
+
+function isLightScheme(): boolean {
+  if (typeof document === 'undefined') return false;
+  return !document.documentElement.classList.contains('dark');
+}
+
+function chartChrome(): ChartChrome {
+  if (isLightScheme()) {
+    return {
+      grid: 'rgba(0,0,0,0.08)',
+      axis: 'rgba(63,63,70,0.85)',
+      axisDim: 'rgba(63,63,70,0.65)',
+      pointerBg: 'rgba(255,255,255,0.92)',
+      pointerText: '#18181b',
+      tooltipBg: 'rgba(255,255,255,0.72)',
+      tooltipBorder: 'rgba(0,0,0,0.12)',
+      tooltipText: '#18181b',
+      tooltipShadow: '0 8px 30px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.55)',
+      zoomBg: 'rgba(0,0,0,0.05)',
+      tagBg: 'rgba(255,255,255,0.94)',
+    };
+  }
+  return {
+    grid: 'rgba(255,255,255,0.04)',
+    axis: 'rgba(160,160,160,0.8)',
+    axisDim: 'rgba(160,160,160,0.5)',
+    pointerBg: 'rgba(15,15,15,0.9)',
+    pointerText: '#e5e7eb',
+    tooltipBg: 'rgba(18,18,20,0.5)',
+    tooltipBorder: 'rgba(255,255,255,0.12)',
+    tooltipText: '#e5e7eb',
+    tooltipShadow: '0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
+    zoomBg: 'rgba(255,255,255,0.02)',
+    tagBg: 'rgba(16,16,18,0.92)',
+  };
+}
 
 interface Pane {
   id: string;
@@ -35,6 +89,9 @@ export class EclipseChartProvider implements ChartProvider {
   private container: HTMLElement | null = null;
   private ro: ResizeObserver | null = null;
   private unsubscribePalette: (() => void) | null = null;
+  // Watches <html class> so a light/dark scheme flip repaints the canvas chrome
+  // (grid/axis/tooltip), which cannot track CSS custom properties by itself.
+  private themeObserver: MutationObserver | null = null;
 
   private state: ChartState;
   private data: ChartData | null = null;
@@ -110,6 +167,11 @@ export class EclipseChartProvider implements ChartProvider {
       this.recomputeIndicators();
       this.render();
     });
+    // Repaint when the scheme flips so chrome colors stay in sync.
+    if (typeof MutationObserver !== 'undefined') {
+      this.themeObserver = new MutationObserver(() => this.render());
+      this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    }
     this.recomputeIndicators();
     this.render();
   }
@@ -117,6 +179,8 @@ export class EclipseChartProvider implements ChartProvider {
   destroy(): void {
     this.unsubscribePalette?.();
     this.unsubscribePalette = null;
+    this.themeObserver?.disconnect();
+    this.themeObserver = null;
     this.ro?.disconnect();
     this.ro = null;
     this.chart?.dispose();
@@ -377,6 +441,10 @@ export class EclipseChartProvider implements ChartProvider {
     const up = candles.up; const down = candles.down; const primary = lines.primary; const colors = lines.series;
     const type = this.state.chartType;
     const panes = this.buildPanes();
+    // Resolve scheme-aware chrome once per build (canvas cannot read CSS vars).
+    const chrome = chartChrome();
+    const GRID = chrome.grid;
+    const AXIS = chrome.axis;
 
     // Candlestick data: [open, close, low, high] per ECharts convention.
     const candleData = bars.map((b) => [
@@ -452,7 +520,7 @@ export class EclipseChartProvider implements ChartProvider {
           text: paneLabel,
           left: 12,
           top: `${(cursor + 0.005) * 100}%`,
-          textStyle: { color: 'rgba(160,160,160,0.75)', fontSize: axisFont, fontFamily: 'monospace', fontWeight: 'normal' },
+          textStyle: { color: chrome.axisDim, fontSize: axisFont, fontFamily: 'monospace', fontWeight: 'normal' },
         });
       }
 
@@ -511,7 +579,7 @@ export class EclipseChartProvider implements ChartProvider {
         yAxes.push({
           type: 'value', gridIndex: gridIdx, splitNumber: 2, position: 'right',
           splitLine: { show: false },
-          axisLabel: { color: 'rgba(160,160,160,0.5)', fontSize: 8, fontFamily: 'monospace', formatter: (v: number) => this.fmtVol(v) },
+          axisLabel: { color: chrome.axisDim, fontSize: 8, fontFamily: 'monospace', formatter: (v: number) => this.fmtVol(v) },
         });
         series.push({
           name: 'Volume', type: 'bar', xAxisIndex: gridIdx, yAxisIndex: gridIdx, data: volumes,
@@ -551,18 +619,18 @@ export class EclipseChartProvider implements ChartProvider {
       textStyle: { fontFamily: 'var(--font-sans, sans-serif)' },
       axisPointer: {
         link: [{ xAxisIndex: 'all' }],
-        label: { backgroundColor: 'rgba(15,15,15,0.9)', color: '#e5e7eb', fontSize: 10, fontFamily: 'monospace' },
+        label: { backgroundColor: chrome.pointerBg, color: chrome.pointerText, fontSize: 10, fontFamily: 'monospace' },
       },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
-        backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
-        borderColor: 'rgba(255,255,255,0.12)',
+        backgroundColor: chrome.tooltipBg, appendTo: 'body',
+        borderColor: chrome.tooltipBorder,
         borderWidth: 1,
         padding: [10, 12],
-        textStyle: { color: '#e5e7eb', fontSize: 11, fontFamily: 'monospace' },
+        textStyle: { color: chrome.tooltipText, fontSize: 11, fontFamily: 'monospace' },
         extraCssText:
-          'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
+          `backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: ${chrome.tooltipShadow};`,
         formatter: (params: unknown) => this.tooltipFormatter(params, bars, data.currency),
       },
       grid: grids,
@@ -572,8 +640,8 @@ export class EclipseChartProvider implements ChartProvider {
       dataZoom: [
         { type: 'inside', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
         this.compact
-          ? { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 6, bottom: 0, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: primary + '0f', handleSize: 0, showDetail: false }
-          : { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: primary + '14', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
+          ? { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 6, bottom: 0, borderColor: 'transparent', backgroundColor: chrome.zoomBg, fillerColor: primary + '0f', handleSize: 0, showDetail: false }
+          : { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: chrome.zoomBg, fillerColor: primary + '14', handleStyle: { color: chrome.axis } },
       ],
       series,
     } as EChartsOption;
@@ -623,17 +691,18 @@ export class EclipseChartProvider implements ChartProvider {
     // against the previous bar to decide the up/down tint.
     const ref = closes.length >= 2 ? closes[closes.length - 2] : closes[closes.length - 1];
     const color = price >= ref ? up : down;
+    // TradingView-style axis tag: scheme-matched pill with green/red text +
+    // border so the price stays readable against the bright fill.
+    const chrome = chartChrome();
     return {
       yAxis: price,
       lineStyle: { color, type: 'dashed', width: 1, opacity: 0.9 },
-      // TradingView-style axis tag: dark pill with green/red text + border so the
-      // price stays readable against the bright fill.
       label: {
         show: true,
         position: 'end',
         formatter: this.fmt(price),
         color,
-        backgroundColor: 'rgba(16,16,18,0.92)',
+        backgroundColor: chrome.tagBg,
         borderColor: color,
         borderWidth: 1,
         fontSize: 10,

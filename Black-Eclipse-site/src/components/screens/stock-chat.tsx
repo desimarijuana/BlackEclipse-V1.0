@@ -5,7 +5,7 @@ import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-sh
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TerminalDock } from '@/components/terminal/terminal-dock';
-import { hydrateTerminalStore, useTerminalStore } from '@/lib/terminal/store';
+import { useTerminalShell } from '@/hooks/use-terminal-shell';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
@@ -800,16 +800,8 @@ function StockChatContent() {
   }, []);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const appRootRef = useRef<HTMLDivElement>(null);
-  // Hydrate the terminal's persisted open state/placement once on the client, so
-  // the docked regions reserve their space on first paint without a mismatch.
-  const terminalOpen = useTerminalStore((s) => s.open);
-  useEffect(() => {
-    hydrateTerminalStore();
-  }, []);
-  // In focus mode the shell is intentionally bare: tuck the terminal away too.
-  useEffect(() => {
-    if (focusMode && terminalOpen) useTerminalStore.getState().setOpen(false);
-  }, [focusMode, terminalOpen]);
+  // Hydrate the terminal's persisted state and tuck it away in focus mode.
+  useTerminalShell(focusMode);
 
   // Focus mode is chat-only: leave it the moment another tab is opened, and
   // never keep it on while the settings modal is up.
@@ -1191,9 +1183,10 @@ function StockChatContent() {
               floats over an inactive keep-alive tab. */}
           <ChatDock visible={activeTab !== 'chat' && !settingsOpen} />
         </div>
-        {/* Right-docked terminal: a real column beside the main panel. */}
-        <TerminalDock slot="right" />
+        {/* Close the main column, then place the right dock as a SIBLING column
+            in the row, so the main panel shrinks instead of being overlapped. */}
         </div>
+        <TerminalDock slot="right" />
       </div>
 
       {/* Bottom-docked terminal: a real strip below the row, above the footer. */}

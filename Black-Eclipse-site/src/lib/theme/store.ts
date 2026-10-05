@@ -140,6 +140,14 @@ export function refreshBackground(): void {
   applyBackgroundToDocument(s.prefs, s.customUrl);
 }
 
+// A theme is "light" when it is NOT the shipped dark look. The `scheme` token
+// drives both the `dark` class and which token block the colors land in, so the
+// two can never disagree. Legacy/imported themes without a scheme default to
+// dark (normalizeTheme fills it).
+function isLightTheme(theme: EclipseTheme): boolean {
+  return theme.scheme === 'light';
+}
+
 function buildOverrideCss(theme: EclipseTheme): string {
   const vars = themeCssVars(theme);
   const structural: string[] = [];
@@ -147,13 +155,14 @@ function buildOverrideCss(theme: EclipseTheme): string {
   for (const [name, value] of Object.entries(vars)) {
     (STRUCTURAL_THEME_VARS.has(name) ? structural : colors).push(`${name}: ${value};`);
   }
-  // Colors are scoped to `.dark` so the General › Theme light/dark toggle still
-  // works; typography/shape are global. `html.dark` outranks the plain `.dark`
-  // block in globals.css, and both outrank `:root`.
-  return (
-    `:root{${structural.join('')}}` +
-    `html.dark{${colors.join('')}}`
-  );
+  // Colors are scoped to the active scheme so the `.dark` class and the token
+  // block always agree: a dark theme writes `html.dark{}` (outranking the plain
+  // `.dark` block in globals.css), a light theme writes `html:not(.dark){}` so
+  // it outranks `:root`. Typography/shape stay global under `:root`.
+  const colorBlock = isLightTheme(theme)
+    ? `html:not(.dark){${colors.join('')}}`
+    : `html.dark{${colors.join('')}}`;
+  return `:root{${structural.join('')}}${colorBlock}`;
 }
 
 /**
@@ -178,6 +187,11 @@ export function applyThemeToDocument(theme: EclipseTheme) {
     lastAppliedCss = css;
   }
   const root = document.documentElement;
+  // The scheme is the source of truth for the `dark` class. Nothing else in the
+  // app toggles it (it is seeded `dark` in layout.tsx to prevent FOUC); the
+  // store owns it from here so a white preset actually activates the
+  // `html:not(.dark)` recipes in globals.css.
+  root.classList.toggle('dark', !isLightTheme(theme));
   root.classList.add('theme-customized');
   root.classList.toggle('theme-no-anim', !theme.animations);
   root.classList.toggle('theme-no-glow', !theme.glow);
@@ -204,6 +218,9 @@ function clearThemeFromDocument() {
   document.documentElement.classList.remove(
     'theme-customized', 'theme-no-anim', 'theme-no-glow', 'theme-glass-active', 'theme-glass-off',
   );
+  // The shipped default is dark; restore it so "Reset to Eclipse Default" from a
+  // light scheme does not leave the app stuck in `html:not(.dark)`.
+  document.documentElement.classList.add('dark');
 }
 
 function applyFavicon(theme: EclipseTheme) {

@@ -66,6 +66,16 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
     <html lang="en" className={cn("dark", "font-sans", wordmarkFontVars)}>
       <body suppressHydrationWarning>
+        {/* Pre-paint scheme sync. The default document is `dark` (matches the
+         * shipped Eclipse theme, no flash). If the user saved a light-scheme
+         * theme, flip the `dark` class before first paint so they don't get a
+         * black frame while React hydrates. Reads the same key the theme store
+         * persists; a malformed payload is ignored and the dark default stays. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=JSON.parse(localStorage.getItem('be_theme_v1')||'null');if(t&&t.scheme==='light'){document.documentElement.classList.remove('dark');}}catch(e){}`,
+          }}
+        />
         <GlobalLoader />
         {children}
         {process.env.NEXT_PUBLIC_AGENTATION === '1' && <AgentationToolbar />}

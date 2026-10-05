@@ -216,6 +216,52 @@ describe('live preview', () => {
   });
 });
 
+describe('color scheme', () => {
+  function styleEl() {
+    return { id: '', textContent: '', rel: '', href: '' };
+  }
+
+  function stubDocumentWithStyle() {
+    const root = makeElement();
+    const el = styleEl();
+    const head = { appendChild: vi.fn(), children: [] as unknown[] };
+    const document = {
+      documentElement: root,
+      head,
+      createElement: vi.fn(() => el),
+      getElementById: vi.fn(() => el),
+      querySelector: vi.fn(() => null),
+      title: '',
+    };
+    vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn() });
+    vi.stubGlobal('document', document);
+    return { root, el };
+  }
+
+  it('applying a light-scheme theme removes the dark class and scopes colors to html:not(.dark)', async () => {
+    const { root, el } = stubDocumentWithStyle();
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().hydrate();
+    // Seed the shipped dark state, then apply a light theme.
+    root.classList.add('dark');
+    useThemeStore.getState().applyPreset({ ...DEFAULT_ECLIPSE_THEME, scheme: 'light' });
+    expect(root.classList.contains('dark')).toBe(false);
+    expect(el.textContent).toContain('html:not(.dark){');
+    expect(el.textContent).not.toContain('html.dark{');
+  });
+
+  it('applying a dark-scheme theme keeps the dark class and scopes colors to html.dark', async () => {
+    const { root, el } = stubDocumentWithStyle();
+    const { useThemeStore } = await import('./store');
+    const { DEFAULT_ECLIPSE_THEME } = await import('./tokens');
+    useThemeStore.getState().hydrate();
+    root.classList.remove('dark');
+    useThemeStore.getState().applyPreset({ ...DEFAULT_ECLIPSE_THEME, scheme: 'dark' });
+    expect(root.classList.contains('dark')).toBe(true);
+    expect(el.textContent).toContain('html.dark{');
+  });
+});
+
 describe('theme normalization from import', () => {
   it('coerces a partial imported theme to a full theme', () => {
     const imported = normalizeTheme({ colors: { primary: '#101010' }, radius: 0.2 });

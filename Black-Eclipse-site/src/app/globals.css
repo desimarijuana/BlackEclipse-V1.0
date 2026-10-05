@@ -1510,3 +1510,76 @@ html {
   outline-offset: 2px;
 }
 
+/* ── Light-scheme compatibility layer ────────────────────────────────────────
+ * Many components were authored against the dark-only app and hardcode
+ * white-on-dark hairlines/fills (border-white/5, bg-black/40, text-white…).
+ * Rather than edit ~100 files, remap those neutral utilities to their light
+ * counterparts when the `dark` class is absent. Only pure white/black
+ * neutrals are touched — colored tokens (primary, rose, emerald…), the glass
+ * recipes, and the aurora glow are deliberately left alone. Scoped to
+ * `html:not(.dark)` so dark mode is byte-for-byte unchanged. Kept `!important`
+ * -free with enough specificity to win by source order. */
+html:not(.dark) .border-white,
+html:not(.dark) .border-white\/5,
+html:not(.dark) .border-white\/8,
+html:not(.dark) .border-white\/10,
+html:not(.dark) .border-white\/12,
+html:not(.dark) .border-white\/15,
+html:not(.dark) .divide-white\/5 > :not([hidden]) ~ :not([hidden]) {
+  border-color: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+/* Black fills are used BOTH as control fills on light cards AND as modal
+ * scrims, so the mapping keeps enough opacity to still dim / blur content
+ * behind an overlay while reading as a soft dark wash on a white surface. */
+html:not(.dark) .bg-black,
+html:not(.dark) .bg-black\/10 { background-color: color-mix(in srgb, var(--foreground) 4%, transparent); }
+html:not(.dark) .bg-black\/20 { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
+html:not(.dark) .bg-black\/25 { background-color: color-mix(in srgb, var(--foreground) 10%, transparent); }
+html:not(.dark) .bg-black\/30 { background-color: color-mix(in srgb, var(--foreground) 14%, transparent); }
+html:not(.dark) .bg-black\/40 { background-color: color-mix(in srgb, var(--foreground) 20%, transparent); }
+html:not(.dark) .bg-black\/50 { background-color: color-mix(in srgb, var(--foreground) 28%, transparent); }
+html:not(.dark) .bg-black\/55 { background-color: color-mix(in srgb, var(--foreground) 32%, transparent); }
+html:not(.dark) .bg-black\/60 { background-color: color-mix(in srgb, var(--foreground) 38%, transparent); }
+html:not(.dark) .bg-black\/70 { background-color: color-mix(in srgb, var(--foreground) 48%, transparent); }
+html:not(.dark) .bg-black\/90 { background-color: color-mix(in srgb, var(--foreground) 72%, transparent); }
+/* White washes are used as subtle fills (progress tracks, separators, active
+ * pills, hovers). On white chrome they'd vanish, so flip them to a dark wash. */
+html:not(.dark) .bg-white\/5,
+html:not(.dark) .hover\:bg-white\/5:hover { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
+html:not(.dark) .bg-white\/10,
+html:not(.dark) .hover\:bg-white\/10:hover { background-color: color-mix(in srgb, var(--foreground) 12%, transparent); }
+html:not(.dark) .bg-white\/\[0\.02\],
+html:not(.dark) .hover\:bg-white\/\[0\.02\]:hover { background-color: color-mix(in srgb, var(--foreground) 4%, transparent); }
+html:not(.dark) .bg-white\/\[0\.03\],
+html:not(.dark) .hover\:bg-white\/\[0\.03\]:hover { background-color: color-mix(in srgb, var(--foreground) 5%, transparent); }
+html:not(.dark) .bg-white\/\[0\.04\],
+html:not(.dark) .hover\:bg-white\/\[0\.04\]:hover { background-color: color-mix(in srgb, var(--foreground) 6%, transparent); }
+html:not(.dark) .bg-white\/\[0\.05\],
+html:not(.dark) .hover\:bg-white\/\[0\.05\]:hover { background-color: color-mix(in srgb, var(--foreground) 7%, transparent); }
+html:not(.dark) .bg-white\/\[0\.06\],
+html:not(.dark) .hover\:bg-white\/\[0\.06\]:hover { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
+html:not(.dark) .bg-white\/\[0\.08\],
+html:not(.dark) .hover\:bg-white\/\[0\.08\]:hover { background-color: color-mix(in srgb, var(--foreground) 9%, transparent); }
+html:not(.dark) .text-white { color: var(--foreground); }
+html:not(.dark) .text-white\/5 { color: color-mix(in srgb, var(--foreground) 8%, transparent); }
+html:not(.dark) .text-white\/70 { color: color-mix(in srgb, var(--foreground) 62%, transparent); }
+html:not(.dark) .text-white\/90 { color: color-mix(in srgb, var(--foreground) 88%, transparent); }
+/* Softer drop shadows read better on a light page than the dark-on-dark values. */
+html:not(.dark) .shadow-black\/10 { --tw-shadow-color: rgb(0 0 0 / 0.08); }
+html:not(.dark) .shadow-black\/20 { --tw-shadow-color: rgb(0 0 0 / 0.12); }
+html:not(.dark) .shadow-black\/30 { --tw-shadow-color: rgb(0 0 0 / 0.16); }
+html:not(.dark) .shadow-black\/40 { --tw-shadow-color: rgb(0 0 0 / 0.18); }
+html:not(.dark) .shadow-black\/50 { --tw-shadow-color: rgb(0 0 0 / 0.20); }
+/* Hardcoded near-black surfaces that are not theme tokens. */
+html:not(.dark) .bg-\[\#0f0f0f\] { background-color: var(--card); }
+html:not(.dark) .bg-\[\#0f0f0f\]\/95 { background-color: color-mix(in srgb, var(--card) 95%, transparent); }
+html:not(.dark) .bg-\[\#0e0e0e\] { background-color: var(--card); }
+html:not(.dark) .bg-\[\#121212\] { background-color: var(--card); }
+html:not(.dark) .bg-\[\#050505\]\/80 { background-color: color-mix(in srgb, var(--background) 80%, transparent); }
+html:not(.dark) .to-\[\#0f0f0f\]\/30 { --tw-gradient-to: color-mix(in srgb, var(--card) 30%, transparent); }
+html:not(.dark) .via-\[\#0f0f0f\]\/60 { --tw-gradient-via: color-mix(in srgb, var(--card) 60%, transparent); }
+/* The ambient Aurora glow is additive and tuned for a black page; on white it
+ * reads as a heavy smear. Soften it rather than disabling it, so the Market
+ * Regime signal still shows. */
+html:not(.dark) [data-aurora-glow] { opacity: 0.42; }
+

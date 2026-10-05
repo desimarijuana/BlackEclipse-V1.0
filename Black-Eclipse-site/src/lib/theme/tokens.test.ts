@@ -6,6 +6,7 @@ import {
   buildFaviconDataUrl,
   deriveThemeColors,
   hexToRgb,
+  luminance,
   normalizeHex,
   normalizeTheme,
   pageBackgroundImage,
@@ -37,6 +38,48 @@ describe('normalizeTheme', () => {
   it('clamps density to known values', () => {
     expect(normalizeTheme({ density: 'spacious' }).density).toBe('spacious');
     expect(normalizeTheme({ density: 'weird' }).density).toBe('comfortable');
+  });
+
+  it('defaults to the dark scheme and rejects unknown schemes', () => {
+    expect(normalizeTheme({}).scheme).toBe('dark');
+    expect(normalizeTheme({ scheme: 'light' }).scheme).toBe('light');
+    expect(normalizeTheme({ scheme: 'neon' }).scheme).toBe('dark');
+  });
+});
+
+describe('light scheme + White preset', () => {
+  const white = THEME_PRESETS.find((p) => p.id === 'white');
+
+  it('ships a White preset on the light scheme', () => {
+    expect(white).toBeDefined();
+    expect(white!.theme.scheme).toBe('light');
+    // A light page needs light surfaces and dark text to stay readable.
+    expect(luminance(white!.theme.colors.background)).toBeGreaterThan(0.6);
+    expect(luminance(white!.theme.colors.text)).toBeLessThan(0.4);
+  });
+
+  it('derives a light landing with a dark wordmark for a light preset', () => {
+    expect(white!.background?.solidColor).toBeTruthy();
+    expect(luminance(white!.background!.solidColor!)).toBeGreaterThan(0.6);
+    expect(luminance(white!.background!.textColor!)).toBeLessThan(0.5);
+  });
+
+  it('keeps every non-light preset on the dark scheme', () => {
+    const lightIds = ['white', 'paper', 'snow', 'ivory'];
+    for (const p of THEME_PRESETS.filter((x) => !lightIds.includes(x.id))) {
+      expect(p.theme.scheme).toBe('dark');
+    }
+  });
+
+  it('ships a family of white-background presets', () => {
+    for (const id of ['white', 'paper', 'snow', 'ivory']) {
+      const p = THEME_PRESETS.find((x) => x.id === id)!;
+      expect(p).toBeDefined();
+      expect(p.theme.scheme).toBe('light');
+      expect(luminance(p.theme.colors.background)).toBeGreaterThan(0.6);
+      expect(luminance(p.theme.colors.text)).toBeLessThan(0.4);
+      expect(luminance(p.background!.textColor!)).toBeLessThan(0.5);
+    }
   });
 });
 

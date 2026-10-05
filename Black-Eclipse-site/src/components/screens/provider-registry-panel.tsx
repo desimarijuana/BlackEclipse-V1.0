@@ -691,43 +691,6 @@ export function ProviderKeyEditor({ envVar, label, onChanged }: { envVar: string
 }
 
 /**
- * Settings status header — a one-line control-center summary so the user can
- * tell at a glance whether the app is wired up, without opening every section.
- */
-export function SettingsStatusHeader() {
-  const { health, loading } = useProviderHealth();
-  const homes: SettingsHome[] = ["ai", "investor-eye", "economics", "news", "market"];
-  const total = homes.reduce((n, h) => n + health[h].total, 0);
-  const available = homes.reduce((n, h) => n + health[h].available, 0);
-  const needsKey = homes.reduce((n, h) => n + health[h].needsKey, 0);
-
-  return (
-    <div className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border border-border/20 glass-card px-4 py-3">
-      <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-primary flex items-center gap-1.5">
-        <Activity size={11} /> Status
-      </span>
-      {loading ? (
-        <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-          <Loader2 className="w-3 h-3 animate-spin" /> Checking providers…
-        </span>
-      ) : (
-        <>
-          <span className="text-[11px] text-foreground/80">
-            <span className="font-semibold text-emerald-400">{available}</span> provider{available === 1 ? "" : "s"} ready
-          </span>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-[11px] text-foreground/80">
-            <span className={cn("font-semibold", needsKey > 0 ? "text-amber-400" : "text-muted-foreground")}>{needsKey}</span> need a key
-          </span>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-[11px] text-foreground/80">{total} total</span>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
  * Investor Eye's own event sources (GDELT, USGS, NASA FIRMS). These power the
  * world-state map specifically and are keyless. Macro, market and news
  * providers are configured in their own sections and are NOT listed here.

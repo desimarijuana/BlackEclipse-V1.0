@@ -528,69 +528,73 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
 
   return (
     <div className="space-y-6">
-      {/* ── Live preview toggle + Apply/Discard ───────────────────────── */}
+      {/* ── Live preview toggle + Apply/Discard + full-screen preview ──── */}
       <div className="sticky top-0 z-20 -mx-1 px-1 pb-1">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 glass-card-strong px-4 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={livePreview}
-              onClick={() => setLivePreview((v) => !v)}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-                livePreview
-                  ? "border-primary/40 bg-primary/10 text-foreground"
-                  : "border-border/40 text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {livePreview ? <Eye size={13} className="text-primary" /> : <EyeOff size={13} />}
-              Live preview
-            </button>
-            <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
-              {dirty
-                ? livePreview
-                  ? "Previewing unsaved changes across the app."
-                  : "Editing draft — turn on live preview to audition it."
-                : "No unsaved changes."}
-            </span>
+        <div className="rounded-2xl border border-primary/20 glass-card-strong overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={livePreview}
+                onClick={() => setLivePreview((v) => !v)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+                  livePreview
+                    ? "border-primary/40 bg-primary/10 text-foreground"
+                    : "border-border/40 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {livePreview ? <Eye size={13} className="text-primary" /> : <EyeOff size={13} />}
+                Live preview
+              </button>
+              <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
+                {dirty
+                  ? livePreview
+                    ? "Previewing unsaved changes across the app."
+                    : "Editing draft — turn on live preview to audition it."
+                  : "No unsaved changes."}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl cursor-pointer"
+                disabled={!dirty && !livePreview}
+                onClick={discardDraft}
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Discard
+              </Button>
+              <Button
+                size="sm"
+                className="rounded-xl cursor-pointer"
+                disabled={!dirty}
+                onClick={applyDraft}
+              >
+                <Save className="w-3.5 h-3.5 mr-1" /> Apply changes
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl cursor-pointer"
-              disabled={!dirty && !livePreview}
-              onClick={discardDraft}
-            >
-              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Discard
-            </Button>
-            <Button
-              size="sm"
-              className="rounded-xl cursor-pointer"
-              disabled={!dirty}
-              onClick={applyDraft}
-            >
-              <Save className="w-3.5 h-3.5 mr-1" /> Apply changes
-            </Button>
+
+          {/* Full-screen preview: hands the user the real, live-themed app. */}
+          <div className="border-t border-border/20 px-4 py-2.5">
+            <PreviewLauncher
+              active={previewMode}
+              dirty={dirty}
+              onEnter={() => {
+                setLivePreview(true);
+                previewTheme(draft);
+                if (pendingBackground) previewBackground(pendingBackground);
+                setPreviewMode(true);
+              }}
+              onExit={() => setPreviewMode(false)}
+              onApply={() => { applyDraft(); setPreviewMode(false); }}
+              onDiscard={() => { discardDraft(); setPreviewMode(false); }}
+            />
           </div>
         </div>
       </div>
-
-      {/* Full-screen preview: hands the user the real, live-themed app. */}
-      <PreviewLauncher
-        active={previewMode}
-        dirty={dirty}
-        onEnter={() => {
-          setLivePreview(true);
-          previewTheme(draft);
-          if (pendingBackground) previewBackground(pendingBackground);
-          setPreviewMode(true);
-        }}
-        onExit={() => setPreviewMode(false)}
-        onApply={() => { applyDraft(); setPreviewMode(false); }}
-        onDiscard={() => { discardDraft(); setPreviewMode(false); }}
-      />
 
       {/* Sub-navigation */}
       <div className="flex flex-wrap gap-2">

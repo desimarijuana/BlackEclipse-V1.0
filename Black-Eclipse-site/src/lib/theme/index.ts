@@ -39,6 +39,7 @@ export type {
   ThemeDensity,
   ThemeShadow,
   ThemeBackground,
+  ThemeScheme,
   ThemeGlass,
   ThemeSidebar,
   ThemePreset,

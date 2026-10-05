@@ -14,6 +14,15 @@ import type { AuroraPalette } from '@/lib/aurora-sentiment';
 export type ThemeDensity = 'compact' | 'comfortable' | 'spacious';
 export type ThemeShadow = 'none' | 'soft' | 'medium' | 'dramatic';
 export type ThemeBackground = 'solid' | 'gradient' | 'grid';
+/**
+ * Color scheme. Drives the `dark` class on <html> and which shipped token
+ * block (`.dark` vs `:root`) the theme's colors are scoped to. Distinct from
+ * `background` (the page *treatment*: solid/gradient/grid). A light-scheme
+ * preset is the proper way to ship a white look — a preset that merely sets a
+ * light `colors.background` while `scheme` stays `dark` would fight the
+ * hardcoded dark chrome.
+ */
+export type ThemeScheme = 'dark' | 'light';
 
 /** Frosted-glass controls (Settings › Customization › Glass). */
 export interface ThemeGlass {
@@ -109,6 +118,8 @@ export interface EclipseTheme {
   shadow: ThemeShadow;
   /** Page background treatment. */
   background: ThemeBackground;
+  /** Color scheme — toggles the `dark` class and scopes the color tokens. */
+  scheme: ThemeScheme;
   /** Ambient Aurora glow on/off. */
   glow: boolean;
   /** Interface animations on/off. */
@@ -143,6 +154,7 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   sidebar: { tint: '#2a2a2e', opacity: 0.9, blur: 20 },
   shadow: 'soft',
   background: 'solid',
+  scheme: 'dark',
   glow: true,
   animations: true,
 };
@@ -269,14 +281,18 @@ function preset(
   extra?: Partial<EclipseTheme>,
   background?: Partial<BackgroundPrefs>,
 ): ThemePreset {
-  // Every shipped preset's ChatBot landing is a simple FLAT solid: a very dark,
-  // near-neutral grey carrying only the faintest shade of the preset's ACCENT
-  // hue (the Hermes look) — never a bright or over-saturated wash, never a
-  // gradient. The wordmark stays whitish so it reads on the dark landing.
-  // A caller may still pin an explicit `solidColor`/`textColor` to override.
+  // Every shipped preset's ChatBot landing is a simple FLAT solid: a near-
+  // neutral grey carrying only the faintest shade of the preset's ACCENT hue
+  // (the Hermes look) — never a bright or over-saturated wash, never a
+  // gradient. Dark-scheme presets mix toward a dark base with a whitish
+  // wordmark; light-scheme presets (e.g. White) mix toward a light base with a
+  // dark wordmark, so the landing stays legible in both schemes. A caller may
+  // still pin an explicit `solidColor`/`textColor` to override.
+  const scheme: ThemeScheme = extra?.scheme ?? DEFAULT_ECLIPSE_THEME.scheme;
+  const isLight = scheme === 'light';
   const accent = colors.accent ?? DEFAULT_ECLIPSE_THEME.colors.accent;
-  const tint = mixHex(accent, LANDING_BASE, 0.05);
-  const wordmark = '#e8e8ea';
+  const tint = mixHex(accent, isLight ? LANDING_BASE_LIGHT : LANDING_BASE, isLight ? 0.04 : 0.05);
+  const wordmark = isLight ? '#1f2937' : '#e8e8ea';
   const landing: Partial<BackgroundPrefs> = {
     ...(background ?? {}),
     mode: background?.mode ?? 'solid',
@@ -298,6 +314,49 @@ function preset(
   };
 }
 
+/**
+ * Build a light-scheme preset from a brand + surface palette. Keeps the ~4
+ * white-background presets consistent: dark ink text, white glass/sidebar, and
+ * a light landing with a dark wordmark. `surfaces` overrides the page/surface/
+ * border tones for warm/cool variants.
+ */
+function lightPreset(
+  id: string,
+  label: string,
+  description: string,
+  colors: Partial<ThemeColors>,
+  surfaces: { page?: string; surface?: string; border?: string } = {},
+): ThemePreset {
+  return preset(
+    id,
+    label,
+    description,
+    {
+      ...colors,
+      background: surfaces.page ?? '#f6f6f7',
+      surface: surfaces.surface ?? '#ffffff',
+      border: surfaces.border ?? '#e4e4e7',
+      text: '#18181b',
+      secondary: surfaces.surface ?? '#ffffff',
+      muted: surfaces.page ?? '#f6f6f7',
+      mutedForeground: '#52525b',
+    },
+    {
+      scheme: 'light',
+      glass: { enabled: true, blur: 18, opacity: 0.62, tint: surfaces.surface ?? '#ffffff' },
+      sidebar: { tint: surfaces.surface ?? '#ffffff', opacity: 0.85, blur: 20 },
+      shadow: 'soft',
+      background: 'solid',
+    },
+    {
+      mode: 'solid', solidFill: 'flat',
+      solidColor: surfaces.page ?? '#f0f0f2',
+      textEnabled: true, text: 'ECLIPSE AGENT', textFont: PRESET_WORDMARK_FONT,
+      textUppercase: true, textScale: 7, textOpacity: 70, textAlign: 'center',
+    },
+  );
+}
+
 /** The shared ChatBot landing wordmark font for every shipped preset (Michroma). */
 const PRESET_WORDMARK_FONT = 'var(--font-michroma), system-ui, sans-serif';
 
@@ -307,6 +366,12 @@ const PRESET_WORDMARK_FONT = 'var(--font-michroma), system-ui, sans-serif';
  * a calm grey with a faint brand shade (the Hermes look), never a bright tint.
  */
 const LANDING_BASE = '#0f0f11';
+
+/**
+ * The light-scheme counterpart of {@link LANDING_BASE}: a near-white grey the
+ * White preset's landing is mixed toward, carrying the faintest accent shade.
+ */
+const LANDING_BASE_LIGHT = '#f1f1f4';
 
 // Hex validation must precede the presets: `preset()` derives each landing tint
 // at module-load, which calls down into `mixHex`.
@@ -340,6 +405,23 @@ export const THEME_PRESETS: ThemePreset[] = [
       textAlign: 'center',
     },
   },
+  // ── Light / white-background presets ───────────────────────────────────────
+  // `scheme: 'light'` is what makes these work: applying one removes the `dark`
+  // class, so every `html:not(.dark)` recipe (glass, sidebar, calendar,
+  // ws-glass) and the `:root` light token block activate together. `text` is a
+  // dark ink so copy reads on the white page; the wordmark is dark for the same
+  // reason. One shared factory keeps them consistent.
+  lightPreset('white', 'White', 'Crisp white page with an emerald brand.',
+    { primary: '#047857', accent: '#34d399', bullish: '#16a34a', bearish: '#dc2626' }),
+  lightPreset('paper', 'Paper', 'Warm off-white page with an amber brand.',
+    { primary: '#b45309', accent: '#f59e0b', bullish: '#16a34a', bearish: '#dc2626' },
+    { page: '#f7f3ec', surface: '#fffdf9', border: '#e7ddcd' }),
+  lightPreset('snow', 'Snow', 'Cool white page with a slate-blue brand.',
+    { primary: '#2563eb', accent: '#60a5fa', bullish: '#16a34a', bearish: '#dc2626' },
+    { page: '#f4f7fb', surface: '#ffffff', border: '#d8e2ef' }),
+  lightPreset('ivory', 'Ivory', 'Soft ivory page with a rose brand.',
+    { primary: '#be123c', accent: '#fb7185', bullish: '#16a34a', bearish: '#e11d48' },
+    { page: '#faf6f4', surface: '#fffdfd', border: '#ecdcd8' }),
   preset('electric-blue', 'Electric Blue', 'Electric cyan-blue brand on a cold dark landing.',
     { primary: '#77edfd', accent: '#36c8d3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#f4f4f5', bullish: '#7aff78', bearish: '#ff3e3e' },
     { glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' }, shadow: 'dramatic', background: 'solid' },
@@ -549,6 +631,10 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
     value.background === 'gradient' || value.background === 'grid' || value.background === 'solid'
       ? value.background
       : d.background;
+  const scheme: ThemeScheme =
+    value.scheme === 'light' || value.scheme === 'dark'
+      ? value.scheme
+      : d.scheme;
   return {
     appName: str(value.appName, d.appName, 48),
     logoText: str(value.logoText, d.logoText, 4),
@@ -582,6 +668,7 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
     sidebar,
     shadow,
     background,
+    scheme,
     glow: value.glow !== false,
     animations: value.animations !== false,
   };
