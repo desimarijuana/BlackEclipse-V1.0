@@ -319,6 +319,13 @@ export interface MapOptionOptions {
    */
   selectedEventKey?: string | null;
   /**
+   * ISO2 of the country under the pointer. When the Trade layer is on, only the
+   * routes touching this country stay visible; every other route is hidden, so
+   * hovering a country answers "what does THIS country trade?". A clicked
+   * selection (`selectedEventKey`) wins over hover.
+   */
+  hoveredCountryIso?: string | null;
+  /**
    * Hovered/highlighted country OUTLINE, as `[lon, lat]` rings. The 2D `geo`
    * component highlights a country natively on hover, but the 3D globe is a
    * texture with no per-country geometry — so the globe draws the picked
@@ -624,6 +631,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
 
   // Directional lines (trade). `lines` needs explicit coords + data.
   const selectedEventKey = options.selectedEventKey ?? null;
+  const hoverIso = options.hoveredCountryIso ?? null;
   for (const layer of enabled) {
     if (layer.type !== 'lines') continue;
     const data = layer.data();
@@ -632,7 +640,17 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
     // route" instead of showing every route at equal weight.
     const hasSelection = selectedEventKey != null
       && data.some((d) => (d.data as { eventKey?: string }).eventKey === selectedEventKey);
-    const lineData = data.map((d) => {
+    // Hovering a country ISOLATES its routes: only links that touch the hovered
+    // country are drawn, so the map answers "what does THIS country trade?".
+    // A click-selection takes precedence. A country with no routes shows none —
+    // honest rather than falling back to the full web.
+    const touches = (d: LayerDatum) => {
+      const p = d.data as { fromIso?: string; toIso?: string };
+      return p.fromIso === hoverIso || p.toIso === hoverIso;
+    };
+    const hasHover = !hasSelection && hoverIso != null;
+    const visibleData = hasHover ? data.filter(touches) : data;
+    const lineData = visibleData.map((d) => {
       const payload = d.data as { from: [number, number]; to: [number, number]; eventKey?: string; fromIso?: string };
       const selected = hasSelection && payload.eventKey === selectedEventKey;
       // Per-item style: the selected route stays full-strength, siblings fade
@@ -648,7 +666,9 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
                 ? { width: isGlobe ? 3 : 2.4, opacity: 1, color: layerColor(layer.id) }
                 : { width: isGlobe ? 1 : 0.8, opacity: 0.1, color: layerColor(layer.id) },
             }
-          : {}),
+          : hasHover
+            ? { lineStyle: { width: isGlobe ? 3 : 2.2, opacity: 1, color: layerColor(layer.id) } }
+            : {}),
       };
     });
 
@@ -677,10 +697,15 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       type: isGlobe ? 'lines3D' : 'lines',
       coordinateSystem: coordSystem,
       z: layer.zIndex,
+      // While isolated to a hovered country, the routes are made SILENT so they
+      // cannot steal the pointer from the geo region underneath — otherwise
+      // entering a route fired the country's `mouseout`, the routes vanished,
+      // the pointer fell back on the country, and the layer flickered.
+      ...(hasHover ? { silent: true } : {}),
       // 2D lines support a flowing effect; lines3D does not. The flow animation
-      // is dropped once a single route is selected, so the emphasis reads as a
-      // pinpoint rather than a moving target.
-      ...(isGlobe || hasSelection
+      // is dropped once a single route is selected or the map is narrowed to a
+      // hovered country, so the emphasis reads as a pinpoint, not a moving target.
+      ...(isGlobe || hasSelection || hasHover
         ? {}
         : { effect: { show: data.length <= 60, period: 4, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 } }),
       lineStyle: {
@@ -989,6 +1014,12 @@ export function bindLayerEvents(
     onEventClick?: (datum: LayerDatum, layer: MapLayer) => void;
     onMarketClick?: (datum: LayerDatum, layer: MapLayer) => void;
     onCountryClick?: (name: string) => void;
+    /**
+     * Fired when the pointer enters or leaves a country region on the 2D geo
+     * map (`name` is the region name; `undefined` means the pointer left all
+     * countries). Used to isolate the Trade routes that touch the country.
+     */
+    onCountryHover?: (name: string | undefined) => void;
   },
 ): void {
   chart.off('click');
@@ -1007,4 +1038,20 @@ export function bindLayerEvents(
     // A click with no series hit is a geo feature click (country).
     if (p.componentType === 'geo' && p.name) handlers.onCountryClick?.(p.name);
   });
+
+  // Country hover (2D only — the globe resolves its own pick by raycast). A
+  // region's `mouseover` carries the feature name; leaving it (or moving to a
+  // non-region target) clears the hover.
+  chart.off('mouseover');
+  chart.off('mouseout');
+  if (handlers.onCountryHover) {
+    chart.on('mouseover', (params: unknown) => {
+      const p = params as { componentType?: string; name?: string };
+      if (p.componentType === 'geo' && p.name) handlers.onCountryHover?.(p.name);
+    });
+    chart.on('mouseout', (params: unknown) => {
+      const p = params as { componentType?: string };
+      if (p.componentType === 'geo') handlers.onCountryHover?.(undefined);
+    });
+  }
 }

@@ -8,6 +8,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **Investor Eye Trade layer: hovering a country isolates ITS trade routes.**
+  With the Trade layer on, the map showed every route, so hovering a country
+  told you nothing about that country. Now the pointer answers "what does THIS
+  country trade?": entering a country region isolates the routes that touch it
+  (its links draw full-strength, every other route is hidden) and leaving
+  restores the full web. Wired on both projections — the 2D geo map via new
+  `mouseover`/`mouseout` region hooks in `bindLayerEvents`, the globe via the
+  existing raycast pick — through a new `hoveredCountryIso` option. A
+  click-selection still wins over hover. Isolated routes are marked `silent` so
+  they cannot steal the pointer from the region and make the layer flicker. A
+  country with no route honestly shows none. Tests: `map-echarts.test.ts` (+6).
+  `npx tsc --noEmit` clean; investor-eye tests pass.
+  no doc change — behaviour within the existing `lines` layer contract.
+
 - **Restored a green size-budget guard after the terminal/model work grew the
   SPA shell.** `stock-chat.tsx` reached 1237 lines (terminal-dock plumbing plus
   the focus-mode "tuck the terminal" effect) while its ratchet stayed pinned at

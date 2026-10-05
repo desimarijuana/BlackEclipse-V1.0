@@ -112,6 +112,68 @@ describe('trade line selection emphasis', () => {
   });
 });
 
+describe('trade line country-hover isolation', () => {
+  const countries: CountrySummary[] = [
+    { iso2: 'US', name: 'United States', region: 'NA', lon: -98.5, lat: 39.8, eventCount: 1, markets: [] },
+    { iso2: 'CN', name: 'China', region: 'EA', lon: 104.2, lat: 35.9, eventCount: 1, markets: [] },
+    { iso2: 'DE', name: 'Germany', region: 'EU', lon: 10.4, lat: 51.2, eventCount: 1, markets: [] },
+  ];
+  // US↔CN and CN↔DE. Hovering DE must keep only CN↔DE; US has no link.
+  function twoTrades() {
+    const a = event({ id: 'ta', eventType: 'trade', countries: ['US', 'CN'], lon: -98, lat: 39 });
+    const b = event({ id: 'tb', eventType: 'trade', countries: ['CN', 'DE'], lon: 104, lat: 36 });
+    return buildTradeLayer([a, b], countries, () => {});
+  }
+  function tradeSeries(opt: unknown) {
+    return (opt as { series: Array<{ id: string; data: unknown[]; silent?: boolean }> }).series.find((s) => s.id === 'trade')!;
+  }
+
+  it('shows every route when no country is hovered', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d' });
+    expect(tradeSeries(opt).data).toHaveLength(2);
+  });
+
+  it('isolates the routes that touch the hovered country', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d', hoveredCountryIso: 'DE' });
+    const s = tradeSeries(opt);
+    // Only CN↔DE touches Germany.
+    expect(s.data).toHaveLength(1);
+    const datum = (s.data[0] as { _datum: { data: { eventKey: string } } })._datum;
+    expect(datum.data.eventKey).toBe('tb');
+  });
+
+  it('shows BOTH routes for a country on both links', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d', hoveredCountryIso: 'CN' });
+    expect(tradeSeries(opt).data).toHaveLength(2);
+  });
+
+  it('shows no routes for a country with no trade link (honest, not a fallback)', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    // A country with no route at all (not in either pair).
+    const opt = buildMapOption({ layers: [layer], mode: '2d', hoveredCountryIso: 'FR' });
+    expect(tradeSeries(opt).data).toHaveLength(0);
+  });
+
+  it('makes isolated routes silent so they cannot fight the country hover', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d', hoveredCountryIso: 'DE' });
+    expect(tradeSeries(opt).silent).toBe(true);
+  });
+
+  it('lets a click selection win over hover', () => {
+    const layer = { ...twoTrades(), enabled: true };
+    const opt = buildMapOption({ layers: [layer], mode: '2d', selectedEventKey: 'ta', hoveredCountryIso: 'DE' });
+    const s = tradeSeries(opt);
+    // The selection, not the hover, drives the emphasis: both routes remain
+    // (one bright, one dimmed), not the hover-narrowed single route.
+    expect(s.data).toHaveLength(2);
+    expect(s.silent).toBeUndefined();
+  });
+});
+
 describe('unwrapDatum', () => {
   it('unwraps the ECharts wrapper to the LayerDatum', () => {
     const datum: LayerDatum = { id: 'd1', lon: 1, lat: 2, label: 'D', data: event() };

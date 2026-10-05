@@ -97,6 +97,12 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
    * genuinely exists.
    */
   const [chartNonce, setChartNonce] = useState(0);
+  /**
+   * ISO2 of the country under the pointer, or null. When the Trade layer is on,
+   * this narrows the map to the routes that touch the hovered country, so
+   * "what does THIS country trade?" is answered by the pointer alone.
+   */
+  const [hoveredCountryIso, setHoveredCountryIso] = useState<string | null>(null);
 
   // Keep the latest handlers/layers for the stable ECharts event callback, so
   // the init effect can run exactly once without depending on caller closures.
@@ -108,6 +114,8 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
   modeRef.current = mode;
   const selectedEventKeyRef = useRef(selectedEventKey);
   selectedEventKeyRef.current = selectedEventKey;
+  const hoveredCountryIsoRef = useRef(hoveredCountryIso);
+  hoveredCountryIsoRef.current = hoveredCountryIso;
   const geoReadyRef = useRef(false);
   /**
    * Equirectangular world texture for the 3D globe (drawn once per skin, then
@@ -121,6 +129,13 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     () => (name: string) => {
       const iso2 = iso2ForFeatureName(featuresRef.current, name);
       if (iso2) onSelectCountryRef.current?.(iso2, name);
+    },
+    [],
+  );
+
+  const handleCountryHover = useMemo(
+    () => (name: string | undefined) => {
+      setHoveredCountryIso(name ? (iso2ForFeatureName(featuresRef.current, name) ?? null) : null);
     },
     [],
   );
@@ -217,9 +232,10 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
         chart = echarts.init(ref.current, undefined, { renderer: 'canvas' });
         chartRef.current = chart;
         setChartNonce((n) => n + 1);
-        bindLayerEvents(chart, layersRef.current, { onCountryClick: handleCountryClick });
+        bindLayerEvents(chart, layersRef.current, { onCountryClick: handleCountryClick, onCountryHover: handleCountryHover });
         chart.setOption(buildMapOption({
           layers: layersRef.current, highlightPoints, selectedEventKey: selectedEventKeyRef.current,
+          hoveredCountryIso: hoveredCountryIsoRef.current,
           mode, skin, showCountryLabels,
           globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
           width: ref.current.clientWidth, height: ref.current.clientHeight,
@@ -261,7 +277,7 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     const chart = chartRef.current;
     if (!chart || !geoReadyRef.current) return;
     if (mode === 'globe' && !glReady) return;
-    bindLayerEvents(chart, layers, { onCountryClick: handleCountryClick });
+    bindLayerEvents(chart, layers, { onCountryClick: handleCountryClick, onCountryHover: handleCountryHover });
     // Only the series change here, so `replaceMerge: ['series']` is always valid
     // regardless of which base component (geo or globe) is active. The skin's
     // base component (geo/globe) is merged by id, so it updates in place too.
@@ -271,13 +287,13 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     // keep the heatmap's colouring after the layer was switched off.
     chart.setOption(
       buildMapOption({
-        layers, highlightPoints, selectedEventKey, mode, skin, showCountryLabels,
+        layers, highlightPoints, selectedEventKey, hoveredCountryIso, mode, skin, showCountryLabels,
         globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
         width: box.width, height: box.height,
       }),
       { replaceMerge: ['series', 'visualMap'] } as never,
     );
-  }, [layers, highlightPoints, selectedEventKey, mode, skin, showCountryLabels, glReady, texVersion, box, handleCountryClick]);
+  }, [layers, highlightPoints, selectedEventKey, hoveredCountryIso, mode, skin, showCountryLabels, glReady, texVersion, box, handleCountryClick, handleCountryHover]);
 
   /**
    * GLOBE country picking.
@@ -367,6 +383,9 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     const applyOutline = (iso: string | undefined) => {
       if (iso === lastIso) return;
       lastIso = iso;
+      // The globe resolves its own hover by raycast, so the trade-isolation
+      // state must be set here too (the 2D path sets it from geo hover).
+      setHoveredCountryIso(iso ?? null);
       if (!iso) {
         zr.setCursorStyle('default');
         chart.setOption({ series: [buildCountryOutlineSeries([])] });
@@ -421,6 +440,7 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       pending = false;
       lastIso = undefined;
+      setHoveredCountryIso(null);
       zr.setCursorStyle('default');
       chart.setOption({ series: [buildCountryOutlineSeries([])] });
     };
