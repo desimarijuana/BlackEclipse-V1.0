@@ -22,6 +22,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `npx tsc --noEmit` clean; investor-eye tests pass.
   no doc change — behaviour within the existing `lines` layer contract.
 
+- **White presets listed after the dark ones + Electric Blue Crystal sidebar.**
+  The four white-background presets (`White`, `Paper`, `Snow`, `Ivory`) now sit
+  at the END of `THEME_PRESETS` so the preset buttons read all dark looks first,
+  then go light — instead of interrupting the dark grid at the top. Electric Blue
+  now uses the translucent Crystal sidebar recipe (`#26262c` @ 0.55 / blur 34)
+  rather than the default neutral Grey, so the cold blue brand carries into the
+  rail. Verified with `npx tsc --noEmit` and the theme tests.
+  no doc change — preset list/ordering tweak; contracts unchanged.
+
 - **Added white-background theme presets (`White`, `Paper`, `Snow`, `Ivory`).**
   A new internal `scheme: 'dark' | 'light'` token on `EclipseTheme` lets a
   preset switch the whole app to a light look in one click — selectable from the
@@ -138,6 +147,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   A prior commit narrowed the desktop sidebar and the Settings rail from `w-60`
   to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
   `settings.tsx` rail). no doc change — layout fix; no contract change.
+
+- **Terminal: instant open, accurate icons, frosted glass, real resize.** Four
+  phases. (1) Speed: the dock now starts the shell on the server IN PARALLEL with
+  the xterm JS download (`Promise.all`), the runtime is prewarmed from the root
+  layout, and the service pre-opens one idle shell at boot (`TerminalManager.warm_shell`
+  + `WARM_OWNER`, adopted by the first UI open). Measured: open-to-prompt went from
+  ~24s to ~1.1s. Also fixed the warm path's undefined `WARM_OWNER`/unwired boot call.
+  (2) Icons: replaced the inaccurate set with semantic Phosphor icons — `Rows3`
+  (dock bottom), `Columns3` (dock right), `CornersOut`/`CornersIn` (full/restore),
+  `Export` (detach), `AppWindow` (new window), `Cpu` (processes) — added to
+  `src/lib/icons`. (3) Glass: the dock and the pop-out use `glass-card-strong`
+  (measured `backdrop-filter: blur(22px) saturate(1.4)`); the xterm host is
+  transparent so the frost shows through, and the pop-out is portaled to `document.body`
+  so its blur samples the real page. (4) Resize: the docked bottom/right panels have
+  a pointer-drag handle that resizes them and pushes the new rows/cols to the PTY
+  (`/terminal/sessions/{id}/resize`); the pop-out is drag + resize by pointer (its
+  native CSS `resize` handle was unusable). Tests: Vitest **2140 passed**; full
+  Python suite green; `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/terminal-architecture.md`.
 
 - **Terminal: narrow-screen overlap fix, detach pop-out, and a new-window terminal.**
   Three fixes/features. (1) Overlap in sidebar/narrow mode: the right dock was a

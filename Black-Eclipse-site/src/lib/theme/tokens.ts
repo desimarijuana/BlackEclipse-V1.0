@@ -405,26 +405,11 @@ export const THEME_PRESETS: ThemePreset[] = [
       textAlign: 'center',
     },
   },
-  // ── Light / white-background presets ───────────────────────────────────────
-  // `scheme: 'light'` is what makes these work: applying one removes the `dark`
-  // class, so every `html:not(.dark)` recipe (glass, sidebar, calendar,
-  // ws-glass) and the `:root` light token block activate together. `text` is a
-  // dark ink so copy reads on the white page; the wordmark is dark for the same
-  // reason. One shared factory keeps them consistent.
-  lightPreset('white', 'White', 'Crisp white page with an emerald brand.',
-    { primary: '#047857', accent: '#34d399', bullish: '#16a34a', bearish: '#dc2626' }),
-  lightPreset('paper', 'Paper', 'Warm off-white page with an amber brand.',
-    { primary: '#b45309', accent: '#f59e0b', bullish: '#16a34a', bearish: '#dc2626' },
-    { page: '#f7f3ec', surface: '#fffdf9', border: '#e7ddcd' }),
-  lightPreset('snow', 'Snow', 'Cool white page with a slate-blue brand.',
-    { primary: '#2563eb', accent: '#60a5fa', bullish: '#16a34a', bearish: '#dc2626' },
-    { page: '#f4f7fb', surface: '#ffffff', border: '#d8e2ef' }),
-  lightPreset('ivory', 'Ivory', 'Soft ivory page with a rose brand.',
-    { primary: '#be123c', accent: '#fb7185', bullish: '#16a34a', bearish: '#e11d48' },
-    { page: '#faf6f4', surface: '#fffdfd', border: '#ecdcd8' }),
   preset('electric-blue', 'Electric Blue', 'Electric cyan-blue brand on a cold dark landing.',
     { primary: '#77edfd', accent: '#36c8d3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#f4f4f5', bullish: '#7aff78', bearish: '#ff3e3e' },
-    { glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' }, shadow: 'dramatic', background: 'solid' },
+    // Sidebar uses the translucent Crystal recipe (not the default Grey), so the
+    // cold blue brand carries into the rail instead of a neutral grey chrome.
+    { glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' }, shadow: 'dramatic', background: 'solid', sidebar: { tint: '#26262c', opacity: 0.55, blur: 34 } },
     { mode: 'solid', solidFill: 'flat',
       textEnabled: true, text: 'ECLIPSE AGENT', textFont: PRESET_WORDMARK_FONT, textUppercase: true, textScale: 7, textOpacity: 78, textAlign: 'center' }),
   preset('midnight', 'Midnight', 'Cool indigo accent on deep navy.',
@@ -482,6 +467,24 @@ export const THEME_PRESETS: ThemePreset[] = [
     { glass: { enabled: true, blur: 24, opacity: 0.45, tint: '#2a1426' }, background: 'solid', shadow: 'medium', radius: 1 },
     { mode: 'solid', solidFill: 'flat',
       textEnabled: true, text: 'ECLIPSE AGENT', textFont: PRESET_WORDMARK_FONT, textUppercase: true, textScale: 7, textOpacity: 78, textAlign: 'center' }),
+  // ── Light / white-background presets (listed last; one click switches the
+  // whole app to a light look). `scheme: 'light'` is what makes these work:
+  // applying one removes the `dark` class, so every `html:not(.dark)` recipe
+  // (glass, sidebar, calendar, ws-glass) and the `:root` light token block
+  // activate together. `text` is dark ink so copy reads on the white page; the
+  // wordmark is dark for the same reason. One shared factory keeps them
+  // consistent.
+  lightPreset('white', 'White', 'Crisp white page with an emerald brand.',
+    { primary: '#047857', accent: '#34d399', bullish: '#16a34a', bearish: '#dc2626' }),
+  lightPreset('paper', 'Paper', 'Warm off-white page with an amber brand.',
+    { primary: '#b45309', accent: '#f59e0b', bullish: '#16a34a', bearish: '#dc2626' },
+    { page: '#f7f3ec', surface: '#fffdf9', border: '#e7ddcd' }),
+  lightPreset('snow', 'Snow', 'Cool white page with a slate-blue brand.',
+    { primary: '#2563eb', accent: '#60a5fa', bullish: '#16a34a', bearish: '#dc2626' },
+    { page: '#f4f7fb', surface: '#ffffff', border: '#d8e2ef' }),
+  lightPreset('ivory', 'Ivory', 'Soft ivory page with a rose brand.',
+    { primary: '#be123c', accent: '#fb7185', bullish: '#16a34a', bearish: '#e11d48' },
+    { page: '#faf6f4', surface: '#fffdfd', border: '#ecdcd8' }),
 ];
 
 // ── Color helpers ────────────────────────────────────────────────────────────
