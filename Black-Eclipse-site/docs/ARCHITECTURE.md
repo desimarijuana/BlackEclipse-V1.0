@@ -144,10 +144,14 @@ Two mechanisms:
       of truth for the `<html class="dark">` flag**: the store toggles it on every
       apply (it was previously hardcoded in `layout.tsx`, which now only seeds the
       dark default plus a small pre-paint script that removes `dark` for a saved
-      light theme to avoid a flash). This is what makes a **light/`White` preset**
-      work end to end: applying it drops `dark`, activating both the `:root` light
+      light theme to avoid a flash). This is what makes the **white-background
+      presets** (`White`, `Paper`, `Snow`, `Ivory`) work end to end: selecting one
+      from the normal preset grid drops `dark`, activating both the `:root` light
       token block and every `html:not(.dark)` recipe (glass, sidebar, calendar,
-      ws-glass). Components that hardcoded dark-only neutral utilities
+      ws-glass). There is **no separate light/dark mode toggle** — a preset owns
+      the scheme, and light presets ship dark ink text, white surfaces, a light
+      landing and a dark wordmark. Components that hardcoded dark-only neutral
+      utilities
       (`border-white/*`, `bg-black/*`, `bg-white/*`, `text-white/*`, a few
       near-black hexes) are remapped to light equivalents by a scoped
       compatibility layer at the bottom of `globals.css`; canvas charts resolve
