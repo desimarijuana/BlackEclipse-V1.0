@@ -126,7 +126,7 @@ export function Sidebar({
   const sidebarContent = (
     <div 
       className={`sidebar-root h-full flex flex-col glass-card-strong border-r-0 shrink-0 justify-between select-none text-foreground font-sans relative transition-all duration-300 group/sidebar ${
-        isCollapsed ? 'w-12 px-0 items-center' : 'w-60 px-4'
+        isCollapsed ? 'w-12 px-0 items-center' : 'w-52 px-4'
       }`}
     >
       {/* Brand logo header */}
@@ -200,8 +200,8 @@ export function Sidebar({
                   title={label}
                   className={`flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-bold transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-primary/15 text-primary shadow-sm shadow-primary/5'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                      ? 'bg-white/[0.08] text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-white/[0.04]'
                   }`}
                 >
                   <Icon size={13} className="shrink-0" />
@@ -284,19 +284,19 @@ export function Sidebar({
                   handleTabClick(tab.id);
                 }}
                 title={isCollapsed ? (tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label) : undefined}
-                className={`h-10 flex items-center px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden no-underline ${
+                className={`h-9 flex items-center px-3.5 py-2 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden no-underline ${
                   isSelected
-                    ? 'rounded-xl bg-primary/15 text-foreground shadow-sm shadow-primary/5 border-primary/20'
+                    ? 'rounded-xl bg-white/[0.08] text-foreground border-border/30'
                     : 'rounded-none bg-transparent text-muted-foreground hover:rounded-xl hover:bg-accent/40 hover:text-foreground border-transparent'
                 } ${isCollapsed ? 'justify-center w-10 px-0 gap-0' : 'justify-start w-full gap-3'}`}
               >
-                <Icon size={16} className={`shrink-0 transition-colors duration-300 ${isSelected ? 'text-primary' : ''}`} />
+                <Icon size={16} className="shrink-0 transition-colors duration-300" />
                 <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden flex-1 text-left ${
                   isCollapsed ? 'opacity-0 -translate-x-2 w-0' : 'opacity-100 translate-x-0 w-auto'
                 }`}>{tab.label}</span>
                 {tab.shortcut && !isCollapsed && (
                   <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
-                    isSelected ? 'border-primary/30 text-primary' : 'border-border/40 text-muted-foreground'
+                    isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'
                   }`}>{tab.shortcut}</span>
                 )}
               </a>
@@ -330,7 +330,7 @@ export function Sidebar({
             <button
               onClick={onOpenSettings}
               className={`shrink-0 rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer ${
-                activeTab === 'settings' ? 'text-primary bg-primary/10' : ''
+                activeTab === 'settings' ? 'text-foreground bg-white/[0.08]' : ''
               }`}
               title={t('sidebar.openSettings')}
               aria-label={t('sidebar.openSettings')}
@@ -359,7 +359,7 @@ export function Sidebar({
 
       {/* Desktop sidebar */}
       <div className={`hidden md:block h-screen select-none z-50 shrink-0 transition-all duration-300 ${
-        isCollapsed ? 'w-12' : 'w-60'
+        isCollapsed ? 'w-12' : 'w-52'
       }`}>
         {sidebarContent}
       </div>
@@ -368,7 +368,7 @@ export function Sidebar({
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-40 flex">
           <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={onCloseMobile} />
-          <div className="relative flex w-60 h-full animate-slide-in">
+          <div className="relative flex w-52 h-full animate-slide-in">
             {sidebarContent}
             <button
               onClick={onCloseMobile}

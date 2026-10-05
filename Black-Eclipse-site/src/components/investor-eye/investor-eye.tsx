@@ -327,6 +327,7 @@ export function InvestorEyeScreen() {
           {state && <DataStatusChip status={state.status} />}
           <SavedViews />
           <MapViewControls />
+          <HeatmapToggle />
           {/* Immersive map-only mode. */}
           <button
             onClick={() => setFullPage(true)}
@@ -443,12 +444,6 @@ export function InvestorEyeScreen() {
           >
             <Maximize2 size={11} /> Map only
           </button>
-          {/* Heatmap is a one-click read of WHERE activity concentrates, so it
-              stands alone on the map (top-left) rather than hiding in the dense
-              layer strip below. */}
-          <div className="absolute left-2 top-2 z-10">
-            <HeatmapToggle />
-          </div>
           {/* Live counts, so the map has an at-a-glance figure. */}
           {state && (
             <div className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-[9px] font-mono text-muted-foreground backdrop-blur-sm">

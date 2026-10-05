@@ -68,13 +68,29 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
   // scrollbar and a "jump to latest" button so the thread still reads scrollable.
   const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
+  // A short custom scroll indicator. The native transcript bar spans the FULL
+  // height of the scroll container, which reads as a long band running down the
+  // right edge and under the header. It is hidden and replaced by this compact
+  // thumb (capped at ~28% of the track) that tracks the reading position.
+  const [bar, setBar] = useState<{ top: number; height: number } | null>(null);
+  const updateBar = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const overflow = scrollHeight - clientHeight;
+    if (overflow <= 1) { setBar(null); return; }
+    const height = Math.max(28, Math.min(clientHeight * 0.28, clientHeight * (clientHeight / scrollHeight)));
+    const top = (scrollTop / overflow) * (clientHeight - height);
+    setBar({ top, height });
+  }, []);
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const next = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     atBottomRef.current = next;
     setAtBottom(next);
-  }, []);
+    updateBar();
+  }, [updateBar]);
 
   const scrollToBottom = useCallback((smooth = false) => {
     const el = scrollRef.current;
@@ -97,17 +113,20 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
     onScroll();
   }, [onScroll, messages]);
 
-  // Keep the portaled "Latest" pill aligned with the transcript box.
+  // Keep the portaled "Latest" pill aligned with the transcript box, and keep
+  // the short scroll thumb sized to the (possibly resized) transcript.
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (!el) return;
     const update = () => {
       const r = el.getBoundingClientRect();
       setRootRect({ left: r.left, top: r.top, width: r.width, bottom: r.bottom });
+      updateBar();
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
+    if (scrollRef.current) observer.observe(scrollRef.current);
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
     return () => {
@@ -115,7 +134,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };
-  }, [messages]);
+  }, [messages, updateBar]);
 
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
@@ -143,8 +162,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
         ref={scrollRef}
         onScroll={onScroll}
         className={cn(
-          'h-full w-full overflow-y-auto min-h-0 chat-transcript-scroll',
-          atBottom && 'scrollbar-hide',
+          'h-full w-full overflow-y-auto min-h-0 scrollbar-hide',
           compact ? 'space-y-3 p-3 pr-1.5' : 'px-4 md:px-6 pr-3 md:pr-5 space-y-6 pb-6',
         )}
       >
@@ -334,6 +352,16 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
         })}
       </div>
       </div>
+
+      {/* Short custom scroll indicator — capped thumb, inset from the edges so it
+          never runs the full height or under the header. */}
+      {bar && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute right-1.5 z-20 w-1 rounded-full bg-foreground/20 transition-[top,height] duration-100 ease-out"
+          style={{ top: bar.top, height: bar.height }}
+        />
+      )}
 
       <MessageRail messages={messages} scrollRef={scrollRef} />
 

@@ -184,10 +184,10 @@ describe('sidebar surface', () => {
 
   it('emits dedicated sidebar tokens', () => {
     const vars = themeCssVars(DEFAULT_ECLIPSE_THEME);
-    expect(vars['--sidebar-rgb']).toBe('26 26 28');
+    expect(vars['--sidebar-rgb']).toBe('42 42 46');
     expect(vars['--sidebar-opacity']).toBe('0.9');
     expect(vars['--sidebar-blur']).toBe('20px');
-    expect(vars['--sidebar']).toBe('#1a1a1c');
+    expect(vars['--sidebar']).toBe('#2a2a2e');
     expect(STRUCTURAL_THEME_VARS.has('--sidebar-rgb')).toBe(true);
   });
 

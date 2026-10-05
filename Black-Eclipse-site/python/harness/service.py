@@ -16,6 +16,7 @@ from .code.tools import register_code_tools
 from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
 from .finance_tools import register_finance_tools
+from .terminal.tools import register_terminal_tools
 from .graph import execute_run
 from .memory_tools import register_memory_tools
 from .model_runtime import get_runtime
@@ -125,6 +126,19 @@ class AgenticService:
         # dataset at the same moment share a single provider call (Milestone 2H),
         # and a fresh cached result is reused across runs.
         self.retrieval_cache = RetrievalCache()
+        # Terminal subsystem (Phase 1 of the execution backbone): ONE manager
+        # shared by the agent tools and the HTTP/UI surface. It is constructed
+        # BEFORE registration so the tool handlers resolve it. Its events ride the
+        # process-wide bus. Persistence + boot reconciliation are wired below.
+        from .terminal.runtime import build_terminal_manager, set_terminal_manager  # noqa: PLC0415
+        from .terminal.store import TerminalStore  # noqa: PLC0415
+
+        self.terminal_store = TerminalStore(self.store)
+        self.terminal = build_terminal_manager(store=self.terminal_store, bus=self.bus)
+        set_terminal_manager(self.terminal)
+        # The terminal tools are registered on the SAME registry, so validation,
+        # permission and the effect authorizer apply unchanged.
+        register_terminal_tools(self.registry)
         # Disposable code workspaces (Phase 2): rows in agent-memory.db bound to
         # the one store connection.
         from .code.store import CodeWorkspaceStore  # noqa: PLC0415
@@ -263,6 +277,32 @@ class AgenticService:
             return None
 
         return resolve
+
+    def start_terminal(self) -> dict[str, Any]:
+        """Reconcile persisted terminal state on boot (never blocks startup).
+
+        The registry/manager were built in `__init__`; this only reconciles the
+        rows left from a previous process — a dead pid is marked EXITED, a live
+        one UNKNOWN (owned but unmanaged), every session is closed. It NEVER
+        fabricates a running process and never raises.
+        """
+        try:
+            summary = self.terminal.recovery.reconcile()
+            log.info(
+                "terminal recovery reconciled %s process record(s), %s session record(s)",
+                summary.get("processes"), summary.get("sessions"),
+            )
+            return summary
+        except Exception:  # noqa: BLE001 - recovery must never block boot
+            log.warning("terminal recovery failed", exc_info=True)
+            return {"processes": 0, "sessions": 0, "reconciled": [], "error": True}
+
+    async def stop_terminal(self) -> None:
+        """Stop every background process and close every session on shutdown."""
+        try:
+            self.terminal.close_all()
+        except Exception:  # noqa: BLE001 - shutdown must never raise
+            log.warning("terminal shutdown failed", exc_info=True)
 
     async def start_mcp(self) -> None:
         """Connect enabled MCP servers and register selected read-only tools.

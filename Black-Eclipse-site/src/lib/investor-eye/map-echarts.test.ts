@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildMapOption, hasDrawableBox, unwrapDatum } from './map-echarts';
-import { buildConflictLayer, buildEventsLayer, severityColor, SYMBOL_PATHS } from './layers';
+import { buildConflictLayer, buildEventsLayer, buildEventHeatmapLayer, severityColor, SYMBOL_PATHS } from './layers';
 import type { LayerDatum, MapLayer, NormalizedEvent } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -30,6 +30,41 @@ function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
     ...overrides,
   };
 }
+
+describe('buildMapOption heatmap visualMap scoping', () => {
+  // Regression: a continuous visualMap defaults to `seriesIndex: 'all'`, so it
+  // recoloured EVERY series from its `value` — the event pins (value = severity
+  // weight, 0.2…1) were re-tinted to the low/violet end and, because the update
+  // path did not replaceMerge `visualMap`, stayed purple after the heatmap was
+  // switched off. The mapping must be scoped to the heatmap series only.
+  function optionWithHeatmap(enabled: boolean) {
+    const heat = buildEventHeatmapLayer([event({ id: 'h1', lon: 30, lat: 40 })]);
+    const ev = buildEventsLayer([event({ id: 'e1', lon: 30, lat: 40 })]);
+    return buildMapOption({
+      layers: [
+        { ...ev, enabled: true },
+        { ...heat, enabled },
+      ],
+      mode: '2d',
+    });
+  }
+
+  it('scopes the visualMap to the heatmap series, never "all"', () => {
+    const opt = optionWithHeatmap(true) as unknown as {
+      visualMap?: { seriesId?: string; seriesIndex?: unknown };
+    };
+    expect(opt.visualMap).toBeDefined();
+    expect(opt.visualMap!.seriesId).toBe('event-heatmap');
+    expect(opt.visualMap!.seriesIndex).toBeUndefined();
+  });
+
+  it('emits NO visualMap when the heatmap layer is disabled', () => {
+    // Its absence is what makes replaceMerge:['visualMap'] remove the stale
+    // mapping (and with it the purple event pins).
+    const opt = optionWithHeatmap(false) as unknown as { visualMap?: unknown };
+    expect(opt.visualMap).toBeUndefined();
+  });
+});
 
 describe('unwrapDatum', () => {
   it('unwraps the ECharts wrapper to the LayerDatum', () => {

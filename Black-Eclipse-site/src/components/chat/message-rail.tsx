@@ -161,15 +161,12 @@ export function MessageRail({
               aria-label={`Jump to: ${label || "message"}`}
               className={cn(
                 "block h-[2px] rounded-none transition-all duration-150 ease-out cursor-pointer",
-                // The theme accent is applied via an arbitrary var (NOT the
-                // `bg-primary` class): globals.css globally forces
-                // `button.bg-primary` to a rounded white/dark pill, which would
-                // override both the flat corners and the accent colour.
-                // WIDTH grows only on HOVER. The active/reading tick keeps its
-                // size and only glows the accent colour.
-                "w-2.5 bg-muted-foreground/70",
-                hovering && "w-3.5 bg-[var(--primary)] shadow-[0_0_7px_var(--primary)]",
-                active && !hovering && "bg-[var(--primary)] shadow-[0_0_6px_var(--primary)]",
+                // Neutral grey ticks — no brand accent. WIDTH grows only on
+                // HOVER; the active/reading tick stays its size and only
+                // brightens to the foreground grey.
+                "w-2.5 bg-muted-foreground/50",
+                hovering && "w-3.5 bg-foreground/80",
+                active && !hovering && "bg-foreground/70",
               )}
             />
           </div>

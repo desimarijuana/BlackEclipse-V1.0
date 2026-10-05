@@ -51,6 +51,7 @@ from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
+from .routers.terminal import router as terminal_router
 from .routers.workspace import router as workspace_router
 from .schemas import ModelSettings, RunRequest, RunResult
 from .skills.draft import propose_draft
@@ -91,6 +92,9 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Retention: mark due AUTOMATIC memories expired on startup. Idempotent
         # and best-effort — a failure is a diagnostic, never a boot blocker.
         service.run_startup_maintenance()
+        # Terminal subsystem recovery: reconcile persisted process/session rows.
+        # A failure is a diagnostic, never a boot blocker.
+        service.start_terminal()
         await service.start_mcp()
         # The bounded learning-review queue: reviews completed runs in the
         # background. It only creates inert records/suggestions and never enables
@@ -110,6 +114,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await service.stop_jobs()
             await service.stop_learning_review()
             await service.stop_mcp()
+            await service.stop_terminal()
 
 
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_lifespan)
@@ -123,6 +128,7 @@ app.include_router(mcp_router)
 app.include_router(memory_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
+app.include_router(terminal_router)
 app.include_router(workspace_router)
 
 # Process start time (epoch ms). The TS launcher compares this against the

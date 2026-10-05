@@ -138,9 +138,9 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   fontScale: 1,
   logoScale: 1,
   glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' },
-  // Sidebar ships a dark charcoal a touch lighter than the black page/cards —
-  // just enough to read as separate chrome, not a flat grey slab.
-  sidebar: { tint: '#1a1a1c', opacity: 0.9, blur: 20 },
+  // Sidebar ships a neutral grey a touch lighter than the black page/cards —
+  // just enough to read as separate chrome, with no brand accent tint.
+  sidebar: { tint: '#2a2a2e', opacity: 0.9, blur: 20 },
   shadow: 'soft',
   background: 'solid',
   glow: true,
@@ -207,7 +207,8 @@ export const GLASS_PRESETS: { id: string; label: string; hint: string; glass: Th
 
 /** Ready-made sidebar surface presets users can apply and then fine-tune. */
 export const SIDEBAR_PRESETS: { id: string; label: string; hint: string; sidebar: ThemeSidebar }[] = [
-  { id: 'charcoal', label: 'Charcoal', hint: 'Dark grey with a hint of black (default)', sidebar: { tint: '#1a1a1c', opacity: 0.9, blur: 20 } },
+  { id: 'grey', label: 'Grey', hint: 'Neutral grey chrome (default)', sidebar: { tint: '#2a2a2e', opacity: 0.9, blur: 20 } },
+  { id: 'charcoal', label: 'Charcoal', hint: 'Dark grey with a hint of black', sidebar: { tint: '#1a1a1c', opacity: 0.9, blur: 20 } },
   { id: 'slate', label: 'Slate', hint: 'Cool blue-charcoal lift', sidebar: { tint: '#1e2228', opacity: 0.88, blur: 22 } },
   { id: 'smoke', label: 'Smoke', hint: 'Warm neutral charcoal', sidebar: { tint: '#1d1c1b', opacity: 0.9, blur: 18 } },
   { id: 'crystal', label: 'Crystal', hint: 'Translucent frost, heavy blur', sidebar: { tint: '#26262c', opacity: 0.55, blur: 34 } },

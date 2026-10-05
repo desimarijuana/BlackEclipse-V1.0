@@ -110,6 +110,11 @@ NETWORK_DEFAULT: bool = False          # denied unless a class explicitly allows
 SECRET_ENV_ALLOWLIST: tuple[str, ...] = (
     "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR",
     "LANG", "PYTHONIOENCODING", "NODE_OPTIONS",
+    # Windows: the executable-extension resolution list. Without it a shell
+    # cannot resolve `python.exe`/`npm.cmd` by name even when PATH contains the
+    # directory (measured: a scrubbed PowerShell silently produced no output).
+    # Not a secret; it is the Windows analogue of PATH.
+    "PATHEXT",
 )   # everything else is dropped from the child environment — never os.environ passthrough
 
 # Words that must never appear in a user-facing string or an i18n key. The surface
@@ -330,10 +335,29 @@ EXTERNAL_ACTION_TOOLS: tuple[str, ...] = (
     "code_commit", "code_push", "code_open_pr", "code_deploy",
 )
 
+# The terminal subsystem's effectful tools (execution, sessions, process control).
+# Like the shell tools, they are removed at `plan_only` so the autonomy boundary is
+# structural; at `edit_verify`/`approve_external` they are present and each
+# command is still classified (allow / ask / deny) by the effect authorizer.
+TERMINAL_WRITE_TOOLS: tuple[str, ...] = (
+    "execute_command", "open_shell", "run_shell_command",
+    "close_shell", "resize_shell", "write_shell_input", "send_shell_control",
+    "start_process", "stop_process", "restart_process", "kill_process",
+    "write_process_input", "send_signal",
+)
+
+# Terminal read-only tools: always available, regardless of profile.
+TERMINAL_READ_TOOLS: tuple[str, ...] = (
+    "list_terminal_sessions", "get_terminal_session", "read_shell_output",
+    "list_processes", "get_process_status", "read_process_output",
+    "get_process_tree", "list_ports", "get_terminal_capabilities", "get_system_info",
+)
+
 # Tools that are always available regardless of profile (read-only).
 READ_ONLY_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list", "workspace_search",
     "workspace_read", "workspace_docs", "workspace_diff",
+    *TERMINAL_READ_TOOLS,
 )
 
 
@@ -347,13 +371,13 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS)
+        banned = set(WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS)
     elif autonomy == "edit_verify":
         banned = set(EXTERNAL_ACTION_TOOLS)
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS)
+        banned = set(WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 

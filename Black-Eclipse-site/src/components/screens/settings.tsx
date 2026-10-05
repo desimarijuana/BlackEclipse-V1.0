@@ -13,16 +13,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cog, Bot, Globe2, Newspaper, Palette, Database,
   Trash2, RotateCcw, Check, Activity, ShieldCheck,
-  ChevronRight, Cpu, Server,
+  ChevronRight, Cpu,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, Volume2, BarChart3,
   GitBranch, Plug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GitPanel } from "./git-panel";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TopLoader } from "@/components/ui/top-loader";
 import { cn } from "@/lib/utils";
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
@@ -33,9 +30,8 @@ import { MCPSettingsPanel } from "./mcp-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
-import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
-import { ModelPicker } from "./model-picker";
-import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl, getLLMPreset } from "@/lib/agent/presets";
+import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, useProviderHealth } from "./provider-registry-panel";
+import { AIProviderSettings } from "./ai-provider-settings";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
@@ -71,6 +67,8 @@ interface LLMConfig {
    */
   contextWindow?: number | null;
 }
+
+export type { LLMConfig };
 
 interface NewsFeed {
   id: string;
@@ -144,24 +142,6 @@ function resolveSection(raw: string | undefined): SectionId {
   if (raw in LEGACY_SECTION_ALIASES) return LEGACY_SECTION_ALIASES[raw];
   return (SETTINGS_SECTIONS as readonly string[]).includes(raw) ? (raw as SectionId) : "general";
 }
-const PROVIDER_LABELS: Record<LLMProviderName, string> = {
-  auto: "Auto (env)",
-  mock: "Mock (offline)",
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  google: "Google Gemini",
-  mistral: "Mistral",
-  groq: "Groq",
-  ollama: "Ollama (local)",
-  lmstudio: "LM Studio (local)",
-  deepseek: "DeepSeek",
-  xai: "xAI (Grok)",
-  openrouter: "OpenRouter",
-  together: "Together AI",
-  perplexity: "Perplexity",
-  fireworks: "Fireworks AI",
-  custom: "Custom endpoint",
-};
 
 // ─── Small building blocks ──────────────────────────────────────────────
 
@@ -198,22 +178,12 @@ function SectionHeader({
   return (
     <div className="mb-6">
       <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
           <Icon className="text-primary" size={22} />
         </span>
         <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
       <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">{description}</p>
-    </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label className="text-xs text-muted-foreground font-medium">{label}</Label>
-      {children}
-      {hint && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{hint}</p>}
     </div>
   );
 }
@@ -285,8 +255,6 @@ export function Settings({
     provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
     contextWindow: undefined,
   });
-  const [testingLlm, setTestingLlm] = useState(false);
-  const [llmTest, setLlmTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
   // Declared model ids per provider, from the Python runtime catalog (a
   // convenience list, never an allowlist — a custom id is always typeable).
   const modelCatalog = useModelCatalog();
@@ -444,27 +412,6 @@ export function Settings({
     setToast({ kind: "ok", text: `Cleared ${keys.length} local data item${keys.length > 1 ? "s" : ""}.` });
   };
 
-  // Test the current LLM config against the live endpoint. The in-progress
-  // values are sent with the request, so it tests what the field shows even if
-  // the debounced save has not landed yet.
-  const testLlm = async () => {
-    setTestingLlm(true);
-    setLlmTest(null);
-    try {
-      const res = await fetch("/api/agent/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseUrl: llm.baseUrl, model: llm.model }),
-      });
-      const data = (await res.json()) as { ok: boolean; message: string; latencyMs?: number; error?: string };
-      setLlmTest(data.error ? { ok: false, message: data.error } : { ok: data.ok, message: data.message, latencyMs: data.latencyMs });
-    } catch {
-      setLlmTest({ ok: false, message: "Test request failed" });
-    } finally {
-      setTestingLlm(false);
-    }
-  };
-
   // Rail items carry extra `terms` so the search box can match the words a
   // user would actually type ("dark", "key", "fred", "rss") — not just labels.
   const NAV: {
@@ -494,26 +441,6 @@ export function Settings({
   ];
 
   const GROUPS: Array<"Personalize" | "Intelligence" | "System"> = ["Personalize", "Intelligence", "System"];
-
-  // The vault env var that stores the selected provider's key (if it is a
-  // known preset). The AI section's key editor is keyed off this.
-  const activePreset = presetForBaseUrl(llm.baseUrl);
-  const activeKeyEnvVar = activePreset?.envVar;
-
-  // The declared model list + context window for the currently selected
-  // provider, from the runtime catalog. `provider` = the runtime provider id
-  // (preset id); when the mode is `auto`/`mock` or the provider is not in the
-  // catalog, fall back to the preset id (the base URL identifies the vendor).
-  // Never an allowlist.
-  const activeCatalogProvider =
-    (llm.provider !== "auto" && llm.provider !== "mock" ? modelCatalog[llm.provider] : undefined) ??
-    modelCatalog[activePreset?.id ?? ""];
-  const activeModelOptions = activeCatalogProvider?.models ?? [];
-  const activeWindow =
-    activeCatalogProvider?.modelWindows?.[llm.model] ??
-    activeCatalogProvider?.contextWindow ??
-    null;
-  const activeWindowKnown = activeWindow != null;
 
   // Rail attention dots: sections whose providers still need a key.
   const { health: homeHealth } = useProviderHealth();
@@ -594,11 +521,12 @@ export function Settings({
 
   return (
     <div ref={modalRef} className="flex h-full w-full overflow-hidden" tabIndex={-1}>
-      {/* Left nav rail */}
-      <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border/10 glass-card-subtle">
+      {/* Left nav rail — same neutral grey `sidebar-root` surface as the main
+          app sidebar so the chrome stays consistent. */}
+      <aside className="sidebar-root hidden md:flex w-52 shrink-0 flex-col glass-card-strong">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <Cog className="text-primary" size={20} />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/30 bg-white/[0.06]">
+            <Cog className="text-foreground" size={20} />
           </span>
           <div>
             <p className="font-serif text-sm font-semibold leading-none text-foreground">Settings</p>
@@ -645,14 +573,14 @@ export function Settings({
                       data-sound="tick"
                       onClick={() => setSection(item.id)}
                       className={cn(
-                        "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer border",
+                        "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer border",
                         active
-                          ? "bg-primary/10 text-foreground border-primary/25 shadow-sm shadow-primary/5"
+                          ? "bg-white/[0.08] text-foreground border-border/30"
                           : "text-muted-foreground border-transparent hover:bg-accent/50 hover:text-foreground hover:border-border/20"
                       )}
                     >
                       <span className="flex items-center gap-3 min-w-0">
-                        <Icon size={15} className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+                        <Icon size={15} className={cn("shrink-0", active ? "text-foreground" : "text-muted-foreground")} />
                         <span className="flex flex-col items-start leading-tight">
                           <span className="flex items-center gap-1.5">
                             {item.label}
@@ -666,7 +594,7 @@ export function Settings({
                           <span className="text-[9px] text-muted-foreground font-normal tracking-wide hidden lg:block">{item.desc}</span>
                         </span>
                       </span>
-                      {active && <ChevronRight size={13} className="text-primary shrink-0" />}
+                      {active && <ChevronRight size={13} className="text-foreground shrink-0" />}
                     </button>
                   );
                 })}
@@ -695,11 +623,11 @@ export function Settings({
                       className={cn(
                         "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer",
                         active
-                          ? "bg-primary/10 text-foreground border-primary/30"
+                          ? "bg-white/[0.08] text-foreground border-border/30"
                           : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60"
                       )}
                     >
-                      <Icon size={13} className={active ? "text-primary" : "text-muted-foreground"} />
+                      <Icon size={13} className={active ? "text-foreground" : "text-muted-foreground"} />
                       {item.label}
                       {ATTENTION[item.id] > 0 && !active && (
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
@@ -755,202 +683,7 @@ export function Settings({
                   description="Choose the model provider that powers Chat, Research and the Investor Eye analyst. Keys, base URLs and model selection all live here — never mixed with financial/data APIs."
                 />
 
-                {/* One provider picker (not a dropdown AND a list). Clicking a
-                    preset fills the base URL + model below; the key is the only
-                    thing left for the operator. */}
-                <div className="grid gap-2 sm:grid-cols-2 mb-4">
-                  {LLM_PRESETS.map((preset) => {
-                    const active = presetForBaseUrl(llm.baseUrl)?.id === preset.id;
-                    const envSet = preset.envVar ? Boolean(integrations?.envFlags?.[preset.envVar]) : false;
-                    return (
-                      <button
-                        key={preset.id}
-                        onClick={() =>
-                          // Selecting a provider sets its runtime id + base URL +
-                          // default model together, so the model picker and the
-                          // provider-specific construction resolve correctly.
-                          updateLlm(
-                            { provider: preset.id as LLMProviderName, baseUrl: preset.baseUrl, model: preset.model, contextWindow: null },
-                            0
-                          )
-                        }
-                        className={cn(
-                          "text-left rounded-xl border px-3.5 py-3 transition-all cursor-pointer",
-                          active
-                            ? "border-primary/45 bg-primary/10 shadow-sm shadow-primary/10"
-                            : "border-border/20 glass-card-subtle hover:border-border/40 hover:bg-accent/30"
-                        )}
-                      >
-                        <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
-                          {preset.name}
-                          {preset.recommended && (
-                            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold border border-primary/30 bg-primary/10 text-primary">
-                              RECOMMENDED
-                            </span>
-                          )}
-                          {active && <Check className="w-3 h-3 text-primary" />}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{preset.description}</p>
-                        <p className="text-[9px] font-mono mt-1.5 flex items-center gap-1.5">
-                          {preset.keyless ? (
-                            <span className="text-emerald-400/90">no key needed</span>
-                          ) : envSet ? (
-                            <span className="text-emerald-400/90">key set via {preset.envVar}</span>
-                          ) : (
-                            <span className="text-amber-400/90">needs {preset.envVar}</span>
-                          )}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <Panel className="p-5 md:p-6 space-y-5">
-                  <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
-                    <Cpu className="text-primary w-4 h-4 shrink-0" />
-                    <p className="text-[11px] text-foreground/80 leading-relaxed">
-                      Active: <span className="font-semibold">{presetForBaseUrl(llm.baseUrl)?.name ?? "Custom endpoint"}</span>
-                      {" · "}
-                      <span className="font-mono text-primary">{llm.model}</span>
-                      {" · "}
-                      <span className="text-muted-foreground">{PROVIDER_LABELS[llm.provider]}</span>
-                    </p>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field
-                      label="Model"
-                      hint="Choose a known model or type any id this provider expects."
-                    >
-                      <ModelPicker
-                        value={llm.model}
-                        options={activeModelOptions}
-                        windowKnown={activeWindowKnown}
-                        windowLabel={activeWindow ? `${activeWindow.toLocaleString()}-token context window` : null}
-                        onChange={(m) => updateLlm({ model: m }, 0)}
-                        providerId={activePreset?.id ?? (llm.provider !== "auto" && llm.provider !== "mock" ? llm.provider : undefined)}
-                        baseUrl={llm.baseUrl}
-                        apiKey={llm.apiKey}
-                        canDiscover={Boolean(activeCatalogProvider?.dynamicDiscovery)}
-                      />
-                    </Field>
-                    <Field label="Mode" hint="Auto follows environment variables. A named provider uses its own API.">
-                      <Select
-                        value={llm.provider}
-                        onValueChange={(v) => {
-                          if (!v) return;
-                          const preset = getLLMPreset(v);
-                          // Selecting a known provider also applies its base URL
-                          // + default model, unless the operator already pointed
-                          // the same provider at a custom endpoint.
-                          if (preset) {
-                            const sameEndpoint = presetForBaseUrl(llm.baseUrl)?.id === preset.id;
-                            updateLlm(
-                              sameEndpoint
-                                ? { provider: v as LLMProviderName }
-                                : { provider: v as LLMProviderName, baseUrl: preset.baseUrl, model: preset.model, contextWindow: null },
-                              0
-                            );
-                          } else {
-                            updateLlm({ provider: v as LLMProviderName }, 0);
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto (env)</SelectItem>
-                          {LLM_PRESETS.map((preset) => (
-                            <SelectItem key={preset.id} value={preset.id}>
-                              {preset.name}
-                            </SelectItem>
-                          ))}
-                          <SelectItem value="mock">Mock (offline)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-
-                  {/* The runtime catalog cannot know a local server's / router's /
-                      custom endpoint's window. When it is unknown, let the operator
-                      DECLARE it (tokens) — a real declaration, not a guess. Leaving
-                      it blank keeps the conservative ceiling. When the catalog knows
-                      it, the resolved value is shown read-only. */}
-                  {!activeWindowKnown && (
-                    <Field
-                      label="Context window (optional)"
-                      hint="Token limit for this model. Leave blank if unknown — the runtime then uses a safe conservative bound."
-                    >
-                      <Input
-                        type="number"
-                        min={1}
-                        value={llm.contextWindow ?? ""}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          const parsed = raw ? Number(raw) : undefined;
-                          updateLlm({
-                            contextWindow:
-                              parsed && Number.isFinite(parsed) && parsed > 0
-                                ? Math.floor(parsed)
-                                : null,
-                          });
-                        }}
-                        placeholder="e.g. 8192"
-                        className="font-mono"
-                      />
-                    </Field>
-                  )}
-
-                  <Field label="Base URL" hint="Any OpenAI-compatible endpoint.">
-                    <div className="relative">
-                      <Server className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5" />
-                      <Input
-                        value={llm.baseUrl}
-                        onChange={(e) => updateLlm({ baseUrl: e.target.value })}
-                        placeholder="https://api.openai.com/v1"
-                        className="pl-8 font-mono"
-                      />
-                    </div>
-                  </Field>
-
-                  {/* One key, one home: the API key lives in the provider-key
-                      vault (keyed by the selected provider's env var), and the
-                      LLM runtime reads it. No second key field to keep in sync. */}
-                  {isLocalBaseUrl(llm.baseUrl) ? (
-                    <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                      <Server size={12} className="text-primary shrink-0" />
-                      No API key needed — local endpoints ignore it.
-                    </p>
-                  ) : activeKeyEnvVar ? (
-                    <ProviderKeyEditor envVar={activeKeyEnvVar} label={presetForBaseUrl(llm.baseUrl)?.name} />
-                  ) : (
-                    <Field label="API Key" hint="This custom endpoint has no known key variable. Use a preset above to store its key in the vault.">
-                      <Input value="" disabled placeholder="Use a known provider preset to manage its key" className="font-mono" />
-                    </Field>
-                  )}
-
-                  {/* Test connection — makes a real request to the endpoint. */}
-                  <div className="flex flex-wrap items-center gap-3 pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="cursor-pointer rounded-xl"
-                      disabled={testingLlm}
-                      onClick={() => void testLlm()}
-                    >
-                      {testingLlm ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Activity className="w-3.5 h-3.5 mr-1" />}
-                      Test Connection
-                    </Button>
-                    {llmTest && (
-                      <span className={cn("text-[11px] flex items-center gap-1.5", llmTest.ok ? "text-emerald-400" : "text-rose-400")}>
-                        {llmTest.ok ? <Check size={12} /> : <CircleDashed size={12} />}
-                        {llmTest.message}
-                        {llmTest.latencyMs !== undefined && <span className="text-muted-foreground/60">· {llmTest.latencyMs} ms</span>}
-                      </span>
-                    )}
-                  </div>
-                </Panel>
+                <AIProviderSettings llm={llm} updateLlm={updateLlm} modelCatalog={modelCatalog} />
               </div>
             )}
 

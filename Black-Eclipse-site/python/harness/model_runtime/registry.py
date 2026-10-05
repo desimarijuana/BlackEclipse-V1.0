@@ -205,10 +205,16 @@ class ModelRegistry:
 
     # ── discovery ───────────────────────────────────────────────────────────
     def discover_models(self, provider_id: str, model_ids: Iterable[str]) -> list[ModelInfo]:
-        """Register models discovered dynamically (e.g. an Ollama /v1/models list)."""
+        """Register models discovered dynamically (e.g. an Ollama /v1/models list).
+
+        Returns the provider's FULL registered model list (declared + previously
+        discovered + the ones found now), not just the newly-added ones. A live
+        probe is idempotent — clicking "discover" twice must yield the complete
+        set both times, so the caller never needs to merge across calls or guess
+        at the accumulated registry.
+        """
         provider = self._providers.get_provider(provider_id) if self._providers else None
         kind = provider.kind if provider else "openai_compatible"
-        added: list[ModelInfo] = []
         for model_id in model_ids:
             if not model_id or self.get_model(f"{provider_id}/{model_id}"):
                 continue
@@ -220,8 +226,7 @@ class ModelRegistry:
                 dynamic=True,
             )
             self.register_model(model)
-            added.append(model)
-        return added
+        return self.list_models(provider_id=provider_id)
 
 
 def build_model_info(

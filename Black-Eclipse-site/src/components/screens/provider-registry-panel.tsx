@@ -547,7 +547,7 @@ export function ProviderRegistry({
  * of truth) rather than a second `llm.apiKey` field. The value is never
  * returned; the field starts empty and only a masked hint is shown.
  */
-export function ProviderKeyEditor({ envVar, label }: { envVar: string; label?: string }) {
+export function ProviderKeyEditor({ envVar, label, onChanged }: { envVar: string; label?: string; onChanged?: () => void }) {
   const { keys, reload } = useKeyStatuses();
   const status = keys[envVar];
   const [editing, setEditing] = useState(false);
@@ -576,6 +576,7 @@ export function ProviderKeyEditor({ envVar, label }: { envVar: string; label?: s
       setEditing(false);
       setNote(draft.trim() === "" ? "Cleared." : "Saved.");
       reload();
+      onChanged?.();
     } catch {
       setNote("Failed to save the key");
     } finally {

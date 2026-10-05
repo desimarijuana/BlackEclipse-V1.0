@@ -140,6 +140,20 @@ def test_alias_intents_present() -> None:
         assert models.alias_intent(alias) is not None
 
 
+def test_discover_models_registers_and_is_idempotent() -> None:
+    # A live probe (Ollama /v1/models) is idempotent: clicking "discover" twice
+    # must return the FULL provider set both times, not just newly-added ids.
+    providers, models, _, _ = build_default_registries()
+    first = models.discover_models("ollama", ["deepseek-v4.1-flash:cloud", "glm-5.3:cloud"])
+    first_ids = {m.id for m in first}
+    assert "deepseek-v4.1-flash:cloud" in first_ids
+    assert "glm-5.3:cloud" in first_ids
+    second = models.discover_models("ollama", ["deepseek-v4.1-flash:cloud", "glm-5.3:cloud"])
+    # Same complete set, no duplicates, even though nothing new was added.
+    assert {m.id for m in second} == first_ids
+    assert len(second) == len(first_ids)
+
+
 def test_provider_enable_disable() -> None:
     p = ProviderRegistry()
     p.register(ProviderInfo(id="x", label="X", kind="openai"))

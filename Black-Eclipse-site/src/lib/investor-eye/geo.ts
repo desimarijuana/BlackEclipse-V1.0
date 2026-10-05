@@ -40,13 +40,18 @@ function gridKey(lon: number, lat: number, cell: number): string {
 /**
  * Snap points to a grid and aggregate. `maxMembers` bounds the representatives
  * carried per cluster (the map only needs coordinates + a label).
+ *
+ * `zoom` may be one of the named levels OR an explicit cell size in degrees. The
+ * explicit form exists for the DENSITY heatmap: its cells must be coarse enough
+ * that a whole region accumulates into one hotspot, which is much larger than
+ * the per-event clustering grid the pin layer wants.
  */
 export function aggregatePoints<T extends GeoPoint>(
   points: T[],
-  zoom: 'low' | 'medium' | 'high' = 'low',
+  zoom: 'low' | 'medium' | 'high' | number = 'low',
   maxMembers = 25,
 ): GeoCluster<T>[] {
-  const cell = GRID_DEGREES[zoom];
+  const cell = typeof zoom === 'number' ? zoom : GRID_DEGREES[zoom];
   const buckets = new Map<string, GeoCluster<T>>();
   for (const p of points) {
     const key = gridKey(p.lon, p.lat, cell);

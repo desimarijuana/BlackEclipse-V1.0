@@ -194,6 +194,14 @@ def _effect_authorizer(
 
     code_authorizer = make_shell_authorizer(code_authorizer)
 
+    # The terminal subsystem's own tools (`execute_command`, `start_process`, …)
+    # are classified exactly like the shell tools: allow runs, ask needs a
+    # single-use workspace-bound approval, deny is refused. Composed OVER the
+    # existing chain so every other tool is unchanged.
+    from .terminal.tools import make_terminal_tool_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_terminal_tool_authorizer(code_authorizer)
+
     if approvals is None or not workspace_id:
         return code_authorizer
 
@@ -466,6 +474,9 @@ def build_graph(
         # directly (that is the point of choosing it); the built-in repo root
         # stays isolated. An explicit `request.direct` always wins.
         direct=_resolve_direct(request),
+        # The executing agent, so the terminal subsystem can attribute a session
+        # or process to it (multi-agent isolation + observability).
+        agent_id=agent.id,
     )
     registry.set_active_context(ctx)
 

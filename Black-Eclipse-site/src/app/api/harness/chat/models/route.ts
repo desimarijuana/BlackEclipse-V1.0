@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getLLMConfig } from "@/lib/settings";
-import { listModelProviders } from "@/lib/harness";
+import { listModelProviders, listRuntimeModels } from "@/lib/harness";
 import { LLM_PRESETS } from "@/lib/agent/presets";
 import { resolveProviderKey } from "@/lib/provider-keys";
 
@@ -38,10 +38,29 @@ export async function GET() {
   }
   const byId = new Map(catalog.filter((p) => p?.id).map((p) => [p.id as string, p]));
 
+  // Discovered models live in the runtime's in-process registry (registered by
+  // a "Discover installed models" probe). The static catalog above never lists
+  // them, so a local server's installed models would vanish after a reload.
+  // Merge them in best-effort, grouped by provider, so the composer keeps
+  // showing everything the runtime actually knows about.
+  const discoveredByProvider = new Map<string, string[]>();
+  try {
+    const models = await listRuntimeModels();
+    for (const m of models) {
+      const list = discoveredByProvider.get(m.providerId) ?? [];
+      if (m.id && !list.includes(m.id)) list.push(m.id);
+      discoveredByProvider.set(m.providerId, list);
+    }
+  } catch {
+    // Runtime unavailable — the declared presets below still render.
+  }
+
   const providers = await Promise.all(
     LLM_PRESETS.map(async (preset) => {
       const cat = byId.get(preset.id);
-      const models = (cat?.models && cat.models.length ? cat.models : [preset.model]).filter(Boolean);
+      const declared = (cat?.models && cat.models.length ? cat.models : [preset.model]).filter(Boolean);
+      const discovered = discoveredByProvider.get(preset.id) ?? [];
+      const models = Array.from(new Set([...discovered, ...declared])).filter(Boolean);
       let available = Boolean(preset.keyless);
       if (!available && preset.envVar) {
         try {

@@ -206,6 +206,10 @@ class ToolContext:
     # Folder-selection: when True, the disposable code workspace is the SELECTED
     # trusted root itself (direct edits to the user's folder). Opt-in per run.
     direct: bool = False
+    # The agent id executing this run (e.g. "code-agent" or "eclipse-agent"). The
+    # terminal subsystem stamps every session/process it creates with this, so a
+    # multi-agent runtime can attribute and isolate execution. None = unattributed.
+    agent_id: Optional[str] = None
 
 
 class DataBridge:

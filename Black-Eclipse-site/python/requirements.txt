@@ -43,6 +43,14 @@ langchain-google-genai>=2.0
 langchain-mistralai>=0.2
 langchain-groq>=0.2
 
+# Real pseudo-terminal for the terminal subsystem's persistent shells. Optional
+# in effect (the session layer falls back to a piped shell and reports
+# `pty: false`), but installed by default so interactive shells, ANSI output and
+# window resizing work out of the box. Windows gets a bundled ConPTY; POSIX gets
+# a forkpty wrapper. Kept as platform markers so neither is installed needlessly.
+pywinpty>=2,<4; sys_platform == "win32"
+ptyprocess>=0.7; sys_platform != "win32"
+
 # Tests
 pytest>=8.0
 pytest-asyncio>=0.24

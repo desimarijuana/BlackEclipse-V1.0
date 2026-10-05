@@ -29,8 +29,6 @@ interface Props {
   onDiscovered?: (models: string[]) => void;
 }
 
-const CUSTOM = "__custom__";
-
 export function ModelPicker({
   value,
   options,
@@ -92,35 +90,47 @@ export function ModelPicker({
     }
   };
 
+  // The current value is always present in the list (even when the catalog has
+  // never heard of it), so the select shows the real model id — never a raw
+  // `__custom__` sentinel. The free-text field below is how a brand-new id is
+  // typed (the catalog is a convenience list, never an allowlist).
+  const list = useMemo(() => {
+    if (value && !merged.includes(value)) return [value, ...merged];
+    return merged;
+  }, [merged, value]);
+
+  const [custom, setCustom] = useState(false);
+
   return (
     <div className="space-y-2">
-      {merged.length > 0 ? (
+      {!custom && (
         <Select
-          value={merged.includes(value) ? value : CUSTOM}
+          value={value}
           onValueChange={(v) => {
-            if (v && v !== CUSTOM) onChange(v);
-            else onChange("");
+            if (v) onChange(v);
           }}
         >
           <SelectTrigger className="w-full font-mono">
-            <SelectValue />
+            <SelectValue placeholder="Select a model" />
           </SelectTrigger>
           <SelectContent>
-            {merged.map((m) => (
+            {list.map((m) => (
               <SelectItem key={m} value={m}>
                 {m}
               </SelectItem>
             ))}
-            <SelectItem value={CUSTOM}>Custom model id…</SelectItem>
           </SelectContent>
         </Select>
-      ) : null}
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Or type a custom model id"
-        className="font-mono"
-      />
+      )}
+      {custom && (
+        <Input
+          value={value}
+          autoFocus
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Type a custom model id"
+          className="font-mono"
+        />
+      )}
       <div className="flex items-center gap-2 flex-wrap">
         <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
           {windowKnown ? (
@@ -145,6 +155,16 @@ export function ModelPicker({
             {discovering ? "Discovering…" : "Discover installed models"}
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            setCustom((v) => !v);
+            if (custom) onChange("");
+          }}
+          className="text-[10px] text-muted-foreground hover:text-foreground"
+        >
+          {custom ? "Choose from list" : "Custom model id…"}
+        </button>
       </div>
       {note && (
         <p className={note.kind === "ok" ? "text-[10px] text-emerald-400/90" : "text-[10px] text-rose-400/90"}>

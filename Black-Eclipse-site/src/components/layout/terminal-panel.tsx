@@ -1,19 +1,26 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Terminal as TerminalIcon, X } from 'lucide-react';
+import { Activity, Network, Terminal as TerminalIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ProcessPanel } from '@/components/terminal/process-panel';
+import { PortPanel } from '@/components/terminal/port-panel';
+import { executeTerminalCommand } from '@/lib/harness/terminal-browser';
 
 interface Line {
   kind: 'input' | 'stdout' | 'stderr' | 'meta';
   text: string;
 }
 
+type View = 'terminal' | 'processes' | 'ports';
+
 // A visible terminal panel, toggled with Ctrl/Cmd + ` (backquote).
 // Commands run through the runtime's /code/shell endpoint (host shell,
-// confined to the server-resolved workspace root).
+// confined to the server-resolved workspace root). The Processes and Ports
+// views read the SAME backend the agent's terminal tools use.
 export function TerminalPanel() {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<View>('terminal');
   const [lines, setLines] = useState<Line[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -45,23 +52,18 @@ export function TerminalPanel() {
     setInput('');
     setBusy(true);
     try {
-      const res = await fetch('/api/code/shell', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command }),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        setLines((prev) => [...prev, { kind: 'meta', text: body.error ?? `HTTP ${res.status}` }]);
-      } else {
-        const r = body.result;
-        if (r.stdout) setLines((prev) => [...prev, { kind: 'stdout', text: r.stdout.replace(/\n$/, '') }]);
-        if (r.stderr) setLines((prev) => [...prev, { kind: 'stderr', text: r.stderr.replace(/\n$/, '') }]);
-        setLines((prev) => [
-          ...prev,
-          { kind: 'meta', text: `exit=${r.exitCode} ${r.durationMs}ms${r.timedOut ? ' TIMED OUT' : ''}` },
-        ]);
+      // The SAME backend the agent's terminal tools use (one execution path).
+      const r = await executeTerminalCommand(command);
+      if (r.stdout) setLines((prev) => [...prev, { kind: 'stdout', text: r.stdout.replace(/\n$/, '') }]);
+      if (r.stderr) setLines((prev) => [...prev, { kind: 'stderr', text: r.stderr.replace(/\n$/, '') }]);
+      if (r.error) {
+        const { category, message } = r.error;
+        setLines((prev) => [...prev, { kind: 'stderr', text: `[${category}] ${message}` }]);
       }
+      setLines((prev) => [
+        ...prev,
+        { kind: 'meta', text: `exit=${r.exitCode} ${r.durationMs}ms${r.timedOut ? ' TIMED OUT' : ''}` },
+      ]);
     } catch (err) {
       setLines((prev) => [...prev, { kind: 'meta', text: err instanceof Error ? err.message : 'request failed' }]);
     } finally {
@@ -71,16 +73,46 @@ export function TerminalPanel() {
 
   if (!open) return null;
 
+  const tabs: Array<{ id: View; label: string; icon: typeof TerminalIcon }> = [
+    { id: 'terminal', label: 'Terminal', icon: TerminalIcon },
+    { id: 'processes', label: 'Processes', icon: Activity },
+    { id: 'ports', label: 'Ports', icon: Network },
+  ];
+
   return (
     <div className="fixed inset-x-4 bottom-4 z-[80] glass-card-strong rounded-2xl border border-white/10 p-3 shadow-2xl">
       <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <TerminalIcon size={14} /> Eclipse Terminal — Ctrl/Cmd + ` to toggle
+        <div className="flex items-center gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setView(tab.id)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition',
+                view === tab.id ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <tab.icon size={13} /> {tab.label}
+            </button>
+          ))}
+          <span className="ml-2 text-[10px] text-muted-foreground">Ctrl/Cmd + ` to toggle</span>
         </div>
         <button type="button" onClick={() => setOpen(false)} aria-label="Close terminal" className="text-muted-foreground hover:text-foreground">
           <X size={14} />
         </button>
       </div>
+
+      {view === 'processes' ? (
+        <div className="h-64 rounded-lg bg-black/40 p-2">
+          <ProcessPanel />
+        </div>
+      ) : view === 'ports' ? (
+        <div className="h-64 rounded-lg bg-black/40 p-2">
+          <PortPanel />
+        </div>
+      ) : (
+        <>
       <div ref={scrollRef} className="max-h-64 overflow-y-auto rounded-lg bg-black/40 p-2 font-mono text-[12px] leading-5">
         {lines.length === 0 ? (
           <div className="text-muted-foreground">Type a command and press Enter.</div>
@@ -132,6 +164,8 @@ export function TerminalPanel() {
           className="flex-1 bg-transparent font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground"
         />
       </div>
+        </>
+      )}
     </div>
   );
 }

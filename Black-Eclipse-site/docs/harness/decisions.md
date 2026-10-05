@@ -3464,3 +3464,66 @@ routes (`/model-runtime/*`) are operator-gated. Tests:
 `python/tests/test_model_runtime.py`.
 
 
+
+## ADR-H126 — The terminal is infrastructure with one runtime shared by the agent and the UI
+
+**Status:** Accepted (2026-10-05)
+
+**Context.** Eclipse already had three execution paths that had grown
+independently: `code/sandbox.py` (bounded one-shot argv execution),
+`code/shell.py` (a shell string, background `spawn`), and `code/terminal.py` /
+`terminal_tools.py` (a classified, shell-free command). Each was correct in
+isolation, but none owned a *process*: a background `npm run dev` returned a pid
+the agent polled by hand, there was no persistent shell that preserved `cd` and
+environment, no port detection, no process tree, no crash record, no recovery
+after a restart, and the visible terminal panel was a second, weaker execution
+door with its own state in React. The request is broader: give Eclipse the
+execution backbone of a serious agentic harness, with one runtime underneath both
+the agent tools and the UI.
+
+**Decision.** Add `python/harness/terminal/` as infrastructure, not a UI feature:
+
+1. **One facade.** `TerminalManager` is the only terminal entry point; the agent
+   tools (`terminal/tools.py`) and the HTTP router (`routers/terminal.py`) are thin
+   adapters over it, so UI and agent can never disagree about process state.
+   React state is never the source of truth.
+2. **Two primitives + a session.** `execute_command` (bounded, cancellable,
+   through `code/sandbox.py`), `start_process` (a monitored long-running process
+   with no ordinary timeout), and `open_shell`/`run_shell_command` (a persistent
+   shell preserving `cd`/environment). A real PTY is used when a PTY library is
+   installed; the piped fallback is reported as `pty: false`, never called a PTY.
+3. **Deterministic process state.** A state machine applied once by the monitor
+   thread that reaps the OS exit — never inferred from "does a PID exist". stdout
+   and stderr are separate, sequenced ring buffers with a cursor, so polling never
+   duplicates output and large output is bounded.
+4. **Honest runtimes.** `LocalRuntime` and `WSLruntime` are implemented;
+   `DockerRuntime` and `SSHRuntime` exist and refuse with `NOT_IMPLEMENTED`.
+   `select_runtime` never degrades to local.
+5. **Reused safety.** The tools are removed at `plan_only` through the existing
+   `code/policy.allowed_tools`; the classifier is the existing
+   `code/shell_tools._verdict`; approvals are the existing single-use store;
+   redaction is the existing `session_index.redact_span`; persistence is the
+   existing one `agent-memory.db` connection, owning only its own tables.
+6. **Recovery.** On boot, a persisted process whose pid is gone is `EXITED`; one
+   whose pid still exists is `UNKNOWN`, never `RUNNING`. Sessions are closed.
+
+**Why.** A coding/agentic harness is only as capable as its execution layer: the
+loop *modify file → run → read error → fix → restart → verify* cannot exist
+without persistent processes, streamed output, ports and crash detection. Doing
+this inside the existing sandbox would have conflated one-shot bounded execution
+with long-lived process management; doing it in TypeScript would have violated
+the "agentic runtime is Python" rule; doing it as a UI feature would have made the
+terminal unusable headless, which is exactly when autonomous agents need it. One
+shared runtime keeps the agent and the human looking at the same truth.
+
+**Consequences.** `code/sandbox.py`, `code/shell.py`, `code/terminal*.py`,
+`code/backends.py`, `code/policy.py`'s command vocabulary and every existing test
+are preserved; `terminal_run`/`shell_run`/`shell_spawn` remain for compatibility
+and share the classifier. `policy.py` gains `TERMINAL_WRITE_TOOLS` /
+`TERMINAL_READ_TOOLS` and `SECRET_ENV_ALLOWLIST` gains `PATHEXT` (a measured
+latent gap: a scrubbed shell could not resolve an executable by name). Both agents
+and `CHAT_CODE_TOOLS` gain the terminal tools; the pinned chat-set test is updated
+in place. New tables are additive on `agent-memory.db`. Tests:
+`python/tests/test_terminal_{buffer,shell_and_runtimes,process,session,store_and_recovery,tools,api,e2e}.py`.
+Full suite green; `npx tsc --noEmit` clean.
+

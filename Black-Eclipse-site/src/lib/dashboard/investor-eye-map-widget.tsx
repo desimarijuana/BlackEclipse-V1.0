@@ -196,9 +196,9 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
             UNAVAILABLE{lastKnownAt ? ` · LAST ${formatClock(lastKnownAt, tz)}` : ''}
           </span>
         )}
-        {/* One-click heatmap toggle, always visible — the Layers popover is
-            where the full list lives, but the heatmap is the common ask. */}
-        <HeatmapToggle />
+        {/* One-click heatmap toggle, matching the widget's other header
+            controls (`accent` recipe) and sitting directly beside them. */}
+        <HeatmapToggle variant="accent" />
         {/* Layer visibility lives in a popover so the map tile stays compact —
             without it the widget had NO way to toggle the heatmap or any other
             intelligence layer. Reuses the canonical LayerController so the

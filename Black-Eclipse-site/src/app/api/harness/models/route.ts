@@ -1,15 +1,41 @@
 import { NextResponse } from "next/server";
-import { listModelProviders, HarnessRuntimeUnavailable } from "@/lib/harness";
+import { listModelProviders, listRuntimeModels, HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/harness/models — the universal provider catalog owned by the Python
 // runtime (first-party LangChain integrations + every OpenAI-compatible
-// endpoint).
+// endpoint). Models discovered at runtime (an Ollama / LM Studio probe) are
+// merged in best-effort, so the Settings model picker can show the operator's
+// actually-installed models — not just the static declared sample.
 export async function GET() {
   try {
     const providers = await listModelProviders();
-    return NextResponse.json({ success: true, providers });
+
+    // Best-effort: the runtime's in-process registry holds dynamically
+    // discovered models. When the registry call fails the declared catalog is
+    // returned unchanged, so the picker never breaks.
+    const discoveredByProvider = new Map<string, string[]>();
+    try {
+      const models = await listRuntimeModels();
+      for (const m of models) {
+        const list = discoveredByProvider.get(m.providerId) ?? [];
+        if (m.id && !list.includes(m.id)) list.push(m.id);
+        discoveredByProvider.set(m.providerId, list);
+      }
+    } catch {
+      // Ignore — declared models still render.
+    }
+
+    const merged = providers.map((p) => {
+      const id = typeof p.id === "string" ? p.id : undefined;
+      const extra = id ? discoveredByProvider.get(id) ?? [] : [];
+      if (extra.length === 0) return p;
+      const declared = Array.isArray(p.models) ? (p.models as string[]) : [];
+      return { ...p, models: Array.from(new Set([...extra, ...declared])) };
+    });
+
+    return NextResponse.json({ success: true, providers: merged });
   } catch (err) {
     const status = err instanceof HarnessRuntimeUnavailable ? 503 : 500;
     console.error("[api/harness/models] GET error:", err);

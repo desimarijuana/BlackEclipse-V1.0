@@ -417,10 +417,12 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
   // no heatmap, so on the globe this layer is simply not drawn (the pins layer
   // already communicates density there).
   let heatmapMax = 0;
+  let heatmapSeriesId: string | null = null;
   if (mode === '2d') {
     for (const layer of enabled) {
       if (layer.type !== 'heatmap') continue;
       const data = layer.data();
+      heatmapSeriesId = layer.id;
       for (const d of data) heatmapMax = Math.max(heatmapMax, d.value ?? 0);
       series.push({
         id: layer.id,
@@ -841,11 +843,19 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
     // Severity-weighted heat legend. A warm ramp (violet → magenta → rose →
     // orange → yellow) so hotspots visibly CONTRAST the blue/cyan map surface
     // instead of blending into it; yellow is the "hottest" end.
-    ...(heatmapMax > 0
+    //
+    // `seriesId` is CRITICAL: a continuous visualMap defaults to
+    // `seriesIndex: 'all'`, so without it ECharts recoloured EVERY series from
+    // its `value` — the event pins (whose value is a severity weight) were
+    // re-tinted to the low/violet end and stayed that way after the heatmap was
+    // switched off. Scoping the mapping to the heatmap series leaves every other
+    // layer's own colouring untouched.
+    ...(heatmapMax > 0 && heatmapSeriesId
       ? {
           visualMap: {
             show: true,
             type: 'continuous',
+            seriesId: heatmapSeriesId,
             min: 0,
             max: heatmapMax,
             calculable: false,

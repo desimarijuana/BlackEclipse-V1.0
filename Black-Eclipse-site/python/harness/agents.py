@@ -28,6 +28,16 @@ CODE_NAVIGATOR_TOOLS = [
     "workspace_diff",
     "workspace_revert",
     "command_run",
+    # Terminal subsystem: foreground execution, persistent shells, background
+    # processes and ports. The effectful ones are removed at `plan_only`.
+    "execute_command",
+    "open_shell", "close_shell", "run_shell_command",
+    "write_shell_input", "read_shell_output", "resize_shell", "send_shell_control",
+    "list_terminal_sessions", "terminal_session_status",
+    "start_process", "stop_process", "restart_process", "kill_process",
+    "list_processes", "process_status", "read_process_output",
+    "write_process_input", "send_signal", "process_tree", "process_health",
+    "list_ports", "terminal_capabilities", "system_info",
 ]
 
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path
@@ -139,6 +149,18 @@ CODE_AGENT_TOOLS = [
     "terminal_run",
     # Real shell (PowerShell/CMD/bash) with background processes.
     "shell_run", "shell_spawn", "process_output", "process_kill", "process_list",
+    # Terminal subsystem: persistent shells, background process management, ports
+    # and host capabilities. The command tools are effectful and removed at
+    # `plan_only`; the rest are read-only. `execute_command` is the foreground
+    # runner; `start_process` is the long-running one.
+    "execute_command",
+    "open_shell", "close_shell", "run_shell_command",
+    "write_shell_input", "read_shell_output", "resize_shell", "send_shell_control",
+    "list_terminal_sessions", "terminal_session_status",
+    "start_process", "stop_process", "restart_process", "kill_process",
+    "list_processes", "process_status", "read_process_output",
+    "write_process_input", "send_signal", "process_tree", "process_health",
+    "list_ports", "terminal_capabilities", "system_info",
     # Verification (Phase 4) — the final answer is checked against the ledger.
     # Memory/session recall stays available: read-only context, NOT the finance family.
     "memory", "skill_list", "skill_view", "session_search", "session_open",
@@ -179,6 +201,15 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",
+    # Terminal subsystem (persistent shells + background processes + ports).
+    "execute_command",
+    "open_shell", "close_shell", "run_shell_command",
+    "write_shell_input", "read_shell_output", "resize_shell", "send_shell_control",
+    "list_terminal_sessions", "terminal_session_status",
+    "start_process", "stop_process", "restart_process", "kill_process",
+    "list_processes", "process_status", "read_process_output",
+    "write_process_input", "send_signal", "process_tree", "process_health",
+    "list_ports", "terminal_capabilities", "system_info",
     "scaffold_kit", "analysis_run",
     # parallel read-only explore children for large codebases
     "delegate",

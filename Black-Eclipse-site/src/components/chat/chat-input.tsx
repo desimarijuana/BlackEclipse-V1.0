@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X, ChevronDown, Check, Cpu } from 'lucide-react';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X, ChevronDown, Check, Cpu, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { useCommandStore } from '@/lib/search/store';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -264,12 +265,13 @@ function ModelSelector({ state }: { state: ChatModelState }) {
         <ChevronDown size={13} className="shrink-0 opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuLabel className="flex items-center justify-between gap-2">
-          <span>Model</span>
-          <span className="text-[10px] font-normal text-muted-foreground truncate">{state.providerLabel}</span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="max-h-64 overflow-y-auto">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex items-center justify-between gap-2">
+            <span>Model</span>
+            <span className="text-[10px] font-normal text-muted-foreground truncate">{state.providerLabel}</span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <div className="max-h-64 overflow-y-auto">
           {state.loading && (state.providers.length === 0) && (
             <div className="px-2 py-1.5 text-[11px] text-muted-foreground flex items-center gap-2">
               <Loader2 size={12} className="animate-spin" /> Loading models…
@@ -290,20 +292,21 @@ function ModelSelector({ state }: { state: ChatModelState }) {
               ) : null;
             }
             return list.map((m) => (
-              <DropdownMenuItem key={m} onSelect={() => state.setModel(m)} className="gap-2">
+              <DropdownMenuItem key={m} onClick={() => state.setModel(m)} className="gap-2">
                 <Check size={13} className={cn("shrink-0", m === state.selectedModel ? "opacity-100 text-primary" : "opacity-0")} />
                 <span className="font-mono truncate">{m}</span>
               </DropdownMenuItem>
             ));
           })()}
-        </div>
+          </div>
+        </DropdownMenuGroup>
         {state.canDiscover && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={state.discovering}
-              onSelect={(e) => {
-                e.preventDefault();
+              closeOnClick={false}
+              onClick={() => {
                 void state.discover();
               }}
               className="gap-2 text-primary/90"
@@ -324,9 +327,16 @@ function ModelSelector({ state }: { state: ChatModelState }) {
               {state.providers.map((p) => (
                 <DropdownMenuItem
                   key={p.id}
-                  onSelect={() => {
-                    // Switching provider adopts its first model so the choice is
-                    // (provider, model) together — never a mismatched pair.
+                  onClick={() => {
+                    // A provider with no key cannot run — send the operator to
+                    // Settings › AI, where the key is added, instead of selecting
+                    // a provider that would fail. Keyless/configured providers
+                    // select normally, adopting their first model so the choice
+                    // is (provider, model) together — never a mismatched pair.
+                    if (!p.keyless && !p.available) {
+                      useCommandStore.getState().dispatch({ tab: "settings", subroute: "settings.ai" });
+                      return;
+                    }
                     state.select(p.id, p.models[0] ?? "");
                   }}
                   className="gap-2"
@@ -334,11 +344,13 @@ function ModelSelector({ state }: { state: ChatModelState }) {
                   <Check size={13} className={cn("shrink-0", p.id === state.selectedProvider ? "opacity-100 text-primary" : "opacity-0")} />
                   <span className="truncate">{p.label}</span>
                   {p.keyless ? (
-                    <span className="ml-auto text-[9px] text-emerald-400/80">no key</span>
+                    <span className="ml-auto text-[9px] text-muted-foreground/50">no key</span>
                   ) : p.available ? (
-                    <span className="ml-auto text-[9px] text-emerald-400/80">key set</span>
+                    <span className="ml-auto text-[9px] text-emerald-400/70">key set</span>
                   ) : (
-                    <span className="ml-auto text-[9px] text-amber-400/80">needs key</span>
+                    <span className="ml-auto inline-flex items-center gap-1 text-[9px] font-medium text-primary/90">
+                      <KeyRound size={10} /> Add key
+                    </span>
                   )}
                 </DropdownMenuItem>
               ))}
@@ -374,10 +386,8 @@ function ModelSelector({ state }: { state: ChatModelState }) {
             </div>
           ) : (
             <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setCustomOpen(true);
-              }}
+              closeOnClick={false}
+              onClick={() => setCustomOpen(true)}
               className="gap-2"
             >
               <Plus size={13} className="shrink-0" />

@@ -256,13 +256,17 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     // Only the series change here, so `replaceMerge: ['series']` is always valid
     // regardless of which base component (geo or globe) is active. The skin's
     // base component (geo/globe) is merged by id, so it updates in place too.
+    // `visualMap` is part of the replace set so that turning the heatmap OFF
+    // actually REMOVES its legend/colour mapping. `replaceMerge: ['series']`
+    // alone left the stale visualMap mounted, which is what made the event pins
+    // keep the heatmap's colouring after the layer was switched off.
     chart.setOption(
       buildMapOption({
         layers, highlightPoints, mode, skin, showCountryLabels,
         globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
         width: box.width, height: box.height,
       }),
-      { replaceMerge: ['series'] } as never,
+      { replaceMerge: ['series', 'visualMap'] } as never,
     );
   }, [layers, highlightPoints, mode, skin, showCountryLabels, glReady, texVersion, box, handleCountryClick]);
 

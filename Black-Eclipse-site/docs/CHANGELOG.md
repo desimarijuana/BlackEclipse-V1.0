@@ -6,6 +6,188 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-05
+
+- **Terminal/Shell/Process execution subsystem — the execution backbone.**
+  Added `python/harness/terminal/` (one `TerminalManager` shared by agent tools and
+  the UI): persistent shells (`open_shell`/`run_shell_command`/`write_shell_input`/
+  `read_shell_output`/`resize_shell`/`send_shell_control`), background process
+  management (`start_process`/`stop_process`/`restart_process`/`kill_process`/
+  `read_process_output`/`write_process_input`/`send_signal`/`process_tree`),
+  `execute_command` foreground execution, `list_ports`, `terminal_capabilities`,
+  `system_info`; a sequenced/bounded output `RingBuffer` with cursor polling;
+  secret redaction; a deterministic process state machine with crash detection; a
+  Windows Job-Object / POSIX-group per-process isolation backend; OS process-tree
+  and port attribution; `TerminalSession`/`ProcessRecord`/`TerminalCommand` rows on
+  the one `agent-memory.db`; boot `RecoveryManager`; operator-gated `/terminal/*`
+  routes; front-door `src/lib/harness/terminal-{client,browser}.ts` + `/api/terminal/**`;
+  and Processes/Ports views in the terminal panel. The tools are removed at
+  `plan_only` (`code/policy.py`) and classified allow/ask/deny by the effect
+  authorizer composed into the graph. Docker/SSH runtimes refuse honestly
+  (`NOT_IMPLEMENTED`). Also fixed a latent env-scrub gap: `PATHEXT` was missing
+  from `SECRET_ENV_ALLOWLIST`, so a shell with a scrubbed environment could not
+  resolve an executable by name. Tests: `python/tests/test_terminal_*.py` (72),
+  incl. `test_terminal_e2e.py`. Full Python suite green (2550 passed);
+  `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/terminal-architecture.md` (new),
+  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (`ADR-H126`).
+
+- **Investor Eye Heatmap button now matches the surrounding controls.** The
+  standalone `HeatmapToggle` was styled differently from the buttons beside it
+  and sat alone on the map surface. It now sits in the Investor Eye header
+  toolbar directly beside Map/skin/stars/names and Full page / Ask the map /
+  Refresh, and uses the identical `glass-button` recipe; the dashboard widget
+  gets an `accent` variant that matches its own `bg-accent/30` header buttons.
+  `npx tsc --noEmit` clean; investor-eye tests pass.
+  no doc change — control styling/placement only; no contract change.
+
+- **Investor Eye heatmap: scope its visualMap (event dots no longer turn purple
+  and stick) + coarser density grid.** Two regressions in the `event-heatmap`
+  layer. (1) A continuous ECharts `visualMap` defaults to `seriesIndex: 'all'`,
+  so it recoloured EVERY series from its `value` — the event pins (value = a
+  0.2–1 severity weight) were re-tinted to the low/violet end, and because the
+  update path only `replaceMerge`d `series`, the mapping (and the purple) stayed
+  after the heatmap was switched off. The `visualMap` is now scoped with
+  `seriesId: 'event-heatmap'`, and `world-map.tsx` replaces `visualMap` too, so
+  turning the layer off REMOVES the mapping and every layer reverts to its own
+  colouring. (2) The heatmap reused the pin-cluster grid (0.1° at high counts),
+  so every event was its own faint speck instead of a regional hotspot. It now
+  aggregates on a coarse `heatmapCellDegrees()` grid (1.5–8° by count), so
+  neighbouring events accumulate into one hotspot the way a heatmap should.
+  Tests: `map-echarts.test.ts` (+2 visualMap-scoping cases).
+  `npx tsc --noEmit` clean.
+  no doc change — bug fix to heatmap rendering; `MapLayerType`/contract unchanged.
+
+
+- **Fixed the composer model dropdown crashing on open (Base UI error #31).**
+  `ModelSelector` in `chat-input.tsx` rendered `DropdownMenuLabel` (Base UI
+  `Menu.GroupLabel`) as a direct child of `DropdownMenuContent`, but a group
+  label requires a `<Menu.Group>` ancestor — clicking the pill threw
+  `Base UI error #31` and the menu never appeared. Wrapped the label + model
+  list in `DropdownMenuGroup`. Verified with a Playwright probe: menu opens,
+  lists all providers/models, no console errors. `vitest` 2085 passed;
+  `npx tsc --noEmit` clean. no doc change — bug fix; no contract change.
+
+- **Model menu restyled to frosted glass.** The composer model dropdown and its
+  Provider submenu used the opaque `bg-popover` fill, so it read as a flat solid
+  panel over the dark page. Both surfaces now use the shared `.glass-tooltip`
+  tier (translucent tint `rgba(18,18,20,0.5)` + `backdrop-filter: blur(18px)
+  saturate(1.35)` + inset highlight), matching the UI system's popover recipe;
+  the solid `bg-popover` + `ring` fill and shadow were removed from
+  `dropdown-menu.tsx`. The dropdown is already portaled by Base UI, so the blur
+  samples the real page (verified with a Playwright high-contrast backdrop:
+  background is visibly blurred through the panel and submenu, no console
+  errors). This changes every consumer of the shared `DropdownMenuContent`
+  (composer model selector is the only one today). `vitest` 2087 passed;
+  `npx tsc --noEmit` clean. no doc change — visual-only restyle using the
+  existing glass system; no architecture/contract change.
+
+- **Scrollbar + provider-status colour toned down (professional, neutral).** The
+  global scrollbar was brand-tinted, and on hover it turned bright brand green
+  (`#7aff78`) — a loud yellow-green streak on dark glass. Both global scrollbar
+  blocks in `globals.css` (the early brand block + the late `#262626`/`var(--brand)`
+  cascade layer) now use a neutral translucent-white thumb
+  (`rgba(255,255,255,0.16)`, `0.30` hover) on a transparent track, so no theme can
+  turn the scrollbar a saturated colour. In the composer model dropdown's Provider
+  submenu, the `needs key` / `no key` labels were saturated amber/green; they are
+  now muted (`text-muted-foreground/50`; `key set` at `text-emerald-400/70`), so
+  the menu reads as chrome rather than a traffic-light. `vitest` 2087 passed;
+  `npx tsc --noEmit` clean. no doc change — visual-only; no contract change.
+
+- **Composer model menu: fixed dead item handlers + made "Discover" list and keep
+  every installed model.** Three compounding bugs. (1) The shadcn-style wrapper
+  `dropdown-menu.tsx` exposed Radix's `onSelect` API, but Base UI's `Menu.Item`
+  only fires `onClick` — so **every** menu item (`setModel`, provider switch,
+  Discover, Custom) silently did nothing. All items now use `onClick`, with
+  `closeOnClick={false}` where the menu must stay open (Discover, Custom id).
+  (2) `ModelRegistry.discover_models` returned only the *newly registered* models,
+  so a second "Discover" click returned an empty list; it now returns the
+  provider's full registered set (idempotent) — Python test added.
+  (3) The composer catalog (`GET /api/harness/chat/models`) read only the static
+  preset (`llama3.1`, …), never the runtime's discovered registry, so installed
+  Ollama models vanished on reload. The route now merges `listRuntimeModels()`
+  (best-effort, server-side) per provider. Result: an Ollama "Discover" now shows
+  ALL installed models and they persist across reloads. Tests: `models/route.test.ts`
+  (+2), `test_model_runtime.py` (+1). `vitest` 2089 passed; `pytest` green;
+  `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
+
+- **Model menu: providers that need a key now link straight to Settings › AI.**
+  Clicking a provider whose key is missing previously selected it and then failed
+  at run time. The Provider submenu item now detects `!keyless && !available` and
+  dispatches the command bus to `settings.ai`
+  (`useCommandStore.getState().dispatch({ tab: "settings", subroute: "settings.ai" })`)
+  — the established modal-navigation idiom — so the user lands on the AI/LLM page
+  to paste the key. The label changed from "needs key" to a primary "Add key" with
+  a key icon. Keyless/configured providers still select normally. `vitest` 2089
+  passed; `npx tsc --noEmit` clean. no doc change — small navigation affordance;
+  no architecture/contract change.
+
+- **Settings › AI redesigned: grouped providers, connect/disconnect, readable
+  active model.** The old surface dumped every provider into one two-column grid
+  beside a duplicate config form, so it was unclear what was selected or how to
+  add/remove a key. New `ai-provider-settings.tsx` groups it: (1) **Active setup**
+  — the current provider + model echoed prominently, with model picker, base URL,
+  context window, key editor and Test, in one card; (2) **Connected providers**
+  — those that work (key set, or keyless local), each with **Disconnect**
+  (deletes the vault key) or **Use**; (3) **Popular providers** — one click to
+  **Connect** (reveals the key field) or select; (4) **Show more providers** —
+  the rest, collapsed. Provider state is derived honestly (Active / Connected /
+  Ready / Not connected). `ProviderKeyEditor` gained an `onChanged` callback.
+  The model picker (`model-picker.tsx`) no longer shows a raw `__custom__`
+  sentinel — the current id is always in the Select, with a separate "Custom
+  model id…" toggle. `GET /api/harness/models` now merges runtime-discovered
+  models, so the Settings picker reads the operator's installed Ollama models
+  too. Tests: `api/harness/models/route.test.ts` (+3). `vitest` 2092 passed;
+  `pytest` green; `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
+
+- **Settings › AI: removed themed (blue) borders, provider cards now full-width.**
+  The provider cards and section icon used `border-primary/*` / `border-emerald-*`,
+  which resolve to the active theme's brand colour — so under a blue theme
+  ("Electric Blue", "Blueprint") every card had a blue outline. They now use
+  neutral white-alpha borders, so no theme can tint the chrome. The catalog
+  grids also changed from two columns (`sm:grid-cols-2`) to a single full-width
+  column. `vitest` 2092 passed; `npx tsc --noEmit` clean. no doc change —
+  visual-only; no contract change.
+
+- **Site sidebars unified to one neutral grey, accent-free look; rows shortened.**
+  The main app sidebar (`layout/sidebar.tsx`) and the Settings screen's own left
+  rail (`screens/settings.tsx`) are now the same surface: both carry `sidebar-root`
+  + `glass-card-strong`, so Settings no longer renders a rounded, accent-tinted
+  `glass-card-subtle` panel that drifted from the shell rail. Green `primary`
+  accents (active mode button, active nav row/icon, shortcut badge, settings gear,
+  Settings header/chevron/nav pills) were replaced with neutral white-wash
+  (`bg-white/[0.08]`, `text-foreground`). Nav rows shrank `h-10` → `h-9`. The
+  shipped sidebar tint moved `#1a1a1c` → `#2a2a2e` (clearly grey) and
+  `SIDEBAR_PRESETS` gained a `Grey` default preset (`charcoal` retained). Tests
+  updated in `lib/theme/tokens.test.ts`. no doc change — surface styling only; no
+  architecture/contract change.
+
+- **ChatBot transcript rail de-accented; default sidebar width reduced.** The chat
+  page's right-edge `MessageRail` ticks no longer use the green brand accent —
+  idle ticks are `bg-muted-foreground/50`, hover/active brighten to a neutral
+  `bg-foreground/70–80` with no glow. The default sidebar width dropped `w-60`
+  (15rem) → `w-52` (13rem) on the shell rail (`layout/sidebar.tsx`), its mobile
+  drawer, and the Settings rail (`screens/settings.tsx`) so the default chrome is
+  less dominant. `npx tsc --noEmit` clean; `vitest` 2092 passed.
+  no doc change — surface styling only; no architecture/contract change.
+
+- **Chat scrollbars de-accented to neutral grey.** The chat transcript's visible
+  scrollbar (`.chat-transcript-scroll`) was still brand-green — after scrolling
+  up it rendered as a bright vertical streak on the right edge of the ChatBot
+  page. It (plus `.chat-composer-scroll` and `.tv-metrics-rail`) now uses the
+  same neutral `rgba(255,255,255,0.16)` thumb / `0.30` hover as the global bar,
+  and the transcript/composer bars slimmed 8/10px → 6px. `npx tsc --noEmit`
+  clean; `vitest` 2092 passed. no doc change — styling only.
+
+- **Chat transcript scrollbar replaced with a short capped thumb.** The native
+  transcript bar always spans the full scroll-container height (it ran down the
+  right edge and under the header, looking like a long band). `ChatHistory` now
+  hides the native bar (`scrollbar-hide`) and renders a compact custom thumb
+  capped at ~28% of the track, inset 6px from the top/bottom, tracking the
+  reading position via a ResizeObserver + scroll listener. The unused
+  `.chat-transcript-scroll` CSS was removed. `npx tsc --noEmit` clean;
+  `vitest` 2092 passed. no doc change — styling only.
+
 ## 2026-10-04
 
 - **Composer model selector: fixed to be ALWAYS visible + switch providers.**
@@ -2384,463 +2566,3 @@ esource_schemes
   `scripts/fetch-world-geo.mjs` because its regeneration path emits the default
   Natural Earth view and would silently revert this policy. docs updated:
   `docs/investor-eye-architecture.md`, `docs/CHANGELOG.md`
-
-## 2026-09-28
-
-- **Eclipse Memory: cut per-request runtime-probe and serial-fetch overhead.**
-  Measured: Python memory endpoints answer in 6–12 ms, but the Next memory
-  routes took ~100 ms cold and 1.7 s spikes; a 6-way parallel burst of the same
-  route took 10.6 s. Two causes, both fixed. (1) `ensurePythonRuntime()` — called
-  by *every* proxied request via the shared `request()` helpers — did a full
-  `/health` round-trip **and** a synchronous `python/harness/*.py` directory scan
-  on each call, with no caching or coalescing. It now has a 5 s success-TTL fast
-  path and in-flight promise coalescing, so the several routes a Memory tab fans
-  out share one probe instead of N probes. (2) The Lifecycle tab fetched
-  lifecycle→retention→semantic sequentially and the Health tab fetched
-  health→database-health sequentially; both now use `Promise.all`, removing the
-  serial round-trip chain. The remaining ~65 ms per route is generic Next.js dev
-  overhead (a non-Python route measures the same), not memory-specific. Checks:
-  `tsc` clean; Vitest **1808 passed**; Python **1315 passed**; lint 0 errors.
-  `jdds.db` untouched.
-  no doc change — performance fix; contracts and architecture unchanged
-- **Command Center fullscreen: move the Exit control into the top bar.** The
-  fullscreen overlay's Exit button floated at bottom-right over the board; it
-  now sits in the TopBar row (top, trailing edge, next to the app chrome) and
-  no longer overlaps widget content. Placement/style-only fix; no doc change —
-  presentation change, no architecture/contract/setup impact.
-- **Eclipse Memory: fix overlapping overlays + structural pass.** (1) The
-  Memory Control Room's six hand-rolled drawers/modals were rendered inline
-  inside the screen root, which lives under the shell's `glass-card`
-  (`backdrop-filter`) container — a containing block/backdrop root — so
-  `position: fixed` was scoped to it and the surfaces clipped, sat under the
-  header and overlapped the floating chat dock; they also used `z-50`, *below*
-  the dock (`z-[90]`). Added one shared primitive
-  (`eclipse-memory/memory-overlay.tsx`: `MemoryDrawer` + `MemoryModal`) portaled
-  to `document.body`, with Escape/backdrop close, body scroll lock, a sticky
-  header and consistent width tiers; migrated all six overlays to it.
-  (2) Established the app z-index tiers (fullscreen 80–86 < dock 90 <
-  drawers/dialogs 100 < toasts 110) and moved the Skills toast to `z-[110]`.
-  (3) Responsive/structure pass: Lifecycle now shows the counts grid first and
-  pairs retention + contradiction detection side-by-side instead of stacking
-  full-width blocks ahead of the list; Files uses a `minmax(0,…)` grid so it no
-  longer overflows on narrow widths. New ADR-037. Checks: `tsc` clean; Vitest
-  **1808 passed**; Python **1315 passed**; lint 0 errors. `jdds.db` untouched.
-  docs updated: DECISIONS.md (ADR-037)
-- **Memory & Skills: consistent, properly-centred loading states.** Loading
-  placeholders were inconsistent — some sat left-aligned, some top-anchored, at
-  differing heights, and `SkillQuality`/`Onboarding` rendered an inline spinner
-  with no centering at all. Added one shared `LoadingState` atom to
-  `skills/skill-ui.tsx` (flex column, both axes centred, `min-h-[40vh]`, optional
-  hint) and a matching centered `Spinner` in `eclipse-memory/memory-ui.tsx`, then
-  routed every Skills sub-page loader through it (library, learning queue,
-  execution activity, evaluation, project skills, bundles, journey, quality,
-  onboarding, skill detail). Removed the now-unused `Loader2` imports. UI-only;
-  no contract/architecture change. Checks: `tsc` clean; Vitest **1808 passed**;
-  Python **1315 passed**; `jdds.db` untouched.
-  no doc change — UI-only tweak; NAVIGATION/ARCHITECTURE contracts unchanged
-- **Memory & Skills UI: unreachable Memory sub-tabs, full-width panels.** (1)
-  Fixed a real bug in the Memory Control Room: the `History` (session-search)
-  view and the `Sessions` view both existed in the `Tab` union but the tab bar
-  only rendered `Sessions` — `History` was unreachable, and the subroute map
-  wrongly aliased `sessions → "history"`, so selecting Sessions opened the
-  buttonless search view. Added a distinct "Session Search" tab and corrected
-  the map (`sessions → sessions`, `history → history`). (2) The Memory tab bar
-  now passes `wrap` (like Skills) so the 15 tabs wrap instead of scrolling into
-  a hidden-scrollbar clip. (3) Memory root gained `pb-24` so content clears the
-  floating chat dock. (4) Removed the leftover `max-w-3xl` on the Skills
-  `GuidedLearn` and `OnboardingPanel` roots so those sub-pages fill the width
-  like the rest of the screen. UI-only; no contract/architecture change. Checks:
-  Vitest **1808 passed**; Python **1315 passed**; `tsc` clean;
-  `jdds.db` untouched.
-  no doc change — UI-only fix; NAVIGATION/ARCHITECTURE contracts unchanged
-- **Skills UI: full-width layout, pagination, wrapping tabs.** (1) The Skills
-  screen now uses the app's screen convention (`w-full`, `px-4 md:px-8`) with
-  `pb-24`, so content fills the width and the last row is never hidden behind the
-  floating chat dock. (2) Added a shared `Pagination` (`src/components/ui/
-  pagination.tsx`: `usePagination` + `PaginationFooter`, client-side, page-size
-  selector, auto-clamps when the list shrinks) and applied it to the unbounded
-  lists — Learning Queue (25/page), Execution Activity (25/page), and Journey
-  relations (25/page). This fixes long lists overflowing the page. (3) `TabBar`
-  gained a `wrap` option (dense tab rows wrap instead of clipping the last tab
-  behind a hidden scrollbar); the Skills tab bar uses it. UI-only; no
-  contract/architecture change. Checks: Vitest **1808 passed**; Python **1315
-  passed**; `tsc` clean; lint 0 errors. `jdds.db` untouched.
-  docs updated: CHANGELOG.md
-- **Skills UI: journey force-graph + execution-list 404 fix.** (1) The Journey
-  tab rendered two long text columns instead of a graph; it now shows an
-  ECharts force-directed graph of the derived learning journey
-  (`learning-graph.tsx`): node colour by `kind`, edge colour by `relation`, size
-  by degree, hover tooltip, click-to-inspect (relations list), kind-filter
-  highlight, and a full-page (Esc) mode — modelled on `investor-eye/graph-panel`.
-  No backend change; the nodes/edges already came from `learning_graph.py`.
-  (2) Fixed a real 404: `skills-browser.listSkillExecutions` called
-  `GET /api/skill-executions`, but only the `[runId]` proxy existed, so the
-  Execution Activity tab fetched nothing; added the list route. (3) The Library
-  loading state is now a labelled spinner instead of empty skeleton cards that
-  read as a broken page. Checks: Vitest **1808 passed**; Python **1315 passed**;
-  `tsc` clean; lint 0 errors. `jdds.db` untouched.
-  docs updated: CHANGELOG.md (UI-only change; no architecture/contract change)
-- **Engineering follow-up: lint, router split, frontend atoms, a11y.** (1) Fixed
-  `eslint.config.mjs` to ignore `.next-dev/**` — the dev build output was being
-  linted, producing all 400 reported "errors"; source now lints to **0 errors**,
-  and the CI lint step is blocking (was `continue-on-error`). (2) Extracted the
-  remaining front-door route groups from `python/harness/main.py` into
-  `routers/memory.py` (46), `routers/skills.py` (18), `routers/sessions.py` (23)
-  alongside `routers/mcp.py` (11); `main.py` shrank 2,604 → **919 lines** with no
-  path/behavior change (one internal monkeypatch target in
-  `test_memory_reliability.py` moved with it). (3) Extracted the Eclipse-Memory
-  presentational atoms into `eclipse-memory/memory-ui.tsx` (screen 2,598 → 2,444
-  lines). (4) Added a dependency-free a11y store test
-  (`src/lib/i18n/store.a11y.test.ts`). (5) Verified `jdds.db` remains unstaged and
-  uncommitted. Checks: Vitest **1808 passed** (145 files); Python **1315 passed**;
-  `tsc` clean; lint 0 errors; retrieval/semantic/contradiction/compaction gates
-  PASS. `jdds.db` untouched.
-  docs updated: CHANGELOG.md, NAVIGATION.md, harness/architecture.md
-
-- **Engineering hardening pass (CI, routing, honest errors, guards).** Seven
-  focused items: (1) added a **CI workflow** (`.github/workflows/test.yml`) that
-  runs `typecheck` + `test` (Vitest + Python) + the four eval gates, plus an
-  `npm run typecheck` script; (2) triaged the TODO/FIXME markers — the only
-  genuine one is a documented, deliberate deferral, left as-is; (3) added a
-  route-level test for the honest **503 runtime-unavailable** path and fixed a
-  real defect where `HarnessRuntimeUnavailable` was collapsed to `INTERNAL_ERROR`
-  (`errors.py` now preserves `RUNTIME_UNAVAILABLE`); (4) extracted shared state +
-  operator auth into `python/harness/deps.py` and the MCP routes into
-  `python/harness/routers/mcp.py` (registered via `app.include_router`), shrinking
-  `main.py` from 2604 → 1890 lines with no behavior/path change; (5) added a
-  retrieval-layer **adversarial eval** (`test_research_adversarial.py`: no
-  fabricated value, staleness surfaced, unresolvable conflict preserved, poisoning
-  cannot beat a primary, identity never crosses); (6) added an i18n dictionary
-  integrity test and a source-size budget guard; (7) full verification. Checks:
-  Vitest **1804 passed** (144 files); Python **1315 passed**; `tsc` clean;
-  retrieval/semantic/contradiction/compaction gates PASS. `jdds.db` untouched.
-  docs updated: CHANGELOG.md, NAVIGATION.md, harness/architecture.md
-
-- **Memory & Skills closure pass (verification only).** Read-only audit + full
-  suite re-run. One defect fixed: the `import_payload` docstring still described a
-  SQLite `SAVEPOINT` for atomicity while the implementation uses table
-  snapshot/restore (a SAVEPOINT cannot survive `write_memory`'s per-write COMMIT).
-  Corrected the docstring; no behavior change. All checks pass (Vitest 1795,
-  Python 1305, `tsc` clean, retrieval/semantic/contradiction/compaction gates
-  PASS). `jdds.db` untouched by this task.
-  docs updated: CHANGELOG.md, python/harness/eclipse_memory/transfer.py (docstring)
-
-- **Memory & Skills final hardening — all 11 phases (identity boundary → docs
-  reconciliation).** Audited the already-implemented evolution work and closed
-  only the remaining gaps: (1) identity/tenancy — documented + deployment-guarded
-  (non-loopback bind without operator secret refused/flagged; `0.0.0.0` no longer
-  a trusted local host); (2) per-skill project trust content identity + approval
-  history + selective quarantine; (3) expanded contradiction eval
-  (paraphrase/negation/numeric/subject-alias/temporal) with missed-conflict,
-  scope-leakage, forbidden-hit, precision metrics + honest semantic
-  interpretation; (4) skill-quality evidence states (no/insufficient/mixed/
-  reliable/degraded), failure-cause trends, regression inside promotion
-  evidence; (5) journey freshness (`watermark`, refresh state, execution nodes,
-  session placeholder nodes); (6) provider reliability (timeout budget,
-  `provider_failure` class, recovery-through-router, bounded event history,
-  last-success age); (7) import/export hardening (v3, conflict/duplicate preview,
-  atomic rollback, evaluation + audit preservation); (8) compaction preservation
-  eval (temporal/authority, evidence/chain/reversibility floors); (9) bundle
-  reproducibility (member content hashes, update preview, receipt, safe
-  rollback, lock history); (10) adversarial/long-running eval (overlapping
-  projects, provider poisoning/recovery, growth, repeated compaction, floors);
-  (11) documentation reconciliation (historical labels + Current status table).
-  Python **1305 passed**; Vitest **1795 passed**; `tsc` clean; contradiction and
-  compaction gates PASS. No second memory engine, no TS agent runtime, no
-  `jdds.db` change.
-  docs updated: CHANGELOG.md, NAVIGATION.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 16 (orphan/inconsistency cleanup).**
-  Fixed the stale `run_only` outcome docstring + downgrade comment (the outcome
-  set is `save/suggest/history_only/ignore`; the defensive branch is retained);
-  corrected the `explain_memory` `run_analysis` source mapping (that is a decision
-  *path*, not a stored source — mapped to `execution_lesson`); marked
-  `eclipse_memory/hybrid.py` explicitly **experimental/deferred** (it is not wired
-  into retrieval); fixed the stale `eclipse_memory/__init__.py` DB-path docstring;
-  and promoted Lifecycle + Activity to top-level tabs in the Memory screen (were
-  deep-link-only). No behavior/authorization change.
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 15 (adversarial evaluation + floors).**
-  Added `python/tests/test_adversarial_evolution.py` (15): prompt injection in
-  project/generated/bundle content, trusted-skill drift, cross-project/scope
-  leakage, stale/contradictory facts, disabled-skill invocation via bundle,
-  bundle permission escalation, import tampering, secret persistence,
-  retention edge cases, low-sample quality claims, and a consolidated
-  safety-floor test (zero scope leakage / unauthorized writes / forbidden
-  retrieval / unapproved activation / permission escalation / secret
-  persistence). Hardening found and fixed: `write_memory` now ALSO refuses a
-  credential VALUE at the single persistence path (`looks_like_credential_value`)
-  — defense in depth beyond the decision gate — without over-blocking a benign
-  sentence that merely mentions "secret"/"token".
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 14 (skill dependency visibility).**
-  Added `SkillRegistry.dependency_graph` (version-rich nodes + per-edge status
-  ok/optional/missing/disabled/incompatible, resolved order, cycles) exposed on
-  `GET /skills/{id}`; a read-only `GET /skills/{id}/preflight` returns why a skill
-  would be unavailable before a run. Dependencies are never auto-enabled. TS
-  types + a resolved-dependency list in the skill detail. Tests +2 in
-  `test_skills_registry.py`.
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills remaining gaps — Phase 13 (cold-start onboarding).** Added
-  `python/harness/onboarding.py` (static, read-only explanation of Facts /
-  Session History / Skills / trust / retention) + `GET /onboarding` returning
-  bundled starter skills with visible `bundled` provenance. It writes NO durable
-  memory, enables nothing, and changes no policy. TS + UI "Start Here" tab.
-  Tests `python/tests/test_onboarding.py` (3).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 12 (import/export hardening).** Export
-  documents now carry a content `checksum` (verified before ANY import write — a
-  tampered/corrupted file is refused, never partially applied), bundle lifecycle
-  fields round-trip (version/memberVersions/locked), and import supports
-  `dry_run`, `scope_filter`/`type_filter`/`bundles_only` partial restore, and
-  reports `checksumOk`/`importable`. The Health tab now has a Choose-file →
-  Preview (dry run) → Apply flow. Tests +5 in `test_memory_transfer.py`.
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 11 (freshness/retention UX).** Added a
-  **stale** lifecycle state (active but not confirmed/used in a long time — still
-  recalled) with a count + view; an expiry reason code
-  (`expiry: retention_period_elapsed`); a `nextMaintenanceAction` on
-  `retention_status`; and a non-destructive **retention preview**
-  (`GET /eclipse-memory/retention/preview`, `preview_retention`) showing what a
-  sweep would expire without sweeping. Durable-memory and session-retention keys
-  remain separate. Tests `python/tests/test_retention_freshness.py` (6).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 10 (provider reliability).** Added
-  `python/harness/memory_providers/reliability.py`: deterministic failure
-  classification (transient/permanent/unauthorized/unsupported/rate_limited/
-  unavailable), bounded retry (transient/rate-limited only, ≤2 attempts), an
-  in-memory circuit breaker (opens after 3 consecutive failures for a 30s
-  cooldown, then half-opens), and a bounded rolling latency/failure history with
-  last-success. Wired into `registry.search_external` (an open circuit SKIPS the
-  provider and reports it degraded — a failing provider cannot stall every run)
-  and surfaced in `diagnostics` + the Providers UI. Native memory is never
-  retried or held back. Tests `python/tests/test_provider_reliability.py` (16).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills remaining gaps — Phase 9 (bundle lifecycle).** Bundles gained
-  a semver `version` identity, optional member-version lock, and drift detection:
-  `lock_bundle`/`unlock_bundle` pin the current resolved member versions, and
-  `resolve_bundle` reports `drifted`/`incompatible` when a member changes after a
-  lock — visible before execution. A bundle still never enables a disabled skill
-  or widens a permission. Schema migration 18 (`SkillBundle.version`,
-  `memberVersions`, `locked`); routes `POST/DELETE /skill-bundles/{id}/lock`;
-  TS + UI (version/locked/drifted badges, Lock/Unlock). Tests +5 in
-  `test_skill_bundles.py`.
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills remaining gaps — Phase 8 (journey freshness).** The learning
-  journey now returns `generatedAt` + a source `watermark`, and the UI shows a
-  "last updated" line and silently refreshes on tab/window refocus (the graph is
-  derived and bounded; no second store or persisted graph DB). Tests +2 in
-  `test_learning_graph.py`.
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 7 (run observability).** The
-  `memory.retrieved` event now records which memory ids were injected, a bounded
-  sample of exclusions WITH their reason, and the budget used. Added
-  `python/harness/run_observability.py` (`explain_run`) which derives a bounded,
-  redacted run explanation from canonical retrieval/run events (injected facts,
-  exclusions by category scope/status/expiry/permissions/relevance/budget/trust/
-  drift, profile, prompt-plan segments, bundle resolution). Route
-  `GET /runs/{id}/explain` + Next proxy + `getRunExplanationFromRuntime` + a
-  collapsed "What influenced this run" panel in chat history. Derived read-only;
-  changes nothing at runtime and redacts secrets. Tests
-  `python/tests/test_run_observability.py` (6).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills remaining gaps — Phase 6 (skill quality over time).** Extended
-  `eclipse_memory/skill_quality.py` with per-day execution trends, a recency-
-  weighted success rate, a 95% Wilson success interval, an explicit low-sample
-  warning (`sampleReliable`; `<20` executions), deterministic failure-cause
-  clustering (missing tool/invalid input/output validation/unsupported data/
-  timeout/permission denied/user correction/provider failure/tool budget), a
-  `version_quality_history` trend view, and same-evaluation-case comparison
-  (`compare_evaluation_cases`, `caseRegressions`). Fixed `save_evaluation` to
-  persist each case's `status` (it was dropped). Added the missing front-door
-  routes `/skills/{id}/quality`, `/promotion-evidence`, `/quality/compare` +
-  `/quality-history`, TS client/browser + Next proxies, and a Quality-over-time
-  panel in the skill detail. Tests `test_skill_quality_trends.py` (8).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills remaining gaps — Phase 5 (conservative compaction).** Added
-  `python/harness/eclipse_memory/compaction.py`: deterministic near-duplicate
-  detection over ACTIVE memories (same scope+subject+type, canonical-token
-  overlap or subset) producing **inert** proposals. Acceptance creates one merged
-  memory and supersedes the originals (linked + retained); rejection changes
-  nothing; a lossy merge is refused by a preservation check; contradictions and
-  cross-scope records are never grouped. Persisted in `CompactionProposal`
-  (migration 17); routes `/eclipse-memory/compaction[/detect|/{id}/accept|/reject]`
-  (operator-gated) + TS client/browser + proxy routes + a Compaction panel in the
-  Lifecycle tab. Added a labeled preservation evaluation with absolute safety
-  floors (`eval/compaction.py`, gate PASS). Tests `test_memory_compaction.py` (12).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills remaining gaps — Phase 4 (conflict-resolution UX).** Added
-  `EclipseMemoryService.conflict_review` (side-by-side comparable records:
-  content/type/scope/authority/provenance/confidence/timestamps/expiry/access)
-  and `resolve_conflict` with safe, auditable, reversible actions — keep,
-  supersede, merge (new explicit fact, both superseded + linked), confirm-both,
-  dismiss, defer. Semantic similarity never resolves automatically. Routes
-  `GET /eclipse-memory/memories/{id}/conflict` and `POST .../resolve`
-  (operator-gated) + TS client/browser + proxy routes + a ConflictReview panel
-  in the Memory screen. Tests `python/tests/test_memory_conflict_review.py` (9).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 3 (skill content injection defense).**
-  Added `python/harness/skills/content_scan.py`: an ADVISORY scanner over skill,
-  project, bundle, and generated-draft prose. It detects instruction-override,
-  secret-reveal, approval-bypass, self-enable, disable-safety, system/role
-  impersonation, ignore-policy and exfiltration patterns, returning bounded
-  findings with reason + a bounded snippet. A quarantine-severity finding holds
-  back a **project/profile/generated/external** skill from the registry (bundled
-  source is human-reviewed and only warned); the finding is recorded as
-  `skill.content_quarantined`. Warnings cannot be suppressed by skill content. A
-  clean scan is explicitly NOT proof of safety — the permission/execution gate is
-  unchanged. Wired into registry `register`, `learn.build_learn_draft`, and
-  `authoring.scan_manifest_content`; surfaced via `/skills`, `/skills/{id}`.
-  Tests `python/tests/test_skill_content_scan.py` (16).
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
-
-- **Memory & Skills remaining gaps — Phase 2 (trusted project skill drift).**
-  `ProjectSkillTrust` gained `trustedHash`/`revokedHash` (migration 16). Trust
-  now records the root's content identity — `root_content_hash` now covers the
-  manifest AND the instruction prose. When a trusted root's content changes, its
-  skills are **quarantined** (not loaded), a `skill.project_drift` event is
-  recorded, and the UI shows a Re-approve action; re-approving re-baselines the
-  hash (`skill.project_reapproved`). Untrust remains immediate and records the
-  revoked hash. Changed files: `python/harness/skills/project_skills.py`,
-  `skills/registry.py`, `eclipse_memory/{schema,store}.py`, `main.py`; TS
-  `skills-{types,client,browser}.ts`, `project-skills.tsx`, new
-  `/api/skills/project/approve` route. Tests +6 in `test_project_skills.py`.
-  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
-  NAVIGATION.md
-
-- **Memory & Skills Evolution — final delivery report.** Added the before/after
-  architecture summary, memory-vs-session-history-vs-skills explanation, security
-  & trust model, retrieval and skill-learning evaluation reports, provider
-  behavior report, migration/rollback plan, remaining risks, and the
-  no-secrets/no-jdds.db/no-authorization-bypass confirmations to
-  `harness/memory-skills-evolution-plan.md`.
-  docs updated: harness/memory-skills-evolution-plan.md, CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 8 (hardening + backup compat).** Bumped
-  the memory export schema to v2 to carry `bundles` and `projectTrust`, so a
-  backup/restore or migration no longer loses composability or skill-trust
-  provenance (v1 documents still import). Added cross-cutting regression tests
-  `python/tests/test_evolution_hardening.py` (9) covering project trust/untrust,
-  disabled-skill-in-bundle, generated-skill secret sanitization, inertness,
-  export/import roundtrip, v1 compat, archive reversibility, scope isolation and
-  bundle prompt-budget bounds. Added an Operations section (paths, trust model,
-  configuration, provider setup, backup/import/reset/migration, recovery) to the
-  evolution plan.
-  docs updated: harness/memory-skills-evolution-plan.md,
-  harness/phase-3-memory-progress.md, CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 7 (provider diagnostics).** Enhanced
-  `memory_providers/diagnostics.py`: per-provider capability summary, data-
-  location warning (native local vs external), verified-by-Eclipse flag,
-  freshness stamp, a process-wide privacy note, and a bounded non-destructive
-  `provider_test` (health + capped search only). Route
-  `POST /memory-providers/test` (operator-gated); the Providers tab shows the
-  summary, data location, a Test button and the privacy note. Native-first
-  routing and external fencing unchanged. Tests: +3 in
-  `test_memory_providers.py`.
-  docs updated: CHANGELOG.md, harness/phase-3-memory-progress.md
-
-- **Memory & Skills Evolution — Phase 6 (learning journey).** Added
-  `python/harness/learning_graph.py`, a derived read-only provenance graph
-  projected from canonical rows (memories, skills/versions, candidates,
-  corrections, mistakes, promotions, sessions). It never writes or stores a
-  copy, is bounded (≤400 nodes / ≤800 edges), respects scope isolation, never
-  exposes secrets, and keeps inactive items as status-tagged nodes. Fixed edge
-  vocabulary. Route `GET /learning/journey` (kind/status/since filters); UI
-  Skills › Journey. Tests `test_learning_graph.py` (6).
-  docs updated: harness/decisions.md (ADR-H62), NAVIGATION.md,
-  phase-3-memory-progress.md, CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 5 (semantic measurement).** The optional
-  semantic layer was verified to already satisfy the required safety/metadata
-  contract (candidate-only, off by default, gated by labeled evals with
-  recall/precision, false-candidate/-conflict rates, scope leakage, forbidden and
-  no-match overreach, budget compliance). Added the one missing reported metric —
-  **latency** (`metrics.latencyMs.mean|max`) — to the deterministic retrieval
-  eval, so a future semantic layer can be compared against the lexical baseline.
-  No behavior change; both eval gates pass.
-  docs updated: CHANGELOG.md, harness/phase-3-memory-progress.md
-
-- **Memory & Skills Evolution — Phase 4 (guided `/learn`).** Added
-  `python/harness/skills/learn.py`: an explicit run/document/repository/repeated-
-  workflow/correction request becomes a complete but **inert** skill draft
-  through the existing `propose_draft` path. Content is sanitized (secrets, raw
-  transcript lines, issue references removed) and advisory-linted (absolute
-  dates, first-person narration flagged) before the draft is built; the draft
-  defaults to the safe read-only permissions and existing tools and stays
-  `draft`/`not_evaluated`. Operator-gated; one-off runs never auto-activate.
-  Route `/learning/from-source`; UI Skills › Learn a Skill. Tests
-  `test_guided_learning.py` (8).
-  docs updated: harness/decisions.md (ADR-H61), NAVIGATION.md,
-  phase-3-memory-progress.md, CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 3 (skill bundles).** Added composable
-  skill bundles (`python/harness/skills/bundles.py`; `SkillBundle` migration 15)
-  that group existing skills under a stable id with optional instructions/
-  constraints. A bundle is a reference: `resolve_bundle` is deterministic and
-  reports missing/unavailable members; it never enables a disabled skill, widens
-  a permission, or exceeds the bounded prompt manifest (≤12 skills, bounded
-  content on write and read). `RunRequest.bundleId` expands a bundle instead of
-  keyword discovery (emits `skill.bundle_resolved`). Routes `/skill-bundles`
-  (+`/{id}`); UI Skills › Bundles. Tests `test_skill_bundles.py` (8).
-  docs updated: harness/decisions.md (ADR-H60), NAVIGATION.md,
-  phase-3-memory-progress.md, CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 2 (project-local skills).** Added
-  repository-carried skill roots under `.black-eclipse/skills/` and
-  `.agents/skills/`, discovered by `python/harness/skills/project_skills.py` but
-  **inert until an operator trusts the root** (`ProjectSkillTrust`, migration 14;
-  names-only notice for untrusted roots; contents never read). Precedence is
-  deterministic project > profile > bundled, with a project skill legally
-  shadowing a same-id bundled skill (recorded separately, not an error).
-  Trust/untrust is per absolute path and revocable; untrust stops injection on
-  the next load. A project skill cannot grant a permission, enable itself, or
-  bypass evaluation — it uses the existing `execute_skill` default-deny gate.
-  Global opt-out policy `project_skill_discovery`. Routes `/skills/project`,
-  `/skills/project/trust`, `/skills/project/untrust`; UI Skills › Project Skills;
-  provenance surfaced in list/detail. Tests `test_project_skills.py` (9).
-  docs updated: harness/decisions.md (ADR-H59), harness/architecture.md,
-  NAVIGATION.md, phase-3-memory-progress.md, CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 1 (simpler mental model).** Renamed the
-  Control Room tabs to user-facing categories — Facts, Session History, Skills,
-  Suggestions, Reviews, Health/Export — and promoted Suggestions to a top-level
-  tab. Added a three-card legend explaining what belongs in Facts vs Session
-  History vs Skills, an origin badge per fact (auto/explicit/imported/external/
-  suggested) derived only from existing authority/source/status fields, and
-  freshness/authority fields (last confirmed, expires) plus a competing-memory
-  callout in the fact detail. No persistence, retrieval, authorization or scope
-  behaviour changed; proposed items remain inert.
-  docs updated: CHANGELOG.md
-
-- **Memory & Skills Evolution — Phase 0 audit/design.** Wrote the design
-  authority for the Hermes-inspired memory/skill work: target product model
-  (always-available facts vs searchable session history vs task-specific
-  skills), a gap analysis (G1–G14) with every proposed feature mapped to an
-  owning module, the contracts that must not change, the new inert-by-default
-  contracts, a concise data-flow and module map, safety/scope invariants, and an
-  explicit deferred list. Confirmed the existing strengths (decision gate,
-  scope isolation, contradiction/expiry, deterministic retrieval + eval, inert
-  skill drafts, external-provider fences) are preserved; no second memory engine
-  or TS agent runtime is proposed.
-  docs updated: harness/memory-skills-evolution-plan.md (new), CHANGELOG.md
-- **Memory/skills system review** — Compared Eclipse-Memory with Hermes Agent to identify improvements in retrieval, procedural learning, discoverability, and provider ergonomics; no implementation changes were made. no doc change — analysis-only review

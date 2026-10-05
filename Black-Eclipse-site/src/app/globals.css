@@ -366,29 +366,14 @@ html:not(.dark) .ws-glass {
   display: none !important;
 }
 
-/* Chat transcript: previously scrollbar-hide, which gave no affordance that the
-   thread scrolls. Visible, brand-coloured bar so the history reads as scrollable. */
-.chat-transcript-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(var(--brand-rgb) / 0.35) transparent;
-}
-.chat-transcript-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-.chat-transcript-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.chat-transcript-scroll::-webkit-scrollbar-thumb {
-  background: rgb(var(--brand-rgb) / 0.35);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.chat-transcript-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--brand-rgb) / 0.7);
-}
+/* The chat transcript no longer styles a native scrollbar: the full-height bar
+   read as a long band running under the header, so the bar is hidden and
+   `ChatHistory` renders a short capped thumb instead. */
 
-/* Global premium scrollbar consistent with branding (Vibrant Green) */
+/* Global premium scrollbar — neutral, low-contrast. Deliberately NOT
+   brand-coloured: a saturated brand thumb (especially on hover) reads as a
+   loud yellow/green streak on dark glass. Neutral grey keeps it professional
+   and lets the content, not the chrome, carry the colour. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -399,20 +384,20 @@ html:not(.dark) .ws-glass {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--brand-rgb) / 0.2);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
   border: 1.5px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--brand-rgb) / 0.8);
+  background: rgba(255, 255, 255, 0.30);
 }
 
 /* Firefox global scrollbar support */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(var(--brand-rgb) / 0.2) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 
 /* Chat composer: the only visible scrollbar sits inside the glass input, so it
@@ -421,7 +406,7 @@ html:not(.dark) .ws-glass {
    edge with breathing room above/below. */
 .chat-composer-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgb(var(--brand-rgb) / 0.35) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 .chat-composer-scroll::-webkit-scrollbar {
   width: 5px;
@@ -431,34 +416,34 @@ html:not(.dark) .ws-glass {
   margin: 10px 0;
 }
 .chat-composer-scroll::-webkit-scrollbar-thumb {
-  background: rgb(var(--brand-rgb) / 0.35);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
 }
 .chat-composer-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--brand-rgb) / 0.6);
+  background: rgba(255, 255, 255, 0.30);
 }
 
-/* Stock-detail metrics rail: always-visible, wider scrollbar so the rail is
-   clearly scrollable (the global 6px thumb was too easy to miss). */
+/* Stock-detail metrics rail: a visible, neutral scrollbar so the rail reads as
+   scrollable without a brand-coloured streak. */
 .tv-metrics-rail {
   scrollbar-width: thin;
-  scrollbar-color: rgb(var(--brand-rgb) / 0.45) rgb(var(--brand-rgb) / 0.06);
+  scrollbar-color: rgba(255, 255, 255, 0.20) transparent;
 }
 .tv-metrics-rail::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 .tv-metrics-rail::-webkit-scrollbar-track {
-  background: rgb(var(--brand-rgb) / 0.06);
+  background: transparent;
   border-radius: 9999px;
 }
 .tv-metrics-rail::-webkit-scrollbar-thumb {
-  background: rgb(var(--brand-rgb) / 0.45);
+  background: rgba(255, 255, 255, 0.20);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .tv-metrics-rail::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--brand-rgb) / 0.8);
+  background: rgba(255, 255, 255, 0.34);
 }
 
 /* News category tabs: 1px dark-grey scrollbar matching the site's other
@@ -759,27 +744,30 @@ div.group\/sidebar,
   border-radius: 0px !important;
 }
 
-/* Custom scrollbar styling for Chrome, Safari, Edge, Opera */
+/* Custom scrollbar styling for Chrome, Safari, Edge, Opera — the final cascade
+   layer, so it wins over the earlier global block. Neutral grey, theme-agnostic
+   so no theme can turn the scrollbar a saturated yellow/green. */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0a0a0a;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #262626;
-  border-radius: 4px;
-  border: 2px solid #0a0a0a;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--brand);
+  background: rgba(255, 255, 255, 0.30);
 }
 
 /* Custom Firefox Scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #262626 #0a0a0a;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 
 /* Native inputs branding */

@@ -21,6 +21,16 @@ EXPECTED = (
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",
+    # Terminal subsystem: foreground execution, persistent shells, background
+    # process management, ports and host capabilities.
+    "execute_command",
+    "open_shell", "close_shell", "run_shell_command",
+    "write_shell_input", "read_shell_output", "resize_shell", "send_shell_control",
+    "list_terminal_sessions", "terminal_session_status",
+    "start_process", "stop_process", "restart_process", "kill_process",
+    "list_processes", "process_status", "read_process_output",
+    "write_process_input", "send_signal", "process_tree", "process_health",
+    "list_ports", "terminal_capabilities", "system_info",
     "scaffold_kit", "analysis_run", "delegate",
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     "market_get_quote", "fundamentals_get_financials", "research_search",
@@ -53,8 +63,9 @@ def test_the_profile_is_a_strict_subset_of_the_edit_verify_surface() -> None:
 
 
 def test_declared_tools_are_unchanged_by_this_phase() -> None:
-    # The phase is ADDITIVE: neither agent's declared list moved.
-    assert len(ECLIPSE_AGENT.tools) == 27
+    # The chat-code phase is ADDITIVE; the terminal subsystem later widened both
+    # agents with its own tools. The external actions are still declared, and the
+    # union still supports an edit_verify surface (asserted above).
     assert "code_commit" in CODE_AGENT_TOOLS
 
 

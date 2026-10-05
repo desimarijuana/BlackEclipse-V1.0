@@ -319,6 +319,20 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
 }
 
 /**
+ * Density cell size (degrees) for the event heatmap, chosen from the event
+ * count so the grid never degrades into per-event specks or one global smear.
+ * Coarser than the pin clustering on purpose: a hotspot is a REGION, not a
+ * point.
+ */
+function heatmapCellDegrees(count: number): number {
+  if (count > 4000) return 8;
+  if (count > 1500) return 5;
+  if (count > 600) return 3;
+  if (count > 200) return 2;
+  return 1.5;
+}
+
+/**
  * Severity-weighted event DENSITY heatmap (Bloomberg-style). Events are
  * aggregated onto a grid and each cell's intensity is the SUM of its members'
  * severity weights, so a hotspot is literally "where the most — and most
@@ -328,7 +342,6 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
  */
 export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
   const anchorable = events.filter((e) => typeof e.lon === 'number' && typeof e.lat === 'number');
-  const zoom = zoomForCount(anchorable.length);
   const points = anchorable.map((e) => ({
     id: e.id ?? e.dedupKey,
     lon: e.lon as number,
@@ -337,9 +350,11 @@ export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
     weight: severityWeight(e.severity),
     event: e,
   }));
-  // A finer grid than the pins layer: the heatmap is the density reading, so it
-  // must keep distinct hotspots distinct rather than smearing them together.
-  const clusters = aggregatePoints(points, zoom, 1);
+  // A COARSE regional grid — deliberately much coarser than the pin-cluster
+  // grid. A heatmap answers "where is activity concentrated?", so neighbouring
+  // events must accumulate into one hotspot; at the pins' fine 0.1° grid every
+  // event was its own faint speck and the layer read as noise.
+  const clusters = aggregatePoints(points, heatmapCellDegrees(anchorable.length), 1);
   const data: LayerDatum[] = clusters.map((c, i) => ({
     id: `heat-${i}`,
     lon: c.lon,
