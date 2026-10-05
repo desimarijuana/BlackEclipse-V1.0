@@ -34,6 +34,7 @@ import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
+import { ModelPicker } from "./model-picker";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl, getLLMPreset } from "@/lib/agent/presets";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
@@ -821,61 +822,17 @@ export function Settings({
                       label="Model"
                       hint="Choose a known model or type any id this provider expects."
                     >
-                      {/* A real select of the runtime's declared models when the
-                          catalog knows them, PLUS a free-text field — so picking
-                          is a click and a custom id is still typeable (never an
-                          allowlist). When the catalog is empty only the free-text
-                          field shows. */}
-                      {activeModelOptions.length > 0 ? (
-                        <div className="space-y-2">
-                          <Select
-                            value={activeModelOptions.includes(llm.model) ? llm.model : "__custom__"}
-                            onValueChange={(v) => {
-                              if (v && v !== "__custom__") updateLlm({ model: v }, 0);
-                              else updateLlm({ model: "" }, 0);
-                            }}
-                          >
-                            <SelectTrigger className="w-full font-mono">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {activeModelOptions.map((m) => (
-                                <SelectItem key={m} value={m}>
-                                  {m}
-                                </SelectItem>
-                              ))}
-                              <SelectItem value="__custom__">Custom model id…</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            value={llm.model}
-                            onChange={(e) => updateLlm({ model: e.target.value })}
-                            placeholder="Or type a custom model id"
-                            className="font-mono"
-                          />
-                        </div>
-                      ) : (
-                        <Input
-                          value={llm.model}
-                          onChange={(e) => updateLlm({ model: e.target.value })}
-                          placeholder="gpt-4o-mini / llama3.1"
-                          className="font-mono"
-                        />
-                      )}
-                      <p className="text-[10px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
-                        {activeWindowKnown ? (
-                          <span className="text-emerald-400/90">
-                            {activeWindow.toLocaleString()}-token context window
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/80">Context window unknown</span>
-                        )}
-                        {activeModelOptions.length > 0 && (
-                          <span className="text-muted-foreground/60">
-                            · {activeModelOptions.length} known model{activeModelOptions.length === 1 ? "" : "s"}
-                          </span>
-                        )}
-                      </p>
+                      <ModelPicker
+                        value={llm.model}
+                        options={activeModelOptions}
+                        windowKnown={activeWindowKnown}
+                        windowLabel={activeWindow ? `${activeWindow.toLocaleString()}-token context window` : null}
+                        onChange={(m) => updateLlm({ model: m }, 0)}
+                        providerId={activePreset?.id ?? (llm.provider !== "auto" && llm.provider !== "mock" ? llm.provider : undefined)}
+                        baseUrl={llm.baseUrl}
+                        apiKey={llm.apiKey}
+                        canDiscover={Boolean(activeCatalogProvider?.dynamicDiscovery)}
+                      />
                     </Field>
                     <Field label="Mode" hint="Auto follows environment variables. A named provider uses its own API.">
                       <Select

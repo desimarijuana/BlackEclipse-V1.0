@@ -2,6 +2,7 @@
 
 import { ChatInput, type AttachmentChip } from './chat-input';
 import { cn } from '@/lib/utils';
+import type { ChatModelState } from '@/lib/agent/use-chat-model';
 
 interface EmptyStateProps {
   query: string;
@@ -19,13 +20,15 @@ interface EmptyStateProps {
   onCancel?: () => void;
   /** Focus mode — narrower centered column; composer stays pinned to the bottom. */
   focus?: boolean;
+  /** The composer's real model selector state. */
+  modelState?: ChatModelState;
 }
 
 /**
  * The chat landing surface: nothing but the composer, full width. The eclipse
  * background is painted by the chat tab container, so this stays transparent.
  */
-export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onRemoveAttachment, busy, onCancel, focus }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onRemoveAttachment, busy, onCancel, focus, modelState }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-end w-full px-4 md:px-6 pb-2 z-10 relative">
       <div
@@ -44,6 +47,7 @@ export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onR
           onRemoveAttachment={onRemoveAttachment}
           busy={busy}
           onCancel={onCancel}
+          modelState={modelState}
         />
       </div>
     </div>

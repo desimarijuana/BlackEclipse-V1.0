@@ -44,6 +44,11 @@ class ProviderSpec:
     keyless: bool = False
     # OpenAI-compatible endpoints beyond the first-party ones.
     openai_compatible: bool = False
+    # True when the provider can only enumerate its models at RUNTIME (a local
+    # server lists its installed models; a router fronts a changing catalog). The
+    # UI offers a live discovery probe for these. False = the declared list is the
+    # whole story (a fixed hosted API).
+    dynamic_discovery: bool = False
     # The provider's conservative context window (tokens), or None when it is
     # genuinely unknown. This is the FALLBACK when no model-specific value
     # applies. Where a provider's models vary widely this is a conservative
@@ -78,14 +83,14 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     "groq": ProviderSpec("groq", "Groq", "groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "GROQ_API_KEY", openai_compatible=True, context_window=8_192),
     # Local servers: the window is chosen by the operator's loaded model, which
     # the runtime cannot know. Unknown stays unknown (conservative ceiling).
-    "ollama": ProviderSpec("ollama", "Ollama (local)", "openai", "http://localhost:11434/v1", "llama3.1", "OLLAMA_BASE_URL", keyless=True, openai_compatible=True),
-    "lmstudio": ProviderSpec("lmstudio", "LM Studio (local)", "openai", "http://localhost:1234/v1", "local-model", keyless=True, openai_compatible=True),
+    "ollama": ProviderSpec("ollama", "Ollama (local)", "openai", "http://localhost:11434/v1", "llama3.1", "OLLAMA_BASE_URL", keyless=True, openai_compatible=True, dynamic_discovery=True),
+    "lmstudio": ProviderSpec("lmstudio", "LM Studio (local)", "openai", "http://localhost:1234/v1", "local-model", keyless=True, openai_compatible=True, dynamic_discovery=True),
     # DeepSeek V3 chat models are 64k.
     "deepseek": ProviderSpec("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/v1", "deepseek-chat", "DEEPSEEK_API_KEY", openai_compatible=True, context_window=64_000),
     # Grok 2 is 131k.
     "xai": ProviderSpec("xai", "xAI (Grok)", "openai", "https://api.x.ai/v1", "grok-2-latest", "XAI_API_KEY", openai_compatible=True, context_window=131_072),
     # A router fronts models with wildly different windows. Do not guess.
-    "openrouter": ProviderSpec("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini", "OPENROUTER_API_KEY", openai_compatible=True),
+    "openrouter": ProviderSpec("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini", "OPENROUTER_API_KEY", openai_compatible=True, dynamic_discovery=True),
     # Together/Fireworks host many model families of different sizes. Only the
     # known Llama-3.3 entry is declared (below); the row is left unknown.
     "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True),
@@ -93,7 +98,7 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     "perplexity": ProviderSpec("perplexity", "Perplexity", "openai", "https://api.perplexity.ai", "sonar", "PERPLEXITY_API_KEY", openai_compatible=True, context_window=128_000),
     "fireworks": ProviderSpec("fireworks", "Fireworks AI", "openai", "https://api.fireworks.ai/inference/v1", "accounts/fireworks/models/llama-v3p3-70b-instruct", "FIREWORKS_API_KEY", openai_compatible=True),
     # Any endpoint not listed: give a base URL and a model id.
-    "custom": ProviderSpec("custom", "Custom (OpenAI-compatible)", "openai", None, "", keyless=True, openai_compatible=True),
+    "custom": ProviderSpec("custom", "Custom (OpenAI-compatible)", "openai", None, "", keyless=True, openai_compatible=True, dynamic_discovery=True),
 }
 
 
@@ -399,6 +404,7 @@ def list_providers() -> list[dict[str, Any]]:
             "envVar": spec.env_var,
             "keyless": spec.keyless,
             "openaiCompatible": spec.openai_compatible,
+            "dynamicDiscovery": spec.dynamic_discovery,
             "contextWindow": spec.context_window,
             "models": models,
             "modelWindows": {m: resolve_context_window(spec.id, m) for m in models},

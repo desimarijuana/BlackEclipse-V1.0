@@ -44,7 +44,12 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
     kind = "openai_compatible"
 
     async def discover_models(self, settings) -> list[str]:  # type: ignore[override]
-        """Probe the `/models` endpoint of an OpenAI-compatible base URL."""
+        """Probe the `/models` endpoint of an OpenAI-compatible base URL.
+
+        A reachable endpoint that lists no models returns an empty list. A probe
+        that cannot be completed raises, so the caller can report an honest
+        failure instead of a misleading empty success.
+        """
         base_url = settings.base_url
         if not base_url:
             return []
@@ -58,11 +63,11 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
                 response = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
                 response.raise_for_status()
                 payload = response.json()
-            data = payload.get("data") if isinstance(payload, dict) else None
-            if isinstance(data, list):
-                return [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
-        except Exception:  # noqa: BLE001 - discovery is best-effort
-            return []
+        except Exception as exc:  # noqa: BLE001 - re-raised as a clear failure
+            raise RuntimeError(f"could not reach {base_url}/models: {exc}") from exc
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data, list):
+            return [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
         return []
 
 

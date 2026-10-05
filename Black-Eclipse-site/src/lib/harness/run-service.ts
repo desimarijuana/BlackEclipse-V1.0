@@ -32,6 +32,8 @@ export interface StartRunOptions {
   // Validated here; the runtime enforces the actual grant.
   autonomy?: "plan_only" | "edit_verify";
   analysisEnabled?: boolean;
+  /** A model id picked for this turn (composer), overriding the saved model. */
+  model?: string;
 }
 
 /**
@@ -45,6 +47,7 @@ export async function chatWithAgent(
   documents: Array<{ name: string; text: string }> = [],
   runId?: string,
   sessionId?: string,
+  model?: string,
 ): Promise<{
   output: string;
   runId: string;
@@ -67,6 +70,7 @@ export async function chatWithAgent(
     input: { query, history, documents: documents.length ? documents : undefined },
     agentId: "eclipse-agent",
     runId,
+    model,
     // The chat workspace id is the session id, so a chat turn belongs to a
     // long-lived session and shows up in the Sessions tab (M3).
     sessionId,
@@ -102,21 +106,25 @@ export async function chatWithAgent(
  * task is started from a UI surface that has no vault access. There is still one
  * resolution path — this function.
  */
-export async function resolveRunModelSettings() {
-  return resolveModelSettings();
+export async function resolveRunModelSettings(model?: string) {
+  return resolveModelSettings(model);
 }
 
-async function resolveModelSettings() {
+async function resolveModelSettings(modelOverride?: string) {
   const cfg = await getLLMConfig();
   const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
+  const chosen = modelOverride?.trim();
   return {
     provider,
     baseUrl: cfg.baseUrl,
     apiKey: cfg.apiKey,
-    model: cfg.model,
-    // Pass the operator-declared window through only when set; the runtime treats
-    // absent as "unknown" and falls back to its catalog + conservative ceiling.
-    ...(cfg.contextWindow ? { contextWindow: cfg.contextWindow } : {}),
+    // A composer-picked model overrides only the model; provider/key/URL stay
+    // the operator's configured ones. Absent = the saved model.
+    model: chosen || cfg.model,
+    // A declared context window belongs to (provider, model); if the model was
+    // overridden the saved window may not apply, so drop it and let the runtime
+    // resolve the new model's window from its catalog.
+    ...(cfg.contextWindow && !chosen ? { contextWindow: cfg.contextWindow } : {}),
   };
 }
 
@@ -149,6 +157,7 @@ export async function startChatRun(
   documents: Array<{ name: string; text: string }> = [],
   runId?: string,
   sessionId?: string,
+  model?: string,
 ): Promise<string> {
   const input = assertRunInput({
     query,
@@ -157,7 +166,7 @@ export async function startChatRun(
   });
   const agent = await getAgentPreset("eclipse-agent");
   const cfg = await getLLMConfig();
-  const modelSettings = await resolveModelSettings();
+  const modelSettings = await resolveModelSettings(model);
   // User routing preference (spec §44): merged into the run's context, where the
   // runtime's ModelRouter treats it as an override over automatic selection.
   const policyContext = routingPolicyContext(cfg);
@@ -205,7 +214,7 @@ export async function startRun(
   // also warms the cache) without sending a prompt copy.
   const agent = await getAgentPreset(options.agentId);
   const cfg = await getLLMConfig();
-  const modelSettings = await resolveModelSettings();
+  const modelSettings = await resolveModelSettings(options.model);
   const policyContext = routingPolicyContext(cfg);
   if (Object.keys(policyContext).length) {
     input.context = { ...(input.context ?? {}), ...policyContext };

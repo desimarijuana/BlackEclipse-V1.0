@@ -114,3 +114,28 @@ def test_health_and_usage_shapes(client: TestClient) -> None:
     assert usage.status_code == 200
     body = usage.json()
     assert "requests" in body and "totalTokens" in body
+
+
+def test_discover_unknown_provider_is_404(client: TestClient) -> None:
+    res = client.post(
+        "/model-runtime/providers/not-a-provider/discover",
+        json={"baseUrl": "http://localhost:9/v1"},
+        headers=_operator_headers(),
+    )
+    assert res.status_code == 404
+
+
+def test_discover_reports_failure_honestly(client: TestClient) -> None:
+    # A local server that is not listening must yield ok:false with a reason and
+    # an empty model list — never a silent empty success.
+    res = client.post(
+        "/model-runtime/providers/ollama/discover",
+        json={"baseUrl": "http://127.0.0.1:9/v1"},
+        headers=_operator_headers(),
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["success"] is True
+    assert body["ok"] is False
+    assert body["models"] == []
+    assert body["detail"]

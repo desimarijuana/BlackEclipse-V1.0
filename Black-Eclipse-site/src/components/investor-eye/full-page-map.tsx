@@ -16,6 +16,7 @@ import { WorldMap } from './world-map';
 import { EventPanel } from './event-panel';
 import { LayerController } from './layer-controller';
 import { MapViewControls } from './map-view-controls';
+import { HeatmapToggle } from './heatmap-toggle';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
 import { TIME_RANGES, useInvestorEyeStore, type TimeRangeId } from '@/lib/investor-eye/store';
 import { formatClock } from '@/lib/investor-eye/format';
@@ -105,6 +106,7 @@ export function FullPageMap({
         </div>
 
         <div className="pointer-events-auto flex items-center gap-1.5">
+          <HeatmapToggle />
           <MapViewControls />
           <button
             onClick={onExit}

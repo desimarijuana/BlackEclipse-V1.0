@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, buildFiresLayer, buildShippingLayer, buildCommoditiesLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, layerSymbol, SYMBOL_PATHS, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
+import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, buildFiresLayer, buildShippingLayer, buildCommoditiesLayer, buildEventHeatmapLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, layerSymbol, SYMBOL_PATHS, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
 import type { CountrySummary, InvestorEyeState, MarketObservation, NormalizedEvent } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -306,6 +306,39 @@ describe('buildEventsLayer', () => {
     const layer = buildEventsLayer([event()], (e) => { clicked.push(e); });
     layer.onClick?.(layer.data()[0]);
     expect(clicked[0]?.id).toBe('e1');
+  });
+});
+
+describe('buildEventHeatmapLayer', () => {
+  it('aggregates nearby events and sums their severity weight as intensity', () => {
+    // The regression: one datum per raw event rendered a flat wash, because
+    // every point had the same ~1px weight. Density must be the SUM of weights
+    // so a cluster of critical events is genuinely hotter than a lone low one.
+    const criticals = Array.from({ length: 20 }, (_, i) =>
+      event({ id: `c${i}`, severity: 'critical', lon: 30 + i * 0.001, lat: 40 + i * 0.001 }),
+    );
+    const heat = buildEventHeatmapLayer(criticals);
+    const data = heat.data();
+    expect(data.length).toBeLessThan(criticals.length);
+    expect(data[0].value!).toBeCloseTo(20 * 1, 1);
+    expect(data[0].severity).toBe('critical');
+
+    const low = buildEventHeatmapLayer([event({ id: 'l1', severity: 'low', lon: -100, lat: 10 })]);
+    expect(low.data()[0].value!).toBeCloseTo(0.2, 5);
+  });
+
+  it('drops events with no coordinates, like every other point layer', () => {
+    const heat = buildEventHeatmapLayer([
+      event({ id: 'a', lon: 1, lat: 2 }),
+      event({ id: 'b', lon: undefined, lat: undefined }),
+    ]);
+    expect(heat.data()).toHaveLength(1);
+  });
+
+  it('is a heatmap layer in the events group with its own legend glyph', () => {
+    expect(buildEventHeatmapLayer([]).type).toBe('heatmap');
+    expect(LAYER_META['event-heatmap'].group).toBe('events');
+    expect(LAYER_META['event-heatmap'].glyph).toBe('heat');
   });
 });
 

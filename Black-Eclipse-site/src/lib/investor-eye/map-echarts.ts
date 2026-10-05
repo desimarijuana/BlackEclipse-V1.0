@@ -141,15 +141,14 @@ function tooltipFormatter(layer: MapLayer) {
 /**
  * Marker visuals.
  *
- * Pins on a dark map must read at a glance. The previous style was a flat 6px
- * dot with a 0.5px border, which read as noise rather than "something is
- * happening here". Each pin now gets a larger core, a dark contrast ring so
- * neighbouring pins never bleed together, and a glow sized by severity so
- * urgency is visible before you hover.
+ * Bloomberg-style density reading: markers are deliberately SMALL so the map
+ * stays legible when hundreds are on screen, and clusters of events do not
+ * collapse into one blob. Severity is carried by the glow radius rather than a
+ * big disc, so a critical event still reads as heavier without dominating.
  */
-const PIN_SIZE: Record<string, number> = { critical: 18, high: 14, medium: 11, low: 8 };
+const PIN_SIZE: Record<string, number> = { critical: 8, high: 6, medium: 5, low: 4 };
 /** Glow radius per severity — the visual weight carries the urgency. */
-const PIN_GLOW: Record<string, number> = { critical: 26, high: 17, medium: 10, low: 5 };
+const PIN_GLOW: Record<string, number> = { critical: 12, high: 8, medium: 5, low: 3 };
 
 /**
  * Globe marker sizing.
@@ -160,8 +159,8 @@ const PIN_GLOW: Record<string, number> = { critical: 26, high: 17, medium: 10, l
  * where the glyph is legible, and severity is carried by COLOUR plus the faint
  * critical ring rather than by scale.
  */
-const GLOBE_CORE_SIZE = 17;
-const GLOBE_HALO_SIZE = 24;
+const GLOBE_CORE_SIZE = 9;
+const GLOBE_HALO_SIZE = 13;
 const GLOBE_HALO_OPACITY = 0.22;
 
 /**
@@ -429,8 +428,15 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
         type: 'heatmap',
         coordinateSystem: 'geo',
         z: layer.zIndex,
+        // Tight, overlapping blobs: wide enough that a cluster becomes a single
+        // hotspot, small enough that every cell does not smear into a wash.
         pointSize: 16,
-        blurSize: 22,
+        blurSize: 18,
+        // A LOW floor is the point: sparse areas stay dark and only genuine
+        // concentrations light up. A high floor painted the whole map a muddy
+        // blue and was what made the layer look like noise.
+        minOpacity: 0.12,
+        maxOpacity: 0.85,
         progressive: 400,
         data: data.map((d) => ({
           name: d.label ?? d.id,
@@ -439,6 +445,8 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
           _datum: d,
         })),
         label: { show: false },
+        // The heat canvas is silent per ECharts; the tooltip is wired through
+        // the visualMap's own hover so a cell can still explain itself.
         tooltip: layer.tooltip ? { formatter: tooltipFormatter(layer) } : undefined,
       } as never);
     }
@@ -540,7 +548,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
               const size = PIN_SIZE[sev] ?? PIN_SIZE.low;
               // Approximate points render slightly smaller — a visual cue that
               // the position is a country centre, not a confirmed location.
-              return item.data?.approximate ? Math.max(7, size - 3) : size;
+              return item.data?.approximate ? Math.max(3, size - 2) : size;
             },
             itemStyle: {
               color: (raw: unknown) => {
@@ -830,8 +838,9 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       appendTo: 'body',
       confine: false,
     },
-    // Severity-weighted heat legend. Low → cool blue, high → hot red, matching
-    // the severity palette used across the app (see `severityColor`).
+    // Severity-weighted heat legend. A warm ramp (violet → magenta → rose →
+    // orange → yellow) so hotspots visibly CONTRAST the blue/cyan map surface
+    // instead of blending into it; yellow is the "hottest" end.
     ...(heatmapMax > 0
       ? {
           visualMap: {
@@ -846,7 +855,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
             text: ['HIGH', 'LOW'],
             textStyle: { color: '#9ca3af', fontSize: 10 },
             inRange: {
-              color: ['#1d4ed8', '#0ea5e9', '#22d3ee', '#facc15', '#f97316', '#ef4444'],
+              color: ['#7c3aed', '#c026d3', '#f43f5e', '#f97316', '#facc15'],
             },
           },
         }

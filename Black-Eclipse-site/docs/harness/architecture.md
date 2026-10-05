@@ -433,8 +433,17 @@ Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider
   per-dimension breakdown, reason, ordered fallbacks). A concrete
   `ModelSettings.provider/model` is the explicit override; logical aliases
   (`eclipse-fast|smart|reasoning|coder|vision|cheap|local`) resolve dynamically.
+  The front door stores a **bare** model id, so `resolve_for_run` qualifies it
+  with the run's provider before routing: an operator-typed id the catalog has
+  never seen is still recognised as the explicit choice and is **never silently
+  substituted** by the router's own pick.
 - **Capabilities** are states (`supported`/`unsupported`/`unknown`/`degraded`),
   never bare booleans; a required `unknown` does not satisfy a requirement.
+- **Reasoning shaping** is applied only when the model exposes a provider-native
+  control (Anthropic `thinking`, Gemini `thinking_budget`, a native OpenAI
+  reasoning model's `reasoning_effort`). An OpenAI-compatible endpoint
+  (DeepSeek, Groq, a router, a local server) is never sent `reasoning_effort` —
+  that knob is a hard 400 there, not a hint.
 - **Failure handling.** Errors are classified into one normalized vocabulary;
   retry is error-aware (exponential backoff + jitter) and fallback respects
   required capabilities. Both are flag-gated (`HARNESS_MODEL_FALLBACK` default
@@ -449,6 +458,13 @@ Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider
   the UI and the graph see one shape whatever the provider.
 - Read-only inspection: `/model-runtime/{providers,models,routing,route,health,usage}`
   (operator-gated; `/route` is the routing debug view).
+- **Runtime discovery.** `POST /model-runtime/providers/{id}/discover` probes a
+  live provider's `/models` endpoint and registers what it serves, so a local
+  server (Ollama, LM Studio) or a router shows its installed models rather than a
+  static sample. The connection details are supplied per call and never stored; a
+  failed probe returns `ok:false` + reason, never a silent empty success.
+  `ProviderSpec.dynamicDiscovery` (surfaced on the catalog) marks the providers
+  for which the UI offers this probe.
 
 The model layer provides intelligence only — it is never a source of financial
 truth. Evidence, provenance, citations and point-in-time validity remain owned by

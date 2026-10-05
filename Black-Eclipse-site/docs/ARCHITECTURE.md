@@ -808,6 +808,22 @@ attaches as context and the answers the agent produces:
   `api/harness/runs/[id]/cancel` — the runtime's cooperative cancellation. The
   client-side run id is validated server-side (`^run_[A-Za-z0-9-]{1,64}$`) and
   ignored when malformed.
+- **The composer model picker is real, not decorative.** `src/lib/agent/
+  use-chat-model.ts` backs the composer's provider pill as an ALWAYS-VISIBLE
+  dropdown (`ModelSelector` in `chat-input.tsx`) of the models the operator can
+  actually use, across providers. Options come from
+  `GET /api/harness/chat/models`, which reports each preset's models (runtime
+  catalog, falling back to the preset default when the runtime is down) and its
+  availability derived server-side from the real env/vault (`available` is a
+  boolean — a key is never returned). Selecting a model persists it to the
+  settings vault (`POST /api/settings`) — the single source the runtime reads —
+  so the next message uses it, AND sends it per-turn as `model` for
+  belt-and-suspenders; switching provider persists the provider + base URL + its
+  default model together. A failed save shows the error and reverts. Local/
+  router providers get a live `discover` action; a "Custom model id…" entry types
+  any id. It never fabricates a list — with no data it still renders and lets a
+  custom id be entered. (The old hardcoded "Flash-Lite/Flash/Pro" selector was
+  removed precisely because it was fake.)
 
 ### ChatDock (the Command Center assistant composer)
 

@@ -50,6 +50,9 @@ export async function POST(request: Request) {
     const chatId = typeof (body as Record<string, unknown>).chatId === "string"
       ? ((body as Record<string, unknown>).chatId as string)
       : "";
+    const model = typeof (body as Record<string, unknown>).model === "string"
+      ? ((body as Record<string, unknown>).model as string).trim()
+      : "";
     // Client-supplied run id so cancellation is possible mid-run; ignored when
     // absent, in which case the server mints one.
     const rawRunId = (body as Record<string, unknown>).runId;
@@ -68,7 +71,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

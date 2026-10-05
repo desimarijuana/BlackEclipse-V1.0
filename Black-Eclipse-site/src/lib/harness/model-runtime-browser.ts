@@ -51,6 +51,31 @@ export async function listRuntimeModels(provider?: string): Promise<RuntimeModel
   return body.models ?? [];
 }
 
+export interface DiscoveryResult {
+  ok: boolean;
+  detail: string | null;
+  models: RuntimeModelView[];
+}
+
+/** Probe a live provider (Ollama/router) and register the models it serves. */
+export async function discoverRuntimeModels(
+  providerId: string,
+  connection: { baseUrl?: string | null; apiKey?: string | null; model?: string | null },
+): Promise<DiscoveryResult> {
+  const body = await api<{ ok: boolean; detail?: string | null; models: RuntimeModelView[] }>(
+    `/api/harness/model-runtime/providers/${encodeURIComponent(providerId)}/discover`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        baseUrl: connection.baseUrl ?? undefined,
+        apiKey: connection.apiKey ?? undefined,
+        model: connection.model ?? undefined,
+      }),
+    },
+  );
+  return { ok: Boolean(body.ok), detail: body.detail ?? null, models: body.models ?? [] };
+}
+
 export async function getRuntimeRouting(): Promise<RuntimeRoutingView> {
   return api<RuntimeRoutingView>("/api/harness/model-runtime/routing");
 }

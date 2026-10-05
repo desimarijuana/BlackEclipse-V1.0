@@ -274,6 +274,30 @@ class ModelRuntime:
         })
         return decision
 
+    def _explicit_ref(self, settings: Any) -> Optional[str]:
+        """The router-facing explicit model reference for a run.
+
+        The settings front door stores a BARE model id (e.g. `deepseek-chat`, or
+        an operator-typed id the catalog has never heard of) alongside a provider
+        id. The router resolves a bare id only when it is GLOBALLY unambiguous, so
+        an uncatalogued custom/local model looked "unknown" and the router fell
+        through to its own best pick — silently substituting a DIFFERENT model
+        (the "my model doesn't work" bug). Qualifying the bare id with the RUN's
+        provider lets the router recognise ANY model id the operator configured
+        and honour it as the explicit choice. An already-qualified id or a known
+        alias is passed through untouched.
+        """
+        explicit = getattr(settings, "model", None)
+        provider_id = getattr(settings, "provider", None)
+        if not explicit or not provider_id:
+            return explicit
+        if self.models.alias_intent(explicit) or self.models.get_model(explicit):
+            return explicit
+        head = explicit.split("/", 1)[0]
+        if self.providers.get_provider(head) is not None:
+            return explicit
+        return f"{provider_id}/{explicit}"
+
     def resolve_for_run(
         self,
         settings: Any,
@@ -290,13 +314,24 @@ class ModelRuntime:
         provider the run has no key for (spec §31, §45).
         """
         decision = self.route(
-            model=getattr(settings, "model", None),
+            model=self._explicit_ref(settings),
             task=task,
             requirements=requirements,
             policy_overrides=policy_overrides,
         )
         resolved, constrained = self._constrain(settings, decision)
         model = self.models.get_model(f"{resolved.provider}/{resolved.model}")
+        # A synthesized explicit model (an operator-typed id the catalog has never
+        # seen) is not in the registry, but the router already built a `ModelInfo`
+        # for it. Adopt that one so capabilities/health/usage are accounted for
+        # instead of being silently unknown.
+        if (
+            model is None
+            and decision.selected is not None
+            and decision.selected.model.provider_id == resolved.provider
+            and decision.selected.model.id == resolved.model
+        ):
+            model = decision.selected.model
         adapter = adapter_for(kind=self._kind_of(resolved.provider), provider_id=resolved.provider)
         return Resolution(settings=resolved, model=model, decision=decision, adapter=adapter, constrained=constrained)
 
@@ -343,15 +378,48 @@ class ModelRuntime:
         return chosen.build(settings)
 
     def prepare_model(self, model: Any, resolution: Resolution) -> Any:
-        """Apply adapter-level request translation (e.g. reasoning)."""
-        request_reasoning = None
+        """Apply adapter-level request translation (e.g. reasoning).
+
+        Reasoning effort is shaped ONLY when the model genuinely exposes a
+        provider-native reasoning control: a first-party API (Anthropic
+        `thinking`, Gemini `thinking_budget`) or a native OpenAI reasoning model
+        (`reasoning_effort`). An OpenAI-COMPATIBLE endpoint (DeepSeek, Groq, a
+        custom router, a local server) does NOT accept `reasoning_effort`, and
+        injecting it is a hard provider 400 — the exact "my model stopped working"
+        failure. The runtime never force-feeds a knob a model did not declare.
+        """
         profile = self.task_profiles.get(resolution.decision.task)
         effort = profile.get("reasoning")
-        if effort and effort not in ("none", "low"):
-            from .types import ReasoningRequest  # local import
+        if not effort or effort in ("none", "low"):
+            return model
+        if not self._shapes_reasoning(resolution):
+            return model
+        from .types import ReasoningRequest  # local import
 
-            request_reasoning = ReasoningRequest(enabled=True, effort=effort if effort in ("low", "medium", "high", "max") else "high")
+        request_reasoning = ReasoningRequest(
+            enabled=True,
+            effort=effort if effort in ("low", "medium", "high", "max") else "high",
+        )
         return resolution.adapter.apply_reasoning(model, request_reasoning)
+
+    def _shapes_reasoning(self, resolution: Resolution) -> bool:
+        """Whether this model has a provider-native reasoning control we may set.
+
+        A bare `kind == "openai"` is not enough: every OpenAI-compatible endpoint
+        shares that transport kind in some catalogs. Only the NATIVE OpenAI
+        provider id is trusted with `reasoning_effort`; Anthropic and Google each
+        have their own adapter and their own declared knob. In every case the
+        model must also DECLARE reasoning support — an undeclared capability is
+        never assumed.
+        """
+        model_info = resolution.model
+        if model_info is None or not model_info.capabilities.is_supported("reasoning"):
+            return False
+        kind = getattr(resolution.adapter, "kind", "")
+        if kind in ("anthropic", "google"):
+            return True
+        provider_id = getattr(resolution.settings, "provider", None)
+        return kind == "openai" and provider_id == "openai"
 
     # ── invocation (retry + fallback + accounting) (spec §16–18) ────────────
     async def invoke(

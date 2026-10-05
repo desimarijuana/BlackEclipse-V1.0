@@ -65,7 +65,7 @@ class ProviderRegistry:
                     keyless=spec.keyless,
                     openai_compatible=spec.openai_compatible,
                     default_base_url=spec.default_base_url,
-                    dynamic_discovery=spec.id in ("ollama", "lmstudio", "openrouter", "custom"),
+                    dynamic_discovery=spec.dynamic_discovery,
                     metadata={"defaultModel": spec.default_model, "envVar": spec.env_var},
                 )
             )

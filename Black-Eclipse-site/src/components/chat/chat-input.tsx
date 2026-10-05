@@ -1,10 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X, ChevronDown, Check, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  DropdownMenuGroup,
+} from '@/components/ui/dropdown-menu';
+import type { ChatModelState } from '@/lib/agent/use-chat-model';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
@@ -24,6 +37,12 @@ interface ChatInputProps {
   autoFocus?: boolean;
   /** Show the real configured provider label as a quiet pill. */
   showProvider?: boolean;
+  /**
+   * The composer's model selector state (real, never a fabricated list). When
+   * provided, the pill becomes a dropdown that switches the model for the next
+   * turn; when omitted only the provider label is shown.
+   */
+  modelState?: ChatModelState;
   /** The assistant is working: submit becomes a pause (cancel) button. */
   busy?: boolean;
   /** Called when the user clicks pause. */
@@ -55,6 +74,7 @@ export function ChatInput({
   placeholder = "Ask about a stock, sector, or market trend...", 
   autoFocus,
   showProvider = true,
+  modelState,
   busy = false,
   onCancel,
   onAttach,
@@ -151,7 +171,9 @@ export function ChatInput({
         />
         
         <div className="flex items-center gap-1 sm:gap-2 shrink-0 mb-0.5">
-          {showProvider && (
+          {modelState ? (
+            <ModelSelector state={modelState} />
+          ) : showProvider ? (
             /* The real configured provider — not a fabricated model picker. */
             <span
               className="hidden min-[400px]:inline-flex items-center gap-1.5 px-3 py-1 h-7 rounded-full bg-accent/25 border border-border/25 text-muted-foreground text-xs font-medium whitespace-nowrap"
@@ -160,7 +182,7 @@ export function ChatInput({
               <Sparkles size={12} className="text-primary" />
               {providerLabel}
             </span>
-          )}
+          ) : null}
           <Button 
             type="button" 
             variant="ghost" 
@@ -208,5 +230,162 @@ export function ChatInput({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The composer's model selector. ALWAYS rendered (never gated on a non-empty
+ * list) so a model can be changed even before settings/catalog finish loading.
+ * A submenu switches provider (with the key status the server reported), the
+ * top level switches model on the active provider, and a "Custom model id…"
+ * item types any id. A local/router provider gets a live discovery action.
+ */
+function ModelSelector({ state }: { state: ChatModelState }) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const [custom, setCustom] = useState("");
+  const label = state.displayModel || state.providerLabel || "Model";
+  const current = state.providers.find((p) => p.id === state.selectedProvider);
+
+  const submitCustom = () => {
+    const v = custom.trim();
+    if (v) state.setModel(v);
+    setCustom("");
+    setCustomOpen(false);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        title={`Model: ${state.displayModel || "default"} · provider ${state.providerLabel}`}
+        className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 h-7 max-w-[180px] rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
+      >
+        <Sparkles size={12} className="text-primary shrink-0" />
+        <span className="truncate font-mono">{label}</span>
+        <ChevronDown size={13} className="shrink-0 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel className="flex items-center justify-between gap-2">
+          <span>Model</span>
+          <span className="text-[10px] font-normal text-muted-foreground truncate">{state.providerLabel}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="max-h-64 overflow-y-auto">
+          {state.loading && (state.providers.length === 0) && (
+            <div className="px-2 py-1.5 text-[11px] text-muted-foreground flex items-center gap-2">
+              <Loader2 size={12} className="animate-spin" /> Loading models…
+            </div>
+          )}
+          {(() => {
+            // The active provider's declared models, ALWAYS including the current
+            // model (even when the provider is `auto`/`mock` or uncatalogued), so
+            // the list is never empty and the current choice is always shown.
+            const models = current?.models ?? [];
+            const list =
+              state.selectedModel && !models.includes(state.selectedModel)
+                ? [state.selectedModel, ...models]
+                : models;
+            if (list.length === 0) {
+              return !state.loading ? (
+                <div className="px-2 py-1.5 text-[11px] text-muted-foreground">No declared models</div>
+              ) : null;
+            }
+            return list.map((m) => (
+              <DropdownMenuItem key={m} onSelect={() => state.setModel(m)} className="gap-2">
+                <Check size={13} className={cn("shrink-0", m === state.selectedModel ? "opacity-100 text-primary" : "opacity-0")} />
+                <span className="font-mono truncate">{m}</span>
+              </DropdownMenuItem>
+            ));
+          })()}
+        </div>
+        {state.canDiscover && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={state.discovering}
+              onSelect={(e) => {
+                e.preventDefault();
+                void state.discover();
+              }}
+              className="gap-2 text-primary/90"
+            >
+              <Loader2 size={13} className={cn("shrink-0", state.discovering && "animate-spin")} />
+              {state.discovering ? "Discovering…" : "Discover installed models"}
+            </DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="gap-2">
+            <Cpu size={13} className="shrink-0" />
+            <span>Provider</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-64">
+            <div className="max-h-72 overflow-y-auto">
+              {state.providers.map((p) => (
+                <DropdownMenuItem
+                  key={p.id}
+                  onSelect={() => {
+                    // Switching provider adopts its first model so the choice is
+                    // (provider, model) together — never a mismatched pair.
+                    state.select(p.id, p.models[0] ?? "");
+                  }}
+                  className="gap-2"
+                >
+                  <Check size={13} className={cn("shrink-0", p.id === state.selectedProvider ? "opacity-100 text-primary" : "opacity-0")} />
+                  <span className="truncate">{p.label}</span>
+                  {p.keyless ? (
+                    <span className="ml-auto text-[9px] text-emerald-400/80">no key</span>
+                  ) : p.available ? (
+                    <span className="ml-auto text-[9px] text-emerald-400/80">key set</span>
+                  ) : (
+                    <span className="ml-auto text-[9px] text-amber-400/80">needs key</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </div>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuGroup>
+          {state.error && (
+            <div className="px-2 py-1 text-[10px] text-rose-400/90">{state.error}</div>
+          )}
+          {customOpen ? (
+            <div className="flex items-center gap-1.5 px-1.5 py-1">
+              <input
+                autoFocus
+                value={custom}
+                onChange={(e) => setCustom(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitCustom();
+                  }
+                }}
+                placeholder="model id"
+                className="min-w-0 flex-1 rounded-md bg-background/60 border border-border/30 px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={submitCustom}
+                className="rounded-md px-2 py-1 text-[11px] text-primary hover:bg-accent"
+              >
+                Use
+              </button>
+            </div>
+          ) : (
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setCustomOpen(true);
+              }}
+              className="gap-2"
+            >
+              <Plus size={13} className="shrink-0" />
+              <span>Custom model id…</span>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

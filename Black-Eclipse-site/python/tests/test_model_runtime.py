@@ -659,3 +659,66 @@ def test_run_is_constrained_only_for_keyless_fallback() -> None:
     # provider the run has no credentials for.
     assert res.settings.provider == "openai"
     assert res.settings.model == "gpt-4o-mini"
+
+
+# ── explicit (operator-configured) model must never be substituted ─────────
+
+
+def _settings(provider: str, model: str, **kw: Any) -> Any:
+    return __import__("harness.schemas", fromlist=["ModelSettings"]).ModelSettings(
+        provider=provider, model=model, api_key="k", **kw
+    )
+
+
+def test_explicit_ref_qualifies_a_bare_uncatalogued_id_with_the_run_provider() -> None:
+    rt = ModelRuntime()
+    # A bare model id the catalog has never seen is qualified with the run's
+    # provider — NOT left bare (which the router read as "unknown" and routed
+    # away from), and NOT already carrying a provider prefix.
+    assert rt._explicit_ref(_settings("deepseek", "deepseek-v4.1-flash")) == "deepseek/deepseek-v4.1-flash"
+    assert rt._explicit_ref(_settings("ollama", "my-local-model")) == "ollama/my-local-model"
+
+
+def test_explicit_ref_leaves_qualified_ids_and_aliases_untouched() -> None:
+    rt = ModelRuntime()
+    assert rt._explicit_ref(_settings("openai", "openai/gpt-4o")) == "openai/gpt-4o"
+    assert rt._explicit_ref(_settings("openai", "eclipse-fast")) == "eclipse-fast"
+    assert rt._explicit_ref(_settings("openai", "gpt-4o")) == "gpt-4o"
+
+
+def test_uncatalogued_configured_model_is_not_silently_substituted() -> None:
+    # Regression: the front door stores a BARE model id. An uncatalogued id used
+    # to fall through to the router and select a DIFFERENT model (gemini). The
+    # operator's own choice must win.
+    rt = ModelRuntime()
+    res = rt.resolve_for_run(_settings("deepseek", "deepseek-v4.1-flash"), task="default")
+    assert res.settings.provider == "deepseek"
+    assert res.settings.model == "deepseek-v4.1-flash"
+    assert res.decision.selected is not None
+    assert res.decision.selected.model.qualified_id == "deepseek/deepseek-v4.1-flash"
+
+
+# ── reasoning shaping must not force a knob a provider cannot accept ───────
+
+
+def test_reasoning_is_not_shaped_for_an_openai_compatible_endpoint() -> None:
+    # DeepSeek/Groq/custom/local speak the OpenAI protocol but do NOT accept
+    # `reasoning_effort`; injecting it is a hard 400. A bare id that resolves to
+    # an openai-compatible endpoint must be returned untouched.
+    rt = ModelRuntime()
+    res = rt.resolve_for_run(_settings("deepseek", "deepseek-chat"), task="financial_research")
+    model = rt.prepare_model(object(), res)
+    assert not hasattr(model, "reasoning_effort")
+
+
+def test_reasoning_is_shaped_only_for_a_native_reasoning_model() -> None:
+    rt = _runtime_with([
+        _model("openai", "o3-mini", capabilities=_caps(text="supported", reasoning="supported")),
+    ])
+
+    class _Native:
+        reasoning_effort: Any = None
+
+    res = rt.resolve_for_run(_settings("openai", "o3-mini"), task="financial_research")
+    model = rt.prepare_model(_Native(), res)
+    assert getattr(model, "reasoning_effort", None) == "high"

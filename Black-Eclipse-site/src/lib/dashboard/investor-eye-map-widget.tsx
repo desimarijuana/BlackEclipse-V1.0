@@ -19,13 +19,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
-import { Loader2, Maximize2, Minimize2, ScanEye } from 'lucide-react';
+import { Layers2, Loader2, Maximize2, Minimize2, ScanEye } from 'lucide-react';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { registerStateTopic } from '@/lib/investor-eye/topics';
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';
+import { LayerController } from '@/components/investor-eye/layer-controller';
+import { HeatmapToggle } from '@/components/investor-eye/heatmap-toggle';
 import { TIME_RANGES, timeRangeHours, useInvestorEyeStore, type TimeRangeId } from '@/lib/investor-eye/store';
 import { formatClock } from '@/lib/investor-eye/format';
 import { useDisplayTimeZone } from '@/lib/timezone';
+import { cn } from '@/lib/utils';
 import { useCommandStore } from '@/lib/search/store';
 import type { InvestorEyeState } from '@/lib/investor-eye/types';
 import type { WidgetConfigField } from '@/lib/workspace/widget-def';
@@ -50,6 +53,25 @@ export const INVESTOR_EYE_MAP_RANGE_FIELD: WidgetConfigField = {
   ],
   default: '24h',
 };
+
+/**
+ * Anchor the portaled layers popover under its button, right-aligned, and flip
+ * it above the button when there is not enough room below (the widget can sit at
+ * the bottom of the viewport).
+ */
+function layersPanelStyle(btn: HTMLButtonElement | null): React.CSSProperties {
+  if (!btn) return { visibility: 'hidden' };
+  const r = btn.getBoundingClientRect();
+  const width = Math.min(352, window.innerWidth * 0.9);
+  const spaceBelow = window.innerHeight - r.bottom;
+  const flipUp = spaceBelow < 360 && r.top > spaceBelow;
+  return {
+    width,
+    left: Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8)),
+    top: flipUp ? undefined : r.bottom + 6,
+    bottom: flipUp ? window.innerHeight - r.top + 6 : undefined,
+  };
+}
 
 function MapLoader() {
   return (
@@ -86,11 +108,29 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
+  const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const setSelectedEvent = useInvestorEyeStore((s) => s.setSelectedEvent);
   const setSelectedCountry = useInvestorEyeStore((s) => s.setSelectedCountry);
   const setSelectedMarket = useInvestorEyeStore((s) => s.setSelectedMarket);
 
   const [expanded, setExpanded] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const layersBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Layers that currently hold data — the same rule the full screen uses, so a
+  // chip is dimmed here exactly when it is dimmed there.
+  const available = useMemo<Set<string>>(() => {
+    const set = new Set<string>(['events', 'markets', 'risk', 'event-heatmap']);
+    if (!state) return set;
+    if (state.events.some((e) => ['conflict', 'military', 'protest'].includes(e.eventType))) set.add('conflict');
+    if (state.events.some((e) => e.eventType === 'shipping' || e.channels.includes('Shipping & Logistics'))) set.add('shipping');
+    if (state.events.some((e) => e.eventType === 'energy' || e.channels.includes('Energy'))) set.add('energy');
+    if (state.events.some((e) => ['trade', 'tariff', 'shipping'].includes(e.eventType) || e.channels.includes('Trade & Tariffs'))) set.add('trade');
+    if (state.events.some((e) => e.commodities.length > 0)) set.add('commodities');
+    if (state.events.some((e) => e.eventType === 'natural_disaster' && e.category !== 'fire')) set.add('weather');
+    if (state.events.some((e) => e.eventType === 'natural_disaster' && e.category === 'fire')) set.add('fires');
+    return set;
+  }, [state]);
 
   const layers = useMemo(() => {
     if (!state) return [];
@@ -111,8 +151,6 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
     setSelectedCountry(iso2);
     setSelectedEvent(null);
   }, [setSelectedCountry, setSelectedEvent]);
-
-  // Fullscreen reuses the SAME map, just in a bigger box — no second screen.
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!expanded) return;
@@ -142,7 +180,7 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
   );
 
   const header = (
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-1.5">
         <ScanEye size={13} className="shrink-0 text-primary" />
         <h3 className="font-serif text-sm font-semibold text-foreground truncate">Investor Eye Map</h3>
@@ -152,11 +190,49 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
           </span>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex items-center gap-1">
         {unavailable && (
           <span className="rounded-md border border-red-500/25 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] text-red-300">
             UNAVAILABLE{lastKnownAt ? ` · LAST ${formatClock(lastKnownAt, tz)}` : ''}
           </span>
+        )}
+        {/* One-click heatmap toggle, always visible — the Layers popover is
+            where the full list lives, but the heatmap is the common ask. */}
+        <HeatmapToggle />
+        {/* Layer visibility lives in a popover so the map tile stays compact —
+            without it the widget had NO way to toggle the heatmap or any other
+            intelligence layer. Reuses the canonical LayerController so the
+            widget and the full screen cannot drift. */}
+        <button
+          ref={layersBtnRef}
+          type="button"
+          onClick={() => setLayersOpen((v) => !v)}
+          aria-pressed={layersOpen}
+          className={cn(
+            'flex items-center gap-1 rounded-lg border p-1.5 text-muted-foreground transition-all cursor-pointer',
+            layersOpen
+              ? 'border-primary/40 bg-primary/15 text-primary'
+              : 'border-white/15 dark:border-white/10 bg-accent/30 hover:border-primary/40 hover:text-primary',
+          )}
+          title="Show / hide intelligence layers"
+        >
+          <Layers2 size={13} />
+        </button>
+        {/* Portal: the widget card is `overflow-hidden`, so an in-card absolute
+            panel would be clipped. Portaled to body and anchored to the button. */}
+        {layersOpen && typeof document !== 'undefined' && createPortal(
+          <>
+            <div className="fixed inset-0 z-[110]" onClick={() => setLayersOpen(false)} aria-hidden="true" />
+            <div className="fixed z-[111] w-[22rem] max-w-[90vw]" style={layersPanelStyle(layersBtnRef.current)}>
+              <LayerController
+                active={activeLayers as LayerId[]}
+                onToggle={toggleLayer}
+                available={available}
+                showLegend={false}
+              />
+            </div>
+          </>,
+          document.body,
         )}
         <button
           type="button"

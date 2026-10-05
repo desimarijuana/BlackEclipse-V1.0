@@ -151,6 +151,38 @@ export async function listRuntimeModels(provider?: string): Promise<RuntimeModel
   return body.models ?? [];
 }
 
+export interface DiscoveryResult {
+  ok: boolean;
+  detail: string | null;
+  models: RuntimeModelView[];
+}
+
+/**
+ * Probe a live provider for the models it actually serves and register them.
+ * A local server (Ollama, LM Studio) lists its installed models; a router lists
+ * its catalog. The connection details are supplied per call (the runtime cannot
+ * read the vault) and are never persisted. A failed probe reports `ok: false`
+ * with a reason — never a silent empty success.
+ */
+export async function discoverRuntimeModels(
+  providerId: string,
+  connection: { baseUrl?: string | null; apiKey?: string | null; model?: string | null },
+): Promise<DiscoveryResult> {
+  const body = await request<{ ok: boolean; detail?: string | null; models: RuntimeModelView[] }>(
+    `/model-runtime/providers/${encodeURIComponent(providerId)}/discover`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        baseUrl: connection.baseUrl ?? undefined,
+        apiKey: connection.apiKey ?? undefined,
+        model: connection.model ?? undefined,
+      }),
+      timeoutMs: 20_000,
+    },
+  );
+  return { ok: Boolean(body.ok), detail: body.detail ?? null, models: body.models ?? [] };
+}
+
 export async function getRuntimeRouting(): Promise<RuntimeRoutingView> {
   return request<RuntimeRoutingView>("/model-runtime/routing", { method: "GET" });
 }

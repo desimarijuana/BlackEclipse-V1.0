@@ -36,6 +36,7 @@ import { TransmissionsPanel } from './transmissions-panel';
 import { GraphPanel } from './graph-panel';
 import { FullPageMap } from './full-page-map';
 import { MapViewControls } from './map-view-controls';
+import { HeatmapToggle } from './heatmap-toggle';
 import { LiveFeed } from './live-feed';
 import { AlertsPanel } from './alerts-panel';
 import { SourceHealthPanel } from './source-health-panel';
@@ -181,6 +182,10 @@ export function InvestorEyeScreen() {
     if (companiesEntry.data?.companies?.length) set.add('companies');
     if (portfolioExposure.length > 0) set.add('portfolio');
     set.add('risk');
+    // The heatmap draws from the same geolocated events as `events`, so it is
+    // available whenever there is at least one event to weigh. Omitting it left
+    // the chip dimmed as "no data" and made the layer look broken.
+    if (state.events.length > 0) set.add('event-heatmap');
     return set;
   }, [state, economyEntry.data, companiesEntry.data, portfolioExposure]);
 
@@ -438,6 +443,12 @@ export function InvestorEyeScreen() {
           >
             <Maximize2 size={11} /> Map only
           </button>
+          {/* Heatmap is a one-click read of WHERE activity concentrates, so it
+              stands alone on the map (top-left) rather than hiding in the dense
+              layer strip below. */}
+          <div className="absolute left-2 top-2 z-10">
+            <HeatmapToggle />
+          </div>
           {/* Live counts, so the map has an at-a-glance figure. */}
           {state && (
             <div className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-[9px] font-mono text-muted-foreground backdrop-blur-sm">

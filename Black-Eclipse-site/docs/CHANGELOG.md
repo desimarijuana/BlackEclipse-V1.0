@@ -8,6 +8,114 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-04
 
+- **Composer model selector: fixed to be ALWAYS visible + switch providers.**
+  The previous attempt gated the dropdown on a non-empty model list, so for the
+  default configuration (one saved model) it never rendered and the pill stayed a
+  static label — the selector appeared "broken". It also only offered the active
+  provider's models, so there was nothing to switch to. `chat-input.tsx` now
+  renders an always-present `ModelSelector`; `use-chat-model.ts` + new
+  `GET /api/harness/chat/models` list the models the operator can actually use
+  across ALL providers (availability derived server-side from the real env/vault;
+  models from the runtime catalog with a preset-default fallback when the runtime
+  is down). Selecting a model/provider PERSISTS it to the settings vault via
+  `POST /api/settings` — the source the runtime reads — so the next message uses
+  it; it is also sent per-turn as `model`. Provider switch persists provider +
+  base URL + default model together; a failed save shows the error and reverts;
+  a "Custom model id…" entry types any id; local/router providers get a live
+  discover action. Tests: `models/route.test.ts` (+4). `vitest` 2085 passed;
+  `pytest` 2550 passed; `npx tsc --noEmit` clean; eval gates ALL PASS.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Added a real model selector to the chat composer.** The composer only ever
+  showed a static provider pill; the old model dropdown was REMOVED earlier
+  because it was fabricated (hardcoded "Flash-Lite/Flash/Pro"). `use-chat-model.ts`
+  now backs the pill as a dropdown of the models the configured provider can
+  serve (the runtime's declared catalog + a live `discover` probe for local
+  servers/routers), persisted in localStorage, and the choice is threaded
+  end-to-end: `ChatOptions.model` → chat request body `model` → `startChatRun`/
+  `chatWithAgent` → `resolveModelSettings(model)` → the run's
+  `modelSettings.model`. It overrides ONLY the model — provider/key/base URL stay
+  the operator's configured ones, and a declared context window is dropped since
+  it belongs to the previous (provider, model). Never a fabricated list: with no
+  catalog it degrades to the saved model alone. `stock-chat.tsx` stays at its
+  1212-line ratchet (lines reclaimed). Tests: `run-service.test.ts` (+2).
+  `vitest` 2081 passed; `pytest` 2550 passed; `npx tsc --noEmit` clean; eval
+  gates ALL PASS.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Investor Eye: heatmap look + one-click Heatmap button on every surface.**
+  Added a standalone `HeatmapToggle` (Flame icon) on the main map (top-left of
+  the map surface), the full-page map dock, and the dashboard "Investor Eye Map"
+  widget header. It uses the SAME visible control recipe as its sibling buttons
+  (`border-white/15 bg-accent/30`, active = `border-primary/40 bg-primary/15`) —
+  an earlier `glass-button`/`glass-card-subtle` restyle blended into the dark map
+  and made the control effectively invisible. Restyled the heat layer:
+  `pointSize`/`blurSize` 22/28 → 16/18 and `minOpacity` 0.35 → 0.12 so sparse
+  regions stay dark and only genuine concentrations light up, and replaced the
+  blue→red `visualMap` ramp with a warm violet→magenta→rose→orange→yellow ramp
+  that contrasts the blue/cyan map surface instead of blending into it. The
+  widget header now wraps so the extra control cannot be clipped. `vitest` 414
+  investor-eye tests pass; `npx tsc --noEmit` clean.
+  no doc change — presentation/control tuning; layer contract unchanged.
+
+- **Investor Eye Map dashboard widget had no layer controls.** The embeddable
+  "Investor Eye Map" widget rendered the world map with only expand/Open buttons
+  and no way to toggle layers — so the Event Heatmap (and every other layer) was
+  unreachable from the dashboard, unlike the full Investor Eye screen. Added a
+  Layers button opening a popover that reuses the canonical `LayerController`
+  (same chips, colours, availability rules), portaled to `document.body` and
+  anchored to the button because the widget card is `overflow-hidden` and would
+  otherwise clip it; the popover flips above the button near the viewport bottom.
+  `vitest` 2079 passed; `npx tsc --noEmit` clean.
+  no doc change — the Investor Eye Map widget is already covered by the workspace
+  skill; this is a control-surface fix, no contract change.
+
+- **Investor Eye: event heatmap now actually reads as a heatmap; pins shrunk to
+  a Bloomberg-like scale.** The `event-heatmap` layer emitted one datum per raw
+  event with a ~1px weight, so ECharts' heat brush blurred single events away and
+  the layer rendered as an invisible flat wash. It now aggregates events onto the
+  same grid the pins use (`aggregatePoints`) and each cell's intensity is the SUM
+  of its members' severity weights, so a hotspot is literally where the most and
+  most-severe events are; `pointSize`/`blurSize` widened to 22/28 and
+  `minOpacity` raised to 0.35 so even a light cell survives the dark map. Fixed
+  the controller: `availableLayers` never included `event-heatmap`, so its chip
+  was dimmed as "no data" and looked broken. Enabled the heatmap by default
+  (`DEFAULT_LAYERS`) and gave it a legend swatch (new `heat` glyph in
+  `SYMBOL_PATHS`). Markers reduced to Bloomberg scale — 2D pins 18/14/11/8 →
+  8/6/5/4 and glow halos 26/17/10/5 → 12/8/5/3; globe core 17 → 9 and ring 24 →
+  13 — so hundreds of dots stay legible instead of collapsing into blobs.
+  Tests: `layers.test.ts` (+3 heatmap density cases). `vitest` 2079 passed;
+  `npx tsc --noEmit` clean.
+  no doc change — layer rendering/tuning only; heatmap contract already documented
+  in `docs/investor-eye-architecture.md` §2.13.
+
+- **Fix: configured models were silently substituted + Ollama's installed models
+  were unselectable.** The front door stores a BARE model id (`cfg.model`) with a
+  separate provider id. `ModelRouter` resolved a bare id only when it was
+  globally unambiguous, so any model not in the static catalog (an operator's
+  `deepseek-v4.1-flash`, any custom/local model) looked "unknown" and the router
+  fell through to its own best pick — `deepseek/deepseek-v4.1-flash` resolved to
+  `google/gemini-2.0-flash`, so the user's model never ran. `ModelRuntime` now
+  qualifies the bare id with the run's provider (`_explicit_ref`), so ANY model
+  id the operator configured is honoured as the explicit choice and never
+  silently swapped. Second regression: `prepare_model` force-set
+  `reasoning_effort` from the task profile on EVERY model, including
+  OpenAI-compatible endpoints that reject the knob (a hard 400); reasoning is now
+  shaped only for a provider-native control (Anthropic/Google/native-OpenAI) that
+  declares reasoning support. Third: the Settings model dropdown only ever showed
+  the static catalog, never the models actually installed, so Ollama showed
+  `llama3.1…phi3` and nothing the operator had pulled. Added runtime model
+  discovery — `POST /model-runtime/providers/{id}/discover` probes the live
+  `/models` endpoint (Ollama/LM Studio/router) and registers what it serves, with
+  a new `ModelPicker` component (extracted from `settings.tsx`, which stays under
+  its size ratchet) exposing a "Discover installed models" action; a failed probe
+  reports an honest reason, never a silent empty success. `ProviderSpec.dynamicDiscovery`
+  marks discoverable providers. Tests: `test_model_runtime.py` (+5),
+  `test_model_runtime_api.py` (+2), `test_models.py` (+1),
+  `model-runtime-browser.test.ts` (+2). `vitest` 2076 passed; `pytest` 2550
+  passed; `npx tsc --noEmit` clean; eval gates ALL PASS.
+  docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`
+
 - **Reverted the General › Theme "ChatBot background" card.**
   The color option already lives under Settings › General › Background
   (`background-settings.tsx`), so the duplicate card added earlier today in

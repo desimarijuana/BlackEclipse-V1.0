@@ -49,6 +49,7 @@ export async function POST(request: Request) {
     : [];
 
   const chatId = typeof body.chatId === "string" ? body.chatId : "";
+  const model = typeof body.model === "string" ? body.model.trim() : "";
   const rawRunId = body.runId;
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
 
   let id: string;
   try {
-    id = await startChatRun(query, history, documents, runId, chatId || undefined);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

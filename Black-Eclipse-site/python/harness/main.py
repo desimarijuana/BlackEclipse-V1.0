@@ -52,7 +52,7 @@ from .routers.memory import router as memory_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.workspace import router as workspace_router
-from .schemas import RunRequest, RunResult
+from .schemas import ModelSettings, RunRequest, RunResult
 from .skills.draft import propose_draft
 from .skills.evaluation import evaluate_skill
 from .skills.learning import capture_from_run
@@ -300,6 +300,45 @@ def model_runtime_models(provider: Optional[str] = None, _: bool = Depends(requi
     runtime = get_runtime()
     models = runtime.models.list_models(provider_id=provider)
     return {"success": True, "models": [m.to_dict() for m in models]}
+
+
+@app.post("/model-runtime/providers/{provider_id}/discover")
+async def model_runtime_discover(
+    provider_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Discover the models a live provider actually serves and register them.
+
+    A local server (Ollama, LM Studio) lists its own installed models, and a
+    router lists its catalog; the static registry cannot know them. The operator
+    supplies the connection details in the body (the runtime cannot read the TS
+    vault); credentials are used only for this one probe and never returned or
+    stored. A failed probe returns `ok: false` with an honest reason instead of
+    an empty success.
+    """
+    runtime = get_runtime()
+    provider = runtime.providers.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
+    settings = ModelSettings(
+        provider=provider_id,
+        base_url=payload.get("baseUrl") or provider.default_base_url,
+        api_key=payload.get("apiKey"),
+        model=payload.get("model") or provider.metadata.get("defaultModel") or "",
+    )
+    try:
+        discovered = await runtime.discover(settings, provider_id=provider_id)
+    except Exception as exc:  # noqa: BLE001 - a probe failure is reported, not fatal
+        return {
+            "success": True,
+            "ok": False,
+            "detail": str(exc) or "discovery failed",
+            "models": [],
+        }
+    return {
+        "success": True,
+        "ok": True,
+        "models": [m.to_dict() for m in discovered],
+    }
 
 
 @app.get("/model-runtime/routing")

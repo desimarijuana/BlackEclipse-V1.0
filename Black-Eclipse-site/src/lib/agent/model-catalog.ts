@@ -21,6 +21,9 @@ export interface CatalogProvider {
   models?: string[];
   /** Declared model id → resolved context window (null when unknown). */
   modelWindows?: Record<string, number | null>;
+  /** True when the provider can only enumerate its models at runtime (Ollama,
+   * LM Studio, a router). The UI offers a live discovery probe for these. */
+  dynamicDiscovery?: boolean;
 }
 
 export type ModelCatalog = Record<string, CatalogProvider>;

@@ -48,6 +48,7 @@ export {
 export {
   listRuntimeProviders,
   listRuntimeModels,
+  discoverRuntimeModels,
   getRuntimeRouting,
   getRuntimeDecisions,
   routeModel,
@@ -57,6 +58,7 @@ export {
 export type {
   CapabilityState,
   PricingKind,
+  DiscoveryResult,
   RuntimeProviderView,
   RuntimeModelView,
   RuntimeRouteDecisionView,

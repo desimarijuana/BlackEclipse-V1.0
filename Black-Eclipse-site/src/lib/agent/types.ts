@@ -36,6 +36,12 @@ export interface ChatOptions {
    */
   chatId?: string;
   /**
+   * The model id the operator picked in the composer for THIS turn. Overrides
+   * the saved model in the settings vault for the provider already configured
+   * (the provider/key are unchanged). Absent = the saved model.
+   */
+  model?: string;
+  /**
    * Called with the harness run id as soon as it is known, so the caller can
    * offer cancellation before the reply arrives.
    */

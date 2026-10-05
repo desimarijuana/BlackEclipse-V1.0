@@ -34,7 +34,9 @@ export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
   companies: false,
   risk: false,
   portfolio: false,
-  'event-heatmap': false,
+  // The heatmap is a first-class way to read WHERE activity concentrates, so it
+  // is on by default (it sits under the pins and does not hide them).
+  'event-heatmap': true,
 };
 
 export interface SelectedMarket {

@@ -27,6 +27,17 @@ def test_list_providers_shape():
     assert all("defaultModel" in p for p in providers)
 
 
+def test_list_providers_marks_runtime_discoverable_endpoints():
+    providers = {p["id"]: p for p in models.list_providers()}
+    # A local server / router can only be enumerated at runtime.
+    assert providers["ollama"]["dynamicDiscovery"] is True
+    assert providers["lmstudio"]["dynamicDiscovery"] is True
+    assert providers["openrouter"]["dynamicDiscovery"] is True
+    assert providers["custom"]["dynamicDiscovery"] is True
+    # A fixed hosted API declares its whole model list statically.
+    assert providers["openai"]["dynamicDiscovery"] is False
+
+
 def test_unknown_provider_raises():
     with pytest.raises(ValueError):
         models.build_chat_model(ModelSettings(provider="does-not-exist", model="x"))

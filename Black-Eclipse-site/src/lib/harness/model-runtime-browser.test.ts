@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { capabilityStateKey, healthBucket, pricingKey } from '@/lib/harness/model-runtime-browser';
+import { describe, expect, it, vi, afterEach } from 'vitest';
+import { capabilityStateKey, healthBucket, pricingKey, discoverRuntimeModels } from '@/lib/harness/model-runtime-browser';
 
 // The Model Runtime browser client must be CLIENT-SAFE: importing the server
 // client (model-runtime-client.ts) pulls `ensurePythonRuntime` → `child_process`
@@ -31,5 +31,35 @@ describe('model runtime browser client', () => {
 
   it('healthBucket treats absent evidence as unknown, never zero', () => {
     expect(healthBucket(null)).toBe('unknown');
+  });
+
+  describe('discoverRuntimeModels', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('posts connection details to the provider discover route and normalizes the result', async () => {
+      const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ success: true, ok: true, detail: null, models: [{ id: 'llama3.2' }] }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+      const res = await discoverRuntimeModels('ollama', { baseUrl: 'http://localhost:11434/v1' });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/harness/model-runtime/providers/ollama/discover');
+      expect(res.ok).toBe(true);
+      expect(res.models[0]?.id).toBe('llama3.2');
+    });
+
+    it('surfaces an honest failure instead of a silent empty success', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({ success: true, ok: false, detail: 'connection refused', models: [] }),
+        })),
+      );
+      const res = await discoverRuntimeModels('ollama', { baseUrl: 'http://localhost:9/v1' });
+      expect(res.ok).toBe(false);
+      expect(res.detail).toBe('connection refused');
+      expect(res.models).toEqual([]);
+    });
   });
 });

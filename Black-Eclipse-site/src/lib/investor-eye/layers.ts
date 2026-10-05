@@ -126,6 +126,16 @@ export const SYMBOL_PATHS = {
    * Built from two 180° arcs — a single near-full arc lands off-centre.
    */
   event: 'path://M78,50 A28,28 0 1,1 22,50 A28,28 0 1,1 78,50 Z',
+  /**
+   * Density haze — the event heatmap swatch.
+   *
+   * A solid core plus one faint outer RING (an annulus, hole wound opposite so
+   * the nonzero rule punches it out), so a small 11px legend glyph reads as
+   * "a blob with a halo" — the heatmap's look — rather than a plain dot.
+   */
+  heat: 'path://M58,50 A8,8 0 1,1 42,50 A8,8 0 1,1 58,50 Z ' +
+    'M86,50 A36,36 0 1,1 14,50 A36,36 0 1,1 86,50 Z ' +
+    'M74,50 A24,24 0 1,0 26,50 A24,24 0 1,0 74,50 Z',
 } as const;
 
 export type SymbolGlyphName = keyof typeof SYMBOL_PATHS;
@@ -161,7 +171,7 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
   companies: { name: 'Companies', phase: 2, group: 'markets', color: '#60a5fa', glyph: 'company', hint: 'Listed companies by HQ country' },
   risk: { name: 'Risk', phase: 2, group: 'events', color: '#f472b6', glyph: 'risk', hint: 'Event density per country' },
   portfolio: { name: 'Portfolio', phase: 2, group: 'markets', color: '#818cf8', glyph: 'portfolio', hint: 'Countries your holdings are exposed to' },
-  'event-heatmap': { name: 'Event Heatmap', phase: 2, group: 'events', color: '#f43f5e', hint: 'Severity-weighted event density — Bloomberg-style heat layer' },
+  'event-heatmap': { name: 'Event Heatmap', phase: 2, group: 'events', color: '#f43f5e', glyph: 'heat', hint: 'Severity-weighted event density — Bloomberg-style heat layer' },
 };
 
 /** Accent for a layer: its own colour, else its group's. */
@@ -308,25 +318,40 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
   };
 }
 
-/** Markets layer — a point per country with an index observation. */
 /**
- * Severity-weighted event DENSITY heatmap (Bloomberg-style). One datum per
- * geolocated event; each point's intensity is its severity weight, so a
- * handful of critical events lights up hotter than a crowd of low ones.
+ * Severity-weighted event DENSITY heatmap (Bloomberg-style). Events are
+ * aggregated onto a grid and each cell's intensity is the SUM of its members'
+ * severity weights, so a hotspot is literally "where the most — and most
+ * severe — events are happening". Emitting one datum per raw event instead
+ * (the first cut) drew a flat blue wash: every point had the same ~1px weight
+ * and ECharts' heat brush then blurred single events below visibility.
  */
 export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
-  const data: LayerDatum[] = events
-    .filter((e) => typeof e.lon === 'number' && typeof e.lat === 'number')
-    .map((e) => ({
-      id: e.id ?? e.dedupKey,
-      lon: e.lon as number,
-      lat: e.lat as number,
-      value: severityWeight(e.severity),
-      severity: e.severity,
-      label: e.title,
-      geoMethod: e.geoMethod,
-      data: e,
-    }));
+  const anchorable = events.filter((e) => typeof e.lon === 'number' && typeof e.lat === 'number');
+  const zoom = zoomForCount(anchorable.length);
+  const points = anchorable.map((e) => ({
+    id: e.id ?? e.dedupKey,
+    lon: e.lon as number,
+    lat: e.lat as number,
+    severity: e.severity,
+    weight: severityWeight(e.severity),
+    event: e,
+  }));
+  // A finer grid than the pins layer: the heatmap is the density reading, so it
+  // must keep distinct hotspots distinct rather than smearing them together.
+  const clusters = aggregatePoints(points, zoom, 1);
+  const data: LayerDatum[] = clusters.map((c, i) => ({
+    id: `heat-${i}`,
+    lon: c.lon,
+    lat: c.lat,
+    // Summed severity weight IS the intensity — dense critical clusters burn
+    // hottest, a lone low event barely registers.
+    value: c.weight,
+    severity: c.maxSeverity,
+    label: c.members[0]?.event.title,
+    geoMethod: c.count > 1 ? 'centroid' : c.members[0]?.event.geoMethod,
+    data: { cluster: c, representative: c.members[0]?.event },
+  }));
   return {
     id: 'event-heatmap',
     name: 'Event Heatmap',
@@ -335,14 +360,26 @@ export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
     zIndex: 6,
     data: () => data,
     tooltip: (datum) => {
-      const e = datum.data as NormalizedEvent;
+      const payload = datum.data as { cluster: typeof clusters[number]; representative?: NormalizedEvent };
+      const c = payload.cluster;
+      if (c.count <= 1 && payload.representative) {
+        const e = payload.representative;
+        return {
+          title: e.title,
+          rows: [
+            { label: 'Severity', value: e.severity },
+            { label: 'Type', value: e.eventType },
+            { label: 'Published', value: formatUtc(e.publishedAt) },
+          ],
+        };
+      }
       return {
-        title: e.title,
+        title: `${c.count} nearby events`,
         rows: [
-          { label: 'Severity', value: e.severity },
-          { label: 'Type', value: e.eventType },
-          { label: 'Published', value: formatUtc(e.publishedAt) },
+          { label: 'Highest severity', value: c.maxSeverity },
+          { label: 'Density weight', value: c.weight.toFixed(2) },
         ],
+        note: 'Aggregated severity-weighted density. Zoom in to separate events.',
       };
     },
   };

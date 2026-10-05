@@ -152,6 +152,32 @@ describe("startRun", () => {
     await startRun({ input: { query: "x" } });
     expect(runViaRuntime.mock.calls[0][0].input.context?.modelPolicy).toBeUndefined();
   });
+
+  it("overrides only the model when the composer picked one", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_m", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" }, model: "gpt-4.1" });
+    const ms = runViaRuntime.mock.calls[0][0].modelSettings;
+    expect(ms.model).toBe("gpt-4.1");
+    // Provider + key are the operator's configured ones, unchanged.
+    expect(ms.provider).toBe("openai");
+    expect(ms.apiKey).toBe("test-key");
+  });
+
+  it("drops a declared context window when the model was overridden", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "ollama",
+      baseUrl: "http://localhost:11434/v1",
+      apiKey: "",
+      model: "llama3.1",
+      contextWindow: 8192,
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_mw", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" }, model: "qwen2.5:14b" });
+    const ms = runViaRuntime.mock.calls[0][0].modelSettings;
+    expect(ms.model).toBe("qwen2.5:14b");
+    // The saved window belongs to (provider, model); an override invalidates it.
+    expect("contextWindow" in ms).toBe(false);
+  });
 });
 
 describe("chatWithAgent code profile (Phase 14)", () => {

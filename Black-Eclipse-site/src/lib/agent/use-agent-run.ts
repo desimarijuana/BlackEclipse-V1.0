@@ -26,6 +26,8 @@ export interface StartRunArgs {
   userText: string;
   /** Workspace/session id, so the run's output is persisted server-side. */
   chatId?: string;
+  /** The composer's model choice for this turn (overrides the saved model). */
+  model?: string;
 }
 
 export interface UseAgentRunOptions {
@@ -184,6 +186,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
       try {
         const reply = await getAgentProvider().chat(messages, undefined, {
           chatId: args.chatId,
+          model: args.model,
           signal: controller.signal,
           onRunId: (id) => {
             setRunId(id);

@@ -93,15 +93,14 @@ const ModelRuntimeScreen = dynamic(
   () => import('@/components/screens/model-runtime/model-runtime-screen').then((m) => m.ModelRuntimeScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
-
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { MarketRegimeControl } from '@/components/layout/market-regime-control';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
+import { useChatModel } from '@/lib/agent/use-chat-model';
 import { clientIsOperator } from '@/lib/harness/skills-browser';
-import type { AssistantTurn } from '@/lib/agent/response-model';
-import { turnText } from '@/lib/agent/response-model';
+import { turnText, type AssistantTurn } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useRegimeScopeStore } from '@/lib/regime/store';
@@ -183,9 +182,8 @@ function StockChatContent() {
   const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
   // Prevents a duplicate submit landing before React re-renders `agentBusy`.
   const runInFlightRef = useRef(false);
-  const agentRun = useAgentRun({
-    onTurn: (turn) => turnSinkRef.current?.(turn),
-  });
+  const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
+  const chatModel = useChatModel(); // the composer's real, persisted model choice
   useEffect(() => {
     setAgentBusy(agentRun.active);
   }, [agentRun.active]);
@@ -639,7 +637,7 @@ function StockChatContent() {
     sound.tick();
 
     try {
-      const finalTurn = await agentRun.start({ history, userText, chatId });
+      const finalTurn = await agentRun.start({ history, userText, chatId, model: chatModel.displayModel || undefined });
       setSessionRefreshKey((k) => k + 1);
       // A finished reply is an incoming message, not a generic success.
       if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
@@ -954,6 +952,7 @@ function StockChatContent() {
                       busy={agentBusy}
                       onCancel={handleCancel}
                       focus={focusMode}
+                      modelState={chatModel}
                     />
                     <div className="w-full px-4 md:px-6">
                       <SessionBar session={sessionController} />
@@ -980,6 +979,7 @@ function StockChatContent() {
                         onSend={handleSend}
                         placeholder="Ask a follow-up..."
                         showProvider={false}
+                        modelState={chatModel}
                         busy={agentBusy}
                         onCancel={handleCancel}
                         onAttach={() => fileInputRef.current?.click()}
