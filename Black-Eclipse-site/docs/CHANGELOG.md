@@ -8,6 +8,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **Market Screener icon is a globe on a stand.** The sidebar entry `discovery`
+  and the page-header tile now use Phosphor `GlobeStand` (header at `size={32}`)
+  instead of the generic scan crosshair, via a new `GlobeStand` alias in
+  `src/lib/icons/index.ts`. `npx tsc --noEmit` clean; sidebar config tests pass.
+  no doc change — icon mapping within the ADR-041 contract.
+
 - **Investor Eye icon now shows an actual eye.** Phosphor has no "scan eye"
   glyph, so the `ScanEye` alias (sidebar entry, dashboard widget, full-page map,
   global search) mapped to the scanner crosshair (`Scan`) — it read as a scan,

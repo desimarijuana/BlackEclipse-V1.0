@@ -9,7 +9,7 @@
 'use client';
 
 import {
-  LayoutDashboard, ChartCandlestick, ScanSearch, ChartPie, Bot,
+  LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain,
   SquareCode, CalendarClock, FileCode2, Cpu, type LucideIcon,
 } from '@/lib/icons';
@@ -37,7 +37,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard, group: 'terminal' },
   { id: 'investor-eye', label: 'Investor Eye', icon: ScanEye, group: 'terminal' },
   { id: 'market-workspace', label: 'Chart Workspace', icon: ChartCandlestick, group: 'terminal' },
-  { id: 'discovery', label: 'Market Screener', icon: ScanSearch, group: 'terminal' },
+  { id: 'discovery', label: 'Market Screener', icon: GlobeStand, group: 'terminal' },
   { id: 'portfolio', label: 'Portfolio', icon: ChartPie, group: 'terminal' },
   { id: 'journal', label: 'Journal', icon: BookOpen, group: 'terminal' },
   { id: 'news', label: 'Market News', icon: Newspaper, group: 'terminal' },

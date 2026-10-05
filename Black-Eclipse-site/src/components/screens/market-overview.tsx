@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ArrowUpRight, ArrowDownRight, ArrowRight, Search,
-  ScanSearch,
+  GlobeStand,
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
   Info, Briefcase, Building2, Globe, RefreshCw, ArrowLeft,
   Eye, CalendarClock,
@@ -1182,7 +1182,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div>
             <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-3">
               <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-                <ScanSearch className="text-primary" size={30} />
+                <GlobeStand className="text-primary" size={32} />
               </span>
               Market Screener
             </h1>
