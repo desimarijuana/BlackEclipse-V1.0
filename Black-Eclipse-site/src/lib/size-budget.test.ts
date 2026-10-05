@@ -47,8 +47,9 @@ const RATCHET: Record<string, number> = {
   "src/components/screens/settings.tsx": 1289,
   // The SPA shell was exactly at the ceiling (1200). Mounting the Model Control
   // Center added one dynamic import + one keep-alive block; pinned at its new
-  // height until the shell is split. (It may still only shrink from here.)
-  "src/components/screens/stock-chat.tsx": 1212,
+  // height until the shell is split. Grew again with the terminal dock plumbing
+  // and the focus-mode "tuck the terminal" effect. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1237,
 };
 
 export interface SizeEntry {

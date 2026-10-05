@@ -801,12 +801,15 @@ function StockChatContent() {
   const chatRootRef = useRef<HTMLDivElement>(null);
   const appRootRef = useRef<HTMLDivElement>(null);
   // Hydrate the terminal's persisted open state/placement once on the client, so
-  // the shell can reserve the docked region on first paint without a mismatch.
+  // the docked regions reserve their space on first paint without a mismatch.
   const terminalOpen = useTerminalStore((s) => s.open);
-  const terminalPlacement = useTerminalStore((s) => s.placement);
   useEffect(() => {
     hydrateTerminalStore();
   }, []);
+  // In focus mode the shell is intentionally bare: tuck the terminal away too.
+  useEffect(() => {
+    if (focusMode && terminalOpen) useTerminalStore.getState().setOpen(false);
+  }, [focusMode, terminalOpen]);
 
   // Focus mode is chat-only: leave it the moment another tab is opened, and
   // never keep it on while the settings modal is up.
