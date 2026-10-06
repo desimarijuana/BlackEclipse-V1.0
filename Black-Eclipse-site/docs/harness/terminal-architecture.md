@@ -96,7 +96,12 @@ Enforced at three layers, matching the existing code capability:
    now includes `WRITE_TOOLS` + `EXTERNAL_ACTION_TOOLS` + `TERMINAL_WRITE_TOOLS`).
 2. **Effect authorizer** — `terminal/tools.py::make_terminal_tool_authorizer` is
    composed into the graph's chain. An `allow` command runs; an `ask` command
-   requires a single-use, workspace-bound approval; a `deny` is refused.
+   requires a single-use, workspace-bound approval; a `deny` is refused. A pending
+   `ask` approval is created with kind `terminal_command` (or `shell_command`) and
+   is listed by `GET /code/approvals` alongside `code_action` — without that, the
+   request would be invisible in the UI and the agent would report a dead end.
+   `mkdir`/`md` is `allow` (runs with no approval); the long `New-Item` form is
+   `ask`. The code-agent prompt tells it to prefer the auto-allowed short form.
 3. **Handler** — the executing handlers re-classify (defense in depth) and confine
    `cwd` to the workspace root.
 

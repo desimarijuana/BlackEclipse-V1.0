@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **Settings modal now opens instantly and no longer hangs on a slow market
+  fetch.** Four causes fixed: (1) `/api/markets` and `/api/settings` were
+  fetched in `Promise.all`, so a cold JDDS market build blocked the whole modal
+  until it resolved — they now load independently and settings paints the moment
+  it lands; (2) the settings dialog is unmounted on close, so every open
+  re-fetched behind a skeleton — a module-level snapshot now paints cached
+  values instantly and revalidates quietly; (3) the code-split `Settings` chunk
+  was only ever fetched on first open — it is now warmed during idle and has a
+  loading fallback; (4) `GET /api/settings` now uses the same in-memory SWR cache
+  as `/api/markets`, so reads are instant even while the startup WarmUp/NewsIngest
+  jobs hold SQLite (POST keeps the cache coherent). Measured with a production
+  build + Playwright: modal open **510 ms** (fixed) vs the old build failing to
+  appear within 15 s; `/api/settings` warm **22–28 ms** (fixed) vs old spikes of
+  **17–30 s** under startup IO load. NOTE: the running dev server was serving a
+  stale production build, so the fix only takes effect after a rebuild
+  (`npm run up`). `npx tsc --noEmit` clean; full `vitest` 2140 passed,
+  `pytest` 2642 passed.
+  no doc change — load-path/perf fix only, no contract change.
+
 - **Investor Eye Trade layer: hovering a country isolates ITS trade routes.**
   With the Trade layer on, the map showed every route, so hovering a country
   told you nothing about that country. Now the pointer answers "what does THIS
@@ -147,6 +166,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   A prior commit narrowed the desktop sidebar and the Settings rail from `w-60`
   to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
   `settings.tsx` rail). no doc change — layout fix; no contract change.
+
+- **Terminal command approvals now actually surface; agent steered to auto-allowed
+  `mkdir`.** An agent asked to "create a folder on my Desktop" reported it was
+  blocked. Two causes, both fixed. (1) A terminal `ask` command (`New-Item …`)
+  creates a pending approval, but `/code/approvals` only listed `kind='code_action'`,
+  so the request was invisible in the UI — the user could never approve it and the
+  agent looped. The route now lists and decides `code_action` + `terminal_command`
+  + `shell_command`. (2) `mkdir`/`md` is already `allow` (runs with no approval;
+  verified it creates the folder), but the code-agent prompt did not say so, so the
+  agent chose the long `New-Item` form. The prompt now tells it to prefer the short
+  auto-allowed form, not to retry the same refused tool in a loop, and to state
+  plainly when a requested path is outside the bound folder. Tests: `test_code_api.py`
+  green; Vitest unchanged; Python suite green.
+  docs updated: `docs/harness/terminal-architecture.md`.
 
 - **Terminal: the "dock back" icon is now an inward-corners glyph, not a download
   arrow.** `ArrowDownToLine` read as a download button, so the detached pop-out's

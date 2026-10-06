@@ -330,11 +330,22 @@ def list_workspaces(
 # ── External-action approvals ───────────────────────────────────────────────
 
 
+# Kinds a person can review on this surface. `code_action` is a commit/push/PR;
+# `terminal_command`/`shell_command` are an `ask`-classified command the terminal
+# authorizers created (e.g. `New-Item`). They MUST be listed here, or a pending
+# command approval is created but never shown — the agent reports "blocked" and
+# the user has no way to approve it.
+_REVIEWABLE_APPROVAL_KINDS = ("code_action", "terminal_command", "shell_command")
+
+
 @router.get("/code/approvals")
 def list_code_approvals(status: Optional[str] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     if service.approvals is None:
         return {"success": True, "approvals": [], "unavailable": True}
-    return {"success": True, "approvals": service.approvals.list_kind("code_action", status, limit=100)}
+    approvals: list[dict[str, Any]] = []
+    for kind in _REVIEWABLE_APPROVAL_KINDS:
+        approvals.extend(service.approvals.list_kind(kind, status, limit=100))
+    return {"success": True, "approvals": approvals}
 
 
 @router.post("/code/approvals/{approval_id}/decide")
@@ -344,7 +355,7 @@ def decide_code_approval(
     if service.approvals is None:
         raise HTTPException(status_code=503, detail="approvals unavailable")
     current = service.approvals.get(approval_id)
-    if current is None or current.get("kind") != "code_action":
+    if current is None or current.get("kind") not in _REVIEWABLE_APPROVAL_KINDS:
         raise HTTPException(status_code=404, detail="Approval not found")
     decided = service.approvals.decide(
         approval_id, approve=body.approve, decided_by="operator", reason=body.reason,
