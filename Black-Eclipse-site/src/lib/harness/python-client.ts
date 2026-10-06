@@ -47,6 +47,12 @@ export interface RunRequestPayload {
   autonomy?: "plan_only" | "edit_verify";
   /** Phase 8 (optional): enable the analysis sandbox for this turn. */
   analysisEnabled?: boolean;
+  /**
+   * Approval cards (optional): "ask" makes a non-read tool with no matching
+   * approval PAUSE the run until the operator decides via the approvals decide
+   * route, then resume in place. Absent keeps the deny-and-retry default.
+   */
+  approvalMode?: "ask";
   callbackBaseUrl: string;
   callbackToken?: string;
 }

@@ -34,6 +34,13 @@ export interface StartRunOptions {
   analysisEnabled?: boolean;
   /** A model id picked for this turn (composer), overriding the saved model. */
   model?: string;
+  /**
+   * Approval cards (optional): `"ask"` makes a run PAUSE on an effectful step
+   * until an operator decides, instead of refusing and letting the model retry.
+   * Only set this from a STREAMING call site — the pause is surfaced live over SSE
+   * and resolved by a decide route, so a synchronous caller must leave it unset.
+   */
+  approvalMode?: "ask";
 }
 
 /**
@@ -145,6 +152,19 @@ function routingPolicyContext(cfg: Awaited<ReturnType<typeof getLLMConfig>>): Re
 }
 
 /**
+ * The runtime `input.context.reasoning` requirement built from the operator's
+ * reasoning-effort override ("model variant"). The runtime applies it to a
+ * model's NATIVE reasoning control (OpenAI reasoning models, Anthropic
+ * `thinking`, Gemini `thinking_budget`) and uses it for routing eligibility —
+ * an OpenAI-compatible endpoint that does not declare reasoning is never
+ * force-fed the knob. Empty by default, so nothing changes for an operator who
+ * leaves the control on Auto.
+ */
+function reasoningContext(cfg: Awaited<ReturnType<typeof getLLMConfig>>): Record<string, unknown> {
+  return cfg.reasoningEffort ? { reasoning: cfg.reasoningEffort } : {};
+}
+
+/**
  * Start a conversational run in the background and return its run id.
  *
  * The caller streams `/api/harness/runs/<id>/stream` for live status + tokens,
@@ -173,6 +193,12 @@ export async function startChatRun(
   if (Object.keys(policyContext).length) {
     input.context = { ...(input.context ?? {}), ...policyContext };
   }
+  // Reasoning-effort override ("model variant") — the runtime applies it to a
+  // native reasoning model and never to an OpenAI-compatible one that lacks it.
+  const effortContext = reasoningContext(cfg);
+  if (Object.keys(effortContext).length) {
+    input.context = { ...(input.context ?? {}), ...effortContext };
+  }
   if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
     throw new HarnessError(
       "PROVIDER_NOT_CONFIGURED",
@@ -198,6 +224,9 @@ export async function startChatRun(
     sessionId,
     ...(autonomy ? { autonomy } : {}),
     ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
+    // Approval cards: chat runs pause for the operator when a step needs an
+    // approval, instead of the model retrying later.
+    approvalMode: "ask",
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };
@@ -218,6 +247,10 @@ export async function startRun(
   const policyContext = routingPolicyContext(cfg);
   if (Object.keys(policyContext).length) {
     input.context = { ...(input.context ?? {}), ...policyContext };
+  }
+  const effortContext = reasoningContext(cfg);
+  if (Object.keys(effortContext).length) {
+    input.context = { ...(input.context ?? {}), ...effortContext };
   }
 
   if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
@@ -253,6 +286,11 @@ export async function startRun(
     // turn. Absent for an ordinary finance turn, which is unchanged.
     ...(options.autonomy ? { autonomy: options.autonomy } : {}),
     ...(options.analysisEnabled ? { analysisEnabled: true } : {}),
+    // Approval cards are OPT-IN per call site: only a streaming surface (whose
+    // SSE stream can carry `approval.requested` and whose UI has the decide
+    // control) sets it. A synchronous/headless run keeps the deny-and-retry
+    // default, because a pause there would block the HTTP request with no card.
+    ...(options.approvalMode ? { approvalMode: options.approvalMode } : {}),
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };

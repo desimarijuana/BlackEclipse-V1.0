@@ -8,6 +8,126 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-05
 
+- **AI settings: added a reasoning-effort ("model variant") control, and fixed
+  the Manage-models action + widened its dialog.** Settings › AI › Active setup
+  now has an **Auto / Minimal / Standard / High / Ultra** selector
+  (`src/lib/agent/reasoning.ts`): Auto (the default) sends no override and the
+  runtime's task profile keeps choosing; the four levels map to the runtime's
+  `low`/`medium`/`high`/`very_high`. It persists as `LLMConfig.reasoningEffort`
+  (`setLLMConfig`, `null` = Auto; masked-into `/api/settings`) and is forwarded as
+  `input.context.reasoning`, which the router honors as a requirement and
+  `prepare_model` applies to a native reasoning control only — never to an
+  OpenAI-compatible endpoint that lacks one. Fixes: the composer's per-provider
+  **Manage** button opened the dialog behind the still-open `z-[110]` dropdown
+  (now the menu closes first, and the dialog is `z-[130]`); the no-arg "Manage
+  models…" path could resolve to `undefined` and render nothing (now falls back
+  to the active/first usable provider); the dialog was `max-w-2xl` (now `max-w-3xl`
+  with a roomier, 3-column model grid).
+  `npx tsc --noEmit` clean; `vitest` 2151 passed, `pytest` model-runtime 64 passed.
+  docs updated: `docs/ARCHITECTURE.md` (composer model picker: Manage-models fix +
+  reasoning-effort note).
+
+- **Reorganised the CFA Level I knowledge skills by exam topic (Equities and
+  Portfolio Construction first).** The repo-root `.black-eclipse/skills/` now
+  holds **twelve** topic-organised skills instead of ten process-organised ones:
+  `cfa.00.curriculum-map` (index), `cfa.01.equities`,
+  `cfa.02.portfolio-construction`, `cfa.03.financial-statement-analysis`,
+  `cfa.04.quantitative-methods`, `cfa.05.fixed-income`, `cfa.06.ethics`,
+  `cfa.07.economics`, `cfa.08.corporate-finance`, `cfa.09.derivatives`,
+  `cfa.10.alternative-investments`, and `cfa.99.exam-preparation` (the
+  cross-cutting plan/calculator/formulas/mocks/resources that applies to every
+  topic). One skill per exam topic, in study order, each carrying the official
+  2027 learning modules, Tier 1/Tier 2 formulas, common traps, question patterns,
+  free resources, a practice target and its dependencies. `requiredSkills` form a
+  real dependency graph (Equities -> Portfolio Construction -> Fixed Income ->
+  Derivatives). All twelve validate against `harness.skills.manifest.SkillManifest`
+  and load through `_load_project_skills` with no dangling dependency or prose
+  cross-reference; the bundled 13-entry library is unchanged. Every skill ships
+  `status: disabled` and the root stays untrusted until an operator grants both.
+  Verified with the vendored interpreter (`./scripts/vendor/python/python.exe`).
+  docs updated: `docs/NAVIGATION.md` (project skill root row + CFA task row).
+  no source-contract change — data-only skill folders; no app or harness code
+  touched.
+
+- **Renamed the "Market Screener" page to "Market Discover"; aligned the Skills
+  header icon with the sidebar.** Every user-facing string was updated — the
+  sidebar/i18n nav label (`nav.discovery`), the page `<h1>`, the search registry
+  page + "Open …" action, market-result subtitles, the workspace panel
+  label/title, the settings section + provider-registry copy (`providers/
+  directory.ts` `usedBy` labels), and the "Back to …" buttons. The Skills
+  Library header now uses the same `Blocks` (Phosphor `SquaresFour`) glyph as
+  the sidebar's Skills item, replacing a mismatched `Sparkles`. Internal
+  symbol/function names (`useScreenerFilters`, `StockScreenerWidget`, the
+  `screener` panel id) are unchanged — the page id/tab stays `discovery`.
+  `npx tsc --noEmit` clean; search/sidebar/i18n tests (149) pass; `next build`
+  compiles.
+  no doc change — UI naming/icon consistency only; no contract change.
+
+- **Fix: the approval card could not be reached from the two most important
+  paths — patching code and the streaming chat.** Three defects: (1) the code
+  authorizer's `workspace_patch_apply` branch created a PENDING request but
+  returned without pausing, so a code write was refused with no card; it now
+  blocks on the shared `pause_for_decision` gate and re-claims on approval
+  (deny/timeout still refuses). (2) `approvalMode` was set only in the streaming
+  chat payload; it is now a per-call-site opt-in on `run-service.ts` (`startRun`
+  gains `approvalMode?`), set by the streaming chat path and deliberately UNSET
+  for the synchronous `/api/harness/chat` and generic `/runs` callers — a pause
+  there would block the HTTP request with no card to resolve it. (3) The
+  `code_write`/`code_write_session` approval kinds were reviewable in the MCP
+  panel but a paused run needs the card, not that panel. Added: an end-to-end
+  graph test proving the run pauses (not finishes) on `approval.requested`,
+  resumes in place on approve, and refuses on deny
+  (`python/tests/test_approval_card_e2e.py`); authorizer-level tests for the code
+  write pause (`test_approval_pause.py`, +2); front-door assertions that the
+  streaming path sends `approvalMode: "ask"` and the sync path does not
+  (`run-service.test.ts`, +3). Also fixed the Python stale-runtime detector
+  (`python-runtime.ts` `harnessSourceMtimeMs`): it scanned ONLY top-level
+  `python/harness/*.py`, so edits in `code/`, `mcp/`, `terminal/`, `skills/` never
+  marked a running runtime stale — the runtime kept serving old code after a
+  change. It now walks the whole tree, so `npm run dev` picks up harness changes.
+  `npx tsc --noEmit` clean; full `vitest` 2144 passed, `pytest` 2653 passed, eval
+  gates pass.
+  docs updated: `docs/harness/architecture.md` (approval cards: code-write path,
+  streaming-only opt-in).
+
+- **Settings: organized the Intelligence-section pages to match the AI page's
+  clarity, and fixed a duplicate-provider bug.** AI: the "Show more providers"
+  list now excludes anything already shown under Connected/Popular, so a
+  connected non-popular provider (e.g. xAI) or an active keyless local server no
+  longer renders twice. Shared `ProviderRegistry` (Economics / Market / News) now
+  groups rows by state — **Configured**, **Available** (built-in/keyless),
+  **Needs a key** — with the key-gated list collapsed past 6 and a filter, and
+  keeps the Economics by-kind sub-grouping. News feeds moved out of the flat
+  74-row wall into a new `news-feeds-panel.tsx`: grouped Live/Paused, searchable,
+  with inline add/remove. Market and Investor Eye pages gained consistent
+  `SubSection` headings (Markets, Providers, Priority, Custom sources / Feature
+  map, Event sources). No contract change: `NewsFeed` shape and `/api/settings`
+  payload unchanged. `npx tsc --noEmit` clean; `vitest` 2141 passed, `pytest`
+  2649 passed.
+  no doc change — UI organization only; data contracts unchanged.
+
+- **Approval cards: Eclipse now asks before any effectful step, and pauses the
+  run until you answer.** Effectful actions (MCP write/action, external
+  actions, and `ask`-classified commands) previously refused the call and let the
+  model retry after you approved in Settings. A chat run now sends
+  `approvalMode: "ask"`: the effect authorizer creates the single-use PENDING
+  request, emits `approval.requested`, and PAUSES the in-flight run on an
+  in-process gate (`_GATES`/`notify_decision` in `python/harness/mcp/approvals.py`,
+  shared `pause_for_decision`/`_await_then_reclaim`). Approve resumes the run in
+  place and runs exactly that one step; deny/timeout refuses as before. The
+  decision is still the single-use, digest-bound approval — pause only changes how
+  long the run waits, never whether a call is authorized; the wait is bounded
+  below the run deadline and a runtime restart falls back to deny-and-retry. New
+  frosted-glass `ApprovalCard` (`src/components/chat/approval-card.tsx`, portaled
+  to `<body>`) floats above the composer in both chat surfaces, theme-adaptive,
+  with Approve/Deny; wired via `HarnessUiEvent.approval_request`/`approval_resolved`,
+  the `awaiting_approval` status, and `useAgentRun.decide`. `RunRequest.approvalMode`
+  + `ToolContext.pause_for_approval`/`approval_timeout_s` are additive; the
+  deny-and-retry path is unchanged. Tests: `python/tests/test_approval_pause.py`
+  (+8). `npx tsc --noEmit` clean; full `vitest` 2141 passed, `pytest` 2649 passed,
+  eval gates pass.
+  docs updated: `docs/harness/architecture.md` (approval cards section).
+
 - **Settings modal now opens instantly and no longer hangs on a slow market
   fetch.** Four causes fixed: (1) `/api/markets` and `/api/settings` were
   fetched in `Promise.all`, so a cold JDDS market build blocked the whole modal

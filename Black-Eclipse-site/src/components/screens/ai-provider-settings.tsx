@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Brain,
   Check,
   ChevronDown,
   CircleDashed,
@@ -35,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl, type LLMPreset } from "@/lib/agent/presets";
+import { REASONING_OPTIONS, type ReasoningLevel } from "@/lib/agent/reasoning";
 import { loadModelCatalog, type ModelCatalog } from "@/lib/agent/model-catalog";
 import { ProviderKeyEditor } from "./provider-registry-panel";
 import { ModelPicker } from "./model-picker";
@@ -100,6 +102,60 @@ function StatusChip({ state }: { state: ProviderState }) {
       {state === "active" || state === "connected" || state === "available" ? <Check size={9} /> : <CircleDashed size={9} />}
       {label[state]}
     </span>
+  );
+}
+
+/**
+ * The "model variant" control: a reasoning-effort selector. Auto (no override)
+ * is the default, so the runtime keeps choosing per task; picking a level pins
+ * it for every run. It is honest about scope — the level only takes effect on a
+ * model that exposes a native reasoning control, and the runtime never forces it
+ * on one that does not.
+ */
+function ReasoningEffortPicker({
+  value,
+  onChange,
+}: {
+  value: ReasoningLevel | null;
+  onChange: (value: ReasoningLevel | null) => void;
+}) {
+  const selected = REASONING_OPTIONS.find((o) => o.value === value) ?? REASONING_OPTIONS[0];
+  return (
+    <div className="flex flex-col gap-2">
+      <Label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+        <Brain size={12} className="text-primary" />
+        Reasoning effort
+        <span className="text-muted-foreground/60 font-normal">— model variant</span>
+      </Label>
+      <div
+        role="radiogroup"
+        aria-label="Reasoning effort"
+        className="flex flex-wrap gap-1.5"
+      >
+        {REASONING_OPTIONS.map((option) => {
+          const active = option.value === value;
+          return (
+            <button
+              key={option.label}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(option.value ?? null)}
+              title={option.hint}
+              className={cn(
+                "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer",
+                active
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-border/40 text-muted-foreground hover:border-border/60 hover:text-foreground",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-muted-foreground leading-relaxed">{selected.hint}</p>
+    </div>
   );
 }
 
@@ -218,6 +274,11 @@ function ActiveSetup({
           />
         </div>
       )}
+
+      <ReasoningEffortPicker
+        value={llm.reasoningEffort ?? null}
+        onChange={(v) => updateLlm({ reasoningEffort: v }, 0)}
+      />
 
       {isLocalBaseUrl(llm.baseUrl) ? (
         <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
@@ -384,7 +445,16 @@ export function AIProviderSettings({
     () => POPULAR_IDS.map((id) => LLM_PRESETS.find((p) => p.id === id)).filter((p): p is LLMPreset => Boolean(p)),
     [],
   );
-  const more = useMemo(() => LLM_PRESETS.filter((p) => !POPULAR_IDS.includes(p.id)), []);
+  // Exclude anything already shown as connected, and anything in the Popular
+  // list — otherwise a connected non-popular provider (or an active keyless
+  // local server) renders twice on the page.
+  const more = useMemo(
+    () =>
+      LLM_PRESETS.filter(
+        (p) => !POPULAR_IDS.includes(p.id) && !connected.includes(p),
+      ),
+    [connected],
+  );
 
   const selectProvider = (preset: LLMPreset) => {
     // Selecting sets provider id + base URL + default model together so the

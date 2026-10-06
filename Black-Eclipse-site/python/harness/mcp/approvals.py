@@ -26,6 +26,7 @@ material — only server/tool identity, an argument digest, and decisions.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -34,6 +35,35 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 log = logging.getLogger("harness.mcp.approvals")
+
+# ── In-process pause/resume gates (approval cards) ─────────────────────────
+# A pending approval id maps to an asyncio.Event. When the runtime's effect
+# authorizer is in "ask" (pause) mode it creates the PENDING request, emits
+# `approval.requested`, then awaits the gate. The decide route (same event loop)
+# sets the event after committing the decision, so the run resumes IN PLACE with
+# the operator's answer — the agent does not have to retry the whole step.
+#
+# The gate is intentionally in-process: if the runtime restarts mid-wait the run
+# is cancelled and the persisted single-use approval remains, so the existing
+# deny-and-retry path still works. No new authority is introduced — the gate only
+# decides HOW LONG to wait, never WHETHER a call is authorized (that stays the
+# single-use, digest-bound `consume`/`consume_kind`).
+_GATES: dict[str, asyncio.Event] = {}
+
+
+def _gate(approval_id: str) -> asyncio.Event:
+    event = _GATES.get(approval_id)
+    if event is None:
+        event = asyncio.Event()
+        _GATES[approval_id] = event
+    return event
+
+
+def notify_decision(approval_id: str) -> None:
+    """Wake a paused run waiting on `approval_id`, if any. Safe to call always."""
+    event = _GATES.get(approval_id)
+    if event is not None:
+        event.set()
 
 # Effect classes that require an explicit approval. `unknown` is deliberately
 # absent: an unknown effect can never be approved.
@@ -454,7 +484,31 @@ class ApprovalStore:
             (APPROVED if approve else DENIED, _iso(_now()), decided_by, (reason or "")[:400], approval_id),
         )
         self._db.commit()
+        # Wake any run paused on this approval (approval-card pause mode). Done
+        # AFTER the commit so a woken run that re-consults the store sees the
+        # decision. A no-op when no run is waiting (deny-and-retry path).
+        notify_decision(approval_id)
         return self.get(approval_id)
+
+    # -- pause/resume (approval cards) ---------------------------------------
+
+    async def wait_for_decision(self, approval_id: str, timeout_s: float = 900.0) -> Optional[dict[str, Any]]:
+        """Block until the pending approval is decided (or `timeout_s` elapses).
+
+        Returns the decided record when the status is no longer PENDING, else
+        None (timeout/unavailable). Single-use authorization is NOT granted here:
+        the caller re-claims through `consume`/`consume_kind` after waking, so a
+        second identical call still needs its own approval.
+        """
+        gate = _gate(approval_id)
+        try:
+            await asyncio.wait_for(gate.wait(), timeout=max(1.0, float(timeout_s)))
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            _GATES.pop(approval_id, None)
+        current = self.get(approval_id)
+        return current if current and current.get("status") != PENDING else None
 
 
 async def invoke_effect_authorizer(authorizer: Any, tool: Any, args: dict[str, Any], ctx: Any) -> bool:
@@ -512,11 +566,7 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
             return True
         claimed = approvals.consume(server_id, original, clean_args)
         if claimed is not None:
-            if ctx is not None:
-                try:
-                    ctx.effect_authorized_digest = digest
-                except Exception:  # noqa: BLE001 - a frozen ctx must not break auth
-                    pass
+            _mark_authorized(ctx, digest)
             if emitter is not None:
                 await emitter.emit("mcp.tool.approved", {
                     "serverId": server_id, "tool": original,
@@ -526,7 +576,8 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
                 })
             return True
         # No claimable approval: create/refresh a pending request so the operator
-        # can act on it, then refuse the call.
+        # can act on it.
+        request: Optional[dict[str, Any]] = None
         try:
             request = approvals.request(
                 server_id=server_id,
@@ -540,6 +591,20 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
                 risk=getattr(tool, "effect_risk", None),
             )
             if emitter is not None:
+                await emitter.emit("approval.requested", {
+                    "approvalId": request.get("id"),
+                    "kind": "mcp_tool",
+                    "title": f"Approve using {getattr(tool, 'name', original)}",
+                    "summary": request.get("actionSummary") or _default_action_summary(
+                        server_id, original, effect, clean_args,
+                    ),
+                    "effect": effect,
+                    "risk": getattr(tool, "effect_risk", None),
+                    "tool": original,
+                    "serverId": server_id,
+                })
+                # Legacy event name, kept alongside the approval-card event so
+                # existing consumers (architecture doc, MCP UI) are unchanged.
                 await emitter.emit("mcp.tool.approval_required", {
                     "serverId": server_id, "tool": original,
                     "eclipseTool": getattr(tool, "name", ""), "effect": effect,
@@ -547,6 +612,96 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
                 })
         except Exception:  # noqa: BLE001 - a store failure must never authorize
             log.warning("failed to record MCP approval request", exc_info=True)
+        # Pause mode: wait for the operator's decision, then re-claim ONCE. This
+        # is the approval card's blocking path; the decision itself still comes
+        # from the single-use store, so a non-approval can never authorize.
+        if request is not None and _pause_requested(ctx):
+            await _await_then_reclaim(
+                approvals, request.get("id"), lambda: approvals.consume(server_id, original, clean_args),
+                emitter, ctx, digest, {
+                    "serverId": server_id, "tool": original,
+                    "eclipseTool": getattr(tool, "name", ""), "effect": effect,
+                }, event_type="mcp.tool.approved",
+            )
+            if ctx is not None and getattr(ctx, "effect_authorized_digest", None) == digest:
+                return True
         return False
 
     return authorize
+
+
+def _pause_requested(ctx: Any) -> bool:
+    """Whether the run opted into blocking approval cards for this call."""
+    return bool(ctx is not None and getattr(ctx, "pause_for_approval", False))
+
+
+def _mark_authorized(ctx: Any, digest: str) -> None:
+    if ctx is None:
+        return
+    try:
+        ctx.effect_authorized_digest = digest
+    except Exception:  # noqa: BLE001 - a frozen ctx must not break auth
+        pass
+
+
+async def _await_then_reclaim(
+    approvals: ApprovalStore,
+    approval_id: Optional[str],
+    reclaim: Any,
+    emitter: Any,
+    ctx: Any,
+    digest: str,
+    approved_payload: dict[str, Any],
+    *,
+    event_type: str,
+) -> Optional[dict[str, Any]]:
+    """Pause on `approval_id`'s decision, then attempt ONE single-use reclaim.
+
+    Shared by the MCP and code-action authorizers so the pause semantics live in
+    ONE place. A denial, an expiry, or a timeout simply yields None and the call
+    is refused (the pre-existing behavior); it never authorizes on a non-approval.
+    """
+    if not approval_id:
+        return None
+    timeout_s = float(getattr(ctx, "approval_timeout_s", 900.0) or 900.0)
+    decided = await approvals.wait_for_decision(approval_id, timeout_s)
+    if decided is None or decided.get("status") != APPROVED:
+        if emitter is not None:
+            await emitter.emit("approval.resolved", {
+                "approvalId": approval_id,
+                "approved": False,
+                "reason": (decided or {}).get("reason") or "not approved",
+            })
+        return None
+    claimed = reclaim()
+    if claimed is not None:
+        _mark_authorized(ctx, digest)
+        if emitter is not None:
+            await emitter.emit(event_type, {**approved_payload, "approvalId": claimed.get("id"), "singleUse": True})
+            await emitter.emit("approval.resolved", {"approvalId": approval_id, "approved": True})
+    return claimed
+
+
+async def pause_for_decision(
+    approvals: ApprovalStore,
+    ctx: Any,
+    approval_id: Optional[str],
+    reclaim: Any,
+    *,
+    emitter: Any = None,
+    digest: str = "",
+    event_type: str = "approval.approved",
+    approved_payload: Optional[dict[str, Any]] = None,
+) -> bool:
+    """Pause on an existing pending approval and reclaim it once, or return False.
+
+    The ONE entry point for the shell/terminal authorizers' `ask` path, so the
+    pause semantics are not re-implemented per command class.
+    """
+    if not approval_id or not _pause_requested(ctx):
+        return False
+    claimed = await _await_then_reclaim(
+        approvals, approval_id, reclaim, emitter, ctx, digest,
+        approved_payload or {}, event_type=event_type,
+    )
+    return claimed is not None

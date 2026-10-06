@@ -15,7 +15,7 @@
 //   investor-eye  → Investor Eye (world-state event sources)
 //   economics     → Economics (macro series & calendars)
 //   news          → News (headlines & feeds)
-//   market         → Market Screener (prices, fundamentals, crypto)
+//   market         → Market Discover (prices, fundamentals, crypto)
 //
 // It is deliberately NOT a second configuration system: status, keys and
 // testing still come from `/api/providers` and `/api/provider-keys`. This module
@@ -76,25 +76,25 @@ const ENTRIES: Record<string, ProviderDirectoryEntry> = {
   usgs: { purpose: "Seismic events (earthquakes)", usedBy: ["Investor Eye"], tier: "free", home: "investor-eye" },
   firms: { purpose: "Satellite fire & thermal detections", usedBy: ["Investor Eye"], tier: "free", home: "investor-eye" },
 
-  // ── Market Screener (prices, fundamentals, crypto) ────────────────────────
-  tradingview: { purpose: "Market + price data", usedBy: ["Market Screener", "Investor Eye", "Charts"], tier: "builtin", home: "market" },
-  yfinance: { purpose: "Market + price data", usedBy: ["Market Screener", "Charts"], tier: "free", home: "market" },
-  scraper: { purpose: "Market + price data", usedBy: ["Market Screener", "Investor Eye"], tier: "builtin", home: "market" },
-  sec_edgar: { purpose: "SEC filings & company data", usedBy: ["Market Screener", "Fundamentals"], tier: "builtin", home: "market" },
-  "sec-edgar": { purpose: "SEC filings & company data", usedBy: ["Market Screener", "Fundamentals"], tier: "builtin", home: "market" },
-  POLYGON_API_KEY: { purpose: "US equities, FX & aggregates", usedBy: ["Market Screener", "Charts"], tier: "free-tier", home: "market" },
-  ALPHAVANTAGE_API_KEY: { purpose: "Quotes, FX & earnings", usedBy: ["Market Screener", "Earnings"], tier: "free-tier", home: "market" },
-  TWELVE_DATA_API_KEY: { purpose: "Global equities, FX & crypto", usedBy: ["Market Screener", "Charts"], tier: "free-tier", home: "market" },
-  MARKETSTACK_API_KEY: { purpose: "End-of-day & intraday prices", usedBy: ["Market Screener", "Charts"], tier: "free-tier", home: "market" },
-  FINANCIALMODELINGPREP_API_KEY: { purpose: "Fundamentals, ratios & estimates", usedBy: ["Market Screener", "Fundamentals"], tier: "free-tier", home: "market" },
+  // ── Market Discover (prices, fundamentals, crypto) ────────────────────────
+  tradingview: { purpose: "Market + price data", usedBy: ["Market Discover", "Investor Eye", "Charts"], tier: "builtin", home: "market" },
+  yfinance: { purpose: "Market + price data", usedBy: ["Market Discover", "Charts"], tier: "free", home: "market" },
+  scraper: { purpose: "Market + price data", usedBy: ["Market Discover", "Investor Eye"], tier: "builtin", home: "market" },
+  sec_edgar: { purpose: "SEC filings & company data", usedBy: ["Market Discover", "Fundamentals"], tier: "builtin", home: "market" },
+  "sec-edgar": { purpose: "SEC filings & company data", usedBy: ["Market Discover", "Fundamentals"], tier: "builtin", home: "market" },
+  POLYGON_API_KEY: { purpose: "US equities, FX & aggregates", usedBy: ["Market Discover", "Charts"], tier: "free-tier", home: "market" },
+  ALPHAVANTAGE_API_KEY: { purpose: "Quotes, FX & earnings", usedBy: ["Market Discover", "Earnings"], tier: "free-tier", home: "market" },
+  TWELVE_DATA_API_KEY: { purpose: "Global equities, FX & crypto", usedBy: ["Market Discover", "Charts"], tier: "free-tier", home: "market" },
+  MARKETSTACK_API_KEY: { purpose: "End-of-day & intraday prices", usedBy: ["Market Discover", "Charts"], tier: "free-tier", home: "market" },
+  FINANCIALMODELINGPREP_API_KEY: { purpose: "Fundamentals, ratios & estimates", usedBy: ["Market Discover", "Fundamentals"], tier: "free-tier", home: "market" },
   SEARCH_API_CONFIG: { purpose: "Independent web-search provider for research", usedBy: ["Research", "Agent chat"], tier: "free", home: "market" },
   SEARCH_API_KEY: { purpose: "Credential for the custom web-search provider", usedBy: ["Research", "Agent chat"], tier: "free", home: "market" },
-  COINGECKO_API_KEY: { purpose: "Crypto market data", usedBy: ["Market Screener", "Investor Eye"], tier: "free-tier", home: "market" },
-  COINMARKETCAP_API_KEY: { purpose: "Crypto rankings & quotes", usedBy: ["Market Screener"], tier: "free-tier", home: "market" },
-  "builtin:crypto": { purpose: "Crypto prices & tickers", usedBy: ["Market Screener", "Investor Eye"], tier: "builtin", home: "market" },
-  kraken: { purpose: "Crypto prices & tickers", usedBy: ["Market Screener", "Charts"], tier: "builtin", home: "market" },
+  COINGECKO_API_KEY: { purpose: "Crypto market data", usedBy: ["Market Discover", "Investor Eye"], tier: "free-tier", home: "market" },
+  COINMARKETCAP_API_KEY: { purpose: "Crypto rankings & quotes", usedBy: ["Market Discover"], tier: "free-tier", home: "market" },
+  "builtin:crypto": { purpose: "Crypto prices & tickers", usedBy: ["Market Discover", "Investor Eye"], tier: "builtin", home: "market" },
+  kraken: { purpose: "Crypto prices & tickers", usedBy: ["Market Discover", "Charts"], tier: "builtin", home: "market" },
 
-  // ── Custom (Market Screener wizard) ───────────────────────────────────────
+  // ── Custom (Market Discover wizard) ───────────────────────────────────────
   "custom-rest": { purpose: "Bring your own REST data", usedBy: ["Custom widgets"], tier: "free", home: "market" },
   "custom-dataset": { purpose: "Hand-defined dataset", usedBy: ["Custom widgets"], tier: "free", home: "market" },
 };
@@ -102,8 +102,8 @@ const ENTRIES: Record<string, ProviderDirectoryEntry> = {
 /** Fallback context by catalog category, so nothing renders blank. */
 const CATEGORY_FALLBACK: Record<string, ProviderDirectoryEntry> = {
   ai: { purpose: "Large language models", usedBy: LLM_FEATURES, tier: "free-tier", home: "ai" },
-  market: { purpose: "Market data", usedBy: ["Market Screener", "Charts"], tier: "free-tier", home: "market" },
-  crypto: { purpose: "Crypto market data", usedBy: ["Market Screener"], tier: "free-tier", home: "market" },
+  market: { purpose: "Market data", usedBy: ["Market Discover", "Charts"], tier: "free-tier", home: "market" },
+  crypto: { purpose: "Crypto market data", usedBy: ["Market Discover"], tier: "free-tier", home: "market" },
   economics: { purpose: "Economics & macro data", usedBy: ["Economics"], tier: "free-tier", home: "economics" },
   custom: { purpose: "Your own data", usedBy: ["Custom widgets"], tier: "free", home: "market" },
 };

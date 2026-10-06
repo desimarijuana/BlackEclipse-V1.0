@@ -403,8 +403,15 @@ class ModelRuntime:
         injecting it is a hard provider 400 — the exact "my model stopped working"
         failure. The runtime never force-feeds a knob a model did not declare.
         """
-        profile = self.task_profiles.get(resolution.decision.task)
-        effort = profile.get("reasoning")
+        # An explicit effort the operator chose for the run (carried as the
+        # `reasoning` routing requirement) OUTRANKS the task profile's default —
+        # the setting is the whole point of exposing it. Absent, the profile's
+        # own reasoning level applies.
+        requirements = getattr(resolution.decision, "requirements", None)
+        effort = getattr(requirements, "reasoning_effort", None)
+        if not effort:
+            profile = self.task_profiles.get(resolution.decision.task)
+            effort = profile.get("reasoning")
         if not effort or effort in ("none", "low"):
             return model
         if not self._shapes_reasoning(resolution):

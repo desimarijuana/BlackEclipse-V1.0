@@ -92,4 +92,19 @@ describe("setLLMConfig / getLLMConfig", () => {
     const cfg = await getLLMConfig();
     expect(cfg.baseUrl).toBe(DEFAULT_LLM_CONFIG.baseUrl);
   });
+
+  it("persists a reasoning-effort override and clears it back to Auto on null", async () => {
+    storedProviderKey.mockResolvedValue("sk-vault-real-key");
+    await setLLMConfig({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      model: "o3-mini",
+      reasoningEffort: "very_high",
+    });
+    expect((await getLLMConfig()).reasoningEffort).toBe("very_high");
+
+    // An explicit null (the UI's "Auto") must CLEAR it, not keep the old value.
+    await setLLMConfig({ reasoningEffort: null });
+    expect((await getLLMConfig()).reasoningEffort).toBeUndefined();
+  });
 });

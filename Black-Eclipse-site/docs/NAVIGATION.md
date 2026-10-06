@@ -30,6 +30,23 @@ Black-Eclipse-site/
   jdds.db           SQLite data vault (committed as a seed snapshot)
 ```
 
+At the **repository root** (one level above `Black-Eclipse-site/`), there is also
+a project skill root:
+
+```
+black eclipse/
+  .black-eclipse/skills/   Project-carried skills (one folder per skill:
+                           skill.json + SKILL.md). Currently the twelve CFA
+                           Level I skills — `cfa.00` index, one `cfa.01`-`cfa.10`
+                           per exam topic (Equities first), and `cfa.99`
+                           exam preparation.
+```
+
+A project skill root is resolved from the nearest `.git` ancestor, is **untrusted
+until an operator records `trust_root`**, and each skill ships inert (`status:
+disabled`) until enabled. See `python/harness/skills/project_skills.py` and
+`docs/harness/memory-skills-evolution-plan.md`.
+
 ## By task
 
 | I want to… | Open |
@@ -104,6 +121,7 @@ Black-Eclipse-site/
 | Work on guided skill learning (`/learn`) | `python/harness/skills/learn.py` (`LearnRequest`, `sanitize_skill_content`, `lint_skill_content`, `learn_from_source`); `propose_draft` in `skills/draft.py`; route `/learning/from-source`; TS `skills-{client,browser,types}.ts`; UI `src/components/screens/skills/guided-learn.tsx`; design `docs/harness/memory-skills-evolution-plan.md` |
 | Work on skill bundles / task profiles | `python/harness/skills/bundles.py` (`SkillBundle`, `resolve_bundle`, `lock_bundle` (versions + content hashes), `bundle_update_preview`, `rollback_bundle`, reproducible receipt, bounds); store `SkillBundle` (migration 15, `memberHashes`/`lockHistory` migration 21) + `save/get/list/delete_skill_bundle`; `RunRequest.bundleId` expansion in `python/harness/graph.py` (`_skill_manifest_context`); routes `/skill-bundles` (+`/{id}`, `/{id}/lock`, `/{id}/update-preview`, `/{id}/rollback`); TS `skills-{client,browser,types}.ts`; UI `src/components/screens/skills/skill-bundles.tsx`; design `docs/harness/memory-skills-evolution-plan.md` |
 | Work on project-local skills (trust, drift, precedence, provenance) | `python/harness/skills/project_skills.py` (roots `.black-eclipse/skills`/`.agents/skills`, `trust_root`/`untrust_root`, `discover_project_skills`, `root_content_hash`, `per_skill_hashes`, `changed_skill_review` — per-skill content identity + selective quarantine, `drift_status`); registry integration `registry.load_all(project_root=, project_discovery=)` + per-skill quarantine on drift; store `ProjectSkillTrust` (migration 14, `trustedHash`/`revokedHash` migration 16, `contentHashes` migration 19) + `ProjectTrustApproval` history (migration 20) + `set/get/list_project_trust`, `record/list_project_approvals`; policy `project_skill_discovery`; routes `/skills/project[/trust|/untrust|/approve|/history]`; UI `src/components/screens/skills/project-skills.tsx`; design `docs/harness/memory-skills-evolution-plan.md` |
+| Read / edit the CFA Level I knowledge skills (the ten `cfa.*` study topics) | Repo-root `.black-eclipse/skills/<name>/` (`skill.json` = manifest, `SKILL.md` = procedure); to make them selectable, trust the root and enable the skill — `python/harness/skills/project_skills.py` (`trust_root`, `discover_project_skills`) and the Skills UI Project-skills panel (`src/components/screens/skills/project-skills.tsx`). The root is the nearest `.git` ancestor, so it is the OUTER `black eclipse/` folder, not `Black-Eclipse-site/` |
 | Work on skill quality over time (trends/sample size/failure causes/version compare) | `python/harness/eclipse_memory/skill_quality.py` (`skill_quality_metrics`, `compare_versions`, `compare_evaluation_cases`, `version_quality_history`); routes `/skills/{id}/quality`, `/promotion-evidence`, `/quality/compare`, `/quality-history`; UI `src/components/screens/skills/skill-quality.tsx` |
 | Work on run-level memory/skill observability | `python/harness/run_observability.py` (`explain_run` — incl. workflow step tree, lineage, resume point); `memory.retrieved` event enrichment in `python/harness/graph.py`; route `GET /runs/{id}/explain`; UI `src/components/chat/run-explanation-panel.tsx` |
 | Work on run lineage / checkpoints / resume | `python/harness/run_lineage.py` (`RunLineage`, `RunCheckpoint`, `ToolExecutionIdempotency`, idempotent resume); `graph.py` (`build_graph` lineage/resume wiring, `execute_run` resume guard); routes `POST /runs/{id}/resume`, `GET /runs/{id}/lineage` in `python/harness/main.py`; ADR-H93 |

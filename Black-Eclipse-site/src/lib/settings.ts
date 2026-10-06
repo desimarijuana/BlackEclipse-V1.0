@@ -78,6 +78,14 @@ export interface LLMConfig {
    */
   contextWindow?: number;
   /**
+   * Optional reasoning-effort override ("model variant"). Sent to the runtime as
+   * the `reasoning` routing requirement + applied to native reasoning controls.
+   * One of `low`/`medium`/`high`/`very_high`; absent means the runtime's task
+   * profile decides. Only meaningful for models that declare reasoning support —
+   * an OpenAI-compatible endpoint without one is never force-fed the knob.
+   */
+  reasoningEffort?: "low" | "medium" | "high" | "very_high";
+  /**
    * Optional model-routing preference (spec §44). Sent to the runtime as
    * `input.context.modelPolicy`, where it outranks the automatic router. Absent
    * means normal routing. Every field is opt-in and additive.
@@ -169,18 +177,25 @@ export async function getLLMConfig(): Promise<LLMConfig> {
 }
 
 export async function setLLMConfig(
-  config: Partial<LLMConfig> & { contextWindow?: number | null },
+  config: Omit<Partial<LLMConfig>, "contextWindow" | "reasoningEffort"> & {
+    contextWindow?: number | null;
+    reasoningEffort?: LLMConfig["reasoningEffort"] | null;
+  },
 ): Promise<LLMConfig> {
   // Merge over the RAW config so persisting never folds a vault key into the
   // plaintext row; only values the caller actually sends change.
   const next = await readLLMConfigRaw();
   const merged: LLMConfig = {
     ...next,
-    ...config,
+    ...(config as Partial<LLMConfig>),
   };
   // An explicit `null` clears the declared window (a plain `undefined` cannot —
   // JSON.stringify drops it, so the merge would silently keep the old value).
   if (config.contextWindow === null) delete merged.contextWindow;
+  // An explicit `null` clears the reasoning-effort override back to Auto.
+  if ((config as { reasoningEffort?: unknown }).reasoningEffort === null) {
+    delete merged.reasoningEffort;
+  }
   // An explicit `null` clears the routing preference similarly.
   if ((config as { routingPolicy?: unknown }).routingPolicy === null) delete merged.routingPolicy;
 

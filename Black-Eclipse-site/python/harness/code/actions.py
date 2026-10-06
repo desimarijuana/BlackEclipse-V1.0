@@ -14,7 +14,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from ..mcp.approvals import args_digest
+from ..mcp.approvals import _await_then_reclaim, _mark_authorized, _pause_requested, args_digest
 
 # The approval kind discriminator (one store, two kinds).
 CODE_ACTION_KIND = "code_action"
@@ -113,31 +113,67 @@ def make_code_action_authorizer(
             return True
         claimed = consume_code_action(approvals, request) if approvals is not None else None
         if claimed is not None:
-            if ctx is not None:
-                try:
-                    ctx.effect_authorized_digest = digest
-                except Exception:  # noqa: BLE001 - a frozen ctx must not break auth
-                    pass
+            _mark_authorized(ctx, digest)
             if emitter is not None:
                 await emitter.emit("code.action.approved", {
                     "action": action_kind, "workspaceId": workspace_id,
                     "approvalId": claimed.get("id"), "singleUse": True,
                 })
             return True
-        # No claimable approval: create/refresh a pending request, then refuse.
+        # No claimable approval: create/refresh a pending request.
+        pending = None
         if approvals is not None:
             try:
                 pending = request_code_action(approvals, request)
                 if emitter is not None:
-                    await emitter.emit("code.action.approval_required", {
-                        "action": action_kind, "workspaceId": workspace_id,
+                    await emitter.emit("approval.requested", {
                         "approvalId": pending.get("id"),
+                        "kind": CODE_ACTION_KIND,
+                        "title": f"Approve external action: {action_kind}",
+                        "summary": _external_action_summary(action_kind, workspace_id, clean_args),
+                        "effect": "external_action",
+                        "risk": "high",
+                        "action": action_kind,
+                        "workspaceId": workspace_id,
                     })
             except Exception:  # noqa: BLE001 - a store failure must never authorize
                 pass
+        # Legacy event name is kept alongside the approval-card event so existing
+        # consumers/tests are unchanged.
+        if pending is not None and emitter is not None:
+            try:
+                await emitter.emit("code.action.approval_required", {
+                    "action": action_kind, "workspaceId": workspace_id,
+                    "approvalId": pending.get("id"),
+                })
+            except Exception:  # noqa: BLE001 - an event must not break a call
+                pass
+        # Pause mode: block for the operator's decision, then re-claim ONCE.
+        if pending is not None and _pause_requested(ctx):
+            await _await_then_reclaim(
+                approvals, pending.get("id"), lambda: consume_code_action(approvals, request),
+                emitter, ctx, digest, {
+                    "action": action_kind, "workspaceId": workspace_id,
+                }, event_type="code.action.approved",
+            )
+            if ctx is not None and getattr(ctx, "effect_authorized_digest", None) == digest:
+                return True
         return False
 
     return authorize
+
+
+def _external_action_summary(action_kind: str, workspace_id: str, args: dict[str, Any]) -> str:
+    """A plain-language one-liner for an external-action approval card."""
+    label = {
+        "commit": "Commit the workspace changes",
+        "push": "Push the branch to the remote",
+        "open_pr": "Open a pull request",
+        "deploy": "Deploy this workspace",
+    }.get(action_kind, f"Perform {action_kind}")
+    message = args.get("message")
+    detail = f" — {message}" if isinstance(message, str) and message.strip() else ""
+    return f"{label}{detail} (workspace {workspace_id})."
 
 
 def _request_from_call(

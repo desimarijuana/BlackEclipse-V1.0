@@ -1,4 +1,4 @@
-import type { ActivityItem, ResponseStatus } from './response-model';
+import type { ActivityItem, PendingApproval, ResponseStatus } from './response-model';
 import { sourceLabel, toolLabel } from './response-model';
 import { refusalKey } from '@/lib/i18n/refusal-copy';
 
@@ -44,7 +44,11 @@ export type HarnessUiEvent =
       /** Phase 14 §6.4: the runtime-derived chat capability view. */
       capability?: unknown;
     }
-  | { kind: 'error'; message: string; code?: string };
+  | { kind: 'error'; message: string; code?: string }
+  /** The run is blocked on an operator decision (approval card). */
+  | { kind: 'approval_request'; approval: PendingApproval }
+  /** A previously requested approval was decided (or expired/timed out). */
+  | { kind: 'approval_resolved'; id?: string; approved?: boolean };
 
 /**
  * Normalize a frame's payload.
@@ -231,11 +235,36 @@ export function normalizeHarnessEvent(
     };
   }
 
+  // An approval card request (runtime `approval.requested`): the run is now
+  // blocked until the operator decides. The legacy `*.approval_required` events
+  // are intentionally NOT mapped here — they fire on the deny-and-retry path and
+  // the run is not waiting, so surfacing a blocking card would be dishonest.
+  if (event === 'approval.requested') {
+    const id = str(payload.approvalId);
+    if (!id) return null;
+    const tool = str(payload.tool) ?? '';
+    const title = str(payload.title) ?? (tool ? `Approve using ${tool}` : 'This task requires approval');
+    return {
+      kind: 'approval_request',
+      approval: {
+        id,
+        kind: str(payload.kind) ?? 'tool',
+        title,
+        summary: str(payload.summary),
+        effect: str(payload.effect),
+        risk: str(payload.risk),
+      },
+    };
+  }
+
+  if (event === 'approval.resolved') {
+    return { kind: 'approval_resolved', id: str(payload.approvalId), approved: payload.approved === true };
+  }
+
   // Front-door terminal frame: carries the authoritative answer.
   if (event === 'client.final') {
     const err = payload.error;
     // `error` is a structured `{ code, message }` from the run record; the
-    // specific code (e.g. CONTEXT_OVERFLOW) must reach the UI, not a generic string.
     const errorMessage =
       err && typeof err === 'object'
         ? str((err as Record<string, unknown>).message)

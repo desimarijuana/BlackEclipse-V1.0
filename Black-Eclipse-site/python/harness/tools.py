@@ -163,6 +163,14 @@ class ToolContext:
     # manager's re-assert) does not consume a second single-use approval. Cleared
     # by the registry at the start of every tool call.
     effect_authorized_digest: Any = None
+    # Approval-card mode: when True, a non-read tool with no matching approval
+    # PAUSES the run (awaiting the operator's decision via the decide route)
+    # instead of being refused outright. The decision is still the single-use,
+    # digest-bound approval — this only changes whether the run waits for it.
+    pause_for_approval: bool = False
+    # How long a paused run waits for a decision before refusing the call. Kept
+    # below the run deadline by the caller; the default matches the approval TTL.
+    approval_timeout_s: float = 900.0
     # The process-wide MCP manager, so native retrieval can consider
     # operator-declared MCP data sources (Milestone 6). None = no MCP sources.
     mcp_manager: Any = None

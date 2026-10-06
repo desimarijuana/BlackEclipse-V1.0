@@ -674,8 +674,9 @@ def make_code_authorizer(mcp_authorizer: Any = None):
                         return True
                     if approvals.find_active_kind(kind="code_write_session", request_key=ws_id, digest=ws_id) is not None:
                         return True
+                    pending = None
                     try:
-                        approvals.request_kind(
+                        pending = approvals.request_kind(
                             kind="code_write", request_key=ws_id, digest=digest,
                             effect="write",
                             run_id=str(getattr(ctx, "run_id", "")),
@@ -687,11 +688,31 @@ def make_code_authorizer(mcp_authorizer: Any = None):
                         pass
                     try:
                         await emit_code_event(ctx, "approval.requested", {
-                            "kind": "code_write", "paths": paths,
+                            "approvalId": (pending or {}).get("id"),
+                            "kind": "code_write",
+                            "title": "Approve writing code",
                             "summary": f"Apply code changes to: {', '.join(paths)[:180]}",
+                            "effect": "write",
+                            "risk": "medium",
+                            "paths": paths,
+                            "workspaceId": ws_id,
                         })
                     except Exception:  # noqa: BLE001
                         pass
+                    # Pause mode: block for the operator's decision, then re-claim.
+                    if pending is not None:
+                        from ..mcp.approvals import pause_for_decision  # noqa: PLC0415
+
+                        if await pause_for_decision(
+                            approvals, ctx, pending.get("id"),
+                            lambda: approvals.consume_kind(
+                                kind="code_write", request_key=ws_id, digest=digest, workspace_id=ws_id,
+                            ),
+                            emitter=getattr(ctx, "emitter", None), digest=digest,
+                            event_type="code.write.approved",
+                            approved_payload={"kind": "code_write", "paths": paths},
+                        ):
+                            return True
                     return False
             return True
         # A command execution is admitted at this seam; the handler enforces the

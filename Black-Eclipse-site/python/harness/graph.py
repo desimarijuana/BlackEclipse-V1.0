@@ -470,6 +470,11 @@ def build_graph(
         # The approval store, so the terminal authorizer can claim a single-use
         # approval for an `ask`-classified command.
         approvals=approvals,
+        # Approval cards: when the request asked to pause, a non-read tool with no
+        # matching approval blocks for the operator's decision instead of being
+        # refused. The wait is bounded by the agent's run deadline.
+        pause_for_approval=str(getattr(request, "approvalMode", "") or "") == "ask",
+        approval_timeout_s=max(30.0, run_timeout_s - 15.0),
         # Folder-selection: a run bound to a user-chosen trusted folder edits it
         # directly (that is the point of choosing it); the built-in repo root
         # stays isolated. An explicit `request.direct` always wins.

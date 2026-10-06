@@ -188,6 +188,12 @@ class RunRequest(BaseModel):
     # Default False — discovery is not activation. A computed number is always
     # labelled "worked out by Eclipse" and never presented as retrieved data.
     analysisEnabled: bool = False  # noqa: N815
+    # Approval cards (additive, optional): "ask" makes a non-read tool with no
+    # matching approval PAUSE the run and wait for the operator's decision via the
+    # approvals decide route, then resume in place. Absent/None keeps the default
+    # deny-and-retry behavior. The decision itself is still the single-use,
+    # digest-bound approval — this only changes whether the run waits for it.
+    approvalMode: Optional[str] = None  # noqa: N815
     # Folder-selection (additive, optional): when True, the task edits the
     # SELECTED trusted root DIRECTLY instead of a disposable copy. None = resolve
     # from the selected root at run time (a folder a person chose edits directly;

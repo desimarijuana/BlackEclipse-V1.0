@@ -359,21 +359,21 @@ function AlertsPanel() {
   );
 }
 
-// ── Screener (link out — the full screener is a dedicated page) ──────────────
+// ── Market Discover (link out — the full page is dedicated) ──────────────────
 
 function ScreenerPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PanelTitle icon={Search} title="Screener" hint="OPEN PAGE" />
+      <PanelTitle icon={Search} title="Discover" hint="OPEN PAGE" />
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
         <Search size={20} className="text-muted-foreground/50" />
-        <p className="text-[11px] text-muted-foreground">The full screener runs in its own workspace.</p>
+        <p className="text-[11px] text-muted-foreground">Market Discover runs in its own workspace.</p>
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('be:navigate', { detail: { tab: 'discovery' } }))}
           className="rounded-lg border border-primary/40 bg-primary/15 px-3 py-1.5 text-[11px] font-bold text-primary hover:bg-primary/25 cursor-pointer"
         >
-          Open Market Screener
+          Open Market Discover
         </button>
       </div>
     </div>

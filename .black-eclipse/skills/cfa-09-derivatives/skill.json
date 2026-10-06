@@ -1,0 +1,63 @@
+{
+  "id": "cfa.09.derivatives",
+  "name": "CFA Level I - Derivatives and Risk Management",
+  "description": "The CFA Level I Derivatives and Risk Management topic (renamed in 2027) in full: all 10 modules covering derivative instrument and market features, forward commitments and contingent claims, benefits and risks, arbitrage and replication and cost of carry, pricing forwards and futures, interest rate swaps, option pricing and put-call parity, and the one-period binomial model. Ninth topic in the study order.",
+  "tags": [
+    "cfa",
+    "level-1",
+    "derivatives",
+    "options",
+    "forwards",
+    "futures",
+    "swaps",
+    "put-call-parity",
+    "binomial"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string"
+      },
+      "depth": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "modules": {
+        "type": "object"
+      },
+      "formulas": {
+        "type": "object"
+      },
+      "traps": {
+        "type": "object"
+      }
+    },
+    "required": []
+  },
+  "requiredTools": [],
+  "requiredSkills": [
+    "cfa.05.fixed-income"
+  ],
+  "permissions": [
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "version": "1.0.0",
+  "category": "finance",
+  "status": "disabled",
+  "instructions": "SKILL.md",
+  "author": "eclipse",
+  "origin": "author",
+  "compatibleRuntime": ">=0.1.0"
+}

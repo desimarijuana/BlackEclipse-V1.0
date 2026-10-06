@@ -21,6 +21,6 @@ export function marketEntities(): SearchEntity[] {
     keywords: ['market', 'screener', 'country', code.toLowerCase()],
     icon: 'globe',
     destination: { tab: 'discovery', params: { market: code } },
-    subtitle: `${code} · Market Screener`,
+    subtitle: `${code} · Market Discover`,
   }));
 }

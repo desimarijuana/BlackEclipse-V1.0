@@ -1,0 +1,62 @@
+{
+  "id": "cfa.04.quantitative-methods",
+  "name": "CFA Level I - Quantitative Methods",
+  "description": "The CFA Level I Quantitative Methods topic in full, rewritten for the 2027 curriculum: all 11 modules covering returns, benchmarking, time value of money, statistical characteristics, distributions and Bayesian updating, estimation and hypothesis testing, portfolio return and risk, simulation, simple linear regression, and the new financial data science (AI/ML/LLM) module. Fourth topic in the study order.",
+  "tags": [
+    "cfa",
+    "level-1",
+    "quantitative",
+    "statistics",
+    "regression",
+    "simulation",
+    "ai",
+    "machine-learning"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string"
+      },
+      "depth": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "modules": {
+        "type": "object"
+      },
+      "formulas": {
+        "type": "object"
+      },
+      "traps": {
+        "type": "object"
+      }
+    },
+    "required": []
+  },
+  "requiredTools": [],
+  "requiredSkills": [
+    "cfa.00.curriculum-map"
+  ],
+  "permissions": [
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "version": "1.0.0",
+  "category": "finance",
+  "status": "disabled",
+  "instructions": "SKILL.md",
+  "author": "eclipse",
+  "origin": "author",
+  "compatibleRuntime": ">=0.1.0"
+}

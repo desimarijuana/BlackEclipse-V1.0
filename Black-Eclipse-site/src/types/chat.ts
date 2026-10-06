@@ -1,4 +1,4 @@
-import type { ActivityItem, ResponseStatus, TurnError } from '@/lib/agent/response-model';
+import type { ActivityItem, PendingApproval, ResponseStatus, TurnError } from '@/lib/agent/response-model';
 
 /**
  * One turn in a conversation transcript.
@@ -43,6 +43,12 @@ export interface Message {
   autonomy?: string | null;
   /** Phase 14 §6.4: the runtime-derived chat capability view, when any. */
   capability?: unknown;
+  /**
+   * The action the agent is blocked on pending an operator decision. Present
+   * only while a run is paused on an approval card; set from the
+   * `approval.requested` event and cleared when it resolves.
+   */
+  pendingApproval?: PendingApproval;
   /** A recoverable failure on this turn. */
   error?: TurnError;
   /** User rating on an assistant turn, if given. Persisted with the message. */

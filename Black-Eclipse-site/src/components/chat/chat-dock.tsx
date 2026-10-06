@@ -39,6 +39,7 @@ import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
 import { CheckpointBar } from './checkpoint-bar';
+import { ApprovalCard } from './approval-card';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Stable workspace-folder id for the dock, so its runs also persist output. */
@@ -172,6 +173,12 @@ export function ChatDock({
   const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
   const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
   useEffect(() => { setBusy(agentRun.active); }, [agentRun.active]);
+
+  // The action the agent is blocked on, if any (approval card), and the composer
+  // element the portaled card floats above.
+  const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
+  const pendingApproval = agentRun.turn.pendingApproval
+    ?? [...messages].reverse().find(m => m.role === 'assistant' && m.pendingApproval)?.pendingApproval;
 
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
   // hidden with `display:none`. A portal to <body> is NOT hidden by an ancestor
@@ -379,6 +386,7 @@ export function ChatDock({
               activities: turn.activities,
               error: turn.error,
               research: turn.research,
+              pendingApproval: turn.pendingApproval,
             }
           : m,
       );
@@ -562,7 +570,10 @@ export function ChatDock({
         )}
 
         {/* Composer — always visible, bottom-centre. */}
-        <div className="rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card p-2 shadow-2xl shadow-black/50">
+        <div
+          ref={setComposerEl}
+          className="rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card p-2 shadow-2xl shadow-black/50"
+        >
           <textarea
             ref={textareaRef}
             rows={1}
@@ -671,6 +682,9 @@ export function ChatDock({
             }}
           />
         </div>
+        {pendingApproval && (
+          <ApprovalCard approval={pendingApproval} anchor={composerEl} onDecide={agentRun.decide} />
+        )}
           </>
         )}
       </div>

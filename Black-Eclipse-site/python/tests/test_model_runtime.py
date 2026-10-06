@@ -770,3 +770,42 @@ def test_reasoning_is_shaped_only_for_a_native_reasoning_model() -> None:
     res = rt.resolve_for_run(_settings("openai", "o3-mini"), task="financial_research")
     model = rt.prepare_model(_Native(), res)
     assert getattr(model, "reasoning_effort", None) == "high"
+
+
+def test_operator_reasoning_effort_overrides_the_task_profile() -> None:
+    # The "model variant" control: an explicit effort carried as a `reasoning`
+    # routing requirement must win over the task profile's default (`medium` for
+    # `default`). The runtime maps `very_high` → `high` for OpenAI's knob.
+    rt = _runtime_with([
+        _model("openai", "o3-mini", capabilities=_caps(text="supported", reasoning="supported")),
+    ])
+
+    class _Native:
+        reasoning_effort: Any = None
+
+    res = rt.resolve_for_run(
+        _settings("openai", "o3-mini"),
+        task="default",
+        requirements={"reasoning": "very_high"},
+    )
+    model = rt.prepare_model(_Native(), res)
+    assert getattr(model, "reasoning_effort", None) == "high"
+
+
+def test_operator_reasoning_effort_low_leaves_the_model_untouched() -> None:
+    # Selecting Minimal must not inject a reasoning knob at all (the runtime
+    # leaves low/none alone) — the model is returned as-is.
+    rt = _runtime_with([
+        _model("openai", "o3-mini", capabilities=_caps(text="supported", reasoning="supported")),
+    ])
+
+    class _Native:
+        reasoning_effort: Any = None
+
+    res = rt.resolve_for_run(
+        _settings("openai", "o3-mini"),
+        task="default",
+        requirements={"reasoning": "low"},
+    )
+    model = rt.prepare_model(_Native(), res)
+    assert getattr(model, "reasoning_effort", None) is None

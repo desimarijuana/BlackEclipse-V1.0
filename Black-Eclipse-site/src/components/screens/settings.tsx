@@ -32,6 +32,7 @@ import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
+import { NewsFeedsPanel } from "./news-feeds-panel";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
@@ -66,6 +67,13 @@ interface LLMConfig {
    * clears any prior declaration.
    */
   contextWindow?: number | null;
+  /**
+   * Optional reasoning-effort override ("model variant"). One of
+   * `low`/`medium`/`high`/`very_high`; `null`/undefined means Auto (the runtime's
+   * task profile decides). Only applied to models with a native reasoning
+   * control — an OpenAI-compatible endpoint without one is never force-fed it.
+   */
+  reasoningEffort?: "low" | "medium" | "high" | "very_high" | null;
 }
 
 export type { LLMConfig };
@@ -107,6 +115,29 @@ interface MarketInfo {
   assetCount: number;
   pricedCount: number;
 }
+
+/**
+ * Module-level snapshot of the last successful settings fetch. The settings
+ * dialog is unmounted when closed (base-ui drops the popup), so without this
+ * every open paid the full `/api/settings` + `/api/markets` round-trip behind a
+ * skeleton. Reopening now paints instantly from cache and revalidates quietly
+ * in the background.
+ */
+interface SettingsSnapshot {
+  llm: LLMConfig;
+  feeds: NewsFeed[];
+  prefs: AppPreferences;
+  integrations: IntegrationStatus | null;
+  markets: MarketInfo[];
+}
+let settingsCache: SettingsSnapshot | null = null;
+/** Markets resolve independently of the settings snapshot; remember them too. */
+let marketsCache: MarketInfo[] | null = null;
+
+const DEFAULT_LLM: LLMConfig = {
+  provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
+  contextWindow: undefined,
+};
 
 // The Settings information architecture. Sections are named for WHAT the user
 // is configuring, never for how the backend is implemented:
@@ -188,27 +219,6 @@ function SectionHeader({
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
-        checked ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border"
-      )}
-    >
-      <span
-        className={cn(
-          "inline-block h-3.5 w-3.5 transform rounded-full shadow-sm transition-transform",
-          checked ? "translate-x-[18px] bg-primary" : "translate-x-[2px] bg-muted-foreground/70"
-        )}
-      />
-    </button>
-  );
-}
-
 function Chip({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <span
@@ -219,6 +229,32 @@ function Chip({ children, className }: { children: React.ReactNode; className?: 
     >
       {children}
     </span>
+  );
+}
+
+/** A labelled sub-section within a settings page, for consistent organization. */
+function SubSection({
+  icon: Icon,
+  title,
+  description,
+  children,
+  className,
+}: {
+  icon?: React.ElementType;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("space-y-3", className)}>
+      <div className="flex items-center gap-2">
+        {Icon && <Icon size={13} className="text-primary shrink-0" />}
+        <h3 className="text-xs font-semibold tracking-tight text-foreground">{title}</h3>
+      </div>
+      {description && <p className="text-[10px] text-muted-foreground leading-relaxed -mt-1">{description}</p>}
+      {children}
+    </section>
   );
 }
 
@@ -243,7 +279,7 @@ export function Settings({
   /** Optional block id to scroll to once mounted (e.g. "priority"). */
   initialAnchor?: string;
 } = {}) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !settingsCache);
   const [saving, setSaving] = useState(false);
   // Transient result toast shown in the footer status area.
   const [toast, setToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -251,19 +287,18 @@ export function Settings({
   const [query, setQuery] = useState("");
 
   // LLM
-  const [llm, setLlm] = useState<LLMConfig>({
-    provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
-    contextWindow: undefined,
-  });
+  const [llm, setLlm] = useState<LLMConfig>(settingsCache?.llm ?? DEFAULT_LLM);
   // Declared model ids per provider, from the Python runtime catalog (a
   // convenience list, never an allowlist — a custom id is always typeable).
   const modelCatalog = useModelCatalog();
 
   // News
-  const [feeds, setFeeds] = useState<NewsFeed[]>([]);
+  const [feeds, setFeeds] = useState<NewsFeed[]>(settingsCache?.feeds ?? []);
 
   // Preferences (server-backed: default market + refresh interval)
-  const [prefs, setPrefs] = useState<AppPreferences>({ defaultMarket: "US", refreshMs: 15000 });
+  const [prefs, setPrefs] = useState<AppPreferences>(
+    settingsCache?.prefs ?? { defaultMarket: "US", refreshMs: 15000 },
+  );
 
   // General preferences (localStorage, presentation-layer): start screen and
   // whether destructive local-data clears need confirmation. The merged General
@@ -275,43 +310,64 @@ export function Settings({
   }, []);
 
   // Market data (loaded from JDDS)
-  const [markets, setMarkets] = useState<MarketInfo[]>([]);
-  const [selectedMarkets, setSelectedMarkets] = useState<string[]>(["US"]);
+  const [markets, setMarkets] = useState<MarketInfo[]>(settingsCache?.markets ?? marketsCache ?? []);
+  const [selectedMarkets, setSelectedMarkets] = useState<string[]>(() => {
+    const enabled = (settingsCache?.markets ?? marketsCache ?? []).filter((mk) => mk.enabled).map((mk) => mk.id);
+    return enabled.length > 0 ? enabled : ["US"];
+  });
 
   // Integrations
-  const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationStatus | null>(
+    settingsCache?.integrations ?? null,
+  );
+
+  // Settings and markets are fetched independently: `/api/markets` can be slow
+  // on a cold JDDS cache, and Promise.all made the whole modal wait on it (the
+  // "settings never loads until refresh" hang). Settings paints as soon as it
+  // lands; markets fill in afterwards.
+  const applySettings = (s: {
+    llm?: LLMConfig; newsFeeds?: NewsFeed[]; preferences?: AppPreferences;
+    integrations?: IntegrationStatus;
+  }) => {
+    if (s.llm) setLlm({ ...s.llm, apiKey: "" });
+    if (s.newsFeeds) setFeeds(s.newsFeeds);
+    if (s.preferences) {
+      setPrefs(s.preferences);
+      // Seed the shared market preference from the saved default, but never
+      // override a market the user already picked on a market surface.
+      if (s.preferences.defaultMarket && !getUserMarket()) {
+        setUserMarket(s.preferences.defaultMarket);
+      }
+    }
+    if (s.integrations) setIntegrations(s.integrations);
+    settingsCache = {
+      llm: s.llm ? { ...s.llm, apiKey: "" } : settingsCache?.llm ?? DEFAULT_LLM,
+      feeds: s.newsFeeds ?? settingsCache?.feeds ?? [],
+      prefs: s.preferences ?? settingsCache?.prefs ?? { defaultMarket: "US", refreshMs: 15000 },
+      integrations: s.integrations ?? settingsCache?.integrations ?? null,
+      markets: marketsCache ?? settingsCache?.markets ?? [],
+    };
+  };
+
+  const applyMarkets = (list: MarketInfo[]) => {
+    setMarkets(list);
+    const enabled = list.filter((mk) => mk.enabled).map((mk) => mk.id);
+    if (enabled.length > 0) setSelectedMarkets(enabled);
+    marketsCache = list;
+    if (settingsCache) settingsCache.markets = list;
+  };
 
   const fetchAll = async () => {
-    setLoading(true);
+    if (!settingsCache) setLoading(true);
+    // Markets — independent, may be slow. Never blocks the settings paint.
+    void fetch("/api/markets")
+      .then((r) => r.json())
+      .then((m) => { if (Array.isArray(m.markets)) applyMarkets(m.markets); })
+      .catch(() => { /* leave whatever we had */ });
+    // Settings — the critical path. Clears the skeleton the moment it lands.
     try {
-      const [settingsRes, marketsRes] = await Promise.all([
-        fetch("/api/settings"),
-        fetch("/api/markets"),
-      ]);
-      const s = await settingsRes.json();
-      const m = await marketsRes.json();
-
-      if (s.llm) {
-        // The server masks the stored key — keep the local input empty but
-        // remember that a key exists so the placeholder can show it.
-        setLlm({ ...s.llm, apiKey: "" });
-      }
-      if (s.newsFeeds) setFeeds(s.newsFeeds);
-      if (s.preferences) {
-        setPrefs(s.preferences);
-        // Seed the shared market preference from the saved default, but never
-        // override a market the user already picked on a market surface.
-        if (s.preferences.defaultMarket && !getUserMarket()) {
-          setUserMarket(s.preferences.defaultMarket);
-        }
-      }
-      if (s.integrations) setIntegrations(s.integrations);
-
-      if (Array.isArray(m.markets)) {
-        setMarkets(m.markets);
-        const enabled = m.markets.filter((mk: MarketInfo) => mk.enabled).map((mk: MarketInfo) => mk.id);
-        if (enabled.length > 0) setSelectedMarkets(enabled);
-      }
+      const s = await fetch("/api/settings").then((r) => r.json());
+      applySettings(s);
     } catch {
       setToast({ kind: "error", text: "Failed to load settings. Is the server running?" });
     } finally {
@@ -320,7 +376,8 @@ export function Settings({
   };
 
   useEffect(() => {
-    fetchAll();
+    void fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -347,6 +404,11 @@ export function Settings({
       if (data.llm) setLlm({ ...data.llm, apiKey: "" });
       if (Array.isArray(data.newsFeeds)) setFeeds(data.newsFeeds);
       if (data.preferences) setPrefs(data.preferences);
+      if (settingsCache) {
+        if (data.llm) settingsCache.llm = { ...data.llm, apiKey: "" };
+        if (Array.isArray(data.newsFeeds)) settingsCache.feeds = data.newsFeeds;
+        if (data.preferences) settingsCache.prefs = data.preferences;
+      }
       setToast({ kind: "ok", text: "Saved" });
       sound.success();
     } catch {
@@ -429,7 +491,7 @@ export function Settings({
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
     { id: "investor-eye", label: "Investor Eye", desc: "World-state sources", icon: EyeIcon, group: "Intelligence", terms: ["investor eye", "world state", "gdelt", "usgs", "firms", "events", "geopolitics", "map", "sources"] },
     { id: "economics", label: "Economics", desc: "Macro & calendar providers", icon: Activity, group: "Intelligence", terms: ["economics", "macro", "fred", "bea", "bls", "calendar", "indicators", "yield", "inflation"] },
-    { id: "market", label: "Market Data", desc: "Screener, charts & markets", icon: Globe2, group: "Intelligence", terms: ["market", "screener", "stocks", "crypto", "prices", "fundamentals", "polygon", "finnhub", "alpha vantage", "coin"] },
+    { id: "market", label: "Market Data", desc: "Discover, charts & markets", icon: Globe2, group: "Intelligence", terms: ["market", "screener", "stocks", "crypto", "prices", "fundamentals", "polygon", "finnhub", "alpha vantage", "coin"] },
     { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper, group: "Intelligence", terms: ["news", "rss", "feeds", "headlines", "sentiment", "finnhub"] },
     { id: "analytics", label: "Analytics", desc: "Token usage & runs", icon: BarChart3, group: "Intelligence", terms: ["analytics", "usage", "tokens", "token", "consumption", "cost", "spend", "runs", "steps", "agent", "llm", "metrics", "stats"] },
     { id: "mcp", label: "MCP Servers", desc: "External tool connections", icon: Plug, group: "Intelligence", terms: ["mcp", "model context protocol", "servers", "tools", "external", "stdio", "integration", "plugins"] },
@@ -511,8 +573,8 @@ export function Settings({
 
   return (
     <div ref={modalRef} className="flex h-full w-full overflow-hidden" tabIndex={-1}>
-      {/* Left nav rail — same neutral grey `sidebar-root` surface as the main
-          app sidebar so the chrome stays consistent. */}
+      {/* Left nav rail — same black/charcoal `sidebar-root` surface as the main
+          app sidebar so the chrome stays consistent (never a grey rail). */}
       <aside className="sidebar-root hidden md:flex w-60 shrink-0 flex-col glass-card-strong">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/30 bg-white/[0.06]">
@@ -678,11 +740,23 @@ export function Settings({
                   description="The sources behind the Investor Eye world-state map, and a map of which provider powers each feature. Providers are configured in their own sections — tap a chip to jump there."
                 />
 
-                <div className="mb-5">
+                <SubSection
+                  icon={EyeIcon}
+                  title="What powers each feature"
+                  description="Which provider backs each Investor Eye capability, and whether it is ready. Tap a chip to jump to its home section."
+                >
                   <InvestorEyeFeatureMap />
-                </div>
+                </SubSection>
 
-                <InvestorEyeSources />
+                <div className="mt-6">
+                  <SubSection
+                    icon={Plug}
+                    title="Event sources"
+                    description="The keyless world-state feeds behind the map — no configuration required."
+                  >
+                    <InvestorEyeSources />
+                  </SubSection>
+                </div>
               </div>
             )}
 
@@ -695,7 +769,13 @@ export function Settings({
                   title="Economics"
                   description="Providers that power the Economics calendar, indicators and time-series explorer—macro series, national accounts and central-bank data."
                 />
-                <ProviderRegistry home="economics" title="Economics & macro providers" />
+                <SubSection
+                  icon={Activity}
+                  title="Macro & calendar providers"
+                  description="Grouped by kind. Add a key to light up more series and wider coverage."
+                >
+                  <ProviderRegistry home="economics" title="Economics & macro providers" />
+                </SubSection>
               </div>
             )}
 
@@ -708,81 +788,100 @@ export function Settings({
                 <SectionHeader
                   icon={Globe2}
                   title="Market Data"
-                  description="Providers that power the Market Screener, charts and Fundamentals. Choose which markets and exchanges loaded in JDDS are surfaced, and review the price-source fallback chain."
+                  description="Providers that power Market Discover, charts and Fundamentals. Choose which markets and exchanges loaded in JDDS are surfaced, and review the price-source fallback chain."
                 />
-                {markets.length === 0 ? (
-                  <Panel className="p-8 text-center">
-                    <Boxes className="mx-auto text-muted-foreground w-8 h-8 mb-3" />
-                    <p className="text-xs text-muted-foreground">
-                      No markets found in JDDS yet. Import or scrape market data to populate the database.
-                    </p>
-                  </Panel>
-                ) : (
-                  <div className="space-y-2.5">
-                    {markets.map((m) => {
-                      const active = selectedMarkets.includes(m.id);
-                      return (                        <button
-                          key={m.id}
-                          onClick={() =>
-                            setSelectedMarkets((prev) =>
-                              prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
-                            )
-                          }
-                          className={cn(
-                            "w-full flex items-center justify-between gap-3 py-3.5 px-4 rounded-xl border transition-all cursor-pointer text-left group",
-                            active
-                              ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-                              : "glass-card-subtle border-border/20 hover:border-border/40 hover:bg-accent/30"
-                          )}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div
-                              className={cn(
-                                "w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors",
-                                active ? "border-primary bg-primary/20" : "border-border/50"
-                              )}
-                            >
-                              {active && <Check className="text-primary w-3 h-3" />}
-                            </div>
-                            <div className="min-w-0">
-                              <span className="text-xs font-semibold text-foreground flex items-center gap-2">
-                                {m.country}
-                                {m.isCrypto && (
-                                  <Chip className="text-primary bg-primary/10 border-primary/20 uppercase tracking-widest">Crypto</Chip>
-                                )}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground block truncate font-mono">
-                                {m.exchange} · {m.assetCount} assets · {m.pricedCount} priced
-                              </span>
-                            </div>
-                          </div>
-                          <Chip
+
+                <SubSection
+                  icon={Globe2}
+                  title="Markets & exchanges"
+                  description="Toggle which markets loaded in JDDS appear across Market Discover, charts and search."
+                >
+                  {markets.length === 0 ? (
+                    <Panel className="p-8 text-center">
+                      <Boxes className="mx-auto text-muted-foreground w-8 h-8 mb-3" />
+                      <p className="text-xs text-muted-foreground">
+                        No markets found in JDDS yet. Import or scrape market data to populate the database.
+                      </p>
+                    </Panel>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {markets.map((m) => {
+                        const active = selectedMarkets.includes(m.id);
+                        return (
+                          <button
+                            key={m.id}
+                            onClick={() =>
+                              setSelectedMarkets((prev) =>
+                                prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+                              )
+                            }
                             className={cn(
-                              "shrink-0",
+                              "w-full flex items-center justify-between gap-3 py-3.5 px-4 rounded-xl border transition-all cursor-pointer text-left group",
                               active
-                                ? "text-primary bg-primary/10 border-primary/20"
-                                : "text-muted-foreground bg-muted/40 border-transparent"
+                                ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
+                                : "glass-card-subtle border-border/20 hover:border-border/40 hover:bg-accent/30"
                             )}
                           >
-                            {active ? "Showing" : "Hidden"}
-                          </Chip>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className={cn(
+                                  "w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors",
+                                  active ? "border-primary bg-primary/20" : "border-border/50"
+                                )}
+                              >
+                                {active && <Check className="text-primary w-3 h-3" />}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="text-xs font-semibold text-foreground flex items-center gap-2">
+                                  {m.country}
+                                  {m.isCrypto && (
+                                    <Chip className="text-primary bg-primary/10 border-primary/20 uppercase tracking-widest">Crypto</Chip>
+                                  )}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground block truncate font-mono">
+                                  {m.exchange} · {m.assetCount} assets · {m.pricedCount} priced
+                                </span>
+                              </div>
+                            </div>
+                            <Chip
+                              className={cn(
+                                "shrink-0",
+                                active
+                                  ? "text-primary bg-primary/10 border-primary/20"
+                                  : "text-muted-foreground bg-muted/40 border-transparent"
+                              )}
+                            >
+                              {active ? "Showing" : "Hidden"}
+                            </Chip>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </SubSection>
 
-                <div className="mt-4 space-y-4">
-                  <ProviderRegistry home="market" title="Market Screener providers" />
-                  <Panel className="p-5 md:p-6" data-anchor="priority">
-                    <p className="text-[11px] font-semibold text-foreground mb-1">Price-source priority & fallback</p>
-                    <p className="text-[10px] text-muted-foreground leading-relaxed">
-                      JDDS serves stored prices first, then the built-in scraper chain escalates automatically:
-                      TradingView scanner → HTTP/scraper → Playwright browser → optional yfinance bridge.
-                      Configure keys for alternative sources above to widen coverage and rate limits.
-                    </p>
-                  </Panel>
-                  <DataSourcesPanel />
+                <div className="mt-6 space-y-4">
+                  <SubSection
+                    icon={Plug}
+                    title="Market data providers"
+                    description="Price, fundamentals and crypto sources. Add a key to widen coverage and rate limits."
+                  >
+                    <ProviderRegistry home="market" title="Market Discover providers" />
+                  </SubSection>
+
+                  <SubSection icon={Activity} title="Price-source priority & fallback">
+                    <Panel className="p-5 md:p-6" data-anchor="priority">
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        JDDS serves stored prices first, then the built-in scraper chain escalates automatically:
+                        TradingView scanner → HTTP/scraper → Playwright browser → optional yfinance bridge.
+                        Configure keys for alternative sources above to widen coverage and rate limits.
+                      </p>
+                    </Panel>
+                  </SubSection>
+
+                  <SubSection icon={Database} title="Custom data sources">
+                    <DataSourcesPanel />
+                  </SubSection>
                 </div>
               </div>
             )}
@@ -794,37 +893,14 @@ export function Settings({
                   title="News"
                   description="Providers that power the Market News bulletin and sentiment—RSS feeds and news APIs. No other section lists news providers."
                 />
-                <Panel className="divide-y divide-border/10">
-                  {feeds.map((f) => (
-                    <div key={f.id} className="flex items-center justify-between gap-3 px-5 py-4">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span
-                          className={cn(
-                            "w-2.5 h-2.5 rounded-full shrink-0",
-                            f.enabled ? "bg-primary shadow-[0_0_8px] shadow-primary/60" : "bg-border"
-                          )}
-                        />
-                        <div className="min-w-0">
-                          <span className="text-xs font-medium text-foreground block">{f.source}</span>
-                          <span className="text-[10px] text-muted-foreground block truncate max-w-[260px] font-mono">{f.url}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={cn("text-[10px] font-semibold hidden sm:block", f.enabled ? "text-primary" : "text-muted-foreground")}>
-                          {f.enabled ? "Live" : "Paused"}
-                        </span>
-                        <Toggle
-                          checked={f.enabled}
-                          onChange={(v) => {
-                            const next = feeds.map((x) => (x.id === f.id ? { ...x, enabled: v } : x));
-                            setFeeds(next);
-                            void persist({ newsFeeds: next });
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </Panel>
+                <NewsFeedsPanel
+                  feeds={feeds}
+                  saving={saving}
+                  onSave={(next) => {
+                    setFeeds(next);
+                    void persist({ newsFeeds: next });
+                  }}
+                />
 
                 <div className="mt-4">
                   <ProviderRegistry home="news" title="News providers" />

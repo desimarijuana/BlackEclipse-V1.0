@@ -277,14 +277,23 @@ export function useChatModel(): ChatModelState {
 
   const openManageModels = useCallback(
     (providerId?: string) => {
+      // Resolve the provider to curate. An explicit id (the per-provider Manage
+      // button) always wins. With none, prefer the active provider — but fall
+      // back to the first usable provider so the menu item works even when the
+      // saved provider is `auto`/`mock` (which has no registry entry and used to
+      // resolve to `undefined`, silently rendering no dialog).
+      const fallback =
+        activeProvider ??
+        providers.find((p) => p.keyless || p.available) ??
+        providers[0];
       const pid =
         providerId ??
         (selectedProvider === "auto" || selectedProvider === "mock"
-          ? activeProvider?.id
+          ? fallback?.id
           : selectedProvider);
       setManageProvider(pid ?? null);
     },
-    [selectedProvider, activeProvider],
+    [selectedProvider, activeProvider, providers],
   );
 
   // The provider whose models the Manage dialog should curate.

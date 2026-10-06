@@ -246,6 +246,10 @@ export function ChatInput({
 function ModelSelector({ state }: { state: ChatModelState }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [custom, setCustom] = useState("");
+  // The menu is controlled so opening the Manage-models dialog can CLOSE it
+  // first — otherwise the dialog opens behind the still-open `z-[110]` menu and
+  // the click looks like it did nothing.
+  const [menuOpen, setMenuOpen] = useState(false);
   const label = state.displayModel || state.providerLabel || "Model";
   const current = state.providers.find((p) => p.id === state.selectedProvider);
   useHydrateEnabledModels();
@@ -260,7 +264,7 @@ function ModelSelector({ state }: { state: ChatModelState }) {
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger
         title={`Model: ${state.displayModel || "default"} · provider ${state.providerLabel}`}
         className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 h-7 max-w-[180px] rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
@@ -330,7 +334,14 @@ function ModelSelector({ state }: { state: ChatModelState }) {
                       {manageable && (
                         <button
                           type="button"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); state.openManageModels(p.id); }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Close the menu FIRST so the dialog is not rendered
+                            // behind it; then open the curation dialog.
+                            setMenuOpen(false);
+                            state.openManageModels(p.id);
+                          }}
                           className="inline-flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground/70 hover:text-foreground cursor-pointer"
                           title={`Manage ${p.label} models`}
                         >
@@ -369,7 +380,9 @@ function ModelSelector({ state }: { state: ChatModelState }) {
           closeOnClick={false}
           onClick={() => {
             // Discover then immediately open Manage so the operator curates the
-            // catalog instead of it being poured into the menu.
+            // catalog instead of it being poured into the menu. Close the menu so
+            // the dialog is not hidden behind it.
+            setMenuOpen(false);
             void state.discoverProvider().finally(() => state.openManageModels());
           }}
           className="gap-2 text-primary/90"

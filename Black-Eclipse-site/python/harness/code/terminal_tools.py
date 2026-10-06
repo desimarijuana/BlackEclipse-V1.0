@@ -119,8 +119,9 @@ def make_terminal_authorizer(inner: Any = None):
         )
         if claimed is not None:
             return True
+        pending = None
         try:
-            approvals.request_kind(
+            pending = approvals.request_kind(
                 kind=APPROVAL_KIND, request_key=ws_id, digest=digest,
                 effect="external_action",
                 run_id=str(getattr(ctx, "run_id", "")),
@@ -132,9 +133,32 @@ def make_terminal_authorizer(inner: Any = None):
             pass
         try:
             from .tools import emit_code_event as _emit  # noqa: PLC0415
-            await _emit(ctx, "approval.requested", {"kind": APPROVAL_KIND, "command": command[:180]})
+            await _emit(ctx, "approval.requested", {
+                "approvalId": (pending or {}).get("id"),
+                "kind": APPROVAL_KIND,
+                "title": "Approve running a command",
+                "summary": f"Run in the project: {command[:180]}",
+                "effect": "external_action",
+                "risk": "medium",
+                "command": command[:180],
+                "workspaceId": ws_id,
+            })
         except Exception:  # noqa: BLE001
             pass
+        # Pause mode: block for the operator's decision and re-claim once.
+        if pending is not None:
+            from ..mcp.approvals import pause_for_decision  # noqa: PLC0415
+
+            if await pause_for_decision(
+                approvals, ctx, pending.get("id"),
+                lambda: approvals.consume_kind(
+                    kind=APPROVAL_KIND, request_key=ws_id, digest=digest, workspace_id=ws_id,
+                ),
+                emitter=getattr(ctx, "emitter", None), digest=digest,
+                event_type="approval.approved",
+                approved_payload={"kind": APPROVAL_KIND, "command": command[:180]},
+            ):
+                return True
         return False
 
     return authorize

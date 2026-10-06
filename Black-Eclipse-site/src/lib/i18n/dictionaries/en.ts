@@ -13,7 +13,7 @@ export const en = {
   'nav.dashboard': 'Command Center',
   'nav.investorEye': 'Investor Eye',
   'nav.marketWorkspace': 'Chart Workspace',
-  'nav.discovery': 'Market Screener',
+  'nav.discovery': 'Market Discover',
   'nav.portfolio': 'Portfolio',
   'nav.journal': 'Journal',
   'nav.news': 'Market News',

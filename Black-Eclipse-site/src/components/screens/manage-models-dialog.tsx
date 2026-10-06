@@ -13,7 +13,7 @@
 // Dialog, so it is never clipped and sits above the Settings modal (z-[100]).
 
 import { useMemo, useState } from 'react';
-import { Check, Layers, Loader2, RefreshCw, Search } from '@/lib/icons';
+import { Check, Layers, RefreshCw, Search } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useEnabledModelsStore } from '@/lib/agent/enabled-models';
@@ -94,7 +94,10 @@ export function ManageModelsDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-2xl h-[min(85dvh,680px)] rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
+      <DialogContent
+        overlayClassName="z-[130]"
+        className="z-[130] w-[calc(100%-1.5rem)] max-w-3xl h-[min(85dvh,720px)] rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden"
+      >
         <DialogTitle className="sr-only">Manage models — {providerLabel}</DialogTitle>
 
         {/* Header */}
@@ -123,8 +126,8 @@ export function ManageModelsDialog({
         </div>
 
         {/* Search + bulk actions */}
-        <div className="flex items-center gap-2 border-b border-border/10 px-5 py-3">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/10 px-5 py-3">
+          <div className="relative min-w-[10rem] flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               autoFocus
@@ -159,7 +162,7 @@ export function ManageModelsDialog({
                 : `No models match “${query}”.`}
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((m) => {
                 const on = enabledSet.has(m);
                 return (
@@ -169,7 +172,7 @@ export function ManageModelsDialog({
                     onClick={() => toggle(m)}
                     aria-pressed={on}
                     className={cn(
-                      'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer',
+                      'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors cursor-pointer',
                       on
                         ? 'border-white/12 bg-white/[0.06] text-foreground'
                         : 'border-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground',

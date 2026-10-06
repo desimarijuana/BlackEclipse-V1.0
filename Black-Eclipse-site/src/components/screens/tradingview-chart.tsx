@@ -816,7 +816,7 @@ export function TradingViewChart({
               onClick={onClose}
               className="w-full border-border hover:bg-accent hover:text-foreground font-semibold py-2.5 rounded-xl text-xs cursor-pointer"
             >
-              Back to Market Screener
+              Back to Market Discover
             </Button>
           </div>
         </div>

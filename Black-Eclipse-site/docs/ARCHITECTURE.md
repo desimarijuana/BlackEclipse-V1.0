@@ -889,7 +889,25 @@ attaches as context and the answers the agent produces:
   shows the declared list up to the limit. This is a client-side FILTER, never an
   allowlist — the runtime still accepts any id and the "Custom model id…" entry
   always works. Both surfaces share one dialog and one store, so a curation made
-  in Settings is immediately reflected in the composer.
+  in Settings is immediately reflected in the composer. The dialog is portaled at
+  `z-[130]`, above the Settings modal (`z-[100]`) and the composer menu
+  (`z-[110]`); opening it from a provider menu closes that menu first, and the
+  no-arg "Manage models…" path falls back to the active/first usable provider, so
+  the action is never a silent no-op.
+- **Reasoning effort is the per-run "model variant".** The runtime has no
+  per-model variant registry; its real knob is reasoning effort
+  (`none/low/medium/high/very_high/max`, `python/harness/model_runtime/catalog.py`
+  `REASONING_LEVELS`), normally chosen by the task profile. Settings › AI now
+  exposes an **Auto / Minimal / Standard / High / Ultra** selector (`src/lib/
+  agent/reasoning.ts`, mapping Auto → no override, and Minimal/Standard/High/Ultra
+  → `low`/`medium`/`high`/`very_high`). The choice persists as
+  `LLMConfig.reasoningEffort` (`setLLMConfig`; `null` clears it back to Auto) and
+  round-trips through `/api/settings`. The run front door forwards it as
+  `input.context.reasoning` (`run-service.ts`), which the router reads as a
+  `reasoning` requirement and `prepare_model` applies to a model's NATIVE control
+  only (OpenAI reasoning models, Anthropic `thinking`, Gemini `thinking_budget`) —
+  an OpenAI-compatible endpoint that does not declare reasoning is never
+  force-fed the knob. An explicit run effort outranks the task profile's default.
 
 ### ChatDock (the Command Center assistant composer)
 

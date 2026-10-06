@@ -1184,7 +1184,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
                 <GlobeStand className="text-primary" size={32} />
               </span>
-              Market Screener
+              Market Discover
             </h1>
             <p className="text-muted-foreground text-sm mt-2">
               Real-time asset indices, sector breakdowns, high-fidelity stock databases, and automated AI analysis.
@@ -1710,7 +1710,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 onClick={() => handleMarketSelect('GLOBAL')}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer shrink-0"
               >
-                <ArrowLeft size={13} /> Back to Market Screener
+                <ArrowLeft size={13} /> Back to Market Discover
               </button>
             )}
           </div>

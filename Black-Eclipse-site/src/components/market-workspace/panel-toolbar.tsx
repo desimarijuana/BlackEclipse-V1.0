@@ -26,7 +26,7 @@ const PANEL_LABEL: Record<MarketPanelType, string> = {
   portfolio: 'Portfolio',
   heatmap: 'Heatmap',
   alerts: 'Alerts',
-  screener: 'Screener',
+  screener: 'Discover',
 };
 
 export interface PanelToolbarProps {

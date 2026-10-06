@@ -338,7 +338,7 @@ function relatedEntities(entity: SearchEntity): SearchEntity[] {
     // The screener has no single-symbol query — it routes to the symbol's
     // chart, which is the real per-ticker detail view.
     mk('chart', 'chart', { symbol }, `Chart ${symbol}`),
-    mk('instruments', 'discovery', { symbol, focus: 'chart' }, `Open ${symbol} in Market Screener`),
+    mk('instruments', 'discovery', { symbol, focus: 'chart' }, `Open ${symbol} in Market Discover`),
   ];
 }
 

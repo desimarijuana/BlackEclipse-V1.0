@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
+  AlertCircle, Blocks, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,7 +73,7 @@ export function SkillLibrary({
       <div className="mb-6 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <Sparkles className="text-primary" size={22} />
+            <Blocks className="text-primary" size={22} />
           </span>
           <div>
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Skills Library</h2>

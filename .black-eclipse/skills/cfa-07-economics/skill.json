@@ -1,0 +1,62 @@
+{
+  "id": "cfa.07.economics",
+  "name": "CFA Level I - Economics",
+  "description": "The CFA Level I Economics topic in full: all 8 modules covering the firm and market structures, business cycles, fiscal policy, monetary policy, the newer introduction to geopolitics, international trade, capital flows and the FX market, and exchange rate calculations. Seventh topic in the study order.",
+  "tags": [
+    "cfa",
+    "level-1",
+    "economics",
+    "micro",
+    "macro",
+    "fx",
+    "geopolitics",
+    "monetary-policy"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string"
+      },
+      "depth": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "modules": {
+        "type": "object"
+      },
+      "formulas": {
+        "type": "object"
+      },
+      "traps": {
+        "type": "object"
+      }
+    },
+    "required": []
+  },
+  "requiredTools": [],
+  "requiredSkills": [
+    "cfa.00.curriculum-map"
+  ],
+  "permissions": [
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "version": "1.0.0",
+  "category": "finance",
+  "status": "disabled",
+  "instructions": "SKILL.md",
+  "author": "eclipse",
+  "origin": "author",
+  "compatibleRuntime": ">=0.1.0"
+}

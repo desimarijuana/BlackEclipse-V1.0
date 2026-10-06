@@ -447,26 +447,31 @@ export function ProviderRegistry({
 
   if (all.length === 0) return null;
 
-  // Configured/available providers float to the top so the list opens on what
-  // is working, not on a wall of "not configured".
   const isUp = (p: CatalogProvider) => p.status === "builtin" || p.status === "connected";
+  const keyGated = (p: CatalogProvider) => Boolean(p.envVar);
+  const ready = (p: CatalogProvider) => isUp(p) && (!p.envVar || Boolean(keys[p.envVar]?.configured));
+  const needsKey = (p: CatalogProvider) => keyGated(p) && !keys[p.envVar!]?.configured;
+
   const needle = filter.trim().toLowerCase();
   const matches = (p: CatalogProvider) => {
     if (!needle) return true;
     const meta = providerMeta(p.id, p.category);
     return [p.name, meta.purpose, p.envVar ?? "", ...meta.usedBy].join(" ").toLowerCase().includes(needle);
   };
-  const filtered = all
-    .filter(matches)
-    .sort((a, b) => Number(isUp(b)) - Number(isUp(a)) || a.name.localeCompare(b.name));
+  const byName = (a: CatalogProvider, b: CatalogProvider) => a.name.localeCompare(b.name);
+  const filtered = all.filter(matches);
+  // Grouped like the AI section: what already works first, then what needs a key.
+  const readyRows = filtered.filter(ready).sort(byName);
+  const pendingRows = filtered.filter((p) => !ready(p) && !needsKey(p)).sort(byName);
+  const keyRows = filtered.filter(needsKey).sort(byName);
+  const available = all.filter(ready).length;
 
-  const available = all.filter(isUp).length;
-  const COLLAPSE_AT = 8;
-  // Economics has 40+ sources, so it is always shown grouped by kind instead of
-  // collapsed. Other sections collapse past a short threshold.
-  const grouped = home === "economics";
-  const collapsible = !grouped && !needle && filtered.length > COLLAPSE_AT;
-  const shown = collapsible && !showAll ? filtered.slice(0, COLLAPSE_AT) : filtered;
+  const COLLAPSE_AT = 6;
+  // Economics has 40+ sources, so it stays sub-grouped by kind. Within each
+  // state bucket we keep that kind grouping so the section is scannable.
+  const groupedByKind = home === "economics";
+  const collapsible = !needle && keyRows.length > COLLAPSE_AT;
+  const shownKeyRows = collapsible && !showAll ? keyRows.slice(0, COLLAPSE_AT) : keyRows;
 
   const renderRow = (p: CatalogProvider) => (
     <ProviderRegistryRow
@@ -476,6 +481,39 @@ export function ProviderRegistry({
       onKeyChanged={reload}
       onOpenWizard={onOpenWizard}
     />
+  );
+
+  const renderKindGroups = (rows: CatalogProvider[]) => {
+    const groups = Array.from(new Set(rows.map((p) => economicsGroup(p.id))));
+    return groups.map((group) => {
+      const groupRows = rows.filter((p) => economicsGroup(p.id) === group);
+      if (groupRows.length === 0) return null;
+      return (
+        <div key={group}>
+          <p className="px-4 pt-3 pb-1 text-[9px] uppercase tracking-[0.15em] font-bold text-muted-foreground/70">
+            {group}
+          </p>
+          <div className="divide-y divide-border/10">{groupRows.map(renderRow)}</div>
+        </div>
+      );
+    });
+  };
+
+  const renderRows = (rows: CatalogProvider[]) =>
+    groupedByKind ? renderKindGroups(rows) : <div className="divide-y divide-border/10">{rows.map(renderRow)}</div>;
+
+  const GroupHeader = ({ label, count, tone }: { label: string; count: number; tone: "ok" | "warn" }) => (
+    <div className="flex items-center gap-2 px-4 pt-3.5 pb-1.5">
+      {tone === "ok" ? (
+        <Check size={11} className="text-emerald-400 shrink-0" />
+      ) : (
+        <AlertCircle size={11} className="text-amber-400 shrink-0" />
+      )}
+      <span className={cn("text-[9px] uppercase tracking-[0.15em] font-bold", tone === "ok" ? "text-emerald-400/90" : "text-amber-400/90")}>
+        {label}
+      </span>
+      <span className="text-[9px] text-muted-foreground/60">{count}</span>
+    </div>
   );
 
   return (
@@ -489,7 +527,7 @@ export function ProviderRegistry({
             {available} of {all.length} available · keys encrypted in JDDS, never returned
           </p>
         </div>
-        {(all.length > COLLAPSE_AT || grouped) && (
+        {all.length > COLLAPSE_AT && (
           <div className="relative shrink-0">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
             <input
@@ -502,40 +540,37 @@ export function ProviderRegistry({
         )}
       </div>
 
-      {grouped ? (
-        <div className="divide-y divide-border/10">
-          {Array.from(new Set(filtered.map((p) => economicsGroup(p.id)))).map((group) => {
-            const rows = filtered.filter((p) => economicsGroup(p.id) === group);
-            if (rows.length === 0) return null;
-            return (
-              <div key={group}>
-                <p className="px-4 pt-3 pb-1 text-[9px] uppercase tracking-[0.15em] font-bold text-muted-foreground/70">
-                  {group}
-                </p>
-                <div className="divide-y divide-border/10">{rows.map(renderRow)}</div>
-              </div>
-            );
-          })}
-          {filtered.length === 0 && (
-            <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
-          )}
-        </div>
-      ) : (
-        <div className="divide-y divide-border/10">
-          {shown.map(renderRow)}
-          {filtered.length === 0 && (
-            <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
-          )}
+      {filtered.length === 0 && (
+        <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
+      )}
+
+      {readyRows.length > 0 && (
+        <div className="border-b border-border/10">
+          <GroupHeader label="Configured" count={readyRows.length} tone="ok" />
+          {renderRows(readyRows)}
         </div>
       )}
 
-      {collapsible && (
-        <button
-          onClick={() => setShowAll((v) => !v)}
-          className="w-full px-4 py-2.5 border-t border-border/10 text-[10px] font-semibold text-primary hover:bg-accent/20 transition-colors cursor-pointer"
-        >
-          {showAll ? "Show fewer" : `Show all ${filtered.length} providers`}
-        </button>
+      {pendingRows.length > 0 && (
+        <div className={cn(keyRows.length > 0 && "border-b border-border/10")}>
+          <GroupHeader label="Available" count={pendingRows.length} tone="ok" />
+          {renderRows(pendingRows)}
+        </div>
+      )}
+
+      {keyRows.length > 0 && (
+        <div>
+          <GroupHeader label="Needs a key" count={keyRows.length} tone="warn" />
+          {renderRows(shownKeyRows)}
+          {collapsible && (
+            <button
+              onClick={() => setShowAll((v) => !v)}
+              className="w-full px-4 py-2.5 border-t border-border/10 text-[10px] font-semibold text-primary hover:bg-accent/20 transition-colors cursor-pointer"
+            >
+              {showAll ? "Show fewer" : `Show all ${keyRows.length} providers needing a key`}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

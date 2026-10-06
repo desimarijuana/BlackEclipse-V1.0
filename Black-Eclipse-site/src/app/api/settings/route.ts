@@ -12,6 +12,47 @@ import { guardMutation, checkOutboundUrl } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
+// In-memory SWR cache. The settings read is four SystemConfig lookups plus a
+// provider-key vault read — fast when the DB is idle (~25 ms), but during
+// startup the WarmUp/NewsIngest jobs hold SQLite for tens of seconds and any
+// queued request waits behind them (the "settings never loads until refresh"
+// hang). Serve the cached payload instantly; refresh in the background.
+const CACHE_TTL_MS = 60 * 1000;
+
+interface SettingsPayload {
+  llm: ReturnType<typeof maskLLMConfig>;
+  newsFeeds: Awaited<ReturnType<typeof getNewsFeeds>>;
+  preferences: Awaited<ReturnType<typeof getPreferences>>;
+  integrations: Awaited<ReturnType<typeof getIntegrationsStatus>>;
+}
+
+let settingsCache: { t: number; data: SettingsPayload } | null = null;
+let rebuildInFlight = false;
+
+async function buildSettingsPayload(): Promise<SettingsPayload> {
+  const [llm, feeds, prefs, integrations] = await Promise.all([
+    getLLMConfig(),
+    getNewsFeeds(),
+    getPreferences(),
+    getIntegrationsStatus(),
+  ]);
+  return {
+    llm: maskLLMConfig(llm),
+    newsFeeds: feeds,
+    preferences: prefs,
+    integrations,
+  };
+}
+
+function startBackgroundRebuild() {
+  if (rebuildInFlight) return;
+  rebuildInFlight = true;
+  buildSettingsPayload()
+    .then((data) => { settingsCache = { t: Date.now(), data }; })
+    .catch((err) => console.error("[api/settings] background rebuild error:", err))
+    .finally(() => { rebuildInFlight = false; });
+}
+
 // Never send the stored API key back to any caller — only whether one exists.
 function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
   return {
@@ -22,6 +63,9 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
     // The declared context window is not a secret; it round-trips so the UI can
     // show/edit it. Absent = unknown.
     contextWindow: llm.contextWindow,
+    // The reasoning-effort override ("model variant") is not a secret either;
+    // round-trip it so the picker reflects the saved choice. Absent = Auto.
+    reasoningEffort: llm.reasoningEffort,
     // The model-routing preference is not a secret either; round-trip it.
     routingPolicy: llm.routingPolicy,
   };
@@ -31,18 +75,18 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
 // The LLM API key is intentionally omitted (masked as `hasApiKey`).
 export async function GET() {
   try {
-    const [llm, feeds, prefs, integrations] = await Promise.all([
-      getLLMConfig(),
-      getNewsFeeds(),
-      getPreferences(),
-      getIntegrationsStatus(),
-    ]);
-    return NextResponse.json({
-      llm: maskLLMConfig(llm),
-      newsFeeds: feeds,
-      preferences: prefs,
-      integrations,
-    });
+    if (settingsCache) {
+      if (Date.now() - settingsCache.t < CACHE_TTL_MS) {
+        return NextResponse.json(settingsCache.data);
+      }
+      // Stale — serve it now and refresh quietly.
+      startBackgroundRebuild();
+      return NextResponse.json(settingsCache.data);
+    }
+    // Cold process: build once, synchronously, then cache.
+    const data = await buildSettingsPayload();
+    settingsCache = { t: Date.now(), data };
+    return NextResponse.json(data);
   } catch (err) {
     console.error("[api/settings] GET error:", err);
     return NextResponse.json({ error: "Failed to load settings" }, { status: 500 });
@@ -92,12 +136,24 @@ export async function POST(request: Request) {
       getNewsFeeds(),
       getPreferences(),
     ]);
-    return NextResponse.json({
-      success: true,
+    const payload = {
       llm: maskLLMConfig(llm),
       newsFeeds: feeds,
       preferences: prefs,
-    });
+    };
+    // Keep the GET cache coherent with what was just written.
+    if (settingsCache) {
+      settingsCache = {
+        t: Date.now(),
+        data: {
+          ...settingsCache.data,
+          llm: payload.llm,
+          newsFeeds: payload.newsFeeds,
+          preferences: payload.preferences,
+        },
+      };
+    }
+    return NextResponse.json({ success: true, ...payload });
   } catch (err) {
     console.error("[api/settings] POST error:", err);
     return NextResponse.json(

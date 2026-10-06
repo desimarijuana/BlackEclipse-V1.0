@@ -11,6 +11,7 @@ import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
+import { ApprovalCard } from '@/components/chat/approval-card';
 import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
@@ -40,8 +41,15 @@ const ChartWidget = dynamic(() => import('@/components/chart/chart-widget').then
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
-const Settings = dynamic(() => import('./settings').then((m) => m.Settings), { ssr: false });
+// Settings: code-split, but warmed during idle so the first open paints
+// instantly (cold chunk fetch + mount was the slow/blank-load cause).
+const settingsImport = () => import('./settings');
+const Settings = dynamic(() => settingsImport().then((m) => m.Settings), { ssr: false, loading: () => <ScreenSkeleton /> });
 import type { SectionId } from './settings';
+if (typeof window !== 'undefined') {
+  const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+  idle ? idle(() => void settingsImport()) : window.setTimeout(() => void settingsImport(), 2000);
+}
 const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m) => m.AlertsClient), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
@@ -157,6 +165,9 @@ function StockChatContent() {
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The composer container the approval card floats above (portaled to <body>).
+  // Held in state (not a ref) so the card re-measures once the node mounts.
+  const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
 
   // Visible attachment chips at the composer: pending + the session's saved
   // context files, de-duplicated.
@@ -189,6 +200,15 @@ function StockChatContent() {
   useEffect(() => {
     setAgentBusy(agentRun.active);
   }, [agentRun.active]);
+
+  // The action the agent is blocked on, if any. Sourced from the live turn and
+  // falling back to the last persisted assistant message, so the card survives a
+  // transcript re-render mid-run (the turn sink writes it onto the message).
+  const pendingApproval = useMemo(
+    () => agentRun.turn.pendingApproval
+      ?? [...messages].reverse().find((m) => m.role === 'assistant' && m.pendingApproval)?.pendingApproval,
+    [agentRun.turn.pendingApproval, messages],
+  );
 
   // Refs mirror the two pieces of state an async send handler reads AFTER an
   // await. React state setters do not update the render closure, so reading
@@ -632,6 +652,7 @@ function StockChatContent() {
         memory: turn.memory,
         runId: turn.runId,
         error: turn.error,
+        pendingApproval: turn.pendingApproval,
       }, turn.done);
     };
 
@@ -981,7 +1002,7 @@ function StockChatContent() {
                     <div className={cn(
                       'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 transition-[max-width] duration-500 ease-out',
                       focusMode ? 'max-w-[860px]' : 'max-w-[1400px]',
-                    )}>
+                    )} ref={setComposerEl}>
                       <ChatInput
                         query={query}
                         setQuery={setQuery}
@@ -1002,6 +1023,13 @@ function StockChatContent() {
                           ? sessionController.session.contextChars / sessionController.session.contextLimitChars
                           : 0}
                       />
+                      {pendingApproval && (
+                        <ApprovalCard
+                          approval={pendingApproval}
+                          anchor={composerEl}
+                          onDecide={agentRun.decide}
+                        />
+                      )}
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <SessionBar session={sessionController} />
@@ -1169,7 +1197,7 @@ function StockChatContent() {
                   onClick={() => setActiveTab('discovery')}
                   className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"
                 >
-                  <ArrowLeft size={13} /> Back to Market Screener
+                  <ArrowLeft size={13} /> Back to Market Discover
                 </button>
                 <ChartWidget symbol={selectedChartSymbol} className="h-full" />
               </div>

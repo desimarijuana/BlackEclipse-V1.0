@@ -83,14 +83,32 @@ async function isHealthy(timeoutMs = 1500): Promise<boolean> {
  * cleared by hand.
  */
 function harnessSourceMtimeMs(): number {
+  // Walk the WHOLE harness tree, not just the top level: most of the runtime
+  // lives in subpackages (`code/`, `mcp/`, `terminal/`, `skills/`, …). A
+  // top-level-only scan missed every edit there, so a running runtime was never
+  // detected as stale and kept serving old code after a change.
   try {
-    const dir = path.join(process.cwd(), "python", "harness");
+    const root = path.join(process.cwd(), "python", "harness");
     let newest = 0;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".py")) continue;
-      const m = statSync(path.join(dir, entry.name)).mtimeMs;
-      if (m > newest) newest = m;
-    }
+    const walk = (dir: string, depth: number): void => {
+      if (depth > 6) return;
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (entry.name === "__pycache__" || entry.name.startsWith(".")) continue;
+          walk(path.join(dir, entry.name), depth + 1);
+        } else if (entry.isFile() && entry.name.endsWith(".py")) {
+          const m = statSync(path.join(dir, entry.name)).mtimeMs;
+          if (m > newest) newest = m;
+        }
+      }
+    };
+    walk(root, 0);
     return newest;
   } catch {
     return 0;

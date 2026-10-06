@@ -12,9 +12,31 @@ export type ResponseStatus =
   | 'planning'
   | 'tool_running'
   | 'streaming'
+  | 'awaiting_approval'
   | 'completed'
   | 'cancelled'
   | 'error';
+
+/**
+ * One action the agent is blocked on until the operator approves or denies it.
+ *
+ * `id` is the single-use, digest-bound approval row id; approving POSTs a
+ * decision that resumes the paused run in place. Carries only display copy the
+ * runtime already derived (never file content or secrets).
+ */
+export interface PendingApproval {
+  id: string;
+  /** Discriminator, e.g. `mcp_tool`, `code_action`, `terminal_command`. */
+  kind: string;
+  /** Short imperative title, e.g. "Approve running a command". */
+  title: string;
+  /** One plain sentence describing exactly what will happen. */
+  summary?: string;
+  /** Effect class (`write` | `external_action`). */
+  effect?: string;
+  /** Declared risk (`low` | `medium` | `high`) when the runtime reports one. */
+  risk?: string;
+}
 
 /** One thing the agent did (a tool call, a retrieval source, or a context note). */
 export interface ActivityItem {
@@ -97,6 +119,12 @@ export interface AssistantTurn {
   autonomy?: string | null;
   /** Phase 14 §6.4: the runtime-derived chat capability view. */
   capability?: unknown;
+  /**
+   * The action the agent is currently blocked on pending an operator decision,
+   * or undefined when it is not waiting. Set from `approval.requested`, cleared
+   * by `approval.resolved` or the decision POST.
+   */
+  pendingApproval?: PendingApproval;
   /** True once a terminal state has been reached. */
   done: boolean;
 }
@@ -111,7 +139,6 @@ export function turnText(turn: AssistantTurn): string {
 }
 
 const TERMINAL: ReadonlySet<ResponseStatus> = new Set(['completed', 'cancelled', 'error']);
-
 export function isTerminal(status: ResponseStatus): boolean {
   return TERMINAL.has(status);
 }

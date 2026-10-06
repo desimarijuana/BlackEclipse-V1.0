@@ -46,6 +46,11 @@ export interface UseAgentRun {
   start: (args: StartRunArgs) => Promise<AssistantTurn>;
   /** Stop the in-flight run: abort the stream and ask the runtime to cancel. */
   cancel: () => void;
+  /**
+   * Answer the current approval card. Resolves the paused run in place; the
+   * card clears immediately and a failed POST restores it so the user can retry.
+   */
+  decide: (approve: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -138,6 +143,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.codeVerification) t.codeVerification = event.codeVerification;
           if (event.autonomy !== undefined) t.autonomy = event.autonomy;
           if (event.capability) t.capability = event.capability;
+          t.pendingApproval = undefined;
           if (event.error) {
             t.error = { code: event.errorCode, message: event.error };
             t.status = 'error';
@@ -151,7 +157,23 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
         case 'error': {
           t.error = { code: event.code, message: event.message };
           t.status = 'error';
+          t.pendingApproval = undefined;
           t.done = true;
+          publish(true);
+          break;
+        }
+        case 'approval_request': {
+          // The run is blocked until the operator decides. Not terminal: the
+          // stream stays open and the runtime resumes in place on approval.
+          t.pendingApproval = event.approval;
+          t.status = 'awaiting_approval';
+          publish(true);
+          break;
+        }
+        case 'approval_resolved': {
+          // Clear only the card this event refers to (or any card when the
+          // runtime did not name one), so a late event cannot drop a newer card.
+          if (!event.id || t.pendingApproval?.id === event.id) t.pendingApproval = undefined;
           publish(true);
           break;
         }
@@ -244,6 +266,37 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     }
   }, [runId]);
 
+  const decide = useCallback(
+    async (approve: boolean) => {
+      const pending = turnRef.current.pendingApproval;
+      if (!pending) return;
+      // Clear the card optimistically so the buttons cannot double-submit; the
+      // runtime's `approval.resolved` event is the authoritative clear. Restore
+      // it if the POST fails so the operator can retry.
+      turnRef.current.pendingApproval = undefined;
+      if (turnRef.current.status === 'awaiting_approval') turnRef.current.status = 'tool_running';
+      publish(true);
+      try {
+        const res = await fetch(
+          `/api/harness/mcp/approvals/${encodeURIComponent(pending.id)}/decide`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ approve }),
+          },
+        );
+        if (!res.ok) throw new Error(`decision failed (${res.status})`);
+      } catch {
+        if (!turnRef.current.done) {
+          turnRef.current.pendingApproval = pending;
+          turnRef.current.status = 'awaiting_approval';
+          publish(true);
+        }
+      }
+    },
+    [publish],
+  );
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -254,5 +307,5 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     setRunId(null);
   }, []);
 
-  return { turn, active, runId, start, cancel, reset };
+  return { turn, active, runId, start, cancel, decide, reset };
 }

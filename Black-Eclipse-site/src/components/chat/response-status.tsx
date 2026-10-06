@@ -6,7 +6,7 @@
 // thinking while it is waiting on a tool, and never keeps spinning after a
 // terminal state.
 
-import { AlertTriangle, Check, Loader2, OctagonX } from '@/lib/icons';
+import { AlertTriangle, Check, Loader2, OctagonX, ShieldAlert } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ActivityItem, ResponseStatus } from '@/lib/agent/response-model';
 
@@ -31,6 +31,8 @@ function statusLabel(status: ResponseStatus, activities: ActivityItem[]): string
     }
     case 'streaming':
       return 'Preparing response';
+    case 'awaiting_approval':
+      return 'Waiting for your approval';
     case 'completed':
       return 'Done';
     case 'cancelled':
@@ -56,6 +58,7 @@ export function ResponseStatusLine({ status, activities = [], compact = false }:
     status === 'completed' ? Check
     : status === 'error' ? AlertTriangle
     : status === 'cancelled' ? OctagonX
+    : status === 'awaiting_approval' ? ShieldAlert
     : Loader2;
 
   return (
@@ -68,6 +71,7 @@ export function ResponseStatusLine({ status, activities = [], compact = false }:
         status === 'error' ? 'text-rose-400'
           : status === 'cancelled' ? 'text-muted-foreground'
           : status === 'completed' ? 'text-muted-foreground/80'
+          : status === 'awaiting_approval' ? 'text-amber-300'
           : 'text-muted-foreground',
       )}
     >

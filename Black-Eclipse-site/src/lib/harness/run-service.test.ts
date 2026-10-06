@@ -5,12 +5,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const runViaRuntime = vi.fn();
 const listAgentsFromRuntime = vi.fn();
+const startRunBackground = vi.fn();
 const getLLMConfig = vi.fn();
 const resolveChatCodeProfile = vi.fn();
 
 vi.mock("./python-client", () => ({
   runViaRuntime: (...a: unknown[]) => runViaRuntime(...a),
   listAgentsFromRuntime: (...a: unknown[]) => listAgentsFromRuntime(...a),
+  startRunBackground: (...a: unknown[]) => startRunBackground(...a),
 }));
 vi.mock("@/lib/settings", () => ({
   getLLMConfig: (...a: unknown[]) => getLLMConfig(...a),
@@ -19,12 +21,14 @@ vi.mock("./chat-capability", () => ({
   resolveChatCodeProfile: (...a: unknown[]) => resolveChatCodeProfile(...a),
 }));
 
-import { startRun, chatWithAgent } from "./run-service";
+import { startRun, startChatRun, chatWithAgent } from "./run-service";
 import { __clearAgentPresetCache } from "./agent-presets";
 import { HarnessError } from "./errors";
 
 beforeEach(() => {
   runViaRuntime.mockReset();
+  startRunBackground.mockReset();
+  startRunBackground.mockResolvedValue("run_bg");
   getLLMConfig.mockReset();
   resolveChatCodeProfile.mockReset();
   resolveChatCodeProfile.mockResolvedValue(null);
@@ -153,6 +157,25 @@ describe("startRun", () => {
     expect(runViaRuntime.mock.calls[0][0].input.context?.modelPolicy).toBeUndefined();
   });
 
+  it("forwards a reasoning-effort override as input.context.reasoning", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "test-key",
+      model: "o3-mini",
+      reasoningEffort: "very_high",
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_re", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect(runViaRuntime.mock.calls[0][0].input.context.reasoning).toBe("very_high");
+  });
+
+  it("sends no reasoning requirement when the operator left it on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_ra", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect(runViaRuntime.mock.calls[0][0].input.context?.reasoning).toBeUndefined();
+  });
+
   it("overrides only the model when the composer picked one", async () => {
     runViaRuntime.mockResolvedValue({ runId: "run_m", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await startRun({ input: { query: "x" }, model: "gpt-4.1" });
@@ -229,5 +252,32 @@ describe("chatWithAgent code profile (Phase 14)", () => {
     await chatWithAgent("build me a python module");
     const [payload] = runViaRuntime.mock.calls[0];
     expect("autonomy" in payload).toBe(false);
+  });
+});
+
+describe("approval cards", () => {
+  it("the streaming chat path asks the runtime to pause for approvals", async () => {
+    await startChatRun("run the tests", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect(payload.approvalMode).toBe("ask");
+  });
+
+  it("the synchronous chat path does NOT pause (no live card to resolve it)", async () => {
+    resolveChatCodeProfile.mockResolvedValue(null);
+    runViaRuntime.mockResolvedValue({ runId: "run_sync", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("what is AAPL trading at");
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect("approvalMode" in payload).toBe(false);
+  });
+
+  it("startRun only pauses when the caller opts in", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_r", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect("approvalMode" in runViaRuntime.mock.calls[0][0]).toBe(false);
+
+    runViaRuntime.mockClear();
+    runViaRuntime.mockResolvedValue({ runId: "run_r2", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" }, approvalMode: "ask" });
+    expect(runViaRuntime.mock.calls[0][0].approvalMode).toBe("ask");
   });
 });

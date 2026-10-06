@@ -1044,6 +1044,31 @@ call-scope so the second seam does not consume again; a new call starts a new
 scope. `consumed` and `usedAt` ride the whole round-trip (the row, `_row()`,
 `GET /mcp/approvals`, `MCPApprovalView`, and the approvals UI).
 
+**Approval cards (pause-and-wait).** By default an unapproved effectful call is
+refused and the model may retry after the operator decides (deny-and-retry). A
+run can instead opt into `approvalMode: "ask"` (set by the STREAMING chat front
+door only — a synchronous/headless caller leaves it unset, because a pause there
+would block the HTTP request with no card to resolve it), which makes the effect
+authorizer PAUSE the in-flight run: it creates the PENDING request, emits
+`approval.requested` (the card's `{ approvalId, kind, title, summary, effect,
+risk }`), then `await`s an in-process `asyncio.Event` keyed by
+the approval id (`_GATES` in `mcp/approvals.py`). The decide route — same event
+loop — calls `ApprovalStore.decide()`, which commits the decision and then
+`notify_decision(id)` wakes the wait. Approved ⇒ the authorizer re-claims the
+single-use approval (`consume`/`consume_kind`) and the call proceeds; denied,
+expired, or timed out ⇒ the wait returns and the call is refused, exactly as
+before. Pause changes only HOW LONG the run waits, never WHETHER a call is
+authorized: the decision is still the single-use, digest-bound approval. The wait
+is bounded by `ToolContext.approval_timeout_s` (< the run deadline), so a run
+whose decision never arrives fails honestly rather than hanging; a runtime restart
+mid-wait cancels the run and the deny-and-retry path still applies. The pause
+helper is shared (`pause_for_decision`/`_await_then_reclaim`) so the MCP,
+code-action, code-write (`workspace_patch_apply`), shell and terminal `ask` paths
+behave identically. The card UI is
+`src/components/chat/approval-card.tsx`, portaled to `<body>` and mounted above
+the composer in both chat surfaces, driven by `HarnessUiEvent.approval_request` /
+`approval_resolved` and the `awaiting_approval` status.
+
 | To add… | Do this |
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |

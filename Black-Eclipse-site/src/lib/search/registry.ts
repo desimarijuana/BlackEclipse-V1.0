@@ -169,7 +169,7 @@ registerPage({ id: 'page-dashboard', kind: 'page', title: 'Command Center', alia
 registerPage({ id: 'page-market-workspace', kind: 'page', title: 'Chart Workspace', aliases: ['chart workspace', 'market workspace', 'multi chart', 'charts', 'terminal', 'workspace', 'trading terminal', 'grid'], keywords: ['chart workspace', 'market workspace', 'multi chart', 'charts', 'terminal', 'grid', 'layout', 'linked charts'], icon: 'candlestick', tab: 'market-workspace', rankBoost: 1.2 });
 registerPage({ id: 'page-investor-eye', kind: 'page', title: 'Investor Eye', aliases: ['investor eye', 'gods eye', 'god\'s eye', 'world map', 'geopolitical', 'geopolitics', 'global state', 'world state', 'events map'], keywords: ['investor eye', 'gods eye', 'world', 'map', 'geopolitical', 'events', 'global', 'geopolitics', 'intelligence'], icon: 'eye', tab: 'investor-eye', rankBoost: 1.25 });
 registerPage({ id: 'page-chat', kind: 'page', title: 'ChatBot', aliases: ['chat', 'ai', 'assistant', 'ask ai'], keywords: ['chatbot', 'chat', 'conversation', 'ai'], icon: 'bot', tab: 'chat' });
-registerPage({ id: 'page-screener', kind: 'page', title: 'Market Screener', aliases: ['screener', 'discovery', 'stocks', 'discover', 'screen'], keywords: ['screener', 'market', 'stocks', 'discovery'], icon: 'screen', tab: 'discovery' });
+registerPage({ id: 'page-screener', kind: 'page', title: 'Market Discover', aliases: ['screener', 'discovery', 'stocks', 'discover', 'screen'], keywords: ['screener', 'market', 'stocks', 'discovery'], icon: 'screen', tab: 'discovery' });
 registerPage({ id: 'page-portfolio', kind: 'page', title: 'Portfolio', aliases: ['my portfolio', 'holdings', 'watchlist', 'positions'], keywords: ['portfolio', 'holdings', 'watchlist', 'positions'], icon: 'pie', tab: 'portfolio', rankBoost: 1.1 });
 registerPage({ id: 'page-journal', kind: 'page', title: 'Trading Journal', aliases: ['journal', 'trading journal', 'my trades', 'trade log'], keywords: ['journal', 'trading', 'trades', 'log'], icon: 'book', tab: 'journal', rankBoost: 1.1 });
 registerPage({ id: 'page-news', kind: 'page', title: 'Market News', aliases: ['news', 'bulletin', 'headlines'], keywords: ['news', 'market news', 'headlines'], icon: 'news', tab: 'news' });
@@ -377,8 +377,8 @@ registerAction({
 registerAction({
   id: 'act-open-screener',
   verb: 'open',
-  title: 'Open Market Screener',
-  keywords: ['open screener', 'market screener', 'screener', 'discovery'],
+  title: 'Open Market Discover',
+  keywords: ['open screener', 'market screener', 'market discover', 'discover', 'screener', 'discovery'],
   icon: 'screen',
   run: () => ({ tab: 'discovery' }),
 });
