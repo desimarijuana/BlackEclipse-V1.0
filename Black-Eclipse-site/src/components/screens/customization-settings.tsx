@@ -51,34 +51,13 @@ import {
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 import { PreviewLauncher } from "./customization-preview";
+import { SubSection, Toggle } from "./settings-ui";
 
 type CustomTab = "general" | "theme" | "glass" | "aurora" | "charts" | "access";
 
 /** The live ChatBot backdrop, captured for export / preset save. */
 function currentBackgroundSnapshot(): Partial<BackgroundPrefs> {
   return { ...useBackgroundStore.getState().prefs };
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
-        checked ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border",
-      )}
-    >
-      <span
-        className={cn(
-          "inline-block h-3.5 w-3.5 transform rounded-full shadow-sm transition-transform",
-          checked ? "translate-x-[18px] bg-primary" : "translate-x-[2px] bg-muted-foreground/70",
-        )}
-      />
-    </button>
-  );
 }
 
 function Row({
@@ -106,6 +85,106 @@ function Card({
       </div>
       {children}
     </div>
+  );
+}
+
+/**
+ * A miniature of the app rendered entirely from a theme's own tokens — a tiny
+ * sidebar rail, a couple of glass cards and a chart line. It shows the user
+ * what a preset actually looks like (brand hue, page darkness, surface tint,
+ * accent) instead of a flat color circle, so picking a theme is visual.
+ */
+function ThemePreview({ theme }: { theme: EclipseTheme }) {
+  const c = theme.colors;
+  const dark = theme.scheme !== "light";
+  const surface = `rgb(${rgbTriplet(c.surface)} / ${theme.glass.enabled ? Math.min(0.85, theme.glass.opacity + 0.25) : 0.97})`;
+  return (
+    <span
+      className="block w-full overflow-hidden rounded-lg border border-white/10"
+      style={{ backgroundColor: c.background }}
+      aria-hidden
+    >
+      <span className="flex h-[86px]">
+        {/* mini navigation rail */}
+        <span
+          className="flex w-[22%] shrink-0 flex-col justify-center gap-1.5 px-1.5"
+          style={{ backgroundColor: `rgb(${rgbTriplet(theme.sidebar.tint)} / ${theme.sidebar.opacity})` }}
+        >
+          <span className="h-1 w-full rounded-full" style={{ backgroundColor: c.primary }} />
+          <span className="h-1 w-2/3 rounded-full" style={{ backgroundColor: c.accent, opacity: 0.7 }} />
+          <span className="h-1 w-3/4 rounded-full" style={{ backgroundColor: c.text, opacity: 0.25 }} />
+        </span>
+        {/* page body */}
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-1.5">
+          <span className="flex gap-1.5">
+            <span className="h-6 flex-1 rounded border border-white/10" style={{ backgroundColor: surface }} />
+            <span className="h-6 flex-1 rounded border border-white/10" style={{ backgroundColor: surface }} />
+          </span>
+          <span
+            className="relative flex flex-1 items-center justify-center overflow-hidden rounded border border-white/10"
+            style={{ backgroundColor: surface }}
+          >
+            <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="h-full w-full">
+              <polyline
+                points="0,22 18,14 32,18 50,7 68,13 84,4 100,9"
+                fill="none"
+                stroke={c.primary}
+                strokeWidth={2}
+              />
+            </svg>
+          </span>
+          <span className="flex gap-1">
+            <span className="h-1 flex-1 rounded-full" style={{ backgroundColor: c.text, opacity: 0.18 }} />
+            <span className="h-1 w-3 rounded-full" style={{ backgroundColor: c.bullish }} />
+            <span className="h-1 w-3 rounded-full" style={{ backgroundColor: c.bearish }} />
+          </span>
+        </span>
+      </span>
+      {/* footer wordmark strip — mirrors the preset's landing color */}
+      <span className="block h-1.5" style={{ backgroundColor: dark ? c.accent : c.secondary, opacity: 0.5 }} />
+    </span>
+  );
+}
+
+/**
+ * A preset tile: the mini theme preview plus label/description. Used by both
+ * shipped and user presets, with user tiles layering rename/overwrite/delete.
+ */
+function PresetTile({
+  theme,
+  label,
+  description,
+  active,
+  onClick,
+}: {
+  theme: EclipseTheme;
+  label: string;
+  description: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={description}
+      className={cn(
+        "flex flex-col gap-2 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
+        active
+          ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
+          : "border-border/20 glass-card-subtle hover:border-border/40",
+      )}
+    >
+      <ThemePreview theme={theme} />
+      <span className="flex flex-col min-w-0 px-0.5">
+        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          {label}
+          {active && <Check className="w-3 h-3 text-primary shrink-0" />}
+        </span>
+        <span className="text-[10px] text-muted-foreground truncate">{description}</span>
+      </span>
+    </button>
   );
 }
 
@@ -519,16 +598,22 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
 
   const TABS: { id: CustomTab; label: string; icon: React.ElementType }[] = [
     ...(generalTab ? [{ id: "general" as CustomTab, label: "General", icon: SlidersHorizontal }] : []),
-    { id: "theme", label: "Theme", icon: Palette },
+    { id: "theme", label: "Theme & Presets", icon: Palette },
     { id: "glass", label: "Glass & Surfaces", icon: Layers },
     { id: "aurora", label: "Aurora", icon: Sparkles },
     { id: "charts", label: "Charts", icon: Activity },
     { id: "access", label: "Language & Access", icon: Accessibility },
   ];
 
+  // The draft + Apply/Discard model only applies to theme-backed tabs. General,
+  // Background and Language & Access autosave instantly, so the toolbar would
+  // imply unsaved state that does not exist — hide it there.
+  const draftBacked = tab === "theme" || tab === "glass" || tab === "aurora" || tab === "charts";
+
   return (
     <div className="space-y-6">
       {/* ── Live preview toggle + Apply/Discard + full-screen preview ──── */}
+      {draftBacked && (
       <div className="sticky top-0 z-20 -mx-1 px-1 pb-1">
         <div className="rounded-2xl border border-primary/20 glass-card-strong overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -595,6 +680,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
           </div>
         </div>
       </div>
+      )}
 
       {/* Sub-navigation */}
       <div className="flex flex-wrap gap-2">
@@ -727,6 +813,68 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
             </div>
           </Card>
 
+          {/* Sidebar surface — moved here from the Theme tab so every surface
+              token lives on one tab. */}
+          <Card icon={PanelLeft} title="Sidebar">
+            <p className="text-[10px] text-muted-foreground -mt-2">
+              The navigation rail has its own surface, independent of the page and
+              cards — so it can stay a soft grey instead of matching the black page.
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {SIDEBAR_PRESETS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => patchSidebar(s.sidebar)}
+                  aria-pressed={sidebarMatches(s.sidebar)}
+                  title={s.hint}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-xl border p-3 text-left transition-all cursor-pointer",
+                    sidebarMatches(s.sidebar)
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-border/20 glass-card-subtle hover:border-border/40",
+                  )}
+                >
+                  <span
+                    className="h-8 w-full rounded-lg border border-white/10"
+                    style={{ backgroundColor: `rgb(${rgbTriplet(s.sidebar.tint)} / ${s.sidebar.opacity})` }}
+                    aria-hidden
+                  />
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    {s.label}
+                    {sidebarMatches(s.sidebar) && <Check className="w-3 h-3 text-primary" />}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <ColorField
+              label="Sidebar tint"
+              hint="Base color of the navigation rail"
+              value={draft.sidebar.tint}
+              onChange={(hex) => patchSidebar({ tint: hex })}
+            />
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Slider
+                label="Sidebar opacity"
+                value={draft.sidebar.opacity}
+                min={0.1} max={1} step={0.01}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => patchSidebar({ opacity: v })}
+              />
+              <Slider
+                label="Sidebar blur"
+                value={draft.sidebar.blur}
+                min={0} max={48} step={1}
+                format={(v) => `${v}px`}
+                disabled={!draft.glass.enabled}
+                onChange={(v) => patchSidebar({ blur: v })}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Blur follows the global <strong>Frosted glass</strong> switch above.
+            </p>
+          </Card>
+
         </div>
       )}
 
@@ -795,9 +943,151 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
         </div>
       )}
 
-      {/* ══ Theme (default) ════════════════════════════════════════════ */}
+      {/* ══ Theme & Presets (default) ══════════════════════════════════ */}
       {tab === "theme" && (
         <div className="animate-fade-in-up space-y-6">
+          {/* Presets — the starting point: browse a look, then fine-tune below. */}
+          <SubSection
+            icon={Palette}
+            title="Presets"
+            description="Pick a ready-made look to preview it across the whole app, then fine-tune it below. Your saved themes live here too."
+          >
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {THEME_PRESETS.map((preset) => (
+                <PresetTile
+                  key={preset.id}
+                  theme={preset.theme}
+                  label={preset.label}
+                  description={preset.description}
+                  active={activePreset === preset.id}
+                  onClick={() => selectShippedPreset(preset)}
+                />
+              ))}
+
+              {userPresets.map((preset) => {
+                const active = activePreset === preset.id;
+                const editing = editingId === preset.id;
+                const presetTheme = normalizeTheme(preset.theme);
+                return (
+                  <div key={preset.id} className="group relative">
+                    {editing ? (
+                      <div className="flex flex-col gap-2 rounded-xl border border-primary/40 glass-card-subtle p-2.5">
+                        <ThemePreview theme={presetTheme} />
+                        <input
+                          autoFocus
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onBlur={() => { renameUserPreset(preset.id, editingName); setEditingId(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { renameUserPreset(preset.id, editingName); setEditingId(null); }
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          className="w-full rounded-lg border border-primary/40 bg-transparent px-2 py-1 text-xs outline-none"
+                        />
+                      </div>
+                    ) : (
+                      <PresetTile
+                        theme={presetTheme}
+                        label={preset.label}
+                        description="Your saved theme"
+                        active={active}
+                        onClick={() => selectUserPreset(preset.id)}
+                      />
+                    )}
+                    {/* Actions overlay — hidden until hover so the preview stays clean. */}
+                    <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <button
+                        type="button"
+                        title="Rename"
+                        onClick={() => { setEditingId(preset.id); setEditingName(preset.label); }}
+                        className="p-1 rounded-md glass-card-strong text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Overwrite with current theme"
+                        onClick={() => { applyDraft(); updateUserPreset(preset.id); }}
+                        className="p-1 rounded-md glass-card-strong text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete theme"
+                        onClick={() => deleteUserPreset(preset.id)}
+                        className="p-1 rounded-md glass-card-strong text-muted-foreground hover:text-rose-400 cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* The live, unsaved draft — always the last tile so "tune below"
+                  has an obvious home. */}
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-xl border p-2.5 text-left",
+                  dirty && activePreset === null
+                    ? "bg-primary/10 border-primary/40"
+                    : "border-border/20 glass-card-subtle",
+                )}
+              >
+                <ThemePreview theme={draft} />
+                <span className="flex flex-col min-w-0 px-0.5">
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    Custom theme
+                    {dirty && activePreset === null && <Check className="w-3 h-3 text-primary shrink-0" />}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {dirty && activePreset === null ? "Unsaved — tune below" : "Tune tokens, then save"}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Save / import / export / reset */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
+                placeholder="Name this theme…"
+                className="h-9 flex-1 min-w-[180px]"
+              />
+              <Button size="sm" className="rounded-xl cursor-pointer" onClick={handleSavePreset}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Save as preset
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap justify-between items-center gap-2 pt-1 border-t border-border/10">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={handleExport}>
+                  <Download className="w-3.5 h-3.5 mr-1" /> Export
+                </Button>
+                <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => importRef.current?.click()}>
+                  <Upload className="w-3.5 h-3.5 mr-1" /> Import
+                </Button>
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) handleImport(file);
+                  }}
+                />
+              </div>
+              <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>
+                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Eclipse Default
+              </Button>
+            </div>
+          </SubSection>
+
           {/* Brand color generator */}
           <Card icon={Wand2} title="Build Theme From Brand Color">
             <p className="text-[10px] text-muted-foreground -mt-2">
@@ -844,175 +1134,12 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
             </div>
           </Card>
 
-          {/* Presets */}
-          <Card icon={Palette} title="Eclipse Themes">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {THEME_PRESETS.map((preset) => {
-                const active = activePreset === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => selectShippedPreset(preset)}
-                    aria-pressed={active}
-                    title={preset.description}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer",
-                      active
-                        ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-                        : "border-border/20 glass-card-subtle hover:border-border/40",
-                    )}
-                  >
-                    <span
-                      className="h-5 w-12 shrink-0 rounded-md border border-white/15"
-                      style={{
-                        background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
-                      }}
-                      aria-hidden
-                    />
-                    <span className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        {preset.label}
-                        {active && <Check className="w-3 h-3 text-primary shrink-0" />}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground truncate">{preset.description}</span>
-                    </span>
-                  </button>
-                );
-              })}
-
-              {userPresets.map((preset) => {
-                const active = activePreset === preset.id;
-                const editing = editingId === preset.id;
-                return (
-                  <div
-                    key={preset.id}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all",
-                      active
-                        ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-                        : "border-border/20 glass-card-subtle hover:border-border/40",
-                    )}
-                  >
-                    <span
-                      className="h-5 w-12 shrink-0 rounded-md border border-white/15"
-                      style={{
-                        background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
-                      }}
-                      aria-hidden
-                    />
-                    {editing ? (
-                      <input
-                        autoFocus
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onBlur={() => { renameUserPreset(preset.id, editingName); setEditingId(null); }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") { renameUserPreset(preset.id, editingName); setEditingId(null); }
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        className="flex-1 min-w-0 rounded-lg border border-primary/40 bg-transparent px-2 py-1 text-xs outline-none"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => selectUserPreset(preset.id)}
-                        className="flex flex-col min-w-0 flex-1 text-left cursor-pointer"
-                      >
-                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          {preset.label}
-                          {active && <Check className="w-3 h-3 text-primary shrink-0" />}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground truncate">Your saved theme</span>
-                      </button>
-                    )}
-                    <span className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        type="button"
-                        title="Rename"
-                        onClick={() => { setEditingId(preset.id); setEditingName(preset.label); }}
-                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        title="Overwrite with current theme"
-                        onClick={() => { applyDraft(); updateUserPreset(preset.id); }}
-                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                      >
-                        <RotateCcw size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete theme"
-                        onClick={() => deleteUserPreset(preset.id)}
-                        className="p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-accent cursor-pointer"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </span>
-                  </div>
-                );
-              })}
-
-              <div
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left",
-                  dirty && activePreset === null
-                    ? "bg-primary/10 border-primary/40"
-                    : "border-border/20 glass-card-subtle",
-                )}
-              >
-                <SlidersHorizontal className="w-4 h-4 text-primary shrink-0" />
-                <span className="flex flex-col min-w-0">
-                  <span className="text-xs font-semibold text-foreground">Custom Theme</span>
-                  <span className="text-[10px] text-muted-foreground truncate">
-                    {dirty && activePreset === null ? "Unsaved — edited below" : "Tune any token, then save below"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            {/* Save / import / export / reset */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Input
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
-                placeholder="Name this theme…"
-                className="h-9 flex-1 min-w-[180px]"
-              />
-              <Button size="sm" className="rounded-xl cursor-pointer" onClick={handleSavePreset}>
-                <Plus className="w-3.5 h-3.5 mr-1" /> Save as preset
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap justify-between items-center gap-2 pt-1 border-t border-border/10">
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={handleExport}>
-                  <Download className="w-3.5 h-3.5 mr-1" /> Export
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => importRef.current?.click()}>
-                  <Upload className="w-3.5 h-3.5 mr-1" /> Import
-                </Button>
-                <input
-                  ref={importRef}
-                  type="file"
-                  accept="application/json,.json"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) handleImport(file);
-                  }}
-                />
-              </div>
-              <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>
-                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Eclipse Default
-              </Button>
-            </div>
-          </Card>
+          {/* Fine-tune — every token that shapes the chosen preset. */}
+          <SubSection
+            icon={SlidersHorizontal}
+            title="Fine-tune"
+            description="Adjust the look token by token. Changes are previewed live; glass depth and sidebar surfaces live on their own tab."
+          >
 
           {/* Branding */}
           <Card icon={Sparkles} title="Branding">
@@ -1148,118 +1275,31 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
             </div>
           </Card>
 
-          {/* Glass quick controls */}
-          <Card icon={Layers} title="Glass & Surfaces">
-            <Row
-              label="Frosted glass"
-              hint="Turn off for flat, solid panels with no blur."
-              checked={draft.glass.enabled}
-              onChange={(v) => patchGlass({ enabled: v })}
-            />
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Slider
-                label="Glass blur"
-                value={draft.glass.blur}
-                min={0} max={48} step={1}
-                format={(v) => `${v}px`}
-                disabled={!draft.glass.enabled}
-                onChange={(v) => patchGlass({ blur: v })}
-              />
-              <Slider
-                label="Glass tint opacity"
-                value={draft.glass.opacity}
-                min={0.05} max={1} step={0.01}
-                format={(v) => `${Math.round(v * 100)}%`}
-                onChange={(v) => patchGlass({ opacity: v })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {GLASS_PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => patchGlass(p.glass)}
-                  aria-pressed={glassMatches(p.glass)}
-                  title={p.hint}
-                  className={cn(
-                    "px-2.5 py-2 text-[11px] font-medium rounded-xl border transition-all cursor-pointer",
-                    glassMatches(p.glass)
-                      ? "bg-primary/10 text-primary border-primary/40"
-                      : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
-                  )}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              More glass, shadow and background controls are on the{" "}
-              <button type="button" onClick={() => setTab("glass")} className="text-primary hover:underline cursor-pointer">
-                Glass &amp; Surfaces
-              </button>{" "}
-              tab.
-            </p>
-          </Card>
-
-          {/* Sidebar surface */}
-          <Card icon={PanelLeft} title="Sidebar">
+          {/* Glass & sidebar surfaces moved to their own tab to avoid two
+              places editing the same tokens. Link across instead. */}
+          <Card icon={Layers} title="Glass & Sidebar Surfaces">
             <p className="text-[10px] text-muted-foreground -mt-2">
-              The navigation rail has its own surface, independent of the page and
-              cards — so it can stay a soft grey instead of matching the black page.
+              Frosted-glass depth, tint, shadows and the navigation rail surface are
+              edited together on one dedicated tab.
             </p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {SIDEBAR_PRESETS.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => patchSidebar(s.sidebar)}
-                  aria-pressed={sidebarMatches(s.sidebar)}
-                  title={s.hint}
-                  className={cn(
-                    "flex flex-col gap-2 rounded-xl border p-3 text-left transition-all cursor-pointer",
-                    sidebarMatches(s.sidebar)
-                      ? "border-primary/40 bg-primary/10"
-                      : "border-border/20 glass-card-subtle hover:border-border/40",
-                  )}
-                >
-                  <span
-                    className="h-8 w-full rounded-lg border border-white/10"
-                    style={{ backgroundColor: `rgb(${rgbTriplet(s.sidebar.tint)} / ${s.sidebar.opacity})` }}
-                    aria-hidden
-                  />
-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    {s.label}
-                    {sidebarMatches(s.sidebar) && <Check className="w-3 h-3 text-primary" />}
-                  </span>
-                </button>
-              ))}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl cursor-pointer"
+                onClick={() => setTab("glass")}
+              >
+                <Layers className="w-3.5 h-3.5 mr-1" /> Glass &amp; Surfaces
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl cursor-pointer"
+                onClick={() => setTab("glass")}
+              >
+                <PanelLeft className="w-3.5 h-3.5 mr-1" /> Sidebar surface
+              </Button>
             </div>
-            <ColorField
-              label="Sidebar tint"
-              hint="Base color of the navigation rail"
-              value={draft.sidebar.tint}
-              onChange={(hex) => patchSidebar({ tint: hex })}
-            />
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Slider
-                label="Sidebar opacity"
-                value={draft.sidebar.opacity}
-                min={0.1} max={1} step={0.01}
-                format={(v) => `${Math.round(v * 100)}%`}
-                onChange={(v) => patchSidebar({ opacity: v })}
-              />
-              <Slider
-                label="Sidebar blur"
-                value={draft.sidebar.blur}
-                min={0} max={48} step={1}
-                format={(v) => `${v}px`}
-                disabled={!draft.glass.enabled}
-                onChange={(v) => patchSidebar({ blur: v })}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Blur follows the global <strong>Frosted glass</strong> switch above.
-            </p>
           </Card>
 
           {/* Motion */}
@@ -1277,6 +1317,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
               onChange={(v) => patch({ animations: v })}
             />
           </Card>
+          </SubSection>
         </div>
       )}
     </div>

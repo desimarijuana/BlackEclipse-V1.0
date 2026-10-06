@@ -72,6 +72,10 @@ PROTECTED_PATHS: tuple[str, ...] = (
 IGNORED_DIRS: tuple[str, ...] = (
     ".git", "node_modules", "src/generated", "__pycache__",
     ".next", "_backups", ".black-eclipse", "scripts/vendor",
+    # Generated / build output that is never source (the CIUE §25 ignore set). A
+    # build directory is excluded from indexing, searching and the walk.
+    "dist", "build", "target", "coverage", "out", "vendor", "generated", ".cache",
+    ".turbo", ".parcel-cache", "bin", "obj", ".venv", "venv",
 )
 
 IGNORED_GLOBS: tuple[str, ...] = ("*.db", "*.sqlite", "*.png", "*.jpg", "*.woff2", "*.zip")
@@ -327,6 +331,18 @@ WRITE_TOOLS: tuple[str, ...] = (
     "terminal_run",                                 # command.execute (generic, gated)
     "shell_run", "shell_spawn", "process_kill",     # command.execute (real shell)
     "scaffold_kit",                                 # code.write (Phase 9)
+    # The Code Execution & Verification Layer (Phase EX). These RUN code / build /
+    # test / start services, so they are code-write tools removed at `plan_only`.
+    "execute_code", "execute_python", "execute_javascript", "execute_typescript",
+    "execute_sql", "execute_shell", "build_project", "test_project",
+    "run_verification", "start_service", "stop_service", "restart_service",
+    "cancel_execution",
+)
+
+# The execution layer's read-only tools: always available to an allowlisted run.
+EXECUTION_READ_TOOLS: tuple[str, ...] = (
+    "discover_tests", "execution_get", "execution_logs", "execution_result",
+    "execution_artifacts", "service_status", "service_logs", "list_services",
 )
 
 # The file-system subsystem's mutating tools (Phase FS). They are code.write
@@ -347,6 +363,25 @@ FS_READ_TOOLS: tuple[str, ...] = (
     "verify_file", "validate_changes", "git_status",
 )
 
+# The Code Intelligence & Understanding Engine (CIUE): semantic rename is the only
+# write tool. Every other CIUE tool is read-only structural/semantic navigation. A
+# rename is a code.write, removed at `plan_only`, admitted by the effect authorizer
+# and re-checked per path by `editing.apply_file_edits` → `resolve_within`.
+INTEL_WRITE_TOOLS: tuple[str, ...] = ("code_rename_symbol",)
+
+# Read-only CIUE tools: always available to an allowlisted run regardless of profile.
+INTEL_READ_TOOLS: tuple[str, ...] = (
+    "code_get_definition", "code_find_references", "code_find_symbol",
+    "code_search_symbols", "code_get_hover", "code_get_type",
+    "code_get_diagnostics", "code_get_document_symbols", "code_get_callers",
+    "code_get_callees", "code_get_call_hierarchy", "code_get_implementations",
+    "code_get_imports", "code_get_exports", "code_get_dependencies",
+    "code_get_dependents", "code_get_project_structure", "code_get_dependency_graph",
+    "code_parse_file", "code_analyze_file", "code_organize_imports",
+    "code_get_relevant_context", "code_index_workspace", "code_intel_status",
+    "code_find_related_tests",
+)
+
 
 def is_code_write(name: str) -> bool:
     """Whether a tool name is a code-file write the authorizer may admit.
@@ -356,7 +391,7 @@ def is_code_write(name: str) -> bool:
     autonomy profile + per-path policy in the handler. Neither terminal/shell nor
     external-action tools are covered by this predicate.
     """
-    return name.startswith("workspace_") or name in FS_WRITE_TOOLS
+    return name.startswith("workspace_") or name in FS_WRITE_TOOLS or name in INTEL_WRITE_TOOLS
 
 
 # External actions — commit / push / open a PR / deploy. approve_external only,
@@ -388,6 +423,7 @@ READ_ONLY_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list", "workspace_search",
     "workspace_read", "workspace_docs", "workspace_diff",
     *TERMINAL_READ_TOOLS,
+    *EXECUTION_READ_TOOLS,
 )
 
 
@@ -401,13 +437,13 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS)
     elif autonomy == "edit_verify":
         banned = set(EXTERNAL_ACTION_TOOLS)
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 
@@ -486,11 +522,14 @@ __all__ = [
     "AUTONOMY_PROFILES",
     "COMMAND_CLASSES",
     "DENIED_PROGRAMS",
+    "EXECUTION_READ_TOOLS",
     "EXTERNAL_ACTION_TOOLS",
     "FS_READ_TOOLS",
     "FS_WRITE_TOOLS",
     "IGNORED_DIRS",
     "IGNORED_GLOBS",
+    "INTEL_READ_TOOLS",
+    "INTEL_WRITE_TOOLS",
     "NETWORK_DEFAULT",
     "PLAIN_LANGUAGE_DENYLIST",
     "PROTECTED_PATHS",

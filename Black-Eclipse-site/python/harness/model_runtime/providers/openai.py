@@ -38,10 +38,14 @@ class OpenAIAdapter(ProviderAdapter):
 
         Only applied when the operator asked for it; a model that does not
         accept the knob is left untouched rather than being forced.
+
+        OpenAI's `reasoning_effort` has no tier above `high`, so the runtime's
+        `max`/`very_high` (the UI's "Ultra") is capped at `high` here — sending
+        the literal `max` would be an unknown value and a provider 400.
         """
         if not reasoning or not reasoning.enabled or not reasoning.effort:
             return model
-        effort = "high" if reasoning.effort == "very_high" else reasoning.effort
+        effort = "high" if reasoning.effort in ("very_high", "max") else reasoning.effort
         try:
             if hasattr(model, "reasoning_effort"):
                 model.reasoning_effort = effort

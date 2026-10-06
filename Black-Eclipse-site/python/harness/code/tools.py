@@ -708,9 +708,10 @@ def make_code_authorizer(mcp_authorizer: Any = None):
         # every write is re-checked per path by `patch.apply` → `policy.decide_write`.
         if name == "scaffold_kit" and getattr(tool, "effect", None) == "write":
             return True
-        # The fs subsystem's mutating tools are admitted here like `workspace_*`
-        # writes (binding + autonomy + per-path policy are enforced in the handler).
-        if name in policy.FS_WRITE_TOOLS and getattr(tool, "effect", None) == "write":
+        # The fs subsystem's mutating tools AND the CIUE semantic-rename tool are
+        # code.write: the handler enforces the binding + autonomy profile, and every
+        # path is re-checked by the engine (`policy.decide_write` / `resolve_within`).
+        if policy.is_code_write(name) and getattr(tool, "effect", None) == "write":
             return True
         if mcp_authorizer is not None:
             return bool(await mcp_authorizer(tool, args, ctx))
@@ -1028,6 +1029,7 @@ _CODE_TOOL_NAMES = (
     "delegate",
     "analysis_run",
     "scaffold_kit",
+    "code_rename_symbol",
 )
 
 
@@ -1235,7 +1237,14 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         handler=scaffold_kit,
         permission="write", risk="medium", timeout_ms=600_000, effect="write",
     ))
-    return list(_CODE_TOOL_NAMES) + list(fs_names)
+    # The Code Intelligence & Understanding Engine (CIUE). Its read tools are
+    # always available; the one write tool (`code_rename_symbol`) is admitted by
+    # the effect authorizer and applies to the disposable workspace. Handler:
+    # `harness/code/intel_tools.py`; manager: `harness/code/intel/`.
+    from .intel_tools import register_intel_tools  # noqa: PLC0415
+
+    intel_names = register_intel_tools(registry)
+    return list(_CODE_TOOL_NAMES) + list(fs_names) + list(intel_names)
 
 
 __all__ = [

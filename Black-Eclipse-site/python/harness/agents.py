@@ -49,6 +49,18 @@ CODE_NAVIGATOR_TOOLS = [
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
     "list_ports", "terminal_capabilities", "system_info", "resource_report",
+    # Code Intelligence & Understanding Engine (CIUE): semantic/structural
+    # navigation over the whole project. All read-only except `code_rename_symbol`,
+    # which the autonomy profile removes at `plan_only`.
+    "code_get_definition", "code_find_references", "code_find_symbol",
+    "code_search_symbols", "code_get_hover", "code_get_type",
+    "code_get_diagnostics", "code_get_document_symbols", "code_get_callers",
+    "code_get_callees", "code_get_call_hierarchy", "code_get_implementations",
+    "code_get_imports", "code_get_exports", "code_get_dependencies",
+    "code_get_dependents", "code_get_project_structure", "code_get_dependency_graph",
+    "code_parse_file", "code_analyze_file", "code_organize_imports",
+    "code_get_relevant_context", "code_index_workspace", "code_intel_status",
+    "code_find_related_tests", "code_rename_symbol",
 ]
 
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path
@@ -181,9 +193,30 @@ CODE_AGENT_TOOLS = [
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
     "list_ports", "terminal_capabilities", "system_info", "resource_report",
+    # Code Execution & Verification Layer (Phase EX): run code in a supported
+    # language, build, test, discover tests, manage long-running services and read
+    # back execution evidence. The write/execute half is removed at `plan_only`.
+    "execute_code", "execute_python", "execute_javascript", "execute_typescript",
+    "execute_sql", "execute_shell", "build_project", "test_project",
+    "run_verification", "discover_tests",
+    "start_service", "stop_service", "restart_service",
+    "service_status", "service_logs", "list_services",
+    "execution_get", "execution_logs", "execution_result",
+    "execution_artifacts", "cancel_execution",
     # Verification (Phase 4) — the final answer is checked against the ledger.
     # Memory/session recall stays available: read-only context, NOT the finance family.
     "memory", "skill_list", "skill_view", "session_search", "session_open",
+    # Code Intelligence & Understanding Engine (CIUE): semantic/structural
+    # navigation + the one semantic rename. The write tool is removed at `plan_only`.
+    "code_get_definition", "code_find_references", "code_find_symbol",
+    "code_search_symbols", "code_get_hover", "code_get_type",
+    "code_get_diagnostics", "code_get_document_symbols", "code_get_callers",
+    "code_get_callees", "code_get_call_hierarchy", "code_get_implementations",
+    "code_get_imports", "code_get_exports", "code_get_dependencies",
+    "code_get_dependents", "code_get_project_structure", "code_get_dependency_graph",
+    "code_parse_file", "code_analyze_file", "code_organize_imports",
+    "code_get_relevant_context", "code_index_workspace", "code_intel_status",
+    "code_find_related_tests", "code_rename_symbol",
     # External actions (Phase 5) — approve_external only, each single-use approved.
     "code_commit", "code_push", "code_open_pr", "code_deploy",
     # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
@@ -241,6 +274,26 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "write_process_input", "send_signal", "process_tree", "process_health",
     "list_ports", "terminal_capabilities", "system_info", "resource_report",
     "scaffold_kit", "analysis_run",
+    # Code Execution & Verification Layer: run/build/test/discover + services +
+    # evidence. The execute/build half is removed at `plan_only` by policy.
+    "execute_code", "execute_python", "execute_javascript", "execute_typescript",
+    "execute_sql", "execute_shell", "build_project", "test_project",
+    "run_verification", "discover_tests",
+    "start_service", "stop_service", "restart_service",
+    "service_status", "service_logs", "list_services",
+    "execution_get", "execution_logs", "execution_result",
+    "execution_artifacts", "cancel_execution",
+    # Code Intelligence & Understanding Engine (CIUE): semantic/structural
+    # navigation + the one semantic rename (removed at `plan_only`).
+    "code_get_definition", "code_find_references", "code_find_symbol",
+    "code_search_symbols", "code_get_hover", "code_get_type",
+    "code_get_diagnostics", "code_get_document_symbols", "code_get_callers",
+    "code_get_callees", "code_get_call_hierarchy", "code_get_implementations",
+    "code_get_imports", "code_get_exports", "code_get_dependencies",
+    "code_get_dependents", "code_get_project_structure", "code_get_dependency_graph",
+    "code_parse_file", "code_analyze_file", "code_organize_imports",
+    "code_get_relevant_context", "code_index_workspace", "code_intel_status",
+    "code_find_related_tests", "code_rename_symbol",
     # parallel read-only explore children for large codebases
     "delegate",
     # read-only context, unchanged from ECLIPSE_AGENT

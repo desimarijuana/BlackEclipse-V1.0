@@ -418,10 +418,17 @@ class ModelRuntime:
             return model
         from .types import ReasoningRequest  # local import
 
-        request_reasoning = ReasoningRequest(
-            enabled=True,
-            effort=effort if effort in ("low", "medium", "high", "max") else "high",
-        )
+        # The UI's top stop (`very_high`, "Ultra") means the strongest thinking a
+        # model offers, so normalize it to the runtime's `max` tier. Each adapter
+        # then maps that to its provider's real ceiling: Anthropic/Google get a
+        # deeper `thinking`/`thinking_budget`; native OpenAI has no tier above
+        # `high`, so its adapter caps `max` at `high` (honest — the knob tops out
+        # there). Any other out-of-vocabulary value falls back to `high` rather
+        # than being sent raw.
+        normalized = "max" if effort == "very_high" else effort
+        if normalized not in ("low", "medium", "high", "max"):
+            normalized = "high"
+        request_reasoning = ReasoningRequest(enabled=True, effort=normalized)
         return resolution.adapter.apply_reasoning(model, request_reasoning)
 
     def _shapes_reasoning(self, resolution: Resolution) -> bool:

@@ -181,6 +181,35 @@ const TOOL_LABELS: Record<string, string> = {
   terminal_run: 'Running',
   scaffold_kit: 'Building a tool',
   analysis_run: 'Working it out',
+  // Code Intelligence & Understanding Engine (CIUE) — plain job names for the
+  // semantic/structural navigation surface. The mechanism (LSP/AST/index) never
+  // reaches the user; only the job does.
+  code_get_definition: 'Locating the definition',
+  code_find_references: 'Finding where it is used',
+  code_find_symbol: 'Finding a symbol',
+  code_search_symbols: 'Searching symbols',
+  code_get_hover: 'Inspecting the type',
+  code_get_type: 'Inspecting the type',
+  code_get_diagnostics: 'Checking for problems',
+  code_get_document_symbols: 'Listing the file structure',
+  code_get_callers: 'Finding callers',
+  code_get_callees: 'Finding what it calls',
+  code_get_call_hierarchy: 'Tracing the call path',
+  code_get_implementations: 'Finding implementations',
+  code_get_imports: 'Listing imports',
+  code_get_exports: 'Listing exports',
+  code_get_dependencies: 'Tracing dependencies',
+  code_get_dependents: 'Finding dependents',
+  code_get_project_structure: 'Mapping the project',
+  code_get_dependency_graph: 'Mapping dependencies',
+  code_parse_file: 'Reading the file structure',
+  code_analyze_file: 'Analysing a file',
+  code_rename_symbol: 'Renaming across the project',
+  code_organize_imports: 'Reviewing imports',
+  code_get_relevant_context: 'Gathering relevant code',
+  code_index_workspace: 'Indexing the project',
+  code_intel_status: 'Checking code understanding',
+  code_find_related_tests: 'Finding related tests',
 };
 
 /** Turn a raw tool name into a short, human label (fallback prettifies it). */

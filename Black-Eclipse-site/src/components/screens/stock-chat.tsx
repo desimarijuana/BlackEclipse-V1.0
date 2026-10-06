@@ -109,6 +109,7 @@ import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { MarketRegimeControl } from '@/components/layout/market-regime-control';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
 import { useChatModel } from '@/lib/agent/use-chat-model';
+import { useReasoningEffort } from '@/lib/agent/use-reasoning-effort';
 import { clientIsOperator } from '@/lib/harness/skills-browser';
 import { turnText, type AssistantTurn } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
@@ -197,9 +198,8 @@ function StockChatContent() {
   const runInFlightRef = useRef(false);
   const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
   const chatModel = useChatModel(); // the composer's real, persisted model choice
-  useEffect(() => {
-    setAgentBusy(agentRun.active);
-  }, [agentRun.active]);
+  const reasoningEffort = useReasoningEffort(); // per-question "model intelligence"
+  useEffect(() => { setAgentBusy(agentRun.active); }, [agentRun.active]);
 
   // The action the agent is blocked on, if any. Sourced from the live turn and
   // falling back to the last persisted assistant message, so the card survives a
@@ -241,9 +241,7 @@ function StockChatContent() {
   // Optional block within the section, e.g. `settings.market#priority`.
   const [settingsAnchor, setSettingsAnchor] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   // User-assigned F1–F12 shortcuts open their sidebar tab anywhere in the app.
   useSidebarKeybinds(setActiveTab);
@@ -660,7 +658,7 @@ function StockChatContent() {
     sound.tick();
 
     try {
-      const finalTurn = await agentRun.start({ history, userText, chatId, model: chatModel.displayModel || undefined });
+      const finalTurn = await agentRun.start({ history, userText, chatId, model: chatModel.displayModel || undefined, reasoningEffort: reasoningEffort.effort });
       setSessionRefreshKey((k) => k + 1);
       // A finished reply is an incoming message, not a generic success.
       if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
@@ -983,6 +981,7 @@ function StockChatContent() {
                       onCancel={handleCancel}
                       focus={focusMode}
                       modelState={chatModel}
+                      effortState={reasoningEffort}
                     />
                     <div className="w-full px-4 md:px-6">
                       <SessionBar session={sessionController} />
@@ -1010,6 +1009,7 @@ function StockChatContent() {
                         placeholder="Ask a follow-up..."
                         showProvider={false}
                         modelState={chatModel}
+                        effortState={reasoningEffort}
                         busy={agentBusy}
                         onCancel={handleCancel}
                         onAttach={() => fileInputRef.current?.click()}

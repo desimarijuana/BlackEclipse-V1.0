@@ -28,6 +28,9 @@ export interface StartRunArgs {
   chatId?: string;
   /** The composer's model choice for this turn (overrides the saved model). */
   model?: string;
+  /** The composer's per-question reasoning-effort override (overrides the saved
+   *  default; absent = Auto). */
+  reasoningEffort?: import('./reasoning').ReasoningLevel;
 }
 
 export interface UseAgentRunOptions {
@@ -209,6 +212,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
         const reply = await getAgentProvider().chat(messages, undefined, {
           chatId: args.chatId,
           model: args.model,
+          reasoningEffort: args.reasoningEffort,
           signal: controller.signal,
           onRunId: (id) => {
             setRunId(id);

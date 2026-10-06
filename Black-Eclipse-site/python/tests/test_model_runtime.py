@@ -809,3 +809,57 @@ def test_operator_reasoning_effort_low_leaves_the_model_untouched() -> None:
     )
     model = rt.prepare_model(_Native(), res)
     assert getattr(model, "reasoning_effort", None) is None
+
+
+def test_very_high_is_normalized_to_max_for_the_adapter() -> None:
+    # The UI's top stop ("Ultra") means the model's strongest thinking tier. The
+    # runtime normalizes `very_high` → the runtime's `max` tier (NOT `high`), so
+    # an adapter can map it to its provider's real ceiling.
+    rt = _runtime_with([
+        _model("anthropic", "claude-sonnet-4", capabilities=_caps(text="supported", reasoning="supported")),
+    ], providers=[ProviderInfo(id="anthropic", label="Anthropic", kind="anthropic")])
+    captured: dict[str, Any] = {}
+
+    class _Capture:
+        thinking: Any = None
+
+        def _apply(self, req: Any) -> None:
+            captured["effort"] = req.effort
+
+    # Wrap the adapter's apply_reasoning to observe the normalized effort.
+    res = rt.resolve_for_run(
+        _settings("anthropic", "claude-sonnet-4"),
+        task="default",
+        requirements={"reasoning": "very_high"},
+    )
+    real_apply = res.adapter.apply_reasoning
+
+    def spy(model: Any, reasoning: Any) -> Any:
+        captured["effort"] = getattr(reasoning, "effort", None)
+        return real_apply(model, reasoning)
+
+    res.adapter.apply_reasoning = spy  # type: ignore[method-assign]
+    model = rt.prepare_model(_Capture(), res)
+    assert captured["effort"] == "max"
+    # Anthropic maps max → its deepest thinking budget (16384 tokens).
+    assert getattr(model, "thinking", None) == {"type": "enabled", "budget_tokens": 16384}
+
+
+def test_ultra_on_native_openai_caps_at_high_because_there_is_no_higher_tier() -> None:
+    # OpenAI's `reasoning_effort` tops out at `high`; sending `max` would be an
+    # unknown value and a hard 400, so the adapter caps Ultra at `high`.
+    rt = _runtime_with([
+        _model("openai", "o3-mini", capabilities=_caps(text="supported", reasoning="supported")),
+    ])
+
+    class _Native:
+        reasoning_effort: Any = None
+
+    res = rt.resolve_for_run(
+        _settings("openai", "o3-mini"),
+        task="default",
+        requirements={"reasoning": "very_high"},
+    )
+    model = rt.prepare_model(_Native(), res)
+    assert getattr(model, "reasoning_effort", None) == "high"
+

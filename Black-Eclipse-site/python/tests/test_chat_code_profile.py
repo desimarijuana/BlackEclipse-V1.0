@@ -41,7 +41,28 @@ EXPECTED = (
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
     "list_ports", "terminal_capabilities", "system_info", "resource_report",
-    "scaffold_kit", "analysis_run", "delegate",
+    "scaffold_kit", "analysis_run",
+    # Code Execution & Verification Layer: run/build/test/discover + services +
+    # evidence, on the chat coding surface too. Removed at `plan_only`.
+    "execute_code", "execute_python", "execute_javascript", "execute_typescript",
+    "execute_sql", "execute_shell", "build_project", "test_project",
+    "run_verification", "discover_tests",
+    "start_service", "stop_service", "restart_service",
+    "service_status", "service_logs", "list_services",
+    "execution_get", "execution_logs", "execution_result",
+    "execution_artifacts", "cancel_execution",
+    # Code Intelligence & Understanding Engine (CIUE): semantic/structural
+    # navigation + the one semantic rename (removed at `plan_only`).
+    "code_get_definition", "code_find_references", "code_find_symbol",
+    "code_search_symbols", "code_get_hover", "code_get_type",
+    "code_get_diagnostics", "code_get_document_symbols", "code_get_callers",
+    "code_get_callees", "code_get_call_hierarchy", "code_get_implementations",
+    "code_get_imports", "code_get_exports", "code_get_dependencies",
+    "code_get_dependents", "code_get_project_structure", "code_get_dependency_graph",
+    "code_parse_file", "code_analyze_file", "code_organize_imports",
+    "code_get_relevant_context", "code_index_workspace", "code_intel_status",
+    "code_find_related_tests", "code_rename_symbol",
+    "delegate",
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     "market_get_quote", "fundamentals_get_financials", "research_search",
 )

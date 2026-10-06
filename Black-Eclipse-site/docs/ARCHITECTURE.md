@@ -897,17 +897,35 @@ attaches as context and the answers the agent produces:
 - **Reasoning effort is the per-run "model variant".** The runtime has no
   per-model variant registry; its real knob is reasoning effort
   (`none/low/medium/high/very_high/max`, `python/harness/model_runtime/catalog.py`
-  `REASONING_LEVELS`), normally chosen by the task profile. Settings › AI now
-  exposes an **Auto / Minimal / Standard / High / Ultra** selector (`src/lib/
-  agent/reasoning.ts`, mapping Auto → no override, and Minimal/Standard/High/Ultra
-  → `low`/`medium`/`high`/`very_high`). The choice persists as
-  `LLMConfig.reasoningEffort` (`setLLMConfig`; `null` clears it back to Auto) and
-  round-trips through `/api/settings`. The run front door forwards it as
-  `input.context.reasoning` (`run-service.ts`), which the router reads as a
-  `reasoning` requirement and `prepare_model` applies to a model's NATIVE control
-  only (OpenAI reasoning models, Anthropic `thinking`, Gemini `thinking_budget`) —
-  an OpenAI-compatible endpoint that does not declare reasoning is never
-  force-fed the knob. An explicit run effort outranks the task profile's default.
+  `REASONING_LEVELS`), normally chosen by the task profile. One vocabulary is
+  shared by every surface (`src/lib/agent/reasoning.ts`): Auto / Minimal /
+  Standard / High / Ultra, mapping Auto → no override and Minimal/Standard/High/
+  Ultra → `low`/`medium`/`high`/`very_high`.
+  - **Settings › AI** pins a GLOBAL default as `LLMConfig.reasoningEffort`
+    (`setLLMConfig`; `null` clears it back to Auto), round-tripped through
+    `/api/settings`.
+  - **The chat composer** (`EffortControl`, `src/components/chat/effort-control.tsx`)
+    is a PER-QUESTION override on the Faster→Smarter slider. It renders only when
+    `ChatInput`/`EmptyState` is given an `effortState` (from `useReasoningEffort`,
+    persisted client-side at `be_reasoning_effort_v1`); the chosen level is sent
+    with the next run only and never writes the saved default. Auto sends no
+    override.
+  - The run front door forwards the effective effort as `input.context.reasoning`
+    (`run-service.ts` `reasoningContext`: per-run override **outranks** the saved
+    default), which the router reads as a `reasoning` requirement and
+    `prepare_model` applies to a model's NATIVE control only (OpenAI reasoning
+    models, Anthropic `thinking`, Gemini `thinking_budget`) — an
+    OpenAI-compatible endpoint that does not declare reasoning is never
+    force-fed the knob. An explicit run effort outranks the task profile's
+    default, and with neither the task profile decides.
+  - **Minimal and Ultra, precisely.** `low` (Minimal) is a deliberate no-op:
+    the runtime leaves the model untouched for `none`/`low` (it never forces
+    thinking *below* a model's default). `very_high` (Ultra) is normalized to
+    the runtime's `max` tier in `prepare_model`, which each adapter maps to a
+    real ceiling — Anthropic `thinking` budget 16384 and Gemini `thinking_budget`
+    24576 (up from 8192 at High); native OpenAI's `reasoning_effort` has no tier
+    above `high`, so its adapter caps Ultra at `high` (honest, not a silent
+    downgrade that looks stronger than it is).
 
 ### ChatDock (the Command Center assistant composer)
 

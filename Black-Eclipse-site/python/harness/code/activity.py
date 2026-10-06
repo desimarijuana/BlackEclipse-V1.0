@@ -33,6 +33,25 @@ _PATH_TOOLS = {
     "workspace_docs": "query",
     "workspace_search": "pattern",
     "workspace_diff": "base",
+    # CIUE navigation: a symbol name or a file path — never file content.
+    "code_get_definition": "name",
+    "code_find_references": "name",
+    "code_find_symbol": "name",
+    "code_get_type": "name",
+    "code_get_callers": "name",
+    "code_get_callees": "name",
+    "code_get_call_hierarchy": "name",
+    "code_get_implementations": "name",
+    "code_rename_symbol": "name",
+    "code_search_symbols": "query",
+    "code_get_relevant_context": "query",
+    "code_get_document_symbols": "path",
+    "code_get_imports": "path",
+    "code_get_exports": "path",
+    "code_parse_file": "path",
+    "code_analyze_file": "path",
+    "code_get_hover": "file",
+    "code_get_diagnostics": "file",
 }
 _COMMAND_TOOLS = {"command_run", "terminal_run"}
 
@@ -129,6 +148,15 @@ def tool_result_summary(tool_name: str, data: Any) -> Optional[str]:
     if name == "workspace_list":
         count = data.get("count")
         return f"{count} entries" if isinstance(count, int) else None
+    if name.startswith("code_"):
+        # CIUE tools all return a `count` and an `engine`; the summary names how
+        # many results and which kind of tool answered (never file content).
+        count = data.get("count")
+        engine = data.get("engine")
+        if isinstance(count, int):
+            suffix = f" ({engine})" if engine else ""
+            return f"{count} result(s){suffix}"
+        return None
     return None
 
 

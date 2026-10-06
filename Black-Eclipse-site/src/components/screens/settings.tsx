@@ -29,6 +29,7 @@ import { DataSourcesPanel } from "./data-sources-panel";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
+import { Panel, SectionHeader, SubSection } from "./settings-ui";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
@@ -175,49 +176,8 @@ function resolveSection(raw: string | undefined): SectionId {
 }
 
 // ─── Small building blocks ──────────────────────────────────────────────
-
-function Panel({
-  className,
-  children,
-  ...rest
-}: {
-  className?: string;
-  children: React.ReactNode;
-} & React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border border-white/10 dark:border-white/5 glass-card overflow-hidden",
-        className
-      )}
-      {...rest}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SectionHeader({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: React.ElementType;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
-          <Icon className="text-primary" size={22} />
-        </span>
-        <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">{title}</h2>
-      </div>
-      <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">{description}</p>
-    </div>
-  );
-}
+// Panel / SectionHeader / SubSection are shared with the other settings panels
+// and live in ./settings-ui.
 
 function Chip({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -229,32 +189,6 @@ function Chip({ children, className }: { children: React.ReactNode; className?: 
     >
       {children}
     </span>
-  );
-}
-
-/** A labelled sub-section within a settings page, for consistent organization. */
-function SubSection({
-  icon: Icon,
-  title,
-  description,
-  children,
-  className,
-}: {
-  icon?: React.ElementType;
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={cn("space-y-3", className)}>
-      <div className="flex items-center gap-2">
-        {Icon && <Icon size={13} className="text-primary shrink-0" />}
-        <h3 className="text-xs font-semibold tracking-tight text-foreground">{title}</h3>
-      </div>
-      {description && <p className="text-[10px] text-muted-foreground leading-relaxed -mt-1">{description}</p>}
-      {children}
-    </section>
   );
 }
 

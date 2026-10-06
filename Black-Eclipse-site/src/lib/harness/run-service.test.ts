@@ -176,6 +176,38 @@ describe("startRun", () => {
     expect(runViaRuntime.mock.calls[0][0].input.context?.reasoning).toBeUndefined();
   });
 
+  it("lets a per-run effort override outrank the saved default", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "test-key",
+      model: "o3-mini",
+      reasoningEffort: "low",
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_ro", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" }, reasoningEffort: "very_high" });
+    expect(runViaRuntime.mock.calls[0][0].input.context.reasoning).toBe("very_high");
+  });
+
+  it("falls back to the saved default when the composer sent no override", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "test-key",
+      model: "o3-mini",
+      reasoningEffort: "high",
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_rf", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect(runViaRuntime.mock.calls[0][0].input.context.reasoning).toBe("high");
+  });
+
+  it("forwards a per-run effort override through chatWithAgent too", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_c", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("analyze", [], [], undefined, undefined, undefined, "medium");
+    expect(runViaRuntime.mock.calls[0][0].input.context.reasoning).toBe("medium");
+  });
+
   it("overrides only the model when the composer picked one", async () => {
     runViaRuntime.mockResolvedValue({ runId: "run_m", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await startRun({ input: { query: "x" }, model: "gpt-4.1" });

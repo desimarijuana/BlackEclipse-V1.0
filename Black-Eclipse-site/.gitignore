@@ -100,3 +100,17 @@ python/**/*.egg-info/
 # connector credentials. NEVER commit this: it decrypts stored API secrets.
 .connector-key
 
+# Downloaded installers / archives that land in asset folders by accident (e.g. a
+# browser download dropped into public/backgrounds/). These are not source and are
+# often hundreds of MB; committing one bloats the repo irreversibly.
+*.exe
+*.msi
+*.dmg
+*.pkg
+*.apk
+*.iso
+*.app
+local-*-windows.*
+local-*-mac.*
+local-*-linux.*
+

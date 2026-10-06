@@ -140,11 +140,34 @@ class AgenticService:
         # The terminal tools are registered on the SAME registry, so validation,
         # permission and the effect authorizer apply unchanged.
         register_terminal_tools(self.registry)
+        # The Code Execution & Verification Layer: the orchestrator, runtime
+        # registry, scheduler, service manager and execution history, all reusing
+        # the terminal manager for long-running services and `code/sandbox.py` for
+        # one-shot runs. Its tools register on the SAME registry. Built BEFORE the
+        # code store so the orchestrator can persist results once the store exists.
+        from .execution.runtime import set_execution_service  # noqa: PLC0415
+        from .execution.service import ExecutionService  # noqa: PLC0415
+        from .execution.tools import register_execution_tools  # noqa: PLC0415
+
+        self.execution = ExecutionService(store=self.store, terminal=self.terminal)
+        set_execution_service(self.execution)
+        register_execution_tools(self.registry)
         # Disposable code workspaces (Phase 2): rows in agent-memory.db bound to
         # the one store connection.
         from .code.store import CodeWorkspaceStore  # noqa: PLC0415
 
         self.code_store = CodeWorkspaceStore(self.store)
+        # The Code Intelligence & Understanding Engine (CIUE): ONE process-wide
+        # runtime holding the LSP manager and a per-workspace code index/watcher.
+        # Its events ride the process-wide bus. Built before any run so the
+        # `code_*` tools resolve a shared runtime. A failure is a diagnostic.
+        try:
+            from .code.intel.runtime import build_code_intel_runtime  # noqa: PLC0415
+
+            self.code_intel = build_code_intel_runtime(on_event=self._publish_code_intel_event)
+        except Exception:  # noqa: BLE001 - CIUE must never block boot
+            self.code_intel = None
+            log.warning("code intelligence runtime unavailable", exc_info=True)
         # Trusted workspace roots (folder picker): the persisted allowlist of
         # directories a person approved. The SELECTED root is what
         # `workspace.default_root()` resolves to, after the env override and
@@ -201,6 +224,52 @@ class AgenticService:
             self.bus.publish({"type": event_type, "data": data, "at": __import__("time").time()})
         except Exception:  # noqa: BLE001 - observability must never break a run
             pass
+
+    def _publish_code_intel_event(self, event_type: str, data: dict[str, Any]) -> None:
+        """Forward CIUE observability events (LSP start/stop/crash, indexing) to the bus.
+
+        Process-level events (an LSP start has no run id), so they are published
+        for any global subscriber and never persisted against a run.
+        """
+        try:
+            self.bus.publish({"type": event_type, "data": data, "at": __import__("time").time()})
+        except Exception:  # noqa: BLE001
+            pass
+
+    def start_code_intel(self) -> dict[str, Any]:
+        """Best-effort CIUE startup. Deliberately does NOT index at boot.
+
+        Indexing the whole repository at boot would run on every process start and
+        every test client — expensive and unnecessary. The index is built LAZILY and
+        incrementally: the first `code_*` query refreshes the index on a worker
+        thread (`manager._ensure_fresh`), and the per-workspace watcher keeps it
+        current afterwards. Language servers also start lazily on first use. A
+        failure here is a diagnostic, never a boot blocker.
+        """
+        runtime = getattr(self, "code_intel", None)
+        if runtime is None:
+            return {"available": False}
+        try:
+            from .code.workspace import default_root  # noqa: PLC0415
+
+            root = default_root()
+            return {
+                "available": True,
+                "root": str(root) if root else None,
+                "supportedLanguages": runtime.lsp.supported_languages(),
+            }
+        except Exception:  # noqa: BLE001
+            log.warning("CIUE startup probe failed", exc_info=True)
+            return {"available": True, "root": None}
+
+    async def stop_code_intel(self) -> None:
+        runtime = getattr(self, "code_intel", None)
+        if runtime is None:
+            return
+        try:
+            runtime.stop()
+        except Exception:  # noqa: BLE001 - shutdown must never raise
+            log.warning("CIUE shutdown failed", exc_info=True)
 
     def _selected_trusted_root(self) -> Optional[str]:
         """The path of the selected trusted root, or None. Never raises."""
@@ -311,6 +380,16 @@ class AgenticService:
             self.terminal.close_all()
         except Exception:  # noqa: BLE001 - shutdown must never raise
             log.warning("terminal shutdown failed", exc_info=True)
+
+    def stop_execution(self) -> None:
+        """Stop execution services and the scheduler on shutdown (never raises)."""
+        layer = getattr(self, "execution", None)
+        if layer is None:
+            return
+        try:
+            layer.stop()
+        except Exception:  # noqa: BLE001 - shutdown must never raise
+            log.warning("execution shutdown failed", exc_info=True)
 
     async def start_mcp(self) -> None:
         """Connect enabled MCP servers and register selected read-only tools.
@@ -609,6 +688,7 @@ class AgenticService:
             memory_service=self.memory, skill_registry=self.skill_registry,
             approvals=self.approvals, memory_router=self.memory_router,
             mcp_manager=self.mcp, code_store=self.code_store,
+            code_intel_runtime=getattr(self, "code_intel", None),
         )
         await self._schedule_review(request.runId, result.status)
         return result
@@ -782,6 +862,7 @@ class AgenticService:
                     memory_service=self.memory, skill_registry=self.skill_registry,
                     approvals=self.approvals, memory_router=self.memory_router,
                     mcp_manager=self.mcp, code_store=self.code_store,
+                    code_intel_runtime=getattr(self, "code_intel", None),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

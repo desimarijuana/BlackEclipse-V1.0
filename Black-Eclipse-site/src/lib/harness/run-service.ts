@@ -14,6 +14,7 @@ import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
 import type { RunInput, RunResult } from "./types";
 import { newRunId } from "./ids";
 import { HarnessError } from "./errors";
+import { isReasoningLevel, type ReasoningLevel } from "@/lib/agent/reasoning";
 
 export interface StartRunOptions {
   input: RunInput;
@@ -35,6 +36,12 @@ export interface StartRunOptions {
   /** A model id picked for this turn (composer), overriding the saved model. */
   model?: string;
   /**
+   * A reasoning-effort ("model intelligence") picked for this turn (composer),
+   * overriding the saved default. Absent = the saved default, then the runtime's
+   * task profile.
+   */
+  reasoningEffort?: ReasoningLevel;
+  /**
    * Approval cards (optional): `"ask"` makes a run PAUSE on an effectful step
    * until an operator decides, instead of refusing and letting the model retry.
    * Only set this from a STREAMING call site — the pause is surfaced live over SSE
@@ -55,6 +62,7 @@ export async function chatWithAgent(
   runId?: string,
   sessionId?: string,
   model?: string,
+  reasoningEffort?: ReasoningLevel,
 ): Promise<{
   output: string;
   runId: string;
@@ -78,6 +86,7 @@ export async function chatWithAgent(
     agentId: "eclipse-agent",
     runId,
     model,
+    reasoningEffort,
     // The chat workspace id is the session id, so a chat turn belongs to a
     // long-lived session and shows up in the Sessions tab (M3).
     sessionId,
@@ -159,9 +168,17 @@ function routingPolicyContext(cfg: Awaited<ReturnType<typeof getLLMConfig>>): Re
  * an OpenAI-compatible endpoint that does not declare reasoning is never
  * force-fed the knob. Empty by default, so nothing changes for an operator who
  * leaves the control on Auto.
+ *
+ * Precedence: a per-RUN override (the composer's "this question only" effort)
+ * outranks the operator's saved default; with neither, nothing is sent and the
+ * runtime's task profile decides.
  */
-function reasoningContext(cfg: Awaited<ReturnType<typeof getLLMConfig>>): Record<string, unknown> {
-  return cfg.reasoningEffort ? { reasoning: cfg.reasoningEffort } : {};
+function reasoningContext(
+  cfg: Awaited<ReturnType<typeof getLLMConfig>>,
+  override?: ReasoningLevel,
+): Record<string, unknown> {
+  const effort = override ?? (isReasoningLevel(cfg.reasoningEffort) ? cfg.reasoningEffort : undefined);
+  return effort ? { reasoning: effort } : {};
 }
 
 /**
@@ -178,6 +195,7 @@ export async function startChatRun(
   runId?: string,
   sessionId?: string,
   model?: string,
+  reasoningEffort?: ReasoningLevel,
 ): Promise<string> {
   const input = assertRunInput({
     query,
@@ -195,7 +213,7 @@ export async function startChatRun(
   }
   // Reasoning-effort override ("model variant") — the runtime applies it to a
   // native reasoning model and never to an OpenAI-compatible one that lacks it.
-  const effortContext = reasoningContext(cfg);
+  const effortContext = reasoningContext(cfg, reasoningEffort);
   if (Object.keys(effortContext).length) {
     input.context = { ...(input.context ?? {}), ...effortContext };
   }
@@ -248,7 +266,7 @@ export async function startRun(
   if (Object.keys(policyContext).length) {
     input.context = { ...(input.context ?? {}), ...policyContext };
   }
-  const effortContext = reasoningContext(cfg);
+  const effortContext = reasoningContext(cfg, options.reasoningEffort);
   if (Object.keys(effortContext).length) {
     input.context = { ...(input.context ?? {}), ...effortContext };
   }

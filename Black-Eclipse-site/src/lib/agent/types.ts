@@ -42,6 +42,12 @@ export interface ChatOptions {
    */
   model?: string;
   /**
+   * The reasoning-effort ("model intelligence") the operator picked for THIS
+   * turn. Overrides the saved default for the run. Absent = Auto, so the saved
+   * default and then the runtime's task profile decide.
+   */
+  reasoningEffort?: import('./reasoning').ReasoningLevel;
+  /**
    * Called with the harness run id as soon as it is known, so the caller can
    * offer cancellation before the reply arrives.
    */

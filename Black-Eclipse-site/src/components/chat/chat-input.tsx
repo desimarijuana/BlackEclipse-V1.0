@@ -21,6 +21,8 @@ import {
   DropdownMenuGroup,
 } from '@/components/ui/dropdown-menu';
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
+import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
+import { EffortControl } from './effort-control';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
@@ -46,6 +48,12 @@ interface ChatInputProps {
    * turn; when omitted only the provider label is shown.
    */
   modelState?: ChatModelState;
+  /**
+   * The composer's per-question reasoning-effort ("model intelligence") state.
+   * When provided, an effort pill renders beside the model selector; the chosen
+   * level is sent with the next run only (Auto sends no override).
+   */
+  effortState?: ReasoningEffortState;
   /** The assistant is working: submit becomes a pause (cancel) button. */
   busy?: boolean;
   /** Called when the user clicks pause. */
@@ -78,6 +86,7 @@ export function ChatInput({
   autoFocus,
   showProvider = true,
   modelState,
+  effortState,
   busy = false,
   onCancel,
   onAttach,
@@ -186,6 +195,14 @@ export function ChatInput({
               {providerLabel}
             </span>
           ) : null}
+          {effortState && (
+            <EffortControl
+              value={effortState.effort}
+              index={effortState.index}
+              onIndexChange={effortState.setIndex}
+              disabled={busy}
+            />
+          )}
           <Button 
             type="button" 
             variant="ghost" 

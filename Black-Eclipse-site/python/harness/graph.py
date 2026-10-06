@@ -366,6 +366,7 @@ def build_graph(
     resume_from: Optional[dict[str, Any]] = None,
     code_store: Optional[Any] = None,
     code_ledger: Optional[Any] = None,
+    code_intel_runtime: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -458,6 +459,9 @@ def build_graph(
         # Phase 2: the run's autonomy profile and the code-workspace store.
         autonomy=request.autonomy,
         code_store=code_store,
+        # The process-wide CIUE runtime (LSP manager + code index/watcher), so the
+        # `code_*` tools resolve one shared runtime instead of a global.
+        code_intel_runtime=code_intel_runtime,
         # Phase 4: the run's verification ledger — every command execution is
         # recorded here so the final answer can be checked against proven fact.
         code_ledger=code_ledger,
@@ -937,6 +941,7 @@ async def execute_run(
     memory_router: Optional[Any] = None,
     mcp_manager: Optional[Any] = None,
     code_store: Optional[Any] = None,
+    code_intel_runtime: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -1197,6 +1202,7 @@ async def execute_run(
             resume_from=resume_from,
             code_store=code_store,
             code_ledger=code_ledger,
+            code_intel_runtime=code_intel_runtime,
         )
         return await app.ainvoke(initial_state)
 

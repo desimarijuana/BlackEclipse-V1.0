@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-10-04
+last-verified: 2026-10-06
 ---
 
 # Harness Decisions
@@ -3578,4 +3578,140 @@ serve a command. `policy.SECRET_ENV_ALLOWLIST` is unchanged — runtime-specific
 come from `extra_env()` per call, not the global allowlist. Tests:
 `test_terminal_resources.py`, the Docker/SSH unit cases, and real-PTY session
 coverage. Full Python suite green (2636); Vitest 2093; tsc clean; eval gates PASS.
+
+## ADR-H128 — Code intelligence is one engine over LSP/AST/index, never a set of LSP wrappers
+
+**Status:** Accepted (2026-10-06)
+
+**Context.** Eclipse could read, search and patch files, but it treated the
+repository as text: there was no definition/reference lookup, no dependency or call
+graph, no diagnostics loop, and no way to give the model a focused slice of code
+instead of a directory dump. Competing coding agents understand software
+structurally and semantically. The task: build a first-class Code Intelligence &
+Understanding Engine (CIUE) that is NOT a few LSP wrappers, is transport-agnostic,
+degrades honestly, and reuses the existing filesystem/terminal/tool/policy
+infrastructure.
+
+**Decision.**
+
+1. **One facade over four backends.** `CodeIntelligenceManager`
+   (`python/harness/code/intel/`) coordinates an LSP manager, a Tree-sitter layer,
+   an AST engine and a dedicated local index, and normalizes every answer into a
+   Unified Code Model (`models.py`). The agent asks `code_get_definition` /
+   `code_find_references` / `code_find_symbol` / … and never learns which backend
+   answered — but every result NAMES its engine (`lsp` / `tree-sitter` / `ast` /
+   `index`). LSP is tried first, then the structural fallback; a server failure
+   never crashes the runtime.
+2. **Provider registry, not a hard-coded server.** `lsp/providers.py` ships nine
+   real servers (TS/JS, Python, Java, C#, C/C++, Go, Rust, PHP, SQL); adding one is
+   adding a `LanguageServerSpec`. Providers are probed, never assumed.
+3. **A DEDICATED index.** `persistence/index.py` (`CodeIndex`) is its own SQLite
+   store under `.black-eclipse/code-index/` — never `agent-memory.db`,
+   `eclipse-memory.db` or `jdds.db`. It is incremental (changed files only), a cache
+   (every query can fall back to a live scan), and recoverable (a corrupt database
+   is backed up, recreated and re-indexed).
+4. **Reuse, not rebuild.** Path safety is `code/policy.py` + `code/workspace.py`;
+   reading/encoding/watching and the per-language extractors are `code/fs/`; the
+   tool registry, event emitter and effect authorizer are the existing seams. No
+   second confinement implementation, filesystem, terminal or registry.
+5. **Rename is semantic or it is a labelled preview.** LSP `WorkspaceEdit` when a
+   server runs; otherwise a deterministic, preview-first structural edit from the
+   index. Never a regex. Applying requires `code.write` (removed at `plan_only`) and
+   writes through the fs atomic encoder.
+6. **Deterministic context first.** `context.py` selects relevant files, symbols,
+   call paths, diagnostics and tests by deterministic term/symbol/reference matching
+   — no embeddings — so the model is never handed the whole repository.
+7. **Never crash, never fabricate.** Every CIUE tool returns `(text, data)` like
+   every other code tool, with structured refusals and a bounded compact payload.
+   Initial indexing is asynchronous; a query refreshes stale data incrementally.
+
+**Why.** LSP wrappers alone cannot answer "what depends on this file" or "what
+tests cover this symbol", and they fail the moment a server is missing. An engine
+that degrades to a real structural index, names its source, and reuses the existing
+safety and tooling gives Eclipse repository-level software engineering without
+duplicating infrastructure or pretending to a capability it does not have.
+
+**Consequences.** New packages `python/harness/code/intel/` and
+`intel_tools.py`; a new route group `routers/code_intel.py`; `policy.py` gains
+`INTEL_WRITE_TOOLS`/`INTEL_READ_TOOLS`; both agent allowlists and `CHAT_CODE_TOOLS`
+gain the tools (the pinned chat-set test is updated in place);
+`ToolContext.code_intel_runtime`; `AgenticService` owns one `CodeIntelRuntime`
+(started lazily, stopped with the runtime). No new third-party dependency is
+required (Tree-sitter is optional; LSP is stdlib subprocess + JSON). Tests:
+`test_intel{,_tools,_lsp,_api}.py` + fixtures + a fake language-server subprocess.
+Architecture: `docs/harness/code-intelligence.md`.
+
+
+## ADR-H129 — Code execution is an orchestrated lifecycle over the one sandbox, not a second terminal
+
+**Status:** Accepted (2026-10-06)
+
+**Context.** Eclipse could run individual allowlisted commands (`command_run`),
+open persistent shells and manage background processes (the terminal subsystem),
+and compute a derived metric in the analysis sandbox. It could NOT take a project
+through the whole loop a coding agent needs: detect the language and runtime, build,
+run, discover and run tests, normalize compiler/runtime/test failures into structured
+diagnostics, and iteratively repair until verification evidence exists. Adding each
+language ad hoc (or a second shell wrapper) would have duplicated infrastructure and
+let the model silently widen its own permissions.
+
+**Decision.**
+
+1. **A dedicated layer, not a terminal wrapper.** `python/harness/execution/`
+   owns the lifecycle. The terminal subsystem keeps interactive OS control; the
+   execution layer owns language/runtime/entrypoint/sandbox/resource/evidence. They
+   share the low-level process primitive and the terminal's process manager (for
+   long-running services) but their responsibilities stay distinct.
+2. **One execution primitive.** Every one-shot run goes through the existing
+   `code/sandbox.py` (`RunSpec` → `RawResult`): argv arrays, no shell, scrubbed
+   environment, bounded lifetime, hard output cap, whole-process-tree kill. There is
+   no second spawn path. A runtime adapter stages an inline program outside the
+   workspace and returns an argv — it never executes.
+3. **The orchestrator owns the lifecycle; adapters own language behaviour.** The
+   orchestrator resolves project → language → runtime → context → prepare → run/
+   build/test → collect diagnostics/artifacts/metrics → cleanup → store. A
+   `RuntimeRegistry` maps a language id to a `RuntimeAdapter`
+   (`detect`/`resolve`/`prepare_run`/`build`/`test`/`discover_tests`). Python,
+   JavaScript, TypeScript, SQL and Shell ship; Java/Go/Rust/C/C++/C#/PHP/Ruby are
+   declared and report UNAVAILABLE honestly until an adapter is registered.
+4. **A strict, validated state machine.** `ExecutionState` is one enum; every
+   transition is checked and a terminal state has no outgoing edges. A `finally`
+   path always lands the machine on a terminal state and always removes the staged
+   working directory, whatever happened.
+5. **The model can never widen its own permissions.** The `ExecutionPolicyEngine`
+   narrows the request's network/filesystem policy to the autonomy profile's ceiling
+   and refuses an explicit widening (`NETWORK_NOT_PERMITTED`); forbidden secret names
+   (`.env`, cloud/SSH/GitHub tokens, API keys) are refused (`SECRET_FORBIDDEN`), never
+   silently dropped. Risk bands are DATA (SAFE…CRITICAL); a HIGH+ band requires an
+   approval. The existing `code/policy.allowed_tools` still removes the write/execute
+   tools structurally at `plan_only`.
+6. **Evidence, never inference.** The `ExecutionVerifier` runs a bounded
+   build→test→fix→rebuild→retest loop (`max_iterations`, wall-clock budget). A
+   "passed" outcome is only produced from an actual `COMPLETED` execution with a
+   real test summary; a compiler error/security block is never "fixed" by editing
+   code, and no success is ever claimed without evidence. An unparsed test summary
+   reports `parsed: false`, not a pass.
+7. **Distinguish infrastructure from user-code failure.** `ErrorClass`
+   (`USER_CODE_ERROR` / `BUILD_ERROR` / `TEST_ERROR` / `RUNTIME_ERROR` /
+   `INFRASTRUCTURE_ERROR` / `SECURITY_ERROR` / `TIMEOUT` / `CANCELLED`) so an agent can
+   choose retry / fix / stop / ask. `RetryPolicy` is category-driven: a timeout may
+   retry; a compiler error, permission failure or sandbox violation must not.
+
+**Why.** A coding agent cannot be trusted to invent its own execution semantics.
+Making the sandbox the single primitive, the policy engine the single authority, the
+state machine the single lifecycle, and evidence the single basis for success gives a
+production capability that is secure by construction and honest by default — and it
+extends by registering an adapter, not by editing the orchestrator.
+
+**Consequences.** New package `python/harness/execution/` and route group
+`routers/execution.py` (`/execution/*`, operator-gated); `policy.WRITE_TOOLS` /
+`READ_ONLY_TOOLS` gain the tool names; `ExecutionStore` owns the `Execution*` tables
+on the ONE `agent-memory.db` connection (never `eclipse-memory.db`/`jdds.db`);
+`AgenticService` owns one `ExecutionService` (built after the terminal manager,
+stopped with the runtime); 21 tools register on the SAME registry. No new third-party
+dependency (SQLite is stdlib; PostgreSQL requires an optional driver and refuses
+otherwise). Retrieval tools are prefixed `execution_`/`service_` to preserve the
+code-agent's finance-tool guard. Tests: `test_execution_{unit,runtime,security,e2e,
+tools}.py`. Architecture: `docs/harness/execution-architecture.md`.
+
 

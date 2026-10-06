@@ -56,6 +56,12 @@ class RunSpec:
     timeout_s: int
     output_cap_bytes: int
     network: bool
+    # OS-level resource limits (0 = unset). Applied where the platform supports
+    # it: POSIX via `setrlimit` in the child; Windows via Job Object limits. The
+    # wall-clock timeout above is always enforced regardless.
+    cpu_seconds: int = 0            # RLIMIT_CPU / PerProcessUserTimeLimit
+    memory_mb: int = 0              # RLIMIT_AS / Job memory limit
+    process_limit: int = 0          # RLIMIT_NPROC / ActiveProcessLimit
 
 
 @dataclass(frozen=True)
@@ -137,7 +143,7 @@ class _BaseBackend:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 backend=self.name, launch_error=str(exc),
             )
-        self._on_spawn(proc)
+        self._on_spawn(proc, spec)
         sink: dict[str, Any] = {"data": b"", "total": 0}
         done = threading.Event()
         reader = threading.Thread(
@@ -189,7 +195,7 @@ class _BaseBackend:
     def _popen(self, spec: RunSpec) -> subprocess.Popen:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    def _on_spawn(self, proc: subprocess.Popen) -> None:
+    def _on_spawn(self, proc: subprocess.Popen, spec: RunSpec) -> None:
         pass
 
     def _on_close(self, proc: subprocess.Popen) -> None:
@@ -197,6 +203,40 @@ class _BaseBackend:
 
     def _kill_tree(self, proc: subprocess.Popen) -> None:
         raise NotImplementedError
+
+
+def _posix_rlimit_hook(spec: RunSpec):  # pragma: no cover - POSIX only
+    """A `preexec_fn` that applies RLIMIT_CPU / RLIMIT_AS / RLIMIT_NPROC.
+
+    Best-effort: a platform without `resource` (or a limit it cannot set) simply
+    skips that limit; the wall-clock timeout is still enforced by the parent.
+    """
+    if not (spec.cpu_seconds or spec.memory_mb or spec.process_limit):
+        return None
+    try:
+        import resource  # noqa: PLC0415
+    except ImportError:
+        return None
+
+    def _apply() -> None:
+        try:
+            if spec.cpu_seconds:
+                resource.setrlimit(resource.RLIMIT_CPU, (spec.cpu_seconds, spec.cpu_seconds))
+        except (ValueError, OSError):
+            pass
+        try:
+            if spec.memory_mb:
+                limit = spec.memory_mb * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        except (ValueError, OSError):
+            pass
+        try:
+            if spec.process_limit:
+                resource.setrlimit(resource.RLIMIT_NPROC, (spec.process_limit, spec.process_limit))
+        except (ValueError, OSError):
+            pass
+
+    return _apply
 
 
 class WindowsJobBackend(_BaseBackend):
@@ -225,10 +265,10 @@ class WindowsJobBackend(_BaseBackend):
             creationflags=flags,
         )
 
-    def _on_spawn(self, proc: subprocess.Popen) -> None:
-        self._assign_job(proc)  # best-effort; taskkill still kills the tree
+    def _on_spawn(self, proc: subprocess.Popen, spec: RunSpec) -> None:
+        self._assign_job(proc, spec)  # best-effort; taskkill still kills the tree
 
-    def _assign_job(self, proc: subprocess.Popen) -> None:  # pragma: no cover - Windows
+    def _assign_job(self, proc: subprocess.Popen, spec: RunSpec) -> None:  # pragma: no cover - Windows
         try:
             ctypes = self._ctypes
             kernel32 = self._kernel32
@@ -267,7 +307,19 @@ class WindowsJobBackend(_BaseBackend):
                             ("PeakJobMemoryUsed", ctypes.c_size_t)]
 
             info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            # Optional OS-level limits when the caller declared them.
+            JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+            JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
+            if getattr(spec, "memory_mb", 0):
+                info.ProcessMemoryLimit = int(spec.memory_mb) * 1024 * 1024
+                info.JobMemoryLimit = int(spec.memory_mb) * 1024 * 1024
+                limit_flags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_JOB_MEMORY
+            if getattr(spec, "process_limit", 0):
+                info.BasicLimitInformation.ActiveProcessLimit = int(spec.process_limit)
+                limit_flags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+            info.BasicLimitInformation.LimitFlags = limit_flags
             kernel32.SetInformationJobObject(
                 job, JobObjectExtendedLimitInformation, ctypes.byref(info), ctypes.sizeof(info)
             )
@@ -315,7 +367,7 @@ class PosixBackend(_BaseBackend):
         return subprocess.Popen(
             list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            start_new_session=True,
+            start_new_session=True, preexec_fn=_posix_rlimit_hook(spec),
         )
 
     def _kill_tree(self, proc: subprocess.Popen) -> None:

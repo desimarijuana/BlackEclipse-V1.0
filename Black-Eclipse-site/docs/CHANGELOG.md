@@ -8,6 +8,167 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-06
 
+- **Code Execution & Verification Layer — Eclipse can now run, build, test,
+  diagnose and VERIFY software autonomously.** New subsystem
+  `python/harness/execution/`: a strict `ExecutionState` machine (validated
+  transitions, `execution/state.py`), strongly-typed domain models
+  (`models.py`), a `RuntimeRegistry` with `PythonRuntime`/`JavaScriptRuntime`/
+  `TypeScriptRuntime`/`SqlRuntime`/`ShellRuntime` adapters (`runtimes/`), a
+  `ProjectDetector` + language detection in the spec's priority order
+  (`projects.py`), a `DiagnosticEngine` normalizing `tsc`/Python-traceback/V8/
+  ESLint/pytest/generic compiler output (`diagnostics.py`), a `BuildEngine` and
+  `TestEngine` (vitest/jest JSON + summary parsers, `build.py`/`testing.py`), an
+  `ExecutionPolicyEngine` (risk bands, network/filesystem narrowing, secret
+  isolation, `policy.py`), an `ArtifactManager` (`artifacts.py`), a synchronous
+  `ExecutionOrchestrator` with guaranteed cleanup and a `finally` that always
+  lands on a terminal state (`orchestrator.py`), an `ExecutionStore` for history
+  and evidence on the ONE `agent-memory.db` connection (`store.py`), an
+  `ExecutionScheduler`/`ExecutionWorkflow`/`RetryPolicy` (`scheduler.py`/
+  `workflow.py`), a `ExecutionVerifier` bounded build→test→fix loop
+  (`verify_loop.py`), and a `ServiceManager`/`PortManager`/`HealthChecker` built
+  on the EXISTING terminal process manager (`services.py`). It reuses
+  `code/sandbox.py` as the ONE execution primitive (no second spawn path), the
+  terminal subsystem for long-running services, `code/policy.py` for the
+  autonomy/binding boundary, and `code/workspace.py` for confinement; it does
+  NOT touch the terminal subsystem. 21 agent tools registered on the SAME
+  registry (`execution/tools.py`): `execute_python`/`execute_javascript`/
+  `execute_typescript`/`execute_sql`/`execute_shell`/`execute_code`,
+  `build_project`/`test_project`/`discover_tests`/`run_verification`,
+  `start_service`/`stop_service`/`restart_service`/`service_status`/
+  `service_logs`/`list_services`, `execution_get`/`execution_logs`/
+  `execution_result`/`execution_artifacts`/`cancel_execution` (retrieval tools
+  prefixed `execution_`/`service_` to keep the code-agent's finance-tool guard).
+  Write/execute tools added to `policy.WRITE_TOOLS` (removed at `plan_only`);
+  read tools to `READ_ONLY_TOOLS`. Service wiring in `service.py`
+  (`AgenticService.execution` + `stop_execution`), lifespan in `main.py`, routes
+  `python/harness/routers/execution.py` (`/execution/*`, operator-gated). Tests
+  `python/tests/test_execution_{unit,runtime,security,e2e,tools}.py` (state
+  machine, diagnostics, policy, real Python/JS/SQL/shell runs, timeout/cancel/
+  traversal/secret attacks, the build→test→fix→retest acceptance loop). Full
+  Python suite green (2930); Vitest 2169; tsc clean. docs updated:
+  `docs/harness/execution-architecture.md` (new),
+  `docs/harness/decisions.md` (ADR-H129), `docs/NAVIGATION.md` (trigger row).
+
+- **CIUE hardcore torture test: 14 real bugs fixed, verified against a live
+  `typescript-language-server` and a 220-file multi-language monorepo.** Running
+  the engine end-to-end (real subprocess LSP, edits, diagnostics, watcher,
+  concurrency) surfaced and fixed: (1) `lsp.client.uri_to_path` now percent-decodes
+  before the Windows drive-letter fix, so `file:///c%3A/…` LSP results match the
+  workspace; (2) `manager._normalize_locations` understands the `LocationLink`
+  (`targetUri`/`targetRange`) shape; (3) `get_definition`/`get_references` send the
+  symbol's real name column (`_symbol_position`) not the indentation column;
+  (4) `_resolve_symbols` scopes by file first, so a same-named symbol in another
+  file/language is not resolved; (5) LSP `find_references` marks the declaration
+  site; (6) `get_implementations` returns the union of the semantic (LSP) and
+  structural (index heritage) results instead of one backend's view;
+  (7) `_js_heritage` captures `extends`/`implements` so inheritance is structural;
+  (8) the rename fallback is code-mask-aware (`_code_mask`) and never rewrites
+  strings/comments; (9) `rebase_edits` accepts workspace-relative paths, not only
+  absolute LSP paths; (10) `_enrich_location` returns a stable `location` object on
+  the LSP path too (one shape across engines); (11) `CodeIndex.integrity_ok` adds a
+  schema probe so non-database bytes are detected and recovered; (12)
+  `policy.IGNORED_DIRS` excludes `dist`/`build`/`target`/`coverage`/`generated`/…;
+  (13) the context engine is prefix-aware (`authentication` reaches `Auth*`) and
+  bounded; (14) `CodeIntelRuntime` indexes asynchronously so the first query never
+  blocks on a full walk. New regression tests `python/tests/test_intel_regressions.py`.
+  Full Python suite green (2870); Vitest 2169; tsc clean. docs updated:
+  `docs/harness/code-intelligence.md` (unchanged — behaviour now matches the doc),
+  `docs/harness/decisions.md` (ADR-H128 already covers the design).
+
+- **Code Intelligence & Understanding Engine (CIUE): the agent now understands
+  software structurally and semantically.** New subsystem
+  `python/harness/code/intel/` — one `CodeIntelligenceManager` over an LSP manager
+  (`lsp/`), an AST engine (`ast.py`), an optional Tree-sitter layer
+  (`treesitter.py`), a DEDICATED incremental code index (`persistence/index.py`
+  under `.black-eclipse/code-index/`, never agent memory), a dependency graph, a
+  diagnostics engine, structural search, a project analyzer, a deterministic
+  context engine and safe semantic editing. It normalizes every backend into a
+  Unified Code Model (`models.py`) and always names the engine that answered
+  (`lsp`/`tree-sitter`/`ast`/`index`); a missing or crashed language server is a
+  structured fallback (`lsp.providers` ships nine real servers; adding one is a
+  `LanguageServerSpec`), never a crash. New `code_*` tools (26, read plus the
+  semantic `code_rename_symbol`) registered on the SAME registry via
+  `code/intel_tools.py`; write policy in `code/policy.py` (`INTEL_WRITE_TOOLS`); a
+  process-wide `CodeIntelRuntime` on `AgenticService` (lazy async indexing + a
+  reused fs watcher); routes `python/harness/routers/code_intel.py` (`/code/intel/*`,
+  operator-gated) and a content-free `codeIntel` block in `/health`; plain-language
+  labels in `src/lib/agent/response-model.ts`. Reuses the existing path authority,
+  fs reading/encoding/watching/extractors and tool/event/authorizer seams — no
+  second filesystem, registry or confinement. Tests `python/tests/test_intel{,_tools,
+  _lsp,_api}.py` + fixtures `python/tests/fixtures/intel/` + a fake language-server
+  subprocess; ADR-H128. docs updated: `docs/harness/code-intelligence.md` (new),
+  `docs/harness/decisions.md` (ADR-H128), `docs/NAVIGATION.md` (trigger row).
+
+- **Ultra effort: fixed the "animation doesn't work" report (two real bugs).**
+  Diagnosed live with Playwright. (1) The brain SVG rendered muted GRAY, not the
+  accent: a global CSS remap forces `.text-primary` to gray with `!important`,
+  and its `.dark` variant out-specifies the `svg.text-primary { color: var(--brand) }`
+  green rule — a solid green icon must not rely on `text-primary`. Added a
+  dedicated `.effort-accent` class and used it for the brain (pill + core).
+  (2) The energy effect lived only INSIDE the popover, which closes the moment a
+  level is picked — so at rest the always-visible pill was static. Extracted the
+  core into a shared `EnergyCore` and put a live laser-beam sweep on the
+  persistent pill while Ultra is active. Verified by frame-diff (frames change)
+  and the computed brain color = `#7aff78`. Added tests.
+  no doc change — visual-only; behavior unchanged (see the Ultra behavior entry).
+
+- **Ultra effort thumb: an "energy core" animation.** Reworked the composer
+  slider's top-stop thumb (`effort-control.tsx` + `globals.css`) into a layered
+  energy effect — a pulsing outer glow, a rotating conic plasma ring, two
+  phase-offset expanding shockwaves, three orbiting sparks, and a throbbing
+  brain core — all in the theme `--primary` green and disabled by the global
+  `prefers-reduced-motion` rule (static, fully-lit fallback). Replaced the old
+  single pulse + static rays. The brain icon is now a SOLID accent fill (both
+  the trigger pill and the Ultra core), and the Ultra fill carries a laser beam
+  that sweeps the full bar (`effortUltraBeam`).
+  no doc change — visual-only; behavior unchanged (see the Ultra behavior entry).
+
+- **Composer effort slider: theme-consistent skin, animated Ultra, and a real
+  top stop.** Re-skinned `EffortControl` to the theme tokens (`--primary` green,
+  `--border`/`--accent` chrome) instead of a foreign violet/sky palette, and
+  matched the trigger pill to the model-selector chrome. The Ultra thumb now
+  animates (pulsing glow + slowly radiating rays, `globals.css`
+  `effortUltraPulse`/`effortUltraSpin`, reduced-motion safe). Made the top stop
+  actually strongest: `prepare_model` normalizes `very_high` → the runtime's
+  `max` tier (was mapped to `high`, so Ultra == High), so Anthropic `thinking`
+  (16384) and Gemini `thinking_budget` (24576) deepen beyond High; native
+  OpenAI caps Ultra at `high` (its knob has no higher tier). `low`/Minimal stays
+  a no-op by design. Added Python + JS tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
+- **Chat composer: per-question "model intelligence" effort slider.** Added
+  `EffortControl` (`src/components/chat/effort-control.tsx`) — the Faster→Smarter
+  slider from the reference — beside the model selector in `ChatInput`, wired
+  through `EmptyState` and `stock-chat.tsx`. It is a PER-QUESTION override (not a
+  Settings edit): a new `useReasoningEffort` hook persists the choice client-side
+  (`be_reasoning_effort_v1`), and the level rides `ChatOptions.reasoningEffort` →
+  `/api/harness/chat[/stream]` → `chatWithAgent`/`startChatRun` →
+  `input.context.reasoning`, where it OUTRANKS the saved
+  `LLMConfig.reasoningEffort` default; Auto sends nothing. Reuses the shared
+  vocabulary (`reasoning.ts`, extended with captions + skins and slider index
+  helpers); only native-reasoning models are affected, as before. Added tests
+  (reasoning mapping, run-service precedence, composer reachability).
+  docs updated: `docs/ARCHITECTURE.md` (reasoning-effort section).
+
+- **Settings › General: reorganized the preset/customization surface.** The
+  merged General section no longer reads as one long undifferentiated stack.
+  The General sub-tab is now four titled sections (Startup & Display, Live Data,
+  Behavior & Safety, Background) and finally exposes the previously-dead
+  **Start screen** control (`general-prefs.ts` already defined
+  `START_SCREEN_OPTIONS` but nothing rendered it). The Theme tab is now "Theme &
+  Presets": presets lead, the brand generator and token editors sit under a
+  "Fine-tune" group, and the duplicated Glass & Sidebar controls were removed
+  (surfaces now live only on the Glass & Surfaces tab — the sidebar card moved
+  there so no control was lost). Presets render as **miniature app screenshots**
+  built from each theme's own tokens (rail + glass cards + a chart line) rather
+  than flat gradient circles. The draft Live-preview/Apply/Discard toolbar is now
+  scoped to draft-backed tabs only (Theme/Glass/Aurora/Charts); General,
+  Background and Language & Access autosave instantly and no longer show it.
+  Extracted shared `Panel`/`Field`/`Toggle`/`SectionHeader`/`SubSection` into
+  `src/components/screens/settings-ui.tsx`, removing four sets of duplicates.
+  no doc change — UI layout/UX reorg; no architecture, contract, data-shape or
+  setup change.
+
 - **File System Toolset: full validation run; one correctness fix.**
   A 141-check validation driven through the real registered tools (and verified
   against on-disk state) found `find_references` trusted a stale workspace index:

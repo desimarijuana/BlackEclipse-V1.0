@@ -8,6 +8,7 @@ import {
 } from "@/lib/harness";
 import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
+import { isReasoningLevel } from "@/lib/agent/reasoning";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -50,6 +51,8 @@ export async function POST(request: Request) {
 
   const chatId = typeof body.chatId === "string" ? body.chatId : "";
   const model = typeof body.model === "string" ? body.model.trim() : "";
+  const rawEffort = body.reasoningEffort;
+  const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
   const rawRunId = body.runId;
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
 
   let id: string;
   try {
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson } from "@/lib/harness";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
+import { isReasoningLevel } from "@/lib/agent/reasoning";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -53,6 +54,11 @@ export async function POST(request: Request) {
     const model = typeof (body as Record<string, unknown>).model === "string"
       ? ((body as Record<string, unknown>).model as string).trim()
       : "";
+    // Per-question reasoning-effort override ("model intelligence"). Only a
+    // value from the shared vocabulary is honoured; anything else is ignored so
+    // the runtime falls back to the saved default / task profile.
+    const rawEffort = (body as Record<string, unknown>).reasoningEffort;
+    const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
     // Client-supplied run id so cancellation is possible mid-run; ignored when
     // absent, in which case the server mints one.
     const rawRunId = (body as Record<string, unknown>).runId;
@@ -71,7 +77,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

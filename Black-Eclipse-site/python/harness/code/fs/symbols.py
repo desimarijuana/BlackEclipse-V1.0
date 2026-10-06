@@ -165,7 +165,7 @@ _TS_EXPORT = re.compile(r"^\s*export\s+(?:default\s+)?", re.M)
 # depth so a method inside a class body is a `method`, a call at top level is not
 # a symbol, and an arrow function assigned to a const IS.
 _JS_CLASS_LINE = re.compile(
-    r"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)"
+    r"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)(.*)$"
 )
 _JS_METHOD_LINE = re.compile(
     r"^\s*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|async\s+|get\s+|set\s+)*"
@@ -178,12 +178,28 @@ _JS_ARROW_CONST = re.compile(
 _JS_FUNC_LINE = re.compile(
     r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)"
 )
-_JS_IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def _js_heritage(tail: str) -> str:
+    """The ` extends X implements Y, Z` clause of a class line, or "".
+
+    Bounded and string-aware so a class body on the same line cannot leak in.
+    """
+    tail = _strip_js_noise(tail)
+    brace = tail.find("{")
+    if brace != -1:
+        tail = tail[:brace]
+    parts: list[str] = []
+    for match in re.finditer(r"(?:extends|implements)\s+([A-Za-z_$][\w$.,\s]*)", tail):
+        clause = match.group(0).strip().split(None, 1)
+        if len(clause) == 2:
+            parts.append(f"{clause[0]} {clause[1].strip().rstrip(',')}")
+    return (" " + " ".join(parts)) if parts else ""
 
 
 def _strip_js_noise(line: str) -> str:
     """Remove string literals and line comments so brace/name detection is honest."""
-    out = []
+    out: list[str] = []
     quote = ""
     index = 0
     while index < len(line):
@@ -233,8 +249,10 @@ def _js_ts_symbols(path: str, text: str, language: str = "typescript") -> list[S
 
         class_match = _JS_CLASS_LINE.match(line)
         if class_match:
+            heritage = _js_heritage(class_match.group(2) or "")
             symbols.append(Symbol(name=class_match.group(1), kind="class", path=path,
-                                  line=line_no, exported=exported))
+                                  line=line_no, exported=exported,
+                                  signature=f"class {class_match.group(1)}{heritage}"))
             class_pending = True
 
         func_match = _JS_FUNC_LINE.match(line)

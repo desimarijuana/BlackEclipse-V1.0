@@ -199,6 +199,10 @@ class ToolContext:
     # child's tools against it; None = the unrestricted case. Set by the graph
     # from `resolve_surface`; never caller-supplied.
     allowed: Any = None
+    # The process-wide CIUE runtime (LSP manager + per-workspace code index/watcher).
+    # Attached per run so the `code_*` tools resolve one shared runtime instead of a
+    # global. None = the tool falls back to the process-wide singleton.
+    code_intel_runtime: Any = None
     # How deep this run sits in a delegation chain (Phase 7). 0 = a top-level
     # run; a child is parent_depth + 1 and cannot spawn past MAX_DEPTH.
     delegation_depth: int = 0

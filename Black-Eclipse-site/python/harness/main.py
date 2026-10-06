@@ -45,7 +45,9 @@ from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
 from .routers.code import router as code_router
+from .routers.code_intel import router as code_intel_router
 from .routers.evolution import router as evolution_router
+from .routers.execution import router as execution_router
 from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
@@ -95,6 +97,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Terminal subsystem recovery: reconcile persisted process/session rows.
         # A failure is a diagnostic, never a boot blocker.
         service.start_terminal()
+        # Code Intelligence & Understanding Engine (CIUE): warm the code index in
+        # the background. Language servers start lazily on first use. A failure is
+        # a diagnostic, never a boot blocker.
+        service.start_code_intel()
         await service.start_mcp()
         # The bounded learning-review queue: reviews completed runs in the
         # background. It only creates inert records/suggestions and never enables
@@ -113,7 +119,9 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             # leak across restarts.
             await service.stop_jobs()
             await service.stop_learning_review()
+            await service.stop_code_intel()
             await service.stop_mcp()
+            service.stop_execution()
             await service.stop_terminal()
 
 
@@ -122,7 +130,9 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_l
 # Route groups extracted into `harness/routers/`; registered here so the public
 # surface stays `harness.main:app` and paths are unchanged.
 app.include_router(code_router)
+app.include_router(code_intel_router)
 app.include_router(evolution_router)
+app.include_router(execution_router)
 app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(memory_router)
@@ -183,6 +193,12 @@ def health() -> dict[str, Any]:
         # MCP (Phase 5): configured/connected server counts + registered tool
         # count. Never includes secret values or full server output.
         "mcp": service.mcp.summary(),
+        # Code Intelligence & Understanding Engine (CIUE): the process-wide runtime
+        # state (index size, running language tools). Content-free.
+        "codeIntel": (
+            service.code_intel.status() if getattr(service, "code_intel", None) is not None
+            else {"available": False}
+        ),
         # Identity/tenancy boundary (Phase 1): an explicit, machine-readable
         # statement that this is a single-user local app with no authentication
         # and no tenancy isolation, plus the current exposure assessment.
