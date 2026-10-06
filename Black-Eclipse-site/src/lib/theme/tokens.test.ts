@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ECLIPSE_THEME,
+  SIDEBAR_PRESETS,
   STRUCTURAL_THEME_VARS,
   THEME_PRESETS,
   buildFaviconDataUrl,
@@ -227,19 +228,28 @@ describe('glass, shadow and background', () => {
 });
 
 describe('sidebar surface', () => {
-  it('defaults to a grey, distinct-from-black rail', () => {
+  it('defaults to a black/charcoal rail, never neutral grey', () => {
     const t = normalizeTheme({});
     expect(t.sidebar).toEqual(DEFAULT_ECLIPSE_THEME.sidebar);
+    // Charcoal, not the page black, but dark enough to read as black chrome.
     expect(t.sidebar.tint).not.toBe(t.colors.background);
+    expect(luminance(t.sidebar.tint)).toBeLessThan(0.05);
   });
 
   it('emits dedicated sidebar tokens', () => {
     const vars = themeCssVars(DEFAULT_ECLIPSE_THEME);
-    expect(vars['--sidebar-rgb']).toBe('42 42 46');
+    expect(vars['--sidebar-rgb']).toBe('20 20 22');
     expect(vars['--sidebar-opacity']).toBe('0.9');
     expect(vars['--sidebar-blur']).toBe('20px');
-    expect(vars['--sidebar']).toBe('#2a2a2e');
+    expect(vars['--sidebar']).toBe('#141416');
     expect(STRUCTURAL_THEME_VARS.has('--sidebar-rgb')).toBe(true);
+  });
+
+  it('keeps every dark sidebar preset black/charcoal (no grey)', () => {
+    for (const p of SIDEBAR_PRESETS) {
+      // Crystal carries a faint charcoal frost but stays very dark.
+      expect(luminance(p.sidebar.tint)).toBeLessThan(0.06);
+    }
   });
 
   it('clamps sidebar values and collapses blur when glass is off', () => {

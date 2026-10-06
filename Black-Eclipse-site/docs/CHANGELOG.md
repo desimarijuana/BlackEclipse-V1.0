@@ -41,6 +41,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `npx tsc --noEmit` clean; investor-eye tests pass.
   no doc change — behaviour within the existing `lines` layer contract.
 
+- **Dark sidebars are always black/charcoal (never neutral grey).** The shipped
+  default sidebar moved from grey `#2a2a2e` to charcoal `#141416`, and the
+  `SIDEBAR_PRESETS` list dropped its `Grey` entry in favour of black/charcoal
+  options (`Black`, `Charcoal`, `Slate`, `Smoke`, `Crystal` — the last two keep
+  only a faint cool/warm cast). Every dark-scheme preset's rail is now under
+  luminance 0.011. Verified with `npx tsc --noEmit` and the theme tests (54 pass).
+  no doc change — preset/default tweak; contracts unchanged.
+
 - **White presets listed after the dark ones + Electric Blue Crystal sidebar.**
   The four white-background presets (`White`, `Paper`, `Snow`, `Ivory`) now sit
   at the END of `THEME_PRESETS` so the preset buttons read all dark looks first,

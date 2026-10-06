@@ -38,8 +38,9 @@ export interface ThemeGlass {
 
 /**
  * Dedicated sidebar surface controls (Settings › Customization › Sidebar).
- * The sidebar reads its own tokens so it can stay a soft grey while the page
- * and cards remain black — independent of the global glass tint.
+ * The sidebar reads its own tokens so it can be tuned separately from the page
+ * and cards. Dark-scheme sidebars are always black/charcoal (never neutral grey):
+ * the rail is chrome, and a grey rail on a black app reads as washed-out.
  */
 export interface ThemeSidebar {
   /** Sidebar tint color. */
@@ -149,9 +150,10 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   fontScale: 1,
   logoScale: 1,
   glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' },
-  // Sidebar ships a neutral grey a touch lighter than the black page/cards —
-  // just enough to read as separate chrome, with no brand accent tint.
-  sidebar: { tint: '#2a2a2e', opacity: 0.9, blur: 20 },
+  // Sidebar ships as black/charcoal chrome — never a neutral grey. A grey rail
+  // on the black app reads washed-out; charcoal keeps it distinct from the page
+  // without lightening the theme.
+  sidebar: { tint: '#141416', opacity: 0.9, blur: 20 },
   shadow: 'soft',
   background: 'solid',
   scheme: 'dark',
@@ -219,12 +221,13 @@ export const GLASS_PRESETS: { id: string; label: string; hint: string; glass: Th
 
 /** Ready-made sidebar surface presets users can apply and then fine-tune. */
 export const SIDEBAR_PRESETS: { id: string; label: string; hint: string; sidebar: ThemeSidebar }[] = [
-  { id: 'grey', label: 'Grey', hint: 'Neutral grey chrome (default)', sidebar: { tint: '#2a2a2e', opacity: 0.9, blur: 20 } },
-  { id: 'charcoal', label: 'Charcoal', hint: 'Dark grey with a hint of black', sidebar: { tint: '#1a1a1c', opacity: 0.9, blur: 20 } },
-  { id: 'slate', label: 'Slate', hint: 'Cool blue-charcoal lift', sidebar: { tint: '#1e2228', opacity: 0.88, blur: 22 } },
-  { id: 'smoke', label: 'Smoke', hint: 'Warm neutral charcoal', sidebar: { tint: '#1d1c1b', opacity: 0.9, blur: 18 } },
-  { id: 'crystal', label: 'Crystal', hint: 'Translucent frost, heavy blur', sidebar: { tint: '#26262c', opacity: 0.55, blur: 34 } },
+  // Every dark-sidebar choice is black/charcoal — no neutral grey. Slate/Smoke
+  // keep their subtle cool/warm casts but stay in the very-dark range.
   { id: 'black', label: 'Black', hint: 'Match the black page', sidebar: { tint: '#0c0c0e', opacity: 0.9, blur: 18 } },
+  { id: 'charcoal', label: 'Charcoal', hint: 'Deep charcoal chrome (default)', sidebar: { tint: '#141416', opacity: 0.9, blur: 20 } },
+  { id: 'slate', label: 'Slate', hint: 'Cool blue-charcoal lift', sidebar: { tint: '#14181f', opacity: 0.88, blur: 22 } },
+  { id: 'smoke', label: 'Smoke', hint: 'Warm charcoal', sidebar: { tint: '#171614', opacity: 0.9, blur: 18 } },
+  { id: 'crystal', label: 'Crystal', hint: 'Translucent charcoal frost, heavy blur', sidebar: { tint: '#1a1a1e', opacity: 0.55, blur: 34 } },
 ];
 
 // ── Presets ──────────────────────────────────────────────────────────────────
@@ -409,7 +412,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     { primary: '#77edfd', accent: '#36c8d3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#f4f4f5', bullish: '#7aff78', bearish: '#ff3e3e' },
     // Sidebar uses the translucent Crystal recipe (not the default Grey), so the
     // cold blue brand carries into the rail instead of a neutral grey chrome.
-    { glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' }, shadow: 'dramatic', background: 'solid', sidebar: { tint: '#26262c', opacity: 0.55, blur: 34 } },
+    { glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' }, shadow: 'dramatic', background: 'solid', sidebar: { tint: '#1a1a1e', opacity: 0.55, blur: 34 } },
     { mode: 'solid', solidFill: 'flat',
       textEnabled: true, text: 'ECLIPSE AGENT', textFont: PRESET_WORDMARK_FONT, textUppercase: true, textScale: 7, textOpacity: 78, textAlign: 'center' }),
   preset('midnight', 'Midnight', 'Cool indigo accent on deep navy.',
