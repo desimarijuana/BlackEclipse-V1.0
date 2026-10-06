@@ -3,6 +3,20 @@
 import { useEffect } from 'react';
 import { useTerminalStore } from '@/lib/terminal/store';
 
+/** Fire once per page: fetch the terminal JS + the runtime so the shell opens
+ *  instantly when the user asks for it. Idempotent and best-effort. */
+let prewarmed = false;
+function prewarmTerminal(): void {
+  // 1. Warm the Python agent runtime via its HTTP proxy — a cold spawn is the
+  //    slow part. Never import the server-only runtime module from the client
+  //    (it pulls in `fs`/`child_process` and breaks the bundle).
+  void fetch('/api/terminal/capabilities', { method: 'GET' }).catch(() => {});
+  // 2. Warm the terminal JS chunk + the xterm wasm so the dynamic import is a
+  //    cache hit when the dock mounts.
+  void import('@xterm/xterm').catch(() => {});
+  void import('@xterm/addon-fit').catch(() => {});
+}
+
 /**
  * The global terminal toggle: Ctrl/Cmd + ` (backquote).
  *
@@ -35,6 +49,15 @@ export function isTerminalShortcut(
 
 export function TerminalKeybind() {
   const toggle = useTerminalStore((s) => s.toggle);
+
+  // Prewarm once per page load, then again whenever the terminal is opened (so a
+  // runtime that died is ready by the time the dock asks for a shell).
+  useEffect(() => {
+    if (prewarmed) return;
+    prewarmed = true;
+    const timer = setTimeout(prewarmTerminal, 1200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

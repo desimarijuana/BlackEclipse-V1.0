@@ -148,6 +148,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
   `settings.tsx` rail). no doc change — layout fix; no contract change.
 
+- **Terminal: the `[?1;2c` prompt garbage is gone.** Root cause: the shell asks
+  the terminal "what are you?" (Device Attributes, `ESC[c`); xterm auto-replies
+  `ESC[?1;2c`; because every keystroke is forwarded to the PTY, that reply reached
+  PowerShell, which cannot interpret it and ECHOED the literal text at the prompt.
+  Filtering the output could not fix it (the shell had already echoed the bytes).
+  The reply is now dropped from the INPUT stream (`filterTerminalInput` in
+  `xterm-terminal.tsx`) before it reaches the PTY — the shell never needs it — with
+  the output-side strip kept as a fallback for a session that echoed it earlier.
+  Verified in-browser: no `?1;2c`, typing unchanged. Vitest **2140 passed**; Python
+  **2642 passed**; eval gates ALL PASS; `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/terminal-architecture.md`.
+
 - **Terminal: instant open, accurate icons, frosted glass, real resize.** Four
   phases. (1) Speed: the dock now starts the shell on the server IN PARALLEL with
   the xterm JS download (`Promise.all`), the runtime is prewarmed from the root

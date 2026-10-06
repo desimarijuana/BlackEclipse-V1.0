@@ -115,6 +115,13 @@ export function closeTerminalSession(sessionId: string): Promise<unknown> {
   return api(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
 }
 
+export function resizeTerminalSession(sessionId: string, rows: number, columns: number): Promise<unknown> {
+  return api(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/resize`, {
+    method: "POST",
+    body: JSON.stringify({ rows, columns }),
+  });
+}
+
 export function runInTerminalSession(
   sessionId: string,
   command: string,

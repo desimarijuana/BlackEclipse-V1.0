@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import Any, Optional
 
 from .code.tools import register_code_tools
@@ -292,6 +293,13 @@ class AgenticService:
                 "terminal recovery reconciled %s process record(s), %s session record(s)",
                 summary.get("processes"), summary.get("sessions"),
             )
+            # Pre-warm one idle shell in the background, so the FIRST UI open
+            # adopts an already-running shell and shows a prompt instantly
+            # instead of paying PowerShell's startup cost. Best-effort.
+            try:
+                threading.Thread(target=self.terminal.warm_shell, daemon=True).start()
+            except Exception:  # noqa: BLE001
+                pass
             return summary
         except Exception:  # noqa: BLE001 - recovery must never block boot
             log.warning("terminal recovery failed", exc_info=True)

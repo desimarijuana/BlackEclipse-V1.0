@@ -43,6 +43,10 @@ DEFAULT_TIMEOUT_MS = 120_000
 MAX_TIMEOUT_MS = 900_000
 _STREAM_TAIL_LINES = 200
 
+#: The owner of an idle, pre-warmed shell. It is adopted by the first UI open so
+#: the shell is already running and the prompt appears instantly.
+WARM_OWNER = "__eclipse_warm__"
+
 
 def _classify_result(exit_code: Optional[int], output: str, timed_out: bool) -> Optional[CommandError]:
     """Normalize a failed execution into a structured error. Never a bare string."""
@@ -250,13 +254,48 @@ class TerminalManager:
 
         A UI terminal calls this so reopening the panel (or reloading the page)
         reattaches to the same shell instead of leaking a new PTY each time. Only
-        sessions owned by ``owner`` and still alive are reused.
+        sessions owned by ``owner`` and still alive are reused. When the owner has
+        no session yet, a PRE-WARMED idle shell is adopted if one is available, so
+        the first open is instant instead of paying the shell's startup cost.
         """
-        for info in self.sessions.list(owner=owner):  # type: ignore[call-arg]
+        for info in self.sessions.list(owner=owner):
             existing = self.sessions.get(info["sessionId"])
             if existing is not None and existing.is_alive():
                 return existing.info().to_dict()
+        wanted = kwargs.get("shell_name")
+        for info in self.sessions.list(owner=WARM_OWNER):
+            warm = self.sessions.get(info["sessionId"])
+            if warm is not None and warm.is_alive() and (not wanted or warm.shell.name == wanted):
+                warm.owner = owner
+                if self._store is not None:
+                    try:
+                        self._store.update_session(warm.session_id, owner=owner, updatedAt=now_iso())
+                    except Exception:  # noqa: BLE001
+                        pass
+                return warm.info().to_dict()
         return self.sessions.open(owner=owner, **kwargs).info().to_dict()
+
+    def warm_shell(self, *, cwd: Optional[str] = None) -> Optional[str]:
+        """Open (once) an idle shell the first UI open can adopt instantly.
+
+        Called at boot. It is a normal persistent session the user never sees
+        unless an open adopts it. Best-effort: a failure is a diagnostic, never a
+        boot blocker.
+        """
+        try:
+            for info in self.sessions.list(owner=WARM_OWNER):
+                existing = self.sessions.get(info["sessionId"])
+                if existing is not None and existing.is_alive():
+                    return existing.session_id
+            if cwd is None:
+                from ..code.workspace import default_root  # noqa: PLC0415
+
+                root = default_root()
+                cwd = str(root) if root else os.getcwd()
+            session = self.sessions.open(owner=WARM_OWNER, cwd=cwd)
+            return session.session_id
+        except Exception:  # noqa: BLE001 - prewarm must never break boot
+            return None
 
     def close_shell(self, session_id: str) -> bool:
         return self.sessions.close(session_id)

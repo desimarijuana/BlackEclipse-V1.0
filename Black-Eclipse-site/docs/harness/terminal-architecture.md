@@ -187,10 +187,31 @@ pop-out that SHARES the running session; a new-window control opens
 `src/app/terminal/page.tsx`) that attaches to the same shell, or opens its own when
 no id is given. `terminalOwnerId()` keeps the dock, pop-out and window on one owner.
 
-**Device-Attributes noise.** xterm.js answers the shell's `ESC[c` query with
-`ESC[?1;2c`; because every keystroke is forwarded to the PTY, the shell echoed it
-as `?1;2c`. The reply and its echo are filtered from the display stream
-(`stripTerminalNoise`) — the only sequence the UI alters.
+**Instant open.** The shell is ready before the user asks for it: the service
+pre-opens one idle session at boot (`TerminalManager.warm_shell`, owner
+`WARM_OWNER`), the root layout warms the runtime + terminal chunks
+(`terminal-keybind.tsx`), and the dock starts the session on the server in
+parallel with the xterm download. The first open adopts the warm shell, so the
+prompt appears in ~1s instead of waiting on a cold Python spawn + PowerShell start.
+
+**Frosted glass.** The dock and the detached pop-out use `glass-card-strong`; the
+xterm host box is transparent so the frost shows through, and the pop-out is
+portaled to `document.body` so its `backdrop-filter` samples the real page rather
+than an empty backdrop root.
+
+**Resize.** The docked bottom (height) and right (width) panels have a pointer-drag
+handle on their inner edge; a change refits xterm and posts the new rows/cols to
+`/terminal/sessions/{id}/resize` so the shell wraps correctly. The pop-out is
+dragged by its header and resized by its corner handle (pointer-driven; the native
+CSS `resize` handle is unreliable inside a portal).
+
+**Device-Attributes noise.** The shell asks the terminal "what are you?" (Device
+Attributes, `ESC[c`); xterm auto-replies `ESC[?1;2c`. Because every keystroke is
+forwarded to the PTY, that reply reached PowerShell, which cannot interpret it and
+echoed the literal `?1;2c` at the prompt. The reply is now dropped from the INPUT
+stream (`filterTerminalInput` in `xterm-terminal.tsx`) before it reaches the shell —
+the shell never needs it — with an output-side strip (`stripTerminalNoise`) as a
+fallback for a session that echoed it before this fix.
 
 Input is sent as an **ordered queue**: the client keeps one request in flight and
 coalesces keystrokes typed during a round-trip, and the runtime serializes PTY

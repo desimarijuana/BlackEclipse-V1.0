@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   closeTerminalSession,
   openTerminalSession,
+  resizeTerminalSession,
   sendTerminalRaw,
   streamTerminalOutput,
 } from "@/lib/harness/terminal-browser";
@@ -23,16 +24,29 @@ function stripSentinel(text: string): string {
     .join("\r\n");
 }
 
-//: xterm.js ANSWERS Device-Attributes queries (`ESC [ c`) with `ESC [ ? 1 ; 2 c`.
-//: We forward every keystroke to the PTY, so that answer reaches PowerShell,
-//: which echoes it literally — the stray `?1;2c` seen on screen. The PTY does not
-//: need the answer, so it is dropped from the DISPLAY stream (the shell's own
-//: echo of the exact bytes is dropped too). Terminal output is never silently
-//: altered beyond this documented sequence.
-const _DA_REPLY = /\x1b\[\?1;\d+c|\?1;\d+c/g;
+//: A terminal QUERY (the shell asking xterm what it is): Device Attributes
+//: `ESC [ c` / `ESC [ > c`, or a Device Status Report `ESC [ 6 n`. xterm answers
+//: these automatically with a Device Attributes reply (`ESC [ ? 1 ; 2 c`) or a
+//: cursor-position report (`ESC [ row ; col R`). We forward every keystroke to the
+//: PTY, so that ANSWER was being sent to PowerShell, which does not understand it
+//: and ECHOES the literal text — the stray `?1;2c` at the prompt.
+//
+// The shell never needs these answers (they are for the terminal emulator, which
+// already knows), so they are dropped from the INPUT stream before reaching the
+// PTY. This is the correct place: filtering the output cannot help, because the
+// shell has already echoed the bytes back.
+const DEVICE_REPLY = /\x1b\[[?>]?[0-9;]*c|\x1b\[[0-9;]*R/g;
+function filterTerminalInput(data: string): string {
+  if (!data.includes("\x1b[")) return data;
+  return data.replace(DEVICE_REPLY, "");
+}
+
+//: Belt-and-suspenders for a session that already echoed the reply before this
+//: filter existed: strip the literal `?1;2c`/`?1;Nc` echo from the DISPLAY.
+const _DA_ECHO = /\x1b\[\?1;\d+c|\?1;\d+c/g;
 function stripTerminalNoise(text: string): string {
   if (!text.includes("\x1b[?") && !text.includes("?1;")) return text;
-  return text.replace(_DA_REPLY, "");
+  return text.replace(_DA_ECHO, "");
 }
 
 interface XtermTerminalProps {
@@ -113,7 +127,11 @@ export function XtermTerminal({
 
   const queueInput = useCallback(
     (data: string) => {
-      inputQueueRef.current += data;
+      // Drop terminal QUERY answers (Device Attributes / cursor reports) before
+      // they reach the shell — see `filterTerminalInput`.
+      const filtered = filterTerminalInput(data);
+      if (!filtered) return;
+      inputQueueRef.current += filtered;
       void drainInput();
     },
     [drainInput],
@@ -157,6 +175,14 @@ export function XtermTerminal({
       stopRef.current = false;
       cursorRef.current = 0;
 
+      // Start the shell on the server IN PARALLEL with downloading xterm, instead
+      // of waiting for the JS chunk first. The runtime is prewarmed (see
+      // `terminal-keybind.tsx`), so this POST is usually a fast local request; the
+      // two halves then complete together and the prompt appears almost instantly.
+      const sessionPromise = sessionId
+        ? Promise.resolve({ sessionId, shell: shell ?? "", cwd: "", pty: true })
+        : openTerminalSession({ shell, runtime, owner, rows: 24, columns: 80 });
+
       const [{ Terminal }, { FitAddon }] = await Promise.all([
         import("@xterm/xterm"),
         import("@xterm/addon-fit"),
@@ -192,22 +218,9 @@ export function XtermTerminal({
       focusTerm = () => term.focus();
       host.addEventListener("pointerdown", focusTerm);
 
-      // Open a fresh PTY session, or ATTACH to an existing one (a pop-out window
-      // sharing the dock's shell).
+      // Await the session opened in parallel above (or ATTACH to an existing one).
       try {
-        let attached: { sessionId: string; shell: string; cwd: string; pty: boolean };
-        if (sessionId) {
-          attached = { sessionId, shell: shell ?? "", cwd: "", pty: true };
-        } else {
-          const session = await openTerminalSession({
-            shell,
-            runtime,
-            owner,
-            rows: term.rows,
-            columns: term.cols,
-          });
-          attached = session;
-        }
+        const attached = await sessionPromise;
         if (disposed) {
           // Only close a session we OPENED; an attached one belongs to the dock.
           if (!sessionId) void closeTerminalSession(attached.sessionId);
@@ -218,6 +231,8 @@ export function XtermTerminal({
         setStatus("open");
         onSession?.({ sessionId: attached.sessionId, shell: attached.shell || (shell ?? "") });
         term.focus();
+        // Tell the PTY the real size now that xterm has measured itself.
+        window.dispatchEvent(new Event("resize"));
         void pump();
       } catch (err) {
         setStatus("error");
@@ -231,9 +246,18 @@ export function XtermTerminal({
       // and drained in order so nothing reorders.
       term.onData(queueInput);
 
+      // Refit AND tell the PTY the new size, so the shell wraps correctly when the
+      // dock or a CSS resize handle changes its box (ResizeObserver fires, but the
+      // PTY also needs the rows/cols via /resize).
+      let lastCols = 0;
       onResize = () => {
         try {
           fit.fit();
+          const id = sessionRef.current;
+          if (id && term.cols !== lastCols) {
+            lastCols = term.cols;
+            void resizeTerminalSession(id, term.rows, term.cols).catch(() => {});
+          }
         } catch {
           /* ignore */
         }
@@ -292,7 +316,9 @@ export function XtermTerminal({
       <div
         ref={hostRef}
         className={cn(
-          "w-full overflow-hidden rounded-lg bg-black/40 p-1",
+          // Transparent host: the dock's frosted glass shows through, so the
+          // terminal is glass, not a black box.
+          "w-full overflow-hidden rounded-lg p-1",
           fill ? "h-full min-h-0" : heightClass,
         )}
       />
