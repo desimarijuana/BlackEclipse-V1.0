@@ -640,6 +640,23 @@ exposes `totals.runsWithUsage` next to the token totals so the UI can distinguis
 "no usage reported" from "no activity" — the same honesty rule as UNAVAILABLE
 market data.
 
+## Code file system subsystem (`python/harness/code/fs/`)
+
+The filesystem tools that let Eclipse inspect, search, patch and edit real code.
+`FileSystemService` (`fs/service.py`) is a deterministic, LLM-free facade; the
+tools in `code/fs_tools.py` are thin handlers over it. Path security is NOT
+re-implemented — `fs/resolver.py` delegates to the existing `code/policy.py`
+(`resolve_within`, `decide_write`) and `code/workspace.py` (`confine`), and writes
+land in the disposable code workspace (`code/worktree.py`), never the checkout.
+`fs/permissions.py` is the ONE capability authority (read/write/create/delete/
+move/copy/rename/watch/search); an operator config can only narrow. The edit
+engine refuses ambiguous and stale patches (`AMBIGUOUS_PATCH`/`STALE_FILE`),
+preserves encoding/BOM/line endings, writes atomically and rolls back; multi-file
+patches are all-or-nothing. Search uses ripgrep with a bounded fallback; symbols
+use Python `ast` with an extensible extractor table; the workspace index is a
+SEPARATE incremental SQLite store under `.black-eclipse/workspace-index/` (never
+agent memory). Full architecture: `docs/harness/code-filesystem.md`.
+
 ## Next.js front door (`src/lib/harness/`)
 
 | Module | Role |
@@ -1072,6 +1089,7 @@ the composer in both chat surfaces, driven by `HarnessUiEvent.approval_request` 
 | To add… | Do this |
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
+| A file system operation / tool | Add the operation in `python/harness/code/fs/operations.py` (or `editing.py`) taking an `FsContext`; add the tool in `python/harness/code/fs_tools.py`; if it mutates, add its name to `code/policy.FS_WRITE_TOOLS`. See `docs/harness/code-filesystem.md`. |
 | A tool that needs JDdS data | Add a capability to `data-bridge.ts` + a `DataCapability` union member; call `ctx.data_bridge.fetch(...)`. |
 | A retrieval data type | Add one row to `retrieval/authority.py` (`AUTHORITY`, a `DataTypeAuthority`), `policies.py` (`DEFAULT_FRESHNESS`, `CACHE_TTL_SECONDS`) and the `DataType` literal in `contract.py`. The authority is the ONE ordering table (ADR-H115). |
 | A retrieval provider | Implement `RetrievalSource` in `retrieval/`; register it in `FinancialRetrievalLayer.__init__`. Add its name to the planner's order. |

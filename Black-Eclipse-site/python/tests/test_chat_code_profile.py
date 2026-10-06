@@ -21,6 +21,16 @@ EXPECTED = (
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",
+    # File-system subsystem (Phase FS): read/inspect always; the write/edit half
+    # is removed at `plan_only` by the ONE policy authority.
+    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "search_symbols", "find_references", "file_metadata", "file_hash",
+    "file_permissions", "index_workspace", "watch_file", "watch_directory",
+    "verify_file", "validate_changes", "git_status",
+    "write_file", "create_file", "delete_file", "move_file", "copy_file",
+    "rename_file", "create_directory", "delete_directory",
+    "patch_file", "replace_text", "insert_text", "delete_text",
+    "apply_diff", "multi_file_patch", "edit_file",
     # Terminal subsystem: foreground execution, persistent shells, background
     # process management, ports and host capabilities.
     "execute_command",

@@ -270,26 +270,9 @@ _INPUT_SCHEMAS["scaffold"] = _scaffold_schema()
 
 # ── Events ──────────────────────────────────────────────────────────────────
 
-
-async def emit_code_event(ctx: ToolContext, event_type: str, data: dict[str, Any]) -> None:
-    """Emit a `code.*` event on the run's emitter, or degrade to `ctx.log`.
-
-    Payloads are content-free (counts, paths, names) — never file contents and
-    never a secret value. graph.py is not touched for events; this is the single
-    seam.
-    """
-    emitter = getattr(ctx, "emitter", None)
-    if emitter is not None:
-        try:
-            await emitter.emit(event_type, data)
-            return
-        except Exception:  # noqa: BLE001 - an event must never break a tool call
-            pass
-    try:
-        if ctx.log is not None:
-            ctx.log(event_type, data)
-    except Exception:  # noqa: BLE001
-        pass
+# The single `code.*` event seam. Extracted to `code/events.py`; re-exported here
+# so every existing `from .tools import emit_code_event` keeps working.
+from .events import emit_code_event  # noqa: E402,F401
 
 
 def _present(args: dict[str, Any]) -> dict[str, Any]:
@@ -725,6 +708,10 @@ def make_code_authorizer(mcp_authorizer: Any = None):
         # every write is re-checked per path by `patch.apply` → `policy.decide_write`.
         if name == "scaffold_kit" and getattr(tool, "effect", None) == "write":
             return True
+        # The fs subsystem's mutating tools are admitted here like `workspace_*`
+        # writes (binding + autonomy + per-path policy are enforced in the handler).
+        if name in policy.FS_WRITE_TOOLS and getattr(tool, "effect", None) == "write":
+            return True
         if mcp_authorizer is not None:
             return bool(await mcp_authorizer(tool, args, ctx))
         return False
@@ -1066,6 +1053,10 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     # module-level import here would be circular.
     from .command_tools import command_run  # noqa: PLC0415
     from .terminal_tools import terminal_run, terminal_schema  # noqa: PLC0415
+    # The fs subsystem's tools are registered first; handlers build a service lazily.
+    from .fs_tools import register_fs_tools  # noqa: PLC0415
+
+    fs_names = register_fs_tools(registry)
 
     _INPUT_SCHEMAS["terminal_run"] = terminal_schema()
     from .shell_tools import (  # noqa: PLC0415
@@ -1244,7 +1235,7 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         handler=scaffold_kit,
         permission="write", risk="medium", timeout_ms=600_000, effect="write",
     ))
-    return list(_CODE_TOOL_NAMES)
+    return list(_CODE_TOOL_NAMES) + list(fs_names)
 
 
 __all__ = [

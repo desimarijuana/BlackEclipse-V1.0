@@ -28,6 +28,17 @@ CODE_NAVIGATOR_TOOLS = [
     "workspace_diff",
     "workspace_revert",
     "command_run",
+    # File-system subsystem (Phase FS): list/read/search/symbols/references/
+    # metadata/index/watch plus the minimal-patch edit tools. The write half is
+    # removed at `plan_only`; every path is re-checked by the handler.
+    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "search_symbols", "find_references", "file_metadata", "file_hash",
+    "file_permissions", "index_workspace", "watch_file", "watch_directory",
+    "verify_file", "validate_changes", "git_status",
+    "write_file", "create_file", "delete_file", "move_file", "copy_file",
+    "rename_file", "create_directory", "delete_directory",
+    "patch_file", "replace_text", "insert_text", "delete_text",
+    "apply_diff", "multi_file_patch", "edit_file",
     # Terminal subsystem: foreground execution, persistent shells, background
     # processes and ports. The effectful ones are removed at `plan_only`.
     "execute_command",
@@ -142,6 +153,15 @@ CODE_AGENT_TOOLS = [
     "workspace_read", "workspace_docs",
     # Change (Phase 2) — effectful; removed at plan_only
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
+    # File-system subsystem (Phase FS) — read/inspect first, then minimal edits.
+    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "search_symbols", "find_references", "file_metadata", "file_hash",
+    "file_permissions", "index_workspace", "watch_file", "watch_directory",
+    "verify_file", "validate_changes", "git_status",
+    "write_file", "create_file", "delete_file", "move_file", "copy_file",
+    "rename_file", "create_directory", "delete_directory",
+    "patch_file", "replace_text", "insert_text", "delete_text",
+    "apply_diff", "multi_file_patch", "edit_file",
     # Command broker (Phase 3) — effectful; removed at plan_only
     "command_run",
     # Generic terminal (Phase D) — effectful; removed at plan_only. Safe
@@ -201,6 +221,16 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",
+    # File-system subsystem (Phase FS): read/inspect always; the write/edit half
+    # is removed at `plan_only` by the ONE policy authority.
+    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "search_symbols", "find_references", "file_metadata", "file_hash",
+    "file_permissions", "index_workspace", "watch_file", "watch_directory",
+    "verify_file", "validate_changes", "git_status",
+    "write_file", "create_file", "delete_file", "move_file", "copy_file",
+    "rename_file", "create_directory", "delete_directory",
+    "patch_file", "replace_text", "insert_text", "delete_text",
+    "apply_diff", "multi_file_patch", "edit_file",
     # Terminal subsystem (persistent shells + background processes + ports).
     "execute_command",
     "open_shell", "close_shell", "run_shell_command",
