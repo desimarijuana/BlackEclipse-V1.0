@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AppWindow,
-  ArrowDownToLine,
   Columns3,
   CornersIn,
   CornersOut,
@@ -121,8 +120,8 @@ function TerminalPopout({
           <TerminalIcon size={12} /> Terminal
         </span>
         <div className="flex items-center gap-0.5">
-          <button type="button" onClick={onDockBack} title="Dock back" aria-label="Dock terminal back" className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-foreground">
-            <ArrowDownToLine size={13} />
+          <button type="button" onClick={onDockBack} title="Dock back into the layout" aria-label="Dock terminal back" className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-foreground">
+            <CornersIn size={13} />
           </button>
           <button
             type="button"

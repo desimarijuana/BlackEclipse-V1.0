@@ -148,6 +148,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
   `settings.tsx` rail). no doc change — layout fix; no contract change.
 
+- **Terminal: the "dock back" icon is now an inward-corners glyph, not a download
+  arrow.** `ArrowDownToLine` read as a download button, so the detached pop-out's
+  "dock back" control now uses `CornersIn` (a dock/restore glyph), matching the
+  restore control on the docked panel. no doc change — icon swap only.
+
 - **Terminal: the `[?1;2c` prompt garbage is gone.** Root cause: the shell asks
   the terminal "what are you?" (Device Attributes, `ESC[c`); xterm auto-replies
   `ESC[?1;2c`; because every keystroke is forwarded to the PTY, that reply reached
