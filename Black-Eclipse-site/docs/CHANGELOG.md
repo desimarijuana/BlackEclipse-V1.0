@@ -26,11 +26,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `ExecutionScheduler`/`ExecutionWorkflow`/`RetryPolicy` (`scheduler.py`/
   `workflow.py`), a `ExecutionVerifier` bounded build→test→fix loop
   (`verify_loop.py`), and a `ServiceManager`/`PortManager`/`HealthChecker` built
-  on the EXISTING terminal process manager (`services.py`). It reuses
+  on the EXISTING terminal process manager   (`services.py`). It reuses
   `code/sandbox.py` as the ONE execution primitive (no second spawn path), the
   terminal subsystem for long-running services, `code/policy.py` for the
   autonomy/binding boundary, and `code/workspace.py` for confinement; it does
-  NOT touch the terminal subsystem. 21 agent tools registered on the SAME
+  NOT touch the terminal subsystem. The sandbox primitive gains OPTIONAL OS-level
+  `RunSpec` limit fields (`cpu_seconds`/`memory_mb`/`process_limit`), applied via
+  POSIX `setrlimit` (RLIMIT_CPU/AS/NPROC) and Windows Job Object limits, with the
+  wall-clock timeout always enforced; entrypoints and SQLite databases are
+  confined with `resolve_within`. 21 agent tools registered on the SAME
   registry (`execution/tools.py`): `execute_python`/`execute_javascript`/
   `execute_typescript`/`execute_sql`/`execute_shell`/`execute_code`,
   `build_project`/`test_project`/`discover_tests`/`run_verification`,
