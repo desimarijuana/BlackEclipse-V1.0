@@ -251,3 +251,13 @@ def test_resource_limits_from_env(monkeypatch):
     limits = ResourceLimits.from_env()
     assert limits.memory_limit_mb == 2048
     assert limits.timeout_ms == 12345
+
+
+def test_resource_run_kwargs_translate_limits():
+    from harness.execution.models import resource_run_kwargs
+
+    limits = ResourceLimits(timeout_ms=60_000, memory_limit_mb=512, process_limit=16)
+    kwargs = resource_run_kwargs(limits)
+    assert kwargs["memory_mb"] == 512
+    assert kwargs["process_limit"] == 16
+    assert kwargs["cpu_seconds"] >= 60
