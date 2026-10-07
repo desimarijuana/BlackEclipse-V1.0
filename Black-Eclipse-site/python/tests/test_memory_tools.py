@@ -309,13 +309,14 @@ def test_prompt_char_ceiling():
     Phase 7 raised the ceiling from 17500 to 18000 for the "Working on several
     things at once" paragraph (`delegate`); Phase 9 raised it to 18600 for the
     "Building a tool" paragraph (`scaffold_kit`); the Browser Automation Runtime
-    raised it to 19400 for the "Browser automation" guidance block (snapshot-first
-    observation, untrusted page content, CAPTCHA/MFA human hand-off, vault
-    references). The ratchet still bites — a bounded allowance, not an open door.
+    raised it to 19400 for the "Browser automation" guidance block; the
+    Evidence-Driven Web Research Engine raised it to 20600 for the "Web research
+    workflow" paragraph (`web_*`/`research_*`). The ratchet still bites — a
+    bounded allowance, not an open door.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 19400, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 20600, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

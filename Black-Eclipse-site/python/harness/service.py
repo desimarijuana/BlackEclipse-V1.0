@@ -102,6 +102,20 @@ class AgenticService:
         # The read-only repository navigator (Phase 1): five read tools on the
         # SAME registry. No write/execute tool is registered.
         register_code_tools(self.registry)
+        # The Evidence-Driven Web Research Engine: search/extract/verify tools on
+        # the SAME registry. The engine reuses the existing retrieval layer, the TS
+        # web transport (via the bridge), the browser runtime, the SSRF guard and
+        # the ONE agent-memory connection for its EvidenceStore — it adds no second
+        # provider, browser, memory or agent loop.
+        try:
+            from .research.web_store import EvidenceStore  # noqa: PLC0415
+            from .research.web_tools import register_research_engine_tools  # noqa: PLC0415
+
+            self.evidence_store = EvidenceStore(self.store)
+            register_research_engine_tools(self.registry)
+        except Exception:  # noqa: BLE001 - the research engine must never block boot
+            self.evidence_store = None
+            log.warning("web research engine unavailable", exc_info=True)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.
@@ -879,6 +893,7 @@ class AgenticService:
             approvals=self.approvals, memory_router=self.memory_router,
             mcp_manager=self.mcp, code_store=self.code_store,
             code_intel_runtime=getattr(self, "code_intel", None),
+            evidence_store=getattr(self, "evidence_store", None),
         )
         await self._schedule_review(request.runId, result.status)
         return result
@@ -1053,6 +1068,7 @@ class AgenticService:
                     approvals=self.approvals, memory_router=self.memory_router,
                     mcp_manager=self.mcp, code_store=self.code_store,
                     code_intel_runtime=getattr(self, "code_intel", None),
+                    evidence_store=getattr(self, "evidence_store", None),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

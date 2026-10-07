@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-10-06
+last-verified: 2026-10-07
 ---
 
 # Harness Decisions
@@ -4045,3 +4045,55 @@ honest (`available:false`) with no multimodal model. `inspection.py` adds
 console/network/error dumps are bounded and paged to `artifactsRoot`. `browserbase`
 became a genuine cloud backend (REST session + CDP attach with a vault-resolved
 credential). 83 `browser_*` tools.
+
+## ADR-H135 — Research is evidence-driven: search results are pointers, the model is never the source of truth
+
+**Decision.** Web research is a first-class harness subsystem
+(`python/harness/research/web_*.py`) with one explicit invariant: **search results
+are NOT evidence.** A search result is a pointer (title/URL/snippet); only a
+fetched, normalized, provenance-tracked, timestamped artifact becomes `Evidence`.
+The pipeline is `intent → mandate → plan → provider registry (ordered fallback) →
+search → extract → browser escalation → normalize → entity resolution →
+EvidenceStore → freshness/point-in-time → source ranking → conflict detection →
+deterministic calculations → claim verification → citation generation →
+validation → coverage → synthesis → immutable snapshot`. Every material claim is
+traceable claim → evidence → source → location; a claim with no evidence is
+`UNSUPPORTED`, never a fact.
+
+**Why.** An agent that treats a model (or a search snippet) as a source of truth
+will fabricate plausible financial numbers, silently average disagreeing sources,
+and leak future information into historical analysis. Eclipse is built for
+financial research where verifiability is the product, so the invariants must be
+structural, not prompt-based: point-in-time research fails closed on an unknown
+publication time; syndicated news copies are grouped into source families and
+never counted as independent; a difference between sources is explained (period,
+currency, basis, estimate/report, revision) or disclosed as an unresolved material
+conflict; critical metrics are computed deterministically, never by the model.
+
+**Consequences.** New package `python/harness/research/web_*.py` reusing — never
+duplicating — the existing retrieval layer, the TS web transport via the
+`DataBridge` (`web_search`/`web_fetch`), the Browser Automation Runtime (escalation
+only), `research.budget`/`periods`/`calculations`, the SSRF/redirect guards, the
+untrusted-content boundary, and the ONE `agent-memory.db` connection for its
+`EvidenceStore`. 21 read-only tools on the ONE `ToolRegistry` (`web_search`,
+`news_search`, `company_search`, `academic_search`, `image_search`,
+`video_search`, `web_extract`, `page_extract`, `pdf_extract`,
+`structured_extract`, `research_plan`, `research_query`, `source_rank`,
+`source_compare`, `claim_verify`, `citation_extract`, `citation_validate`,
+`research_status`, `research_cancel`, `research_continue`, `research_update`);
+`WEB_RESEARCH_TOOLS` in `agents.py`; operator-gated router
+`routers/research.py` (`/research/web/*`). Fetched content is wrapped through the
+`UntrustedContentBoundary` and is never obeyed; injected instruction-like pages
+are preserved as evidence but never laundered into a finding. Tests:
+`test_web_research_{unit,integration,tools,api,hardcore}.py`. Architecture:
+`docs/harness/web-research-engine.md`.
+
+**Hardening (same decision).** A deep run must not be hard-killed by the harness's
+generic tool ceiling: `ToolDefinition.long_running` lets a tool's own budget be
+authoritative, `ToolRegistry.execute` publishes the effective timeout on
+`ToolContext`, and the engine self-budgets below it to return a bounded partial.
+Incremental `update_research` is non-destructive (append a snapshot, return a
+delta) — prior evidence is never deleted. Raw evidence text is bounded in the
+tool/API view while the store keeps it whole; the process-wide status/cancel maps
+are bounded; events are namespaced `webresearch.*`. Regression tests:
+`test_web_research_hardening.py`.

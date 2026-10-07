@@ -1,0 +1,225 @@
+---
+title: Evidence-Driven Web Research Engine
+status: Current
+last-verified: 2026-10-07
+---
+
+# Evidence-Driven Web Research Engine
+
+**Who this is for:** anyone working on research, web retrieval, evidence,
+citations, conflict handling or point-in-time correctness in Eclipse.
+
+## Why this exists
+
+Eclipse is a financial/engineering agentic harness. Financial analysis demands
+*evidence*, not plausible prose. The web research engine exists so the agent can
+research the open web and still answer with verifiable, timestamped,
+provenance-tracked evidence — and can say precisely what it does **not** know.
+
+The one rule everything follows:
+
+> **The LLM must reason over evidence. The LLM must never be the source of truth.
+> Search results are not evidence.**
+
+A search result is a *pointer* (title + URL + snippet). Only a fetched,
+normalized, provenance-tracked, timestamped artifact becomes `Evidence`.
+
+## Where it lives
+
+```
+python/harness/research/
+  web_contracts.py   — the data contracts (Evidence, Claim, Citation, Conflict, …)
+  web_intent.py      — deterministic intent classification + routing requirements
+  web_planner.py     — deterministic decomposition into sub-questions + queries
+  web_providers.py   — SearchProvider protocol + ordered registry + fallback
+  web_sources.py     — source typing, entity resolution, ranking, news dedup
+  web_freshness.py   — five timestamps + point-in-time admissibility
+  web_extract.py     — fetch → evidence, segmentation, structured extraction
+  web_browser.py     — browser escalation (reuses the Browser Runtime)
+  web_verify.py      — source comparison, conflict detection, claim verify, citations
+  web_security.py    — UntrustedContentBoundary + SSRF/URL guard
+  web_store.py       — EvidenceStore on the ONE agent-memory connection
+  web_engine.py      — ResearchEngine orchestration + status/cancel/continue
+  web_tools.py       — the 21 read-only tools on the ONE ToolRegistry
+```
+
+The HTTP surface is `python/harness/routers/research.py` (`/research/web/*`,
+operator-gated). The engine is registered in `service.py`; the tools are in
+`agents.py` as `WEB_RESEARCH_TOOLS`.
+
+## The pipeline
+
+```
+question
+  → intent classification          (web_intent)
+  → research mandate               (web_contracts.WebResearchMandate, persisted)
+  → research plan                  (web_planner: bounded sub-questions + queries)
+  → provider registry              (web_providers: ordered, health-aware, fallback)
+  → search                         (web_search / news / academic / image / video)
+  → extract                        (web_extract / page_extract / pdf_extract)
+  → browser escalation             (web_browser, only when extraction is insufficient)
+  → normalize + entity resolution  (web_sources)
+  → EvidenceStore                  (web_store, on agent-memory.db)
+  → freshness / point-in-time      (web_freshness)
+  → source ranking                 (web_sources.rank_source)
+  → source comparison              (web_verify.compare_sources)
+  → conflict detection             (web_verify.detect_conflicts)
+  → deterministic calculations     (research.calculations, reused)
+  → claim verification             (web_verify.verify_claim)
+  → citation generation            (web_verify.build_citations)
+  → citation validation            (web_verify.validate_citations)
+  → coverage + stopping            (web_engine)
+  → synthesis + snapshot           (EngineResult, WebResearchSnapshot)
+```
+
+## The Evidence contract
+
+`web_contracts.Evidence` is the most important object. It carries: source
+identity + type + publisher, `entityId`, five timestamps (`publishedAt`,
+`updatedAt`, `effectiveAt`, `knownAt`, `retrievedAt`), document/page/section,
+`rawText` (always preserved), `structuredValue`/`unit`/`period`, `contentHash`,
+`confidence`, `provenance`, and `contentTrust` — always `UNTRUSTED`.
+
+## Five timestamps (never conflated)
+
+| field | meaning |
+|---|---|
+| `publishedAt` | when the issuer published it |
+| `updatedAt` | when the issuer last revised it |
+| `effectiveAt` | when the described fact takes effect |
+| `knownAt` | when the fact became knowable (publication, else retrieval) |
+| `retrievedAt` | when this engine fetched it |
+
+**Point-in-time research is mandatory for the financial architecture.** A source
+whose `knownAt` is after the requested cutoff is never used. A strict cutoff with
+an **unknown** time fails closed (the source is rejected, not admitted) — see
+`web_freshness.is_admissible_at`.
+
+## Source typing + ranking
+
+`web_sources.classify_source_type` maps a domain to one of the `SourceType`
+vocabulary (official filing, government, regulator, company, IR, academic,
+financial data, news, industry, analyst, blog, social, forum, wiki, unknown) and
+`authority_for` gives primary/secondary/tertiary. `rank_source` scores a source
+for a research type with explainable components (authority, primary status,
+relevance, freshness, completeness). Financial research ranks SEC/regulators/
+filings/IR/financial-data/news/analyst above general web and social. The score is
+an internal ordering signal; user-facing output never claims precision from it.
+
+## News deduplication
+
+`web_sources.dedupe_news` fingerprints titles and content hashes and groups
+syndicated copies into `SourceFamily`s. Ten sites repeating one Reuters story are
+**one** source family, not ten independent sources. Independent-source counts
+exclude syndicated copies.
+
+## Conflict handling
+
+`web_verify.detect_conflicts` groups evidence by `(metric, period)`. A difference
+is never averaged away: the engine names whether it comes from a different
+period, currency/unit, accounting basis (GAAP/non-GAAP), estimate-vs-reported, a
+revision, or a genuine conflict. `EXPLAINED` vs `UNRESOLVED` and `MATERIAL` flag
+which disagreements the final answer **must** disclose.
+
+## Claim verification + citations
+
+`web_verify.verify_claim` returns one of `SUPPORTED`, `PARTIALLY_SUPPORTED`,
+`CONTRADICTED`, `UNSUPPORTED`, `OUTDATED`, `AMBIGUOUS`, `CALCULATED`, `INFERRED`,
+with the reason. A claim with no evidence is `UNSUPPORTED`; a claim whose only
+support is stale is `OUTDATED`; a claim touching an unresolved material conflict
+is `CONTRADICTED`. `build_citations` produces claim → evidence → source →
+location; `validate_citations` proves every material claim is traceable.
+
+## Deterministic calculations
+
+Critical metrics are never computed by the model. Where two reported periods for
+a metric exist, `web_engine` reuses `research.calculations.period_change` (and the
+other Phase-4 calculators) in pure Python and records a `CALCULATION` claim whose
+`inputEvidenceIds` are the source evidence. A calculation that cannot be performed
+honestly is dropped, never fabricated.
+
+## Security — the UntrustedContentBoundary
+
+Every fetched byte is UNTRUSTED DATA. `web_security.UntrustedContentBoundary.wrap`
+delimits content as data and classifies instruction-like signals; the model may
+reason *about* it but must never obey it. `web_security.validate_url` is the
+offline-safe SSRF guard (scheme, credentials, blocked suffixes, private IP
+literals); DNS resolution and redirect revalidation are enforced by the TS
+transport (`safeGet`) the bridge calls.
+
+Adversarial pages are still **preserved as evidence** (we do not hide what a
+source said), but `web_engine` never launders injected text into a finding: a page
+carrying instruction-like content becomes an `UNCERTAINTY` claim, not a `FACT`.
+
+## Budget, status, cancellation, resumability
+
+`ResearchRequest` carries `maxQueries`/`maxSources`/`maxTimeSeconds`/`maxCost`.
+`ResearchEngine` emits `webresearch.*` events for observability and keeps a
+process-wide status/cancel map (bounded to 256 runs, terminal-first) so a run
+started by one tool call can be observed (`research_status`), cancelled
+(`research_cancel`), continued (`research_continue`) or updated incrementally
+(`research_update`). Every run writes an immutable `WebResearchSnapshot` to
+`agent-memory.db`.
+
+### Long-running tools and the timeout ceiling
+
+The harness bounds every tool call. For a **long-running** tool
+(`ToolDefinition.long_running`), the agent's generic `toolTimeoutMs` ceiling is
+NOT applied — the tool's own declared `timeout_ms` is authoritative (still clamped
+to the global `TIMEOUT_CEILING_MS`). `research_query`, `research_continue`,
+`research_update` and `web_extract` set this flag; each owns an internal deadline.
+
+`ToolRegistry.execute` resolves the effective timeout and writes it to
+`ToolContext.tool_timeout_ms`. The engine reads it and **sizes its own budget below
+the ceiling** (`_budget_under_tool`), so a deep run returns a bounded partial
+result instead of being killed by the harness.
+
+### Incremental research is non-destructive
+
+`update_research` never deletes prior evidence. It re-runs, upserts by
+content-derived id (idempotent), appends a NEW snapshot (history preserved), and
+returns a **delta** (sources added/changed/dropped, evidence added/removed). The
+snapshot chain is the audit trail of what Eclipse knew at each time.
+
+### Bounded payloads
+
+The `EvidenceStore` keeps the full `rawText`, but the model-facing tool payload
+and the HTTP API return it bounded (8k chars, with `rawTextTruncated`/`rawTextChars`
+flags). Snapshots returned by the API are bounded the same way.
+
+### Cross-run identity (many-to-many)
+
+A source/evidence artifact is IDENTIFIED by its URL/content (`sourceId`,
+`evidenceId`) but BELONGS to one or more research runs. Membership is an explicit
+many-to-many link table (`WebResearchSourceLink`, `WebResearchEvidenceLink`), so
+the same URL fetched in two runs is attributed to both and never clobbered. A
+one-time, marker-tracked backfill (`WebResearchMeta`) migrates legacy rows. Per-run
+claim / citation / conflict ids are namespaced by `researchId` so they never
+collide. `list_evidence` coerces NULL/partial legacy columns to honest defaults, so
+`Evidence(**row)` can never crash a tool.
+
+### Cancel / continue
+
+`execute_research` honors a cancel requested before it runs (create → cancel →
+execute). `continue_research`/`update_research` clear the cancel event first, so a
+resume after a cancel is not instantly cancelled again.
+
+## What is deliberately NOT here
+
+- No second search-provider chain: `web_providers` wraps the existing bridge
+  capability, which already contains the multi-provider fallback.
+- No second browser: escalation calls the existing `BrowserManager`.
+- No second transport, HTML/PDF parser, memory, tool registry or agent loop.
+- No model as a source of truth, no fabricated values, URLs, citations or dates.
+
+## Tests
+
+- `test_web_research_unit.py` — intent, planning, provider fallback, normalization,
+  extraction, source typing, entity resolution, ranking, news dedup, freshness,
+  point-in-time, conflicts, claim verification, citations, injection, SSRF.
+- `test_web_research_integration.py` — end-to-end pipelines, tools, cancellation,
+  snapshots, registration.
+- `test_web_research_tools.py` — browser escalation, PDF honesty, verification tools.
+- `test_web_research_api.py` — the operator-gated HTTP surface.
+- `test_web_research_hardcore.py` — the NVIDIA investment/competition analyses and
+  the adversarial injection case.

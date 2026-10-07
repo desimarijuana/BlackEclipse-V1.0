@@ -55,6 +55,7 @@ from .routers.git import router as git_router
 from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
+from .routers.research import router as research_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.terminal import router as terminal_router
@@ -156,6 +157,7 @@ app.include_router(git_router)
 app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(memory_router)
+app.include_router(research_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
 app.include_router(terminal_router)

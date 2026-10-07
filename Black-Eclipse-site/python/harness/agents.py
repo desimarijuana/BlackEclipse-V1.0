@@ -68,6 +68,34 @@ COMPUTER_TOOLS = [
     "computer_finance_read", "computer_finance_prepare",
 ]
 
+# The Evidence-Driven Web Research Engine toolset. Declared here so the finance
+# agent (and, when a task needs it, the code agent) advertise the same surface.
+# All read-only: search results are pointers, fetched pages are wrapped as
+# untrusted data, and the engine never treats the model as the source of truth.
+WEB_RESEARCH_TOOLS = [
+    "web_search",
+    "news_search",
+    "company_search",
+    "academic_search",
+    "image_search",
+    "video_search",
+    "web_extract",
+    "page_extract",
+    "pdf_extract",
+    "structured_extract",
+    "research_plan",
+    "research_query",
+    "source_rank",
+    "source_compare",
+    "claim_verify",
+    "citation_extract",
+    "citation_validate",
+    "research_status",
+    "research_cancel",
+    "research_continue",
+    "research_update",
+]
+
 # The repository tools. Phase 1 shipped the five read tools; Phase 2 adds the
 # write half (patch/diff/revert), which the run's autonomy profile gates. Kept as
 # a named constant so the preset's closed allowlist is asserted in one place.
@@ -168,6 +196,10 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
         # these five companies"). A research capability, not only a code one.
         "delegate",
+        # Evidence-Driven Web Research Engine: search, extract, evidence,
+        # conflicts, claim verification, calculations, citations, coverage. All
+        # read-only; fetched content is wrapped as untrusted data.
+        *WEB_RESEARCH_TOOLS,
         # Phase 8: the analysis sandbox (compute a derived metric). OFF per run
         # unless the caller enables it (`RunRequest.analysisEnabled`).
         "analysis_run",
@@ -369,6 +401,9 @@ CODE_AGENT_TOOLS = [
     "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
     # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
     "delegate",
+    # Evidence-Driven Web Research Engine — research a technical question,
+    # compare sources, verify a claim. Read-only; untrusted content is data.
+    *WEB_RESEARCH_TOOLS,
     # Analysis sandbox (Phase 8) — compute a derived metric in isolation.
     "analysis_run",
     # Scaffold kits (Phase 9) — build a finance tool from a ready-made shape.

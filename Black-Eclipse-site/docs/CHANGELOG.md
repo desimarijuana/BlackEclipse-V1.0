@@ -8,6 +8,67 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Evidence-Driven Web Research Engine — a first-class research subsystem.**
+  New `python/harness/research/web_*.py` package implementing
+  `question → intent → mandate → plan → provider registry (ordered fallback) →
+  search → extract → browser escalation → normalize → entity resolution →
+  EvidenceStore → freshness/point-in-time → source ranking → source comparison →
+  conflict detection → deterministic calculations → claim verification →
+  citation generation → citation validation → coverage → synthesis → status →
+  immutable snapshot`. The governing rule is explicit and enforced: **search
+  results are pointers, not evidence; the LLM reasons over evidence and is never
+  the source of truth.** Reuses (never duplicates) the existing retrieval layer,
+  the TS web transport via the `DataBridge` (`web_search`/`web_fetch`), the
+  Browser Automation Runtime (escalation only), `research.budget`/`periods`/
+  `calculations`, the SSRF/redirect guards, the untrusted-content boundary and
+  the ONE `agent-memory.db` connection for its `EvidenceStore`. 21 read-only
+  tools on the ONE `ToolRegistry` (`web_search`, `news_search`, `company_search`,
+  `academic_search`, `image_search`, `video_search`, `web_extract`,
+  `page_extract`, `pdf_extract`, `structured_extract`, `research_plan`,
+  `research_query`, `source_rank`, `source_compare`, `claim_verify`,
+  `citation_extract`, `citation_validate`, `research_status`, `research_cancel`,
+  `research_continue`, `research_update`); `WEB_RESEARCH_TOOLS` added to the
+  finance and code agents; operator-gated router `routers/research.py`
+  (`/research/web/*`); `EvidenceStore` tables on `agent-memory.db`. Point-in-time
+  research fails closed (unknown-time sources are excluded), news syndication is
+  grouped into source families, and injected page instructions are preserved as
+  evidence but never laundered into a finding. Tests: `test_web_research_{unit,
+  integration,tools,api,hardcore}.py` (48 cases). Docs: `docs/harness/web-research-engine.md`,
+  `docs/harness/decisions.md` (ADR-H135), `docs/NAVIGATION.md`.
+
+- **Web research engine — production hardening.** Fixed a set of defects found in
+  the first cut: (1) **deep runs were hard-killed by the agent's generic
+  `toolTimeoutMs` ceiling** — a `ToolDefinition.long_running` flag now lets
+  `research_query`/`research_continue`/`research_update`/`web_extract` use their own
+  declared budget (still clamped to the global ceiling), and `ToolRegistry.execute`
+  exposes the ACTUAL effective timeout on `ToolContext.tool_timeout_ms` so the
+  engine sizes its internal deadline below the ceiling and returns a bounded
+  partial instead of dying; (2) **`update_research` deleted prior evidence** — it is
+  now non-destructive (idempotent upsert + a new snapshot) and returns a delta
+  (added/changed/dropped sources, added/removed evidence); (3) **unbounded payloads**
+  — evidence `rawText` is bounded to 8k in the tool/API view (the store keeps the
+  full text); (4) **unbounded process-wide status/cancel maps** — pruned to 256
+  tracked runs, terminal-first; (5) events namespaced `webresearch.*` (no collision
+  with the Phase-4 `research.*` stream); (6) coverage no longer overstates
+  `answeredQuestions` (keyword-corroboration count, plus `sourceCoverage`); (7)
+  router rejects an unknown `depth` with 422 and bounds snapshot/evidence payloads.
+  Tests: `test_web_research_hardening.py` (9 cases). Doc: `docs/harness/web-research-engine.md`.
+
+- **Web research engine — second bug-fix pass (data integrity).** (1) **Shared
+  `EvidenceStore` never reached the run** — `service.evidence_store` was built but
+  not passed to `execute_run`/`build_graph`, so tools silently built a throwaway
+  store; it is now threaded through on both the sync and async paths. (2) **Cross-run
+  clobbering** — `sourceId`/`evidenceId` were the primary key, so fetching the same
+  URL in two runs made the second run's `list_*` return nothing; membership is now
+  an explicit many-to-many link table (`WebResearchSourceLink`/`WebResearchEvidenceLink`)
+  with a one-time marker-tracked backfill. (3) `make_source` returned an EMPTY
+  `retrievedAt`; it now stamps retrieval time. (4) Per-run claim/citation/conflict
+  ids were namespaced by `researchId`. (5) `list_evidence` coerces NULL/partial
+  legacy columns to honest defaults so `Evidence(**row)` can never crash a tool.
+  (6) A `continue`/`update` after a cancel no longer aborts itself (the event is
+  cleared at resume) while a create→cancel→execute still honors the cancel. Tests:
+  `test_web_research_store.py` (7 cases). Doc: `docs/harness/web-research-engine.md`.
+
 - **Computer Use Engine — a production-grade desktop-control runtime.** New
   `python/harness/computer/` package (62 modules) implementing the full agentic
   loop `OBSERVE → … → AUTHORIZE → ACT → VERIFY → RECOVER`: a platform-independent

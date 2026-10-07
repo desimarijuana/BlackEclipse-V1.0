@@ -222,6 +222,15 @@ class ToolContext:
     # terminal subsystem stamps every session/process it creates with this, so a
     # multi-agent runtime can attribute and isolate execution. None = unattributed.
     agent_id: Optional[str] = None
+    # The per-run EvidenceStore for the web research engine (bound to the ONE
+    # agent-memory connection). Set by the graph from the service; None = the
+    # research tools run without persistence (still honest, just not stored).
+    evidence_store: Any = None
+    # The ACTUAL per-call ceiling the registry will enforce for the tool call in
+    # flight (set immediately before `execute`). A long-running tool reads this to
+    # size its OWN internal budget so it can return a bounded partial result
+    # BEFORE the harness hard-kills it. None = no declared per-call budget known.
+    tool_timeout_ms: Optional[int] = None
 
 
 class DataBridge:
@@ -264,6 +273,12 @@ class ToolDefinition:
     deprecated: bool = False
     # The tool that replaces a deprecated one (informational; never auto-called).
     replacement: Optional[str] = None
+    # A LONG-RUNNING tool (e.g. a deep research run) declares its own per-call
+    # budget as authoritative and is NOT shortened by the agent's `toolTimeoutMs`
+    # ceiling. The registry still bounds it by its own `timeout_ms` (its declared
+    # budget), and the graph additionally caps it at the run's remaining time. Use
+    # only for a tool that owns an internal deadline + returns bounded partials.
+    long_running: bool = False
 
 
 def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
@@ -419,7 +434,17 @@ class ToolRegistry:
                     started,
                 )
 
-        effective_timeout = effective_timeout_ms(tool.timeout_ms, timeout_ms)
+        effective_timeout = effective_timeout_ms(
+            tool.timeout_ms, timeout_ms, long_running=tool.long_running
+        )
+        # Expose the ACTUAL per-call ceiling to the handler (and the run) so a
+        # long-running tool can size its own internal deadline to finish before the
+        # harness hard-kills it. Set here, after the ceiling is resolved, so it is
+        # the true effective value (honoring `long_running`).
+        try:
+            ctx.tool_timeout_ms = effective_timeout
+        except Exception:  # noqa: BLE001 - a frozen/foreign ctx must not break dispatch
+            pass
         try:
             # Wait slightly past the logical deadline so a tool that honors its
             # own internal timeout can return its structured diagnostic (naming
@@ -526,7 +551,12 @@ def _clamp_timeout(ms: int) -> int:
     return max(TIMEOUT_FLOOR_MS, min(int(ms), TIMEOUT_CEILING_MS))
 
 
-def effective_timeout_ms(tool_timeout_ms: Optional[int], agent_ceiling_ms: Optional[int]) -> int:
+def effective_timeout_ms(
+    tool_timeout_ms: Optional[int],
+    agent_ceiling_ms: Optional[int],
+    *,
+    long_running: bool = False,
+) -> int:
     """Resolve the effective per-tool timeout.
 
     The tool's OWN declared timeout is authoritative. The agent value is a
@@ -535,9 +565,14 @@ def effective_timeout_ms(tool_timeout_ms: Optional[int], agent_ceiling_ms: Optio
     agent/global run budget (WS2). An explicit per-call override
     (`execute(..., timeout_ms=...)`) is still honored as an exact value — that is
     what tests use to drive the floor.
+
+    A `long_running` tool ignores the agent ceiling and uses its OWN declared
+    budget (still clamped to the global `TIMEOUT_CEILING_MS`). Such a tool is
+    responsible for bounding itself; the graph additionally caps it at the run's
+    remaining deadline.
     """
     tool_ms = _clamp_timeout(tool_timeout_ms if tool_timeout_ms is not None else DEFAULT_TIMEOUT_MS)
-    if agent_ceiling_ms is None:
+    if long_running or agent_ceiling_ms is None:
         return tool_ms
     ceiling = _clamp_timeout(agent_ceiling_ms)
     return min(tool_ms, ceiling)

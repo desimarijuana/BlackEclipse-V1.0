@@ -321,6 +321,7 @@ def build_graph(
     code_store: Optional[Any] = None,
     code_ledger: Optional[Any] = None,
     code_intel_runtime: Optional[Any] = None,
+    evidence_store: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -440,6 +441,10 @@ def build_graph(
         # The executing agent, so the terminal subsystem can attribute a session
         # or process to it (multi-agent isolation + observability).
         agent_id=agent.id,
+        # The shared EvidenceStore for the web research engine (bound to the ONE
+        # agent-memory connection). None = the research tools build their own from
+        # the run's memory store (still persisted, just not the shared instance).
+        evidence_store=evidence_store,
     )
     registry.set_active_context(ctx)
 
@@ -896,6 +901,7 @@ async def execute_run(
     mcp_manager: Optional[Any] = None,
     code_store: Optional[Any] = None,
     code_intel_runtime: Optional[Any] = None,
+    evidence_store: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -1157,6 +1163,7 @@ async def execute_run(
             code_store=code_store,
             code_ledger=code_ledger,
             code_intel_runtime=code_intel_runtime,
+            evidence_store=evidence_store,
         )
         return await app.ainvoke(initial_state)
 
