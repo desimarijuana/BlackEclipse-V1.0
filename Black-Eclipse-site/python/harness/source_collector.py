@@ -184,6 +184,60 @@ class SourceCollector:
                 }
             )
 
+    # ── Web-research engine ingestion ──────────────────────────────────────────
+    def add_web_source(
+        self,
+        *,
+        url: str,
+        title: Optional[str] = None,
+        source_type: Optional[str] = None,
+        tier: Optional[str] = None,
+        published_at: Optional[str] = None,
+        retrieved_at: Optional[str] = None,
+        ok: bool = True,
+        evidence_id: Optional[str] = None,
+    ) -> None:
+        """Record a source consulted by the web research engine.
+
+        This is the seam that makes web-research provenance reach the SAME chat
+        "Sources" panel the retrieval layer uses. `tier` is the engine's source
+        classification (primary/official/structured/secondary/unknown); a failed
+        fetch is recorded as a failed route, never as a citation.
+        """
+        try:
+            if not url:
+                return
+            if not ok:
+                self._source_status[url] = "unavailable"
+                self._source_meta.setdefault(url, {"tier": tier or "unknown", "url": url, "title": title})
+                return
+            self._source_status[url] = "ok"
+            self._source_meta.setdefault(url, {"tier": tier or "secondary", "url": url, "title": title or url})
+            self._add_citation(
+                Citation(
+                    evidenceId=evidence_id or f"url:{url}",
+                    kind="web",
+                    source=url,
+                    sourceType=(tier or "secondary"),
+                    url=url,
+                    title=title or url,
+                    publishedAt=published_at,
+                    retrievedAt=retrieved_at,
+                )
+            )
+        except Exception:  # noqa: BLE001 - provenance is best-effort
+            return
+
+    def add_web_conflict(self, *, metric: str, period: Optional[str] = None, candidates: Optional[list[dict[str, Any]]] = None) -> None:
+        """Record a source conflict the web-research engine detected."""
+        try:
+            key = f"{metric}|{period or ''}"
+            if any(str(c.get("metric")) == str(metric) and str(c.get("period") or "") == str(period or "") for c in self._conflicts):
+                return
+            self._conflicts.append({"metric": metric, "period": period, "candidates": candidates or []})
+        except Exception:  # noqa: BLE001
+            return
+
     # ── Output ──────────────────────────────────────────────────────────────
     def has_content(self) -> bool:
         return bool(self._citations or self._source_meta or self._conflicts)

@@ -144,7 +144,9 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
           ? failedDiagnostic(
               base,
               "blocked",
-              `search provider challenged the request (HTTP ${httpStatus}); no results were served`,
+              `the keyless search provider challenged the request (HTTP ${httpStatus}); ` +
+                "no results were served. Configure a search provider in Settings for reliable coverage " +
+                "(a key from Tavily, Brave, Exa or Serper, or a self-hosted SearXNG).",
               { latencyMs, httpStatus, bytes, parseOutcome: "empty", retryable: false }
             )
           : zeroResultDiagnostic(base, "the search provider answered but returned no matches", {
@@ -217,6 +219,98 @@ export interface CustomSearchConfig {
 }
 
 const CUSTOM_SEARCH_TIMEOUT_MS = 12_000;
+
+/**
+ * Ready-made search-provider presets. The operator picks a name and supplies a
+ * key; the correct endpoint + response shape (the `CustomSearchConfig` fields) are
+ * filled in here so nobody hand-writes JSON. Each maps one real API's response
+ * envelope into the normalised `title/url/snippet`. The key is read from the
+ * settings vault (`SEARCH_API_KEY`); nothing here hard-codes a credential.
+ */
+export interface SearchProviderPreset {
+  id: string;
+  name: string;
+  /** Where to get a key (operator-facing, shown in Settings). */
+  keyUrl: string;
+  config: Omit<CustomSearchConfig, "apiKey">;
+}
+
+export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
+  {
+    id: "tavily",
+    name: "Tavily",
+    keyUrl: "https://tavily.com",
+    config: {
+      url: "https://api.tavily.com/search?query={query}&max_results={limit}",
+      authKind: "query",
+      authParam: "api_key",
+      resultsPath: "results",
+      titlePath: "title",
+      urlPath: "url",
+      snippetPath: "content",
+    },
+  },
+  {
+    id: "brave",
+    name: "Brave Search",
+    keyUrl: "https://brave.com/search/api/",
+    config: {
+      url: "https://api.search.brave.com/res/v1/web/search?q={query}&count={limit}",
+      authKind: "header",
+      authParam: "X-Subscription-Token",
+      resultsPath: "web.results",
+      titlePath: "title",
+      urlPath: "url",
+      snippetPath: "description",
+    },
+  },
+  {
+    id: "exa",
+    name: "Exa",
+    keyUrl: "https://exa.ai",
+    config: {
+      url: "https://api.exa.ai/search?query={query}&numResults={limit}",
+      authKind: "header",
+      authParam: "x-api-key",
+      resultsPath: "results",
+      titlePath: "title",
+      urlPath: "url",
+      snippetPath: "text",
+    },
+  },
+  {
+    id: "serper",
+    name: "Serper (Google)",
+    keyUrl: "https://serper.dev",
+    config: {
+      url: "https://google.serper.dev/search?q={query}&num={limit}",
+      authKind: "header",
+      authParam: "X-API-KEY",
+      resultsPath: "organic",
+      titlePath: "title",
+      urlPath: "link",
+      snippetPath: "snippet",
+    },
+  },
+  {
+    id: "searxng",
+    name: "SearXNG (self-hosted, keyless)",
+    keyUrl: "https://docs.searxng.org",
+    config: {
+      url: "{url}/search?q={query}&format=json",
+      authKind: "query",
+      authParam: "key",
+      resultsPath: "results",
+      titlePath: "title",
+      urlPath: "url",
+      snippetPath: "content",
+    },
+  },
+];
+
+export function searchProviderPreset(id: string): SearchProviderPreset | null {
+  return SEARCH_PROVIDER_PRESETS.find((p) => p.id === id) ?? null;
+}
 
 function getPath(root: unknown, path: string): unknown {
   if (!path) return undefined;

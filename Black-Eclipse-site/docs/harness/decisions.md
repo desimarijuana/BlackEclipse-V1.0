@@ -4157,3 +4157,5 @@ cost/observability config (`HARNESS_BROWSER_COST_*`, `HARNESS_BROWSER_TELEMETRY_
 `browser_replay` tool; four operator routes; `/health` grows a telemetry summary;
 tests `test_browser_observability.py` + `test_browser_observability_api.py`.
 `main.py` does not grow (routes live in `routers/browser.py`).
+
+**Surfacing, autonomy and provider ergonomics (same decision).** Web-research provenance reaches the SAME chat Sources panel as the retrieval layer (`source_collector.add_web_source`/`add_web_conflict` via the run's `source_sink`). Research is schedulable through three inert job templates (`deep-research-brief`/`competitor-watch`/`research-topic-digest`) on the existing scheduler. `SEARCH_PROVIDER_PRESETS` makes the second search provider a name+key choice, not hand-written JSON. Tests: `test_web_research_sources_jobs.py`.

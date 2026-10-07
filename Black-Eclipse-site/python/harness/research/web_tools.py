@@ -64,6 +64,38 @@ def _store(ctx: ToolContext) -> Any:
         return None
 
 
+def _sink(ctx: ToolContext) -> Any:
+    """The run's source collector, when one is attached (ordinary chat runs).
+
+    Web-research evidence is routed here so it reaches the SAME chat "Sources"
+    panel the retrieval layer uses — one provenance surface, no new contract.
+    """
+    return getattr(ctx, "source_sink", None)
+
+
+def _record_web_evidence(ctx: ToolContext, evidence: Any) -> None:
+    """Forward one web-research `Evidence` item to the run's source collector."""
+    sink = _sink(ctx)
+    if sink is None or evidence is None:
+        return
+    try:
+        from .web_sources import authority_for  # noqa: F401
+
+        tier = getattr(evidence.sourceType, "value", evidence.sourceType)
+        sink.add_web_source(
+            url=evidence.sourceUrl,
+            title=(evidence.provenance or {}).get("title") if isinstance(evidence.provenance, dict) else None,
+            source_type=str(tier),
+            tier=str(tier),
+            published_at=evidence.publishedAt,
+            retrieved_at=evidence.retrievedAt,
+            ok=True,
+            evidence_id=evidence.evidenceId,
+        )
+    except Exception:  # noqa: BLE001 - provenance is best-effort
+        pass
+
+
 # ── core search tools ────────────────────────────────────────────────────────────
 
 
@@ -252,6 +284,8 @@ async def web_extract(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
     if store is not None and evidence is not None:
         store.save_source(make_source(result.url, title=result.title).model_dump(), research_id=args.get("research_id"))
         store.save_evidence(evidence.model_dump(), research_id=args.get("research_id"))
+    # Route the evidence into the run's Sources panel (ordinary chat runs).
+    _record_web_evidence(ctx, evidence)
     # The model sees the raw text WRAPPED as untrusted data.
     wrapped = get_boundary().wrap(result.text[:12000], source=result.url)
     return (
@@ -356,6 +390,20 @@ async def research_query(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     request = _request_from_args(args, question, ctx=ctx)
     engine = _engine(ctx)
     result = await engine.run(request)
+    # Route the run's evidence + conflicts into the chat Sources panel.
+    for ev in result.evidence:
+        _record_web_evidence(ctx, ev)
+    sink = _sink(ctx)
+    if sink is not None:
+        for conflict in result.conflicts:
+            try:
+                sink.add_web_conflict(
+                    metric=conflict.metric,
+                    period=conflict.period,
+                    candidates=conflict.candidates,
+                )
+            except Exception:  # noqa: BLE001
+                pass
     payload = result.to_dict()
     return result.answer, payload
 

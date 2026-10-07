@@ -255,6 +255,23 @@ resume after a cancel is not instantly cancelled again.
 - No second transport, HTML/PDF parser, memory, tool registry or agent loop.
 - No model as a source of truth, no fabricated values, URLs, citations or dates.
 
+## Surfacing, autonomy, and search-provider ergonomics
+
+- **Chat Sources panel.** The web-research tools route each fetched evidence item
+  and each detected conflict into the run's `source_sink`
+  (`source_collector.add_web_source`/`add_web_conflict`), so web provenance renders
+  in the SAME chat Sources area the retrieval layer uses — one surface, no new wire
+  contract. A failed fetch is a failed route, never a citation.
+- **Schedulable research.** Research runs in the background through the existing
+  job scheduler via three inert templates: `deep-research-brief` (cron),
+  `competitor-watch` (cron) and `research-topic-digest` (interval). Each is an
+  ordinary `objective` job on the `eclipse-agent` and passes the same save-time
+  guardrails; nothing switches on by itself.
+- **Search providers.** `SEARCH_PROVIDER_PRESETS` (Tavily, Brave, Exa, Serper,
+  SearXNG) fills the `SEARCH_API_CONFIG` shape so an operator adds an independent
+  second search route by name + key (`SEARCH_API_KEY`) instead of hand-writing JSON.
+  When the keyless default is challenged, the diagnostic names this fix.
+
 ## Tests
 
 - `test_web_research_unit.py` — intent, planning, provider fallback, normalization,

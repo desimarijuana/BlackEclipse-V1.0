@@ -8,6 +8,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Web research engine — surfacing, autonomy, and provider ergonomics.** Closed three of the "what it is NOT" gaps. (1) **Evidence reaches the chat Sources panel** — the web-research tools now route each fetched evidence item and each detected conflict into the run's `source_sink`, so web provenance renders in the SAME Sources area the retrieval layer uses (no new wire contract); a failed fetch becomes a failed route, never a citation (`source_collector.add_web_source`/`add_web_conflict`). (2) **Research is now schedulable** — three evidence-backed job templates (`deep-research-brief`, `competitor-watch`, `research-topic-digest`) let research run on a cadence in the background through the existing job scheduler; each ships inert and passes the same save-time guardrails. (3) **Search-provider presets** — `SEARCH_PROVIDER_PRESETS` (Tavily/Brave/Exa/Serper/SearXNG) fill the `SEARCH_API_CONFIG` shape so an operator adds a real provider by name + key instead of hand-writing JSON, and the keyless-blocked diagnostic now names the fix. Tests: `test_web_research_sources_jobs.py` (6 cases). Docs: `docs/harness/web-research-engine.md`, ADR-H135. `docs updated: docs/harness/web-research-engine.md, docs/harness/decisions.md, docs/CHANGELOG.md`
+
 - **Test-suite reproducibility: `test_mcp_orphan_reaping` is cwd-independent.**
   The orphan-reaping test spawned its parent with `sys.path.insert(0,
   os.path.join(os.getcwd(), "python"))` and `cwd=os.getcwd()`, so it passed only

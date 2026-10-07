@@ -204,6 +204,69 @@ JOB_TEMPLATES: tuple[JobTemplate, ...] = (
             TemplateParameter("provider", "Where should it go?", example="vercel"),
         ],
     ),
+    JobTemplate(
+        id="deep-research-brief",
+        name="Deep research brief",
+        description=(
+            "A scheduled, evidence-backed research brief on a topic or company you "
+            "name. Eclipse searches, fetches and verifies sources, computes any "
+            "figures deterministically, and reports what it found — with citations and "
+            "an explicit note of anything it could not establish."
+        ),
+        kind="cron",
+        cron="0 8 * * 1",
+        target={
+            "kind": "objective",
+            "objective": (
+                "Produce an evidence-backed research brief on: {topic}. Use research_plan "
+                "then research_query, verify facts against sources, cite every material "
+                "claim, and clearly state any gap or unresolved conflict."
+            ),
+        },
+        parameters=[
+            TemplateParameter("topic", "What should it research?", example="NVIDIA's valuation and AI-accelerator competition"),
+        ],
+    ),
+    JobTemplate(
+        id="competitor-watch",
+        name="Competitor watch",
+        description=(
+            "Track the competitive landscape for a company you name and report what "
+            "changed — new products, moves, and threats — with sources."
+        ),
+        kind="cron",
+        cron="0 8 * * 1-5",
+        target={
+            "kind": "objective",
+            "objective": (
+                "Research the competitive landscape for {company}. Identify competitors and "
+                "any material changes, cite sources, and flag unresolved disagreements."
+            ),
+        },
+        parameters=[
+            TemplateParameter("company", "Which company?", example="NVIDIA"),
+        ],
+    ),
+    JobTemplate(
+        id="research-topic-digest",
+        name="Research topic digest",
+        description=(
+            "A recurring digest on a topic you name, refreshed on a cadence, so you "
+            "always have a current, sourced read without asking."
+        ),
+        kind="interval",
+        interval_seconds=24 * 3600,
+        target={
+            "kind": "objective",
+            "objective": (
+                "Produce a current evidence-backed digest on: {topic}. Prefer primary and "
+                "recent sources, cite them, and note anything you could not verify."
+            ),
+        },
+        parameters=[
+            TemplateParameter("topic", "What should it cover?", example="the AI accelerator market"),
+        ],
+    ),
 )
 
 
