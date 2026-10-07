@@ -40,7 +40,9 @@ python/harness/research/
   web_security.py    — UntrustedContentBoundary + SSRF/URL guard
   web_store.py       — EvidenceStore on the ONE agent-memory connection
   web_engine.py      — ResearchEngine orchestration + status/cancel/continue
-  web_tools.py       — the 21 read-only tools on the ONE ToolRegistry
+  web_tools.py       — the read-only tools on the ONE ToolRegistry
+  web_finance.py     — deterministic financial metrics (adapter over finance_facts)
+  web_quality.py     — the internal research-quality score
 ```
 
 The HTTP surface is `python/harness/routers/research.py` (`/research/web/*`,
@@ -137,6 +139,38 @@ a metric exist, `web_engine` reuses `research.calculations.period_change` (and t
 other Phase-4 calculators) in pure Python and records a `CALCULATION` claim whose
 `inputEvidenceIds` are the source evidence. A calculation that cannot be performed
 honestly is dropped, never fabricated.
+
+### Financial metrics (`web_finance` + `finance_facts`)
+
+The finance tools give the model deterministic financial math with full provenance
+— it never computes a critical metric itself. Three groups, one calculator each
+(never a parallel implementation):
+
+- **Ratios / margins / returns** — `finance_metrics` → `finance_facts.metrics.derive`.
+  P/E, forward P/E, PEG, P/B, P/S, EV/EBITDA, FCF yield, dividend yield, ROE, ROA,
+  **ROIC**, gross/operating/net margin, debt/EBITDA, D/E. Each records formula +
+  inputs + sources. A metric whose required input is missing is **refused**, never
+  defaulted (e.g. ROIC requires a stated tax rate).
+- **Risk / return time-series** — `finance_series` → `research.calculations`.
+  Sharpe, **Sortino**, **historical VaR**, **beta**, CAGR, volatility, max
+  drawdown, period change.
+- **Valuation** — `finance_valuation` → `finance_facts.valuation`. **WACC** (CAPM
+  cost of equity + after-tax cost of debt; a levered firm must supply cost of debt
+  and tax rate) and **DCF** (explicit forecast + exactly one terminal method:
+  Gordon growth OR an exit multiple). A WACC/DCF is an **estimate**, every
+  assumption recorded, no rate defaulted.
+
+`finance_metric_catalog` lists every metric with its formula.
+
+### Research-quality score (`web_quality`)
+
+A composite, **explainable** and **internal** score over components the engine has
+already established: source authority, primary coverage, evidence coverage, claim
+support, freshness, conflict resolution and citation coverage. Every component's
+raw value, weight and contribution is returned. It drives the
+`COMPLETE`/`SUFFICIENT`/`NEEDS_MORE_RESEARCH` decision and is **never** presented
+to a user as truth — the output carries that disclaimer. Available via
+`research_quality`.
 
 ## Security — the UntrustedContentBoundary
 

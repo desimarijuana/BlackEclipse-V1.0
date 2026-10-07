@@ -43,6 +43,10 @@ _MARKET_DEFINITIONS: frozenset[str] = frozenset({"price", "market_cap", "shares_
 
 SPECS: dict[str, MetricSpec] = {
     "pe_ratio": MetricSpec("pe_ratio", "price / eps", ("price", "eps"), note="uses the share-class price and its EPS"),
+    "forward_pe": MetricSpec("forward_pe", "price / eps_forward", ("price", "eps_forward"),
+                             note="uses a FORWARD (estimate) EPS; the estimate basis is disclosed, not treated as reported"),
+    "peg_ratio": MetricSpec("peg_ratio", "(price / eps) / eps_growth_pct", ("price", "eps"),
+                            note="PEG = trailing P/E (from price and EPS) divided by the EPS growth rate in percent; growth is caller-supplied"),
     "pb_ratio": MetricSpec("pb_ratio", "market_cap / common_equity", ("market_cap", "common_equity"),
                            note="§7: book value uses COMMON equity, not total equity"),
     "pb_ratio_total_equity": MetricSpec("pb_ratio_total_equity", "market_cap / total_equity",
@@ -54,7 +58,12 @@ SPECS: dict[str, MetricSpec] = {
     "dividend_yield": MetricSpec("dividend_yield", "dividend_per_share / price", ("dividend_per_share", "price"), scale=100.0, unit="%"),
     "roe": MetricSpec("roe", "net_income_parent / parent_equity", ("net_income_parent", "parent_equity"), scale=100.0, unit="%",
                       note="§6: uses parent-attributable earnings, not total consolidated"),
+    "gross_margin": MetricSpec("gross_margin", "gross_profit / revenue", ("gross_profit", "revenue"), scale=100.0, unit="%"),
+    "operating_margin": MetricSpec("operating_margin", "operating_income / revenue", ("operating_income", "revenue"), scale=100.0, unit="%"),
+    "net_margin": MetricSpec("net_margin", "net_income / revenue", ("net_income", "revenue"), scale=100.0, unit="%"),
     "roa": MetricSpec("roa", "net_income_parent / total_assets", ("net_income_parent", "total_assets"), scale=100.0, unit="%"),
+    "roic": MetricSpec("roic", "nopat / invested_capital", ("operating_income", "invested_capital"), scale=100.0, unit="%",
+                       note="ROIC uses NOPAT (EBIT approximated by operating income); the tax basis must be supplied or is disclosed"),
     "net_debt_to_ebitda": MetricSpec("net_debt_to_ebitda", "net_debt / ebitda", ("net_debt", "ebitda")),
     "debt_to_equity": MetricSpec("debt_to_equity", "gross_debt / common_equity", ("gross_debt", "common_equity")),
 }
@@ -78,12 +87,23 @@ def _currency_ok(inputs: Sequence[FinancialFact]) -> bool:
     return len(currencies) <= 1
 
 
-def derive(metric: str, facts: Sequence[FinancialFact], *, now: Optional[str] = None) -> DerivedMetric:
+def derive(
+    metric: str,
+    facts: Sequence[FinancialFact],
+    *,
+    now: Optional[str] = None,
+    extra: Optional[dict[str, float]] = None,
+) -> DerivedMetric:
     """Derive one metric from reconciled facts, recording the full provenance.
 
     Raises `DerivationError` when an input is missing, two currencies are mixed,
     or the inputs are not all reported (a derived input is not allowed to
     silently stand in for a reported one).
+
+    `extra` supplies scalars a formula needs that are not themselves a fact row
+    (e.g. `tax_rate` for ROIC, `eps_growth` percent for PEG, or a pre-computed
+    `pe_ratio` for PEG). Each such scalar MUST be supplied by the caller — a
+    metric that needs one and does not get it is refused, never defaulted.
     """
     spec = SPECS.get(metric)
     if spec is None:
@@ -114,6 +134,10 @@ def derive(metric: str, facts: Sequence[FinancialFact], *, now: Optional[str] = 
         raise DerivationError(f"{metric}: inputs span different period types {sorted(flow_types)}; a transformation is required")
 
     values = {f.definition: _numeric(f) for f in chosen}
+    # Caller-supplied scalars are lower precedence than a real fact of the same
+    # name, so a reported value always wins over a passed-in scalar.
+    for key, val in (extra or {}).items():
+        values.setdefault(key, float(val))
     value = _compute_ratio(metric, values, spec.scale)
 
     calculated_at = now or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -153,6 +177,21 @@ def _compute_ratio(metric: str, v: dict[str, Optional[float]], scale: float) -> 
             # return a fabricated number.
             raise DerivationError("P/E is undefined when EPS is zero or negative")
         return g("price") / eps if g("price") is not None else None
+    if metric == "forward_pe":
+        eps = g("eps_forward")
+        if not eps or eps < 0:
+            raise DerivationError("forward P/E is undefined when the forward EPS estimate is zero or negative")
+        return g("price") / eps if g("price") is not None else None
+    if metric == "peg_ratio":
+        eps = g("eps")
+        price = g("price")
+        growth = g("eps_growth")
+        if not eps or eps <= 0 or price is None:
+            raise DerivationError("PEG is undefined without a positive EPS and a price")
+        if not growth or growth <= 0:
+            raise DerivationError("PEG is undefined when the EPS growth rate is zero or negative")
+        pe = price / eps
+        return pe / growth
     if metric in ("pb_ratio", "pb_ratio_total_equity"):
         eq = g("common_equity") if metric == "pb_ratio" else g("total_equity")
         return (g("market_cap") / eq * scale) if eq else None
@@ -172,9 +211,33 @@ def _compute_ratio(metric: str, v: dict[str, Optional[float]], scale: float) -> 
     if metric == "roe":
         eq = g("parent_equity")
         return (g("net_income_parent") / eq * scale) if eq else None
+    if metric == "gross_margin":
+        rev = g("revenue")
+        return (g("gross_profit") / rev * scale) if rev else None
+    if metric == "operating_margin":
+        rev = g("revenue")
+        return (g("operating_income") / rev * scale) if rev else None
+    if metric == "net_margin":
+        rev = g("revenue")
+        return (g("net_income") / rev * scale) if rev else None
     if metric == "roa":
         ta = g("total_assets")
         return (g("net_income_parent") / ta * scale) if ta else None
+    if metric == "roic":
+        # NOPAT = operating income (EBIT proxy) × (1 − tax rate). The tax rate is
+        # carried on the operating-income fact's raw metadata ("taxRate"); absent
+        # it we use the effective rate only if stated — never a blanket 21%.
+        ic = g("invested_capital")
+        if not ic:
+            return None
+        ebit = g("operating_income")
+        if ebit is None:
+            return None
+        tax_rate = v.get("tax_rate")
+        if tax_rate is None:
+            raise DerivationError("ROIC requires a stated tax rate (raw 'taxRate'); a default is never assumed")
+        nopat = ebit * (1.0 - float(tax_rate))
+        return nopat / ic * scale
     if metric == "net_debt_to_ebitda":
         e = g("ebitda")
         return (g("net_debt") / e) if e else None

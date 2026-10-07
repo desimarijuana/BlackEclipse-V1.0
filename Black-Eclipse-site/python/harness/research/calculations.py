@@ -50,6 +50,9 @@ MIN_OBSERVATIONS: dict[str, int] = {
     "annualized_volatility": 2,
     "max_drawdown": 2,
     "sharpe": 3,
+    "sortino": 3,
+    "value_at_risk": 5,
+    "beta": 3,
 }
 
 
@@ -442,12 +445,154 @@ def sharpe(
     return _finalize(result)
 
 
+def sortino(
+    observations: Sequence[dict[str, Any]],
+    *,
+    risk_free_rate: float = 0.0,
+    frequency: str = "daily",
+    target: Optional[float] = None,
+    risk_free_source: Optional[str] = None,
+) -> CalculationResult:
+    """Annualized Sortino ratio: excess return over downside deviation.
+
+    Unlike Sharpe (which penalizes ALL volatility), Sortino uses only the
+    downside deviation below a target (default: the per-period risk-free rate).
+    Requires an explicit frequency so the annualization factor is a stated
+    assumption.
+    """
+    if frequency not in PERIODS_PER_YEAR:
+        raise CalculationError(f"unknown frequency {frequency!r}; expected {sorted(PERIODS_PER_YEAR)}")
+    if not _is_finite(risk_free_rate):
+        raise CalculationError(f"risk-free rate must be finite, got {risk_free_rate!r}")
+    series = _prepare(observations, metric="sortino", frequency=frequency)
+    returns = _returns(series.values)
+    n = len(returns)
+    if n < 2:
+        raise CalculationError("sortino needs at least 3 observations (2 returns)")
+    periods = PERIODS_PER_YEAR[frequency]
+    rf_per_period = float(risk_free_rate) / periods
+    mar = float(target) if target is not None else rf_per_period
+    excess = [r - rf_per_period for r in returns]
+    mean = sum(excess) / n
+    downside = [min(0.0, r - mar) for r in returns]
+    downside_variance = sum(d * d for d in downside) / (n - 1)
+    downside_dev = math.sqrt(downside_variance)
+    result = _base_record(
+        "sortino",
+        "(mean(excess) / downside_deviation) * sqrt(periods_per_year)",
+        series,
+        observations,
+    )
+    result.annualization = periods
+    result.riskFreeRate = float(risk_free_rate)
+    result.riskFreeSource = risk_free_source
+    result.assumptions.append("downside deviation uses only returns below the target")
+    result.assumptions.append("sample downside deviation (n-1)")
+    result.assumptions.append(f"annualized with {periods} periods per year")
+    if risk_free_source is None:
+        result.warnings.append("risk-free rate source not documented")
+    if downside_dev == 0:
+        raise CalculationError("sortino is undefined when downside deviation is 0")
+    result.value = (mean / downside_dev) * math.sqrt(periods)
+    return _finalize(result)
+
+
+def value_at_risk(
+    observations: Sequence[dict[str, Any]],
+    *,
+    confidence: float = 0.95,
+    frequency: str = "daily",
+    horizon_periods: int = 1,
+) -> CalculationResult:
+    """Historical (empirical) Value-at-Risk over a holding horizon.
+
+    VaR is the loss threshold not exceeded with `confidence` probability, using
+    the EMPIRICAL return distribution (no normal assumption). Returned as a
+    positive percentage (a loss). `horizon_periods` scales by sqrt(time).
+    """
+    if not (0.5 < confidence < 1.0):
+        raise CalculationError(f"confidence must be in (0.5, 1.0), got {confidence!r}")
+    if frequency not in PERIODS_PER_YEAR:
+        raise CalculationError(f"unknown frequency {frequency!r}; expected {sorted(PERIODS_PER_YEAR)}")
+    if horizon_periods < 1:
+        raise CalculationError("horizon_periods must be >= 1")
+    series = _prepare(observations, metric="value_at_risk", frequency=frequency)
+    returns = _returns(series.values)
+    if len(returns) < 5:
+        raise CalculationError("value-at-risk needs at least 6 observations (5 returns)")
+    ordered = sorted(returns)
+    alpha = 1.0 - confidence
+    idx = max(0, min(len(ordered) - 1, int(math.floor(alpha * len(ordered)))))
+    per_period = ordered[idx]
+    horiz = per_period * math.sqrt(horizon_periods)
+    result = _base_record(
+        "value_at_risk",
+        "empirical quantile of returns, scaled by sqrt(horizon)",
+        series,
+        observations,
+    )
+    result.unit = "%"
+    result.warnings.append("historical VaR: only as good as the observed sample; not a tail guarantee")
+    result.assumptions.append(f"confidence {confidence:.0%}; empirical (historical) distribution")
+    result.assumptions.append(f"horizon {horizon_periods} period(s), scaled by sqrt(time)")
+    result.value = -horiz * 100.0
+    return _finalize(result)
+
+
+def beta(
+    observations: Sequence[dict[str, Any]],
+    benchmark: Sequence[dict[str, Any]],
+    *,
+    frequency: str = "daily",
+) -> CalculationResult:
+    """Capital-asset-pricing beta of a series against a benchmark.
+
+    beta = cov(asset, benchmark) / var(benchmark), computed on a date-ALIGNED
+    set of simple returns. Mismatched lengths or a zero benchmark variance are
+    rejected. Both series must share the same currency/identity rules as any
+    return series.
+    """
+    if frequency not in PERIODS_PER_YEAR:
+        raise CalculationError(f"unknown frequency {frequency!r}; expected {sorted(PERIODS_PER_YEAR)}")
+    asset = _prepare(observations, metric="beta", frequency=frequency)
+    bench = _prepare(benchmark, metric="beta", frequency=frequency)
+    a_returns = _returns(asset.values)
+    b_returns = _returns(bench.values)
+    if len(a_returns) != len(b_returns):
+        raise CalculationError(
+            f"beta needs date-aligned series: {len(a_returns)} asset vs {len(b_returns)} benchmark returns"
+        )
+    n = len(a_returns)
+    if n < 2:
+        raise CalculationError("beta needs at least 3 aligned observations (2 returns)")
+    mean_a = sum(a_returns) / n
+    mean_b = sum(b_returns) / n
+    cov = sum((a - mean_a) * (b - mean_b) for a, b in zip(a_returns, b_returns)) / (n - 1)
+    var_b = sum((b - mean_b) ** 2 for b in b_returns) / (n - 1)
+    result = _base_record(
+        "beta",
+        "cov(asset_returns, benchmark_returns) / var(benchmark_returns)",
+        asset,
+        observations,
+    )
+    result.assumptions.append(f"date-aligned simple {frequency} returns")
+    result.assumptions.append("benchmark series supplied by the caller")
+    result.warnings.append("beta is only meaningful for the benchmark and window actually used")
+    if var_b == 0:
+        raise CalculationError("beta is undefined when benchmark variance is 0")
+    result.value = cov / var_b
+    return _finalize(result)
+
+
 CALCULATORS = {
     "period_change": period_change,
     "cagr": cagr,
     "annualized_volatility": annualized_volatility,
     "max_drawdown": max_drawdown,
     "sharpe": sharpe,
+    "sortino": sortino,
+    "value_at_risk": value_at_risk,
+    "beta": beta,
 }
 
 
@@ -462,5 +607,8 @@ __all__ = [
     "annualized_volatility",
     "max_drawdown",
     "sharpe",
+    "sortino",
+    "value_at_risk",
+    "beta",
     "CALCULATORS",
 ]

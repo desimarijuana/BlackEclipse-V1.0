@@ -96,6 +96,13 @@ WEB_RESEARCH_TOOLS = [
     "research_cancel",
     "research_continue",
     "research_update",
+    # Deterministic financial math (ratios/margins/returns, risk time-series and
+    # WACC/DCF valuation). The model never computes a critical metric itself.
+    "finance_metrics",
+    "finance_series",
+    "finance_valuation",
+    "finance_metric_catalog",
+    "research_quality",
 ]
 
 # The repository tools. Phase 1 shipped the five read tools; Phase 2 adds the

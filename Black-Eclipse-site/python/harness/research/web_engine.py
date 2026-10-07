@@ -46,6 +46,7 @@ from .web_freshness import filter_admissible
 from .web_intent import classify_intent
 from .web_planner import PlanInput, plan_research
 from .web_providers import SearchProviderRegistry, build_default_registry
+from .web_quality import compute_quality
 from .web_sources import (
     SourceFamily,
     dedupe_news,
@@ -466,6 +467,18 @@ class ResearchEngine:
 
         # ── Coverage + stopping ─────────────────────────────────────────────────────────
         coverage = _build_coverage(mandate, admissible, conflicts, independent_count, citation_report)
+
+        # ── Research-quality score (internal; explainable, never user-facing truth) ─────
+        quality = compute_quality(
+            coverage=coverage,
+            sources=sources,
+            evidence=admissible,
+            claims=claims,
+            conflicts=conflicts,
+            citation_report=citation_report,
+            freshness=mandate.freshness,
+        )
+        coverage["quality"] = quality
 
         # ── Synthesis (deterministic; model optional at the tool layer) ─────────────────
         await self._set_state(status, "SYNTHESIZING")

@@ -4110,3 +4110,5 @@ delta) — prior evidence is never deleted. Raw evidence text is bounded in the
 tool/API view while the store keeps it whole; the process-wide status/cancel maps
 are bounded; events are namespaced `webresearch.*`. Regression tests:
 `test_web_research_hardening.py`.
+
+**Deterministic metrics + quality score (same decision).** The engine never lets the model compute a critical financial number: `research/web_finance.py` adapts the existing calculators (`finance_facts.metrics.derive`, `research.calculations`, and a new `finance_facts.valuation` for WACC/DCF) into `finance_*` tools, each recording formula + inputs + sources and REFUSING a metric whose required input is missing. A DCF/WACC is an estimate, never a reported fact. `research/web_quality.py` adds an explainable, INTERNAL research-quality score used only to decide COMPLETE/SUFFICIENT/NEEDS_MORE_RESEARCH — never presented as truth. Tests: `test_web_finance_quality.py`.

@@ -524,10 +524,147 @@ def _budget_under_tool(request: ResearchRequest, ctx: ToolContext) -> ResearchRe
     return request
 
 
+# ── deterministic financial-metric tools ──────────────────────────────────────────
+
+
+async def finance_metrics(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Compute a deterministic financial ratio/margin/return metric.
+
+    The model supplies named inputs (definition → value); the engine computes the
+    number and records formula + inputs + sources. A missing input is refused with
+    a reason, never defaulted.
+    """
+    from . import web_finance
+
+    metric = str(args.get("metric") or "").strip()
+    if not metric:
+        return (
+            "A `metric` is required. Known ratios/margins: " + ", ".join(web_finance.RATIO_METRICS) + ".",
+            {"status": "ERROR", "error": "metric is required", "available": list(web_finance.RATIO_METRICS)},
+        )
+    inputs = args.get("inputs") or {}
+    if not isinstance(inputs, dict) or not inputs:
+        return "`inputs` must map a definition id to its value (e.g. {\"price\": 180, \"eps\": 4.5}).", {"status": "ERROR"}
+    extra = args.get("extra") if isinstance(args.get("extra"), dict) else None
+    try:
+        result = web_finance.compute_ratio(metric, inputs, extra=extra, currency=args.get("currency"))
+    except Exception as exc:  # noqa: BLE001 - a refused metric is an honest answer
+        return (
+            f"Could not compute {metric} honestly: {exc}. I will not approximate it.",
+            {"status": "UNAVAILABLE", "metric": metric, "error": str(exc)},
+        )
+    value = result.get("value")
+    unit = result.get("unit") or ""
+    return (
+        f"{metric} = {value}{unit} (formula: {result['formula']}; inputs recorded: "
+        f"{', '.join(i['definition'] for i in result['inputs'])}). Deterministic — not a model estimate.",
+        {"status": "OK", "result": result},
+    )
+
+
+async def finance_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Compute a deterministic risk/return time-series metric (Sharpe/Sortino/VaR/beta/…)."""
+    from . import web_finance
+
+    metric = str(args.get("metric") or "").strip()
+    observations = args.get("observations")
+    if not metric or not isinstance(observations, list):
+        return (
+            "`metric` and a list of `observations` (each {date, value}) are required. Known series: "
+            + ", ".join(web_finance.SERIES_METRICS) + ".",
+            {"status": "ERROR", "error": "metric and observations required", "available": list(web_finance.SERIES_METRICS)},
+        )
+    try:
+        result = web_finance.compute_series(
+            metric,
+            observations,
+            benchmark=args.get("benchmark") if isinstance(args.get("benchmark"), list) else None,
+            options=args.get("options") if isinstance(args.get("options"), dict) else None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return (
+            f"Could not compute {metric} honestly: {exc}.",
+            {"status": "UNAVAILABLE", "metric": metric, "error": str(exc)},
+        )
+    return (
+        f"{metric} = {result.get('value')}{result.get('unit') or ''} "
+        f"(formula: {result['formula']}; {result['observationCount']} observations). Deterministic.",
+        {"status": "OK", "result": result},
+    )
+
+
+async def finance_valuation(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Compute WACC or a DCF valuation from EXPLICIT, auditable inputs.
+
+    A DCF/WACC is an ESTIMATE, never a reported fact; every assumption is recorded
+    and no rate is defaulted.
+    """
+    from . import web_finance
+
+    kind = str(args.get("kind") or args.get("metric") or "").strip().lower()
+    inputs = args.get("inputs") or {}
+    if not isinstance(inputs, dict) or not inputs:
+        return "`inputs` is required (kind: wacc | dcf).", {"status": "ERROR"}
+    try:
+        if kind == "wacc":
+            result = web_finance.compute_wacc(inputs)
+        elif kind in ("dcf", "dcf_equity_value", "dcf_equity_value_per_share"):
+            result = web_finance.compute_dcf(inputs)
+        else:
+            return (
+                "`kind` must be 'wacc' or 'dcf'.",
+                {"status": "ERROR", "error": "unknown kind"},
+            )
+    except Exception as exc:  # noqa: BLE001
+        return (
+            f"Could not compute the {kind} honestly: {exc}. I will not fabricate a rate or a valuation.",
+            {"status": "UNAVAILABLE", "kind": kind, "error": str(exc)},
+        )
+    label = "WACC" if kind == "wacc" else "DCF"
+    return (
+        f"{label} = {result.get('value')}{result.get('unit') or ''} (formula: {result['formula']}). "
+        f"This is an ESTIMATE — inputs and assumptions are recorded in the result.",
+        {"status": "OK", "result": result},
+    )
+
+
+async def finance_metric_catalog(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """List every deterministic metric the engine can compute, with its formula and inputs."""
+    from . import web_finance
+
+    catalog = web_finance.describe_metrics()
+    lines = ["Deterministic metrics available:"]
+    for name, spec in sorted(catalog["ratios"].items()):
+        lines.append(f"- {name}: {spec['formula']}  [inputs: {', '.join(spec['inputs'])}]")
+    lines.append("Time-series: " + ", ".join(sorted(catalog["series"])))
+    lines.append("Valuation: " + ", ".join(catalog["valuation"]))
+    return "\n".join(lines), {"status": "OK", "catalog": catalog}
+
+
+async def research_quality(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Report a completed run's internal research-quality score (explainable, not truth)."""
+    store = _store(ctx)
+    research_id = str(args.get("research_id") or "")
+    if store is None:
+        return "No evidence store is attached to this run.", {"status": "UNAVAILABLE"}
+    snapshots = store.list_snapshots(research_id)
+    if not snapshots:
+        return f"No research snapshot for {research_id!r}.", {"status": "UNAVAILABLE"}
+    coverage = (snapshots[-1].get("payload") or {}).get("coverage") or {}
+    quality = coverage.get("quality")
+    if not quality:
+        return f"No quality score recorded for {research_id!r}.", {"status": "UNAVAILABLE"}
+    return (
+        f"Research quality: {quality['score']} ({quality['band']}) — verdict {quality['verdict']}. "
+        + "; ".join(f"{k}={v}" for k, v in quality["components"].items())
+        + ". Internal heuristic only, not a measure of truth.",
+        {"status": "OK", "quality": quality},
+    )
+
+
 # ── registration ─────────────────────────────────────────────────────────────────
 
 _READ = dict(permission="read", risk="low")
-
 
 def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": required or []}
@@ -584,6 +721,24 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
     "research_cancel": _obj({"research_id": _STR}, ["research_id"]),
     "research_continue": _obj({"research_id": _STR}, ["research_id"]),
     "research_update": _obj({"research_id": _STR, "refresh": _BOOL}, ["research_id"]),
+    "finance_metrics": _obj({
+        "metric": {**_STR, "description": "A ratio/margin/return metric id (see finance_metric_catalog)."},
+        "inputs": {"type": "object", "description": "definition id → value, e.g. {price, eps, market_cap}"},
+        "extra": {"type": "object", "description": "scalars a formula needs, e.g. {tax_rate, eps_growth}"},
+        "currency": _STR,
+    }, ["metric", "inputs"]),
+    "finance_series": _obj({
+        "metric": {**_STR, "description": "A time-series metric id (sharpe/sortino/value_at_risk/beta/cagr/…)."},
+        "observations": {"type": "array", "items": {"type": "object"}, "description": "each {date, value}"},
+        "benchmark": {"type": "array", "items": {"type": "object"}, "description": "benchmark series for beta"},
+        "options": {"type": "object", "description": "e.g. {risk_free_rate, frequency, confidence}"},
+    }, ["metric", "observations"]),
+    "finance_valuation": _obj({
+        "kind": {**_STR, "enum": ["wacc", "dcf"], "description": "which valuation to compute"},
+        "inputs": {"type": "object", "description": "explicit inputs (see the tool description)"},
+    }, ["kind", "inputs"]),
+    "finance_metric_catalog": _obj({}),
+    "research_quality": _obj({"research_id": _STR}, ["research_id"]),
 }
 
 _TOOLS: list[tuple[str, str, Any, int]] = [
@@ -608,6 +763,11 @@ _TOOLS: list[tuple[str, str, Any, int]] = [
     ("research_cancel", "Request cancellation of a running research task; it stops at the next safe checkpoint and persists state.", research_cancel, 10_000),
     ("research_continue", "Resume a partial/cancelled research run from its persisted state.", research_continue, 180_000),
     ("research_update", "Incrementally update a prior research run; changed sources are superseded and a new snapshot is written.", research_update, 180_000),
+    ("finance_metrics", "Compute a deterministic financial ratio/margin/return metric (P/E, forward P/E, PEG, EV/EBITDA, ROIC, ROE, margins, FCF yield, …) from named inputs. Records formula + inputs; refuses on a missing input.", finance_metrics, 10_000),
+    ("finance_series", "Compute a deterministic risk/return time-series metric (Sharpe, Sortino, historical VaR, beta, CAGR, volatility, drawdown) from dated observations.", finance_series, 10_000),
+    ("finance_valuation", "Compute a WACC or a DCF valuation from explicit, auditable inputs. A DCF/WACC is an ESTIMATE with every assumption recorded; no rate is defaulted.", finance_valuation, 10_000),
+    ("finance_metric_catalog", "List every deterministic financial metric the engine can compute, with its formula and required inputs.", finance_metric_catalog, 10_000),
+    ("research_quality", "Report a completed research run's internal, explainable quality score (coverage/authority/freshness/support/conflicts/citations). Not a measure of truth.", research_quality, 10_000),
 ]
 
 

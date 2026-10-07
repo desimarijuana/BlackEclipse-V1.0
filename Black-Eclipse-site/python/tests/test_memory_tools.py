@@ -311,12 +311,14 @@ def test_prompt_char_ceiling():
     "Building a tool" paragraph (`scaffold_kit`); the Browser Automation Runtime
     raised it to 19400 for the "Browser automation" guidance block; the
     Evidence-Driven Web Research Engine raised it to 20600 for the "Web research
-    workflow" paragraph (`web_*`/`research_*`). The ratchet still bites — a
-    bounded allowance, not an open door.
+    workflow" paragraph (`web_*`/`research_*`) and to 21600 for the deterministic
+    "financial math" paragraph (`finance_metrics`/`finance_series`/
+    `finance_valuation`). The ratchet still bites — a bounded allowance, not an
+    open door.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 20600, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 21600, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

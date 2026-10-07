@@ -75,7 +75,9 @@ _define("combined_revenue", "Combined Revenue", "income", ("combined revenue",))
 _define("cost_of_revenue", "Cost of Revenue", "income", ("cost of revenue", "cost of sales", "cogs"))
 _define("gross_profit", "Gross Profit", "income", ("gross profit",))
 _define("operating_income", "Operating Income", "income", ("operating income", "operating profit", "ebit"))
-_define("ebitda", "EBITDA", "income", ("ebitda",))
+_define("ebit", "EBIT (Earnings Before Interest and Taxes)", "income",
+        ("ebit", "earnings before interest and taxes", "earnings before interest and tax"))
+_define("ebitda", "EBITDA", "income", ("ebitda", "earnings before interest taxes depreciation and amortization"))
 _define("pretax_income", "Pre-tax Income", "income", ("pre-tax income", "pretax income", "income before tax"))
 
 # Net income family — the §6 separation.
@@ -104,6 +106,8 @@ _define("adjusted_net_income", "Adjusted Net Income", "income",
 
 # ── Per share ───────────────────────────────────────────────────────────────
 _define("eps", "Earnings Per Share", "per_share", ("eps", "earnings per share", "basic eps", "diluted eps"))
+_define("eps_forward", "Forward EPS (estimate)", "per_share",
+        ("forward eps", "eps estimate", "consensus eps", "estimated eps", "forward earnings per share", "eps forecast"))
 _define("book_value_per_share", "Book Value Per Share", "per_share", ("book value per share", "bvps"))
 _define("dividend_per_share", "Dividend Per Share", "per_share", ("dividend per share", "dps"))
 _define("dividend", "Dividend", "per_share", ("dividend", "dividends", "cash dividend", "dividend paid"))
@@ -129,6 +133,9 @@ _define("nci_equity", "Non-controlling Interests (equity)", "balance",
 
 # Debt family.
 _define("gross_debt", "Gross Debt", "balance", ("gross debt", "total borrowings"))
+_define("total_debt", "Total Debt", "balance", ("total debt",))
+_define("invested_capital", "Invested Capital", "balance",
+        ("invested capital", "total invested capital", "capital employed"))
 _define("financial_debt", "Financial Debt", "balance", ("financial debt",))
 _define("short_term_debt", "Short-term Debt", "balance", ("short-term debt", "current borrowings"))
 _define("long_term_debt", "Long-term Debt", "balance", ("long-term debt", "non-current borrowings"))
@@ -157,6 +164,10 @@ _define("shares_outstanding", "Shares Outstanding", "market",
 _define("volume", "Volume", "market", ("volume",))
 _define("change_pct", "Price Change (%)", "market", ("change", "change pct", "changepct", "percent change"))
 _define("pe_ratio", "Price / Earnings", "ratio", ("pe", "p/e", "price to earnings", "pe ratio", "peratio"))
+_define("forward_pe", "Forward Price / Earnings", "ratio",
+        ("forward pe", "forward p/e", "forward price to earnings", "forwardperatio"))
+_define("peg_ratio", "PEG Ratio", "ratio",
+        ("peg", "peg ratio", "price earnings growth", "price/earnings to growth"))
 _define("pb_ratio", "Price / Book", "ratio", ("pb", "p/b", "price to book", "pb ratio", "pbratio"))
 _define("ps_ratio", "Price / Sales", "ratio", ("ps", "p/s", "price to sales", "ps ratio", "psratio"))
 _define("ev_ebitda", "EV / EBITDA", "ratio", ("ev/ebitda", "enterprise value to ebitda", "evebitda"))
