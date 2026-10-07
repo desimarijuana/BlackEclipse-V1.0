@@ -88,6 +88,15 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "browser_get_forms": _schema({"session_id": _SESSION}),
     "browser_get_accessibility_tree": _schema({"session_id": _SESSION}),
     "browser_get_dom": _schema({"session_id": _SESSION, "selector": {"type": "string", "description": "Optional CSS selector to scope the HTML."}}),
+    "browser_find": _schema({
+        "target": _TARGET,
+        "session_id": _SESSION,
+        "max_results": {"type": "integer", "description": "Maximum matches to report (default 20)."},
+    }, ["target"]),
+    "browser_highlight": _schema({
+        "target": _TARGET,
+        "session_id": _SESSION,
+    }, ["target"]),
 
     # ── Interaction ────────────────────────────────────────────────────────
     "browser_click": _schema({
@@ -249,6 +258,10 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "browser_get_forms": {"risk": "low", "timeout": 20_000, "desc": "Describe the page's forms and their fields (names, types, labels)."},
     "browser_get_accessibility_tree": {"risk": "low", "timeout": 20_000, "desc": "Return the raw accessibility tree of the page."},
     "browser_get_dom": {"risk": "low", "timeout": 20_000, "desc": "Return the page's HTML (optionally scoped by a selector). Prefer browser_snapshot unless raw HTML is genuinely needed."},
+    "browser_find": {"risk": "low", "timeout": 20_000, "desc":
+        "Find elements matching a locator and report their snapshot references, roles, names and text — without interacting. Use this to disambiguate before acting."},
+    "browser_highlight": {"risk": "low", "timeout": 20_000, "desc":
+        "Briefly outline an element on the page (a transient visual aid) without clicking it. Useful to confirm a target visually or for a screenshot."},
 
     "browser_click": {"risk": "medium", "timeout": 30_000, "desc":
         "Click an element by snapshot reference (@e4) or another locator. After the click the page is observed again and the result describes what changed. "

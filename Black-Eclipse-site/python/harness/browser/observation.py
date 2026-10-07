@@ -204,10 +204,31 @@ class SnapshotEngine:
         return self._latest.element(ref)
 
 
+def persist_artifact(
+    *, session_id: str, kind: str, text: str, root: Path,
+) -> Optional[str]:
+    """Persist a large model-facing artifact to disk and return its path.
+
+    Used for console/network/error dumps: when the rendered text exceeds the
+    context budget the FULL text is written under `artifactsRoot/<kind>/<session>/`
+    (the same gitignored area snapshots use) and the model receives a bounded head
+    plus the path. Returns None if the write fails (the caller then bounds only).
+    """
+    directory = Path(root) / kind / session_id
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{kind}-{int(time.time())}.txt"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+    except OSError:
+        return None
+
+
 __all__ = [
     "INTERACTIVE_ROLES",
     "Snapshot",
     "SnapshotElement",
     "SnapshotEngine",
     "parse_snapshot",
+    "persist_artifact",
 ]

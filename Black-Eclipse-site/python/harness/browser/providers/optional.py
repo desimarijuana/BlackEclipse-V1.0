@@ -69,6 +69,15 @@ class BrowserbaseProvider(_UnavailableProvider):
     id = "browserbase"
     label = "Browserbase (cloud)"
 
+    # The Browserbase REST API. A session is created server-side, then attached
+    # over CDP through the SAME Playwright driver the local provider uses.
+    BASE_URL = "https://api.browserbase.com/v1"
+
+    def __init__(self, local: Any = None) -> None:
+        from .local_chromium import LocalChromiumProvider  # noqa: PLC0415
+
+        self._local = local or LocalChromiumProvider()
+
     def capabilities(self) -> Any:
         return PROVIDER_CAPABILITIES["browserbase"]
 
@@ -86,26 +95,55 @@ class BrowserbaseProvider(_UnavailableProvider):
                     "(HARNESS_BROWSERBASE_API_KEY_REF). Eclipse never hardcodes a key."
                 ),
             }
-        try:
-            import playwright  # noqa: F401, PLC0415
-        except Exception:  # noqa: BLE001
-            return {"available": False, "reason": "Playwright is required to attach to a Browserbase session."}
-        return {"available": True, "reason": None}
+        return {"available": True, "reason": None, "requiresCredential": True}
+
+    async def _create_session(self, api_key: str, project_id: str) -> str:
+        """Create a Browserbase session and return its CDP connect URL.
+
+        Uses `httpx` (already a harness dependency). Any failure is reported
+        honestly — a cloud session is never fabricated.
+        """
+        import httpx  # noqa: PLC0415
+
+        body = {"projectId": project_id} if project_id else {}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.BASE_URL}/sessions",
+                headers={"X-BB-API-Key": api_key, "Content-Type": "application/json"},
+                json=body,
+            )
+        if response.status_code >= 400:
+            raise BrowserUnavailable(
+                f"Browserbase refused the session request (HTTP {response.status_code}).",
+                provider=self.id, code="BROWSER_PROVIDER_ERROR",
+            )
+        payload = response.json()
+        connect_url = str(payload.get("connectUrl") or "")
+        if not connect_url:
+            raise BrowserUnavailable(
+                "Browserbase returned no connect URL for the session.", provider=self.id,
+            )
+        return connect_url
 
     async def launch(self, options: LaunchOptions) -> ProviderSession:
         availability = self.availability()
         if not availability.get("available"):
             raise BrowserUnavailable(availability.get("reason") or "Browserbase isn't available.", provider=self.id)
-        # A real Browserbase session is created via its REST API, then attached
-        # over CDP. That requires the credential (resolved through the vault) and
-        # network access, so it is performed by the manager with the resolved
-        # secret; this provider refuses to fabricate a session when the credential
-        # cannot be resolved.
-        raise BrowserUnavailable(
-            "Browserbase needs its project credential resolved through the vault, "
-            "which isn't available for this call.",
-            provider=self.id, code="BROWSER_CREDENTIAL_UNAVAILABLE",
-        )
+        api_key = str((options.extra or {}).get("apiKey") or "")
+        if not api_key:
+            raise BrowserUnavailable(
+                "Browserbase needs its project credential resolved through the vault, "
+                "which isn't available for this call.",
+                provider=self.id, code="BROWSER_CREDENTIAL_UNAVAILABLE",
+            )
+        project_id = str((options.extra or {}).get("projectId") or "")
+        connect_url = await self._create_session(api_key, project_id)
+        options.cdp_endpoint = connect_url
+        session = await self._local.connect(options)
+        session.provider_id = self.id
+        session.capabilities = self.capabilities()
+        session.metadata["browserbaseConnectUrl"] = connect_url
+        return session
 
 
 class LightpandaProvider(_UnavailableProvider):

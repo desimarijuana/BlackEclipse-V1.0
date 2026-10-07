@@ -60,7 +60,7 @@ class BrowserManager:
             "local_chromium": self._local,
             "cdp": CDPProvider(self._local),
             "browser_use": BrowserUseProvider(),
-            "browserbase": BrowserbaseProvider(),
+            "browserbase": BrowserbaseProvider(self._local),
             "lightpanda": LightpandaProvider(),
             "agent_browser": AgentBrowserProvider(),
             "firecrawl": FirecrawlProvider(),
@@ -187,6 +187,14 @@ class BrowserManager:
             downloads_dir=self.config.downloads_dir,
             cdp_endpoint=cdp_endpoint or self.config.cdp_endpoint,
         )
+        # A cloud provider needs its credential resolved INTERNALLY (never shown to
+        # the model). The vault resolves the configured reference; when it cannot
+        # be resolved the provider reports an honest CREDENTIAL_UNAVAILABLE.
+        if decision.provider == "browserbase":
+            options.extra = {
+                "apiKey": await self._resolve_cloud_credential(self.config.browserbase_api_key_ref),
+                "projectId": self.config.browserbase_project_id,
+            }
 
         session_id = new_session_id()
         trace = BrowserTrace(session_id=session_id, run_id=run_id or "", task_id=task_id or "", store=self.store)
@@ -225,6 +233,23 @@ class BrowserManager:
         if url:
             await session.navigate(url)
         return session
+
+    async def _resolve_cloud_credential(self, reference: Optional[str]) -> Optional[str]:
+        """Resolve a cloud provider's credential reference through the vault.
+
+        Returns None when the reference is absent or cannot be resolved, so the
+        provider reports an honest CREDENTIAL_UNAVAILABLE. The value is never
+        logged or emitted.
+        """
+        if not reference:
+            return None
+        try:
+            from .vault import parse_reference  # noqa: PLC0415
+
+            ref = reference if parse_reference(reference) else f"vault://browserbase/{reference}"
+            return await self.vault.resolve(ref)
+        except Exception:  # noqa: BLE001 - an unreachable vault is not a value
+            return None
 
     def get_session(self, session_id: str) -> Optional[BrowserSession]:
         return self._sessions.get(session_id)

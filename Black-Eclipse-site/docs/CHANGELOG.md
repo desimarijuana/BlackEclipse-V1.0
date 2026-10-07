@@ -8,6 +8,53 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Computer Use Engine — a production-grade desktop-control runtime.** New
+  `python/harness/computer/` package (62 modules) implementing the full agentic
+  loop `OBSERVE → … → AUTHORIZE → ACT → VERIFY → RECOVER`: a platform-independent
+  `ComputerDriver` (Windows via `ctypes` Win32 — no third-party package; honest
+  `NullDriver` elsewhere), accessibility-first observation (UI Automation when
+  installed, a Win32 child-window baseline, OCR, provider-agnostic vision),
+  screen-of-marks snapshots with **stable element handles + stale-element
+  protection**, a grounding hierarchy (accessibility → semantic → structured →
+  OCR → vision → coordinates), mouse/keyboard/`set_value` actions with
+  **background-first** delivery and explicit foreground escalation with focus
+  restore, an action verifier (verified/failed/uncertain + screen diff), a bounded
+  recovery ladder, a window/application manager with an `ApplicationAdapter`
+  framework and initial adapters (Excel, VS Code, terminal, Chrome/Edge, PDF,
+  TradingView, MetaTrader 5, Interactive Brokers, Bloomberg-style), a permission/
+  risk policy engine, sensitive-region detection/redaction, a **Finance Action
+  Firewall** (read_only/assisted/autonomous/simulation; buy/sell gated,
+  transfer/withdraw always blocked), screen-derived finance with provenance,
+  human-takeover control leases, recording/replay, telemetry, a doctor/diagnostics
+  report, `agent-memory.db` persistence, and Eclipse-Memory knowledge (never JDdS,
+  never screenshots). Integrated on the ONE `ToolRegistry` (`computer_*`),
+  the ONE authorizer chain (`code/authorizers.py`), the ONE policy authority
+  (`code/policy.py` `COMPUTER_EFFECTFUL_TOOLS`), `agents.py` (`COMPUTER_TOOLS`),
+  `service.py`, `main.py` (`/computer/*`), and the CLI (`eclipse computer …`).
+  Finance actions route through the firewall BEFORE any UI action; coordinate
+  clicking is never the primary method. Tests: `python/tests/test_computer_{unit,
+  safety,tools,adversarial}.py` (77 cases). Docs: `docs/harness/computer-use.md`;
+  NAVIGATION row.
+
+- **Browser Automation Runtime — Phase B (limitations closed).** (1) **Real visual
+  interpretation** — `browser_vision` now interprets the screenshot when the run
+  has a multimodal model, via `vision_model.BrowserVisionInterpreter` reusing the
+  harness model runtime (`task="vision"`, which requires a known-good `vision`
+  capability); no configured model yields an honest `available:false` and the raw
+  screenshot + DOM map are unchanged. (2) **`browser_find` / `browser_highlight`**
+  (`inspection.py`) — describe every element a locator matches (with its snapshot
+  ref, role, name, text) WITHOUT interacting, and briefly outline a target for
+  visual confirmation. (3) **Log paging** — large console/network/error dumps are
+  bounded for the model and the full text is persisted under
+  `artifactsRoot/<kind>/<session>/` (`tool_support.bound_log_text` +
+  `observation.persist_artifact`). (4) **Browserbase is a real cloud backend** —
+  session creation through its REST API + CDP attach when enabled with a
+  vault-resolved credential, honest `CREDENTIAL_UNAVAILABLE` otherwise; the
+  credential never reaches the model. 83 `browser_*` tools. Tests:
+  `test_browser_unit.py` (+vision/log/browserbase cases) and
+  `test_browser_integration.py` (+`find`/`highlight`, vision-no-model). Docs:
+  `docs/harness/browser-runtime.md`.
+
 - **Browser Automation Runtime — a Hermes-grade, provider-agnostic browser
   subsystem.** New `python/harness/browser/` package: a `browser_*` toolset on the
   ONE registry (navigation, accessibility-first snapshots with Eclipse-stable refs

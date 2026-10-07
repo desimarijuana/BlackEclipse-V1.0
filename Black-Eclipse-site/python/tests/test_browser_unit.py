@@ -328,3 +328,121 @@ def test_browser_tools_disabled_register_nothing(monkeypatch):
     finally:
         monkeypatch.delenv("HARNESS_BROWSER_ENABLED", raising=False)
         config_mod.browser_config(refresh=True)
+
+
+# ── Vision interpreter (honest when unavailable) ─────────────────────────────
+
+
+async def test_vision_interpreter_unavailable_without_model():
+    from harness.browser.vision_model import BrowserVisionInterpreter
+
+    result = await BrowserVisionInterpreter(None).interpret("does-not-matter.png")
+    assert result.available is False
+    assert result.error
+    assert result.elements == []
+
+
+async def test_vision_interpreter_reads_screenshot_and_parses(monkeypatch, tmp_path):
+    from harness.browser import vision_model
+
+    # A real PNG so the encode step succeeds.
+    png = tmp_path / "shot.png"
+    png.write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+        b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    interp = vision_model.BrowserVisionInterpreter(settings=object())
+
+    class _Resp:
+        content = 'The page is a login form. {"elements":[{"label":"Sign in","role":"button","x":10,"y":20,"confidence":0.9}]}'
+
+    class _Model:
+        async def ainvoke(self, _messages):
+            return _Resp()
+
+    class _Runtime:
+        def resolve_for_run(self, settings, task=None):
+            assert task == "vision"
+
+            class _Res:
+                settings = type("S", (), {"provider": "openai", "model": "gpt-4o"})()
+                adapter = object()
+
+            return _Res()
+
+        def build(self, settings, builder=None, adapter=None):
+            return _Model()
+
+    from harness import model_runtime
+
+    monkeypatch.setattr(model_runtime, "get_runtime", lambda: _Runtime())
+    monkeypatch.setattr("harness.models.build_chat_model", lambda settings: _Model())
+
+    result = await interp.interpret(str(png), query="sign in")
+    assert result.available is True
+    assert result.model == "openai/gpt-4o"
+    assert result.elements and result.elements[0].label == "Sign in"
+    assert "login form" in result.text
+
+
+# ── Log paging ───────────────────────────────────────────────────────────────
+
+
+class _FakeSession:
+    id = "bsess_test"
+
+
+class _FakeConfig:
+    snapshot_max_chars = 200
+    artifacts_root = None
+
+
+def test_bound_log_text_pages_large_dumps(monkeypatch):
+    from harness.browser import tool_support
+
+    class _Mgr:
+        config = _FakeConfig()
+
+    monkeypatch.setattr(tool_support, "manager", lambda: _Mgr())
+    lines = [f"line {i} " + "x" * 40 for i in range(50)]
+    body, path, truncated = tool_support.bound_log_text(session=_FakeSession(), kind="console", lines=lines)
+    assert truncated is True
+    assert len(body) < len("\n".join(lines))
+    # No artifacts root configured -> no file, but still bounded.
+    assert path is None
+
+
+def test_bound_log_text_small_dump_untouched(monkeypatch):
+    from harness.browser import tool_support
+
+    class _Mgr:
+        config = _FakeConfig()
+
+    monkeypatch.setattr(tool_support, "manager", lambda: _Mgr())
+    body, path, truncated = tool_support.bound_log_text(session=_FakeSession(), kind="console", lines=["a", "b"])
+    assert body == "a\nb"
+    assert truncated is False and path is None
+
+
+# ── Browserbase: honest availability ─────────────────────────────────────────
+
+
+def test_browserbase_availability_honest(monkeypatch):
+    from harness.browser import config as config_mod
+    from harness.browser.providers.optional import BrowserbaseProvider
+
+    # Disabled by default.
+    status = BrowserbaseProvider().availability()
+    assert status["available"] is False and status["reason"]
+
+    # Enabled but no credential reference -> still unavailable.
+    monkeypatch.setenv("HARNESS_BROWSERBASE_ENABLED", "true")
+    config_mod.browser_config(refresh=True)
+    try:
+        status = BrowserbaseProvider().availability()
+        assert status["available"] is False
+        assert "credential" in status["reason"].lower()
+    finally:
+        monkeypatch.delenv("HARNESS_BROWSERBASE_ENABLED", raising=False)
+        config_mod.browser_config(refresh=True)

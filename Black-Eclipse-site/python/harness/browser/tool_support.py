@@ -188,7 +188,34 @@ def resolve_upload_paths(ctx: ToolContext, files: list[str]) -> Optional[list[st
     return resolved
 
 
+def bound_log_text(
+    *, session: Any, kind: str, lines: list[str], limit: Optional[int] = None,
+) -> tuple[str, Optional[str], bool]:
+    """Bound a log dump for the model; page the full text to disk when large.
+
+    Returns `(bounded_text, full_path, truncated)`. The full text is persisted
+    under `artifactsRoot/<kind>/<session>/` so a large console/network/error dump
+    never floods the context window and can still be paged through.
+    """
+    from .observation import persist_artifact  # noqa: PLC0415
+
+    config = getattr(manager(), "config", None)
+    cap = int(limit or getattr(config, "snapshot_max_chars", 24_000))
+    full = "\n".join(lines)
+    if len(full) <= cap:
+        return full, None, False
+    root = getattr(config, "artifacts_root", None)
+    path = persist_artifact(session_id=session.id, kind=kind, text=full, root=root) if root else None
+    header = (
+        f"[showing the first {cap} of {len(full)} characters"
+        + (f"; full log saved to {path}" if path else "")
+        + "]\n"
+    )
+    return full[:cap] + "\n" + header, path, True
+
+
 __all__ = [
+    "bound_log_text",
     "domain_policy_from",
     "emit",
     "guard_external_submission",

@@ -4035,3 +4035,13 @@ doctor probe (never auto-downloads the browser); tests
 `test_browser_{unit,integration}.py` + the local test app `browser_app.py`;
 architecture `docs/harness/browser-runtime.md`. Chromium is a separate one-time
 download; its absence is an honest `BROWSER_UNAVAILABLE`, never a fake browser.
+
+### Phase B — limitations closed (same decision)
+
+`browser_vision` gained a REAL interpretation layer (`vision_model.py`) that
+reuses the harness model runtime instead of returning only a screenshot; it is
+honest (`available:false`) with no multimodal model. `inspection.py` adds
+`browser_find`/`browser_highlight` for non-interacting disambiguation. Large
+console/network/error dumps are bounded and paged to `artifactsRoot`. `browserbase`
+became a genuine cloud backend (REST session + CDP attach with a vault-resolved
+credential). 83 `browser_*` tools.

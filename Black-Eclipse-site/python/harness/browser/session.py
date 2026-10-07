@@ -554,6 +554,18 @@ class BrowserSession:
         except Exception:  # noqa: BLE001
             return ""
 
+    async def find(self, raw_target: Any, *, max_results: int = 20) -> list[dict[str, Any]]:
+        """Find elements matching a locator and describe them (no interaction)."""
+        from . import inspection  # noqa: PLC0415
+
+        return await inspection.find(self, raw_target, max_results=max_results)
+
+    async def highlight(self, raw_target: Any) -> dict[str, Any]:
+        """Briefly outline an element (a transient visual aid), without clicking."""
+        from . import inspection  # noqa: PLC0415
+
+        return await inspection.highlight(self, raw_target)
+
     async def screenshot(self, *, full_page: bool = False) -> str:
         return await self.vision.screenshot(self.page(), full_page=full_page)
 

@@ -43,10 +43,12 @@ accessibility snapshots with stable references (`@e1`, `@e2`, …).
 | `router.py` | `BrowserProviderRouter`: capability/policy/availability-based provider selection with a plain rationale. |
 | `providers/` | `base.py` (`BrowserProvider`/`LaunchOptions`/`ProviderSession`), `local_chromium.py` (Playwright), `cdp.py` (CDP attach + controlled command surface), `optional.py` (Browser Use / Browserbase / Lightpanda / agent-browser / Firecrawl — honest availability, never faked). |
 | `capabilities.py` | The `BrowserCapabilities` record per provider (the router's data). |
-| `observation.py` | `SnapshotEngine`: accessibility-first snapshots, Eclipse ref renumbering, paging to disk. |
+| `observation.py` | `SnapshotEngine`: accessibility-first snapshots, Eclipse ref renumbering, paging to disk (`persist_artifact`). |
+| `inspection.py` | `find` (describe matching elements + their snapshot refs, no interaction) and `highlight` (transient outline). |
 | `resolver.py` | `Resolver`/`Target`: the locator engine (ref → role/name → label → text → placeholder → testid → CSS → XPath → coordinates) with stale-element re-resolution. |
 | `verification.py` | `Verifier`: before/after `PageState`, expected-effect checks, structured result. |
 | `vision.py` | `VisionEngine`: screenshot artifacts + a live visual map + the DOM/vision `fuse` decision. |
+| `vision_model.py` | `BrowserVisionInterpreter`: optional real visual Q&A over the screenshot through the harness model runtime (`task="vision"`); honest `available:false` when no multimodal model is configured. |
 | `execution.py` | `browser_exec`: the sandboxed program parser (JSON steps or a restricted `browser.<op>(...)` AST) + bounded runner. |
 | `policy.py` | The ONE security authority: permission vocabulary + levels, domain policy, private-target detection, destructive patterns, the prompt-injection boundary (`wrap_untrusted`). |
 | `vault.py` | `BrowserVault`: credential REFERENCES resolved internally; metadata persisted without values. |
@@ -73,7 +75,8 @@ Core groups:
 - **Observation:** `browser_snapshot` (primary), `browser_extract`,
   `browser_screenshot`, `browser_vision`, `browser_visual_find`,
   `browser_get_images`, `browser_get_text`, `browser_get_links`,
-  `browser_get_forms`, `browser_get_accessibility_tree`, `browser_get_dom`.
+  `browser_get_forms`, `browser_get_accessibility_tree`, `browser_get_dom`,
+  `browser_find`, `browser_highlight`.
 - **Interaction:** `browser_click`, `browser_type`, `browser_fill`,
   `browser_select`, `browser_check`, `browser_uncheck`, `browser_press`,
   `browser_hover`, `browser_scroll`, `browser_drag`.
@@ -120,7 +123,18 @@ does not report success merely because the call returned.
 
 Observation hierarchy: accessibility tree → DOM → structured page state → vision.
 `browser_vision` is the fallback for canvas/graphical pages; `vision.fuse` picks
-DOM vs vision from confidence and records why.
+DOM vs vision from confidence and records why. `browser_find` and
+`browser_highlight` support disambiguation: `find` describes every element a
+locator matches (with its snapshot ref, role, name and text) WITHOUT interacting,
+and `highlight` briefly outlines a target so it can be confirmed or screenshotted.
+
+`browser_vision` **interprets** the screenshot when the run has a multimodal
+model: `vision_model.BrowserVisionInterpreter` resolves the run's model settings
+through the harness model runtime (`task="vision"`, which requires a model whose
+`vision` capability is known-good) and asks a bounded visual question, returning
+prose plus any located elements. When no multimodal model is configured the
+interpretation is honestly `available: false` and the raw screenshot + DOM map are
+returned unchanged — no fabricated description.
 
 ## Providers and routing
 
@@ -246,6 +260,17 @@ timing, error) bounded to a cap, and is readable via `GET /browser/traces`.
 is present, naming `python -m playwright install chromium` — it never
 auto-downloads the browser. The Python Playwright is pinned to the 1.62 series so
 it shares the SAME chromium build the app's Node Playwright already caches.
+
+## Cloud providers
+
+`BrowserbaseProvider` is a REAL cloud backend: when enabled
+(`HARNESS_BROWSERBASE_ENABLED`) with a credential reference
+(`HARNESS_BROWSERBASE_API_KEY_REF`) and optional project id, it creates a session
+through the Browserbase REST API and attaches over CDP through the SAME Playwright
+driver the local provider uses. The credential is resolved internally through the
+vault and never shown to the model; when it cannot be resolved, the provider
+reports an honest `CREDENTIAL_UNAVAILABLE`. A private/local target still never
+routes to it.
 
 ## Not available in this environment
 

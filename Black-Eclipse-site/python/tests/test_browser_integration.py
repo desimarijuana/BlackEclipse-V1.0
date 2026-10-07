@@ -334,6 +334,38 @@ async def test_private_target_routes_local(env):
     await _tool(registry, ctx, "browser_close", session_id=launch.data["sessionId"])
 
 
+async def test_find_and_highlight(env):
+    manager, registry, ctx, app = env
+    launch = await _tool(registry, ctx, "browser_launch", url=app.url("/forms"))
+    session_id = launch.data["sessionId"]
+    await _tool(registry, ctx, "browser_snapshot", session_id=session_id)
+
+    found = await _tool(registry, ctx, "browser_find", target={"role": "button", "name": "Save"}, session_id=session_id)
+    assert found.ok and found.data["count"] >= 1
+    assert any(m.get("ref", "").startswith("@e") for m in found.data["matches"])
+    assert any("Save" in (m.get("text") or m.get("name") or "") for m in found.data["matches"])
+
+    hl = await _tool(registry, ctx, "browser_highlight", target={"role": "button", "name": "Save"}, session_id=session_id)
+    assert hl.ok and hl.data["highlighted"]
+
+    none = await _tool(registry, ctx, "browser_find", target={"css": "#not-there"}, session_id=session_id)
+    assert none.ok and none.data["count"] == 0
+    await _tool(registry, ctx, "browser_close", session_id=session_id)
+
+
+async def test_vision_reports_no_interpretation_without_model(env):
+    manager, registry, ctx, app = env
+    launch = await _tool(registry, ctx, "browser_launch", url=app.url("/"))
+    session_id = launch.data["sessionId"]
+    vision = await _tool(registry, ctx, "browser_vision", session_id=session_id)
+    assert vision.ok
+    # The test ToolContext has no model settings, so interpretation is honestly
+    # unavailable and the raw screenshot + map are still returned.
+    assert vision.data["interpretation"]["available"] is False
+    assert "screenshot" in vision.data
+    await _tool(registry, ctx, "browser_close", session_id=session_id)
+
+
 async def test_persistence_and_health(env, tmp_path):
     manager, registry, ctx, app = env
     from harness.persistence import AgentMemoryStore  # noqa: PLC0415

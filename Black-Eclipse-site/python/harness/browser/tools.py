@@ -30,6 +30,7 @@ from .policy import wrap_untrusted
 from .schemas import INPUT_SCHEMAS, TOOL_META
 from .tool_admin import ADMIN_HANDLERS
 from .tool_support import (
+    bound_log_text,
     emit,
     guard_external_submission,
     injection_note,
@@ -213,11 +214,30 @@ async def _vision(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
             shot = None
     visual = await session.visual_map(screenshot=shot)
     text = visual.note
+    interpretation = None
     if visual.elements:
         lines = [f"{e.ref} {e.role} \"{e.name}\" at ({e.box['x']},{e.box['y']})" for e in visual.elements[:40]]
         text += "\n" + wrap_untrusted("\n".join(lines), source=visual.url or "page")
-    await emit(ctx, "browser.vision", {"sessionId": session.id, "elements": len(visual.elements), "screenshot": shot})
-    return ok("vision", text, visual.to_dict())
+    # Optional real interpretation: only when the run has a multimodal model. It
+    # is honest — an unavailable model leaves the raw screenshot + map untouched.
+    if shot is not None:
+        from .vision_model import BrowserVisionInterpreter  # noqa: PLC0415
+
+        interpretation = await BrowserVisionInterpreter(getattr(ctx, "model_settings", None)).interpret(
+            shot, query=args.get("query"),
+        )
+        if interpretation.available and interpretation.text:
+            text += "\n" + wrap_untrusted(
+                f"[visual interpretation by {interpretation.model}]\n{interpretation.text}",
+                source="screenshot",
+            )
+    await emit(ctx, "browser.vision", {
+        "sessionId": session.id, "elements": len(visual.elements), "screenshot": shot,
+        "interpreted": bool(interpretation and interpretation.available),
+    })
+    data = visual.to_dict()
+    data["interpretation"] = interpretation.to_dict() if interpretation else {"available": False}
+    return ok("vision", text, data)
 
 
 async def _visual_find(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -275,6 +295,36 @@ async def _get_dom(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     html = await session.get_dom(selector=args.get("selector"))
     text = wrap_untrusted(html[:12000], source=session.current_url())
     return ok("get_dom", text, {"chars": len(html), "selector": args.get("selector")})
+
+
+async def _find(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    session, error = session_of(args)
+    if error:
+        return error
+    try:
+        matches = await session.find(args.get("target"), max_results=int(args.get("max_results") or 20))
+    except BrowserError as exc:
+        return refusal(exc, "browser_find")
+    if not matches:
+        return ok("find", "No elements matched that locator.", {"matches": [], "count": 0})
+    lines = []
+    for match in matches:
+        ref = match.get("ref") or ""
+        role = match.get("role") or ""
+        lines.append(f"{ref} {role} \"{match.get('text', '')}\"".strip())
+    text = f"{len(matches)} match(es):\n" + wrap_untrusted("\n".join(lines), source=session.current_url())
+    return ok("find", text, {"matches": matches, "count": len(matches)})
+
+
+async def _highlight(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    session, error = session_of(args)
+    if error:
+        return error
+    try:
+        result = await session.highlight(args.get("target"))
+    except BrowserError as exc:
+        return refusal(exc, "browser_highlight")
+    return ok("highlight", "Highlighted the element briefly.", result)
 
 
 # ── Interaction ──────────────────────────────────────────────────────────────
@@ -588,8 +638,10 @@ async def _console(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     if error:
         return error
     entries = session.console_log(level=args.get("level"), limit=int(args.get("limit") or 200))
-    text = wrap_untrusted("\n".join(f"[{e['type']}] {e['text']}" for e in entries), source="page console") or "No console messages."
-    return ok("console", text, {"entries": entries, "count": len(entries)})
+    lines = [f"[{e['type']}] {e['text']}" for e in entries]
+    body, full_path, truncated = bound_log_text(session=session, kind="console", lines=lines)
+    text = wrap_untrusted(body, source="page console") if body else "No console messages."
+    return ok("console", text, {"entries": entries, "count": len(entries), "truncated": truncated, "fullPath": full_path})
 
 
 async def _network(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -597,8 +649,10 @@ async def _network(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     if error:
         return error
     entries = session.network_log(kind=args.get("kind"), limit=int(args.get("limit") or 200))
-    text = wrap_untrusted("\n".join(f"{e.get('method', '')} {e.get('status', e.get('kind', ''))} {e.get('url', '')}" for e in entries), source="page network") or "No network activity."
-    return ok("network", text, {"entries": entries, "count": len(entries)})
+    lines = [f"{e.get('method', '')} {e.get('status', e.get('kind', ''))} {e.get('url', '')}" for e in entries]
+    body, full_path, truncated = bound_log_text(session=session, kind="network", lines=lines)
+    text = wrap_untrusted(body, source="page network") if body else "No network activity."
+    return ok("network", text, {"entries": entries, "count": len(entries), "truncated": truncated, "fullPath": full_path})
 
 
 async def _errors(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -606,8 +660,10 @@ async def _errors(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     if error:
         return error
     entries = session.error_log(limit=int(args.get("limit") or 100))
-    text = wrap_untrusted("\n".join(f"{e['message']}" for e in entries), source="page errors") or "No page errors."
-    return ok("errors", text, {"errors": entries, "count": len(entries)})
+    lines = [f"{e['message']}" for e in entries]
+    body, full_path, truncated = bound_log_text(session=session, kind="errors", lines=lines)
+    text = wrap_untrusted(body, source="page errors") if body else "No page errors."
+    return ok("errors", text, {"errors": entries, "count": len(entries), "truncated": truncated, "fullPath": full_path})
 
 
 async def _evaluate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -801,6 +857,8 @@ _HANDLERS: dict[str, Any] = {
     "browser_get_forms": _make_simple_get("get_forms", "browser_get_forms"),
     "browser_get_accessibility_tree": _make_simple_get("get_accessibility_tree", "browser_get_accessibility_tree"),
     "browser_get_dom": _get_dom,
+    "browser_find": _find,
+    "browser_highlight": _highlight,
     "browser_click": _click,
     "browser_type": _type,
     "browser_fill": _type,
