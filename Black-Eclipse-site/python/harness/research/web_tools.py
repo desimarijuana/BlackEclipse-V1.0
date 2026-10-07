@@ -247,7 +247,11 @@ async def web_extract(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
     url = str(args.get("url") or "").strip()
     if not url:
         return "A URL is required.", {"status": "ERROR", "error": "url is required"}
-    result = await fetch(url, bridge=getattr(ctx, "data_bridge", None))
+    # An extraction request MAY route through the Firecrawl extraction backend
+    # (when configured); interaction requests never reach Firecrawl (the router
+    # refuses). Default is the SSRF-hardened bridge.
+    prefer = "firecrawl" if str(args.get("backend") or "").lower() == "firecrawl" else "bridge"
+    result = await fetch(url, bridge=getattr(ctx, "data_bridge", None), prefer=prefer)
     escalate, reason = needs_escalation(text=result.text, fetch_status=result.status, fetch_error=result.error)
     escalation_note = None
     if escalate and bool(args.get("allow_browser", True)):
@@ -740,6 +744,7 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
     "web_extract": _obj({
         "url": _STR, "entity": _STR, "published_at": _STR,
         "research_id": _STR, "allow_browser": _BOOL,
+        "backend": {**_STR, "enum": ["bridge", "firecrawl"], "description": "Extraction backend; 'firecrawl' is used only for extraction, never for interaction."},
     }, ["url"]),
     "page_extract": _obj({"url": _STR}, ["url"]),
     "pdf_extract": _obj({"url": _STR}, ["url"]),

@@ -77,6 +77,9 @@ PROVIDER_CAPABILITIES: dict[str, BrowserCapabilities] = {
         tracing=False, headless_only=True,
     ),
     "agent_browser": BrowserCapabilities(),
+    # Camoufox is a stealth Firefox-based browser (Playwright firefox protocol, not
+    # CDP). It is a full interactive browser with the common capability set.
+    "camofox": BrowserCapabilities(cdp=False, remote=False),
 }
 
 

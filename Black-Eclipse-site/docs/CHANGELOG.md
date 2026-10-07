@@ -8,6 +8,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Browser Automation Runtime — Phase 9 (provider layer completion).**
+  (1) **Camofox** (`camofox`) — a stealth Firefox backend (Playwright `firefox`,
+  not CDP): resolves a Camoufox binary (`camoufox` package resolver or
+  `HARNESS_CAMOFOX_ENDPOINT`) and launches via the local provider with
+  `executable_path`; an endpoint attaches over CDP. Honest `available:false` when
+  no binary/endpoint is resolvable. (2) **Browser Use** — a real adapter: when the
+  `browser-use` package is installed it starts Browser Use's browser and returns a
+  `ProviderSession` Eclipse drives (Eclipse keeps reasoning/sessions/policy/
+  observation/tracing); an incompatible build fails honestly. (3) **Firecrawl as
+  an extraction backend** — `FirecrawlProvider.extract` calls `/v1/scrape` and is
+  wired into the research engine's extraction path (`web_extract`
+  `backend:"firecrawl"`, falling back to the SSRF bridge). It declares
+  `interactive:false` and `launch` refuses, so an interaction can never route to
+  it. (4) **Router maturity** — `ProviderHealth` demotes a provider after
+  consecutive failures (re-promoting on success) with the demotion in the
+  decision; `HARNESS_BROWSER_PREFER_LOW_COST` orders fitting candidates
+  cheapest-first (relative hint, never a money figure); an explicit request
+  overrides demotion. New config: `HARNESS_CAMOFOX_*`, `HARNESS_FIRECRAWL_ENDPOINT`,
+  `HARNESS_BROWSER_PREFER_LOW_COST`, `HARNESS_BROWSER_ALLOW_PRIVATE_REMOTE`.
+  Tests: `python/tests/test_browser_providers.py`. Docs:
+  `docs/harness/browser-runtime.md`, ADR-H138.
 - **Computer Use Engine — production readiness: high-risk target gate, prompt
   guidance, benchmark and live demo + finance harnesses.** (1) **High-risk target
   gate** — `ComputerCore._resolve_target(high_risk=True)` refuses a

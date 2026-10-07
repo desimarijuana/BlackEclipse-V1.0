@@ -40,6 +40,9 @@ class LaunchOptions:
     args: list[str] = field(default_factory=list)
     record_video: bool = False
     remote: bool = False
+    # A specific browser binary (e.g. a Camoufox-built Firefox) launched by the
+    # local Chromium/Firefox provider instead of the Playwright default.
+    executable_path: Optional[str] = None
     # Opaque per-provider configuration (e.g. Browserbase project/credential ref).
     extra: dict[str, Any] = field(default_factory=dict)
 

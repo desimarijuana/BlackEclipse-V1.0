@@ -4158,4 +4158,88 @@ cost/observability config (`HARNESS_BROWSER_COST_*`, `HARNESS_BROWSER_TELEMETRY_
 tests `test_browser_observability.py` + `test_browser_observability_api.py`.
 `main.py` does not grow (routes live in `routers/browser.py`).
 
-**Surfacing, autonomy and provider ergonomics (same decision).** Web-research provenance reaches the SAME chat Sources panel as the retrieval layer (`source_collector.add_web_source`/`add_web_conflict` via the run's `source_sink`). Research is schedulable through three inert job templates (`deep-research-brief`/`competitor-watch`/`research-topic-digest`) on the existing scheduler. `SEARCH_PROVIDER_PRESETS` makes the second search provider a name+key choice, not hand-written JSON. Tests: `test_web_research_sources_jobs.py`.
+## ADR-H137 — Frame targets, a resolver-owned coordinate fallback and a real device catalog (Phase H)
+
+**Decision.** The hardening phase closes four failure-path gaps as first-class
+runtime behaviour rather than test-only workarounds:
+
+1. **Frame scoping is part of a Target.** A `Target` may carry `frame` (an iframe
+   selector, nested with `>>`). The resolver's `_locator_for` resolves every
+   strategy inside `page.frame_locator(...)` when the target names a frame, so
+   cross-frame ACTION routing and frame-scoped snapshots
+   (`SnapshotEngine.build(frame=...)`) work on cross-origin/nested frames. This is
+   data on the existing Target, not a new code path.
+2. **Coordinate fallback lives in the resolver/session, not the model.** A
+   coordinate-only target clicks at the pixel; a locator that cannot click an
+   occluded/stale element retries a pixel click and reports
+   `strategy="coordinates"` with `reResolved=True`. A dead provider session
+   surfaces a structured failure, never a hang.
+3. **Device emulation uses a real catalog.** `devices.py` resolves a descriptor
+   from whichever catalog the runtime exposes (the Playwright instance's
+   `devices`, a module export, or the driver's `local_utils`) and reports the
+   applied viewport/UA/locale/timezone; an unknown device is an honest error.
+   `context_ops.py` (extracted from `session.py` to hold the size ceiling) applies
+   viewport/device changes and records overrides (`viewport_override`, …) so an
+   emulation is observable.
+4. **The injection boundary is asserted.** Adversarial test pages prove page
+   content never changes a session's policy, permission levels, or the tool
+   registry — the hard guarantee is the `wrap_untrusted` boundary, and the test
+   pins it.
+
+**Why.** The acceptance suite covered the happy path; the remaining risk lived in
+frames, interception, device/permissions, recovery and injection. Encoding the
+missing behaviours in the runtime (frames, coordinate fallback, device catalog)
+means they are structural and reusable, not test scaffolding; and documenting the
+failure paths makes them navigable.
+
+**Consequences.** `Target.frame`; `Resolver._scope` (nested `>>` chains);
+`Snapshot.frame`; `SnapshotEngine.build(frame=)`; `browser_snapshot.frame`;
+coordinate fallback in `BrowserSession.click`; new modules `browser/devices.py`
+and `browser/context_ops.py`; `browser_set_*`/`emulate_device` record overrides;
+the local test app gains nested/cross-origin frames and adversarial pages; tests
+`test_browser_hardening.py` (real Chromium) + `test_browser_hardening_unit.py`
+(offline). `session.py` net-shrinks (device ops extracted) to stay under the size
+ceiling.
+
+## ADR-H138 — The provider layer is finished honestly: extraction is not interaction, and a failing backend falls back
+
+**Context.** ADR-H134 named the optional providers; several were honest stubs with
+declared capabilities. Phase 9 completes the provider story: a new backend
+(Camofox), a real Browser Use adapter, Firecrawl as a true extraction backend, and
+health-aware routing.
+
+**Decision.** Four commitments, each preserving the "never fake a provider" rule:
+
+1. **Extraction is not interaction.** Firecrawl declares `interactive:false` and
+   its `launch` REFUSES, so a browser *interaction* can never select it; it is
+   wired into the research engine's extraction path only (`web_extract`
+   `backend:"firecrawl"` → Firecrawl `/v1/scrape`, falling back to the SSRF
+   bridge). `web_search`/interaction never touch it.
+2. **Camofox is a launch provider, not CDP.** Camoufox is Firefox-based
+   (Playwright `firefox`), so the provider resolves a binary (the `camoufox`
+   package resolver or `HARNESS_CAMOFOX_ENDPOINT`) and launches through the local
+   provider with `executable_path`; an endpoint attaches over CDP. Its declared
+   `cdp:false` tells the truth about the protocol.
+3. **Browser Use is a real adapter when installed.** The adapter starts Browser
+   Use's browser and hands Eclipse a `ProviderSession` to drive; Eclipse retains
+   reasoning/sessions/policy/observation/tracing. An incompatible build emits
+   `BROWSER_PROVIDER_UNAVAILABLE` — honest, never fake.
+4. **Routing is health- and cost-aware.** `ProviderHealth` demotes a provider
+   after consecutive failures and re-promotes on success, recording the demotion
+   in the decision; `prefer_low_cost` orders fitting candidates cheapest-first
+   (a RELATIVE hint, never a money figure); an explicit request overrides
+   demotion. The fallback rationale is in the trace.
+
+**Why.** The master spec forbids faking a provider; the honest way to "finish"
+the layer is to make each backend either genuinely run on this machine or report a
+precise reason, and to make a failing backend fall through deterministically
+instead of poisoning a task. Keeping extraction and interaction distinct prevents
+Firecrawl (or any fetch backend) from ever being mistaken for an interactive
+browser.
+
+**Consequences.** `PROVIDER_CAPABILITIES["camofox"]`; `CamofoxProvider`,
+`BrowserUseProvider` (real adapter), `FirecrawlProvider.extract`; `PROVIDER_COST`
++ `ProviderHealth` + demotion/cost in `router.decide`; `LaunchOptions.executable_path`;
+config `HARNESS_CAMOFOX_*`, `HARNESS_FIRECRAWL_ENDPOINT`,
+`HARNESS_BROWSER_PREFER_LOW_COST`, `HARNESS_BROWSER_ALLOW_PRIVATE_REMOTE`;
+`web_extract.backend`; tests `test_browser_providers.py`.

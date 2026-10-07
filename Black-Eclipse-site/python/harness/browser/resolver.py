@@ -52,6 +52,10 @@ class Target:
     alt: Optional[str] = None
     title: Optional[str] = None
     coordinates: Optional[tuple[float, float]] = None
+    # An iframe scope. When set, every locator is resolved INSIDE that frame
+    # (`page.frame_locator(frame)`), so a cross-origin/nested frame can be driven
+    # the same way as the top document.
+    frame: Optional[str] = None
     exact: bool = False
 
     @classmethod
@@ -87,6 +91,7 @@ class Target:
                 alt=raw.get("alt"),
                 title=raw.get("title"),
                 coordinates=coordinates,
+                frame=raw.get("frame") or raw.get("frameSelector") or raw.get("frameLocator"),
                 exact=bool(raw.get("exact")),
             )
         return cls()
@@ -99,6 +104,8 @@ class Target:
                 parts.append(f"{key}={value!r}")
         if self.coordinates:
             parts.append(f"coordinates={self.coordinates}")
+        if self.frame:
+            parts.append(f"frame={self.frame!r}")
         return ", ".join(parts) or "(empty target)"
 
 
@@ -131,33 +138,48 @@ class Resolver:
     def __init__(self, snapshot_engine: Any) -> None:
         self._snapshots = snapshot_engine
 
+    def _scope(self, page: Any, target: Target) -> Any:
+        """The locator scope: the page, or a frame inside it (H.1 cross-frame).
+
+        A `frame` selector may chain nested frames with `>>`
+        (`"#outer >> #inner"`), so a nested frame is addressed deterministically.
+        """
+        if target.frame:
+            scope: Any = page
+            for part in (p.strip() for p in str(target.frame).split(">>")):
+                if part:
+                    scope = scope.frame_locator(part)
+            return scope
+        return page
+
     def _locator_for(self, page: Any, target: Target) -> Optional[tuple[Any, str, float]]:
         """Return `(locator, strategy, confidence)` for the FIRST strategy that
         names the element, or None when the target carries no usable selector."""
+        scope = self._scope(page, target)
         if target.ref:
             element = self._snapshots.resolve_ref(target.ref) if self._snapshots else None
             if element is not None and element.aria_ref:
-                return page.locator(f"aria-ref={element.aria_ref}"), "ref", STRATEGY_CONFIDENCE["ref"]
+                return scope.locator(f"aria-ref={element.aria_ref}"), "ref", STRATEGY_CONFIDENCE["ref"]
             # A ref from a previous generation whose element is unknown: fall
             # through to whatever else the target carries, if anything.
         if target.role and target.name:
-            return page.get_by_role(target.role, name=target.name, exact=target.exact), "role_name", STRATEGY_CONFIDENCE["role_name"]
+            return scope.get_by_role(target.role, name=target.name, exact=target.exact), "role_name", STRATEGY_CONFIDENCE["role_name"]
         if target.label:
-            return page.get_by_label(target.label, exact=target.exact), "label", STRATEGY_CONFIDENCE["label"]
+            return scope.get_by_label(target.label, exact=target.exact), "label", STRATEGY_CONFIDENCE["label"]
         if target.testid:
-            return page.get_by_test_id(target.testid), "testid", STRATEGY_CONFIDENCE["testid"]
+            return scope.get_by_test_id(target.testid), "testid", STRATEGY_CONFIDENCE["testid"]
         if target.placeholder:
-            return page.get_by_placeholder(target.placeholder, exact=target.exact), "placeholder", STRATEGY_CONFIDENCE["placeholder"]
+            return scope.get_by_placeholder(target.placeholder, exact=target.exact), "placeholder", STRATEGY_CONFIDENCE["placeholder"]
         if target.alt:
-            return page.get_by_alt_text(target.alt, exact=target.exact), "text", STRATEGY_CONFIDENCE["text"]
+            return scope.get_by_alt_text(target.alt, exact=target.exact), "text", STRATEGY_CONFIDENCE["text"]
         if target.title:
-            return page.get_by_title(target.title, exact=target.exact), "text", STRATEGY_CONFIDENCE["text"]
+            return scope.get_by_title(target.title, exact=target.exact), "text", STRATEGY_CONFIDENCE["text"]
         if target.text:
-            return page.get_by_text(target.text, exact=target.exact), "text", STRATEGY_CONFIDENCE["text"]
+            return scope.get_by_text(target.text, exact=target.exact), "text", STRATEGY_CONFIDENCE["text"]
         if target.css:
-            return page.locator(target.css), "css", STRATEGY_CONFIDENCE["css"]
+            return scope.locator(target.css), "css", STRATEGY_CONFIDENCE["css"]
         if target.xpath:
-            return page.locator(f"xpath={target.xpath}"), "xpath", STRATEGY_CONFIDENCE["xpath"]
+            return scope.locator(f"xpath={target.xpath}"), "xpath", STRATEGY_CONFIDENCE["xpath"]
         return None
 
     def resolve(self, page: Any, target: Target) -> Resolution:

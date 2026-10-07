@@ -114,7 +114,7 @@ class LocalChromiumProvider(BrowserProvider):
                 f"Eclipse doesn't know how to start a {options.browser_type} browser.",
                 provider=self.id,
             )
-        if not _browser_installed(playwright, options.browser_type or "chromium"):
+        if not options.executable_path and not _browser_installed(playwright, options.browser_type or "chromium"):
             raise BrowserUnavailable(
                 "The browser Eclipse controls isn't installed yet. "
                 "Run `python -m playwright install chromium` once to download it.",
@@ -124,6 +124,8 @@ class LocalChromiumProvider(BrowserProvider):
             "headless": options.headless,
             "args": options.args or self._launch_args(),
         }
+        if options.executable_path:
+            launch_kwargs["executable_path"] = options.executable_path
         if options.proxy:
             launch_kwargs["proxy"] = _proxy_settings(options.proxy)
         if options.downloads_dir is not None:

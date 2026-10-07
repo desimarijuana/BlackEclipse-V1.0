@@ -62,6 +62,7 @@ class Snapshot:
     truncated: bool = False
     chars: int = 0
     created_at: float = 0.0
+    frame: Optional[str] = None  # the frame scope this snapshot was read from
 
     @property
     def interactive(self) -> list[dict[str, Any]]:
@@ -80,6 +81,7 @@ class Snapshot:
             "fullPath": self.full_path,
             "elementCount": len(self.elements),
             "interactiveCount": len(self.interactive),
+            "frame": self.frame,
         }
 
 
@@ -147,8 +149,13 @@ class SnapshotEngine:
     def latest(self) -> Optional[Snapshot]:
         return self._latest
 
-    async def build(self, page: Any, *, persist_on_truncate: bool = True) -> Snapshot:
-        """Capture the current page as an accessibility snapshot."""
+    async def build(self, page: Any, *, persist_on_truncate: bool = True, frame: Optional[str] = None) -> Snapshot:
+        """Capture the current page as an accessibility snapshot.
+
+        When `frame` is given, the tree is read from that frame (nested frames may
+        chain with `>>`), so a cross-origin/nested frame can be observed the same
+        way as the top document (H.1 frame snapshots).
+        """
         self.generation += 1
         generation = self.generation
         url = ""
@@ -162,15 +169,22 @@ class SnapshotEngine:
         except Exception:  # noqa: BLE001
             title = ""
         raw = ""
+        scope: Any = page
+        if frame:
+            scope = page
+            for part in (p.strip() for p in str(frame).split(">>")):
+                if part:
+                    scope = scope.frame_locator(part)
         try:
             # `mode="ai"` yields the ref-annotated tree; it is the closest to the
             # Hermes/Playwright accessibility snapshot with stable refs.
-            raw = await page.locator("body").aria_snapshot(mode="ai")
+            raw = await scope.locator("body").aria_snapshot(mode="ai")
         except Exception:
             try:
-                raw = await page.locator("body").aria_snapshot()
+                raw = await scope.locator("body").aria_snapshot()
             except Exception:  # noqa: BLE001 - an unrendered page has no tree
                 raw = ""
+        frame_label = f" (frame {frame})" if frame else ""
         if not raw.strip():
             raw = f"- generic [ref=e1]: (the page has no accessibility content)\n  - text: {title}"
         renumbered, elements = parse_snapshot(raw, generation)
@@ -178,12 +192,12 @@ class SnapshotEngine:
         full_path: Optional[str] = None
         truncated = len(full_text) > self._max_chars
         if truncated and persist_on_truncate:
-            full_path = str(self._persist(generation, url, title, full_text))
+            full_path = str(self._persist(generation, url, title + frame_label, full_text))
         text = _bound(full_text, self._max_chars)
         snapshot = Snapshot(
             generation=generation, url=url, title=title, text=text, full_text=full_text,
             elements=elements, full_path=full_path, truncated=truncated,
-            chars=len(full_text), created_at=time.time(),
+            chars=len(full_text), created_at=time.time(), frame=frame,
         )
         self._latest = snapshot
         return snapshot

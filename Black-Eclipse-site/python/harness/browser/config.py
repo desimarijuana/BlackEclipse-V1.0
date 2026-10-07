@@ -77,9 +77,16 @@ class BrowserConfig:
     browserbase_project_id: Optional[str] = None
     browserbase_api_key_ref: Optional[str] = None  # a vault reference, never a key
     firecrawl_enabled: bool = False
+    firecrawl_endpoint: Optional[str] = None  # a self-hosted Firecrawl base URL
     lightpanda_enabled: bool = False
     lightpanda_endpoint: Optional[str] = None
     agent_browser_enabled: bool = False
+    camofox_enabled: bool = False
+    camofox_endpoint: Optional[str] = None  # Camoufox CDP/launch endpoint
+    # Router maturity (Phase 9.5): prefer the cheapest fitting backend, and allow
+    # a private target to reach a remote provider when explicitly authorized.
+    prefer_low_cost: bool = False
+    allow_private_remote: bool = False
     # Security policy.
     sandbox: bool = True
     allow_credentials: bool = False
@@ -122,6 +129,8 @@ class BrowserConfig:
             "firecrawl": {"enabled": self.firecrawl_enabled},
             "lightpanda": {"enabled": self.lightpanda_enabled},
             "agent_browser": {"enabled": self.agent_browser_enabled},
+            "camofox": {"enabled": self.camofox_enabled},
+            "router": {"prefer_low_cost": self.prefer_low_cost, "allow_private_remote": self.allow_private_remote},
             "security": {
                 "sandbox": self.sandbox,
                 "allow_credentials": self.allow_credentials,
@@ -212,9 +221,14 @@ def load_browser_config() -> BrowserConfig:
         browserbase_project_id=os.environ.get("HARNESS_BROWSERBASE_PROJECT_ID") or nested("browserbase", "projectId", None),
         browserbase_api_key_ref=os.environ.get("HARNESS_BROWSERBASE_API_KEY_REF") or nested("browserbase", "apiKeyRef", None),
         firecrawl_enabled=_truthy(os.environ.get("HARNESS_FIRECRAWL_ENABLED"), bool(nested("firecrawl", "enabled", False))),
+        firecrawl_endpoint=os.environ.get("HARNESS_FIRECRAWL_ENDPOINT") or nested("firecrawl", "endpoint", None),
         lightpanda_enabled=_truthy(os.environ.get("HARNESS_LIGHTPANDA_ENABLED"), bool(nested("lightpanda", "enabled", False))),
         lightpanda_endpoint=os.environ.get("HARNESS_LIGHTPANDA_ENDPOINT") or nested("lightpanda", "endpoint", None),
         agent_browser_enabled=_truthy(os.environ.get("HARNESS_AGENT_BROWSER_ENABLED"), bool(nested("agent_browser", "enabled", False))),
+        camofox_enabled=_truthy(os.environ.get("HARNESS_CAMOFOX_ENABLED"), bool(nested("camofox", "enabled", False))),
+        camofox_endpoint=os.environ.get("HARNESS_CAMOFOX_ENDPOINT") or nested("camofox", "endpoint", None),
+        prefer_low_cost=_truthy(os.environ.get("HARNESS_BROWSER_PREFER_LOW_COST"), bool(nested("router", "prefer_low_cost", False))),
+        allow_private_remote=_truthy(os.environ.get("HARNESS_BROWSER_ALLOW_PRIVATE_REMOTE"), bool(nested("router", "allow_private_remote", False))),
         sandbox=_truthy(os.environ.get("HARNESS_BROWSER_SANDBOX"), bool(security.get("sandbox", True))),
         allow_credentials=_truthy(os.environ.get("HARNESS_BROWSER_ALLOW_CREDENTIALS"), bool(security.get("allow_credentials", False))),
         allow_payments=_truthy(os.environ.get("HARNESS_BROWSER_ALLOW_PAYMENTS"), bool(security.get("allow_payments", False))),

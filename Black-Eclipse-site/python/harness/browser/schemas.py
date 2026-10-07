@@ -21,7 +21,8 @@ _TARGET = {
         "The element to act on. Prefer a snapshot reference like \"@e4\" from "
         "browser_snapshot. You may also pass an object: {ref}, {role, name}, "
         "{label}, {text}, {placeholder}, {testid}, {css}, {xpath}, {alt}, {title}, "
-        "or {coordinates:{x,y}}."
+        "or {coordinates:{x,y}}. Add {frame: \"#selector\"} (chain nested frames "
+        "with '>>', e.g. \"#outer >> #inner\") to act inside an iframe."
     ),
 }
 _WAIT_TIMEOUT = {"type": "number", "description": "Maximum seconds to wait (default 30)."}
@@ -40,7 +41,7 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     # ── Lifecycle / navigation ─────────────────────────────────────────────
     "browser_launch": _schema({
         "url": {"type": "string", "description": "Optional page to open once the browser starts."},
-        "provider": {"type": "string", "description": "Backend to use (default: auto-selected). 'local_chromium', 'cdp', 'lightpanda', etc."},
+        "provider": {"type": "string", "description": "Backend to use (default: auto-selected). 'local_chromium', 'cdp', 'camofox', 'lightpanda', 'browser_use', 'browserbase', etc."},
         "headless": {"type": "boolean", "description": "Run without a visible window (default from config)."},
         "profile": {"type": "string", "description": "Persistent profile name to reuse a signed-in session."},
         "persistent": {"type": "boolean", "description": "Keep cookies/storage on disk for this profile."},
@@ -65,6 +66,7 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "browser_snapshot": _schema({
         "session_id": _SESSION,
         "persist": {"type": "boolean", "description": "Save the full snapshot to a file when it is large (default true)."},
+        "frame": {"type": "string", "description": "Optional frame selector to snapshot instead of the top document; chain nested frames with '>>' (e.g. '#outer >> #inner')."},
     }),
     "browser_extract": _schema({"session_id": _SESSION}),
     "browser_screenshot": _schema({"session_id": _SESSION, "full_page": {"type": "boolean", "description": "Capture the whole scrollable page."}}),

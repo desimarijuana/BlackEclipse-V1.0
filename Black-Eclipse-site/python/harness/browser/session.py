@@ -33,7 +33,7 @@ from .errors import (
 )
 from .observation import SnapshotEngine
 from .policy import BrowserPolicy
-from .resolver import Resolver, Target
+from .resolver import Resolution, Resolver, Target
 from .trace import BrowserTrace
 from .verification import Verifier
 from .vision import VisionEngine
@@ -139,6 +139,14 @@ class BrowserSession:
         self.backend = getattr(provider_session, "backend", "playwright")
         self.browser_type = config.browser_type
         self.permissions_granted: list[str] = []
+        # Device/context overrides applied to THIS session (H.3). Recorded so an
+        # emulation is observable and a test can assert it took effect.
+        self.viewport_override: Optional[dict[str, int]] = None
+        self.user_agent_override: Optional[str] = None
+        self.locale_override: Optional[str] = None
+        self.timezone_override: Optional[str] = None
+        self.geolocation: Optional[dict[str, float]] = None
+        self.emulated_device: Optional[str] = None
 
         # The observation/resolution/verification stack for THIS session.
         self.snapshots = SnapshotEngine(
@@ -476,9 +484,9 @@ class BrowserSession:
 
     # ── observation ──────────────────────────────────────────────────────────
 
-    async def snapshot(self, *, persist: bool = True) -> Any:
+    async def snapshot(self, *, persist: bool = True, frame: Optional[str] = None) -> Any:
         self._transition(SessionState.OBSERVING)
-        result = await self.snapshots.build(self.page(), persist_on_truncate=persist)
+        result = await self.snapshots.build(self.page(), persist_on_truncate=persist, frame=frame)
         self._transition(SessionState.READY)
         self.touch()
         return result
@@ -603,14 +611,33 @@ class BrowserSession:
     ) -> dict[str, Any]:
         self._transition(SessionState.ACTING)
         before = await self.verifier.capture(self.page(), self.snapshots, dialog_pending=self.pending_dialog is not None)
+        target = Target.parse(raw_target)
+        coordinates = target.coordinates
+        # A coordinate-only target is the DOM-independent fallback: click at the
+        # pixel position directly (used when no locator resolves, e.g. a canvas).
+        coordinate_only = coordinates is not None and not any(
+            getattr(target, key) for key in ("ref", "role", "label", "text", "placeholder", "testid", "css", "xpath", "alt", "title")
+        )
         try:
-            resolution = await self.resolve(raw_target)
-            locator = resolution.locator.first
-            await self._scroll_into_view(locator)
-            # A plain click. A download triggered by the click is captured by the
-            # page's `download` listener (`browser_wait_for_download` finalizes it);
-            # wrapping every click in `expect_download` would add a fixed delay.
-            await locator.click(button=button, click_count=click_count, timeout=self._timeout(timeout))
+            if coordinate_only:
+                await self.page().mouse.click(coordinates[0], coordinates[1], button=button, click_count=click_count)
+                resolution = None
+            else:
+                resolution = await self.resolve(raw_target)
+                locator = resolution.locator.first
+                await self._scroll_into_view(locator)
+                try:
+                    await locator.click(button=button, click_count=click_count, timeout=self._timeout(timeout))
+                except Exception as exc:  # noqa: BLE001
+                    # Coordinate fallback: a stale/occluded element that a locator
+                    # cannot click may still be clickable at its box's centre.
+                    if coordinates is None:
+                        raise
+                    await self.page().mouse.click(coordinates[0], coordinates[1], button=button, click_count=click_count)
+                    resolution = Resolution(
+                        locator=locator, strategy="coordinates", confidence=0.55, target=target,
+                        re_resolved=True, meta={"fallbackFrom": str(exc)[:120]},
+                    )
         except BrowserElementNotFoundError:
             self._transition(SessionState.READY)
             raise
@@ -629,7 +656,8 @@ class BrowserSession:
         self.touch()
         return {
             "success": True, "action": "click", "url": self.current_url(),
-            "resolution": resolution.to_dict(), "verification": verification.to_dict(),
+            "resolution": resolution.to_dict() if resolution is not None else {"strategy": "coordinates", "confidence": 0.55, "target": target.describe(), "count": 1, "reResolved": False},
+            "verification": verification.to_dict(),
             "state_changed": verification.state_changed,
         }
 
@@ -1000,31 +1028,14 @@ class BrowserSession:
     # ── device emulation ─────────────────────────────────────────────────────
 
     async def set_viewport(self, width: int, height: int) -> dict[str, Any]:
-        try:
-            await self.page().set_viewport_size({"width": int(width), "height": int(height)})
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserSessionError("Eclipse couldn't resize the window.", session_id=self.id, action="set_viewport", metadata={"error": str(exc)[:200]}) from exc
-        return {"width": width, "height": height}
+        from . import context_ops  # noqa: PLC0415
+
+        return await context_ops.set_viewport(self, width, height)
 
     async def emulate_device(self, device: str) -> dict[str, Any]:
-        from playwright.async_api import devices  # noqa: PLC0415
+        from . import context_ops  # noqa: PLC0415
 
-        if device not in devices:
-            raise BrowserSessionError(f"Eclipse doesn't know the device {device!r}.", session_id=self.id, action="emulate")
-        descriptor = devices[device]
-        context = self._ps.context
-        try:
-            page = await context.new_page()
-            await page.close()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            await context.set_extra_http_headers(descriptor.get("user_agent") and {"User-Agent": descriptor["user_agent"]} or {})
-            if descriptor.get("viewport"):
-                await self.page().set_viewport_size(descriptor["viewport"])
-        except Exception:  # noqa: BLE001
-            pass
-        return {"device": device, "applied": True}
+        return await context_ops.emulate_device(self, device)
 
     # ── dialogs ──────────────────────────────────────────────────────────────
 

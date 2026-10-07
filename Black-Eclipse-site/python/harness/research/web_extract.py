@@ -47,17 +47,30 @@ class FetchResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
-async def fetch(url: str, *, bridge: Any, timeout_s: float = 20.0) -> FetchResult:
-    """Fetch a page through the existing SSRF-hardened bridge. Never fetches directly."""
+async def fetch(url: str, *, bridge: Any, timeout_s: float = 20.0, prefer: str = "bridge") -> FetchResult:
+    """Fetch a page through the existing SSRF-hardened bridge. Never fetches directly.
+
+    `prefer="firecrawl"` routes an EXTRACTION request through the browser
+    subsystem's Firecrawl extraction backend FIRST (when it is configured and
+    available), falling back to the bridge. Firecrawl is never used for an
+    interactive request — this path is extraction only.
+    """
     safe, reason = _safe(url)
     if not safe:
         return FetchResult(ok=False, url=url, error=f"url rejected: {reason}", status="ERROR")
+    firecrawl_result: Optional[FetchResult] = None
+    if prefer == "firecrawl":
+        firecrawl_result = await _fetch_firecrawl(url, timeout_s=timeout_s)
+        if firecrawl_result is not None and firecrawl_result.ok:
+            return firecrawl_result
     if bridge is None:
-        return FetchResult(ok=False, url=url, error="data bridge not configured", status="UNAVAILABLE")
+        # No bridge available: surface the Firecrawl failure (if any), else the
+        # honest "bridge not configured".
+        return firecrawl_result or FetchResult(ok=False, url=url, error="data bridge not configured", status="UNAVAILABLE")
     try:
         payload = await bridge.fetch("web_fetch", {"url": url})
     except Exception as exc:  # noqa: BLE001 - a fetch error is an unavailable answer
-        return FetchResult(ok=False, url=url, error=str(exc), status="ERROR")
+        return firecrawl_result or FetchResult(ok=False, url=url, error=str(exc), status="ERROR")
     if payload.get("status") != "OK":
         return FetchResult(
             ok=False,
@@ -77,6 +90,38 @@ async def fetch(url: str, *, bridge: Any, timeout_s: float = 20.0) -> FetchResul
         diagnostics=list(payload.get("diagnostics") or []),
         contentHash=content_hash(text),
         raw=payload,
+    )
+
+
+async def _fetch_firecrawl(url: str, *, timeout_s: float) -> Optional[FetchResult]:
+    """Try the Firecrawl extraction backend. None when it isn't usable here."""
+    try:
+        from ..browser.providers.optional import FirecrawlProvider  # noqa: PLC0415
+
+        provider = FirecrawlProvider()
+        if not provider.availability().get("available"):
+            return None
+        outcome = await provider.extract(url, timeout_s=timeout_s)
+    except Exception:  # noqa: BLE001 - a missing/failed backend falls back to the bridge
+        return None
+    if not outcome.get("ok"):
+        # The backend was reachable but could not extract: report it honestly so
+        # the caller can decide whether to try the bridge next.
+        return FetchResult(
+            ok=False, url=url, status=outcome.get("status", "UNAVAILABLE"),
+            error=outcome.get("error") or "firecrawl extraction produced no text",
+            extraction="firecrawl",
+        )
+    text = str(outcome.get("text") or "")
+    return FetchResult(
+        ok=bool(text.strip()),
+        url=outcome.get("url") or url,
+        text=text[:MAX_RAW_CHARS],
+        title=outcome.get("title"),
+        status="OK",
+        extraction="firecrawl",
+        contentHash=content_hash(text),
+        raw=outcome,
     )
 
 

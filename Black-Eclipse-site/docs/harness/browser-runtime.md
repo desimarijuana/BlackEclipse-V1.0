@@ -59,6 +59,8 @@ accessibility snapshots with stable references (`@e1`, `@e2`, …).
 | `trace.py` | `BrowserTrace`: bounded, content-free step record + summary, persisted and emitted. |
 | `telemetry.py` | `BrowserTelemetry`: the process-wide content-free aggregate (counters, latency, error categories, a real-measurement cost model, and a bounded structured log ring queryable by code). |
 | `replay.py` | The browser-free trace inspection path: reconstructs a stored `BrowserTrace` into a bounded timeline + failure analysis (`browser_replay`). |
+| `devices.py` | `device_descriptor`/`known_device_names`: resolve a Playwright device descriptor from whichever catalog this runtime exposes (instance `devices`, module export, or driver `local_utils`). |
+| `context_ops.py` | Viewport + device emulation applied to a session, each recording its override (`set_viewport`, `emulate_device`). |
 | `config.py` | The `browser:` configuration section (env + optional `.black-eclipse/browser.json`). |
 | `errors.py` | The structured error family (`BrowserLaunchError`, `BrowserTimeoutError`, `BrowserHumanInterventionRequired`, …). |
 | `authorizers.py` | The effect authorizer that admits an effectful browser tool into the run's authorizer chain; the handler's policy engine does the real check. |
@@ -185,9 +187,37 @@ emitted in `browser.session.created`.
 P0 providers (implemented): `LocalChromiumProvider` (Playwright, an
 Eclipse-managed isolated or persistent Chromium, never the user's Chrome),
 `CDPProvider` (attach + controlled CDP). P1/P2 providers (`browser_use`,
-`browserbase`, `lightpanda`, `agent_browser`, `firecrawl`) implement the SAME
-interface and report an honest `availability()` reason when their dependency or
-credential is absent — none is faked.
+`browserbase`, `camofox`, `lightpanda`, `agent_browser`, `firecrawl`) implement
+the SAME interface and report an honest `availability()` reason when their
+dependency or credential is absent — none is faked.
+
+**Provider layer (Phase 9).**
+
+- **Camofox (`camofox`)** — a stealth Firefox-based browser. It is a Playwright
+  *firefox* backend, not CDP: it resolves a Camoufox browser binary (the
+  `camoufox` package's resolver, or `HARNESS_CAMOFOX_ENDPOINT`) and launches it
+  through the local provider with `browser_type="firefox"`; an endpoint-only
+  config attaches over CDP. Disabled by default; honest `available:false` when no
+  binary/endpoint is resolvable.
+- **Browser Use (`browser_use`)** — a real adapter: when the `browser-use`
+  package is installed it starts Browser Use's browser and returns a
+  `ProviderSession` Eclipse drives; Eclipse retains reasoning, sessions, policy,
+  observation and tracing. An incompatible build fails HONESTLY
+  (`BROWSER_PROVIDER_UNAVAILABLE`), never a fake launch.
+- **Firecrawl (`firecrawl`)** — an EXTRACTION backend, never interactive. It
+  calls the Firecrawl `/v1/scrape` API (cloud key or self-hosted endpoint) and is
+  wired into the research engine's extraction path: `web_extract` with
+  `backend:"firecrawl"` tries it first, then falls back to the SSRF-hardened
+  bridge. An INTERACTION request can never route to it (`launch` refuses,
+  `interactive:false` capabilities).
+- **Lightpanda / agent-browser** — CDP/command adapters that report a precise
+  unavailable reason; a capability failure falls back to Chromium
+  deterministically (see Router maturity).
+- **Router maturity.** `ProviderHealth` demotes a provider after consecutive
+  failures (re-promoting on success) and records the demotion in the decision;
+  `HARNESS_BROWSER_PREFER_LOW_COST` orders fitting candidates cheapest-first (a
+  relative hint, never a money figure); an explicit request overrides demotion.
+  Every decision carries a plain rationale in `browser.session.created`.
 
 ## CDP
 
@@ -207,6 +237,40 @@ import, loop, comprehension, f-string, name reference or attribute chain outside
 the closed `OPS` vocabulary is REFUSED, never executed. The runner is bounded by
 `max_steps` (hard cap 200), a wall-clock timeout, and a cancellation check, and
 records a trace.
+
+## Frames, interception, device emulation and recovery (hardening)
+
+These are the failure-path behaviours the Phase-H suite pins against a real
+Chromium (`test_browser_hardening.py`), plus the pure logic tested offline
+(`test_browser_hardening_unit.py`).
+
+- **Frames.** A target may carry `frame` (an iframe selector); the resolver scopes
+  every locator into that frame, and nested frames chain with `>>`
+  (`"#outer >> #inner"`). `browser_snapshot` accepts `frame` too, so a
+  cross-origin/nested frame is observed the same way as the top document. This
+  makes cross-frame ACTION routing (click/type inside a frame) first-class.
+- **Network interception.** `browser_intercept` (elevated) blocks requests,
+  rewrites headers, throttles, or goes offline — verified against the local test
+  app (a blocked resource never loads; offline navigation fails honestly rather
+  than silently succeeding).
+- **Device emulation + permissions.** `browser_emulate_device` resolves a
+  descriptor through the runtime's own device catalog (`devices.py`) — the
+  Playwright instance's `devices` map, a module export, or the driver's
+  `local_utils` — and reports the applied viewport/UA/locale/timezone; an unknown
+  device is an honest error, never a fake apply. `browser_set_viewport|user_agent|
+  locale|timezone|geolocation` record their override on the session
+  (`viewport_override`, `user_agent_override`, …) so an emulation is observable.
+- **Recovery.** A crashed/closed provider session surfaces a structured failure
+  (never a hang); a destroyed session is cleanly recreated; an unavailable
+  explicit provider falls back to the next-best (the router's rationale names the
+  demotion); a failed download and a missing element are structured refusals. A
+  stale `@eN` re-resolves by role+name, and a coordinate-only target (or a locator
+  that cannot click an occluded element) falls back to a pixel click
+  (`strategy="coordinates"`).
+- **Prompt injection.** Adversarial pages (`/injection-text`, `/injection-tools`,
+  `/injection-attrs`) are wrapped as untrusted data and flagged; page content
+  NEVER changes the session's policy, adds a tool to the registry, or alters the
+  permission levels — asserted directly.
 
 ## Security model
 
@@ -269,7 +333,10 @@ overridable with `HARNESS_BROWSER_CONFIG`), then env vars. Key knobs:
 (`MAX_SESSIONS_CEILING` etc.) can be lowered but never removed. `/health` returns
 a content-free `browser` block; `/browser/capabilities` returns the full provider
 table. Observability knobs: `HARNESS_BROWSER_TELEMETRY_LOG_CAP` and the
-`HARNESS_BROWSER_COST_*` rates (all default 0 = no price invented).
+`HARNESS_BROWSER_COST_*` rates (all default 0 = no price invented). Router knobs:
+`HARNESS_BROWSER_PREFER_LOW_COST`, `HARNESS_BROWSER_ALLOW_PRIVATE_REMOTE`; the
+optional backends: `HARNESS_CAMOFOX_ENABLED`/`_ENDPOINT`, `HARNESS_FIRECRAWL_*`,
+`HARNESS_BROWSER_USE_ENABLED`.
 
 ## Observability and tracing
 
@@ -322,6 +389,16 @@ Aggregates surface in `/health.browser.telemetry` (a small content-free summary)
   trace replay (no browser).
 - `python/tests/test_browser_observability_api.py` — the `/browser/telemetry`,
   `/cost`, `/logs` and `/traces/{id}/replay` routes against a stub manager.
+- `python/tests/test_browser_hardening.py` — the Phase-H failure paths against a
+  real Chromium: frames (nested/cross-origin/cross-frame routing), network
+  interception, device emulation + permissions, recovery (crash/close, provider
+  fallback, download failure, stale-element and coordinate fallback), and
+  prompt-injection (policy/tools never change). Skips cleanly without a browser.
+- `python/tests/test_browser_hardening_unit.py` — the offline half: frame target
+  parsing/scoping, the device-descriptor resolver, and context-op overrides.
+- `python/tests/test_browser_providers.py` — the Phase-9 provider layer: router
+  health demotion/cost preference/fallback, Camofox/Browser Use/Firecrawl honest
+  availability and capability declarations, and Firecrawl extraction-only routing.
 - `python/tests/test_browser_integration.py` — the acceptance flow against a REAL
   Chromium driving `python/tests/browser_app.py` (a stdlib local test app:
   /login, /forms, /tables, /modal, /dialog, /iframe, /upload, /download, /dynamic,
@@ -351,6 +428,8 @@ routes to it.
 
 A provider whose dependency or credential is absent reports
 `available: false` with a reason and is never faked: `firecrawl` (needs the
-package or `FIRECRAWL_API_KEY`), `browserbase` (needs an enabled config + a
-vault credential reference), `lightpanda` (needs an endpoint), `agent_browser`
-(needs the executable), `browser_use` (needs the `browser-use` package).
+package or `FIRECRAWL_API_KEY`/`HARNESS_FIRECRAWL_ENDPOINT`), `browserbase`
+(needs an enabled config + a vault credential reference), `lightpanda` (needs an
+endpoint), `agent_browser` (needs the executable), `browser_use` (needs the
+`browser-use` package), `camofox` (needs a Camoufox binary or
+`HARNESS_CAMOFOX_ENDPOINT`).

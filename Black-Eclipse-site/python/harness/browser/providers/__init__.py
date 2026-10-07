@@ -10,6 +10,7 @@ from .optional import (
     AgentBrowserProvider,
     BrowserUseProvider,
     BrowserbaseProvider,
+    CamofoxProvider,
     FirecrawlProvider,
     LightpandaProvider,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "BrowserProvider",
     "BrowserUseProvider",
     "BrowserbaseProvider",
+    "CamofoxProvider",
     "CDPProvider",
     "FirecrawlProvider",
     "LaunchOptions",

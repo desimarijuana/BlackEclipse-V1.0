@@ -26,6 +26,7 @@ from .providers import (
     AgentBrowserProvider,
     BrowserUseProvider,
     BrowserbaseProvider,
+    CamofoxProvider,
     CDPProvider,
     FirecrawlProvider,
     LaunchOptions,
@@ -66,6 +67,7 @@ class BrowserManager:
             "lightpanda": LightpandaProvider(),
             "agent_browser": AgentBrowserProvider(),
             "firecrawl": FirecrawlProvider(),
+            "camofox": CamofoxProvider(self._local),
         }
         self.router = BrowserProviderRouter(self.config, self._providers)
         self.vault = BrowserVault(store=self.store, resolver=resolver)
@@ -212,16 +214,26 @@ class BrowserManager:
 
         session_id = new_session_id()
         trace = BrowserTrace(session_id=session_id, run_id=run_id or "", task_id=task_id or "", store=self.store)
+        # A provider that ATTACHES (cdp, an endpoint-only lightpanda/camofox) uses
+        # connect(); a provider that starts a browser uses launch().
+        attach = decision.provider == "cdp" or (
+            options.cdp_endpoint and decision.provider in ("cdp", "lightpanda", "camofox")
+        )
         try:
-            if decision.provider == "cdp" or (options.cdp_endpoint and decision.provider in ("cdp", "lightpanda")):
+            if decision.provider == "camofox" and not options.cdp_endpoint:
+                ps = await provider_impl.launch(options)
+            elif attach:
                 ps = await provider_impl.connect(options)
             else:
                 ps = await provider_impl.launch(options)
+            self.router.record_result(decision.provider, True)
         except BrowserError as exc:
+            self.router.record_result(decision.provider, False)
             self.telemetry.session_failed(decision.provider, code=exc.code, session_id=session_id)
             self._emit("browser.session.failed", {"provider": decision.provider, "code": exc.code})
             raise
         except Exception as exc:  # noqa: BLE001
+            self.router.record_result(decision.provider, False)
             self.telemetry.session_failed(decision.provider, code="BROWSER_LAUNCH_FAILED", session_id=session_id)
             self._emit("browser.session.failed", {"provider": decision.provider, "error": str(exc)[:200]})
             raise BrowserUnavailable(

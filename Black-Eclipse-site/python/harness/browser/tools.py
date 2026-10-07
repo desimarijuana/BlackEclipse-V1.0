@@ -156,7 +156,7 @@ async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     if error:
         return error
     try:
-        snapshot = await session.snapshot(persist=bool(args.get("persist", True)))
+        snapshot = await session.snapshot(persist=bool(args.get("persist", True)), frame=args.get("frame"))
     except BrowserError as exc:
         return refusal(exc, "browser_snapshot")
     note = injection_note(snapshot.full_text)
@@ -179,7 +179,7 @@ async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "sessionId": session.id, "url": snapshot.url, "title": snapshot.title,
         "interactive": snapshot.interactive, "elementCount": len(snapshot.elements),
         "truncated": snapshot.truncated, "fullPath": snapshot.full_path,
-        "injectionDetected": bool(note),
+        "injectionDetected": bool(note), "frame": snapshot.frame,
     }
     return ok("snapshot", header + "\n" + body, data)
 

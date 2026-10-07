@@ -250,16 +250,27 @@ def make_set_context(kind: str, tool: str):
             return error
         try:
             if kind == "user_agent":
-                await session.ps_context.set_extra_http_headers({"User-Agent": str(args["user_agent"])})
-            elif kind == "locale":
-                await session.ps_context.set_extra_http_headers({"Accept-Language": str(args["locale"])})
-            elif kind == "timezone":
-                session.timezone_override = str(args["timezone"])
-            elif kind == "geolocation":
+                value = str(args["user_agent"])
+                await session.ps_context.set_extra_http_headers({"User-Agent": value})
+                session.user_agent_override = value
+                return ok(tool, "Applied.", {"kind": kind, "userAgent": value})
+            if kind == "locale":
+                value = str(args["locale"])
+                await session.ps_context.set_extra_http_headers({"Accept-Language": value})
+                session.locale_override = value
+                return ok(tool, "Applied.", {"kind": kind, "locale": value})
+            if kind == "timezone":
+                value = str(args["timezone"])
+                session.timezone_override = value
+                return ok(tool, "Applied.", {"kind": kind, "timezone": value})
+            if kind == "geolocation":
+                latitude = float(args["latitude"])
+                longitude = float(args["longitude"])
                 await session.ps_context.grant_permissions(["geolocation"])
-                await session.ps_context.set_geolocation({
-                    "latitude": float(args["latitude"]), "longitude": float(args["longitude"]),
-                })
+                session.permissions_granted = sorted(set(session.permissions_granted) | {"geolocation"})
+                await session.ps_context.set_geolocation({"latitude": latitude, "longitude": longitude})
+                session.geolocation = {"latitude": latitude, "longitude": longitude}
+                return ok(tool, "Applied.", {"kind": kind, "geolocation": session.geolocation})
         except Exception as exc:  # noqa: BLE001
             return refusal(BrowserError("Eclipse couldn't apply that setting.", code="BROWSER_SESSION_ERROR", action=tool, metadata={"error": str(exc)[:200]}), tool)
         return ok(tool, "Applied.", {"kind": kind})
