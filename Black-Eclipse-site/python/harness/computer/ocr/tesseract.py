@@ -8,6 +8,7 @@ binary are installed. When either is missing the null engine reports
 from __future__ import annotations
 
 import shutil
+import sys
 from typing import Any, Optional
 
 from ..models import Bounds
@@ -103,11 +104,23 @@ class TesseractOCREngine(OCREngine):
 
 
 def build_ocr_engine(backend: str = "auto") -> OCREngine:
-    """The best OCR engine available, or the honest null engine."""
+    """The best OCR engine available, or the honest null engine.
+
+    `auto` prefers the Windows-native OCR (no external binary), then Tesseract.
+    The reason from the strongest-but-unavailable backend is surfaced so the
+    doctor can name exactly what to install.
+    """
     choice = (backend or "auto").strip().lower()
     if choice in ("none", "off", "disabled"):
         return NullOCREngine("OCR was disabled by configuration")
-    if choice in ("auto", "tesseract"):
+
+    if choice == "winocr":
+        from .windows import WindowsOCREngine  # noqa: PLC0415
+
+        engine = WindowsOCREngine()
+        return engine if engine.available else NullOCREngine(engine.reason)
+
+    if choice == "tesseract":
         engine = TesseractOCREngine()
         if engine.available:
             return engine
@@ -115,6 +128,26 @@ def build_ocr_engine(backend: str = "auto") -> OCREngine:
             "Tesseract isn't installed (pip install pytesseract + the tesseract binary)"
             if shutil.which("tesseract") is None else "pytesseract isn't installed"
         )
+
+    if choice == "auto":
+        if sys.platform == "win32":
+            from .windows import WindowsOCREngine  # noqa: PLC0415
+
+            native = WindowsOCREngine()
+            if native.available:
+                return native
+        engine = TesseractOCREngine()
+        if engine.available:
+            return engine
+        if sys.platform == "win32":
+            from .windows import WindowsOCREngine  # noqa: PLC0415
+
+            return NullOCREngine(WindowsOCREngine().reason)
+        return NullOCREngine(
+            "Tesseract isn't installed (pip install pytesseract + the tesseract binary)"
+            if shutil.which("tesseract") is None else "pytesseract isn't installed"
+        )
+
     return NullOCREngine(f"unknown OCR backend {choice!r}")
 
 

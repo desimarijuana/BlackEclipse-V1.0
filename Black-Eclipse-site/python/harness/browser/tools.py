@@ -810,6 +810,51 @@ async def _replay(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     return ok("replay", render_text(view), view)
 
 
+async def _task(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Step-level progress for a long browser task (Phase 10.1)."""
+    mgr = manager()
+    if mgr is None or getattr(mgr, "tasks", None) is None:
+        return unavailable()
+    action = str(args.get("action") or "status").lower()
+    tasks = mgr.tasks
+    session, _err = session_of(args, ctx)
+    session_id = getattr(session, "id", "") or ""
+    run_id = str(getattr(ctx, "run_id", "") or "")
+
+    if action == "start":
+        labels = args.get("steps") if isinstance(args.get("steps"), list) else []
+        if not labels:
+            return refusal({"code": "BROWSER_TASK_INVALID", "message": "A task needs an ordered list of steps."}, "browser_task")
+        task = tasks.create(
+            goal=str(args.get("goal") or "browser task"), labels=labels,
+            session_id=session_id, run_id=run_id,
+        )
+        return ok("task", task.render(), task.to_dict())
+
+    task_id = str(args.get("task_id") or "")
+    if not task_id:
+        # Default to the current session's latest task.
+        live = [t for t in tasks.list() if t.session_id == session_id] or tasks.list()
+        task = live[0] if live else None
+    else:
+        task = tasks.get(task_id)
+    if task is None:
+        return refusal({"code": "BROWSER_TASK_NOT_FOUND", "message": "There's no such browser task."}, "browser_task")
+
+    if action == "begin":
+        updated = tasks.begin(task.id, int(args.get("index") or 0))
+    elif action == "complete":
+        updated = tasks.complete(task.id, args.get("index"), note=args.get("note"))
+    elif action == "fail":
+        updated = tasks.fail(task.id, note=args.get("note"))
+    elif action == "finish":
+        updated = tasks.finish(task.id, state=str(args.get("state") or "completed"))
+    else:
+        updated = task
+    updated = updated or task
+    return ok("task", updated.render(), updated.to_dict())
+
+
 # ── Storage / permissions / interception ─────────────────────────────────────
 
 
@@ -961,6 +1006,7 @@ _HANDLERS: dict[str, Any] = {
     "browser_exec": _exec,
     "browser_dialog": _dialog,
     "browser_replay": _replay,
+    "browser_task": _task,
     "browser_cookies": _cookies,
     "browser_storage": _storage,
     "browser_permissions": _permissions,

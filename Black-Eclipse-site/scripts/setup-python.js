@@ -63,6 +63,31 @@ for (const cmd of candidates) {
       console.warn(`         ${cmd} -m pip install -r python/requirements.txt`);
     }
   }
+
+  // 3. Computer Use Engine backends (Pillow capture, Windows UIA + OCR). OPTIONAL
+  //    in effect: a missing one degrades to an honest UNAVAILABLE, but installing
+  //    it by default makes the desktop toolset fully functional out of the box.
+  //    The `-r requirements.txt` install above already includes these (with
+  //    platform markers), so only repair them explicitly if the runtime marker
+  //    landed but the extras did not.
+  if (hasModule(cmd, "PIL") && (process.platform !== "win32" || hasModule(cmd, "uiautomation"))) {
+    console.log("[setup] Computer-use backends already installed.");
+  } else {
+    console.log("[setup] Installing computer-use backends (Pillow, and Windows UIA/OCR)...");
+    try {
+      const extras = ["Pillow"];
+      if (process.platform === "win32") extras.push("uiautomation", "winsdk");
+      execSync(`"${cmd}" -m pip install ${extras.join(" ")} --disable-pip-version-check`, {
+        stdio: "inherit",
+        timeout: 300000,
+      });
+    } catch {
+      console.warn("[setup] Could not install optional computer-use backends. Desktop");
+      console.warn("         tools stay available with honest fallbacks (OCR/accessibility may");
+      console.warn("         report unavailable). Install later with:");
+      console.warn(`         ${cmd} -m pip install Pillow${process.platform === "win32" ? " uiautomation winsdk" : ""}`);
+    }
+  }
   process.exit(0);
 }
 console.log("[setup] Python not found — provisioning embedded Python...");

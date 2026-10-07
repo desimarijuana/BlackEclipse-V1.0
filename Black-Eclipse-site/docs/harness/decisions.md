@@ -4243,3 +4243,98 @@ browser.
 config `HARNESS_CAMOFOX_*`, `HARNESS_FIRECRAWL_ENDPOINT`,
 `HARNESS_BROWSER_PREFER_LOW_COST`, `HARNESS_BROWSER_ALLOW_PRIVATE_REMOTE`;
 `web_extract.backend`; tests `test_browser_providers.py`.
+
+## ADR-H139 — Progress is persisted, browser values become claims only through the engine, and the three surfaces share one routing policy
+
+**Context.** Phase 10 completes the planner/workflow/cross-engine story. The
+runtime already had evidence, skills, delegation isolation and visual fusion; what
+remained was a visible progress surface, a second financial research workflow,
+one documented hand-off rule across the three information surfaces, and a legal
+path from a browser-read value to a verified claim.
+
+**Decision.**
+
+1. **Progress is a persisted task, not a stream of per-action events.** `browser/
+   task.py` records a bounded checklist (`BrowserTask`) with per-step status,
+   emitted as `browser.task.*` AND persisted to `agent-memory.db`. A user watching
+   a long run sees “open SEC → search → find filing → download → extract”, and the
+   progress survives the call that produced it (a per-action event is gone once
+   streamed).
+2. **A browser value is a candidate, verified only through the engine.** `browser/
+   bridge.py` builds engine `Evidence` from a real `http(s)` URL + observed text
+   (never fabricating provenance) and then runs the engine's OWN
+   `web_verify.verify_claim`. There is no second verifier; a claim not grounded in
+   the observed page text is refused. This is the one legal path (ADR-H135's rule,
+   extended to the browser).
+3. **One routing policy across three surfaces.** `research/coordination.py`
+   documents and implements “search finds → browser reads behind a login →
+   computer-use reads a desktop app”, deterministically, sharing ONE evidence
+   store. A browser-read value is marked a candidate.
+4. **A second bundled financial workflow.** `system.sec-filing-research` follows the
+   `system.browser-research` pattern: progressive disclosure, `status: disabled`,
+   referencing only real browser/web tools, and pointing a figure at
+   `claim_verify` rather than asserting it.
+
+**Why.** Progress and a single routing rule are what make the three surfaces
+usable together instead of three overlapping tools; and the claim bridge is what
+keeps the honesty invariant intact as the browser grows more capable — a browser
+number can never bypass the engine's verification.
+
+**Consequences.** New modules `browser/task.py` (persisted `BrowserTask` table) and
+`browser/bridge.py`; `research/coordination.py`; the `browser_task` tool + `GET
+/browser/tasks`; the bundled `system.sec-filing-research` skill; tests
+`test_phase10_coordination.py`. No new evidence store — the browser still feeds the
+engine's collector.
+## ADR-H140 — Computer Use is honest by construction: enforcement, native backends and challenge stops
+
+**Context.** The Computer Use Engine shipped production-grade and Windows-only, but
+a review found several claimed behaviours were not actually enforced or wired, and
+the "unavailable by default" gaps (OCR, accessibility, vision, CAPTCHA handling)
+were reported rather than closed. This ADR fixes the intent: every advertised limit
+must be enforced, every backend must be real-or-honest, and a security challenge is
+a human hand-off.
+
+**Decision.**
+
+1. **Advertised limits are enforced.** `max_actions` and `action_timeout_seconds`
+   are no longer dead config: `ComputerCore.act` wraps every handler in
+   `asyncio.wait_for` (timeout ⇒ `COMPUTER_TIMEOUT`, verdict `retry`) and a
+   monotonic `session.actions_started` counter (over budget ⇒ `BudgetExceeded`,
+   `COMPUTER_BUDGET_EXCEEDED`, verdict `abort`). A dry run still counts as an
+   attempt, matching what `capabilities().limits` promises.
+2. **Config fields have consumers.** `vision_model` overrides the resolved model
+   id in `service._build_vision_router`; `ocr_enabled=false` disables OCR; the
+   finance allowlists (`finance_allowed_apps/accounts/instruments`, with
+   `HARNESS_COMPUTER_FINANCE_ALLOWED_*` env overrides) are wired into
+   `build_firewall_from_config`. A cloud vision model is wired as the CLOUD backend,
+   so a sensitive frame is refused rather than silently sent to it.
+3. **Native backends are the default where the OS provides one.** `build_ocr_engine`
+   `auto` prefers the OS-native OCR (`Windows.Media.Ocr` via the optional `winsdk`
+   package, engine id `winocr`), then Tesseract. The `Pillow`, `uiautomation` and
+   `winsdk` extras are declared in `requirements.txt` (Windows markers) and
+   installed/repaired by `setup-python.js` / `doctor.js`. Every backend stays
+   honest: absent ⇒ `available:false` with a reason.
+4. **A security challenge is a human hand-off.** `security.detect_challenge` matches
+   CAPTCHA/MFA/biometric markers; `ComputerSession.detect_challenge` scans the
+   foreground window; the core refuses BEFORE delivering input (so nothing is
+   clicked into the challenge) and returns `HumanInterventionRequired`
+   (`COMPUTER_HUMAN_REQUIRED`, verdict `ask_user`). The new effectful
+   `computer_request_human` tool lets the agent ask explicitly.
+5. **Screen text is scanned, not only wrapped.** `security.scan_injection` (reusing
+   the browser vocabulary) flags on-screen text posing as instructions; the
+   UNTRUSTED wrapper gains a warning. The hard guarantee remains the wrapper + prompt.
+6. **Background-first delivery is uniform.** Pointer move, scroll, drag and mouse
+   down/up now honour `background` (posted WM_* messages in the target's own child
+   hierarchy) as well as `foreground`, and foreground focus is restored after an
+   escalation.
+
+**Why.** "Ready on Windows" is only true if the limits are real, the common backends
+exist without extra setup, and money/security still stop for a person. Honesty is
+the invariant: an absent backend degrades to a reason, never a fake desktop.
+
+**Consequences.** New `ocr/windows.py` (`WindowsOCREngine`); `errors.BudgetExceeded`;
+`security.detect_challenge` / `scan_injection`; the `computer_request_human` tool
+(and `EFFECTFUL_TOOLS`/`COMPUTER_EFFECTFUL_TOOLS`); driver background mouse paths;
+`requirements.txt` extras + `setup-python.js`/`doctor.js` repairs. Tests:
+`test_computer_hardening.py`. macOS/Linux drivers, VM/headless desktops and an
+app-verification rig remain open (tracked in the Computer Use roadmap).

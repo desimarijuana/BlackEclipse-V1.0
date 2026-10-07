@@ -184,27 +184,32 @@ class ComputerDriver:
 
         raise UnsupportedAction("This platform driver cannot click.", code="COMPUTER_CAPABILITY_UNSUPPORTED")
 
-    async def mouse_down(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background") -> InputResult:
+    async def mouse_down(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background",
+                         window_id: Optional[str] = None) -> InputResult:
         from ..errors import UnsupportedAction  # noqa: PLC0415
 
         raise UnsupportedAction("This platform driver cannot press the mouse.", code="COMPUTER_CAPABILITY_UNSUPPORTED")
 
-    async def mouse_up(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background") -> InputResult:
+    async def mouse_up(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background",
+                       window_id: Optional[str] = None) -> InputResult:
         from ..errors import UnsupportedAction  # noqa: PLC0415
 
         raise UnsupportedAction("This platform driver cannot release the mouse.", code="COMPUTER_CAPABILITY_UNSUPPORTED")
 
-    async def move(self, x: int, y: int, *, delivery_mode: str = "background") -> InputResult:
+    async def move(self, x: int, y: int, *, delivery_mode: str = "background",
+                   window_id: Optional[str] = None) -> InputResult:
         from ..errors import UnsupportedAction  # noqa: PLC0415
 
         raise UnsupportedAction("This platform driver cannot move the pointer.", code="COMPUTER_CAPABILITY_UNSUPPORTED")
 
-    async def scroll(self, *, dx: int = 0, dy: int = 0, at: Optional[tuple[int, int]] = None, delivery_mode: str = "background") -> InputResult:
+    async def scroll(self, *, dx: int = 0, dy: int = 0, at: Optional[tuple[int, int]] = None,
+                     delivery_mode: str = "background", window_id: Optional[str] = None) -> InputResult:
         from ..errors import UnsupportedAction  # noqa: PLC0415
 
         raise UnsupportedAction("This platform driver cannot scroll.", code="COMPUTER_CAPABILITY_UNSUPPORTED")
 
-    async def drag(self, x1: int, y1: int, x2: int, y2: int, *, button: str = "left", delivery_mode: str = "background") -> InputResult:
+    async def drag(self, x1: int, y1: int, x2: int, y2: int, *, button: str = "left", delivery_mode: str = "background",
+                   window_id: Optional[str] = None) -> InputResult:
         from ..errors import UnsupportedAction  # noqa: PLC0415
 
         raise UnsupportedAction("This platform driver cannot drag.", code="COMPUTER_CAPABILITY_UNSUPPORTED")

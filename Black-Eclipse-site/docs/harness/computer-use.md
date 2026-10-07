@@ -114,11 +114,27 @@ pre-action snapshot), settle-polls for a bounded window, and treats only
 *content* change as `verified`; incidental pixel churn is `uncertain`, and an
 `uncertain` result never becomes a `success` verdict.
 
+Background-first delivery covers clicks, typing, keys, **pointer moves, scrolls,
+drags and button press/release**: each posts the corresponding `WM_*` message to
+the control under the point in the target's own child hierarchy, so none of them
+need steal the user's focus. `mouse_move`/`scroll`/`drag` follow the configured
+`mode` and may still be forced `foreground`.
+
 Observation also scans for **sensitive** controls/text: a sensitive snapshot is
 flagged, its persisted image is masked, and a cloud vision model is refused
 unless policy explicitly allows it. An unrelated dialog that appears after an
 action is reported as `UNEXPECTED_DIALOG` (verdict `ask_user`) instead of
-receiving blind input.
+receiving blind input. A **CAPTCHA / MFA / biometric / security challenge**
+(detected from the foreground window or screen text via
+`security.detect_challenge`) is a hard stop: the core refuses *before* delivering
+any input and returns `COMPUTER_HUMAN_REQUIRED` (verdict `ask_user`) so a person
+takes over — Eclipse never tries to solve or bypass it.
+
+**Limits are enforced, not just advertised.** Every action runs under a
+per-action timeout (`action_timeout_seconds`; breach ⇒ `COMPUTER_TIMEOUT`,
+verdict `retry`) and a hard session budget (`max_actions`; breach ⇒
+`BudgetExceeded`/`COMPUTER_BUDGET_EXCEEDED`, verdict `abort`). A dry run still
+counts against the budget, matching what `capabilities().limits` reports.
 
 ## Security, permissions, finance
 
@@ -156,14 +172,30 @@ receiving blind input.
 - **Memory:** `computer/memory.py` stores learned layouts/workflows/recovery paths
   in `eclipse-memory` (never JDdS, never screenshots), only through the explicit
   `computer_remember` tool.
+- **Human hand-off:** `computer_takeover` (and `computer_request_human` for a
+  challenge) hand the control lease to a person; the agent stops, state is
+  preserved, and `computer_resume`/`computer_release` return control.
+
+## Configuration
+
+`computer/config.py` resolves defaults ← `.black-eclipse/computer.json` ← env
+(`HARNESS_COMPUTER_*`). A reference file is committed at `computer.example.json`.
+Notable keys now wired end-to-end: `vision.model` (overrides the resolved vision
+model id), `ocr.enabled` (disables OCR entirely) and `ocr.backend`
+(`auto|winocr|tesseract|none`), and the finance allowlists
+`finance.allowed_apps|allowed_accounts|allowed_instruments`
+(`HARNESS_COMPUTER_FINANCE_ALLOWED_*`).
 
 ## Honesty (nothing is fabricated)
 
 A missing driver, accessibility backend, OCR engine or vision model is an honest
 `UNAVAILABLE` with a reason — never a fake desktop. `eclipse computer doctor`
 reports exactly what is present. On Windows the driver uses `ctypes` Win32 (no
-third-party package required); UI Automation and Tesseract are optional and their
-absence is reported, not hidden.
+third-party package required). `auto` OCR prefers the OS-native engine
+(`Windows.Media.Ocr` via `winsdk`), then Tesseract; the rich accessibility tree
+(UIA via `uiautomation`) and the native OCR are optional and their absence is
+reported, not hidden. `Pillow`/`uiautomation`/`winsdk` are declared in
+`requirements.txt` and installed/repaired by `setup-python.js`/`doctor.js`.
 
 ## Tests
 

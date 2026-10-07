@@ -108,6 +108,8 @@ class ComputerSession:
         self.created_at = time.time()
         self.last_activity = time.time()
         self.focus_before_action: Optional[str] = None
+        # Monotonic count of actions STARTED, for the hard `max_actions` ceiling.
+        self.actions_started = 0
 
         self.windows = WindowManager(driver)
         self.applications = ApplicationManager(driver)
@@ -414,6 +416,29 @@ class ComputerSession:
             return {"windowId": focused.id, "title": focused.title, "application": focused.app}
         return None
 
+    def detect_challenge(self, *, extra_text: str = "") -> Optional[dict[str, Any]]:
+        """Detect a CAPTCHA / MFA / biometric challenge in the foreground UI.
+
+        Scans the current foreground window title/app and, when supplied, the
+        screen's OCR text. Detection never dismisses or types into the challenge —
+        it is a stop signal for a person to take over (`computer_takeover`).
+        """
+        from .security import detect_challenge as _detect  # noqa: PLC0415
+
+        titles: list[str] = []
+        foreground_id = ""
+        try:
+            for window in self.driver.list_windows():
+                if window.focused:
+                    foreground_id = window.id
+                    titles.append(f"{window.title} {window.app}")
+        except Exception:  # noqa: BLE001
+            pass
+        marker = _detect(*titles, extra_text)
+        if not marker:
+            return None
+        return {"marker": marker, "windowId": foreground_id}
+
     def _focused_window_id(self) -> str:
         try:
             for window in self.driver.list_windows():
@@ -433,17 +458,18 @@ class ComputerSession:
         """Restore the focus the user had before a foreground escalation."""
         if not self.focus_before_action:
             return {"restored": False}
+        target = self.focus_before_action
         current = self._focused_window_id()
-        if current == self.focus_before_action:
+        if current == target:
             self.focus_before_action = None
-            return {"restored": True, "windowId": current}
+            return {"restored": True, "windowId": target}
         try:
-            await self.driver.focus_window(self.focus_before_action, foreground=True)
-            restored = self._focused_window_id() == self.focus_before_action
+            await self.driver.focus_window(target, foreground=True)
+            restored = self._focused_window_id() == target
         except Exception:  # noqa: BLE001
             restored = False
         self.focus_before_action = None
-        return {"restored": restored, "windowId": self.focus_before_action}
+        return {"restored": restored, "windowId": target}
 
     # ── history + recording ──────────────────────────────────────────────────
 

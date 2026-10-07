@@ -121,6 +121,8 @@ class ComputerCore:
 
     async def act(self, action: str, **params: Any) -> ActionResult:
         """Perform an ALREADY-AUTHORIZED action. Returns a verdict-bearing result."""
+        import asyncio  # noqa: PLC0415
+
         started = time.monotonic()
         # `dry_run` is threaded explicitly; remove it from the passthrough params so
         # the handler does not receive it twice.
@@ -129,9 +131,29 @@ class ComputerCore:
         if handler is None:
             return self._failure(action, "COMPUTER_UNSUPPORTED_ACTION", f"Eclipse doesn't know the action {action!r}.",
                                  started, verdict="abort")
+        # The action budget is a HARD ceiling: once spent, no further action runs
+        # (a dry run still counts as an attempt, matching how the limit is
+        # advertised in `capabilities()`).
+        started_count = getattr(self.session, "actions_started", 0)
+        if started_count >= self._config.max_actions:
+            return self._failure(
+                action, "COMPUTER_BUDGET_EXCEEDED",
+                f"This session has used its {self._config.max_actions}-action budget; start a new session to continue.",
+                started, verdict="abort",
+            )
+        self.session.actions_started = started_count + 1
+        timeout = max(1, int(self._config.action_timeout_seconds))
         try:
             self.takeover_guard()
-            result = await handler(dry_run=dry_run, **params)
+            result = await asyncio.wait_for(handler(dry_run=dry_run, **params), timeout=timeout)
+        except asyncio.TimeoutError:
+            self.session.record_action({"action": action, "result": "failed", "verdict": "retry", "code": "COMPUTER_TIMEOUT"})
+            self.session._record_action_db({"action": action, "result": "failed", "verdict": "retry"})
+            return self._failure(
+                action, "COMPUTER_TIMEOUT",
+                f"The {action.replace('_', ' ')} action exceeded its {timeout}s limit and was abandoned.",
+                started, verdict="retry",
+            )
         except ComputerError as exc:
             self.session.record_action({"action": action, "result": "failed", "verdict": exc.verdict, "code": exc.code})
             self.session._record_action_db({"action": action, "result": "failed", "verdict": exc.verdict})
@@ -308,6 +330,27 @@ class ComputerCore:
         if delivery == FOREGROUND:
             self.session.remember_focus()
 
+        # A CAPTCHA/MFA/biometric challenge already on screen is a hard stop:
+        # refuse BEFORE delivering input, never click/type into it.
+        try:
+            challenge = self.session.detect_challenge()
+        except Exception:  # noqa: BLE001
+            challenge = None
+        if challenge is not None:
+            from .errors import HumanInterventionRequired  # noqa: PLC0415
+
+            err = HumanInterventionRequired(
+                f"A person is needed: the screen shows a security challenge ({challenge.get('marker')}). "
+                "Automation stopped before acting — solve it in the app, then take control and resume.",
+                action=action,
+            )
+            self.session.record_action({"action": action, "result": "blocked", "verdict": "ask_user", "code": err.code})
+            self.session._record_action_db({"action": action, "result": "blocked", "verdict": "ask_user"})
+            return ActionResult(
+                action=action, success=False, verdict="ask_user", delivery_mode=delivery,
+                state="HUMAN_REQUIRED", error=err.to_dict(), summary=err.reason,
+            )
+
         try:
             input_result = await attempt(delivery)
         except ComputerError:
@@ -359,6 +402,45 @@ class ComputerCore:
                 unexpected_dialog = self.session.detect_unexpected_dialog(baseline_window=window_id or "")
             except Exception:  # noqa: BLE001
                 unexpected_dialog = None
+
+        # A CAPTCHA/MFA/biometric challenge is a hard stop: a person must take
+        # over. Eclipse never attempts to solve or bypass it.
+        challenge = None
+        try:
+            challenge = self.session.detect_challenge()
+        except Exception:  # noqa: BLE001
+            challenge = None
+        if challenge is not None:
+            from .errors import HumanInterventionRequired  # noqa: PLC0415
+
+            err = HumanInterventionRequired(
+                f"A person is needed: the screen shows a security challenge ({challenge.get('marker')}). "
+                "Automation has stopped — solve it in the app, then take control and resume.",
+                action=action,
+            )
+            self.session.record_action({"action": action, "result": "blocked", "verdict": "ask_user",
+                                        "code": err.code})
+            self.session._record_action_db({"action": action, "result": "blocked", "verdict": "ask_user"})
+            result = ActionResult(
+                action=action, success=False, verdict="ask_user", delivery_mode=used_mode,
+                state="HUMAN_REQUIRED", error=err.to_dict(), summary=err.reason,
+                verification=verification.to_dict() if verification else None,
+                unexpected_dialog=unexpected_dialog,
+            )
+            if used_mode == FOREGROUND:
+                try:
+                    await self.session.restore_focus()
+                except Exception:  # noqa: BLE001
+                    pass
+            return result
+
+        # A foreground escalation stole the user's focus; give it back. Best-effort
+        # and never allowed to fail the action (it runs after verification).
+        if used_mode == FOREGROUND:
+            try:
+                await self.session.restore_focus()
+            except Exception:  # noqa: BLE001
+                pass
 
         success = bool(delivered) and (verification is None or verification.status != "failed")
         verdict = self._verdict_for(verification, success)
@@ -487,7 +569,8 @@ class ComputerCore:
     async def _act_middle_click(self, *, dry_run: bool = False, capture_after: bool = False, foreground: bool = False, **kwargs: Any) -> ActionResult:
         return await self._act_click(dry_run=dry_run, button="middle", capture_after=capture_after, foreground=foreground, **kwargs)
 
-    async def _act_mouse_move(self, *, dry_run: bool = False, x: int = 0, y: int = 0, relative: bool = False, **_: Any) -> ActionResult:
+    async def _act_mouse_move(self, *, dry_run: bool = False, x: int = 0, y: int = 0, relative: bool = False,
+                              window_id: Optional[str] = None, **_: Any) -> ActionResult:
         if dry_run:
             return self._dry("mouse_move", f"move the pointer to ({x},{y})")
         # Pointer movement is LOW risk and is checked under the `scroll` band
@@ -495,9 +578,11 @@ class ComputerCore:
         self.require_permission("scroll", action="mouse_move")
         if relative:
             await self.session.mouse.move_relative(x, y)
+            mode = "background"
         else:
-            await self.session.mouse.move(x, y)
-        return ActionResult(action="mouse_move", success=True, verdict="success", delivery_mode="foreground",
+            result = await self.session.mouse.move(x, y, delivery_mode=self.default_delivery, window_id=window_id)
+            mode = getattr(result, "delivery_mode", self.default_delivery)
+        return ActionResult(action="mouse_move", success=True, verdict="success", delivery_mode=mode,
                             summary=f"Moved the pointer to ({x},{y}).", state="ACTION_EXECUTED")
 
     async def _act_mouse_position(self, **_: Any) -> ActionResult:
@@ -507,13 +592,16 @@ class ComputerCore:
                             evidence=[{"kind": "pointer", "position": pos.to_dict() if pos else None}])
 
     async def _act_scroll(self, *, dry_run: bool = False, dx: int = 0, dy: int = 0,
-                          x: Optional[int] = None, y: Optional[int] = None, capture_after: bool = False, **_: Any) -> ActionResult:
+                          x: Optional[int] = None, y: Optional[int] = None, capture_after: bool = False,
+                          window_id: Optional[str] = None, **_: Any) -> ActionResult:
         if dry_run:
             return self._dry("scroll", f"scroll dx={dx} dy={dy}")
         self.require_permission("scroll", action="scroll")
         at = (x, y) if x is not None and y is not None else None
-        await self.session.mouse.scroll(dx=dx, dy=dy, at=at, delivery_mode="foreground")
-        return ActionResult(action="scroll", success=True, verdict="success", delivery_mode="foreground",
+        result = await self.session.mouse.scroll(dx=dx, dy=dy, at=at,
+                                                  delivery_mode=self.default_delivery, window_id=window_id)
+        mode = getattr(result, "delivery_mode", self.default_delivery)
+        return ActionResult(action="scroll", success=True, verdict="success", delivery_mode=mode,
                             state="ACTION_EXECUTED", summary=f"Scrolled dx={dx} dy={dy}.")
 
     async def _act_type(self, *, dry_run: bool = False, text: str = "", capture_after: bool = False,
@@ -591,9 +679,10 @@ class ComputerCore:
         if frm is None or to is None:
             raise ActionFailed("drag needs from_coordinates and to_coordinates.")
         before = await self.session.capture_state()
-        await self.session.mouse.drag(*frm.center, *to.center, delivery_mode="foreground")
+        result = await self.session.mouse.drag(*frm.center, *to.center, delivery_mode=self.default_delivery)
+        mode = getattr(result, "delivery_mode", self.default_delivery)
         verification = await self.session.verify_action(before, action="drag")
-        return ActionResult(action="drag", success=True, verdict="success", delivery_mode="foreground",
+        return ActionResult(action="drag", success=True, verdict="success", delivery_mode=mode,
                             state="ACTION_EXECUTED", verification=verification.to_dict(),
                             summary="Dragged the pointer between the two points.")
 

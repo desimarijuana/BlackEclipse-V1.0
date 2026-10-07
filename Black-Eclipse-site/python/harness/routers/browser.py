@@ -197,6 +197,16 @@ def browser_logs(
     return {"success": True, "logs": entries, "count": len(entries)}
 
 
+@router.get("/browser/tasks")
+def list_browser_tasks(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """In-flight + recent browser task progress records (content-free)."""
+    manager = _manager()
+    tasks = getattr(manager, "tasks", None)
+    if tasks is None:
+        return {"success": True, "tasks": []}
+    return {"success": True, "tasks": [t.to_dict() for t in tasks.list()]}
+
+
 @router.get("/browser/downloads")
 def list_browser_downloads(session_id: Optional[str] = None, limit: int = 50, _: bool = Depends(require_operator)) -> dict[str, Any]:
     manager = _manager()

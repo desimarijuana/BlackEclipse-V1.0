@@ -1,0 +1,64 @@
+{
+  "id": "system.sec-filing-research",
+  "name": "Research a company from its SEC filing",
+  "version": "1.0.0",
+  "description": "Find a company's SEC filing (10-K/10-Q/8-K), read the relevant sections in the browser, download the document, and report what the filing says with its source.",
+  "category": "finance",
+  "tags": [
+    "browser",
+    "research",
+    "sec",
+    "filing",
+    "finance"
+  ],
+  "status": "disabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "objective": {
+        "type": "string",
+        "description": "What the user wants to know from the filing, in their words."
+      },
+      "ticker": {
+        "type": "string",
+        "description": "The company ticker or name to file against."
+      },
+      "form": {
+        "type": "string",
+        "description": "The filing type (10-K, 10-Q, 8-K, …). Omit for the latest.",
+        "enum": ["10-K", "10-Q", "8-K", "DEF 14A", "S-1", "any"]
+      }
+    },
+    "required": [
+      "objective"
+    ]
+  },
+  "requiredTools": [
+    "web_search",
+    "web_extract",
+    "browser_launch",
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_extract",
+    "browser_click",
+    "browser_find",
+    "browser_wait_for_text",
+    "browser_download",
+    "browser_task",
+    "browser_replay"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 20,
+    "timeoutMs": 600000,
+    "maxToolCalls": 60
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

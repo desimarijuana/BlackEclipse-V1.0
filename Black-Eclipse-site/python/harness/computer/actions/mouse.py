@@ -19,8 +19,8 @@ class MouseEngine:
     def __init__(self, driver: Any) -> None:
         self._driver = driver
 
-    async def move(self, x: int, y: int, *, delivery_mode: str = "background") -> Any:
-        return await self._driver.move(int(x), int(y), delivery_mode=delivery_mode)
+    async def move(self, x: int, y: int, *, delivery_mode: str = "background", window_id: Optional[str] = None) -> Any:
+        return await self._driver.move(int(x), int(y), delivery_mode=delivery_mode, window_id=window_id)
 
     async def click(
         self, x: int, y: int, *, button: str = "left", count: int = 1,
@@ -44,14 +44,14 @@ class MouseEngine:
     async def mouse_up(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "foreground") -> Any:
         return await self._driver.mouse_up(int(x), int(y), button=button, delivery_mode=delivery_mode)
 
-    async def drag(self, x1: int, y1: int, x2: int, y2: int, *, button: str = "left", delivery_mode: str = "foreground") -> Any:
-        return await self._driver.drag(int(x1), int(y1), int(x2), int(y2), button=button, delivery_mode=delivery_mode)
+    async def drag(self, x1: int, y1: int, x2: int, y2: int, *, button: str = "left", delivery_mode: str = "background", window_id: Optional[str] = None) -> Any:
+        return await self._driver.drag(int(x1), int(y1), int(x2), int(y2), button=button, delivery_mode=delivery_mode, window_id=window_id)
 
-    async def scroll(self, *, dx: int = 0, dy: int = 0, at: Optional[tuple[int, int]] = None, delivery_mode: str = "foreground") -> Any:
-        return await self._driver.scroll(dx=int(dx), dy=int(dy), at=at, delivery_mode=delivery_mode)
+    async def scroll(self, *, dx: int = 0, dy: int = 0, at: Optional[tuple[int, int]] = None, delivery_mode: str = "background", window_id: Optional[str] = None) -> Any:
+        return await self._driver.scroll(dx=int(dx), dy=int(dy), at=at, delivery_mode=delivery_mode, window_id=window_id)
 
-    async def scroll_horizontal(self, dx: int, *, at: Optional[tuple[int, int]] = None, delivery_mode: str = "foreground") -> Any:
-        return await self.scroll(dx=dx, dy=0, at=at, delivery_mode=delivery_mode)
+    async def scroll_horizontal(self, dx: int, *, at: Optional[tuple[int, int]] = None, delivery_mode: str = "background", window_id: Optional[str] = None) -> Any:
+        return await self.scroll(dx=dx, dy=0, at=at, delivery_mode=delivery_mode, window_id=window_id)
 
     async def move_relative(self, dx: int, dy: int, *, delivery_mode: str = "background") -> Any:
         current = self._driver.pointer_position()

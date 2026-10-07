@@ -81,7 +81,7 @@ class ComputerConfig:
     vision_model: Optional[str] = None
     # OCR.
     ocr_enabled: bool = True
-    ocr_backend: str = "auto"         # auto | tesseract | none
+    ocr_backend: str = "auto"         # auto | winocr | tesseract | none
     # Verification / recovery.
     verification_enabled: bool = True
     recovery_enabled: bool = True
@@ -91,6 +91,10 @@ class ComputerConfig:
     # Finance.
     finance_mode: str = "read_only"   # read_only | assisted | autonomous | simulation
     finance_max_order_value: float = 0.0
+    # Finance allowlists (all empty ⇒ unconstrained beyond mode + absolute block).
+    finance_allowed_apps: list[str] = field(default_factory=list)
+    finance_allowed_accounts: list[str] = field(default_factory=list)
+    finance_allowed_instruments: list[str] = field(default_factory=list)
     # Recording.
     recording_enabled: bool = True
     recording_screenshots: bool = True
@@ -131,7 +135,12 @@ class ComputerConfig:
             "verification": {"enabled": self.verification_enabled},
             "recovery": {"enabled": self.recovery_enabled, "maxAttempts": self.recovery_max_attempts},
             "security": {"sensitiveDataRedaction": self.sensitive_data_redaction},
-            "finance": {"mode": self.finance_mode, "maxOrderValue": self.finance_max_order_value},
+            "finance": {
+                "mode": self.finance_mode, "maxOrderValue": self.finance_max_order_value,
+                "allowedApps": list(self.finance_allowed_apps),
+                "allowedAccounts": list(self.finance_allowed_accounts),
+                "allowedInstruments": list(self.finance_allowed_instruments),
+            },
             "recording": {"enabled": self.recording_enabled, "screenshots": self.recording_screenshots},
             "limits": {
                 "maxConcurrent": self.max_concurrent,
@@ -172,6 +181,13 @@ def _str_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(v) for v in value if isinstance(v, (str, int, float))]
     return []
+
+
+def _csv_or_file(env: Optional[str], file_value: Any) -> list[str]:
+    """A comma-separated env override when set; otherwise the file's list."""
+    if env is not None:
+        return [part.strip() for part in env.split(",") if part.strip()]
+    return _str_list(file_value)
 
 
 def load_computer_config() -> ComputerConfig:
@@ -225,6 +241,15 @@ def load_computer_config() -> ComputerConfig:
         sensitive_data_redaction=_truthy(os.environ.get("HARNESS_COMPUTER_REDACTION"), bool(security.get("sensitive_data_redaction", True))),
         finance_mode=_choice(os.environ.get("HARNESS_COMPUTER_FINANCE_MODE") or finance.get("mode", "read_only"), FINANCE_MODES, "read_only"),
         finance_max_order_value=float(finance.get("max_order_value", 0.0) or 0.0),
+        finance_allowed_apps=_csv_or_file(
+            os.environ.get("HARNESS_COMPUTER_FINANCE_ALLOWED_APPS"), finance.get("allowed_apps", [])
+        ),
+        finance_allowed_accounts=_csv_or_file(
+            os.environ.get("HARNESS_COMPUTER_FINANCE_ALLOWED_ACCOUNTS"), finance.get("allowed_accounts", [])
+        ),
+        finance_allowed_instruments=_csv_or_file(
+            os.environ.get("HARNESS_COMPUTER_FINANCE_ALLOWED_INSTRUMENTS"), finance.get("allowed_instruments", [])
+        ),
         recording_enabled=_truthy(os.environ.get("HARNESS_COMPUTER_RECORDING"), bool(recording.get("enabled", True))),
         recording_screenshots=_truthy(os.environ.get("HARNESS_COMPUTER_RECORDING_SCREENSHOTS"), bool(recording.get("screenshots", True))),
         max_concurrent=_int(os.environ.get("HARNESS_COMPUTER_MAX_SESSIONS"), int(limits.get("max_concurrent", 2)), low=1, high=MAX_SESSIONS_CEILING),

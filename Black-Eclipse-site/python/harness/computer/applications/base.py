@@ -38,6 +38,11 @@ class ApplicationAdapter:
     failure_modes: tuple[str, ...] = ()
     # Whether a real structured integration exists (prefer it over CUA).
     has_native_api: bool = False
+    # Verification against a real application. The shipped adapters are KNOWLEDGE
+    # records (unverified); the live rig marks one verified only after driving the
+    # real app, with a note naming the build. Never set true by hand.
+    verified: bool = False
+    verified_note: str = ""
 
     def matches(self, *, app_name: str = "", executable: str = "", title: str = "") -> bool:
         app_l = (app_name or "").lower()
@@ -67,12 +72,23 @@ class ApplicationAdapter:
     def is_risky(self, action: str) -> bool:
         return action in self.risky_actions
 
+    def looks_busy(self, text: str) -> bool:
+        """Whether a screen/title reading matches a known busy marker."""
+        haystack = (text or "").lower()
+        return any(marker in haystack for marker in self.busy_markers)
+
+    def looks_ready(self, text: str) -> bool:
+        """Whether a screen/title reading matches a known ready marker."""
+        haystack = (text or "").lower()
+        return any(marker in haystack for marker in self.ready_markers)
+
     def describe(self) -> dict[str, Any]:
         return {
             "id": self.id, "name": self.name,
             "executables": list(self.executables), "titlePatterns": list(self.title_patterns),
             "controls": list(self.controls), "shortcuts": self.shortcuts,
             "hasNativeApi": self.has_native_api,
+            "verified": self.verified, "verifiedNote": self.verified_note,
             "riskyActions": list(self.risky_actions), "failureModes": list(self.failure_modes),
         }
 

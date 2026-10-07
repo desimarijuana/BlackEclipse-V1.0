@@ -237,6 +237,13 @@ class HumanInterventionRequired(ComputerError):
     verdict = "ask_user"
 
 
+class BudgetExceeded(ComputerError):
+    """The session's action budget is spent — the agent must stop and re-plan."""
+
+    code = "COMPUTER_BUDGET_EXCEEDED"
+    verdict = "abort"
+
+
 class UnsupportedAction(ComputerError):
     code = "COMPUTER_CAPABILITY_UNSUPPORTED"
     verdict = "abort"
@@ -255,6 +262,7 @@ __all__ = [
     "ComputerUnavailable",
     "DriverIncompatible",
     "DriverUnavailable",
+    "BudgetExceeded",
     "HumanInterventionRequired",
     "PermissionDenied",
     "PolicyBlocked",

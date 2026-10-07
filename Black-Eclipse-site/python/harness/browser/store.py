@@ -141,6 +141,24 @@ class BrowserStore:
             )
             """
         )
+        self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS BrowserTask (
+              id           TEXT PRIMARY KEY,
+              sessionId    TEXT,
+              runId        TEXT,
+              goal         TEXT,
+              state        TEXT NOT NULL,
+              current      INTEGER NOT NULL DEFAULT 0,
+              stepsJson    TEXT,
+              createdAt    TEXT NOT NULL,
+              updatedAt    TEXT
+            )
+            """
+        )
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_browser_task_run ON BrowserTask(runId, createdAt)"
+        )
         self._db.commit()
 
     # -- sessions ------------------------------------------------------------
@@ -323,6 +341,42 @@ class BrowserStore:
             }
             for r in rows
         ]
+
+    # -- tasks (bounded progress; content-free) ------------------------------
+
+    def save_task(self, record: dict[str, Any]) -> None:
+        self._db.execute(
+            """INSERT INTO BrowserTask
+               (id, sessionId, runId, goal, state, current, stepsJson, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 state=excluded.state, current=excluded.current,
+                 stepsJson=excluded.stepsJson, updatedAt=excluded.updatedAt""",
+            (
+                record.get("id"), record.get("sessionId"), record.get("runId"),
+                record.get("goal"), record.get("state", "running"),
+                int(record.get("current", 0)),
+                json.dumps(record.get("steps") or [], default=str),
+                record.get("createdAt", now_iso()), record.get("updatedAt", now_iso()),
+            ),
+        )
+        self._db.commit()
+
+    def get_task(self, task_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM BrowserTask WHERE id=?", (task_id,)).fetchone()
+        if row is None:
+            return None
+        data = _row(row)
+        data["steps"] = json.loads(data.pop("stepsJson") or "[]")
+        return data
+
+    def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT id, sessionId, runId, goal, state, current, createdAt, updatedAt "
+            "FROM BrowserTask ORDER BY createdAt DESC LIMIT ?",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 __all__ = ["BrowserStore", "new_profile_id", "new_session_id", "new_trace_id"]

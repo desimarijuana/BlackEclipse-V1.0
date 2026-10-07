@@ -186,6 +186,17 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "format": {"type": "string", "enum": ["text", "json"], "description": "Return a human timeline (default) or the structured replay."},
     }, ["trace_id"]),
 
+    # ── Task progress (Phase 10.1) ──────────────────────────────────────────
+    "browser_task": _schema({
+        "action": {"type": "string", "enum": ["start", "begin", "complete", "fail", "finish", "status"], "description": "Start a task, advance a step, or read it."},
+        "goal": {"type": "string", "description": "The task goal (for action=start)."},
+        "steps": {"type": "array", "items": {"type": ["string", "object"]}, "description": "Ordered step labels for action=start (e.g. ['open SEC','search','download'])."},
+        "task_id": {"type": "string", "description": "The task to act on (defaults to the current session's latest task)."},
+        "index": {"type": "integer", "description": "The step index for begin/complete."},
+        "note": {"type": "string", "description": "A short note for a completed/failed step."},
+        "session_id": _SESSION,
+    }, ["action"]),
+
     # ── Storage / permissions ─────────────────────────────────────────────
     "browser_cookies": _schema({"session_id": _SESSION, "action": {"type": "string", "enum": ["list", "set", "clear"]}, "cookie": {"type": "object"}, "urls": {"type": "array", "items": {"type": "string"}}}),
     "browser_storage": _schema({"session_id": _SESSION}),
@@ -325,6 +336,10 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "browser_replay": {"risk": "low", "timeout": 15_000, "desc":
         "Replay a stored browser trace as a plain step timeline — what the agent saw, did and why, and why it failed — "
         "without opening a browser. Give a trace id (see browser_status); returns text or the structured view."},
+
+    "browser_task": {"risk": "low", "timeout": 15_000, "desc":
+        "Track and report step-level progress for a long browser task (\"open SEC → search → find filing → download → extract\"). "
+        "Start a task with its steps, then mark steps begin/complete/fail; progress is emitted and persisted. Action=status reads a task."},
 
     "browser_cookies": {"risk": "low", "timeout": 15_000, "desc": "List, set or clear cookies. Values are filtered from the model's view by default."},
     "browser_storage": {"risk": "low", "timeout": 15_000, "desc": "Read local/session storage for the current page."},

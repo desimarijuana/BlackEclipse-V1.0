@@ -192,6 +192,9 @@ class FinanceActionFirewall:
 def build_firewall_from_config(cfg: Any) -> FinanceActionFirewall:
     return FinanceActionFirewall(
         mode=cfg.finance_mode, max_order_value=cfg.finance_max_order_value,
+        allowed_apps=list(getattr(cfg, "finance_allowed_apps", []) or []) or None,
+        allowed_accounts=list(getattr(cfg, "finance_allowed_accounts", []) or []) or None,
+        allowed_instruments=list(getattr(cfg, "finance_allowed_instruments", []) or []) or None,
         prohibited_actions=list(cfg.prohibited_actions),
     )
 

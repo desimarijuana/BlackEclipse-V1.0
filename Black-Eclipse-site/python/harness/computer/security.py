@@ -40,6 +40,50 @@ SENSITIVE_PATTERNS: tuple[str, ...] = (
 _SENSITIVE_RE = re.compile("|".join(SENSITIVE_PATTERNS))
 
 
+# A CAPTCHA / MFA / security challenge is the one place automation must STOP and
+# ask a person. These markers are matched against window titles and on-screen text
+# (case-insensitive); the same vocabulary the app adapters list as failure modes.
+CHALLENGE_MARKERS: tuple[str, ...] = (
+    "captcha", "recaptcha", "hcaptcha", "i'm not a robot", "i am not a robot",
+    "verify you are human", "verify you're human", "prove you are human",
+    "two-factor", "two factor", "2fa", "one-time code", "one time code",
+    "one-time password", "verification code", "authenticator", "6-digit code",
+    "enter the code", "security check", "unusual activity", "confirm your identity",
+    "touch id", "fingerprint", "face id", "biometric", "windows hello",
+    "scan your fingerprint", "sign in to continue", "session expired",
+)
+
+
+def detect_challenge(*texts: str) -> Optional[str]:
+    """The challenge marker present in ``texts`` (or None).
+
+    A CAPTCHA/MFA/biometric prompt is where a person must take over. This only
+    DETECTS; it never types into or dismisses the challenge.
+    """
+    haystack = " ".join(t for t in texts if t).lower()
+    if not haystack:
+        return None
+    for marker in CHALLENGE_MARKERS:
+        if marker in haystack:
+            return marker
+    return None
+
+
+def scan_injection(text: str) -> list[str]:
+    """On-screen text that tries to pose as an instruction (advisory).
+
+    Reuses the browser injection vocabulary so a desktop dialog cannot smuggle a
+    command through a screenshot the way a web page can. The hard guarantee remains
+    the UNTRUSTED wrapper + prompt; this is a second signal.
+    """
+    try:
+        from ..browser.policy import scan_injection as _browser_scan  # noqa: PLC0415
+
+        return _browser_scan(text)
+    except Exception:  # noqa: BLE001 - browser module is optional
+        return []
+
+
 def is_sensitive_label(text: str) -> bool:
     lowered = (text or "").lower()
     return any(label in lowered for label in SENSITIVE_LABELS)
@@ -119,11 +163,14 @@ class SecurityLayer:
 
 
 __all__ = [
+    "CHALLENGE_MARKERS",
     "SENSITIVE_LABELS",
     "SENSITIVE_PATTERNS",
     "SecurityLayer",
     "SecurityReport",
     "SensitiveRegion",
+    "detect_challenge",
     "is_sensitive_label",
     "looks_sensitive",
+    "scan_injection",
 ]

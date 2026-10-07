@@ -1,0 +1,39 @@
+{
+  "_comment": "Example Computer Use configuration. Copy this file to .black-eclipse/computer.json and edit. This file is committed as a reference; the live copy at .black-eclipse/computer.json is gitignored. Env vars (HARNESS_COMPUTER_*) always override this file, which overrides the built-in defaults. Every value here is optional.",
+  "computer_use": {
+    "mode": "background",
+    "driver": { "backend": "auto" },
+    "observation": { "default_mode": "som" },
+    "vision": {
+      "mode": "hybrid",
+      "allow_cloud_for_sensitive": false,
+      "model": null
+    },
+    "ocr": { "enabled": true, "backend": "auto" },
+    "verification": { "enabled": true },
+    "recovery": { "enabled": true, "max_attempts": 3 },
+    "security": { "sensitive_data_redaction": true },
+    "finance": {
+      "mode": "read_only",
+      "max_order_value": 0,
+      "allowed_apps": [],
+      "allowed_accounts": [],
+      "allowed_instruments": []
+    },
+    "recording": { "enabled": true, "screenshots": true },
+    "limits": {
+      "max_concurrent": 2,
+      "idle_timeout_seconds": 900,
+      "max_actions": 200,
+      "action_timeout_seconds": 30
+    },
+    "snapshot_max_chars": 24000,
+    "grounding_min_confidence": 0.6,
+    "policy": {
+      "allowed_apps": [],
+      "denied_apps": [],
+      "allowed_actions": [],
+      "prohibited_actions": []
+    }
+  }
+}

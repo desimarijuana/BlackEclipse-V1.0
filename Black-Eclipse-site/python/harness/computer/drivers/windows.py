@@ -115,6 +115,7 @@ WM_RBUTTONDOWN, WM_RBUTTONUP = 0x0204, 0x0205
 WM_MBUTTONDOWN, WM_MBUTTONUP = 0x0207, 0x0208
 WM_MOUSEMOVE = 0x0200
 WM_MOUSEWHEEL = 0x020A
+WM_MOUSEHWHEEL = 0x020E
 WM_CHAR, WM_KEYDOWN, WM_KEYUP = 0x0102, 0x0100, 0x0101
 WM_SETTEXT = 0x000C
 SW_MINIMIZE, SW_MAXIMIZE, SW_RESTORE, SW_SHOW = 6, 3, 9, 5
@@ -672,6 +673,31 @@ class WindowsDriver(ComputerDriver):
             return 0
         return int(gti.hwndFocus or 0)
 
+    def _bg_mouse(self, top: int, x: int, y: int, *, down: int = 0, up: int = 0, wheel: int = 0) -> bool:
+        """Post a mouse message to the control under (x, y) in `top`'s own
+        hierarchy — z-order independent. `down`/`up` are the WM_*BUTTON* codes;
+        `wheel` is a signed delta (WM_MOUSEWHEEL/ WM_MOUSEHWHEEL). This is the
+        background analogue of the foreground SendInput path so pointer moves,
+        scrolls and button presses need not steal the user's focus.
+        """
+        target = self._deepest_child_at(top, x, y)
+        cx, cy = self._client_point(target, x, y)
+        lp = self._lparam(cx, cy)
+        ok = True
+        if down or up:
+            if down:
+                ok = ok and bool(user32.PostMessageW(target, down, 1, lp))
+            if up:
+                ok = ok and bool(user32.PostMessageW(target, up, 0, lp))
+            return ok
+        if wheel:
+            # The wheel message carries the delta in wParam HIGH word and the
+            # SCREEN point in lParam.
+            wparam = (wheel & 0xFFFF) << 16
+            ok = ok and bool(user32.PostMessageW(target, WM_MOUSEWHEEL, wparam, self._lparam(x, y)))
+            return ok
+        return bool(user32.PostMessageW(target, WM_MOUSEMOVE, 0, lp))
+
     def _bg_click(self, top: int, x: int, y: int, button: str, count: int) -> bool:
         target = self._deepest_child_at(top, x, y)
         cx, cy = self._client_point(target, x, y)
@@ -766,30 +792,64 @@ class WindowsDriver(ComputerDriver):
         self._fg_click(x, y, button, count)
         return InputResult(delivered=True, delivery_mode="foreground", detail="SendInput absolute")
 
-    async def mouse_down(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background") -> InputResult:
+    async def mouse_down(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background",
+                         window_id: Optional[str] = None) -> InputResult:
         if not _IS_WINDOWS:
             raise UnsupportedAction("Mouse press requires Windows.")
+        down = {"left": WM_LBUTTONDOWN, "right": WM_RBUTTONDOWN, "middle": WM_MBUTTONDOWN}[button]
+        if delivery_mode == "background":
+            hwnd = self._target_hwnd(window_id)
+            if hwnd:
+                ok = self._bg_mouse(hwnd, x, y, down=down)
+                return InputResult(delivered=ok, delivery_mode="background", detail=f"posted press to window {hwnd}")
         flags = {"left": MOUSEEVENTF_LEFTDOWN, "right": MOUSEEVENTF_RIGHTDOWN, "middle": MOUSEEVENTF_MIDDLEDOWN}[button]
         self._fg_mouse(x, y, MOUSEEVENTF_MOVE)
         self._fg_mouse(x, y, flags)
         return InputResult(delivered=True, delivery_mode="foreground")
 
-    async def mouse_up(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background") -> InputResult:
+    async def mouse_up(self, x: int, y: int, *, button: str = "left", delivery_mode: str = "background",
+                       window_id: Optional[str] = None) -> InputResult:
         if not _IS_WINDOWS:
             raise UnsupportedAction("Mouse release requires Windows.")
+        up = {"left": WM_LBUTTONUP, "right": WM_RBUTTONUP, "middle": WM_MBUTTONUP}[button]
+        if delivery_mode == "background":
+            hwnd = self._target_hwnd(window_id)
+            if hwnd:
+                ok = self._bg_mouse(hwnd, x, y, up=up)
+                return InputResult(delivered=ok, delivery_mode="background", detail=f"posted release to window {hwnd}")
         flags = {"left": MOUSEEVENTF_LEFTUP, "right": MOUSEEVENTF_RIGHTUP, "middle": MOUSEEVENTF_MIDDLEUP}[button]
         self._fg_mouse(x, y, flags)
         return InputResult(delivered=True, delivery_mode="foreground")
 
-    async def move(self, x: int, y: int, *, delivery_mode: str = "background") -> InputResult:
+    async def move(self, x: int, y: int, *, delivery_mode: str = "background", window_id: Optional[str] = None) -> InputResult:
         if not _IS_WINDOWS:
             raise UnsupportedAction("Pointer movement requires Windows.")
+        if delivery_mode == "background":
+            hwnd = self._target_hwnd(window_id)
+            if hwnd:
+                ok = self._bg_mouse(hwnd, x, y)
+                return InputResult(delivered=ok, delivery_mode="background", detail=f"posted move to window {hwnd}")
         self._fg_mouse(x, y, MOUSEEVENTF_MOVE)
         return InputResult(delivered=True, delivery_mode="foreground", detail="moved the real cursor")
 
-    async def scroll(self, *, dx: int = 0, dy: int = 0, at: Optional[tuple[int, int]] = None, delivery_mode: str = "background") -> InputResult:
+    async def scroll(self, *, dx: int = 0, dy: int = 0, at: Optional[tuple[int, int]] = None,
+                     delivery_mode: str = "background", window_id: Optional[str] = None) -> InputResult:
         if not _IS_WINDOWS:
             raise UnsupportedAction("Scrolling requires Windows.")
+        if delivery_mode == "background":
+            hwnd = self._target_hwnd(window_id)
+            if hwnd:
+                x, y = at if at else self.pointer_position() or (0, 0)
+                ok = True
+                if dy:
+                    ok = ok and self._bg_mouse(hwnd, x, y, wheel=-dy * 120)
+                if dx:
+                    # Horizontal wheel uses a separate message; reuse the wheel
+                    # helper's point but with the horizontal code by posting here.
+                    target = self._deepest_child_at(hwnd, x, y)
+                    wparam = ((-dx * 120) & 0xFFFF) << 16
+                    ok = ok and bool(user32.PostMessageW(target, WM_MOUSEHWHEEL, wparam, self._lparam(x, y)))
+                return InputResult(delivered=ok, delivery_mode="background", detail=f"posted wheel to window {hwnd}")
         if at:
             self._fg_mouse(at[0], at[1], MOUSEEVENTF_MOVE)
         if dy:
@@ -798,11 +858,23 @@ class WindowsDriver(ComputerDriver):
             self._fg_mouse(0, 0, MOUSEEVENTF_HWHEEL, data=-dx * 120 if dx else 0)
         return InputResult(delivered=True, delivery_mode="foreground")
 
-    async def drag(self, x1: int, y1: int, x2: int, y2: int, *, button: str = "left", delivery_mode: str = "background") -> InputResult:
+    async def drag(self, x1: int, y1: int, x2: int, y2: int, *, button: str = "left", delivery_mode: str = "background",
+                   window_id: Optional[str] = None) -> InputResult:
         if not _IS_WINDOWS:
             raise UnsupportedAction("Dragging requires Windows.")
-        down = {"left": MOUSEEVENTF_LEFTDOWN, "right": MOUSEEVENTF_RIGHTDOWN, "middle": MOUSEEVENTF_MIDDLEDOWN}[button]
-        up = {"left": MOUSEEVENTF_LEFTUP, "right": MOUSEEVENTF_RIGHTUP, "middle": MOUSEEVENTF_MIDDLEUP}[button]
+        down = {"left": WM_LBUTTONDOWN, "right": WM_RBUTTONDOWN, "middle": WM_MBUTTONDOWN}[button]
+        up = {"left": WM_LBUTTONUP, "right": WM_RBUTTONUP, "middle": WM_MBUTTONUP}[button]
+        if delivery_mode == "background":
+            hwnd = self._target_hwnd(window_id)
+            if hwnd:
+                # A posted drag: press, a short interpolated move, release. Many
+                # toolkits only honour a real drag with intermediate moves.
+                ok = self._bg_mouse(hwnd, x1, y1, down=down)
+                steps = 12
+                for i in range(1, steps + 1):
+                    self._bg_mouse(hwnd, x1 + (x2 - x1) * i // steps, y1 + (y2 - y1) * i // steps)
+                ok = self._bg_mouse(hwnd, x2, y2, up=up) and ok
+                return InputResult(delivered=ok, delivery_mode="background", detail=f"posted drag to window {hwnd}")
         self._fg_mouse(x1, y1, MOUSEEVENTF_MOVE)
         self._fg_mouse(x1, y1, down)
         steps = 12

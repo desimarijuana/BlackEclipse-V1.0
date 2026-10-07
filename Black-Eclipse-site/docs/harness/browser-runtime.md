@@ -61,6 +61,8 @@ accessibility snapshots with stable references (`@e1`, `@e2`, …).
 | `replay.py` | The browser-free trace inspection path: reconstructs a stored `BrowserTrace` into a bounded timeline + failure analysis (`browser_replay`). |
 | `devices.py` | `device_descriptor`/`known_device_names`: resolve a Playwright device descriptor from whichever catalog this runtime exposes (instance `devices`, module export, or driver `local_utils`). |
 | `context_ops.py` | Viewport + device emulation applied to a session, each recording its override (`set_viewport`, `emulate_device`). |
+| `task.py` | `BrowserTask`/`BrowserTaskRegistry`: bounded, persisted step-level progress for a long browser task. |
+| `bridge.py` | The ONE legal path from a browser observation to a verified claim (builds engine `Evidence`, then the engine's `verify_claim`). |
 | `config.py` | The `browser:` configuration section (env + optional `.black-eclipse/browser.json`). |
 | `errors.py` | The structured error family (`BrowserLaunchError`, `BrowserTimeoutError`, `BrowserHumanInterventionRequired`, …). |
 | `authorizers.py` | The effect authorizer that admits an effectful browser tool into the run's authorizer chain; the handler's policy engine does the real check. |
@@ -158,6 +160,42 @@ shape is reused, not duplicated.
 A bundled, inert `system.browser-research` skill (`skills/library/system/`) teaches
 the workflow through progressive disclosure; it ships `status: disabled` and does
 nothing until an operator enables it.
+
+### Browser → verified claim (Phase 10.4)
+
+`browser/bridge.py` is the ONE legal path from a browser observation to a
+*verified claim*. `evidence_from_browser` builds engine `Evidence` from a real
+`http(s)` URL + observed text (provenance never fabricated; an internal/blank page
+is refused). `claim_from_browser` then runs the research engine's OWN
+`web_verify.verify_claim` over it — there is no second verifier — and refuses a
+claim whose text is not grounded in the observed page text. A browser-derived
+number therefore enters a verified claim only through the engine's one path,
+never asserted directly.
+
+## Task progress (Phase 10.1)
+
+`browser/task.py` gives a long browser task a persisted, step-level checklist:
+“open SEC → search → find filing → download → extract”. A `BrowserTask` names
+bounded steps and advances a per-step status; `BrowserTaskRegistry` emits
+`browser.task.*` events AND persists to `agent-memory.db` (a `BrowserTask` table),
+so progress survives the call that produced it — not just a per-action event. The
+`browser_task` tool (`action=start|begin|complete|fail|finish|status`) drives it;
+`GET /browser/tasks` lists live + recent tasks. A task is content-free and capped
+(`MAX_STEPS=64`).
+
+## Cross-engine coordination (Phase 10.3)
+
+`research/coordination.py` documents and implements ONE routing policy across the
+three information surfaces — web-research engine, browser, computer-use:
+
+> **search finds → browser reads behind a login → computer-use reads a desktop app.**
+
+`route(SurfaceRequest)` is deterministic: a native app → computer-use; an
+interactive/login-gated page → browser; a JS-heavy page → browser; otherwise the
+web-research engine. A browser-read value is marked a **candidate**
+(`evidencePath: "browser_candidate"`), verified only through the engine. All three
+share the ONE evidence store; no surface keeps a second provenance shape.
+`routing_policy()` returns the machine-readable statement.
 
 ## Session isolation and delegation
 
@@ -399,6 +437,8 @@ Aggregates surface in `/health.browser.telemetry` (a small content-free summary)
 - `python/tests/test_browser_providers.py` — the Phase-9 provider layer: router
   health demotion/cost preference/fallback, Camofox/Browser Use/Firecrawl honest
   availability and capability declarations, and Firecrawl extraction-only routing.
+- `python/tests/test_phase10_coordination.py` — task progress, cross-engine
+  routing policy, and the browser→verified-claim bridge (offline).
 - `python/tests/test_browser_integration.py` — the acceptance flow against a REAL
   Chromium driving `python/tests/browser_app.py` (a stdlib local test app:
   /login, /forms, /tables, /modal, /dialog, /iframe, /upload, /download, /dynamic,

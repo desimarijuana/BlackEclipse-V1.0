@@ -517,11 +517,17 @@ class AgenticService:
         """Build a vision router from the runtime's default model settings.
 
         Local vs cloud is decided by the resolved provider; a model that cannot
-        accept images simply reports unavailable. This never invents a model.
+        accept images simply reports unavailable. This never invents a model. An
+        explicit `computer.vision_model` overrides the resolved model id (the
+        config field was previously parsed but ignored). A cloud model is wired as
+        the CLOUD backend, never the local one, so a sensitive frame is refused
+        rather than silently sent to a cloud provider.
         """
+        from .computer.config import computer_config  # noqa: PLC0415
         from .computer.vision.router import VisionRouter  # noqa: PLC0415
         from .computer.vision.backends import LocalModelVision, UnavailableVision  # noqa: PLC0415
 
+        cfg = computer_config()
         try:
             from .model_runtime import get_runtime  # noqa: PLC0415
 
@@ -530,9 +536,20 @@ class AgenticService:
             settings = getattr(resolution, "settings", None)
             if settings is None:
                 return VisionRouter(local=UnavailableVision())
+            if cfg.vision_model:
+                try:
+                    settings = settings.model_copy(update={"model": cfg.vision_model})
+                except Exception:  # noqa: BLE001 - a non-pydantic settings object
+                    pass
             provider = str(getattr(settings, "provider", "") or "").lower()
             local = any(marker in provider for marker in ("ollama", "local", "lmstudio", "vllm"))
-            return VisionRouter(local=LocalModelVision(settings=settings, local=local))
+            if local:
+                return VisionRouter(local=LocalModelVision(settings=settings, local=True))
+            # A cloud model is a CLOUD backend; sensitive frames stay refused.
+            return VisionRouter(
+                local=UnavailableVision("no local vision model is configured"),
+                cloud=LocalModelVision(settings=settings, local=False),
+            )
         except Exception:  # noqa: BLE001 - no model ⇒ honest unavailable vision
             return VisionRouter(local=UnavailableVision())
 

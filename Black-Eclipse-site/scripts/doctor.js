@@ -234,6 +234,21 @@ if (py) {
       fix("Python PTY support (optional)", `"${py}" -m pip install -r "${requirements}"`);
     }
   }
+
+  // 5g. Computer Use Engine backends. OPTIONAL: each missing one degrades to an
+  //     honest UNAVAILABLE with a reason (never a fake desktop), so these are
+  //     best-effort repairs. Pillow powers capture; uiautomation is the rich
+  //     accessibility tree; winsdk is the OS-native OCR engine.
+  const cuaModules = [["PIL", "Pillow (computer-use capture)"], ["uiautomation", "UI Automation (computer-use accessibility)"]];
+  if (process.platform === "win32") cuaModules.push(["winsdk", "Windows OCR (computer-use OCR)"]);
+  for (const [mod, label] of cuaModules) {
+    if (run(`"${py}" -c "import ${mod}"`, { timeout: 20000 }).status !== 0) {
+      const requirements = path.join(root, "python", "requirements.txt");
+      if (fs.existsSync(requirements)) {
+        fix(label, `"${py}" -m pip install -r "${requirements}"`);
+      }
+    }
+  }
 } else {
   console.log("[setup] Python not found — live prices and the agent runtime are disabled.");
   console.log("        Install from https://python.org, then:");

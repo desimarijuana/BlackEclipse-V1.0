@@ -137,6 +137,9 @@ class TradingTerminalAdapter(ApplicationAdapter):
                      "cancel_order", "modify_order", "transfer", "withdraw")
     failure_modes = ("market_closed", "insufficient_buying_power", "order_rejected",
                      "stale_price", "confirmation_changed", "wrong_account")
+    # A terminal that is reconnecting/loading must not be driven blind.
+    busy_markers = ("connecting", "loading", "synchronizing", "reconnecting")
+    ready_markers = ("connected", "ready", "online")
 
 
 class TradingViewAdapter(TradingTerminalAdapter):

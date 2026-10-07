@@ -75,3 +75,16 @@ pytest-asyncio>=0.24
 # Pinned to the 1.62 series so it shares the SAME chromium build the app's Node
 # Playwright already uses (they cache under one ms-playwright directory).
 playwright>=1.62,<1.63
+
+# Computer Use Engine (native desktop) — OPTIONAL in effect. Every backend here
+# is honest: a missing one degrades to UNAVAILABLE/reason, never a fake desktop.
+# * Pillow: image capture (GDI fallback encoding) + vision frame encoding.
+# * uiautomation (Windows): the rich accessibility tree (UIA). Without it the
+#   driver falls back to the Win32 child-window baseline.
+# * winsdk (Windows): the OS-native OCR engine (Windows.Media.Ocr) — no external
+#   binary, no download, no cloud.
+# Cross-platform Pillow is installed by default; the Windows-only backends carry
+# markers so they are not attempted on macOS/Linux.
+Pillow>=10.0
+uiautomation>=2.0; sys_platform == "win32"
+winsdk>=1.0.0b10; sys_platform == "win32"

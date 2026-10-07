@@ -8,6 +8,46 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Computer Use Engine — hardening pass: enforce advertised limits, real
+  backends, challenge stops.** Closed the gap between what the subsystem advertises
+  and what it enforces. (1) `max_actions` and `action_timeout_seconds` are now
+  enforced (`ComputerCore.act` wraps handlers in `asyncio.wait_for` and counts
+  `session.actions_started`; over-budget ⇒ `BudgetExceeded`/`COMPUTER_BUDGET_EXCEEDED`,
+  timeout ⇒ `COMPUTER_TIMEOUT`). (2) `vision_model` and `ocr_enabled` now have
+  consumers; a cloud vision model is wired as the CLOUD backend so a sensitive frame
+  is refused; finance allowlists (`finance_allowed_apps/accounts/instruments` +
+  `HARNESS_COMPUTER_FINANCE_ALLOWED_*`) flow into the firewall. (3) New
+  `ocr/windows.py` (`WindowsOCREngine`, `Windows.Media.Ocr`) makes OS-native OCR the
+  `auto` default on Windows; `Pillow`/`uiautomation`/`winsdk` are declared and
+  installed/repaired by `setup-python.js`/`doctor.js`. (4) CAPTCHA/MFA/biometric
+  detection (`security.detect_challenge`) refuses BEFORE any input and returns
+  `COMPUTER_HUMAN_REQUIRED` (verdict `ask_user`); new `computer_request_human` tool.
+  (5) `security.scan_injection` flags screen text posing as instructions in the
+  UNTRUSTED wrapper. (6) Background delivery now covers mouse move/scroll/drag and
+  button press/release; foreground focus is restored after escalation. Config
+  reference committed at `computer.example.json`. Docs updated: `docs/harness/
+  computer-use.md`, `docs/harness/decisions.md` (ADR-H140).
+
+- **Browser Automation Runtime — Phase 10 (progress, financial workflow,
+  cross-engine coordination, browser→claim).** (1) **Progress → planner** —
+  `browser/task.py` adds a persisted, bounded step-level checklist
+  (`BrowserTask`/`BrowserTaskRegistry`) emitted as `browser.task.*` AND stored in
+  `agent-memory.db` (a `BrowserTask` table), so a long run shows “open SEC →
+  search → find filing → download → extract” and the progress survives the call;
+  the `browser_task` tool and `GET /browser/tasks` drive/read it. (2) **A second
+  bundled financial workflow** — `system.sec-filing-research` (disabled/inert by
+  default, progressive disclosure, real browser/web tools only), following the
+  `system.browser-research` pattern. (3) **Cross-engine coordination** —
+  `research/coordination.py` documents and implements ONE routing policy (“search
+  finds → browser reads behind a login → computer-use reads a desktop app”),
+  deterministic via `route(SurfaceRequest)`, sharing the ONE evidence store; a
+  browser-read value is a candidate. (4) **Browser→Evidence deepening** —
+  `browser/bridge.py` is the ONE legal path from a browser observation to a
+  verified claim: build engine `Evidence` (provenance never fabricated), then run
+  the engine's OWN `verify_claim`; a claim not grounded in the observed text is
+  refused. Tests: `python/tests/test_phase10_coordination.py`. Docs:
+  `docs/harness/browser-runtime.md`, ADR-H139.
+
 - **Search provider: configure a real provider by name, not JSON.** The
   `SEARCH_PROVIDER_PRESETS` catalog (Tavily, Brave, Exa, Serper, SearXNG) is now
   reachable: `resolveSearchApiConfig` accepts `SEARCH_API_CONFIG` as a preset name

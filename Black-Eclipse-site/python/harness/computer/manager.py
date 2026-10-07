@@ -18,6 +18,7 @@ import time
 from typing import Any, Optional
 
 from .config import ComputerConfig, computer_config, MAX_SESSIONS_CEILING
+from .applications.registry import build_adapter_registry
 from .diagnostics import diagnose
 from .drivers import build_driver
 from .errors import ComputerError, ComputerUnavailable
@@ -45,7 +46,10 @@ class ComputerManager:
         self.memory = ComputerMemory(memory_service)
         self.driver = build_driver(self.config.driver_backend)
         self.ax = None
-        self.ocr = build_ocr_engine(self.config.ocr_backend)
+        # `ocr_enabled=false` disables OCR entirely; otherwise the backend choice
+        # (auto/tesseract/none) decides. This makes the previously-dead
+        # `ocr_enabled` config field authoritative.
+        self.ocr = build_ocr_engine("none" if not self.config.ocr_enabled else self.config.ocr_backend)
         # The vision router is built lazily at start (it needs model settings); a
         # provided router wins, otherwise an honest unavailable router is used.
         self.vision = vision
@@ -128,6 +132,7 @@ class ComputerManager:
                 "idleTimeoutSeconds": self.config.idle_timeout_seconds,
                 "actionTimeoutSeconds": self.config.action_timeout_seconds,
             },
+            "adapters": build_adapter_registry().describe(),
             "artifactsRoot": str(self.config.artifacts_root),
         }
 

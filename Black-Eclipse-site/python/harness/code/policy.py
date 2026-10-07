@@ -508,6 +508,7 @@ def is_browser_effect(name: str) -> bool:
 COMPUTER_EFFECTFUL_TOOLS: tuple[str, ...] = (
     "computer_finance_prepare",
     "computer_takeover",
+    "computer_request_human",
 )
 
 

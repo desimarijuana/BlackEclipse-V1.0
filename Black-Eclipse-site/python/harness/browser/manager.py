@@ -37,6 +37,7 @@ from ..persistence import now_iso
 from .router import BrowserProviderRouter, RoutingRequest
 from .session import BrowserSession, SessionState
 from .store import BrowserStore, new_session_id
+from .task import BrowserTaskRegistry
 from .telemetry import BrowserTelemetry, get_telemetry
 from .trace import BrowserTrace
 from .vault import BrowserVault
@@ -72,6 +73,7 @@ class BrowserManager:
         self.router = BrowserProviderRouter(self.config, self._providers)
         self.vault = BrowserVault(store=self.store, resolver=resolver)
         self.profiles = ProfileManager(self.config.profiles_dir)
+        self.tasks = BrowserTaskRegistry(store=self.store, emit=self._registry_emit)
         self._sessions: dict[str, BrowserSession] = {}
         self._lock = asyncio.Lock()
         self._sweep_task: Optional[asyncio.Task[Any]] = None
@@ -101,6 +103,10 @@ class BrowserManager:
 
     def telemetry_cost(self) -> dict[str, Any]:
         return self.telemetry.cost()
+
+    def _registry_emit(self, event_type: str, data: dict[str, Any]) -> None:
+        """Emit a `browser.task.*` event on the manager's bus (best-effort)."""
+        self._emit(event_type, data)
 
     def recent_logs(self, **filters: Any) -> list[dict[str, Any]]:
         return self.telemetry.logs(**filters)

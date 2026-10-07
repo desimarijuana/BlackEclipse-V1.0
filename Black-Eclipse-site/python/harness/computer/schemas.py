@@ -92,6 +92,10 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "computer_pause": _schema({"reason": {"type": "string"}, "session_id": _SESSION}),
     "computer_resume": _schema({"reason": {"type": "string"}, "session_id": _SESSION}),
     "computer_release": _schema({"reason": {"type": "string"}, "session_id": _SESSION}),
+    "computer_request_human": _schema({
+        "reason": {"type": "string", "description": "Why a person is needed (e.g. a CAPTCHA, MFA prompt or security check)."},
+        "session_id": _SESSION,
+    }),
 
     # ── Recording ────────────────────────────────────────────────────────────
     "computer_record_export": _schema({"session_id": _SESSION}),
@@ -154,6 +158,9 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "computer_session_list": {"risk": "low", "timeout": 15_000, "desc": "List desktop sessions."},
     "computer_session_close": {"risk": "low", "timeout": 20_000, "desc": "Close a desktop session."},
     "computer_takeover": {"risk": "low", "timeout": 15_000, "desc": "Hand control to a person: the agent stops acting, session state is preserved, and it can resume later."},
+    "computer_request_human": {"risk": "low", "timeout": 15_000, "desc":
+        "Stop and ask a person to take over. Use for a CAPTCHA/MFA/biometric/security challenge or any "
+        "point where a human decision is required. The agent stops acting; state is preserved."},
     "computer_pause": {"risk": "low", "timeout": 15_000, "desc": "Pause a session."},
     "computer_resume": {"risk": "low", "timeout": 15_000, "desc": "Resume a paused/human-held session."},
     "computer_release": {"risk": "low", "timeout": 15_000, "desc": "Release the control lease back to the agent."},
@@ -178,6 +185,7 @@ TOOL_META: dict[str, dict[str, Any]] = {
 EFFECTFUL_TOOLS: tuple[str, ...] = (
     "computer_finance_prepare",
     "computer_takeover",
+    "computer_request_human",
 )
 
 ALL_TOOL_NAMES: tuple[str, ...] = tuple(INPUT_SCHEMAS.keys())
