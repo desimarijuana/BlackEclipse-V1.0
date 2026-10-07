@@ -9,6 +9,10 @@ last-verified: 2026-10-07
 **Who this is for:** anyone extending Eclipse's desktop-control capability, or
 debugging a run that drove a native application.
 
+> Deciding whether a task belongs here, in the web-research engine, or in the
+> browser? See [`research-surfaces.md`](./research-surfaces.md) — the one "which
+> surface answers which question" page.
+
 The **Computer Use Engine** (`python/harness/computer/`) lets Eclipse observe and
 operate a real desktop: native applications (Excel, VS Code, a terminal
 *emulator*, PDF readers), OS chrome (file pickers, dialogs, menus) and financial

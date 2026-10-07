@@ -450,6 +450,7 @@ When a change touches one of these, update the listed doc in the same change:
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | `python/harness/workflows/`, `python/harness/run_lineage.py`, `python/harness/eval_gates/`, `python/harness/health-ledger.ts`… (run lineage/checkpoints/resume, the workflow compiler, the route-health ledger + probe, provider eligibility, the eval gates) | `harness/architecture.md` (execution graph / workflow / health-keying / capability-matrix sections), `harness/decisions.md` (ADR-H93…H96), this file |
 | A new top-level folder or major module | this file |
+| The three research surfaces (web-research / browser / computer-use) or their routing | `harness/research-surfaces.md` (the shared "which surface answers which question" page), plus the surface's own doc (`web-research-engine.md` / `browser-runtime.md` / `computer-use.md`), `harness/decisions.md` |
 | A new architectural decision | app-level: `skills/ARCHITECT.md` first, mirrored into `DECISIONS.md`; harness/runtime: `docs/harness/decisions.md` (`ADR-HNN`, not mirrored) |
 | Review a shipped-phase plan status or add a plan note | Repository root `agentic-plan-implementaion.md` (the MCP Phases 5A–5I statuses live there; phase progress logs are the source of truth) |
 

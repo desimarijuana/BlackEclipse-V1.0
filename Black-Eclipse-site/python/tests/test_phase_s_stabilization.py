@@ -1,0 +1,79 @@
+"""Phase S — stabilization tests.
+
+S.2 (ratchet hygiene): `main.py` is split (lifespan wiring lives in `boot.py`) and
+the prompt ceiling was LOWERED, not raised. S.3 (docs drift): the three research
+surfaces share one "which surface answers which question" page and cross-link to
+it. These pin the process commitments so they cannot silently regress.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+_DOCS = Path(__file__).resolve().parent.parent.parent / "docs" / "harness"
+
+
+# ── S.2: ratchet hygiene ─────────────────────────────────────────────────────
+
+def test_main_py_is_not_ratcheted_and_is_under_the_hard_ceiling():
+    from tests.test_size_budget import HARD_CEILING_LINES, RATCHET_PY, _measure
+
+    measured = _measure()
+    assert "main.py" not in RATCHET_PY, "main.py was split; it must not stay ratcheted"
+    assert measured["main.py"] < HARD_CEILING_LINES, (
+        f"main.py is {measured['main.py']} lines, at/over the hard ceiling"
+    )
+
+
+def test_boot_module_owns_the_lifespan():
+    from harness import boot, main
+
+    # The lifespan lives in `boot.py`; `main` re-exports it for `FastAPI(...)`.
+    assert hasattr(boot, "lifespan")
+    assert main.lifespan is boot.lifespan
+    # The startup/shutdown sequence is intact.
+    assert hasattr(boot, "_boot") and hasattr(boot, "_shutdown")
+
+
+def test_prompt_ceiling_was_lowered_not_raised():
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT
+
+    # HEAD's ceiling was 23300 (raised repeatedly by concurrent work); Phase S.2
+    # lowered it to the measured size.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 23025
+
+
+def test_main_still_reexports_the_identity_boundary_surface():
+    """Splitting must not break the public `harness.main` surface tests rely on."""
+    from harness import main
+
+    assert callable(main.identity_boundary)
+    assert callable(main.deployment_exposure)
+    assert isinstance(main.IDENTITY_BOUNDARY, dict)
+
+
+# ── S.3: docs drift — one shared surface page, cross-linked ──────────────────
+
+def test_shared_surface_page_exists():
+    page = (_DOCS / "research-surfaces.md").read_text(encoding="utf-8")
+    assert "search finds" in page
+    assert "One verification path" in page
+    assert "claim_verify" in page
+
+
+def test_all_three_engine_docs_cross_link_the_surface_page():
+    for name in ("web-research-engine.md", "browser-runtime.md", "computer-use.md"):
+        text = (_DOCS / name).read_text(encoding="utf-8")
+        assert "research-surfaces.md" in text, f"{name} does not link the shared surface page"
+
+
+def test_coordination_module_matches_the_doc():
+    from harness.research.coordination import BROWSER, COMPUTER, WEB, route, routing_policy
+    from harness.research.coordination import SurfaceRequest
+
+    policy = routing_policy()
+    assert set(policy["surfaces"]) == {WEB, BROWSER, COMPUTER}
+    # The doc's rule is the module's rule.
+    assert route(SurfaceRequest(native_app=True)).surface == COMPUTER
+    assert route(SurfaceRequest(login_gated=True)).surface == BROWSER
+    assert route(SurfaceRequest(question="x")).surface == WEB

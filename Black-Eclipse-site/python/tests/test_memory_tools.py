@@ -306,21 +306,15 @@ def test_prompt_has_no_phantom_capabilities():
 def test_prompt_char_ceiling():
     """The finance-harness prompt stays under its ceiling (a size ratchet).
 
-    Phase 7 raised the ceiling from 17500 to 18000 for the "Working on several
-    things at once" paragraph (`delegate`); Phase 9 raised it to 18600 for the
-    "Building a tool" paragraph (`scaffold_kit`); the Browser Automation Runtime
-    raised it to 19400 for the "Browser automation" guidance block; the
-    Evidence-Driven Web Research Engine raised it to 20600 for the "Web research
-    workflow" paragraph (`web_*`/`research_*`) and to 21600 for the deterministic
-    "financial math" paragraph (`finance_metrics`/`finance_series`/
-    `finance_valuation`); the Computer Use Engine raised it to 23300 for the
-    "Computer Use (native desktop)" guidance block (observe-first, stale-handle
-    refusal, verdict/recovery, the finance firewall). The ratchet still bites — a
-    bounded allowance, not an open door.
+    The ceiling was raised repeatedly by concurrent work (Phase 7 `delegate`,
+    Phase 9 `scaffold_kit`, the Browser runtime, the Web Research Engine, the
+    Computer Use Engine — to 23300). Phase S.2 instead LOWERED it, by trimming a
+    redundant worked example, so the ratchet bites again rather than being widened.
+    It may only shrink from here unless a new capability genuinely requires more.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 23300, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 23025, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

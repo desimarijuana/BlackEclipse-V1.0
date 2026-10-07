@@ -4285,6 +4285,39 @@ number can never bypass the engine's verification.
 /browser/tasks`; the bundled `system.sec-filing-research` skill; tests
 `test_phase10_coordination.py`. No new evidence store — the browser still feeds the
 engine's collector.
+## ADR-H141 — The lifespan is its own module, the prompt ceiling narrows, and the three surfaces share one page (Phase S)
+
+**Decision.** Stabilization is three process commitments, each made structural:
+
+1. **Split, don't raise.** `main.py`'s FastAPI lifespan boot/shutdown wiring moved
+   to `harness/boot.py`; `main.py` dropped from ~1018 to ~955 lines (under the
+   1200-line hard ceiling) and was REMOVED from the size ratchet rather than having
+   its number bumped. `main` re-exports `lifespan`, `identity_boundary`,
+   `deployment_exposure` and `IDENTITY_BOUNDARY` so the public surface is unchanged.
+2. **The prompt ceiling narrows.** The finance-agent prompt was trimmed of a
+   redundant worked example and the ceiling LOWERED from 23300 to 23025 (its
+   measured size) — the ratchet bites again instead of being widened once more.
+   No honesty/authority rule was removed to hit the number.
+3. **One page for the three surfaces.** `docs/harness/research-surfaces.md` is the
+   single "which surface answers which question" page; `web-research-engine.md`,
+   `browser-runtime.md` and `computer-use.md` all cross-link to it, and
+   `NAVIGATION.md`'s trigger table names it.
+
+**Why.** A ratchet that is only ever raised is not a ratchet, and god files
+reappear when the answer to growth is always "split it later". `main.py` had grown
+across three separate features; extracting the lifespan makes the route surface and
+the boot sequence separate concerns. The three engines had drifted into
+overlapping prose about who answers what; one shared page is the fix.
+
+**Note on S.1 (concurrency).** Phase S also names a process hazard — multiple
+writers committing into shared files, sweeping unrelated changes together. That is
+a working-practice rule (serialize writers or use short-lived branches), not code;
+it is recorded here and in the changelog rather than enforced by a hook.
+
+**Consequences.** New module `harness/boot.py`; `main.py` shrinks and leaves the
+ratchet; prompt ceiling 23300 → 23025; new doc `research-surfaces.md` cross-linked
+from the three engine docs and `NAVIGATION.md`; tests
+`test_phase_s_stabilization.py`.
 ## ADR-H140 — Computer Use is honest by construction: enforcement, native backends and challenge stops
 
 **Context.** The Computer Use Engine shipped production-grade and Windows-only, but

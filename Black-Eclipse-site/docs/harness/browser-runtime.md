@@ -9,6 +9,10 @@ last-verified: 2026-10-07
 **Who this is for:** a developer changing the browser capability, adding a
 provider, or debugging why a `browser_*` tool refused.
 
+> Deciding whether a task belongs here, in the web-research engine, or in
+> computer-use? See [`research-surfaces.md`](./research-surfaces.md) — the one
+> "which surface answers which question" page.
+
 This is the *how it works*. The decisions and their rationale are in
 [`decisions.md`](./decisions.md) (ADR-H134). The tool-by-tool contract is
 generated from `python/harness/browser/schemas.py` (`INPUT_SCHEMAS` +

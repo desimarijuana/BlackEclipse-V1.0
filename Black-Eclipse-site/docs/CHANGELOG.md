@@ -1,4 +1,4 @@
-﻿# Change Log
+# Change Log
 
 ## Rotation policy
 
@@ -7,6 +7,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-07
+
+- **Phase S — stabilization (ratchet hygiene, docs drift, process).**
+  (S.2) **Ratchet hygiene** — `main.py`'s FastAPI lifespan boot/shutdown wiring
+  extracted to `harness/boot.py`; `main.py` dropped from ~1018 to ~955 lines (under
+  the 1200-line hard ceiling) and was removed from the size ratchet rather than
+  raised. `main` still re-exports `lifespan`, `identity_boundary`,
+  `deployment_exposure`, `IDENTITY_BOUNDARY` so the public surface is unchanged.
+  The finance-agent prompt ceiling was LOWERED 23300 → 23025 (trimmed a redundant
+  worked example; no honesty/authority rule removed) so the ratchet bites again.
+  (S.3) **Docs drift** — new `docs/harness/research-surfaces.md`, the ONE "which
+  surface answers which question" page (search finds → browser reads behind a
+  login → computer-use reads a desktop app), cross-linked from
+  `web-research-engine.md`, `browser-runtime.md`, `computer-use.md` and named in
+  `NAVIGATION.md`'s trigger table. (S.1) **Concurrency** — recorded as a
+  working-practice rule (serialize writers / short-lived branches): recent commits
+  swept unrelated changes together, including this session's Phase 8–10 browser
+  work committed by another writer. Tests:
+  `python/tests/test_phase_s_stabilization.py`. Docs: `docs/harness/decisions.md`
+  (ADR-H141), `docs/NAVIGATION.md`,
+  `docs/harness/{browser-runtime,web-research-engine,computer-use,research-surfaces}.md`.
 
 - **Computer Use Engine — hardening pass: enforce advertised limits, real
   backends, challenge stops.** Closed the gap between what the subsystem advertises

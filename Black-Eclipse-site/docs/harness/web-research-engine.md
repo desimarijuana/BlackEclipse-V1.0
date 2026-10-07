@@ -9,6 +9,10 @@ last-verified: 2026-10-07
 **Who this is for:** anyone working on research, web retrieval, evidence,
 citations, conflict handling or point-in-time correctness in Eclipse.
 
+> Deciding whether a task belongs here, in the browser, or in computer-use? See
+> [`research-surfaces.md`](./research-surfaces.md) — the one "which surface answers
+> which question" page.
+
 ## Why this exists
 
 Eclipse is a financial/engineering agentic harness. Financial analysis demands

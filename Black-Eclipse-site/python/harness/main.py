@@ -20,7 +20,6 @@ import asyncio
 import json
 import logging
 import time
-from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -28,6 +27,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
+from .boot import lifespan
 from .deps import (
     IDENTITY_BOUNDARY,
     _LOOPBACK_HOSTS,
@@ -75,74 +75,7 @@ from .skills.runtime import SkillExecutionRequest
 
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
 
-# The service is process-wide, but FastAPI may enter/exit the lifespan more than
-# once (nested test clients, reload). Reference-count so only the LAST exit tears
-# MCP down — an inner lifespan must never disconnect the servers a sibling still
-# uses.
-_lifespan_refs = 0
-
-
-@asynccontextmanager
-async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    # Connect configured MCP servers and register selected read-only tools. A
-    # failure is a diagnostic, never a boot blocker (AgenticService.start_mcp).
-    global _lifespan_refs
-    _lifespan_refs += 1
-    if _lifespan_refs == 1:
-        # Deployment guard: this app is single-user local with NO authentication
-        # or tenancy isolation. A non-loopback bind without an operator secret is
-        # flagged loudly so the configuration is never mistaken for multi-user
-        # secure. It does not block boot (a local dev bind is the normal case).
-        exposure = deployment_exposure()
-        if exposure.get("exposed"):
-            logging.getLogger("harness").warning("[harness-py] DEPLOYMENT WARNING: %s", exposure["warning"])
-        # Retention: mark due AUTOMATIC memories expired on startup. Idempotent
-        # and best-effort — a failure is a diagnostic, never a boot blocker.
-        service.run_startup_maintenance()
-        # Terminal subsystem recovery: reconcile persisted process/session rows.
-        # A failure is a diagnostic, never a boot blocker.
-        service.start_terminal()
-        # Application Runtime reconciliation: re-examine the runtimes left by a
-        # previous process. A failure is a diagnostic, never a boot blocker.
-        service.reconcile_application_runtime()
-        # Code Intelligence & Understanding Engine (CIUE): warm the code index in
-        # the background. Language servers start lazily on first use. A failure is
-        # a diagnostic, never a boot blocker.
-        service.start_code_intel()
-        # Browser + Computer-Use runtimes: wire resolvers, start idle sweepers. No
-        # browser/desktop is launched until a tool asks. Never a boot blocker.
-        service.start_browser()
-        await service.start_browser_sweeper()
-        service.start_computer()
-        await service.start_computer_sweeper()
-        await service.start_mcp()
-        # The bounded learning-review queue: reviews completed runs in the
-        # background. It only creates inert records/suggestions and never enables
-        # a skill. A failure is a diagnostic, never a boot blocker.
-        await service.start_learning_review()
-        # Harness-owned jobs (Phase 6): one durable scheduler task beside the
-        # three TS refresh loops, which stay exactly as they are. A failure is a
-        # diagnostic, never a boot blocker.
-        await service.start_jobs()
-    try:
-        yield
-    finally:
-        _lifespan_refs -= 1
-        if _lifespan_refs == 0:
-            # Cancel queued reviews and terminate MCP subprocesses cleanly so none
-            # leak across restarts.
-            await service.stop_jobs()
-            await service.stop_learning_review()
-            await service.stop_code_intel()
-            await service.stop_browser()
-            await service.stop_computer()
-            await service.stop_mcp()
-            service.stop_application_runtime()
-            service.stop_execution()
-            await service.stop_terminal()
-
-
-app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=lifespan)
 
 # Route groups extracted into `harness/routers/`; registered here so the public
 # surface stays `harness.main:app` and paths are unchanged.
