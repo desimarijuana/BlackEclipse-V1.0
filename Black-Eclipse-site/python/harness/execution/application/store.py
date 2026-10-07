@@ -129,9 +129,17 @@ class ApplicationRuntimeStore:
              """CREATE TABLE IF NOT EXISTS AppDeployment (
                   id TEXT PRIMARY KEY, runtimeId TEXT, applicationId TEXT, provider TEXT,
                   status TEXT, detail TEXT, data TEXT, createdAt TEXT NOT NULL)"""),
+            ("AppRuntimeMetric",
+             """CREATE TABLE IF NOT EXISTS AppRuntimeMetric (
+                  id TEXT PRIMARY KEY, runtimeId TEXT NOT NULL, sampledAt TEXT NOT NULL,
+                  cpuMs REAL, memoryMb REAL, processCount INTEGER, uptimeS REAL,
+                  restartCount INTEGER DEFAULT 0, health TEXT)"""),
         ):
             self._db.execute(ddl)
             self._db.execute(f"CREATE INDEX IF NOT EXISTS idx_{table.lower()}_rt ON {table}(runtimeId)")
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_appmetric_rt ON AppRuntimeMetric(runtimeId, sampledAt)"
+        )
         self._db.commit()
 
     # ── applications ──────────────────────────────────────────────────────────────
@@ -302,6 +310,52 @@ class ApplicationRuntimeStore:
         )
         self._db.commit()
         return deployment_id
+
+    # ── runtime metrics history ────────────────────────────────────────────────────
+    def record_metric(
+        self, runtime_id: str, *, cpu_ms: Optional[float] = None, memory_mb: Optional[float] = None,
+        process_count: Optional[int] = None, uptime_s: Optional[float] = None,
+        restart_count: int = 0, health: str = "",
+    ) -> None:
+        """Append one point-in-time metric sample. Bounded by a retention sweep."""
+        self._db.execute(
+            """INSERT INTO AppRuntimeMetric
+               (id, runtimeId, sampledAt, cpuMs, memoryMb, processCount, uptimeS, restartCount, health)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (_new("met_"), runtime_id, now_iso(), cpu_ms, memory_mb, process_count, uptime_s, int(restart_count), health),
+        )
+        self._db.commit()
+
+    def metric_history(self, runtime_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """The recent metric samples for a runtime, oldest-first."""
+        rows = self._db.execute(
+            "SELECT * FROM AppRuntimeMetric WHERE runtimeId=? ORDER BY sampledAt DESC LIMIT ?",
+            (runtime_id, max(1, min(limit, 2000))),
+        ).fetchall()
+        return [_row(r) for r in reversed(rows)]
+
+    def prune_metrics(self, runtime_id: str, *, keep: int = 500) -> int:
+        """Keep only the newest `keep` samples for a runtime. Returns rows removed."""
+        row = self._db.execute(
+            "SELECT COUNT(*) AS n FROM AppRuntimeMetric WHERE runtimeId=?", (runtime_id,)
+        ).fetchone()
+        total = int((_row(row).get("n") or 0))
+        excess = total - max(1, int(keep))
+        if excess <= 0:
+            return 0
+        self._db.execute(
+            "DELETE FROM AppRuntimeMetric WHERE id IN ("
+            "SELECT id FROM AppRuntimeMetric WHERE runtimeId=? ORDER BY sampledAt ASC LIMIT ?)",
+            (runtime_id, excess),
+        )
+        self._db.commit()
+        return excess
+
+    def list_all_metrics(self, *, limit: int = 500) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM AppRuntimeMetric ORDER BY sampledAt DESC LIMIT ?", (max(1, min(limit, 5000)),)
+        ).fetchall()
+        return [_row(r) for r in rows]
 
 
 def _stable(text: str) -> str:

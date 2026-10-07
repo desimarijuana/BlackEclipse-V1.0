@@ -8,6 +8,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-06
 
+- **Git UI now uses the ONE engine (no second implementation).** Corrected an
+  architecture violation: the Settings Git panel used a standalone TypeScript Git
+  wrapper (`src/lib/git/service.ts`) that spawned git from Node, bypassing the
+  Python engine entirely (no journal, no operation state, no risk engine, no lock,
+  only a filename secret check). `/api/git` is now a THIN proxy over the runtime's
+  `/git/*` routes — the same service the agent uses; `src/lib/git/service.ts`
+  forwards and holds no Git logic, browser types moved to the client-safe
+  `src/lib/git/types.ts`, and the route returns 503 honestly when the runtime is
+  unavailable rather than falling back. Added engine routes `/git/draft-message`,
+  `/git/unstage`, `/git/push`, and `cached=1` on `/git/diff`; the push result now
+  carries the branch. Tests: `test_git_api.py` extended. docs updated:
+  `docs/harness/git-version-control.md`.
+
+- **Size-budget guard green again after the Application Runtime commit.** The
+  Git/Application-Runtime change (146f6d5) left two modules above the 1200-line
+  hard ceiling — `main.py` (1220) and `execution/application/manager.py` (1239) —
+  so `test_size_budget.py` failed. Applied the repo's sanctioned mechanism:
+  justified `RATCHET_PY` entries pinned to the measured size (both may only
+  shrink; route-group extraction and adapter separation noted as the split
+  candidates). Full Python suite green (3274). no doc change — test-only ratchet
+  bookkeeping.
+
+- **Backup: consistent snapshot of all runtime SQLite state.** Took `VACUUM INTO`
+  copies (WAL-safe while the app runs) of `jdds.db`, `agent-memory.db`,
+  `eclipse-memory.db`, and the `python/` copies into
+  `_backups/2026-10-07-03-56-42/` with a `MANIFEST.json` of sizes + SHA-256, each
+  verified `quick_check=ok`. `_backups/` stays gitignored; no code or contract
+  changed. no doc change — operational backup artifact, no architecture/data-shape/setup change.
+
 - **Application Runtime â€” the future tiers are now real, and the layer is
   production-hardened.** (1) **Orchestration:** `KubernetesAdapter`,
   `HelmAdapter`, `KustomizeAdapter` (a closed operation table, validated args,

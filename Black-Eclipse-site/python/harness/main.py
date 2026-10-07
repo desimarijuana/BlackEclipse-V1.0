@@ -211,7 +211,32 @@ def health() -> dict[str, Any]:
         # statement that this is a single-user local app with no authentication
         # and no tenancy isolation, plus the current exposure assessment.
         "identity": identity_boundary(),
+        # Application Runtime provider readiness (non-secret): which
+        # orchestration/infra/cloud tools are installed AND authenticated, so a
+        # missing tool is a boot-time instruction, never a runtime surprise. Cached
+        # for 60s because this endpoint is polled.
+        "runtimeProviders": _runtime_readiness(),
     }
+
+
+def _runtime_readiness() -> dict[str, Any]:
+    """The provider readiness summary, or an honest empty report. Never raises."""
+    manager = getattr(service, "application_runtime", None)
+    if manager is None:
+        return {"ready": None, "providers": [], "missing": [], "unauthenticated": [], "hints": []}
+    try:
+        report = manager.readiness()
+        # `/health` is polled: return only the summary + the gaps, not the full
+        # per-provider table (that is `/runtime/providers`).
+        return {
+            "ready": report.get("ready"),
+            "missing": report.get("missing", []),
+            "unauthenticated": report.get("unauthenticated", []),
+            "hints": report.get("hints", []),
+            "count": len(report.get("providers", [])),
+        }
+    except Exception:  # noqa: BLE001 - readiness must never break /health
+        return {"ready": None, "providers": [], "missing": [], "unauthenticated": [], "hints": []}
 
 
 @app.get("/retrieval/metrics")

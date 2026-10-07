@@ -235,6 +235,17 @@ merges. It is deliberately NOT in `npm test` (a real credential and network call
 must never gate the offline suite). The mocked-HTTP tests in
 `test_git_integration.py` cover the mapping deterministically.
 
+## IDE / UI integration
+
+`/api/git` (Next.js) is a THIN proxy over the runtime's `/git/*` routes — it holds
+no Git logic. `src/lib/git/service.ts` forwards to the Python engine (discovery,
+journal, lock, risk/authorization); `src/lib/git/client.ts` is the browser-safe
+wrapper the Settings Git panel (`src/components/screens/git-panel.tsx`) uses.
+Types live in the client-safe `src/lib/git/types.ts`, so the client bundle never
+imports a server-only module. When the runtime is unavailable the route returns
+503 honestly — there is no fallback to a second (TypeScript) Git implementation.
+This corrects an earlier standalone TS git wrapper that bypassed the engine.
+
 ## Known limitations
 
 - A provider operation is only as capable as its host: GitLab/Bitbucket surface

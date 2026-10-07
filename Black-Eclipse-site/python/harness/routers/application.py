@@ -90,6 +90,12 @@ def orchestrators(_: bool = Depends(require_operator)) -> dict[str, Any]:
             "cloudProviders": _runtime().registry.deployments.describe()}
 
 
+@router.get("/runtime/providers")
+def runtime_providers(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The provider install/auth readiness report (non-secret). Read-only."""
+    return {"success": True, **_runtime().readiness()}
+
+
 @router.get("/runtime/deploy/providers")
 def deploy_providers(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, "providers": _runtime().registry.deployments.describe()}
@@ -163,6 +169,12 @@ def runtime_metrics(runtime_id: str, _: bool = Depends(require_operator)) -> dic
     if data.get("status") == "not_found":
         raise HTTPException(status_code=404, detail="no such runtime")
     return {"success": True, **data}
+
+
+@router.get("/runtime/{runtime_id}/metrics/history")
+def runtime_metrics_history(runtime_id: str, limit: int = 200, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """A runtime's metric samples + a trend summary. Read-only."""
+    return {"success": True, **_runtime().metrics_history(runtime_id, limit=limit)}
 
 
 @router.get("/runtime/{runtime_id}/events")

@@ -44,8 +44,17 @@ class _StubGit:
     def stage(self, repo, paths, all=False, run_id=None):
         return _Outcome()
 
+    def unstage(self, repo, paths=None, run_id=None):
+        return _Outcome()
+
     def commit(self, repo, message, amend=False, allow_secrets=False, **kw):
         return _Outcome()
+
+    def push(self, repo, **kw):
+        return _Outcome()
+
+    def generate_commit_message(self, repo, conventional=None):
+        return {"available": True, "message": "draft"}
 
 
 class _StubService:
@@ -91,6 +100,17 @@ def test_git_journal_lists_entries(client):
     response = client.get("/git/journal")
     assert response.status_code == 200
     assert response.json()["entries"][0]["operation"] == "commit"
+
+
+def test_git_draft_message_route(client):
+    response = client.get("/git/draft-message")
+    assert response.status_code == 200
+    assert "draft" in response.json()
+
+
+def test_git_diff_cached_and_unstage_routes(client):
+    assert client.get("/git/diff?cached=1").status_code == 200
+    assert client.post("/git/unstage", json={"paths": ["a.txt"]}).status_code == 200
 
 
 def test_git_routes_require_operator_from_remote(monkeypatch):

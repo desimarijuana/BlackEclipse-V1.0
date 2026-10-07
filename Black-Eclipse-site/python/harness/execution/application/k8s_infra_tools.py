@@ -221,9 +221,54 @@ async def _helm_op(args: dict[str, Any], ctx: ToolContext, op: str, required_fie
 async def kustomize_build(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     manager = _manager()
     if manager is None:
-        return _refusal(*_NO_RUNTIME)
+        return refusal(*_NO_RUNTIME)
     result = await asyncio.to_thread(manager.run_orchestrator, "build", {"path": args.get("path") or "."}, adapter="kustomize")
     return _result("Kustomize build.", result)
+
+
+async def k8s_port_forward(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Start `kubectl port-forward` as a MANAGED process (not a one-shot op).
+
+    The forward runs through the terminal process manager, so it is tree-killed,
+    cancellable and visible in the Processes UI. A local port of 0 is resolved to a
+    free one first.
+    """
+    manager = _manager()
+    if manager is None:
+        return refusal(*_NO_RUNTIME)
+    model = K8sOpInput(**{k: v for k, v in args.items() if v is not None})
+    if not model.name:
+        return refusal("INPUT_INVALID", "a pod name is required")
+    resource = model.name if "/" in model.name else f"pod/{model.name}"
+    local_port = model.localPort
+    if local_port:
+        record = manager.ports.allocate(preferred=local_port, owner="port-forward")
+        local_port = record.port
+    result = await asyncio.to_thread(
+        manager.managed_cli.port_forward,
+        resource=resource, namespace=model.namespace, local_port=local_port,
+        remote_port=model.remotePort or local_port, address=model.address,
+    )
+    if not result.ok:
+        return refusal(result.code, result.reason)
+    return f"Port-forward running on local port {result.local_port}.", {"status": "ok", **result.to_dict()}
+
+
+async def k8s_logs_follow(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Start `kubectl logs -f` as a managed process (streamed, cancellable)."""
+    manager = _manager()
+    if manager is None:
+        return refusal(*_NO_RUNTIME)
+    model = K8sOpInput(**{k: v for k, v in args.items() if v is not None})
+    if not model.name:
+        return refusal("INPUT_INVALID", "a pod name is required")
+    result = await asyncio.to_thread(
+        manager.managed_cli.logs_follow,
+        name=model.name, namespace=model.namespace, container=model.container,
+    )
+    if not result.ok:
+        return refusal(result.code, result.reason)
+    return f"Following logs for {model.name}.", {"status": "ok", **result.to_dict()}
 
 
 # ── Terraform ────────────────────────────────────────────────────────────────────
@@ -345,6 +390,35 @@ async def deploy_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     return f"Deployment {outcome.status} to {model.provider or 'the provider'}.", {"status": "ok", "deployment": data}
 
 
+async def deploy_promote(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Promote staging → production, with a health-gated rollback.
+
+    Staging is always attempted first; crossing to production needs authorization
+    (the `approve_external` profile or an explicit operator act). A failed
+    production deploy is rolled back.
+    """
+    if not _grants_execute(ctx):
+        return refusal(*_PROFILE_DENIED)
+    manager = _manager()
+    if manager is None:
+        return refusal(*_NO_RUNTIME)
+    root = _root(ctx)
+    if root is None:
+        return refusal("WORKSPACE_UNBOUND", "there's no project open")
+    model = CloudDeployInput(**{k: v for k, v in args.items() if v is not None})
+    authorized = bool(getattr(ctx, "authorized", False)) or str(getattr(ctx, "autonomy", "")) == "approve_external"
+    data = await asyncio.to_thread(
+        manager.deployment.promote, root,
+        provider=model.provider, service=model.service,
+        authorize_production=authorized, install=model.install, build=model.build,
+        extra_args=model.args,
+    )
+    status = data.get("status")
+    if status in ("staging_failed", "rolled_back"):
+        return refusal(str(status).upper(), data.get("reason", "the promotion failed"), promotion=data)
+    return f"Promotion: {status}.", {"status": "ok", "promotion": data}
+
+
 async def deploy_status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     return await _cloud_op(args, ctx, "status")
 
@@ -396,11 +470,13 @@ K8S_INFRA_HANDLERS: dict[str, Any] = {
     "k8s_exec": k8s_exec,
     "helm_list": helm_list, "helm_status": helm_status, "helm_install": helm_install,
     "helm_uninstall": helm_uninstall, "kustomize_build": kustomize_build,
+    "k8s_port_forward": k8s_port_forward, "k8s_logs_follow": k8s_logs_follow,
     "terraform_init": terraform_init, "terraform_validate": terraform_validate,
     "terraform_fmt": terraform_fmt, "terraform_plan": terraform_plan,
     "terraform_apply": terraform_apply, "terraform_destroy": terraform_destroy,
     "terraform_output": terraform_output, "terraform_state": terraform_state,
     "cloud_providers": cloud_providers, "deploy_run": deploy_run,
+    "deploy_promote": deploy_promote,
     "deploy_status": deploy_status, "deploy_logs": deploy_logs,
     "deploy_rollback": deploy_rollback, "deploy_delete": deploy_delete,
 }
@@ -426,6 +502,8 @@ K8S_INFRA_DESCRIPTIONS: dict[str, str] = {
     "helm_install": "Install or upgrade a Helm release.",
     "helm_uninstall": "Uninstall a Helm release (needs approval).",
     "kustomize_build": "Render a kustomization to YAML. Read-only.",
+    "k8s_port_forward": "Forward a local port to a pod as a managed process (visible + cancellable).",
+    "k8s_logs_follow": "Follow a pod's logs as a managed process (streamed + cancellable).",
     "terraform_init": "Initialise a Terraform working directory.",
     "terraform_validate": "Check a Terraform configuration. Read-only.",
     "terraform_fmt": "Format Terraform files. Read-only.",
@@ -436,6 +514,7 @@ K8S_INFRA_DESCRIPTIONS: dict[str, str] = {
     "terraform_state": "List Terraform state resources. Read-only.",
     "cloud_providers": "List the configured cloud deploy providers. Read-only.",
     "deploy_run": "Deploy the project to a cloud provider (validate→build→deploy→verify).",
+    "deploy_promote": "Promote staging → production with a health-gated rollback (needs approval for production).",
     "deploy_status": "Report a cloud deployment's status. Read-only.",
     "deploy_logs": "Read a cloud deployment's logs. Read-only.",
     "deploy_rollback": "Roll back a cloud deployment.",
@@ -484,6 +563,11 @@ def k8s_infra_schemas() -> dict[str, dict[str, Any]]:
                               "atomic": {"type": "boolean"}, "wait": {"type": "boolean"}}, ["release", "chart"]),
         "helm_uninstall": _obj({"release": {"type": "string"}, "namespace": {"type": "string"}, "keepHistory": {"type": "boolean"}}, ["release"]),
         "kustomize_build": _obj({"path": {"type": "string"}}),
+        "k8s_port_forward": _obj({"name": {"type": "string"}, "namespace": {"type": "string"},
+                                  "localPort": {"type": "integer"}, "remotePort": {"type": "integer"},
+                                  "address": {"type": "string"}}, ["name"]),
+        "k8s_logs_follow": _obj({"name": {"type": "string"}, "namespace": {"type": "string"},
+                                 "container": {"type": "string"}}, ["name"]),
         "terraform_init": _obj(_INFRA_PROPS),
         "terraform_validate": _obj(_INFRA_PROPS),
         "terraform_fmt": _obj(_INFRA_PROPS),
@@ -494,6 +578,7 @@ def k8s_infra_schemas() -> dict[str, dict[str, Any]]:
         "terraform_state": _obj(_INFRA_PROPS),
         "cloud_providers": _obj({}),
         "deploy_run": _obj(_CLOUD_PROPS),
+        "deploy_promote": _obj(_CLOUD_PROPS),
         "deploy_status": _obj(_CLOUD_PROPS),
         "deploy_logs": _obj(_CLOUD_PROPS),
         "deploy_rollback": _obj(_CLOUD_PROPS),

@@ -164,6 +164,54 @@ class ApplicationRuntimeManager:
             "recoveryAttempts": self.recovery.max_attempts,
         }
 
+    def readiness(self, root: Optional[Path] = None, *, required: Optional[list[str]] = None) -> dict[str, Any]:
+        """The provider install/auth readiness report (non-secret).
+
+        When `root` is given, the providers the project IMPLIES are added to the
+        required set, so "is this machine ready to run/deploy THIS project" is a
+        single call. The result is cached for a short TTL because `/health` polls
+        it and each probe runs a version command.
+        """
+        import time as _time
+
+        now = _time.monotonic()
+        cache_key = (str(root) if root else "", tuple(sorted(required or [])))
+        cached = getattr(self, "_readiness_cache", None)
+        if cached is not None and cached[0] == cache_key and now - cached[2] < 60.0:
+            return cached[1]
+        from .provisioning import provider_readiness, required_providers_for
+
+        needed = list(required or [])
+        if root is not None:
+            try:
+                needed += required_providers_for(self.discover(root))
+            except Exception:  # noqa: BLE001 - a discovery failure must not break readiness
+                pass
+        seen: set[str] = set()
+        needed = [n for n in needed if not (n in seen or seen.add(n))]
+        report = provider_readiness(self.registry, required=needed or None)
+        self._readiness_cache = (cache_key, report, now)
+        return report
+
+    # ── cross-application graph ────────────────────────────────────────────────────
+    def app_graph(self, root: Path) -> dict[str, Any]:
+        """The cross-application dependency graph under `root` (read-only)."""
+        from .workspace_ops import app_graph
+
+        return app_graph(Path(root))
+
+    def start_workspace(self, root: Path, **kwargs: Any) -> dict[str, Any]:
+        """Start EVERY application under `root`, in dependency order."""
+        from .workspace_ops import start_workspace
+
+        return start_workspace(self, Path(root), **kwargs)
+
+    def stop_workspace(self, root: Path, *, actor: Any = None) -> dict[str, Any]:
+        """Stop every application under `root`, in REVERSE dependency order."""
+        from .workspace_ops import stop_workspace
+
+        return stop_workspace(self, Path(root), actor=actor)
+
     # ── discovery / inspection ────────────────────────────────────────────────────
     def discover(self, root: Path, *, name: str = "") -> ApplicationDescriptor:
         root = Path(root)
@@ -636,102 +684,34 @@ class ApplicationRuntimeManager:
 
     # ── status / logs / metrics ────────────────────────────────────────────────────
     def status(self, runtime_id: str) -> dict[str, Any]:
-        handle = self._runtimes.get(runtime_id)
-        if handle is None:
-            if self.store is not None:
-                row = self.store.get_runtime(runtime_id)
-                if row is not None:
-                    return {"status": "ok", "runtime": row, "live": False}
-            return {"status": "not_found", "runtimeId": runtime_id}
-        return {"status": "ok", "runtime": handle.to_dict(), "live": True}
+        from .observability import status
+
+        return status(self, runtime_id)
 
     def list(self, *, state: Optional[str] = None) -> list[dict[str, Any]]:
-        handles = list(self._runtimes.values())
-        if state:
-            handles = [h for h in handles if h.state.value == state]
-        return [h.to_dict() for h in handles]
+        from .observability import list_runtimes
 
-    def logs(
-        self,
-        runtime_id: str,
-        *,
-        tail: int = 200,
-        stream: Optional[str] = None,
-        service: str = "",
-        filter_text: str = "",
-        severity: str = "",
-        errors_only: bool = False,
-        max_lines: int = 2000,
-    ) -> dict[str, Any]:
-        """Read a runtime's output, bounded and filterable.
+        return list_runtimes(self, state=state)
 
-        `filter_text` keeps lines containing a substring; `errors_only` keeps only
-        lines that look like errors; `severity` filters by a matched severity token.
-        `max_lines` bounds the total returned so a chatty service cannot flood the
-        caller's context. Every stream keeps its own `processId`/`status`.
-        """
-        handle = self._runtimes.get(runtime_id)
-        if handle is None:
-            return {"status": "not_found", "runtimeId": runtime_id}
-        lines: list[dict[str, Any]] = []
-        total_lines = 0
-        truncated = False
-        needle = str(filter_text or "").casefold()
-        for process_id in handle.processes:
-            window = self.terminal.read_process_output(process_id, tail=tail, stream=stream) if self.terminal is not None else None
-            if not window:
-                continue
-            text = window.get("text", "") or ""
-            kept = _filter_lines(text, needle=needle, errors_only=errors_only, severity=severity)
-            total_lines += len(text.splitlines())
-            if sum(len(s["lines"]) for s in lines) + len(kept) > max_lines:
-                room = max(0, max_lines - sum(len(s["lines"]) for s in lines))
-                kept = kept[:room]
-                truncated = True
-            if kept:
-                lines.append({
-                    "processId": process_id, "status": window.get("status", ""),
-                    "lines": kept, "text": "\n".join(kept),
-                })
-        return {
-            "status": "ok", "runtimeId": runtime_id, "streams": lines, "tail": tail,
-            "totalLines": total_lines, "truncated": truncated,
-            "filters": {"filterText": filter_text, "errorsOnly": errors_only, "severity": severity, "service": service},
-        }
+    def logs(self, runtime_id: str, **kwargs: Any) -> dict[str, Any]:
+        from .observability import logs
+
+        return logs(self, runtime_id, **kwargs)
 
     def events(self, runtime_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
-        if self.store is None:
-            return []
-        return self.store.list_events(runtime_id, limit=limit)
+        from .observability import events
+
+        return events(self, runtime_id, limit=limit)
 
     def metrics(self, runtime_id: str) -> dict[str, Any]:
-        """Point-in-time resource usage for the runtime's processes."""
-        handle = self._runtimes.get(runtime_id)
-        if handle is None:
-            return {"status": "not_found", "runtimeId": runtime_id}
-        from ..telemetry import sample_tree
-        process_metrics: list[dict[str, Any]] = []
-        if self.terminal is not None:
-            for process_id in handle.processes:
-                info = self.terminal.get_process(process_id)
-                if info is None:
-                    continue
-                pid = info.get("pid")
-                usage = sample_tree(int(pid)) if pid else None
-                process_metrics.append({
-                    "processId": process_id, "pid": pid, "state": info.get("state"),
-                    "cpuMs": getattr(usage, "cpu_ms", None) if usage else None,
-                    "memoryMb": getattr(usage, "memory_mb", None) if usage else None,
-                    "processCount": getattr(usage, "process_count", None) if usage else None,
-                })
-        return {
-            "status": "ok", "runtimeId": runtime_id,
-            "uptimeS": max(0.0, time.time() - (handle.started_at or time.time())),
-            "restartCount": handle.restart_count,
-            "health": handle.health.to_dict(),
-            "processes": process_metrics,
-            "ports": [p.to_dict() for p in handle.ports],
-        }
+        from .observability import metrics
+
+        return metrics(self, runtime_id)
+
+    def metrics_history(self, runtime_id: str, *, limit: int = 200) -> dict[str, Any]:
+        from .observability import metrics_history
+
+        return metrics_history(self, runtime_id, limit=limit)
 
     # ── diagnostics / recovery ────────────────────────────────────────────────────
     def diagnose(self, runtime_id: str) -> dict[str, Any]:
@@ -949,6 +929,17 @@ class ApplicationRuntimeManager:
         return None
 
     @property
+    def managed_cli(self) -> Any:
+        """The bridge that starts long-running CLI ops as managed processes."""
+        bridge = getattr(self, "_managed_cli", None)
+        if bridge is None:
+            from .managed_cli import ManagedCli
+
+            bridge = ManagedCli(self.terminal)
+            self._managed_cli = bridge
+        return bridge
+
+    @property
     def deployment(self) -> Any:
         """The ONE deployment engine over this runtime manager + registry."""
         engine = getattr(self, "_deployment_engine", None)
@@ -1030,6 +1021,31 @@ class _BuildFailure(RuntimeError):
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
+
+
+def _trend(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    """A small, honest trend summary over metric samples.
+
+    Compares the mean of the first third to the mean of the last third of each
+    numeric series. `direction` is "rising" / "falling" / "flat" / "unknown"; with
+    fewer than 4 measurable samples it is "unknown" — an unknown trend is never
+    reported as flat.
+    """
+    result: dict[str, Any] = {}
+    for key in ("cpuMs", "memoryMb", "processCount"):
+        values = [s.get(key) for s in samples if isinstance(s.get(key), (int, float))]
+        if len(values) < 4:
+            result[key] = {"direction": "unknown", "samples": len(values)}
+            continue
+        third = max(1, len(values) // 3)
+        head = sum(values[:third]) / third
+        tail = sum(values[-third:]) / third
+        delta = tail - head
+        threshold = max(1.0, abs(head) * 0.1)
+        direction = "flat" if abs(delta) < threshold else ("rising" if delta > 0 else "falling")
+        result[key] = {"direction": direction, "samples": len(values),
+                       "first": round(head, 2), "last": round(tail, 2), "delta": round(delta, 2)}
+    return result
 
 
 def _filter_lines(text: str, *, needle: str = "", errors_only: bool = False, severity: str = "") -> list[str]:

@@ -634,7 +634,8 @@ class GitService:
             "forceWithLease": "true" if force_with_lease else None,
             "force": "true" if force else None,
         }, run_id=run_id, network=True, force_push=(force or force_with_lease),
-            post=lambda r: {"pushed": True, "output": _remote_output(r.stdout)})
+            post=lambda r: {"pushed": True, "branch": branch or repo.branch,
+                            "output": _remote_output(r.stdout)})
 
     # ── Remotes ─────────────────────────────────────────────────────────────────
     def remote_add(self, repo: Repository, name: str, url: str, *, run_id: Optional[str] = None) -> OperationOutcome:

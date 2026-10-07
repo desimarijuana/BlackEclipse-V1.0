@@ -153,6 +153,16 @@ def _cmd_runtime(args: argparse.Namespace, manager: Any) -> int:
     if action == "list":
         data = manager.list()
         return _emit(args, {"runtimes": data}, f"{len(data)} runtime(s)")
+    if action == "metrics":
+        data = manager.metrics(args.runtime_id)
+        if data.get("status") == "not_found":
+            return _refusal("NOT_FOUND", "no such runtime")
+        return _emit(args, data, f"{args.runtime_id}: uptime {int(data.get('uptimeS', 0))}s")
+    if action == "metrics-history":
+        data = manager.metrics_history(args.runtime_id, limit=args.tail)
+        trend = data.get("trend", {})
+        directions = ", ".join(f"{k}={v.get('direction')}" for k, v in trend.items())
+        return _emit(args, data, f"{args.runtime_id} trend: {directions or 'no samples yet'}")
     return _refusal("UNKNOWN_ACTION", f"unknown runtime action {action!r}")
 
 
@@ -208,6 +218,29 @@ def _cmd_environment(args: argparse.Namespace, manager: Any) -> int:
     if data.get("status") == "refused":
         return _refusal(data.get("code", "REFUSED"), data.get("reason", ""))
     return _emit(args, data, text)
+
+
+def _cmd_providers(args: argparse.Namespace, manager: Any) -> int:
+    """The provider install/auth readiness report.
+
+    With no `--root`, reports every provider. With `--root PATH`, adds the
+    providers the project at PATH actually implies (docker for a compose file,
+    kubectl/helm for a k8s/ or helm/ folder, terraform for *.tf).
+    """
+    root = _resolve_root(args.root) if getattr(args, "root", None) else None
+    data = manager.readiness(root)
+    if getattr(args, "json", False):
+        print(json.dumps(data, indent=2, default=str))
+        return 0
+    state = "ready" if data.get("ready") else "not ready"
+    print(f"{state}: {len(data.get('providers', []))} provider(s)")
+    if data.get("missing"):
+        print(f"  not installed: {', '.join(data['missing'])}")
+    if data.get("unauthenticated"):
+        print(f"  not signed in: {', '.join(data['unauthenticated'])}")
+    for hint in data.get("hints", []):
+        print(f"  - {hint}")
+    return 0
 
 
 def _cmd_port(args: argparse.Namespace, manager: Any) -> int:
@@ -367,7 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
     runtime = sub.add_parser("runtime", parents=[common], help="application runtime")
     runtime.add_argument("action", choices=[
         "detect", "capabilities", "inspect", "start", "status", "health", "stop",
-        "restart", "cleanup", "logs", "diagnose", "recover", "reconcile", "list"])
+        "restart", "cleanup", "logs", "diagnose", "recover", "reconcile", "list",
+        "metrics", "metrics-history"])
     runtime.add_argument("runtime_id", nargs="?", default="")
     runtime.add_argument("--root")
     runtime.add_argument("--no-install", action="store_true")
@@ -399,6 +433,9 @@ def build_parser() -> argparse.ArgumentParser:
     port.add_argument("action", choices=["list", "check", "find-free", "identify"])
     port.add_argument("port", nargs="?", type=int, default=0)
     port.add_argument("--preferred", type=int, default=0)
+
+    providers = sub.add_parser("providers", parents=[common], help="provider readiness (installed + signed in)")
+    providers.add_argument("--root")
 
     container = sub.add_parser("container", parents=[common], help="Docker/Podman containers")
     container.add_argument("action", choices=["ps", "logs", "exec", "images", "inspect"])
@@ -457,6 +494,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     handlers = {
         "runtime": _cmd_runtime, "package": _cmd_package, "environment": _cmd_environment,
         "port": _cmd_port, "container": _cmd_container, "compose": _cmd_compose,
+        "providers": _cmd_providers,
         "k8s": _cmd_k8s, "terraform": _cmd_terraform, "deploy": _cmd_deploy,
     }
     return handlers[args.group](args, manager)

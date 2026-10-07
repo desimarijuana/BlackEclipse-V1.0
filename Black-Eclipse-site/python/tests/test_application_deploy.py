@@ -82,11 +82,14 @@ class _MockCloud:
     def __init__(self, *, ok: bool = True) -> None:
         self._ok = ok
         self.operations = {op: object() for op in ("deploy", "status", "logs", "rollback", "delete")}
+        self.deploys = 0
 
     def available(self) -> bool:
         return True
 
     def run_operation(self, operation: str, args: dict | None = None) -> CliResult:
+        if operation == "deploy":
+            self.deploys += 1
         return CliResult(ok=self._ok, code="OK" if self._ok else "FAILED", operation=operation,
                          output='{"deployed": true}', argv=["mock"])
 
@@ -174,6 +177,57 @@ def test_deploy_events_are_emitted(tmp_path):
     assert "deployment.completed" in types
 
 
+# ── promotion pipeline ────────────────────────────────────────────────────────────
+
+
+def test_promote_requires_authorization_before_production(tmp_path):
+    engine, _ = _engine(tmp_path)
+    result = engine.promote(tmp_path, provider="mockcloud", authorize_production=False, install=False, build=False)
+    assert result["status"] == "awaiting_authorization"
+    stages = [s["stage"] for s in result["steps"]]
+    assert stages == ["staging"]  # production was never attempted
+
+
+def test_promote_authorized_reaches_production(tmp_path):
+    engine, _ = _engine(tmp_path)
+    result = engine.promote(tmp_path, provider="mockcloud", authorize_production=True, install=False, build=False)
+    assert result["status"] == "deployed"
+    stages = [s["stage"] for s in result["steps"]]
+    assert stages == ["staging", "production"]
+
+
+def test_promote_rolls_back_when_production_fails(tmp_path):
+    runtime = _MockRuntime()
+    # The adapter fails its SECOND deploy (the production stage) but the first
+    # (staging) succeeds, so the promotion must roll back.
+    adapter = _MockCloud(ok=True)
+
+    def run_operation(operation, args=None):
+        if operation == "deploy":
+            adapter.deploys += 1
+            ok = adapter.deploys == 1
+            return CliResult(ok=ok, code="OK" if ok else "FAILED", operation=operation,
+                             output="{}", argv=["mock"])
+        return CliResult(ok=True, code="OK", operation=operation, output="{}", argv=["mock"])
+
+    adapter.run_operation = run_operation  # type: ignore[assignment]
+    runtime.registry.deployments.get = lambda name: adapter  # type: ignore[assignment]
+    engine = DeploymentEngine(runtime_manager=runtime, registry=runtime.registry, store=None, bus=None)
+    result = engine.promote(tmp_path, provider="mockcloud", authorize_production=True, install=False, build=False)
+    assert result["status"] == "rolled_back"
+    stages = [s["stage"] for s in result["steps"]]
+    assert "rollback" in stages
+
+
+def test_promote_staging_failure_does_not_touch_production(tmp_path):
+    runtime = _MockRuntime()
+    runtime.registry.deployments.get = lambda name: _MockCloud(ok=False)  # type: ignore[assignment]
+    engine = DeploymentEngine(runtime_manager=runtime, registry=runtime.registry, store=None, bus=None)
+    result = engine.promote(tmp_path, provider="mockcloud", authorize_production=True, install=False, build=False)
+    assert result["status"] == "staging_failed"
+    assert [s["stage"] for s in result["steps"]] == ["staging"]
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────────
 
 
@@ -252,3 +306,48 @@ def test_manager_discovery_cache_is_used(tmp_path):
     assert first is second  # the cache returned the same object
     manager.invalidate_discovery(tmp_path)
     assert manager.discover(tmp_path) is not second
+
+
+# ── metrics history + trend ──────────────────────────────────────────────────────
+
+
+def test_trend_direction_is_honest():
+    from harness.execution.application.manager import _trend
+
+    rising = _trend([{"cpuMs": v} for v in (1, 2, 3, 10, 11, 12)])
+    assert rising["cpuMs"]["direction"] == "rising"
+    falling = _trend([{"cpuMs": v} for v in (12, 11, 10, 1, 2, 3)])
+    assert falling["cpuMs"]["direction"] == "falling"
+    flat = _trend([{"cpuMs": 5} for _ in range(6)])
+    assert flat["cpuMs"]["direction"] == "flat"
+    # Fewer than 4 samples is UNKNOWN, never flat.
+    assert _trend([{"cpuMs": 1}, {"cpuMs": 2}])["cpuMs"]["direction"] == "unknown"
+
+
+def test_metrics_history_persists_and_summarises(tmp_path):
+    from harness.execution.application.manager import ApplicationRuntimeManager, build_runtime_registry
+    from harness.execution.application.store import ApplicationRuntimeStore
+    from harness.persistence import AgentMemoryStore
+
+    store = AgentMemoryStore(str(tmp_path / "m.db"))
+    rtstore = ApplicationRuntimeStore(store)
+    manager = ApplicationRuntimeManager(registry=build_runtime_registry(), terminal=None, store=rtstore)
+
+    for cpu in (10.0, 20.0, 30.0, 40.0):
+        rtstore.record_metric("rt_x", cpu_ms=cpu, memory_mb=100.0, process_count=2, uptime_s=1.0, health="HEALTHY")
+    data = manager.metrics_history("rt_x", limit=50)
+    assert len(data["samples"]) == 4
+    assert data["trend"]["cpuMs"]["direction"] == "rising"
+
+
+def test_store_prunes_metric_history(tmp_path):
+    from harness.execution.application.store import ApplicationRuntimeStore
+    from harness.persistence import AgentMemoryStore
+
+    store = AgentMemoryStore(str(tmp_path / "m.db"))
+    rtstore = ApplicationRuntimeStore(store)
+    for i in range(20):
+        rtstore.record_metric("rt_p", cpu_ms=float(i))
+    removed = rtstore.prune_metrics("rt_p", keep=5)
+    assert removed == 15
+    assert len(rtstore.metric_history("rt_p")) == 5

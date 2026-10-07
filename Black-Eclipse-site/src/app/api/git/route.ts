@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
-import { GitError } from "@/lib/git/service";
+import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import {
-  commit,
-  draftCommitMessage,
-  getDiff,
-  getLog,
-  getStatus,
-  push,
-  stage,
-  unstage,
+  commit as engineCommit,
+  draftCommitMessage as engineDraft,
+  getDiff as engineDiff,
+  getLog as engineLog,
+  getStatus as engineStatus,
+  push as enginePush,
+  stage as engineStage,
+  unstage as engineUnstage,
 } from "@/lib/git/service";
 
 export const dynamic = "force-dynamic";
@@ -20,22 +20,25 @@ export const maxDuration = 120;
 // GET  ?action=status|diff|log|draft
 // POST { action: "stage"|"unstage"|"commit"|"push", ... }
 //
-// Guarded (loopback/same-origin only). Commits and pushes are explicit, never
-// automatic, and the service refuses secret-looking paths. Push is a separate
-// action from commit — a commit never pushes.
+// A THIN proxy over the Python runtime's `/git/*` routes. The engine (discovery,
+// journal, lock, risk/authorization, recovery) lives in `python/harness/git/`;
+// this route adds no Git logic. It is loopback/same-origin guarded, and the
+// runtime route it calls is independently operator-gated. Commits and pushes are
+// separate, explicit actions — a commit never pushes, and push is never forced.
+//
+// When the Python runtime is unavailable the route returns 503 honestly rather
+// than falling back to a second (TS) git implementation.
 
-function statusFor(err: unknown): { status: number; body: { error: string; code?: string } } {
-  if (err instanceof GitError) {
-    const status =
-      err.code === "SECRET_BLOCKED" || err.code === "NOTHING_STAGED" || err.code === "EMPTY_MESSAGE"
-        ? 400
-        : err.code === "GIT_UNAVAILABLE"
-        ? 503
-        : 400;
-    return { status, body: { error: err.message, code: err.code } };
+function errorResponse(err: unknown) {
+  if (err instanceof HarnessRuntimeUnavailable) {
+    return NextResponse.json({ error: err.message, code: "RUNTIME_UNAVAILABLE" }, { status: 503 });
   }
-  console.error("[api/git] error:", err);
-  return { status: 500, body: { error: "Git operation failed" } };
+  const code = (err as { code?: string })?.code;
+  const status = code === "GIT_UNAVAILABLE" || code === "RUNTIME_UNAVAILABLE" ? 503 : 400;
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : "Git operation failed", code },
+    { status },
+  );
 }
 
 export async function GET(request: Request) {
@@ -43,21 +46,20 @@ export async function GET(request: Request) {
   try {
     switch (action) {
       case "status":
-        return NextResponse.json({ success: true, status: await getStatus() });
+        return NextResponse.json({ success: true, status: await engineStatus() });
       case "diff": {
         const staged = new URL(request.url).searchParams.get("staged") === "1";
-        return NextResponse.json({ success: true, diff: await getDiff(staged) });
+        return NextResponse.json({ success: true, diff: await engineDiff(staged) });
       }
       case "log":
-        return NextResponse.json({ success: true, commits: await getLog() });
+        return NextResponse.json({ success: true, commits: await engineLog() });
       case "draft":
-        return NextResponse.json({ success: true, message: await draftCommitMessage() });
+        return NextResponse.json({ success: true, message: await engineDraft() });
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
   } catch (err) {
-    const { status, body } = statusFor(err);
-    return NextResponse.json(body, { status });
+    return errorResponse(err);
   }
 }
 
@@ -75,31 +77,30 @@ export async function POST(request: Request) {
         const paths = Array.isArray(body.paths)
           ? body.paths.filter((p): p is string => typeof p === "string")
           : [];
-        await stage(paths);
-        return NextResponse.json({ success: true, status: await getStatus() });
+        await engineStage(paths);
+        return NextResponse.json({ success: true, status: await engineStatus() });
       }
       case "unstage": {
         const paths = Array.isArray(body.paths)
           ? body.paths.filter((p): p is string => typeof p === "string")
           : [];
-        await unstage(paths);
-        return NextResponse.json({ success: true, status: await getStatus() });
+        await engineUnstage(paths);
+        return NextResponse.json({ success: true, status: await engineStatus() });
       }
       case "commit": {
         const message = typeof body.message === "string" ? body.message : "";
-        const result = await commit(message);
-        return NextResponse.json({ success: true, commit: result, status: await getStatus() });
+        const result = await engineCommit(message);
+        return NextResponse.json({ success: true, commit: result, status: await engineStatus() });
       }
       case "push": {
         const setUpstream = body.setUpstream === true;
-        const result = await push(setUpstream);
-        return NextResponse.json({ success: true, push: result, status: await getStatus() });
+        const result = await enginePush(setUpstream);
+        return NextResponse.json({ success: true, push: result, status: await engineStatus() });
       }
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
   } catch (err) {
-    const { status, body } = statusFor(err);
-    return NextResponse.json(body, { status });
+    return errorResponse(err);
   }
 }

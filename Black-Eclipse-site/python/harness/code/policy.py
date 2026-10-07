@@ -358,6 +358,7 @@ EXECUTION_READ_TOOLS: tuple[str, ...] = (
 APP_RUNTIME_WRITE_TOOLS: tuple[str, ...] = (
     "runtime_start", "runtime_stop", "runtime_restart", "runtime_cleanup",
     "runtime_recover",
+    "workspace_start", "workspace_stop",
     "package_install", "package_add", "package_remove", "package_update",
     "package_run", "package_build", "package_test",
     "container_build", "container_run", "container_start", "container_stop",
@@ -371,7 +372,8 @@ APP_RUNTIME_WRITE_TOOLS: tuple[str, ...] = (
 APP_RUNTIME_READ_TOOLS: tuple[str, ...] = (
     "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
     "runtime_health", "runtime_logs", "runtime_reconcile", "runtime_diagnose",
-    "runtime_metrics",
+    "runtime_metrics", "runtime_metrics_history",
+    "workspace_graph",
     "package_detect", "package_version", "package_list", "package_audit",
     "container_logs", "container_inspect", "container_stats", "container_list",
     "container_images", "container_health",
@@ -395,7 +397,8 @@ APP_RUNTIME_K8S_WRITE_TOOLS: tuple[str, ...] = (
     "k8s_apply", "k8s_delete", "k8s_scale", "k8s_exec",
     "helm_install", "helm_uninstall",
     "terraform_apply", "terraform_destroy",
-    "deploy_run", "deploy_rollback", "deploy_delete",
+    "deploy_run", "deploy_rollback", "deploy_delete", "deploy_promote",
+    "k8s_port_forward", "k8s_logs_follow",
 )
 
 # The file-system subsystem's mutating tools (Phase FS). They are code.write

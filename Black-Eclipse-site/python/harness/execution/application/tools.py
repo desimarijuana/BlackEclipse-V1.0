@@ -251,6 +251,67 @@ async def runtime_metrics(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
     return f"Runtime {model.runtimeId}: uptime {int(data.get('uptimeS', 0))}s, {len(data.get('processes', []))} process(es).", data
 
 
+async def runtime_metrics_history(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    manager = _manager()
+    if manager is None:
+        return _refusal(*_NO_RUNTIME)
+    model = RuntimeIdInput(**{k: v for k, v in args.items() if v is not None})
+    data = manager.metrics_history(model.runtimeId, limit=int(args.get("limit") or 200))
+    if data.get("status") == "not_found":
+        return _refusal("NOT_FOUND", "there's no runtime with that id")
+    trend = data.get("trend", {})
+    directions = ", ".join(f"{k}={v.get('direction')}" for k, v in trend.items())
+    return f"Metrics trend for {model.runtimeId}: {directions or 'no samples yet'}.", data
+
+
+# ── workspace (multi-application) handlers ─────────────────────────────────────────
+
+
+async def workspace_graph(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """The cross-application dependency graph under the project (read-only)."""
+    manager = _manager()
+    if manager is None:
+        return _refusal(*_NO_RUNTIME)
+    root = _root(ctx)
+    if root is None:
+        return _refusal(*_NO_WORKSPACE)
+    data = await asyncio.to_thread(manager.app_graph, root)
+    order = data.get("startupOrder", [])
+    return f"{len(data.get('nodes', []))} application(s); startup order: {', '.join(order) or 'none'}.", {"status": "ok", **data}
+
+
+async def workspace_start(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Start EVERY application under the project, in dependency order."""
+    if not _grants_execute(ctx):
+        return _refusal(*_PROFILE_DENIED)
+    manager = _manager()
+    if manager is None:
+        return _refusal(*_NO_RUNTIME)
+    root = _root(ctx)
+    if root is None:
+        return _refusal(*_NO_WORKSPACE)
+    data = await asyncio.to_thread(
+        manager.start_workspace, root,
+        workspace_id=_workspace_id(ctx), run_id=str(getattr(ctx, "run_id", "")),
+        agent_id=getattr(ctx, "agent_id", None),
+    )
+    if data.get("status") == "failed":
+        return _refusal("WORKSPACE_START_FAILED", data.get("reason", "an application could not start"), workspace=data)
+    return f"Started {len(data.get('started', []))} application(s) in dependency order.", {"status": "ok", **data}
+
+
+async def workspace_stop(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Stop every application under the project, in reverse dependency order."""
+    manager = _manager()
+    if manager is None:
+        return _refusal(*_NO_RUNTIME)
+    root = _root(ctx)
+    if root is None:
+        return _refusal(*_NO_WORKSPACE)
+    data = await asyncio.to_thread(manager.stop_workspace, root, actor=_actor(ctx))
+    return f"Stopped {len(data.get('stopped', []))} application(s).", {"status": "ok", **data}
+
+
 # ── package handlers ─────────────────────────────────────────────────────────────
 
 
@@ -643,6 +704,10 @@ def application_schemas() -> dict[str, dict[str, Any]]:
         "runtime_diagnose": _obj(runtime_id, ["runtimeId"]),
         "runtime_recover": _obj({"runtimeId": {"type": "string"}, "maxAttempts": {"type": "integer"}}, ["runtimeId"]),
         "runtime_metrics": _obj(runtime_id, ["runtimeId"]),
+        "runtime_metrics_history": _obj({"runtimeId": {"type": "string"}, "limit": {"type": "integer"}}, ["runtimeId"]),
+        "workspace_graph": _obj({}),
+        "workspace_start": _obj({}),
+        "workspace_stop": _obj({}),
         "package_detect": _obj({}),
         "package_version": _obj({"manager": {"type": "string"}}),
         "package_install": _obj({"manager": {"type": "string"}, "packages": {"type": "array", "items": {"type": "string"}}}),
@@ -714,6 +779,10 @@ _DESCRIPTIONS: dict[str, str] = {
     "runtime_diagnose": "Explain why an application isn't healthy. Read-only.",
     "runtime_recover": "Try to fix and restart an unhealthy application, within a bounded budget.",
     "runtime_metrics": "Report CPU, memory and uptime for a running application. Read-only.",
+    "runtime_metrics_history": "Report a running application's recent resource history and trend. Read-only.",
+    "workspace_graph": "Show the dependency graph of every application in the project. Read-only.",
+    "workspace_start": "Start every application in the project, dependencies first.",
+    "workspace_stop": "Stop every application in the project, dependents first.",
     "package_detect": "Report the project's package manager and lockfile. Read-only.",
     "package_version": "Report a package manager's version. Read-only.",
     "package_install": "Install the project's dependencies.",
@@ -777,6 +846,9 @@ _HANDLERS: dict[str, Any] = {
     "runtime_logs": runtime_logs, "runtime_cleanup": runtime_cleanup,
     "runtime_reconcile": runtime_reconcile, "runtime_diagnose": runtime_diagnose,
     "runtime_recover": runtime_recover, "runtime_metrics": runtime_metrics,
+    "runtime_metrics_history": runtime_metrics_history,
+    "workspace_graph": workspace_graph,
+    "workspace_start": workspace_start, "workspace_stop": workspace_stop,
     "package_detect": package_detect, "package_version": package_version,
     "package_install": package_install, "package_add": package_add,
     "package_remove": package_remove, "package_update": package_update,

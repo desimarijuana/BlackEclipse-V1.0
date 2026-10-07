@@ -236,3 +236,78 @@ def test_cloudflare_deploy_validates_env_name():
     cloudflare = CloudflareAdapter(runner=_runner)
     assert cloudflare.run_operation("deploy", {"envName": "production"}).ok
     assert cloudflare.run_operation("deploy", {"envName": "bad name!"}).code == "INVALID_NAME"
+
+
+# ── managed long-running CLI ops (port-forward / logs -f) ─────────────────────────
+
+
+class _FakeTerminal:
+    def __init__(self) -> None:
+        self.started: list[dict] = []
+        self.stopped: list[str] = []
+
+    def start_process(self, **kwargs):
+        self.started.append(kwargs)
+        return {"processId": "proc_1", "pid": 4321, "state": "RUNNING"}
+
+    def stop_process(self, process_id):
+        self.stopped.append(process_id)
+        return True
+
+
+def _enable_kubectl(monkeypatch):
+    import harness.execution.application.managed_cli as managed
+
+    monkeypatch.setattr(managed, "_find_binary", lambda name: "/usr/bin/kubectl")
+
+
+def test_port_forward_is_a_managed_process(monkeypatch):
+    from harness.execution.application.managed_cli import ManagedCli
+
+    _enable_kubectl(monkeypatch)
+    terminal = _FakeTerminal()
+    bridge = ManagedCli(terminal)
+    result = bridge.port_forward(resource="pod/web-1", namespace="prod", local_port=8080, remote_port=80)
+    assert result.ok
+    assert result.process_id == "proc_1"
+    argv = terminal.started[0]["argv"]
+    assert argv[1:] == ["port-forward", "pod/web-1", "8080:80", "--address", "127.0.0.1", "-n", "prod"]
+    assert terminal.started[0]["purpose"] == "port-forward"
+
+
+def test_port_forward_rejects_injection(monkeypatch):
+    from harness.execution.application.managed_cli import ManagedCli
+
+    _enable_kubectl(monkeypatch)
+    bridge = ManagedCli(_FakeTerminal())
+    result = bridge.port_forward(resource="pod/x; rm -rf /", local_port=1, remote_port=1)
+    assert result.ok is False and result.code == "INVALID_NAME"
+
+
+def test_port_forward_requires_a_terminal(monkeypatch):
+    from harness.execution.application.managed_cli import ManagedCli
+
+    _enable_kubectl(monkeypatch)
+    bridge = ManagedCli(None)
+    assert bridge.port_forward(resource="svc/api", local_port=1, remote_port=1).code == "RUNTIME_UNAVAILABLE"
+
+
+def test_port_forward_bounds_ports(monkeypatch):
+    from harness.execution.application.managed_cli import ManagedCli
+
+    _enable_kubectl(monkeypatch)
+    bridge = ManagedCli(_FakeTerminal())
+    assert bridge.port_forward(resource="pod/x", local_port=0, remote_port=80).code == "INVALID_ARG"
+
+
+def test_logs_follow_is_a_managed_process(monkeypatch):
+    from harness.execution.application.managed_cli import ManagedCli
+
+    _enable_kubectl(monkeypatch)
+    terminal = _FakeTerminal()
+    bridge = ManagedCli(terminal)
+    result = bridge.logs_follow(name="web-1", namespace="prod", container="app")
+    assert result.ok
+    assert terminal.started[0]["argv"][1:] == ["logs", "-f", "web-1", "-n", "prod", "-c", "app"]
+    assert bridge.stop(result.process_id)["status"] == "ok"
+    assert terminal.stopped == ["proc_1"]

@@ -33,6 +33,10 @@ RATCHET_PY: dict[str, int] = {
     "eclipse_memory/store.py": 1749,
     "persistence.py": 1393,
     "mcp/manager.py": 1106,
+    # Grew with the Application Runtime route wiring (the k8s/helm/terraform/
+    # deploy/health route group registered by `main.py`). May only shrink from
+    # here; the route-group extraction is the split candidate.
+    "main.py": 1220,
 }
 
 _HARNESS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness")

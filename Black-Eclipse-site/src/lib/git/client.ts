@@ -1,37 +1,13 @@
 // Client helpers for the in-app git workflow. Thin wrappers over /api/git —
 // request shaping and honest errors only.
 //
-// This module is client-safe (no `fs`/`child_process`); the types mirror the
-// server's `service.ts` without importing it.
+// The Git ENGINE is the Python runtime (`python/harness/git/`); `/api/git` proxies
+// to it. This module adds NO git logic. Types come from the client-safe
+// `types.ts` so this bundle never imports a server-only module.
 
-export interface GitFileChange {
-  path: string;
-  index: string;
-  worktree: string;
-  staged: boolean;
-}
+import type { GitCommitInfo, GitStatus } from "./types";
 
-export interface GitStatus {
-  available: boolean;
-  branch: string | null;
-  upstream: string | null;
-  ahead: number;
-  behind: number;
-  files: GitFileChange[];
-  stagedCount: number;
-  unstagedCount: number;
-  untrackedCount: number;
-  clean: boolean;
-  reason?: string;
-}
-
-export interface GitCommitInfo {
-  hash: string;
-  shortHash: string;
-  subject: string;
-  author: string;
-  date: string;
-}
+export type { GitCommitInfo, GitFileChange, GitStatus } from "./types";
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));

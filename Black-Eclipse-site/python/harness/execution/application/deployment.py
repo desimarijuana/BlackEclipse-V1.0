@@ -210,6 +210,67 @@ class DeploymentEngine:
             diagnosis = self._runtime.diagnostics.from_exception(exc, step="deploy")
             return self._fail(outcome, diagnosis.category.value, diagnosis.message, emitter, emit)
 
+    def promote(
+        self,
+        root: Any,
+        *,
+        provider: str = "",
+        service: str = "",
+        authorize_production: bool = False,
+        health_timeout_s: float = 30.0,
+        install: bool = True,
+        build: bool = True,
+        extra_args: Optional[dict[str, Any]] = None,
+        emit: Optional[Any] = None,
+    ) -> dict[str, Any]:
+        """Promote staging → production with a health-gated rollback.
+
+        1. deploy to STAGING and verify it becomes live;
+        2. require explicit authorization to cross to production;
+        3. deploy to PRODUCTION; if it fails or never verifies, ROLL BACK the
+           production provider to the previous good release.
+
+        Every stage is a real `deploy()`; nothing is claimed live without a passing
+        provider status. A staging failure stops the promotion (production is never
+        touched). This is a bounded, observable pipeline — not a `while` loop.
+        """
+        result: dict[str, Any] = {"provider": provider, "service": service, "steps": []}
+
+        staging = self.deploy(
+            root, provider=provider, environment="staging", service=service,
+            install=install, build=build, extra_args=extra_args, emit=emit,
+        )
+        result["steps"].append({"stage": "staging", **staging.to_dict()})
+        if staging.status != "deployed":
+            result["status"] = "staging_failed"
+            result["reason"] = "the staging deployment did not succeed; production was not touched"
+            return result
+
+        if not authorize_production:
+            result["status"] = "awaiting_authorization"
+            result["reason"] = "staging is live; production needs the operator's approval"
+            return result
+
+        prod = self.deploy(
+            root, provider=provider, environment="production", service=service,
+            install=install, build=build, authorize=True, extra_args=extra_args, emit=emit,
+        )
+        result["steps"].append({"stage": "production", **prod.to_dict()})
+        if prod.status == "deployed":
+            result["status"] = "deployed"
+            return result
+
+        # A production failure with a healthy staging is rolled back: the operator
+        # is never left with a half-shipped production.
+        rollback = self.rollback(provider=provider, service=service, authorize=True)
+        result["steps"].append({
+            "stage": "rollback",
+            "result": rollback.to_dict() if hasattr(rollback, "to_dict") else rollback,
+        })
+        result["status"] = "rolled_back"
+        result["reason"] = "the production deployment failed and was rolled back"
+        return result
+
     def status(self, *, provider: str, service: str = "", args: Optional[dict[str, Any]] = None) -> Any:
         adapter = self._registry.deployments.get(provider) if self._registry else None
         if adapter is None:

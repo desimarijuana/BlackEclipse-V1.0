@@ -65,10 +65,13 @@ def git_status(_: bool = Depends(require_operator)) -> dict[str, Any]:
 def git_diff(
     base: Optional[str] = None,
     paths: Optional[str] = None,
+    cached: bool = False,
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     repo = _repo()
     path_list = [p for p in (paths or "").split(",") if p] or None
+    if cached:
+        return {"success": True, "diff": readers.diff_cached(repo, base=base, paths=path_list)}
     return {"success": True, "diff": readers.diff_worktree(repo, base=base, paths=path_list)}
 
 
@@ -76,6 +79,16 @@ def git_diff(
 def git_log(maxCount: int = 50, rev: Optional[str] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     repo = _repo()
     return {"success": True, **readers.log(repo, max_count=min(max(1, maxCount), 500), rev=rev)}
+
+
+@router.get("/git/draft-message")
+def git_draft_message(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """A deterministic commit message drafted from the STAGED change (no model)."""
+    repo = _repo()
+    svc = _svc()
+    if svc is None:
+        raise HTTPException(status_code=503, detail="git service unavailable")
+    return {"success": True, "draft": svc.generate_commit_message(repo)}
 
 
 @router.get("/git/branches")
@@ -139,6 +152,38 @@ def git_stage(body: StageRequest, _: bool = Depends(require_operator)) -> dict[s
     if svc is None:
         raise HTTPException(status_code=503, detail="git service unavailable")
     outcome = svc.stage(repo, body.paths, all=body.all)
+    return {"success": outcome.success, "outcome": outcome.to_dict()}
+
+
+@router.post("/git/unstage")
+def git_unstage(body: StageRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    svc = _svc()
+    repo = _repo()
+    if svc is None:
+        raise HTTPException(status_code=503, detail="git service unavailable")
+    outcome = svc.unstage(repo, body.paths or None)
+    return {"success": outcome.success, "outcome": outcome.to_dict()}
+
+
+class PushRequest(BaseModel):
+    remote: Optional[str] = None
+    branch: Optional[str] = None
+    setUpstream: bool = False  # noqa: N815
+
+
+@router.post("/git/push")
+def git_push(body: PushRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Push through the SAME engine the agent uses (journaled; never forced).
+
+    A push is an external action: the service records it and never force-pushes.
+    The `/git/*` route is operator-gated by transport/token, exactly like `/code/*`.
+    """
+    svc = _svc()
+    repo = _repo()
+    if svc is None:
+        raise HTTPException(status_code=503, detail="git service unavailable")
+    outcome = svc.push(repo, remote=body.remote, branch=body.branch,
+                       set_upstream=body.setUpstream)
     return {"success": outcome.success, "outcome": outcome.to_dict()}
 
 
