@@ -279,7 +279,14 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
     }
     fields: dict[str, Any] = {}
     for prop, spec in properties.items():
-        py_type = type_map.get(str(spec.get("type", "string")), Any)
+        declared = spec.get("type", "string")
+        # A JSON-Schema union type (`["string", "object"]`) means the argument can
+        # be more than one shape (e.g. a browser target is a ref or an object), so
+        # accept any — the handler validates the concrete shape itself.
+        if isinstance(declared, list):
+            py_type: Any = Any
+        else:
+            py_type = type_map.get(str(declared), Any)
         enum = spec.get("enum")
         if enum:
             # Constrain to the declared values so pydantic rejects bad input.

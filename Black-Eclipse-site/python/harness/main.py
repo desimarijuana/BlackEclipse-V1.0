@@ -44,9 +44,11 @@ from .model_runtime import ALIASES, get_runtime
 from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
+from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
 from .routers.application import router as application_router
 from .routers.code_intel import router as code_intel_router
+from .routers.computer import router as computer_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
 from .routers.git import router as git_router
@@ -106,6 +108,12 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # the background. Language servers start lazily on first use. A failure is
         # a diagnostic, never a boot blocker.
         service.start_code_intel()
+        # Browser + Computer-Use runtimes: wire resolvers, start idle sweepers. No
+        # browser/desktop is launched until a tool asks. Never a boot blocker.
+        service.start_browser()
+        await service.start_browser_sweeper()
+        service.start_computer()
+        await service.start_computer_sweeper()
         await service.start_mcp()
         # The bounded learning-review queue: reviews completed runs in the
         # background. It only creates inert records/suggestions and never enables
@@ -125,6 +133,8 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await service.stop_jobs()
             await service.stop_learning_review()
             await service.stop_code_intel()
+            await service.stop_browser()
+            await service.stop_computer()
             await service.stop_mcp()
             service.stop_application_runtime()
             service.stop_execution()
@@ -138,6 +148,8 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_l
 app.include_router(application_router)
 app.include_router(code_router)
 app.include_router(code_intel_router)
+app.include_router(browser_router)
+app.include_router(computer_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
 app.include_router(git_router)
@@ -216,6 +228,9 @@ def health() -> dict[str, Any]:
         # missing tool is a boot-time instruction, never a runtime surprise. Cached
         # for 60s because this endpoint is polled.
         "runtimeProviders": _runtime_readiness(),
+        # Browser Automation Runtime: honest availability + the provider list.
+        # Content-free; a missing Playwright/Chromium reads as available:false.
+        "browser": browser_health(),
     }
 
 

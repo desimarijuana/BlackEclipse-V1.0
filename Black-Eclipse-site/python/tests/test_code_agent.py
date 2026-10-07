@@ -69,12 +69,17 @@ def test_code_agent_has_no_finance_tool():
     # orchestration/infra/cloud tools) are also shared DevOps capabilities with no
     # finance data permission.
     from harness.execution.application.tools import ALL_TOOL_NAMES as APP_TOOLS
+    from harness.agents import BROWSER_TOOLS, COMPUTER_TOOLS
 
     app_runtime = set(APP_TOOLS)
+    # Browser and Computer Use tools are SHARED interactive capabilities (like
+    # delegate/analysis), not finance tools: they carry no finance data permission
+    # of their own and their effectful halves are narrowed by the run's autonomy
+    # profile (browser policy engine / computer policy engine + finance firewall).
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
-    } - app_runtime)
+    } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS))
 
 
 def test_code_agent_does_not_allow_mcp():
@@ -94,7 +99,12 @@ def test_finance_agent_unchanged_no_code_tool():
     declared_app = [t for t in ECLIPSE_AGENT.tools if t.startswith(
         ("runtime_", "package_", "container_", "compose_", "environment_", "port_", "health_",
          "k8s_", "helm_", "kustomize_", "terraform_", "cloud_", "deploy_"))]
-    assert len(ECLIPSE_AGENT.tools) == 27 + len(declared_app)
+    # The Browser Automation Runtime adds a shared interactive capability set
+    # (declared exactly once as `BROWSER_TOOLS`), so it is counted alongside the
+    # base and the DevOps surface.
+    from harness.agents import BROWSER_TOOLS, COMPUTER_TOOLS  # noqa: PLC0415
+
+    assert len(ECLIPSE_AGENT.tools) == 27 + len(declared_app) + len(BROWSER_TOOLS) + len(COMPUTER_TOOLS)
     assert "runtime_inspect" in ECLIPSE_AGENT.tools
     assert "runtime_start" not in ECLIPSE_AGENT.tools
     assert "k8s_get" in ECLIPSE_AGENT.tools

@@ -1,0 +1,399 @@
+"""One ComputerSession — the first-class desktop-control object.
+
+Tracks identity (session_id, agent_id, user_id, machine_id, display_state,
+active_application, windows, permissions, risk_mode, current snapshot/target,
+action history) and owns the deterministic lifecycle. A session holds the only
+reference to a live `ComputerDriver` and the per-session engines.
+
+The snapshot cache is GENERATIONAL: every observation increments a generation and
+mints a new `snapshot_id`. An element handle is only valid against the snapshot
+it came from — a changed generation, window or identity is `STALE_ELEMENT`, and
+the model must re-capture. That is what prevents "click element 7" from silently
+hitting a different control after the UI moved.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Optional
+
+from ..persistence import now_iso
+from .actions import KeyboardEngine, MouseEngine, ValueSetter
+from .errors import StaleElement
+from .grounding.grounder import Grounder
+from .grounding.matching import GroundingQuery
+from .models import (
+    ActionResult,
+    Bounds,
+    Capabilities,
+    Snapshot,
+    Target,
+    WindowInfo,
+)
+from .observation import ObservationEngine
+from .recording import SessionRecorder
+from .screenshots.capture import ScreenCapture, frame_digest
+from .screenshots.diff import ScreenDiff
+from .verification.verifier import ActionVerifier, ObservationState
+from .windows.manager import WindowManager
+from .applications.manager import ApplicationManager
+from .applications.registry import AdapterRegistry, build_adapter_registry
+
+
+class SessionState(str, Enum):
+    CREATING = "CREATING"
+    READY = "READY"
+    OBSERVING = "OBSERVING"
+    ACTING = "ACTING"
+    PAUSED = "PAUSED"
+    HUMAN_REQUIRED = "HUMAN_REQUIRED"
+    FAILED = "FAILED"
+    TERMINATED = "TERMINATED"
+
+    @property
+    def terminal(self) -> bool:
+        return self in (SessionState.TERMINATED, SessionState.FAILED)
+
+
+@dataclass
+class StaleCheck:
+    ok: bool
+    reason: str = ""
+    code: str = "OK"
+
+
+class ComputerSession:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        driver: Any,
+        ax: Any,
+        ocr: Any,
+        vision_router: Any,
+        config: Any,
+        store: Any = None,
+        telemetry: Any = None,
+        agent_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        machine_id: str = "",
+        policy: Any = None,
+        risk_mode: str = "read_only",
+        bus: Any = None,
+    ) -> None:
+        self.id = session_id
+        self.driver = driver
+        self.ax = ax
+        self.ocr = ocr
+        self.vision_router = vision_router
+        self._config = config
+        self.store = store
+        self.telemetry = telemetry
+        self.agent_id = agent_id
+        self.user_id = user_id
+        self.task_id = task_id
+        self.run_id = run_id
+        self.machine_id = machine_id
+        self.policy = policy
+        self.risk_mode = risk_mode
+        self.bus = bus
+
+        self.state = SessionState.CREATING
+        self.created_at = time.time()
+        self.last_activity = time.time()
+        self.focus_before_action: Optional[str] = None
+
+        self.windows = WindowManager(driver)
+        self.applications = ApplicationManager(driver)
+        self.adapters: AdapterRegistry = build_adapter_registry()
+        self.capture = ScreenCapture(driver=driver, screenshots_dir=config.screenshots_dir)
+        self.mouse = MouseEngine(driver)
+        self.keyboard = KeyboardEngine(driver)
+        self.value_setter = ValueSetter(driver=driver, keyboard=self.keyboard, mouse=self.mouse)
+        self.observation = ObservationEngine(
+            driver=driver, ax=ax, ocr=ocr, vision_router=vision_router, config=config, capture=self.capture,
+        )
+        self.grounder = Grounder(min_confidence=config.grounding_min_confidence)
+        self.verifier = ActionVerifier(enabled=config.verification_enabled)
+        self.diff = ScreenDiff()
+
+        self._latest_snapshot: Optional[Snapshot] = None
+        self.action_history: list[dict[str, Any]] = []
+        self.current_task: Optional[str] = None
+        self.recorder = SessionRecorder(
+            enabled=config.recording_enabled, screenshots=config.recording_screenshots,
+            recordings_dir=config.recordings_dir, session_id=session_id,
+        )
+        self._transition(SessionState.READY)
+
+    # ── lifecycle ────────────────────────────────────────────────────────────
+
+    def _transition(self, target: SessionState) -> None:
+        self.state = target
+        self._persist()
+
+    def touch(self) -> None:
+        self.last_activity = time.time()
+
+    def _persist(self) -> None:
+        if self.store is None:
+            return
+        try:
+            windows = self.driver.list_windows() if self.driver.capabilities().window_management else []
+            active = next((w for w in windows if w.focused), None)
+            self.store.save_session({
+                "id": self.id, "agentId": self.agent_id, "taskId": self.task_id,
+                "runId": self.run_id, "userId": self.user_id, "machineId": self.machine_id,
+                "driver": self.driver.id, "displayState": self._display_state(),
+                "activeApp": (active.app if active else ""),
+                "windowCount": len(windows), "riskMode": self.risk_mode,
+                "status": self.state.value, "state": self.state.value,
+                "createdAt": _iso(self.created_at), "lastActivity": now_iso(),
+                "terminatedAt": now_iso() if self.state.terminal else None,
+                "metadata": {"driver": self.driver.id},
+            })
+        except Exception:  # noqa: BLE001 - persistence must never break a session
+            pass
+
+    def _display_state(self) -> str:
+        try:
+            displays = self.driver.list_displays()
+            return f"{len(displays)} display(s)"
+        except Exception:  # noqa: BLE001
+            return "unknown"
+
+    def health_check(self) -> dict[str, Any]:
+        health = {"sessionId": self.id, "state": self.state.value, "alive": not self.state.terminal}
+        try:
+            health["driver"] = self.driver.health()
+        except Exception as exc:  # noqa: BLE001
+            health["alive"] = False
+            health["reason"] = str(exc)[:200]
+        return health
+
+    def capabilities(self) -> Capabilities:
+        return self.driver.capabilities()
+
+    def snapshot_summary(self) -> dict[str, Any]:
+        return {
+            "sessionId": self.id, "state": self.state.value, "driver": self.driver.id,
+            "displayState": self._display_state(), "riskMode": self.risk_mode,
+            "currentSnapshot": self._latest_snapshot.snapshot_id if self._latest_snapshot else None,
+            "currentTask": self.current_task, "actions": len(self.action_history),
+            "createdAt": _iso(self.created_at),
+        }
+
+    # ── observation ──────────────────────────────────────────────────────────
+
+    async def observe(
+        self,
+        *,
+        window_id: Optional[str] = None,
+        mode: Optional[str] = None,
+        persist_image: bool = True,
+    ) -> Snapshot:
+        resolved_mode = (mode or self._config.observation_default_mode).lower()
+        # The accessibility tree is per-window, so an AX/SOM observation with no
+        # explicit window defaults to the FOCUSED window — otherwise a full-screen
+        # capture would yield no numbered elements.
+        if window_id is None and resolved_mode in ("ax", "som"):
+            window_id = self._focused_window_id() or None
+        self._transition(SessionState.OBSERVING)
+        try:
+            snapshot = await self.observation.observe(
+                window_id=window_id, mode=resolved_mode, persist_image=persist_image, session_id=self.id,
+            )
+        finally:
+            self._transition(SessionState.READY)
+        # Application identity from the driver + adapter for this window.
+        snapshot.application = self._application_for_window(window_id)
+        self._latest_snapshot = snapshot
+        self.recorder.record("observe", {"snapshot": snapshot.summary()})
+        self.touch()
+        return snapshot
+
+    def _application_for_window(self, window_id: Optional[str]) -> str:
+        if not window_id:
+            return ""
+        try:
+            window = self.driver.get_window(window_id)
+        except Exception:  # noqa: BLE001
+            return ""
+        if window is None:
+            return ""
+        adapter = self.adapters.select(app_name=window.app, title=window.title)
+        return window.app or adapter.name
+
+    @property
+    def latest_snapshot(self) -> Optional[Snapshot]:
+        return self._latest_snapshot
+
+    def adapter_for(self, *, app_name: str = "", executable: str = "", title: str = "") -> Any:
+        return self.adapters.select(app_name=app_name, executable=executable, title=title)
+
+    # ── stale element validation ─────────────────────────────────────────────
+
+    def lease_allows_agent(self) -> bool:
+        """Whether the control lease currently permits the agent to act."""
+        check = getattr(self, "_lease_check", None)
+        return bool(check()) if callable(check) else True
+
+    def validate_handle(self, *, snapshot_id: Optional[str], ref: Optional[str], identity: Optional[str] = None) -> StaleCheck:
+        """Confirm a snapshot element handle is still valid.
+
+        A missing snapshot, a different current snapshot, a missing element, or a
+        changed identity ⇒ stale. The model must re-capture; we never remap.
+        """
+        if self._latest_snapshot is None:
+            return StaleCheck(False, "there is no current snapshot; capture first", "COMPUTER_STALE_ELEMENT")
+        if not snapshot_id or snapshot_id != self._latest_snapshot.snapshot_id:
+            return StaleCheck(False, "the referenced snapshot is no longer current", "COMPUTER_STALE_ELEMENT")
+        if ref is None:
+            return StaleCheck(True)
+        element = self._latest_snapshot.element(str(ref))
+        if element is None:
+            return StaleCheck(False, f"element #{ref} is not in the current snapshot", "COMPUTER_STALE_ELEMENT")
+        if identity and element.identity != identity:
+            return StaleCheck(False, f"element #{ref} changed since it was observed", "COMPUTER_STALE_ELEMENT")
+        return StaleCheck(True)
+
+    def require_element(self, *, snapshot_id: Optional[str], ref: str, identity: Optional[str] = None) -> Any:
+        check = self.validate_handle(snapshot_id=snapshot_id, ref=ref, identity=identity)
+        if not check.ok:
+            raise StaleElement(check.reason, session_id=self.id, target=str(ref))
+        return self._latest_snapshot.element(str(ref)) if self._latest_snapshot else None
+
+    # ── grounding ────────────────────────────────────────────────────────────
+
+    def ground(
+        self,
+        query: GroundingQuery | dict[str, Any],
+        *,
+        snapshot: Optional[Snapshot] = None,
+        app_profile: Any = None,
+        vision_lookup: Any = None,
+        allow_coordinates: bool = False,
+    ) -> Target:
+        snap = snapshot or self._latest_snapshot
+        if snap is None:
+            from .errors import TargetNotFound  # noqa: PLC0415
+
+            raise TargetNotFound("Eclipse needs an observation before it can find a target.", session_id=self.id)
+        if isinstance(query, dict):
+            query = GroundingQuery(**query)
+        target = self.grounder.ground(
+            query, snap, app_profile=app_profile, vision_lookup=vision_lookup,
+            allow_coordinates=allow_coordinates,
+        )
+        if self.telemetry is not None:
+            self.telemetry.record_grounding(target.confidence)
+        return target
+
+    # ── verification ─────────────────────────────────────────────────────────
+
+    async def capture_state(self, *, window_id: Optional[str] = None) -> ObservationState:
+        frame = None
+        try:
+            frame = await self.driver.capture(window_id=window_id)
+        except Exception:  # noqa: BLE001 - a capture failure still yields a state
+            frame = None
+        focused = self._focused_window_id()
+        return self.verifier.capture(self._latest_snapshot, frame=frame, focused_window=focused)
+
+    async def verify_action(
+        self, before: ObservationState, *, action: str, expect: Optional[dict[str, Any]] = None,
+        window_id: Optional[str] = None,
+    ) -> Any:
+        after_frame = None
+        try:
+            after_frame = await self.driver.capture(window_id=window_id)
+        except Exception:  # noqa: BLE001
+            after_frame = None
+        after = self.verifier.capture(self._latest_snapshot, frame=after_frame, focused_window=self._focused_window_id())
+        result = self.verifier.verify(before, after, action=action, expect=expect, after_frame=after_frame)
+        if self.telemetry is not None:
+            self.telemetry.record_verification(1.0 if result.status == "verified" else 0.0)
+        return result
+
+    def _focused_window_id(self) -> str:
+        try:
+            for window in self.driver.list_windows():
+                if window.focused:
+                    return window.id
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    # ── focus handling ───────────────────────────────────────────────────────
+
+    def remember_focus(self) -> Optional[str]:
+        self.focus_before_action = self._focused_window_id()
+        return self.focus_before_action
+
+    async def restore_focus(self) -> dict[str, Any]:
+        """Restore the focus the user had before a foreground escalation."""
+        if not self.focus_before_action:
+            return {"restored": False}
+        current = self._focused_window_id()
+        if current == self.focus_before_action:
+            self.focus_before_action = None
+            return {"restored": True, "windowId": current}
+        try:
+            await self.driver.focus_window(self.focus_before_action, foreground=True)
+            restored = self._focused_window_id() == self.focus_before_action
+        except Exception:  # noqa: BLE001
+            restored = False
+        self.focus_before_action = None
+        return {"restored": restored, "windowId": self.focus_before_action}
+
+    # ── history + recording ──────────────────────────────────────────────────
+
+    def record_action(self, entry: dict[str, Any]) -> None:
+        entry.setdefault("at", now_iso())
+        self.action_history.append(entry)
+        if len(self.action_history) > 500:
+            del self.action_history[0]
+
+    def _record_action_db(self, entry: dict[str, Any]) -> None:
+        if self.store is None:
+            return
+        try:
+            self.store.save_action({"sessionId": self.id, "runId": self.run_id, **entry})
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def close(self) -> dict[str, Any]:
+        self._transition(SessionState.TERMINATED)
+        try:
+            self.recorder.export()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"sessionId": self.id, "closed": True}
+
+    # ── raw input application (used by the core dispatch) ────────────────────
+
+    async def apply_click(
+        self, target: Target, *, button: str = "left", count: int = 1,
+        delivery_mode: str = "background", window_id: Optional[str] = None,
+    ) -> Any:
+        point = target.point
+        if point is None:
+            from .errors import ActionFailed  # noqa: PLC0415
+
+            raise ActionFailed("The target has no position to click.", session_id=self.id)
+        return await self.mouse.click(point[0], point[1], button=button, count=count,
+                                      delivery_mode=delivery_mode,
+                                      window_id=window_id or target.window_id or None)
+
+
+def _iso(ts: float) -> str:
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+__all__ = ["ComputerSession", "SessionState", "StaleCheck"]

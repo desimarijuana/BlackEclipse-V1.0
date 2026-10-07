@@ -8,7 +8,7 @@ push, open a review request or deploy.
 
 from __future__ import annotations
 
-from harness.agents import CHAT_CODE_TOOLS, CODE_AGENT_TOOLS, ECLIPSE_AGENT
+from harness.agents import BROWSER_TOOLS, CHAT_CODE_TOOLS, CODE_AGENT_TOOLS, COMPUTER_TOOLS, ECLIPSE_AGENT
 from harness.code.policy import EXTERNAL_ACTION_TOOLS, allowed_tools
 from harness.code.tools import register_code_tools
 from harness.graph import chat_code_allowlist
@@ -295,7 +295,7 @@ EXPECTED = (
     'market_get_quote',
     'fundamentals_get_financials',
     'research_search',
-)
+) + tuple(BROWSER_TOOLS) + tuple(COMPUTER_TOOLS)
 
 
 def _registry() -> ToolRegistry:

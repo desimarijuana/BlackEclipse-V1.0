@@ -6,6 +6,52 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-07
+
+- **Browser Automation Runtime — a Hermes-grade, provider-agnostic browser
+  subsystem.** New `python/harness/browser/` package: a `browser_*` toolset on the
+  ONE registry (navigation, accessibility-first snapshots with Eclipse-stable refs
+  `@e1…`, interaction, waiting, tabs, iframes, dialogs, downloads/uploads,
+  console/network/errors, JS eval, controlled CDP, storage, profiles, vault,
+  human-in-the-loop, device emulation, network interception), a `BrowserManager`
+  pool + `BrowserSession` state machine, a `BrowserProvider` layer (`LocalChromium`
+  on Playwright, `CDPProvider`, and honest optional backends Browser Use/Browserbase/
+  Lightpanda/agent-browser/Firecrawl that report unavailability rather than faking
+  it), a capability-based provider router (private/local targets always run
+  locally), a locator/resolution engine with stale re-resolution, action→observe→
+  verify, vision + DOM/vision fusion, a sandboxed `browser_exec` program AST, ONE
+  security policy engine (permissions ALLOW/DENY/ASK routed through the existing
+  single-use approval store, domain policy, destructive-action elevation, an
+  untrusted-page boundary vs prompt injection), a credential vault (references,
+  never values), persistent profiles, durable metadata on `agent-memory.db`, and
+  bounded traces. Boot wiring in `service.py`/`main.py` (`/health.browser`, router
+  `/browser/*`); `BROWSER_TOOLS` added to the finance agent, code agent and chat
+  code profile; `code/policy.py` + `code/authorizers.py` narrowing/admission;
+  prompt guidance; `playwright>=1.62,<1.63` in `requirements.txt` + a doctor probe
+  (never auto-downloads the browser). A missing Playwright/Chromium is an honest
+  `BROWSER_UNAVAILABLE`, never a fake browser. Tests: `test_browser_unit.py` +
+  `test_browser_integration.py` (real Chromium against the stdlib test app
+  `browser_app.py`). Docs: `docs/harness/browser-runtime.md`, `docs/harness/decisions.md`
+  (ADR-H134), `docs/NAVIGATION.md`.
+- **Computer Use Engine — desktop control as a first-class, isolated capability.**
+  New `python/harness/computer/` package: a `computer_*` toolset on the ONE
+  registry, a `ComputerManager` + desktop session/state model, a platform-driver
+  layer (`drivers/`) with honest availability, accessibility/grounding/OCR/vision
+  engines, a finance firewall + policy/security layer, takeover leases, recording
+  and replay, and the matching router (`routers/computer.py`, `/computer/*`,
+  operator-gated) plus a `computer` CLI group. Boot wiring in
+  `service.py`/`main.py` (`start_computer`/`start_computer_sweeper`/
+  `stop_computer`). Tests: `test_computer_{unit,tools,safety,adversarial}.py`
+  (77 passing). This subsystem landed alongside the Browser Automation Runtime and
+  shares the same runtime files (`service.py`, `main.py`, `cli.py`), so both ship
+  in one commit to keep the tree buildable.
+- **Size/ratchet tests tolerate the vendored Python + prompt growth.** The TS
+  size-budget walk now skips `scripts/vendor` (the vendored interpreter's
+  site-packages carries Playwright `.d.ts` files); the Python `main.py` ratchet and
+  the finance prompt char ceiling were raised with justification for the browser
+  boot wiring + guidance block. `test_code_agent.py`/`test_chat_code_profile.py`
+  count the shared `BROWSER_TOOLS` set.
+
 ## 2026-10-06
 
 - **Application Runtime — the remaining limitations closed (production hardening
@@ -2661,449 +2707,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
   `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-06-jobs-and-triggers.md`,
   `docs/harness/roadmap/progress/phase-06-progress.md`.
-
-## 2026-09-30
-
-- **Harness closeout Phases 8â€“9 â€” eval harness, rollout, docs.** `scripts/test-evals.js`
-  runs four new OFFLINE gates: the capability-matrix gate
-  (`scripts/eval-capability-matrix.ts`) and the Python route_health / workflow /
-  resume gates (`python/harness/eval_gates/`), each failing non-zero on a floor
-  violation. The workflow path and the route-probe schedule ship behind flags
-  (`HARNESS_WORKFLOWS_ENABLED` / `HARNESS_ROUTE_PROBE_ENABLED`), both default OFF;
-  a run with no `workflowId` is unchanged. Architecture, NAVIGATION and ADR-H93â€¦H96
-  documented. docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md`, `docs/harness/harness-closeout-progress.md`
-
-- **Harness closeout Phase 7 â€” observability: one source of truth.** Verified the
-  retrieval planner's health index reads the same SourceHealth ledger as
-  `get_source_health`, with a test asserting equal verdicts. `explain_run` now
-  includes the workflow step tree, run lineage, and the resume point; workflow
-  steps emit per-step events on the existing bus; `run-explanation-panel.tsx`
-  renders them. docs updated: `docs/harness/harness-closeout-progress.md`
-
-- **Harness closeout Phase 6 â€” permissions, sandboxing, egress.** `ToolDefinition`
-  gained `version`/`deprecated`/`replacement`; the registry warns once per run
-  when a deprecated tool is called (naming its replacement) and still executes it.
-  Confirmed and tested the four egress guards (private-address, non-https hop,
-  DNS-rebinding, over-size document). A sentinel-secret scan runs a real run with a
-  sentinel credential and asserts it appears in no persisted row.
-  docs updated: `docs/harness/harness-closeout-progress.md`
-
-- **Harness closeout Phase 5 â€” the composable workflow graph.** New
-  `python/harness/workflows/` (model/validate/store/compile) compiles a versioned,
-  bounded `Workflow` onto the EXISTING `execute_run` graph â€” no second loop,
-  registry or model adapter. A step's tool scope = agent allowlist âˆ© step tools,
-  enforced at the `ToolRegistry.execute(allowed=...)` seam (a denied call is a
-  structured `TOOL_FORBIDDEN`); approval steps reuse the single-use `ApprovalStore`;
-  parallel branches share the run cancel event/cache. Flag-gated
-  (`HARNESS_WORKFLOWS_ENABLED`, default OFF); a run with no `workflowId` is
-  unchanged. Front door `src/lib/harness/workflows-client.ts` + routes
-  `src/app/api/harness/workflows/**`.
-  docs updated: `docs/harness/harness-closeout-progress.md`
-
-- **Harness closeout Phases 3â€“4 â€” matrix truthfulness + data-route gaps.**
-  `buildCapabilityMatrix` now reconciles every axis and represents an impossible
-  fact as `matrixInconsistent` (with a reason) instead of smoothing it over; CH/KW/QA
-  gained real COVERAGE entries with correct ISO currencies (CHF/KWD/QAR) and the
-  market count is asserted at 34; a declared provider-eligibility registry replaces
-  an inferred quote route (AE/NG are not-configured and secondary). FX/crypto skip
-  the JDdS vault (which holds no such row); statements resolve through the provider
-  chain with the vault as a cache (never a vault identity failure); PK is declared
-  secondary; thin markets gained symbol-candidate chains.  No jdds.db commit.
-  docs updated: `docs/harness/harness-closeout-progress.md`
-
-- **Harness closeout Phase 2 â€” one authoritative route-health ledger.**
-  `sourceHealth()` now returns a compact recorded SUMMARY by default and withholds
-  the ~1,200 declared-but-unrun routes (opt-in via `recordedOnly`/`includeDeclared`),
-  so `get_source_health` is readable inside the 24k tool bound instead of showing
-  only "unknown" rows. `capabilityMatrix()` canonicalises its market key to match;
-  a migration folds legacy rows (incl. literal `unknown`) onto canonical keys.
-  `SourceHealth` gained `lastSuccessAt`/`lastFailureAt`. A bounded cross-market
-  probe records one attempt per (market Ã— capability) into the same ledger, with a
-  manual one-shot (`POST /api/harness/route-probe`, `scripts/probe-route-health.ts`)
-  and a recurring schedule OFF by default behind `HARNESS_ROUTE_PROBE_ENABLED`.
-  The ledger surface moved to `src/lib/harness/health-ledger.ts` to respect the
-  size ratchet.
-  docs updated: `docs/harness/harness-closeout-progress.md`
-
-- **Harness closeout Phase 1 â€” run lineage, durable checkpoints, idempotent
-  resume.** Each run can now survive a crash: `HarnessRun.parentRunId`/`workflowId`
-  record lineage; a new `RunCheckpoint` table stores a bounded per-boundary
-  reference (agent step / tool results / terminal), and `ToolExecutionIdempotency`
-  makes a resume reuse an already-executed tool result instead of re-running it.
-  New routes `POST /runs/{id}/resume` and `GET /runs/{id}/lineage`; a missing
-  checkpoint returns `CHECKPOINT_NOT_FOUND` and a terminal run `RESUME_CONFLICT`.
-  Persistence moves into a new `python/harness/run_lineage.py` (bound to the ONE
-  store connection) so ratcheted `persistence.py` did not grow; per-run context
-  helpers were extracted to `python/harness/graph_context.py`.
-  docs updated: `docs/harness/harness-closeout-progress.md`
-
-- **Tool-loop integrity Phase 1 â€” the release gate's one red test was a UTC
-  month-rollover time bomb.** `weekly.test.ts`'s `buildMonthlyWrapped` test
-  derived its period from `new Date()` while its fixtures were hardcoded to
-  2026-09; after 20:00 EDT on Sep 30 (UTC already Oct 1) the prefix resolved to
-  `2026-10` and zero rows matched. The test now passes `(year, month)` explicitly
-  and asserts the zero-match branch (`trades === 0`, `bestMarket === null`)
-  deliberately. A repo-wide sweep found no other live-clock/fixed-fixture test.
-  A testing convention was added to `CONTRIBUTING.md`.
-  docs updated: `CONTRIBUTING.md`, `docs/harness/tool-loop-integrity-progress.md`
-
-- **Tool-loop integrity Phase 2 â€” duplicate tool-call suppression is scoped to
-  one agent step, not the whole run (ADR-H90).** `seen_calls` now resets per
-  `tools_node` invocation, so a legitimate re-issue in a later turn (next page,
-  re-poll, retry) executes instead of being refused with a stale "use the earlier
-  result". Intra-turn refusal is unchanged. Regression tests cover both
-  directions; the retrieval cache still dedupes fetches per run.
-  docs updated: `docs/harness/decisions.md` (ADR-H90),
-  `docs/harness/architecture.md`, `docs/NAVIGATION.md`
-
-- **Tool-loop integrity Phase 3 â€” native tool-result text is bounded at the one
-  execution seam (ADR-H91).** `ToolRegistry.execute` trims a model-facing text
-  result to `MAX_TOOL_RESULT_CHARS = 24_000` with a non-JSON marker and
-  `truncated`/`shown_chars`/`total_chars` fields; the graph emits `tool.truncated`.
-  Byte-identical under the bound; `ToolResult.data` is never bounded. Blast
-  radius: only `session_open` can exceed it (~25.6k chars max); the constant was
-  not raised to hide it. Model-streaming helpers were extracted to
-  `model_stream.py` to keep `graph.py` under its ratchet.
-  docs updated: `docs/harness/decisions.md` (ADR-H91),
-  `docs/harness/architecture.md`, `docs/NAVIGATION.md`
-
-- **Tool-loop integrity Phase 4 â€” an effectful-tool approval is single-use
-  (ADR-H92).** `ApprovalStore.consume` atomically claims an approved, unexpired
-  approval (guarded `UPDATE` + rowcount) and moves it to a terminal `consumed`
-  state with `usedAt`; a second identical call is refused and creates a fresh
-  PENDING request. The double authorization seam (registry + manager re-assert) is
-  resolved via a per-call-scope digest marker on `ToolContext`. `consumed`/`usedAt`
-  ride the round-trip through `MCPApprovalView` and the approvals UI (extracted to
-  `mcp/approvals-panel.tsx` to keep `mcp-settings.tsx` under its ratchet).
-  docs updated: `docs/harness/decisions.md` (ADR-H92),
-  `docs/harness/architecture.md`, `docs/NAVIGATION.md`
-
-- **ChatBot: new Ctrl+N (Cmd+N on Mac) shortcut for a new chat page.**
-  The chat tab's "New chat" page shortcut was `Shift+N`, colliding with the
-  `Shift+N` "new layout"/new-item convention used across other screens (Command
-  Center layouts, trades, alerts). It is now `mod+n` (Ctrl on Windows/Linux, Cmd
-  on Mac) so the two never blur. Added `formatShortcutKeys` in `src/lib/keyboard.ts`
-  and used it in the keyboard-help dialog so specs like `mod+n` render as
-  `Ctrl / Cmd + N` (previously page/sidebar keys showed raw). Tests added for the
-  formatter.
-  docs updated: `docs/OVERVIEW.md`
-
-- **Background zoom could not go below 100%.** The Zoom control was hard-clamped
-  to a 100% minimum in two places â€” `normalizeBackgroundPrefs` (`backgrounds.ts`)
-  and the slider `min` (`background-settings.tsx`) â€” even though the CSS and
-  `resolveBackgroundCss` already support 50%. Lowered the floor to 50% in both, so
-  the wallpaper can be shrunk. Test updated plus a sub-100% regression assertion.
-  docs updated: `docs/ARCHITECTURE.md`
-
-- **MCP integrity close-out â€” live supply-chain verdict surfaced; catalog-change
-  counters shown; the report's dead `upstreamChecked` flag made real.**
-  `SupplyChainChecker` now records the last observation per
-  `(ecosystem, package, version)` with a wall-clock `checkedAt`; a read-only
-  `observe_command` lets `supply_chain_report` attach `liveVerdict` to a
-  configured package and DERIVE `upstreamChecked` from real observations (the
-  caller `upstream_checked` parameter is removed â€” it had no caller and could
-  never be true). The route stays offline. The card/lifecycle panel now render
-  `lifecycle.catalogChanges`/`lastCatalogChangeAt` beside the existing "catalog
-  changed" banner, via a pure `catalogChangeSummary` helper â€” no event consumer
-  was added. `python/tests/test_retrieval_health.py` and the health-aware
-  retrieval workstream are adjacent scope (uncommitted, tested green).
-  docs updated: `docs/harness/mcp-integrity-progress.md` (Milestone 11),
-  `docs/harness/decisions.md` (ADR-H88/H89), `docs/NAVIGATION.md`
-
-- **`memory` tool â€” save crash on missing/null `confidence` fixed.** `save`
-  crashed with `float() argument must be a string or a real number, not
-  'NoneType'` when `confidence` was present-but-null (`args.get("confidence",
-  0.8)` returns `None` for a JSON `null`). Added `_coerce_confidence`
-  (missing/empty/NaN/out-of-range â†’ default 0.8, bounded 0..1) and wrapped the
-  authorize+commit call so any malformed input returns a typed `invalid_input`
-  refusal instead of an unhandled `TypeError`. The per-turn write-authorization
-  gate is untouched (its fail-closed false negative is intentional). Tests added
-  for save-without-confidence, save-with-null, and malformed confidence.
-  no doc change â€” bug fix, contract unchanged.
-
-- **Background â€” Eclipse I is the official first-run wallpaper; added resize controls.** Factored the shipped default into `DEFAULT_BACKGROUND_ID = 'eclipse-1'` (the official background new users get) and marked it with a "Default" badge in the picker. Added image resize controls: **Zoom** (100â€“300%), **Horizontal** and **Vertical** focal position (0â€“100%), alongside the existing Fit and Darkening. The wallpaper image moved onto the layer's `::before` so zoom scales only the art (the dim scrim stays full-size), and the resolver now emits `--app-bg-zoom` + a focal `--app-bg-position`. `BackgroundPrefs` gained `scale`/`positionX`/`positionY` (normalized/clamped).
-  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
-
-- **Sidebar â€” clicking the ChatBot icon always starts a new chat.** The ChatBot nav item used to just switch to the chat tab, resuming whichever conversation was last active. It now calls `onNewChat()` before switching tabs, so clicking it opens a fresh chat every time; previous conversations remain reachable from the history list above the nav.
-  no doc change â€” bug fix; no architecture, contract, setup, or data-shape change.
-
-- **MCP: no-op `list_changed` no longer emits a "catalog changed" event, and the
-  live supply-chain check is now a visible operator setting.** Two honesty/
-  reachability gaps in the M4/M6 work. (1) `rediscovery.py` re-ran discovery on
-  every inbound `list_changed` and emitted `mcp.catalog.changed` unconditionally.
-  A server that announces a change that never materialises (or fires the
-  notification gratuitously) therefore produced a stream of misleading "catalog
-  changed" signals â€” the operator would be asked to re-confirm an identical
-  catalog. The handler now snapshots `rt.catalog_digest` before the refresh and
-  suppresses the event when the digest is unchanged; discovery, the registry
-  reconcile and a real digest change all still run and emit. Regression:
-  `python/tests/test_mcp_notifications.py::test_a_gratuitous_list_changed_emits_no_catalog_event`
-  and a new `list_changed_noop` fixture mode. The `list_changed_all` fixture now
-  actually changes its TOOL list too (it only changed resources/prompts), so the
-  `tools` event it asserts is no longer a false positive. (2)
-  `MCPServerConfig.live_supply_chain_check` defaulted to **true** and did an
-  outbound 8s OSV query on every `npx`/`uvx` spawn, but no operator surface
-  mentioned it: not in the editor, not in the example config, and absent from the
-  TS `MCPServerView`/`MCPServerInput`/`DraftServer` contract â€” so a save from the
-  editor would have DROPPED an operator's explicit `false` and silently
-  re-enabled the network call. Added the view/input/draft fields with a
-  `!== false` default (absent = the documented default), the round-trip mapping,
-  the lifecycle checkbox in `server-editor.tsx`, and the example-config
-  documentation. Regression: `mcp-draft.test.ts` "round-trips the live
-  supply-chain toggle". Also documented the six manager mixins that the
-  `NAVIGATION.md` MCP row did not name (`verify.py`, `execution.py`,
-  `lifecycle_mixin.py`, `utilities.py`, `rediscovery.py`, `circuit.py`,
-  `supply_chain.py`). Checks: `npx tsc --noEmit` exit 0; `mcp-draft.test.ts` 16
-  passed; `test_mcp_notifications.py` 6 passed.
-  docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
-  `docs/harness/decisions.md` (ADR-H87), `docs/CHANGELOG.md`,
-  `mcp-servers.example.json`
-
-- **Retrieval planning is health-aware (P0-2).** The static source order could
-  prefer a route recorded as failing (e.g. `LIVE_STRUCTURED` 0/8) over an
-  equally-eligible healthy one (`yfinance` 4/0). Added
-  `python/harness/retrieval/health.py` (`build_health_index`/`rank_sources`) and
-  wired it in `retrieval/layer.py`: the layer now reads the SAME `SourceHealth`
-  ledger `get_source_health` reports (via the bridge `source_health` capability)
-  and promotes a healthy route ahead of a failing one. It only REORDERS among
-  already-available sources, is stable for equal health, never demotes a failing
-  route below an unobserved one, fetches the index at most once (after the D1
-  durable-replay check), and fails open. Tests:
-  `python/tests/test_retrieval_health.py`.
-  docs updated: `docs/harness/decisions.md` (ADR-H86), `docs/NAVIGATION.md`
-
-- **Memory â€” confirmed and documented the verification/source policy (P2-11).**
-  No code change: `source=explicit_user` grants authority but is stored
-  `unverified`; only a user correction or an explicit `verification="verified"`
-  marks a record verified. Recorded that "most records unverified" is intended
-  and that the model-initiated `save` write gate is deliberate.
-  docs updated: `docs/harness/memory-maturity-baseline.md`
-
-- **Source health â€” canonical route keys + persisted probes (P0-3/P1-5).** The
-  `SourceHealth` ledger was fragmented: the same route appeared under `Equity`
-  and `equity`, under `unknown`/`*`, and the `research_health` probe tested one
-  provider (`duckduckgo-html`/`safe-get`) while production recorded another
-  (`WEB`) â€” so a working provider was reported as failing and per-route success
-  rates were wrong. Added `src/lib/harness/health-key.ts` with a closed
-  vocabulary (`canonicalMarket`/`canonicalAssetClass`/`canonicalSource`, alias
-  folding to one source per provider) applied on both write and read, and made
-  the `research_health` probes upsert into the same ledger under the same
-  instrument-less route key as production. New module keeps `data-bridge.ts`
-  under its size ratchet. Tests: `src/lib/harness/health-canonical-keys.test.ts`.
-  docs updated: `docs/harness/decisions.md` (ADR-H85), `docs/NAVIGATION.md`,
-  `docs/DATA-FLOW.md`
-
-- **`memory` tool â€” null-limit crash fixed.** `action=list` failed with
-  `TypeError: int() argument must be a string ... not 'NoneType'` when the model
-  emitted a present-but-null `limit` (JSON `null`): `args.get("limit", 20)`
-  returns `None` because the key exists, so `int(None)` raised. Coerced the
-  optional integer args in `python/harness/memory_tools.py` with `or` instead of
-  the positional default (`memory` search/list, `session_open` before/after),
-  which also catches `None`; added a regression test asserting both branches
-  tolerate `limit: null`.
-  no doc change â€” bug fix, contract unchanged.
-
-- **MCP integrity â€” real-server defects fixed and the remaining gaps closed.**
-  Two sessions. First: a provider-side error body returned with `isError=false`
-  is now a failure (pure `looks_like_provider_error` classifier, an explicit
-  rendered failure, `mcp_tool_provider_error`); **Test is not Verify** â€” a new
-  operator-triggered `POST /mcp/servers/{id}/verify` makes one bounded read call
-  and records a content-free verdict; the un-launchable `sec-edgar-mcp` preset is
-  replaced with the launched `@pipeworx/mcp-edgar`; `notion`/`dropbox` ids become
-  `notion_local`/`notion_remote`; a `read` tool with a write-shaped name is inert
-  until explicitly acknowledged; a per-run MCP call budget, a `maxTools`
-  truncation diagnostic, and a stale-lazy-cache signal were added. Continuation:
-  inbound `notifications/tools/list_changed` now triggers rediscovery of one
-  server (re-engaging the confirmation gate), and a `resources`/`prompts`
-  list-changed notification refreshes that listing so the utility tools serve the
-  current snapshot rather than the stale connect-time one, each with a
-  content-free `mcp.catalog.changed` event (ADR-H81); a per-server circuit breaker stops futile
-  calls to a server that connects but fails every call, with an operator reset
-  (ADR-H82); a spawn-path OSV supply-chain check fails closed on a confirmed
-  malware advisory and open on a network error (ADR-H83); a sampling model
-  allowlist and a 64-char tool-name clamp (ADR-H84); `python/pytest.ini` prints a
-  passing summary line; the test-only `_testtmp.py` moved to
-  `python/tests/_tmp_helper.py` and is adopted by `python/conftest.py`.
-  docs updated: `docs/harness/mcp-integrity-progress.md` (new + continuation),
-  `docs/harness/decisions.md` (ADR-H77â€“H84), `docs/harness/architecture.md`,
-  `docs/NAVIGATION.md`, `docs/harness/mcp-phase-6-progress.md`,
-  `docs/harness/mcp-ui-parity-progress.md`, `CONTRIBUTING.md`
-
-- **General settings â€” Start screen control removed; background picker promoted.** Removed the "Start screen" button grid from Settings â€º General â€º General (the boot tab now just follows the default/deep link; `general-prefs` still stores it for compatibility). The Background panel now leads the General tab, and the shipped **Eclipse I** wallpaper is the default on first run (`DEFAULT_BACKGROUND.mode = 'image'`, `preset = 'eclipse-1'`). The wallpaper fills the main content panel (right of the sidebar) on the ChatBot landing only (empty transcript) and resizes with it, so opening the sidebar keeps the image fully visible; the sidebar keeps its normal (non-transparent) frost. Follow-up to the background feature below.
-  no doc change â€” same unreleased feature; docs already describe the background system.
-
-- **Background fix â€” scrim was an invalid `background-image` layer.** The legibility scrim was written as a bare color (`rgba(0,0,0,0.45)`), but a color is not a valid `background-image` value; CSS dropped the *entire* multi-layer declaration, so no pattern or wallpaper ever painted. The scrim is now a solid-gradient image (`linear-gradient(rgba(...), rgba(...))`) and the CSS `var()` fallback changed from `transparent` to `none`. Same-day follow-up to the background feature below.
-  no doc change â€” bug fix in an unreleased change.
-
-- **Settings â€º General â€º Background â€” customizable page wallpaper.** The hardcoded, dead `/backgrounds/eclipse bg.svg` chat-landing block (the file no longer exists) is replaced by a real background system in `src/lib/backgrounds.ts` (Settings â€º General â€º Background). Mode `none | pattern | image`: `pattern` absorbs the old Solid/Gradient/Grid control from Customization â€º Glass & Surfaces (single background surface now, tinted by brand, app-wide), and `image` offers the shipped Eclipse wallpapers (`public/backgrounds/eclipse bg-1.svg`/`-3.png`/`-4.svg`/`-5.svg`) or a user picture. Wallpapers paint the **ChatBot landing only** via a `.app-bg-layer` filling the main content panel (right of the sidebar, so the menu overlays the image). Custom uploads are downscaled client-side (~2560px, JPEG/PNG, up to 30 MB in) and stored in **IndexedDB** (`be_background`/`custom`) so a full-res wallpaper never eats the ~5 MB localStorage budget; prefs live in `be_background_v1`. Adds fit (cover/contain/tile) and a darkening scrim for legibility. Applied via `useHydrateBackground` in `stock-chat.tsx`.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
-
-- **Root .gitignore: ignore a stray root node_modules/.** A tool running vitest from the repo root created `node_modules/.vite`; ignored so it can never be committed.
-  no doc change â€” ignore-rule only.
-
-- **Terminal cleanup â€” guard floor, line endings, commits.** Pinned the CHANGELOG guard floor to 345 and added an archive-seam assertion; normalized the 66 working-tree files that mixed CRLF/bare LF (content proven unchanged) and added a mixed-ending guard; recorded the `jdds.db` purge recommendation (keep it) and the smoke/CI caveats. Two commits: `8153d35` (line endings) and `43085d8` (closeout).
-  docs updated: `docs/harness/terminal-cleanup-progress.md`, `docs/harness/closeout-progress.md`, `docs/NAVIGATION.md`
-
-- **Terminal cleanup â€” codex checkpoint refs, filter remnant, stale lock.** Deleted
-  the 12 
-efs/codex/turn-diffs/checkpoints/* refs (12 exclusive jdds.db blobs,
-  1.53 GB decompressed) and the 
-efs/original/ filter remnant plus a stale
-  maintenance.lock; git gc dropped .git from 101,428,986 to 46,889,484 bytes.
-  Also consolidated the CHANGELOG sections and tightened its guard.
-  docs updated: docs/harness/terminal-cleanup-progress.md,
-  docs/harness/closeout-progress.md, docs/NAVIGATION.md
-
-- **Closeout follow-up â€” CHANGELOG sections consolidated.** Same-date sections are
-  now merged to exactly one section per date, the two malformed single-hash date
-  headings in the archive were corrected, and an empty duplicate heading removed.
-  Entry count preserved (350 before, 350 after); the rotation guard now asserts
-  per-date uniqueness, no malformed heading, and an append-only floor.
-  docs updated: `docs/harness/closeout-progress.md`
-
-- **Closeout â€” history measurement, line endings, CHANGELOG forensics, CI.**
-  Measured the five open items (see `docs/harness/closeout-progress.md`): the
-  `jdds.db` history load is 20 blobs (the 12 `refs/codex/...` checkpoint refs hold
-  ~1.53 GB exclusive; `backup-before-email-rewrite` has no exclusive blobs), and
-  history purge/archive are prepared but not executed. Added a root
-  `.gitattributes` (LF normalization; `.wav`/`.ico`/`.db` binary) so a one-line
-  edit no longer shows a phantom whole-file diff â€” renormalized `ARCHITECT.md`
-  alone, content proven unchanged by SHA. Reconciled the CHANGELOG rotation
-  forensically (0 entries lost; 4 hardening entries re-filed from `2026-09-15` to
-  `2026-09-30`; "347" corrected) and added a rotation guard. Restored CI at the
-  true root (`.github/workflows/ci.yml`, ADR-H76) mirroring `check:all`, dropped
-  the obsolete `backup.yml`, and gave `test:smoke` a documented release-tag
-  trigger in `CONTRIBUTING.md`.
-  docs updated: `docs/harness/closeout-progress.md`,
-  `docs/harness/decisions.md` (ADR-H76), `docs/NAVIGATION.md`,
-  `docs/harness/engineering-hardening-progress.md`, `CONTRIBUTING.md`,
-  `.gitattributes`, `.github/workflows/ci.yml`
-
-- **Engineering hardening â€” the release gate is now local and runnable.** Deleted
-  the unreachable `Black-Eclipse-site/.github/workflows/` (GitHub reads only root
-  `/.github/workflows`, and the git root is above the app dir). Added
-  `npm run check:all` (`scripts/check-all.js`) as the one honest gate, and moved
-  the three surviving eval gates (retrieval/contradiction/compaction) into
-  `npm test` via `npm run test:evals` (`scripts/test-evals.js`, offline, ~0.7s).
-  Removed the dead `semantic_cli` reference. Added a `.githooks/commit-msg` guard
-  that enforces the CHANGELOG obligation for non-doc changes.
-  docs updated: `docs/harness/engineering-hardening-progress.md`,
-  `docs/harness/decisions.md` (ADR-H75), `skills/ARCHITECT.md` (ADR-039),
-  `docs/NAVIGATION.md`
-
-- **Engineering hardening â€” took `jdds.db` out of git.** `git rm --cached`ed the
-  60 MB vault (file kept on disk); ignored it at the app level with the new
-  distribution story (`scripts/doctor.js` provisions it via `npx prisma db push`).
-  Fixed the root `.gitignore` (the broken `0`/`0-shm`/`0-wal` lines are now
-  `*.db`/`*.db-shm`/`*.db-wal`; removed the vestigial root `/scripts/` rule).
-  `git gc --prune=now` reclaimed packed garbage (size-pack 372 -> 94.5 MiB).
-  The full history-purge procedure (2B) is written up but not executed.
-  docs updated: `docs/harness/engineering-hardening-progress.md`
-
-- **Engineering hardening â€” front-door tests and authorization.** Guarded the four
-  previously-unguarded mutation routes (`POST/DELETE /api/symbols`,
-  `POST /api/investor-eye/portfolio`, `POST /api/memory-providers/search`,
-  `DELETE /api/skill-executions/[runId]`). Added route tests for them plus
-  settings/journal-trades/provider-keys/alerts (route-test count 2 -> 11); added
-  the first Python router-seam test (`python/tests/test_router_seam.py`); fixed a
-  flaky macro-health test that made a real network call.
-  docs updated: `docs/harness/engineering-hardening-progress.md`
-
-- **Engineering hardening â€” size and lint discipline.** Replaced the single 200 KB
-  file-size ceiling with a graduated guard (hard 1200 lines + a non-growing
-  ratchet; soft 800) in `src/lib/size-budget.test.ts`, and added the equivalent
-  Python guard `python/tests/test_size_budget.py`. Removed genuinely dead symbols
-  (`LEGACY_FILES`, `vendorAvailable`, four unused test imports), lowering eslint
-  warnings from 34 to 24 with no blanket disables.
-  docs updated: `docs/harness/engineering-hardening-progress.md`
-
-- **Engineering hardening â€” MCP leftovers closed or re-stated.** Non-text MCP
-  results keep a metadata-only path but now state plainly that content exists and
-  was not shown (the runtime has no binary channel). The supply-chain report is
-  re-stated as offline-only (offlineOnly/upstreamChecked/generatedAt; the
-  date is a review date, not a live check) and the UI says so. 
-esource_schemes
-  narrowing was verified reachable with the global allowlist as ceiling; the OAuth
-  authorization-code leg keeps its named unblocking condition (a local https
-  callback or hosted redirect) with the device flow as the documented default.
-  docs updated: docs/harness/engineering-hardening-progress.md,
-  docs/harness/mcp-ui-parity-progress.md
-
-- **Engineering hardening â€” documentation reconciliation.** Updated
-  gentic-plan-implementaion.md so MCP Phases 5D/5F/5H/5I reflect shipped
-  reality (5F and 5H implemented, 5D/5I complete except the documented OAuth
-  https and subscriptions non-goals). Completed the app-level ADR mirror:
-  skills/ARCHITECT.md and docs/DECISIONS.md now both hold all 39 app ADRs
-  (backfilled 11 existing + mirrored ADR-038/039); the harness ADR-HNN series
-  stays only in docs/harness/decisions.md. Documented both series in AGENTS.md,
-  skills/DOCS.md and NAVIGATION.md. Added a CHANGELOG rotation policy
-  (rolling 7-section window + monthly docs/changelog/ archives, history moved
-  not pruned). Fixed the two stale doc statuses.
-  docs updated: gentic-plan-implementaion.md, AGENTS.md,
-  skills/ARCHITECT.md, skills/DOCS.md, docs/DECISIONS.md,
-  docs/NAVIGATION.md, docs/CHANGELOG.md, docs/changelog/2026-09.md,
-  docs/harness/decisions.md, docs/harness/phase-3-architecture.md,
-  docs/harness/phase-4-progress.md,
-  docs/harness/engineering-hardening-progress.md
-
-- **MCP Phase 6.1 â€” round-trip integrity (fixes a silent authority downgrade).**
-  `upsert_mcp_config` now implements "absent means preserve; explicitly present
-  means replace" using the incoming model's `model_fields_set`, so a partial save
-  (the old UI payload) can no longer reset `trust`, `lazy`, `tools`,
-  `tool_effects`, `data_source_tools`, `confirmed_catalog_digest` or the
-  keepalive/idle/lifetime/TLS fields. `install_mcp_integration` is now
-  create-if-absent so re-installing never resets a user's changes. `public_dict()`
-  also emits the raw operator-set bounds so the wire is lossless. A hard
-  invariant is added: a save may never widen authority by omission. TS
-  `MCPServerView`/`MCPServerInput` carry every field; the viewâ†”draft mapping is a
-  pure tested module `src/lib/harness/mcp-draft.ts`.
-  docs updated: `docs/harness/mcp-ui-parity-progress.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H74)
-- **MCP Phase 6.1 â€” full-fidelity editor and status surfaces.** The settings UI
-  reaches every Phase-6 field: trust tier, include/exclude filters, per-tool
-  effects, native data sources, capability toggles, lazy/keepalive/idle/lifetime,
-  TLS/mTLS, limits, SSE transport and OAuth sign-in. The server editor is
-  extracted to `src/components/screens/mcp/`; a lifecycle panel renders the
-  runtime's retry/keepalive/recycle/metrics block honestly; approvals gain status
-  filtering; the config load error is shown loudly.
-  docs updated: `docs/NAVIGATION.md`, `docs/harness/mcp-ui-parity-progress.md`
-- **MCP Phase 6.1 â€” product surface, leftovers and `manager.py` split.** New
-  front-door routes `POST /api/harness/mcp/integrations/[id]/install` and
-  `GET /api/harness/mcp/supply-chain`; the wizard installs a preset and the
-  supply-chain panel renders offline. Non-text MCP content now reports MIME type +
-  byte size instead of an opaque omission. `resource_schemes` adds an optional
-  per-server narrowing with the global allowlist as a hard ceiling. `manager.py`
-  is split by pure extraction into `runtime.py`, `introspection.py` and
-  `oauth_flow.py` (1579 â†’ 1226 lines), `MCPManager` facade unchanged.
-  docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
-  `docs/harness/mcp-ui-parity-progress.md`
-
-- **Docs â€” Eclipse-as-a-Harness roadmap: the phased plan for the code/coding-agent,
-  job, delegation and self-improvement capability.** New `docs/harness/roadmap/` â€”
-  one file per phase (`README.md` + `phase-00-policy-and-baseline.md` â€¦
-  `phase-12-evaluation-gate.md`) instead of one long document, so a reader opens
-  only the phase they are running. `README.md` carries a verified capability ledger
-  against a harness like Hermes (what exists: the one runtime, retrieval,
-  evidence-gated research, skills, memory, MCP; what does not: any code
-  read/write/run capability, isolation, a harness-owned scheduler, delegation,
-  self-modification beyond skills), the four structural gaps, the invariants that
-  survive every phase (indexed 3.1â€“3.8 so the phase files can cite them), Â§0 the
-  audience rules, work already in flight (`run_lineage.py`, `graph_context.py`),
-  the file map and the ADR table. Every phase file uses one canonical heading
-  scheme (numbered Â§1â€“Â§11, a `## Contents` table, numbered `### 6.x` contracts) and
-  ships its exact contracts (real signatures, DDL, routes), runnable acceptance
-  gates and a paste-ready prompt, ending in the repo's docs obligation. Each phase
-  also carries a **Â§4 "Who can use it (the non-expert obligation)"**: the
-  capability is for the whole finance field â€” analysts, PMs, traders, advisors,
-  accountants, risk officers, students, small-business owners â€” not engineers or
-  quants only. User-facing text names the finance job and never the mechanism, copy
-  lives as keys in `src/lib/i18n/`, refusals are one plain sentence with a next
-  step, and each phase adds a plain-language gate over
-  `policy.PLAIN_LANGUAGE_DENYLIST`. The ADR series is numbered contiguously from the
-  current tail: **ADR-H93â€¦ADR-H114**. Planning docs only â€” no code, tests or runtime
-  behaviour changed. The earlier single-file roadmap is kept as a `status: Stale`
-  pointer (`docs/harness/eclipse-harness-roadmap.md`) per the "mark stale, never
-  delete" rule.
-  docs updated: `docs/harness/roadmap/**`, `docs/NAVIGATION.md`,
-  `docs/harness/eclipse-harness-roadmap.md` (now Stale)

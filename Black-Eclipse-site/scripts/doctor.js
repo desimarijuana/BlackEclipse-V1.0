@@ -193,7 +193,37 @@ if (py) {
     }
   }
 
-  // 5e. Real pseudo-terminal for the terminal subsystem's persistent shells
+  // 5d-bis. Browser Automation Runtime — the Python Playwright package. OPTIONAL
+  //         in effect: a missing one makes the browser toolset report an honest
+  //         UNAVAILABLE (never a fake browser), so this is a best-effort repair.
+  if (run(`"${py}" -c "import playwright"`, { timeout: 20000 }).status !== 0) {
+    const requirements = path.join(root, "python", "requirements.txt");
+    if (fs.existsSync(requirements)) {
+      fix("Python browser runtime (optional)", `"${py}" -m pip install -r "${requirements}"`);
+    }
+  }
+
+  // 5e. Browser binary presence. The Chromium build is a one-time download;
+  //     doctor REPORTS it and names the exact command but never auto-downloads
+  //     (keeping boot lightweight). A missing binary is an honest
+  //     BROWSER_UNINSTALLED at runtime, never a fabricated browser.
+  try {
+    const probe = run(
+      `"${py}" -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()"`,
+      { timeout: 25000 }
+    );
+    const exe = (probe.stdout || "").trim();
+    const present = probe.status === 0 && exe && fs.existsSync(exe);
+    console.log(
+      present
+        ? "[setup] browser binary: present"
+        : `[setup] browser binary: not present — run "${py}" -m playwright install chromium once to enable browser tools`
+    );
+  } catch {
+    console.log("[setup] browser binary: unknown (probe failed)");
+  }
+
+  // 5f. Real pseudo-terminal for the terminal subsystem's persistent shells
   //     (pywinpty on Windows, ptyprocess elsewhere). OPTIONAL: without it the
   //     session layer falls back to a piped shell and reports `pty: false`, so
   //     this is a best-effort repair, never a hard failure.

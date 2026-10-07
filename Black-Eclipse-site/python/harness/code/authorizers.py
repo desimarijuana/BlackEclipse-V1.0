@@ -63,6 +63,23 @@ def build_effect_authorizer(
         approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
     )
 
+    # The browser subsystem: an effectful browser tool (run script / CDP / sandbox
+    # program / upload / vault / interception) is admitted HERE; the handler's
+    # browser POLICY engine enforces the per-permission verdict and routes an ASK
+    # through the SAME single-use approval store. Every other non-read tool falls
+    # through unchanged.
+    from ..browser.authorizers import make_browser_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_browser_authorizer(code_authorizer)
+
+    # The Computer Use Engine: an elevated computer tool (finance mutation, human
+    # takeover) is admitted HERE and re-checked in the handler by the COMPUTER
+    # POLICY engine and the FINANCE FIREWALL. `computer_use` itself is registered
+    # read and gated per-call by the same policy engine.
+    from ..computer.authorizers import make_computer_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_computer_authorizer(code_authorizer)
+
     if approvals is None or not workspace_id:
         return code_authorizer
 

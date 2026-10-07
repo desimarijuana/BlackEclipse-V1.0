@@ -15,6 +15,59 @@ from .prompts import (
 )
 from .schemas import AgentConfig
 
+# The Browser Automation Runtime toolset (`browser_*`). Declared here so the
+# finance agent and the code agent advertise the SAME capability surface; the
+# registry only registers them when the capability is enabled AND Playwright is
+# present, and `resolve_surface`/`code.policy.allowed_tools` narrow the effectful
+# half at `plan_only`. The interactive browser is a first-class capability of the
+# Eclipse agent, so it is offered to both presets.
+BROWSER_TOOLS = [
+    "browser_launch", "browser_close", "browser_status",
+    "browser_navigate", "browser_back", "browser_forward", "browser_refresh", "browser_stop",
+    "browser_snapshot", "browser_extract", "browser_screenshot", "browser_vision",
+    "browser_visual_find", "browser_visual_click",
+    "browser_get_images", "browser_get_text", "browser_get_links", "browser_get_forms",
+    "browser_get_accessibility_tree", "browser_get_dom",
+    "browser_click", "browser_type", "browser_fill", "browser_select",
+    "browser_check", "browser_uncheck", "browser_press", "browser_hover",
+    "browser_scroll", "browser_drag",
+    "browser_wait", "browser_wait_for_element", "browser_wait_for_navigation",
+    "browser_wait_for_url", "browser_wait_for_network", "browser_wait_for_download",
+    "browser_wait_for_popup", "browser_wait_for_load_state", "browser_wait_for_text",
+    "browser_tabs", "browser_new_tab", "browser_switch_tab", "browser_close_tab",
+    "browser_new_window", "browser_switch_window",
+    "browser_download", "browser_upload",
+    "browser_console", "browser_network", "browser_errors",
+    "browser_evaluate", "browser_cdp", "browser_exec", "browser_dialog",
+    "browser_cookies", "browser_storage", "browser_permissions",
+    "browser_session_create", "browser_session_list", "browser_session_pause",
+    "browser_session_resume", "browser_session_destroy",
+    "browser_profile_create", "browser_profile_list", "browser_profile_use",
+    "browser_profile_delete",
+    "browser_vault_list", "browser_vault_unlock", "browser_vault_fill",
+    "browser_vault_enter_code", "browser_vault_save_login",
+    "browser_request_human", "browser_pause", "browser_resume",
+    "browser_emulate_device", "browser_set_viewport", "browser_set_user_agent",
+    "browser_set_locale", "browser_set_timezone", "browser_set_geolocation",
+    "browser_intercept",
+]
+
+# The Computer Use Engine toolset (`computer_*`). Declared as one constant so the
+# finance agent and the code agent advertise the SAME shared interactive
+# capability surface, exactly like BROWSER_TOOLS. The registry only registers them
+# when the capability is enabled AND the machine has a desktop driver. The elevated
+# half (`COMPUTER_EFFECTFUL_TOOLS`) is removed at `plan_only`; every action is
+# gated per-call by the computer policy engine and the finance firewall.
+COMPUTER_TOOLS = [
+    "computer_use",
+    "computer_capabilities", "computer_status", "computer_doctor",
+    "computer_windows", "computer_apps", "computer_displays", "computer_read_screen",
+    "computer_session_start", "computer_session_list", "computer_session_close",
+    "computer_takeover", "computer_pause", "computer_resume", "computer_release",
+    "computer_record_export",
+    "computer_finance_read", "computer_finance_prepare",
+]
+
 # The repository tools. Phase 1 shipped the five read tools; Phase 2 adds the
 # write half (patch/diff/revert), which the run's autonomy profile gates. Kept as
 # a named constant so the preset's closed allowlist is asserted in one place.
@@ -140,6 +193,14 @@ ECLIPSE_AGENT = AgentConfig(
         "k8s_rollout", "helm_list", "helm_status", "kustomize_build",
         "terraform_validate", "terraform_plan", "terraform_output", "terraform_state",
         "cloud_providers", "deploy_status", "deploy_logs",
+        # Browser Automation Runtime: launch/observe/interact with web pages,
+        # extract evidence, and (approval-gated) run scripts/CDP/programs. The
+        # effectful half is narrowed by the run's autonomy profile.
+        *BROWSER_TOOLS,
+        # Computer Use Engine: observe and operate the real desktop (native apps,
+        # OS chrome, dialogs) and read financial state off the screen. Background
+        # delivery by default; financial mutations are routed through the firewall.
+        *COMPUTER_TOOLS,
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -312,6 +373,14 @@ CODE_AGENT_TOOLS = [
     "analysis_run",
     # Scaffold kits (Phase 9) — build a finance tool from a ready-made shape.
     "scaffold_kit",
+    # Browser Automation Runtime — inspect/debug a local or public web app,
+    # extract content and capture evidence. Local/private addresses always run
+    # locally; the effectful half is narrowed by the autonomy profile.
+    *BROWSER_TOOLS,
+    # Computer Use Engine — drive a native desktop app (Excel, VS Code, a terminal
+    # emulator, a PDF reader) when the UI is genuinely required. Prefer the
+    # filesystem/code/terminal tools for their native work; CUA is the UI fallback.
+    *COMPUTER_TOOLS,
 ]
 
 CODE_AGENT = AgentConfig(
@@ -436,6 +505,12 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     # finance tools stay available: a code change may need the vault for a fixture
     "market_get_quote", "fundamentals_get_financials", "research_search",
+    # Browser Automation Runtime for a chat coding turn (debug a dev server on
+    # localhost, QA a page). `plan_only` removes the effectful half via policy.
+    *BROWSER_TOOLS,
+    # Computer Use Engine for a chat coding turn (drive a native dev tool's UI).
+    # `plan_only` removes the elevated half via the ONE policy authority.
+    *COMPUTER_TOOLS,
 )
 # Deliberately ABSENT: code_commit, code_push, code_open_pr, code_deploy.
 
@@ -458,11 +533,13 @@ def get_agent(agent_id: str) -> AgentConfig:
 
 __all__ = [
     "AGENT_PRESETS",
+    "BROWSER_TOOLS",
     "CHAT_CODE_TOOLS",
     "CODE_AGENT",
     "CODE_AGENT_TOOLS",
     "CODE_NAVIGATOR",
     "CODE_NAVIGATOR_TOOLS",
+    "COMPUTER_TOOLS",
     "DEFAULT_AGENT_ID",
     "ECLIPSE_AGENT",
     "get_agent",

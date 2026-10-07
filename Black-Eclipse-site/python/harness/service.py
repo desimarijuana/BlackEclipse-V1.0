@@ -205,6 +205,41 @@ class AgenticService:
 
         self.trusted_roots = TrustedRootStore(self.store)
         set_trusted_root_provider(self._selected_trusted_root)
+        # Browser Automation Runtime: ONE process-wide manager owning every live
+        # session, the provider registry/router, the vault and the profile store.
+        # Its tools register on the SAME registry, so validation, permission and
+        # the effect authorizer apply unchanged. Construction only reads config;
+        # no browser is launched until a `browser_*` tool requests one. When the
+        # capability is disabled (or Playwright is absent) the toolset is simply
+        # not registered, so the model is never told about a tool that refuses.
+        try:
+            from .browser.runtime import build_browser_manager, set_browser_manager  # noqa: PLC0415
+            from .browser.tools import register_browser_tools  # noqa: PLC0415
+
+            self.browser = build_browser_manager(agent_store=self.store, bus=self.bus)
+            set_browser_manager(self.browser)
+            register_browser_tools(self.registry)
+        except Exception:  # noqa: BLE001 - the browser is optional; never block boot
+            self.browser = None
+            log.warning("browser subsystem unavailable", exc_info=True)
+        # Computer Use Engine: ONE process-wide manager owning every desktop
+        # session, the platform driver, the accessibility/OCR/vision engines, the
+        # takeover leases and the finance firewall. Its tools register on the SAME
+        # registry, so validation, permission and the effect authorizer apply
+        # unchanged. Construction only reads config and builds a driver; nothing is
+        # captured or clicked until a `computer_*` tool asks. When the capability is
+        # disabled (or the machine has no driver) the toolset is simply not
+        # registered, so the model is never told about a tool that refuses.
+        try:
+            from .computer.runtime import build_computer_manager, set_computer_manager  # noqa: PLC0415
+            from .computer.tools import register_computer_tools  # noqa: PLC0415
+
+            self.computer = build_computer_manager(agent_store=self.store, bus=self.bus)
+            set_computer_manager(self.computer)
+            register_computer_tools(self.registry)
+        except Exception:  # noqa: BLE001 - Computer Use is optional; never block boot
+            self.computer = None
+            log.warning("computer use subsystem unavailable", exc_info=True)
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
@@ -407,6 +442,105 @@ class AgenticService:
             self.terminal.close_all()
         except Exception:  # noqa: BLE001 - shutdown must never raise
             log.warning("terminal shutdown failed", exc_info=True)
+
+    def start_browser(self) -> dict[str, Any]:
+        """Wire the browser vault's secret resolver and start the idle sweeper.
+
+        The resolver uses the SAME authenticated, read-only bridge the MCP secret
+        path uses, so a browser credential is resolved through Eclipse's existing
+        encrypted vault tier — never a plaintext store invented here. A failure is
+        a diagnostic, never a boot blocker.
+        """
+        manager = getattr(self, "browser", None)
+        if manager is None:
+            return {"available": False}
+        try:
+            bridge = self.build_bridge(_default_callback_base_url(), None)
+            manager.vault.set_resolver(self._secret_resolver(bridge))
+        except Exception:  # noqa: BLE001 - an unreachable vault is simply no value
+            log.warning("browser vault resolver wiring skipped", exc_info=True)
+        return {"available": True, "provider": manager.config.default_provider}
+
+    async def start_browser_sweeper(self) -> None:
+        manager = getattr(self, "browser", None)
+        if manager is None:
+            return
+        try:
+            await manager.start()
+        except Exception:  # noqa: BLE001 - the sweeper must never block boot
+            log.warning("browser sweeper failed to start", exc_info=True)
+
+    async def stop_browser(self) -> None:
+        """Close every browser and stop the sweeper on shutdown (never raises)."""
+        manager = getattr(self, "browser", None)
+        if manager is None:
+            return
+        try:
+            await manager.stop()
+        except Exception:  # noqa: BLE001 - shutdown must never raise
+            log.warning("browser shutdown failed", exc_info=True)
+
+    def start_computer(self) -> dict[str, Any]:
+        """Start the Computer Use driver and the idle sweeper (never blocks boot).
+
+        A failure is a diagnostic, never a boot blocker — exactly like the browser.
+        The vision router is built best-effort from the resolved model settings so
+        a configured multimodal model is available without extra wiring.
+        """
+        manager = getattr(self, "computer", None)
+        if manager is None:
+            return {"available": False}
+        try:
+            vision = self._build_vision_router()
+        except Exception:  # noqa: BLE001 - vision is optional; a router failure is fine
+            vision = None
+        self._vision_start_task = asyncio.ensure_future(manager.start(vision=vision))
+        return {"available": True, "driver": manager.driver.id}
+
+    def _build_vision_router(self) -> Any:
+        """Build a vision router from the runtime's default model settings.
+
+        Local vs cloud is decided by the resolved provider; a model that cannot
+        accept images simply reports unavailable. This never invents a model.
+        """
+        from .computer.vision.router import VisionRouter  # noqa: PLC0415
+        from .computer.vision.backends import LocalModelVision, UnavailableVision  # noqa: PLC0415
+
+        try:
+            from .model_runtime import get_runtime  # noqa: PLC0415
+
+            runtime = get_runtime()
+            resolution = runtime.resolve_for_run(None, task="vision")
+            settings = getattr(resolution, "settings", None)
+            if settings is None:
+                return VisionRouter(local=UnavailableVision())
+            provider = str(getattr(settings, "provider", "") or "").lower()
+            local = any(marker in provider for marker in ("ollama", "local", "lmstudio", "vllm"))
+            return VisionRouter(local=LocalModelVision(settings=settings, local=local))
+        except Exception:  # noqa: BLE001 - no model ⇒ honest unavailable vision
+            return VisionRouter(local=UnavailableVision())
+
+    async def start_computer_sweeper(self) -> None:
+        manager = getattr(self, "computer", None)
+        if manager is None:
+            return
+        try:
+            task = getattr(self, "_vision_start_task", None)
+            if task is not None:
+                await task
+            await manager.start_sweeper()
+        except Exception:  # noqa: BLE001 - the sweeper must never block boot
+            log.warning("computer sweeper failed to start", exc_info=True)
+
+    async def stop_computer(self) -> None:
+        """Stop every deskop session and the driver on shutdown (never raises)."""
+        manager = getattr(self, "computer", None)
+        if manager is None:
+            return
+        try:
+            await manager.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("computer shutdown failed", exc_info=True)
 
     def stop_execution(self) -> None:
         """Stop execution services and the scheduler on shutdown (never raises)."""

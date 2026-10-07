@@ -475,6 +475,46 @@ EXTERNAL_ACTION_TOOLS: tuple[str, ...] = (
     "code_commit", "code_push", "code_open_pr", "code_deploy",
 )
 
+# ── Browser subsystem ────────────────────────────────────────────────────────
+# The browser tools are registered by `register_browser_tools` when the
+# capability is enabled. Their READ half (observe/navigate) is always available;
+# the effectful half (run script / CDP / sandbox program / upload / vault /
+# network interception) is a durable or external action. The BROWSER POLICY
+# engine in the handler is the real gate; these names only let the autonomy
+# profile remove the effectful tools BEFORE the model sees a schema, exactly like
+# every other capability.
+BROWSER_EFFECTFUL_TOOLS: tuple[str, ...] = (
+    "browser_upload", "browser_evaluate", "browser_cdp", "browser_exec",
+    "browser_intercept", "browser_vault_fill", "browser_vault_enter_code",
+    "browser_vault_save_login",
+)
+
+
+def is_browser_effect(name: str) -> bool:
+    """Whether a tool name is an effectful browser tool the authorizer admits."""
+    return name in BROWSER_EFFECTFUL_TOOLS
+
+
+# ── Computer Use Engine ──────────────────────────────────────────────────────
+# The `computer_*` tools are registered by `register_computer_tools`. The READ
+# half (capture / list / doctor / finance_read) is always available; the ACTION
+# half changes the desktop (or prepares a financial action) and is removed at
+# `plan_only` before the model sees a schema. The handler's COMPUTER POLICY engine
+# and the FINANCE FIREWALL are the real per-call gates — these names only make the
+# autonomy boundary structural, exactly like the browser set.
+# Mirrors the browser set's semantics: the ELEVATED actions are removed at
+# `plan_only`, while `computer_use` (like `browser_click`) stays but is gated
+# per-call by the computer policy engine, so a planning run can still OBSERVE.
+COMPUTER_EFFECTFUL_TOOLS: tuple[str, ...] = (
+    "computer_finance_prepare",
+    "computer_takeover",
+)
+
+
+def is_computer_effect(name: str) -> bool:
+    """Whether a tool name is an effectful Computer Use tool the authorizer admits."""
+    return name in COMPUTER_EFFECTFUL_TOOLS
+
 # ── Git / Version-Control subsystem (the Git engine) ─────────────────────────
 #
 # The Git tools are classified by EFFECT exactly like every other tool, so the
@@ -570,17 +610,20 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS)
     elif autonomy == "edit_verify":
         # Local container/process mutations stay; CLUSTER/INFRA/CLOUD mutations
         # (kubectl apply/delete/scale/exec, helm install/uninstall, terraform
         # apply/destroy, deploy/rollback/delete) are removed — they touch live
         # infrastructure beyond the task's own folder and need `approve_external`.
+        # An interactive browser session is a local/dev capability, so its
+        # effectful tools stay at `edit_verify`; the browser policy engine still
+        # gates each call.
         banned = set(EXTERNAL_ACTION_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS)
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 

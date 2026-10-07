@@ -63,3 +63,15 @@ duckdb>=1.0
 # Tests
 pytest>=8.0
 pytest-asyncio>=0.24
+
+# Browser Automation Runtime — structured browser control behind Eclipse's own
+# provider/runtime abstraction (the model never sees a raw Playwright object).
+# OPTIONAL in effect: a missing Playwright makes the browser toolset report an
+# honest BROWSER_UNAVAILABLE (it is never registered), exactly like the
+# 503-runtime-unavailable contract. Installed by default so `browser_*` works
+# out of the box. The browser BINARY is a separate, one-time download
+# (`python -m playwright install chromium`); the provider reports
+# BROWSER_UNINSTALLED until it is present.
+# Pinned to the 1.62 series so it shares the SAME chromium build the app's Node
+# Playwright already uses (they cache under one ms-playwright directory).
+playwright>=1.62,<1.63

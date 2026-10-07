@@ -3995,3 +3995,43 @@ CLI `providers` and `workspace` groups; `/health.runtimeProviders`; two deploy j
 templates; a Providers UI tab; `test_application_{provisioning,workspace}.py` +
 `test_application_provider_live.py`. No new third-party dependency. Architecture:
 `docs/harness/application-runtime.md`.
+
+## ADR-H134 — The browser is a provider-agnostic runtime, not Playwright wrappers
+
+**Decision.** The browser capability is a first-class harness subsystem
+(`python/harness/browser/`) with a layered design: `browser_*` tools on the ONE
+`ToolRegistry` → `BrowserManager` (pool/sessions) → `BrowserSession` (state +
+operations) → a `BrowserProvider` interface → a concrete backend. Playwright is
+one provider (`LocalChromiumProvider`), never the abstraction; a raw Playwright
+object is never exposed to the model. Observation is accessibility-first:
+`browser_snapshot` returns the accessibility tree with Eclipse's own stable refs
+(`@e1`…), and large pages page to disk. Every important action is
+`action → observe → verify`. Security is a single policy engine (permissions
+ALLOW/DENY/ASK, domain policy, destructive-action elevation, an explicit
+untrusted-page boundary), with an ASK routed through the EXISTING single-use
+approval store. `browser_exec` is a sandboxed program AST (no `eval`/`exec`, no
+host access). Optional cloud/alternate backends implement the same interface and
+report honest availability — none is faked. `browser_request_human` handles
+CAPTCHA/MFA; automation never bypasses it.
+
+**Why.** A browser is one of the highest-authority capabilities an agent can hold
+(untrusted input, credentials, external actions). Modelling it as Playwright
+functions would leak a raw object to the model, scatter policy across handlers,
+and couple the runtime to one backend. A layered provider runtime keeps the
+reasoning, planning, sessions, policies, evidence and tracing in Eclipse; lets a
+private/local target always run locally and a cloud provider be optional; and
+makes the security boundary structural rather than prompt-based.
+
+**Consequences.** New package `python/harness/browser/` (tools, tool_admin,
+tool_support, manager, session, router, providers, observation, resolver,
+verification, vision, execution, policy, vault, profiles, store, trace, config,
+errors, authorizers, schemas, capabilities); a new router `routers/browser.py`;
+boot wiring in `service.py`/`main.py` (`start_browser`/`start_browser_sweeper`/
+`stop_browser`, `/health.browser`); `BROWSER_TOOLS` added to the finance agent,
+code agent and chat code profile; `code/policy.py` (`BROWSER_EFFECTFUL_TOOLS`,
+narrowed at `plan_only`) and `code/authorizers.py` (the browser admission layer);
+a prompt guidance block; `playwright>=1.62,<1.63` in `requirements.txt` and a
+doctor probe (never auto-downloads the browser); tests
+`test_browser_{unit,integration}.py` + the local test app `browser_app.py`;
+architecture `docs/harness/browser-runtime.md`. Chromium is a separate one-time
+download; its absence is an honest `BROWSER_UNAVAILABLE`, never a fake browser.

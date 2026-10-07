@@ -384,6 +384,55 @@ def _cmd_deploy(args: argparse.Namespace, manager: Any) -> int:
     return _emit(args, result.to_dict(), result.output[-400:] or "ok")
 
 
+def _cmd_computer(args: argparse.Namespace, manager: Any) -> int:
+    """The Computer Use CLI: doctor/status/capabilities/windows/apps/sessions/replay.
+
+    Builds the SAME process-wide `ComputerManager` the agent tools and the API use,
+    so the CLI, the agent and the UI can never disagree. Read-only by default; a
+    destructive desktop action is not offered here.
+    """
+    import asyncio
+
+    from .computer.config import computer_config
+    from .computer.manager import ComputerManager
+
+    mgr = ComputerManager(config=computer_config(refresh=True))
+    action = args.action
+    if action == "replay":
+        from .computer.replay import Replayer  # noqa: PLC0415
+
+        trajectory = Replayer.load(args.path)
+        return _emit(args, Replayer().inspect(trajectory).to_dict(), "replayed (inspect mode)")
+    try:
+        asyncio.get_event_loop().run_until_complete(mgr.start())
+    except Exception as exc:  # noqa: BLE001 - a driver failure is a clean CLI error
+        return _refusal("DRIVER_UNAVAILABLE", f"the desktop driver could not start: {type(exc).__name__}")
+
+    if action == "doctor":
+        report = mgr.doctor()
+        from .computer.diagnostics import format_report  # noqa: PLC0415
+
+        return _emit(args, report, format_report(report))
+    if action == "status":
+        return _emit(args, mgr.health(), f"driver={mgr.driver.id} sessions={len(mgr.list_sessions())}")
+    if action == "capabilities":
+        caps = mgr.capabilities()
+        return _emit(args, caps, f"driver: {caps['driver']}")
+    if action == "windows":
+        windows = [w.to_dict() for w in mgr.driver.list_windows()]
+        return _emit(args, {"windows": windows}, "\n".join(f"{w['id']} {w['application']} — {w['title']}" for w in windows) or "no windows")
+    if action == "apps":
+        apps = [a.to_dict() for a in mgr.driver.list_applications()]
+        return _emit(args, {"applications": apps}, "\n".join(f"{a['name']} (pid {a['pid']})" for a in apps) or "no applications")
+    if action == "displays":
+        displays = [d.to_dict() for d in mgr.driver.list_displays()]
+        return _emit(args, {"displays": displays}, f"{len(displays)} display(s)")
+    if action == "sessions":
+        sessions = mgr.list_sessions()
+        return _emit(args, {"sessions": sessions}, f"{len(sessions)} session(s)")
+    return _refusal("UNKNOWN_ACTION", f"unknown computer action {action!r}")
+
+
 def _cli_context(root: Path, manager: Any, authorized: bool) -> Any:
     from .code.policy import WorkspaceBinding
     from .code.workspace import ResolvedWorkspace
@@ -505,12 +554,20 @@ def build_parser() -> argparse.ArgumentParser:
     deploy.add_argument("--build", action="store_true")
     deploy.add_argument("--authorized", action="store_true")
 
+    computer = sub.add_parser("computer", parents=[common], help="Computer Use desktop control")
+    computer.add_argument("action", choices=["doctor", "status", "capabilities", "windows", "apps", "displays", "sessions", "replay"])
+    computer.add_argument("--path", default="", help="trajectory JSON path for `replay`")
+
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # The `computer` group owns its own desktop runtime and needs no application
+    # manager, so it never pays the Application Runtime boot cost.
+    if getattr(args, "group", "") == "computer":
+        return _cmd_computer(args, None)
     try:
         manager = _build_manager(getattr(args, "root", None))
     except Exception as exc:  # noqa: BLE001 - a missing runtime is a clean CLI error
@@ -520,6 +577,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "port": _cmd_port, "container": _cmd_container, "compose": _cmd_compose,
         "providers": _cmd_providers, "workspace": _cmd_workspace,
         "k8s": _cmd_k8s, "terraform": _cmd_terraform, "deploy": _cmd_deploy,
+        "computer": _cmd_computer,
     }
     return handlers[args.group](args, manager)
 
