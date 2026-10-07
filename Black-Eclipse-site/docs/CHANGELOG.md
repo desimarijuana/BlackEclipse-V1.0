@@ -8,6 +8,62 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Browser Automation Runtime — Phase C/D (evidence, skills, isolation, fusion).**
+  (1) **Evidence/Research integration** — `browser/evidence.py` records every
+  consulted `http(s)` page (navigation, snapshot, extract) on the run's existing
+  `source_sink` (`SourceCollector.add_fetched_source`), so a browser-derived fact
+  reaches the answer's Sources panel with URL/title/retrieval time; internal pages
+  (`about:blank`, `data:`) are never recorded and the collector shape is reused,
+  not duplicated. (2) **Skills integration** — a bundled, inert
+  `system.browser-research` skill wrapper (progressive disclosure; `requiredTools`
+  = the browser tools) so a browser research workflow is teachable. (3)
+  **Delegation/session isolation** — `session_of` now prefers a session owned by
+  THIS run/agent before the cross-run fallback (`BrowserManager.list_active`), so a
+  delegated subagent never drives the parent's browser. (4) **DOM+vision fusion
+  surfaced** — `browser_visual_locate` (`vision.locate`) fuses the DOM locator with
+  a visual match, reports the chosen path + both confidences + rationale, and emits
+  `browser.visual.locate` for the trace. `waiting.py` extracted from `session.py`
+  to keep it under the size ceiling. 84 `browser_*` tools. Tests:
+  `test_browser_unit.py` (+provenance/fusion) and `test_browser_integration.py`
+  (+`visual_locate`, source recording, two-run isolation).
+- **Computer Use Engine — production stress-test hardening.** A controlled live
+  validation (real Windows driver, a real Win32 test target, a bounded background
+  message pump) found and fixed seven defects, each with a regression test
+  `python/tests/test_computer_hardening.py`:
+  (1) **Background input never reached child controls** — `PostMessage` was sent
+  to the top-level window with screen coordinates; it now resolves the deepest
+  child control (`RealChildWindowFromPoint`, z-order independent) and converts to
+  client coordinates, and keyboard background input targets the thread's focused
+  control (`GetGUIThreadInfo`). Background clicks now activate controls WITHOUT
+  focus stealing, instead of silently escalating.
+  (2) **Foreground escalation could click blind into a covering window** —
+  `click`/`type_text`/`key` now refuse when an absolute-coordinate foreground
+  action would land on a different top-level window (`COMPUTER_TARGET_OBSCURED`,
+  verdict `foreground_required`) rather than hitting the wrong application.
+  (3) **Verification reused the pre-action snapshot**, so semantic change was
+  never seen and every action fell back to pixel noise; `capture_state`/
+  `verify_action` now read a FRESH accessibility digest + title, settle-poll for
+  a bounded window, and treat ONLY semantic change as `verified` (pixel-only
+  churn is `uncertain`). An `uncertain` verification can no longer yield a
+  `success` verdict.
+  (4) **`SecurityLayer` was constructed but never called** — observation now
+  scans for sensitive controls/text, flags the snapshot `sensitive`, masks the
+  persisted image, and refuses cloud vision for a sensitive frame.
+  (5) **`allowed_actions` was declared but never enforced** — a non-empty
+  allowlist now blocks an unlisted action (`COMPUTER_ACTION_NOT_ALLOWED`).
+  (6) **The recovery ladder was never surfaced** — a failed action now carries
+  its ordered `recoveryPlan`, and an unexpected dialog (`UNEXPECTED_DIALOG`)
+  stops the loop instead of typing into it.
+  (7) **`set_value` used a blocking `SendMessage`** (an unresponsive control could
+  hang the async loop) — now `SendMessageTimeoutW` with `SMTO_ABORTIFHUNG`.
+  Also: `Bounds.from_any([x, y])` returns a point (not `None`), snapshot ids are
+  unique across sessions, `mouse_move` uses a real permission band, and
+  `computer_remember` uses `execution_lesson` (the permitted Eclipse-Memory
+  source) so memory writes actually succeed. Stress rig:
+  `python/tests/computer_stress_rig.py` + `computer_stress_target.py` +
+  `computer_stress_focus.py` (36/36 pass). Docs:
+  `docs/harness/computer-use.md`.
+
 - **Evidence-Driven Web Research Engine — a first-class research subsystem.**
   New `python/harness/research/web_*.py` package implementing
   `question → intent → mandate → plan → provider registry (ordered fallback) →
@@ -68,8 +124,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (6) A `continue`/`update` after a cancel no longer aborts itself (the event is
   cleared at resume) while a create→cancel→execute still honors the cancel. Tests:
   `test_web_research_store.py` (7 cases). Doc: `docs/harness/web-research-engine.md`.
-
-- **Web research engine — parallel sub-question search.** Independent planner queries now run concurrently (bounded pool of 4) instead of sequentially, so a deep multi-branch question finishes faster; results are merged deterministically in query order (the evidence set never depends on completion order), a cancel observed during search still stops the run honestly, and a new regression test proves overlap. Doc: `docs/harness/web-research-engine.md`.
 
 - **Computer Use Engine — a production-grade desktop-control runtime.** New
   `python/harness/computer/` package (62 modules) implementing the full agentic

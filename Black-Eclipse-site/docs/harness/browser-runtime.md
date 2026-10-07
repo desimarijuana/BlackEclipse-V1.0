@@ -45,11 +45,13 @@ accessibility snapshots with stable references (`@e1`, `@e2`, …).
 | `capabilities.py` | The `BrowserCapabilities` record per provider (the router's data). |
 | `observation.py` | `SnapshotEngine`: accessibility-first snapshots, Eclipse ref renumbering, paging to disk (`persist_artifact`). |
 | `inspection.py` | `find` (describe matching elements + their snapshot refs, no interaction) and `highlight` (transient outline). |
+| `evidence.py` | `record_browser_source`: records a consulted `http(s)` page on the run's existing `source_sink`, so browser-derived facts reach the answer's Sources panel. |
 | `resolver.py` | `Resolver`/`Target`: the locator engine (ref → role/name → label → text → placeholder → testid → CSS → XPath → coordinates) with stale-element re-resolution. |
 | `verification.py` | `Verifier`: before/after `PageState`, expected-effect checks, structured result. |
 | `vision.py` | `VisionEngine`: screenshot artifacts + a live visual map + the DOM/vision `fuse` decision. |
 | `vision_model.py` | `BrowserVisionInterpreter`: optional real visual Q&A over the screenshot through the harness model runtime (`task="vision"`); honest `available:false` when no multimodal model is configured. |
 | `execution.py` | `browser_exec`: the sandboxed program parser (JSON steps or a restricted `browser.<op>(...)` AST) + bounded runner. |
+| `waiting.py` | The wait operations (`wait`, `wait_for_*`), extracted from `session.py`. |
 | `policy.py` | The ONE security authority: permission vocabulary + levels, domain policy, private-target detection, destructive patterns, the prompt-injection boundary (`wrap_untrusted`). |
 | `vault.py` | `BrowserVault`: credential REFERENCES resolved internally; metadata persisted without values. |
 | `profiles.py` | `ProfileManager`: confined persistent-profile lifecycle. |
@@ -77,6 +79,8 @@ Core groups:
   `browser_get_images`, `browser_get_text`, `browser_get_links`,
   `browser_get_forms`, `browser_get_accessibility_tree`, `browser_get_dom`,
   `browser_find`, `browser_highlight`.
+- **Visual fallback / fusion:** `browser_visual_locate` (DOM+vision fusion with a
+  confidence rationale), `browser_visual_find`, `browser_visual_click`.
 - **Interaction:** `browser_click`, `browser_type`, `browser_fill`,
   `browser_select`, `browser_check`, `browser_uncheck`, `browser_press`,
   `browser_hover`, `browser_scroll`, `browser_drag`.
@@ -135,6 +139,35 @@ through the harness model runtime (`task="vision"`, which requires a model whose
 prose plus any located elements. When no multimodal model is configured the
 interpretation is honestly `available: false` and the raw screenshot + DOM map are
 returned unchanged — no fabricated description.
+
+## Evidence and research integration
+
+A page the browser actually consulted is provenance. On navigation, snapshot and
+extract, `evidence.record_browser_source` records the real `http(s)` URL, title and
+retrieval time on the run's existing `source_sink` (the `SourceCollector` every
+retrieval tool feeds). The browser-derived fact then appears in the answer's
+Sources panel with its URL — never fabricated, and never promoted into a verified
+`claim`. Internal pages (`about:blank`, `data:`) are never recorded. The collector
+shape is reused, not duplicated.
+
+A bundled, inert `system.browser-research` skill (`skills/library/system/`) teaches
+the workflow through progressive disclosure; it ships `status: disabled` and does
+nothing until an operator enables it.
+
+## Session isolation and delegation
+
+`session_of` resolves, in order: an explicit `session_id`; a session owned by THIS
+run or agent (`BrowserManager.list_active`); the most recently active session as a
+last resort. A delegated subagent therefore never drives the parent's browser.
+Multiple agents/tasks run simultaneously with isolated contexts.
+
+## DOM + vision fusion
+
+`browser_visual_locate` (`vision.locate`) fuses the DOM locator (visible text,
+confidence from match count) with a visual match over the screenshot when a
+multimodal model is configured. It reports the chosen path, both confidences and a
+plain rationale, carries a stable snapshot reference when known, and emits
+`browser.visual.locate` so the fusion is observable in the trace.
 
 ## Providers and routing
 

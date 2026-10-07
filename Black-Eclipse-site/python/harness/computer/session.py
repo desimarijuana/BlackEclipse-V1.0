@@ -32,7 +32,7 @@ from .models import (
     Target,
     WindowInfo,
 )
-from .observation import ObservationEngine
+from .observation import ObservationEngine, ax_digest as ax_digest_of
 from .recording import SessionRecorder
 from .screenshots.capture import ScreenCapture, frame_digest
 from .screenshots.diff import ScreenDiff
@@ -84,6 +84,8 @@ class ComputerSession:
         policy: Any = None,
         risk_mode: str = "read_only",
         bus: Any = None,
+        security: Any = None,
+        firewall: Any = None,
     ) -> None:
         self.id = session_id
         self.driver = driver
@@ -114,8 +116,11 @@ class ComputerSession:
         self.mouse = MouseEngine(driver)
         self.keyboard = KeyboardEngine(driver)
         self.value_setter = ValueSetter(driver=driver, keyboard=self.keyboard, mouse=self.mouse)
+        self.security = security
+        self.firewall = firewall
         self.observation = ObservationEngine(
-            driver=driver, ax=ax, ocr=ocr, vision_router=vision_router, config=config, capture=self.capture,
+            driver=driver, ax=ax, ocr=ocr, vision_router=vision_router, config=config,
+            capture=self.capture, security=security,
         )
         self.grounder = Grounder(min_confidence=config.grounding_min_confidence)
         self.verifier = ActionVerifier(enabled=config.verification_enabled)
@@ -295,6 +300,29 @@ class ComputerSession:
 
     # ── verification ─────────────────────────────────────────────────────────
 
+    def _semantic_state(self, *, window_id: Optional[str] = None) -> dict[str, Any]:
+        """A FRESH, lightweight semantic reading of the target (AX digest + title).
+
+        Verification must not reuse the pre-action snapshot: doing so made every
+        action look semantically unchanged and fall back to pixel noise. This
+        re-reads the live accessibility tree WITHOUT minting a snapshot id or
+        persisting an image.
+        """
+        ax_digest = ""
+        title = ""
+        try:
+            tree = self.driver.accessibility_tree(window_id)
+            ax_digest = ax_digest_of(tree)
+        except Exception:  # noqa: BLE001
+            ax_digest = ""
+        if window_id:
+            try:
+                window = self.driver.get_window(window_id)
+                title = window.title if window else ""
+            except Exception:  # noqa: BLE001
+                title = ""
+        return {"ax_digest": ax_digest, "window_title": title}
+
     async def capture_state(self, *, window_id: Optional[str] = None) -> ObservationState:
         frame = None
         try:
@@ -302,22 +330,89 @@ class ComputerSession:
         except Exception:  # noqa: BLE001 - a capture failure still yields a state
             frame = None
         focused = self._focused_window_id()
-        return self.verifier.capture(self._latest_snapshot, frame=frame, focused_window=focused)
+        state = self.verifier.capture(self._latest_snapshot, frame=frame, focused_window=focused)
+        # Replace the stale snapshot digest with a FRESH live reading.
+        fresh = self._semantic_state(window_id=window_id)
+        if fresh["ax_digest"]:
+            state.ax_digest = fresh["ax_digest"]
+        if fresh["window_title"]:
+            state.window_title = fresh["window_title"]
+        state.screen_digest = _screen_fingerprint(state)
+        return state
+
+    def _read_after(self, before: ObservationState, *, window_id: Optional[str], after_frame: Any) -> ObservationState:
+        after = self.verifier.capture(self._latest_snapshot, frame=after_frame, focused_window=self._focused_window_id())
+        fresh = self._semantic_state(window_id=window_id)
+        if fresh["ax_digest"]:
+            after.ax_digest = fresh["ax_digest"]
+        if fresh["window_title"]:
+            after.window_title = fresh["window_title"]
+        after.screen_digest = _screen_fingerprint(after)
+        return after
 
     async def verify_action(
         self, before: ObservationState, *, action: str, expect: Optional[dict[str, Any]] = None,
-        window_id: Optional[str] = None,
+        window_id: Optional[str] = None, settle_ms: int = 400,
     ) -> Any:
+        """Verify an action's effect, SETTLING first.
+
+        A background delivery is a posted message that the target processes
+        asynchronously, so an immediate read can miss the effect and produce a
+        false 'no change' (which then triggers a needless escalation). We poll
+        the semantic state for a short, bounded settle window and stop as soon as
+        a change appears.
+        """
+        import asyncio  # noqa: PLC0415
+
         after_frame = None
         try:
             after_frame = await self.driver.capture(window_id=window_id)
         except Exception:  # noqa: BLE001
             after_frame = None
-        after = self.verifier.capture(self._latest_snapshot, frame=after_frame, focused_window=self._focused_window_id())
+        after = self._read_after(before, window_id=window_id, after_frame=after_frame)
         result = self.verifier.verify(before, after, action=action, expect=expect, after_frame=after_frame)
+
+        deadline = time.monotonic() + max(0, settle_ms) / 1000
+        while result.status == "uncertain" and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+            after = self._read_after(before, window_id=window_id, after_frame=after_frame)
+            result = self.verifier.verify(before, after, action=action, expect=expect, after_frame=after_frame)
+            if result.status != "uncertain":
+                break
+
         if self.telemetry is not None:
             self.telemetry.record_verification(1.0 if result.status == "verified" else 0.0)
         return result
+
+    # Dialog-ish window classes/titles. Used only to DETECT an unexpected modal;
+    # detection never dismisses or types into it.
+    DIALOG_HINTS: tuple[str, ...] = (
+        "dialog", "#32770", "messagebox", "popup", "alert", "confirm",
+        "error", "warning", "permission", "are you sure", "update available",
+        "save as", "open file", "sign in", "password required", "network error",
+    )
+
+    def detect_unexpected_dialog(self, *, baseline_window: str = "") -> Optional[dict[str, Any]]:
+        """Detect a NEW dialog-ish window that is the current foreground.
+
+        A modal that steals the foreground after an action is exactly the case
+        where blind continued typing is dangerous. We report it; the agent (or a
+        recovery rung) decides.
+        """
+        try:
+            windows = self.driver.list_windows()
+        except Exception:  # noqa: BLE001
+            return None
+        focused = next((w for w in windows if w.focused), None)
+        if focused is None:
+            return None
+        # A dialog is a DIFFERENT top-level window than the one we were acting on.
+        if baseline_window and focused.id == baseline_window:
+            return None
+        haystack = f"{focused.title} {focused.app}".lower()
+        if any(hint in haystack for hint in self.DIALOG_HINTS):
+            return {"windowId": focused.id, "title": focused.title, "application": focused.app}
+        return None
 
     def _focused_window_id(self) -> str:
         try:
@@ -388,6 +483,15 @@ class ComputerSession:
         return await self.mouse.click(point[0], point[1], button=button, count=count,
                                       delivery_mode=delivery_mode,
                                       window_id=window_id or target.window_id or None)
+
+
+def _screen_fingerprint(state: Any) -> str:
+    """A stable digest folding the semantic content of an ObservationState, so a
+    change in AX/title/window is reflected even without a pixel frame."""
+    import hashlib  # noqa: PLC0415
+
+    raw = f"{state.window_id}|{state.window_title}|{state.ax_digest}|{state.ocr_digest}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
 
 def _iso(ts: float) -> str:

@@ -366,6 +366,61 @@ async def test_vision_reports_no_interpretation_without_model(env):
     await _tool(registry, ctx, "browser_close", session_id=session_id)
 
 
+async def test_visual_locate_fuses_dom_and_reports_fusion(env):
+    manager, registry, ctx, app = env
+    launch = await _tool(registry, ctx, "browser_launch", url=app.url("/login"))
+    session_id = launch.data["sessionId"]
+    await _tool(registry, ctx, "browser_snapshot", session_id=session_id)
+    result = await _tool(registry, ctx, "browser_visual_locate", text="Sign in", session_id=session_id)
+    assert result.ok
+    assert result.data["fusion"]["chosen"] in ("dom", "vision")
+    # No multimodal model in the test context, so vision confidence is 0.
+    assert result.data["interpretation"]["available"] is False
+    await _tool(registry, ctx, "browser_close", session_id=session_id)
+
+
+async def test_navigation_records_a_source(env):
+    manager, registry, ctx, app = env
+
+    class _Sink:
+        def __init__(self):
+            self.urls = []
+
+        def add(self, *a, **k):
+            pass
+
+        def add_fetched_source(self, *, url, title=None, ok=True, retrieved_at=None):
+            self.urls.append(url)
+
+    sink = _Sink()
+    ctx.source_sink = sink
+    launch = await _tool(registry, ctx, "browser_launch", url=app.url("/login"))
+    session_id = launch.data["sessionId"]
+    await _tool(registry, ctx, "browser_navigate", url=app.url("/forms"), session_id=session_id)
+    await _tool(registry, ctx, "browser_snapshot", session_id=session_id)
+    assert any("/login" in u or "/forms" in u for u in sink.urls)
+    # about:blank must never be recorded.
+    assert all(u.startswith("http") for u in sink.urls)
+    await _tool(registry, ctx, "browser_close", session_id=session_id)
+
+
+async def test_session_isolation_between_runs(env):
+    manager, registry, ctx, app = env
+    ctx1 = ToolContext(run_id="run_a", log=lambda *a: None, authorize_effect=ctx.authorize_effect)
+    ctx2 = ToolContext(run_id="run_b", log=lambda *a: None, authorize_effect=ctx.authorize_effect)
+    launch1 = await _tool(registry, ctx1, "browser_launch", url=app.url("/"))
+    launch2 = await _tool(registry, ctx2, "browser_launch", url=app.url("/forms"))
+    s1 = launch1.data["sessionId"]
+    s2 = launch2.data["sessionId"]
+    assert s1 != s2
+    status1 = await _tool(registry, ctx1, "browser_status")
+    assert status1.data["session"]["sessionId"] == s1
+    status2 = await _tool(registry, ctx2, "browser_status")
+    assert status2.data["session"]["sessionId"] == s2
+    await _tool(registry, ctx1, "browser_close", session_id=s1)
+    await _tool(registry, ctx2, "browser_close", session_id=s2)
+
+
 async def test_persistence_and_health(env, tmp_path):
     manager, registry, ctx, app = env
     from harness.persistence import AgentMemoryStore  # noqa: PLC0415

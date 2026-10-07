@@ -190,6 +190,7 @@ def test_registry_discovery_filters(registry):
     assert {r["id"] for r in registry.discover(category="research")} == {
         "research.planning",
         "research.source-verification",
+        "system.browser-research",
     }
     assert [r["id"] for r in registry.discover(tags=["valuation"])] == ["finance.fundamental-analysis"]
     assert registry.discover(query="zzz-no-such-skill") == []

@@ -36,10 +36,13 @@ log = logging.getLogger("harness.computer.manager")
 
 class ComputerManager:
     def __init__(self, *, config: Optional[ComputerConfig] = None, agent_store: Any = None,
-                 bus: Any = None, vision: Any = None) -> None:
+                 bus: Any = None, vision: Any = None, memory_service: Any = None) -> None:
         self.config = config or computer_config()
         self.bus = bus
         self.store = ComputerStore(agent_store) if agent_store is not None else None
+        from .memory import ComputerMemory  # noqa: PLC0415
+
+        self.memory = ComputerMemory(memory_service)
         self.driver = build_driver(self.config.driver_backend)
         self.ax = None
         self.ocr = build_ocr_engine(self.config.ocr_backend)
@@ -200,6 +203,7 @@ class ComputerManager:
             run_id=run_id, machine_id=machine_id,
             policy=policy or default_policy(),
             risk_mode=risk_mode or self.config.finance_mode, bus=self.bus,
+            security=self.security, firewall=build_firewall_from_config(self.config),
         )
         # Bind the session to its control lease so the core's takeover guard reads
         # ONE authority (the manager's TakeoverManager).

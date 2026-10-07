@@ -124,6 +124,14 @@ class Bounds:
                 return Bounds(left, top, max(0, right - left), max(0, bottom - top))
             except (TypeError, ValueError):
                 return None
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            # A bare [x, y] is a POINT, not an LTRB rectangle. It must NOT be
+            # silently misread as a rectangle (the old behaviour returned None and
+            # dropped a caller's explicit coordinate).
+            try:
+                return Bounds(int(value[0]), int(value[1]), 1, 1)
+            except (TypeError, ValueError):
+                return None
         return None
 
     @staticmethod
@@ -306,6 +314,11 @@ class Snapshot:
     full_path: Optional[str] = None
     truncated: bool = False
     chars: int = 0
+    # True when the security layer flagged sensitive content (password/API
+    # key/2FA/…). A sensitive snapshot must never be sent to a cloud vision model
+    # and its persisted image is masked.
+    sensitive: bool = False
+    security: Optional[dict[str, Any]] = None
 
     def element(self, ref: str) -> Optional[SnapshotElement]:
         key = str(ref).lstrip("#")
@@ -384,6 +397,12 @@ class ActionResult:
     duration_ms: int = 0
     error: Optional[dict[str, Any]] = None
     snapshot: Optional[dict[str, Any]] = None
+    # The ordered recovery strategies appropriate to a failure, so the agent
+    # follows the ladder instead of blindly repeating (never a second engine).
+    recovery_plan: list[str] = field(default_factory=list)
+    # An UNRELATED dialog/modal that appeared after the action (a save-as prompt,
+    # an update nag, a permission denial). The agent must decide, not type blind.
+    unexpected_dialog: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -393,6 +412,7 @@ class ActionResult:
             "state": self.state, "observedChange": self.observed_change,
             "summary": self.summary, "warnings": self.warnings,
             "durationMs": self.duration_ms, "error": self.error, "snapshot": self.snapshot,
+            "recoveryPlan": self.recovery_plan, "unexpectedDialog": self.unexpected_dialog,
         }
 
 

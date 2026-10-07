@@ -4046,6 +4046,19 @@ console/network/error dumps are bounded and paged to `artifactsRoot`. `browserba
 became a genuine cloud backend (REST session + CDP attach with a vault-resolved
 credential). 83 `browser_*` tools.
 
+### Phases C/D — evidence, skills, delegation and fusion (same decision)
+
+`evidence.py` records every consulted `http(s)` page on the run's EXISTING
+`source_sink` (`SourceCollector`), so browser-derived facts reach the answer's
+Sources panel without a second provenance shape; the browser feeds the Evidence &
+Research Engine rather than inventing one. A bundled inert `system.browser-research`
+skill teaches the workflow (progressive disclosure). `session_of` prefers a session
+owned by THIS run/agent (`BrowserManager.list_active`) so a delegated subagent never
+drives the parent's browser — delegation isolation is structural. `browser_visual_locate`
+(`vision.locate`) surfaces DOM+vision fusion with a confidence rationale and a trace
+event. `waiting.py` extracted from `session.py` to hold the size ceiling. 84
+`browser_*` tools.
+
 ## ADR-H135 — Research is evidence-driven: search results are pointers, the model is never the source of truth
 
 **Decision.** Web research is a first-class harness subsystem

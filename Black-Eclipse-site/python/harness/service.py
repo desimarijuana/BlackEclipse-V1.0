@@ -248,7 +248,9 @@ class AgenticService:
             from .computer.runtime import build_computer_manager, set_computer_manager  # noqa: PLC0415
             from .computer.tools import register_computer_tools  # noqa: PLC0415
 
-            self.computer = build_computer_manager(agent_store=self.store, bus=self.bus)
+            self.computer = build_computer_manager(
+                agent_store=self.store, bus=self.bus, memory_service=self.memory,
+            )
             set_computer_manager(self.computer)
             register_computer_tools(self.registry)
         except Exception:  # noqa: BLE001 - Computer Use is optional; never block boot

@@ -1,0 +1,185 @@
+---
+title: Computer Use Engine
+status: Current
+last-verified: 2026-10-07
+---
+
+# Computer Use Engine
+
+**Who this is for:** anyone extending Eclipse's desktop-control capability, or
+debugging a run that drove a native application.
+
+The **Computer Use Engine** (`python/harness/computer/`) lets Eclipse observe and
+operate a real desktop: native applications (Excel, VS Code, a terminal
+*emulator*, PDF readers), OS chrome (file pickers, dialogs, menus) and financial
+terminals (TradingView, MetaTrader 5, Interactive Brokers, Bloomberg-style). It is
+a first-class capability registered on the **same** `ToolRegistry`, gated by the
+**same** permission/approval architecture, persisted on the **same**
+`agent-memory.db`, and observable on the **same** event bus. It is not a parallel
+stack.
+
+## The fundamental loop
+
+```
+OBSERVE → UNDERSTAND → PLAN → GROUND → AUTHORIZE → ACT → OBSERVE → VERIFY
+        → (SUCCESS | RECOVER → REPLAN)
+```
+
+Every important action carries state awareness and verification. A result hands
+back a **verdict** (`success`, `recapture`, `retry`, `reground`,
+`foreground_required`, `approval_required`, `blocked`, `ask_user`, `abort`) so the
+agent follows a directive instead of guessing.
+
+## Computer Use vs the browser subsystem
+
+They are **different systems that coexist**:
+
+| | Browser (`harness/browser/`) | Computer Use (`harness/computer/`) |
+|---|---|---|
+| Owns | DOM, HTML, page nav, forms, browser content | native apps, OS UI, dialogs, file pickers, app chrome, browser *chrome* |
+| Observation | accessibility snapshot (`@eN`) | SOM (`#N`) from the AX tree, OCR, vision |
+| Use it for | web pages | anything outside a page's DOM |
+
+The browser is **not** replaced by Computer Use, and vice versa. Browser *chrome*
+(address bar, permission dialogs, extension popups) belongs to Computer Use.
+
+## Layer map
+
+| Module | Owns |
+|---|---|
+| `core.py` | the platform-independent orchestrator (`ComputerCore`): the ONE loop; delivery-mode escalation; finance routing |
+| `manager.py` | the process-wide `ComputerManager` (sessions, driver, engines, leases, store) |
+| `session.py` | one `ComputerSession`: state, snapshot cache, stale-handle validation, focus restore |
+| `drivers/` | `ComputerDriver` interface + `windows.py` (ctypes Win32) + `null.py`; the factory picks the platform driver |
+| `accessibility/` | AX providers: `windows.py` (UIA when installed, Win32 child-window baseline), `null.py` |
+| `observation.py` | builds a `Snapshot` in mode `som`/`ax`/`ocr`/`vision`; mints snapshot ids + numbered handles |
+| `grounding/` | `Grounder` (the fixed hierarchy) + pure matchers |
+| `actions/` | `mouse.py`, `keyboard.py`, `value.py` (`set_value`), `keymap.py` (semantic shortcuts) |
+| `windows/` · `applications/` | window management; application management + the `ApplicationAdapter` framework and initial adapters |
+| `screenshots/` | capture + region intelligence + screen diff |
+| `ocr/` | first-class OCR (Tesseract when installed; honest null otherwise) |
+| `vision/` | provider-agnostic vision via the harness model runtime; local/cloud/hybrid routing |
+| `verification/` | `ActionVerifier` (verified / failed / uncertain) |
+| `recovery.py` | the recovery ladder + `RecoveryEngine` |
+| `policy.py` · `security.py` | permission engine + risk bands; sensitive-region detection/redaction |
+| `finance/` | field vocabulary, screen extraction (with provenance), the **Finance Action Firewall** |
+| `takeover.py` | the control lease (`take_over`/`pause`/`resume`/`release`) |
+| `recording.py` · `replay.py` | trajectories + deterministic replay |
+| `telemetry.py` · `diagnostics.py` | metrics; the doctor |
+| `store.py` · `memory.py` | `agent-memory.db` tables; Eclipse-Memory knowledge (not JDdS) |
+| `schemas.py` · `tools.py` | `computer_*` model-facing toolset |
+| `routers/computer.py` | the operator HTTP surface |
+
+## Stable element handles + stale protection
+
+Every `capture` mints a `snapshot_id` and a generation. An element handle
+(`#N`) is only valid against the snapshot it came from. An action that passes an
+`element` (and its `snapshot_id`) is validated for snapshot, window, application
+and identity; a mismatch returns `COMPUTER_STALE_ELEMENT` (verdict `recapture`)
+and the model must re-capture. An old element number is **never** silently mapped
+to a new UI element.
+
+## Grounding hierarchy
+
+```
+1 accessibility element → 2 semantic → 3 structured UI → 4 OCR → 5 vision
+→ 6 relative coordinate → 7 raw coordinate
+```
+
+Coordinates are the fallback. High-risk targets require a fresh semantic target,
+a fresh observation and policy approval.
+
+## Background-first delivery
+
+Default delivery is **background**: input is posted directly to the target
+window and the user's cursor, focus and virtual desktop are not disturbed. A
+`foreground` escalation (SendInput; raises/focuses) is explicit, counted in
+telemetry, and the previous focus is restored afterwards. A background attempt
+that produces no change escalates **once** — never silently, never in a loop.
+
+Two guarantees make this safe on Windows:
+
+- A background click is posted to the **deepest child control under the point**
+  (`RealChildWindowFromPoint`, z-order independent) with **client** coordinates;
+  a message sent to the top-level window alone would never activate a child
+  control. Background keyboard input targets the owning thread's focused control
+  (`GetGUIThreadInfo`).
+- A **foreground** absolute-coordinate click is refused when the point is owned
+  by a different top-level window (`COMPUTER_TARGET_OBSCURED`, verdict
+  `foreground_required`) — Eclipse never clicks blind into a covering window, and
+  never sends foreground keystrokes to a window that is not focused.
+
+Verification reads a **fresh** accessibility digest + window title (never the
+pre-action snapshot), settle-polls for a bounded window, and treats only
+*content* change as `verified`; incidental pixel churn is `uncertain`, and an
+`uncertain` result never becomes a `success` verdict.
+
+Observation also scans for **sensitive** controls/text: a sensitive snapshot is
+flagged, its persisted image is masked, and a cloud vision model is refused
+unless policy explicitly allows it. An unrelated dialog that appears after an
+action is reported as `UNEXPECTED_DIALOG` (verdict `ask_user`) instead of
+receiving blind input.
+
+## Security, permissions, finance
+
+- The **policy engine** (`policy.py`) is the ONE permission authority:
+  `READ`/`LOW`/`MEDIUM`/`HIGH`/`CRITICAL` risk bands, an application
+  allow/deny/prohibit policy, and fail-closed defaults (observe allowed; click/
+  type ASK; `finance_mutate` DENY). An ASK routes through the same single-use
+  approval store the rest of the harness uses.
+- The **security layer** flags sensitive UI (password/API key/seed phrase/2FA/
+  bank credentials) and masks regions before a frame leaves the machine or enters
+  an exportable trajectory. A sensitive frame is never sent to a cloud vision
+  model unless policy explicitly allows it.
+- The **Finance Action Firewall** (`finance/firewall.py`) classifies and gates
+  every financial intent. Modes: `read_only`, `assisted`, `autonomous`,
+  `simulation`. `transfer`/`withdraw`/`deposit`/`payment`/`account_change` are
+  always blocked; a live mutation needs approval; `assisted` may prepare but not
+  submit; notional/account/instrument/app allowlists are enforced **before** the
+  UI is touched.
+- Screen-derived finance carries explicit provenance
+  (`source_type=desktop_screen`) and is never authoritative market data.
+
+## Integration
+
+- **Tools:** `register_computer_tools` registers the `computer_*` set on the one
+  registry (in `service.py`, beside the browser/terminal/git tools). The elevated
+  half (`COMPUTER_EFFECTFUL_TOOLS` in `code/policy.py`) is removed at `plan_only`;
+  `computer_use` stays (like `browser_click`) and is gated per-call.
+- **Authorizer:** `computer/authorizers.py` is composed into the ONE chain in
+  `code/authorizers.py`.
+- **Agents:** `COMPUTER_TOOLS` is declared once in `agents.py` and offered to the
+  finance agent, the code agent and the chat code profile.
+- **HTTP:** `routers/computer.py` (`/computer/*`, operator-gated) is included by
+  `main.py`; lifespan calls `service.start_computer()` / `stop_computer()`.
+- **CLI:** `eclipse computer doctor|status|capabilities|windows|apps|displays|sessions|replay`.
+- **Memory:** `computer/memory.py` stores learned layouts/workflows/recovery paths
+  in `eclipse-memory` (never JDdS, never screenshots), only through the explicit
+  `computer_remember` tool.
+
+## Honesty (nothing is fabricated)
+
+A missing driver, accessibility backend, OCR engine or vision model is an honest
+`UNAVAILABLE` with a reason — never a fake desktop. `eclipse computer doctor`
+reports exactly what is present. On Windows the driver uses `ctypes` Win32 (no
+third-party package required); UI Automation and Tesseract are optional and their
+absence is reported, not hidden.
+
+## Tests
+
+`python/tests/test_computer_unit.py` (pure logic), `test_computer_safety.py`
+(finance firewall, approval boundary, stale protection, takeover, dry-run),
+`test_computer_tools.py` (the toolset over a deterministic fake driver),
+`test_computer_adversarial.py` (moved/duplicate/absent targets, DPI, finance
+adversarial matrix) and `test_computer_hardening.py` (the defects found by the
+production stress test — background child-control delivery, occlusion refusal,
+semantic verification, sensitive wiring, action allowlist, recovery plan,
+bounded `set_value`, cross-session snapshot ids, memory source).
+
+The **live stress rig** (`python/tests/computer_stress_rig.py`,
+`computer_stress_target.py`, `computer_stress_focus.py`) drives the REAL Windows
+driver against a controlled Win32 window our test target owns, so it exercises
+the actual input path without disturbing the live desktop. It covers observation,
+stale handles, UI change, grounding, verification, input, recovery, freeze/race,
+the finance firewall matrix, takeover, sensitive data, audit/replay/memory,
+latency, session isolation, failure injection, prompt injection and focus-safety.

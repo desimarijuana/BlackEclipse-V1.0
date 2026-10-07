@@ -36,6 +36,19 @@ def _identity(role: str, name: str, value: str, bounds: Optional[Bounds]) -> str
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def _replace_frame_image(frame: Any, image: Any) -> Any:
+    """Return a ScreenFrame carrying a masked image (best-effort)."""
+    try:
+        from .drivers.base import ScreenFrame  # noqa: PLC0415
+
+        return ScreenFrame(
+            data=image, width=frame.width, height=frame.height,
+            bounds=frame.bounds, png_bytes=None, scale=frame.scale,
+        )
+    except Exception:  # noqa: BLE001
+        return frame
+
+
 def ax_digest(node: Optional[AXNode]) -> str:
     """A digest of the accessibility tree's content, for state-change detection."""
     if node is None:
@@ -47,18 +60,27 @@ def ax_digest(node: Optional[AXNode]) -> str:
 class ObservationEngine:
     """Builds snapshots for one session."""
 
-    def __init__(self, *, driver: Any, ax: Any, ocr: Any, vision_router: Any, config: Any, capture: Any) -> None:
+    def __init__(self, *, driver: Any, ax: Any, ocr: Any, vision_router: Any, config: Any, capture: Any, security: Any = None) -> None:
         self._driver = driver
         self._ax = ax
         self._ocr = ocr
         self._vision = vision_router
         self._config = config
         self._capture = capture
+        self._security = security
         self._counter = 0
+        self._nonce: Optional[str] = None
 
     def next_snapshot_id(self) -> str:
         self._counter += 1
-        return f"snap-{self._counter}-{int(time.time() * 1000)}"
+        # A per-engine nonce makes ids unique across SESSIONS, not just within one.
+        # Without it two sessions observed in the same millisecond could mint the
+        # same id, and one session's stale-handle check would accept the other's.
+        if self._nonce is None:
+            import uuid  # noqa: PLC0415
+
+            self._nonce = uuid.uuid4().hex[:8]
+        return f"snap-{self._nonce}-{self._counter}-{int(time.time() * 1000)}"
 
     async def observe(
         self,
@@ -96,27 +118,17 @@ class ObservationEngine:
             elements = self._elements_from_ax(ax_tree)
 
         ocr_result = None
+        frame = None
         image = None
-        image_path = None
-        if mode in ("ocr", "som", "vision") and self._config.ocr_enabled:
+        if mode in ("ocr", "som", "vision"):
             try:
                 frame = await self._driver.capture(window_id=window_id)
                 image = getattr(frame, "data", None)
-                if persist_image and mode != "ax":
-                    image_path = self._capture.persist(frame, session_id=session_id, label="snapshot")
             except Exception:  # noqa: BLE001
                 frame = None
             if mode == "ocr" and image is not None and self._ocr is not None and getattr(self._ocr, "available", False):
                 ocr_result = self._ocr.read(image, bounds=bounds)
                 elements = self._elements_from_ocr(ocr_result)
-        elif mode == "vision":
-            try:
-                frame = await self._driver.capture(window_id=window_id)
-                image = getattr(frame, "data", None)
-                if persist_image:
-                    image_path = self._capture.persist(frame, session_id=session_id, label="snapshot")
-            except Exception:  # noqa: BLE001
-                pass
 
         # SOM: if AX gave no interactables but an image exists, add OCR marks.
         if mode == "som" and not elements and image is not None and self._ocr is not None and getattr(self._ocr, "available", False):
@@ -124,6 +136,25 @@ class ObservationEngine:
             elements = self._elements_from_ocr(ocr_result)
 
         text = self._render_text(mode, elements, ocr_result)
+
+        # ── Security: flag + mask sensitive content BEFORE the image is persisted.
+        # A sensitive frame must never reach a cloud model or an exported
+        # trajectory unmasked.
+        security_report = None
+        sensitive = False
+        if self._security is not None:
+            security_report = self._security.scan_snapshot(
+                [e.to_dict() for e in elements], text=text,
+            )
+            sensitive = bool(security_report.sensitive)
+
+        image_path = None
+        if frame is not None and persist_image and mode != "ax":
+            if sensitive and self._security is not None and image is not None:
+                masked = self._security.mask_image(image, security_report.regions)
+                frame = _replace_frame_image(frame, masked)
+            image_path = self._capture.persist(frame, session_id=session_id, label="snapshot")
+
         snapshot = Snapshot(
             snapshot_id=snapshot_id, generation=generation,
             application=str(getattr(self._driver, "id", "")),
@@ -133,9 +164,13 @@ class ObservationEngine:
             ocr_digest=(hashlib.sha256(ocr_result.text.encode("utf-8")).hexdigest()[:20] if ocr_result and ocr_result.available else ""),
             chars=len(text),
             truncated=len(text) > self._config.snapshot_max_chars,
+            sensitive=sensitive,
+            security=(security_report.to_dict() if security_report else None),
         )
         if include_vision_description and image is not None:
-            engine = self._vision.engine(sensitive=False)
+            # Route on the snapshot's ACTUAL sensitivity: a sensitive frame must
+            # never be described by a cloud model unless policy allows it.
+            engine = self._vision.engine(sensitive=snapshot.sensitive)
             if engine.available:
                 try:
                     result = await engine.describe(image, bounds=bounds)

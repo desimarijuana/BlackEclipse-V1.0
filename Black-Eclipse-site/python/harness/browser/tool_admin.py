@@ -41,7 +41,7 @@ async def session_list(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
 
 async def session_pause(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = await manager().pause_session(session.id)
@@ -49,7 +49,7 @@ async def session_pause(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
 
 
 async def session_resume(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = manager().resume_session(session.id)
@@ -145,7 +145,7 @@ async def vault_unlock(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 async def vault_fill(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     from .tool_support import require_permission  # noqa: PLC0415
 
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     allowed, gate = await require_permission(ctx, session, "credentials", detail=str(args["reference"]), tool="browser_vault_fill")
@@ -188,7 +188,7 @@ async def vault_save_login(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
 
 
 async def request_human(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = session.request_human(str(args["reason"]))
@@ -202,7 +202,7 @@ async def request_human(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
 
 
 async def pause(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = session.pause()
@@ -210,7 +210,7 @@ async def pause(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def resume(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = session.resume()
@@ -219,7 +219,7 @@ async def resume(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def emulate_device(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -230,7 +230,7 @@ async def emulate_device(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
 
 
 async def set_viewport(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -242,7 +242,7 @@ async def set_viewport(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
 def make_set_context(kind: str, tool: str):
     async def handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-        session, error = session_of(args)
+        session, error = session_of(args, ctx)
         if error:
             return error
         try:

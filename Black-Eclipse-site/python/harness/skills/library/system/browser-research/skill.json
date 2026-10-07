@@ -1,0 +1,53 @@
+{
+  "id": "system.browser-research",
+  "name": "Research a source in the browser",
+  "version": "1.0.0",
+  "description": "Visit a research, investor-relations or filing page and read it with the browser, then report what it says with its source.",
+  "category": "research",
+  "tags": [
+    "browser",
+    "research",
+    "web"
+  ],
+  "status": "disabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "objective": {
+        "type": "string",
+        "description": "What the user wants to find out, in their words."
+      },
+      "url": {
+        "type": "string",
+        "description": "The page to read. Omit to search for it."
+      }
+    },
+    "required": [
+      "objective"
+    ]
+  },
+  "requiredTools": [
+    "browser_launch",
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_extract",
+    "browser_click",
+    "browser_type",
+    "browser_find",
+    "browser_wait_for_text"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 14,
+    "timeoutMs": 300000,
+    "maxToolCalls": 40
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

@@ -57,8 +57,17 @@ async def emit(ctx: ToolContext, event_type: str, data: dict[str, Any]) -> None:
         pass
 
 
-def session_of(args: dict[str, Any]) -> tuple[Any, Optional[tuple[str, Any]]]:
-    """Resolve the target session from args (explicit id, else most recent)."""
+def session_of(args: dict[str, Any], ctx: Optional[ToolContext] = None) -> tuple[Any, Optional[tuple[str, Any]]]:
+    """Resolve the target session from args.
+
+    Resolution order:
+      1. an explicit `session_id` (the caller names it — always honored);
+      2. a session belonging to THIS run/agent (isolation: a delegated subagent
+         never inherits the parent's browser),
+      3. the most recently active session, as a last resort.
+
+    A different agent's session is never silently used when this run created one.
+    """
     mgr = manager()
     if mgr is None:
         return None, unavailable()
@@ -68,6 +77,15 @@ def session_of(args: dict[str, Any]) -> tuple[Any, Optional[tuple[str, Any]]]:
             return mgr.require_session(str(session_id)), None
         except BrowserError as exc:
             return None, refusal(exc, "session")
+    # Prefer a session this run/agent owns, so a subagent is isolated.
+    run_id = str(getattr(ctx, "run_id", "") or "")
+    agent_id = str(getattr(ctx, "agent_id", "") or "")
+    if run_id or agent_id:
+        for candidate in mgr.list_active():
+            if run_id and candidate.run_id == run_id:
+                return candidate, None
+            if agent_id and candidate.agent_id == agent_id:
+                return candidate, None
     session = mgr.any_session()
     if session is None:
         return None, (

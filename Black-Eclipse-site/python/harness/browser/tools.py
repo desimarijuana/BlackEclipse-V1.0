@@ -26,6 +26,7 @@ from ..tools import ToolContext, ToolDefinition, ToolRegistry
 from . import config as config_mod
 from . import execution as exec_mod
 from .errors import BrowserError
+from .evidence import is_page_evidence_url, record_browser_source
 from .policy import wrap_untrusted
 from .schemas import INPUT_SCHEMAS, TOOL_META
 from .tool_admin import ADMIN_HANDLERS
@@ -84,7 +85,7 @@ async def _launch(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _close(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = await manager().destroy_session(session.id)
@@ -93,7 +94,7 @@ async def _close(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     summary = session.snapshot_summary()
@@ -105,7 +106,7 @@ async def _status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _navigate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     url = str(args["url"])
@@ -118,13 +119,14 @@ async def _navigate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         await emit(ctx, "browser.navigate.failed", {"sessionId": session.id, **exc.to_dict()})
         return refusal(exc, "browser_navigate")
     await emit(ctx, "browser.navigated", {"sessionId": session.id, "url": result["url"]})
+    record_browser_source(ctx, url=result["url"], title=result.get("title"))
     text = f"Opened {result['url']} — {result.get('title') or '(no title)'}. Call browser_snapshot to see it."
     return ok("navigate", text, result)
 
 
 def _make_simple_nav(method: str, tool: str, verb: str):
     async def handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-        session, error = session_of(args)
+        session, error = session_of(args, ctx)
         if error:
             return error
         try:
@@ -136,7 +138,7 @@ def _make_simple_nav(method: str, tool: str, verb: str):
 
 
 async def _stop(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = await session.stop()
@@ -147,7 +149,7 @@ async def _stop(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -166,6 +168,10 @@ async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         header += f"[{note}]\n"
     body = wrap_untrusted(snapshot.text, source=snapshot.url or "page")
     await emit(ctx, "browser.snapshot", {**snapshot.summary(), "sessionId": session.id, "injection": bool(note)})
+    # A snapshot of a real page is provenance: record the consulted URL so the
+    # answer's Sources panel can cite what the browser actually read.
+    if is_page_evidence_url(snapshot.url):
+        record_browser_source(ctx, url=snapshot.url, title=snapshot.title)
     data = {
         "sessionId": session.id, "url": snapshot.url, "title": snapshot.title,
         "interactive": snapshot.interactive, "elementCount": len(snapshot.elements),
@@ -176,7 +182,7 @@ async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _extract(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -187,11 +193,13 @@ async def _extract(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         f"Title: {data.get('title')}\nURL: {data.get('url')}\n\n" + str(data.get("text", ""))[:8000],
         source=data.get("url") or "page",
     )
+    if is_page_evidence_url(str(data.get("url") or "")):
+        record_browser_source(ctx, url=str(data["url"]), title=data.get("title"))
     return ok("extract", text, {k: v for k, v in data.items() if k != "text"} | {"textChars": len(str(data.get("text", "")))})
 
 
 async def _screenshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -203,7 +211,7 @@ async def _screenshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
 
 
 async def _vision(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     shot = None
@@ -241,7 +249,7 @@ async def _vision(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _visual_find(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     text = str(args["text"])
@@ -258,7 +266,7 @@ async def _visual_find(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
 
 async def _visual_click(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     text = str(args["text"])
@@ -274,9 +282,34 @@ async def _visual_click(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
     return ok("visual_click", f"Clicked \"{text}\".", result)
 
 
+async def _visual_locate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    session, error = session_of(args, ctx)
+    if error:
+        return error
+    try:
+        result = await session.visual_locate(
+            str(args["text"]), query=args.get("query"),
+            model_settings=getattr(ctx, "model_settings", None),
+        )
+    except BrowserError as exc:
+        return refusal(exc, "browser_visual_locate")
+    fusion = result["fusion"]
+    ref = result.get("ref") or "(no stable reference)"
+    text = (
+        f"Located \"{result['text']}\" via {fusion['chosen']} (DOM {result['domConfidence']:.2f}, "
+        f"vision {result['visionConfidence']:.2f}) — {ref}. {fusion['rationale']}"
+    )
+    await emit(ctx, "browser.visual.locate", {
+        "sessionId": session.id, "chosen": fusion["chosen"],
+        "domConfidence": result["domConfidence"], "visionConfidence": result["visionConfidence"],
+        "ref": result.get("ref"),
+    })
+    return ok("visual_locate", text, result)
+
+
 def _make_simple_get(method: str, tool: str):
     async def handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-        session, error = session_of(args)
+        session, error = session_of(args, ctx)
         if error:
             return error
         value = await getattr(session, method)()
@@ -289,7 +322,7 @@ def _make_simple_get(method: str, tool: str):
 
 
 async def _get_dom(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     html = await session.get_dom(selector=args.get("selector"))
@@ -298,7 +331,7 @@ async def _get_dom(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _find(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -317,7 +350,7 @@ async def _find(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _highlight(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -331,7 +364,7 @@ async def _highlight(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _click(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     target = args.get("target")
@@ -362,7 +395,7 @@ async def _click(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _type(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     raw_text = str(args["text"])
@@ -391,7 +424,7 @@ async def _type(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _select(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -402,7 +435,7 @@ async def _select(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _check(args: dict[str, Any], ctx: ToolContext, checked: bool = True) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -413,7 +446,7 @@ async def _check(args: dict[str, Any], ctx: ToolContext, checked: bool = True) -
 
 
 async def _press(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -424,7 +457,7 @@ async def _press(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _hover(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -435,7 +468,7 @@ async def _hover(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _scroll(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -446,7 +479,7 @@ async def _scroll(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _drag(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -460,7 +493,7 @@ async def _drag(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _wait(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = await session.wait(ms=int(args.get("ms") or 1000))
@@ -468,7 +501,7 @@ async def _wait(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _wait_for_element(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -479,7 +512,7 @@ async def _wait_for_element(args: dict[str, Any], ctx: ToolContext) -> tuple[str
 
 
 async def _wait_for_text(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -490,7 +523,7 @@ async def _wait_for_text(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
 
 
 async def _wait_for_url(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -501,7 +534,7 @@ async def _wait_for_url(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
 
 
 async def _wait_for_load_state(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -512,7 +545,7 @@ async def _wait_for_load_state(args: dict[str, Any], ctx: ToolContext) -> tuple[
 
 
 async def _wait_for_navigation(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -523,7 +556,7 @@ async def _wait_for_navigation(args: dict[str, Any], ctx: ToolContext) -> tuple[
 
 
 async def _wait_for_network(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -534,7 +567,7 @@ async def _wait_for_network(args: dict[str, Any], ctx: ToolContext) -> tuple[str
 
 
 async def _wait_for_popup(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -545,7 +578,7 @@ async def _wait_for_popup(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
 
 
 async def _wait_for_download(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -559,7 +592,7 @@ async def _wait_for_download(args: dict[str, Any], ctx: ToolContext) -> tuple[st
 
 
 async def _tabs(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     tabs = session.tabs_list()
@@ -568,7 +601,7 @@ async def _tabs(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _new_tab(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = await session.new_tab(args.get("url"))
@@ -576,7 +609,7 @@ async def _new_tab(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _switch_tab(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -587,7 +620,7 @@ async def _switch_tab(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
 
 
 async def _close_tab(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     result = await session.close_tab(args.get("tab_id"))
@@ -598,7 +631,7 @@ async def _close_tab(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _download(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     allowed, gate = await require_permission(ctx, session, "download", url=session.current_url(), tool="browser_download")
@@ -613,7 +646,7 @@ async def _download(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _upload(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     allowed, gate = await require_permission(ctx, session, "upload", url=session.current_url(), detail=str(args.get("files")), tool="browser_upload")
@@ -634,7 +667,7 @@ async def _upload(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _console(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     entries = session.console_log(level=args.get("level"), limit=int(args.get("limit") or 200))
@@ -645,7 +678,7 @@ async def _console(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _network(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     entries = session.network_log(kind=args.get("kind"), limit=int(args.get("limit") or 200))
@@ -656,7 +689,7 @@ async def _network(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _errors(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     entries = session.error_log(limit=int(args.get("limit") or 100))
@@ -667,7 +700,7 @@ async def _errors(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _evaluate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     allowed, gate = await require_permission(ctx, session, "evaluate_js", url=session.current_url(), detail=str(args.get("expression"))[:100], tool="browser_evaluate")
@@ -681,7 +714,7 @@ async def _evaluate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _cdp(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     method = str(args["method"])
@@ -702,7 +735,7 @@ async def _cdp(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _exec(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     mgr = manager()
@@ -732,7 +765,7 @@ async def _exec(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _dialog(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -748,7 +781,7 @@ async def _dialog(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _cookies(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     action = args.get("action") or "list"
@@ -780,7 +813,7 @@ async def _cookies(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _storage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     data = await session.storage()
@@ -789,7 +822,7 @@ async def _storage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 async def _permissions(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     try:
@@ -803,7 +836,7 @@ async def _permissions(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
 
 async def _intercept(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    session, error = session_of(args)
+    session, error = session_of(args, ctx)
     if error:
         return error
     allowed, gate = await require_permission(ctx, session, "network_inspection", url=session.current_url(), tool="browser_intercept")
@@ -851,6 +884,7 @@ _HANDLERS: dict[str, Any] = {
     "browser_vision": _vision,
     "browser_visual_find": _visual_find,
     "browser_visual_click": _visual_click,
+    "browser_visual_locate": _visual_locate,
     "browser_get_images": _make_simple_get("get_images", "browser_get_images"),
     "browser_get_text": _make_simple_get("get_text", "browser_get_text"),
     "browser_get_links": _make_simple_get("get_links", "browser_get_links"),

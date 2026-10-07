@@ -628,10 +628,53 @@ class WindowsDriver(ComputerDriver):
         return pt.x, pt.y
 
     def _lparam(self, x: int, y: int) -> int:
-        return (y << 16) | (x & 0xFFFF)
+        return ((y & 0xFFFF) << 16) | (x & 0xFFFF)
 
-    def _bg_click(self, hwnd: int, x: int, y: int, button: str, count: int) -> bool:
-        cx, cy = self._client_point(hwnd, x, y)
+    def _deepest_child_at(self, top: int, x: int, y: int) -> int:
+        """The deepest descendant of `top` whose rectangle contains the screen
+        point (x, y). Z-ORDER INDEPENDENT: it walks the target window's OWN child
+        hierarchy with `RealChildWindowFromPoint`, so a covering window never
+        changes which control we address. This is the correct primitive for a
+        background click — a message posted to the top-level window alone never
+        activates a child control.
+        """
+        hwnd = top
+        for _ in range(8):
+            pt = POINT(x, y)
+            if not user32.ScreenToClient(hwnd, ctypes.byref(pt)):
+                break
+            child = user32.RealChildWindowFromPoint(hwnd, pt)
+            child = int(child) if child else 0
+            if not child or child == hwnd:
+                break
+            hwnd = child
+        return hwnd
+
+    def _focused_control(self, hwnd: int) -> int:
+        """The control that owns keyboard focus within `hwnd`'s thread, even when
+        the window is NOT foreground (GetGUIThreadInfo). This lets background
+        typing target the right control without activating the window."""
+        if not hasattr(self, "_GUITHREADINFO"):
+            class GUITHREADINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                    ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                    ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                    ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                    ("rcCaret", RECT),
+                ]
+
+            self._GUITHREADINFO = GUITHREADINFO  # type: ignore[attr-defined]
+        gti = self._GUITHREADINFO()
+        gti.cbSize = ctypes.sizeof(gti)
+        tid = user32.GetWindowThreadProcessId(hwnd, None)
+        if not tid or not user32.GetGUIThreadInfo(tid, ctypes.byref(gti)):
+            return 0
+        return int(gti.hwndFocus or 0)
+
+    def _bg_click(self, top: int, x: int, y: int, button: str, count: int) -> bool:
+        target = self._deepest_child_at(top, x, y)
+        cx, cy = self._client_point(target, x, y)
         lp = self._lparam(cx, cy)
         down, up = {
             "left": (WM_LBUTTONDOWN, WM_LBUTTONUP),
@@ -640,25 +683,29 @@ class WindowsDriver(ComputerDriver):
         }[button]
         ok = True
         for _ in range(max(1, count)):
-            user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lp)
-            ok = ok and bool(user32.PostMessageW(hwnd, down, 1, lp))
-            ok = ok and bool(user32.PostMessageW(hwnd, up, 0, lp))
+            user32.PostMessageW(target, WM_MOUSEMOVE, 0, lp)
+            ok = ok and bool(user32.PostMessageW(target, down, 1, lp))
+            ok = ok and bool(user32.PostMessageW(target, up, 0, lp))
         return ok
 
     def _bg_type(self, hwnd: int, text: str) -> bool:
+        # Target the focused control of the window's thread when there is one,
+        # else the window itself (some apps route WM_CHAR themselves).
+        target = self._focused_control(hwnd) or hwnd
         ok = True
         for ch in text:
-            ok = ok and bool(user32.PostMessageW(hwnd, WM_CHAR, ord(ch), 0))
+            ok = ok and bool(user32.PostMessageW(target, WM_CHAR, ord(ch), 0))
         return ok
 
     def _bg_key(self, hwnd: int, keys: list[str]) -> bool:
+        target = self._focused_control(hwnd) or hwnd
         vks = [(virtual_key(k), k.lower() in ("shift", "ctrl", "control", "alt", "meta", "win")) for k in keys]
-        vks = [(vk, target) for vk, target in vks if vk is not None]
+        vks = [(vk, t) for vk, t in vks if vk is not None]
         ok = True
         for vk, _t in vks:
-            ok = ok and bool(user32.PostMessageW(hwnd, WM_KEYDOWN, vk, 0))
+            ok = ok and bool(user32.PostMessageW(target, WM_KEYDOWN, vk, 0))
         for vk, _t in reversed(vks):
-            ok = ok and bool(user32.PostMessageW(hwnd, WM_KEYUP, vk, 0))
+            ok = ok and bool(user32.PostMessageW(target, WM_KEYUP, vk, 0))
         return ok
 
     def _target_hwnd(self, window_id: Optional[str]) -> Optional[int]:
@@ -669,6 +716,27 @@ class WindowsDriver(ComputerDriver):
                 return None
         hwnd = user32.GetForegroundWindow()
         return int(hwnd) if hwnd else None
+
+    def is_point_on_window(self, window_id: str, x: int, y: int) -> Optional[bool]:
+        """Whether the TOP-LEVEL window (or one of its controls) is the window
+        physically at (x, y). A background click does not need this (PostMessage
+        is z-order independent), but a FOREGROUND SendInput at absolute
+        coordinates MUST be refused when another window covers the target — else
+        the click lands on the wrong application.
+        """
+        if not _IS_WINDOWS:
+            return None
+        try:
+            target = int(window_id)
+        except (TypeError, ValueError):
+            return None
+        under = user32.WindowFromPoint(POINT(int(x), int(y)))
+        if not under:
+            return False
+        GA_ROOT = 2
+        root_under = int(user32.GetAncestor(under, GA_ROOT) or under)
+        root_target = int(user32.GetAncestor(target, GA_ROOT) or target)
+        return root_under == root_target
 
     # ── input: the driver methods ────────────────────────────────────────────
 
@@ -683,6 +751,17 @@ class WindowsDriver(ComputerDriver):
             if hwnd:
                 ok = self._bg_click(hwnd, x, y, button, count)
                 return InputResult(delivered=ok, delivery_mode="background", detail=f"posted to window {hwnd}")
+        # A foreground absolute-coordinate click must be refused when another
+        # window covers the target — otherwise it lands on the wrong application.
+        if window_id is not None:
+            on_target = self.is_point_on_window(window_id, x, y)
+            if on_target is False:
+                from ..errors import TargetObscured  # noqa: PLC0415
+
+                raise TargetObscured(
+                    "The target is covered by another window; Eclipse won't click blind.",
+                    window=window_id,
+                )
         self._make_dpi_aware()
         self._fg_click(x, y, button, count)
         return InputResult(delivered=True, delivery_mode="foreground", detail="SendInput absolute")
@@ -732,6 +811,26 @@ class WindowsDriver(ComputerDriver):
         self._fg_mouse(x2, y2, up)
         return InputResult(delivered=True, delivery_mode="foreground")
 
+    def _require_foreground_owner(self, window_id: Optional[str]) -> None:
+        """A foreground keystroke goes to the FOREGROUND window. If the caller
+        named a different target window, refuse rather than type into the wrong
+        application (the classic focus-steal bug)."""
+        if window_id is None or not _IS_WINDOWS:
+            return
+        try:
+            target = int(window_id)
+        except (TypeError, ValueError):
+            return
+        fg = int(user32.GetForegroundWindow() or 0)
+        GA_ROOT = 2
+        if int(user32.GetAncestor(fg, GA_ROOT) or fg) != int(user32.GetAncestor(target, GA_ROOT) or target):
+            from ..errors import TargetObscured  # noqa: PLC0415
+
+            raise TargetObscured(
+                "Eclipse won't send foreground keystrokes to a window that isn't focused.",
+                window=window_id,
+            )
+
     async def type_text(self, text: str, *, delivery_mode: str = "background", window_id: Optional[str] = None) -> InputResult:
         if not _IS_WINDOWS:
             raise UnsupportedAction("Typing requires Windows.")
@@ -740,6 +839,7 @@ class WindowsDriver(ComputerDriver):
             if hwnd:
                 ok = self._bg_type(hwnd, text)
                 return InputResult(delivered=ok, delivery_mode="background", detail=f"posted to window {hwnd}")
+        self._require_foreground_owner(window_id)
         self._fg_type(text)
         return InputResult(delivered=True, delivery_mode="foreground", detail="SendInput unicode")
 
@@ -751,6 +851,7 @@ class WindowsDriver(ComputerDriver):
             if hwnd:
                 ok = self._bg_key(hwnd, keys)
                 return InputResult(delivered=ok, delivery_mode="background", detail=f"posted to window {hwnd}")
+        self._require_foreground_owner(window_id)
         self._fg_key(keys)
         return InputResult(delivered=True, delivery_mode="foreground")
 
@@ -774,8 +875,19 @@ class WindowsDriver(ComputerDriver):
         hwnd = user32.WindowFromPoint(POINT(x, y))
         if not hwnd:
             return {"set": False, "reason": "no control at that point"}
-        result = user32.SendMessageW(hwnd, WM_SETTEXT, 0, ctypes.c_wchar_p(str(value)))
-        return {"set": True, "method": "wm_settext", "control": str(int(hwnd)), "result": int(result)}
+        # SendMessageTimeout (NOT SendMessage): a plain SendMessage BLOCKS the
+        # calling thread until the target's message pump returns, so an
+        # unresponsive control would hang the whole async loop. A bounded timeout
+        # turns that into an honest failure the core can recover from.
+        result = ctypes.c_ulonglong(0)
+        SMTO_ABORTIFHUNG = 0x0002
+        ok = user32.SendMessageTimeoutW(
+            hwnd, WM_SETTEXT, 0, ctypes.c_wchar_p(str(value)),
+            SMTO_ABORTIFHUNG, 1500, ctypes.byref(result),
+        )
+        if not ok:
+            return {"set": False, "reason": "the control did not respond to set_value within 1.5s"}
+        return {"set": True, "method": "wm_settext", "control": str(int(hwnd)), "result": int(result.value)}
 
     def pointer_position(self) -> Optional[tuple[int, int]]:
         if not _IS_WINDOWS:

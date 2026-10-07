@@ -114,3 +114,8 @@ local-*-windows.*
 local-*-mac.*
 local-*-linux.*
 
+# Ad-hoc screenshot/scratch output from manual computer-use stress runs. Runtime
+# artifacts belong under .black-eclipse/; these stray dirs are never source.
+python/sec/
+sec/
+

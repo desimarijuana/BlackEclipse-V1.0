@@ -28,8 +28,16 @@ def client():
 
 def test_health_reports_skills(client):
     body = client.get("/health").json()
-    # The five built-in skills (Phases 0-5) plus the eight Phase 9 kit wrappers.
-    assert body["skills"]["installed"] == 13
+    # The bundled library is the five built-in skills (Phases 0-5), the eight
+    # Phase 9 kit wrappers, and the Browser Automation Runtime's
+    # `system.browser-research` wrapper — 14. A checkout whose project skills are
+    # trusted contributes more (e.g. the twelve CFA skills), so assert the
+    # bundled floor rather than a brittle exact count.
+    from harness.skills.loader import load_catalog
+
+    bundled = len(load_catalog())
+    assert bundled >= 14
+    assert body["skills"]["installed"] >= bundled
     assert body["skills"]["loadErrors"] == []
 
 

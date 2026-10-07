@@ -82,6 +82,11 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "session_id": _SESSION,
         "text": {"type": "string", "description": "Visible text or label to locate and click."},
     }, ["text"]),
+    "browser_visual_locate": _schema({
+        "session_id": _SESSION,
+        "text": {"type": "string", "description": "Visible text, label or description to locate."},
+        "query": {"type": "string", "description": "Optional finer description for the visual match."},
+    }, ["text"]),
     "browser_get_images": _schema({"session_id": _SESSION}),
     "browser_get_text": _schema({"session_id": _SESSION}),
     "browser_get_links": _schema({"session_id": _SESSION}),
@@ -251,6 +256,8 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "browser_vision": {"risk": "low", "timeout": 45_000, "desc":
         "Visual fallback for canvas/graphical pages: capture a screenshot and map on-screen interactive elements with their positions."},
     "browser_visual_find": {"risk": "low", "timeout": 30_000, "desc": "Locate an element by its visible text/label and report its on-screen position."},
+    "browser_visual_locate": {"risk": "low", "timeout": 45_000, "desc":
+        "Locate a target by fusing the page's own structure with a visual match, and report the chosen reference, the confidence of each path, and why. Use on canvas/graphical pages where the accessibility tree is thin."},
     "browser_visual_click": {"risk": "medium", "timeout": 30_000, "desc": "Click an element found by visible text/label (visual fallback)."},
     "browser_get_images": {"risk": "low", "timeout": 20_000, "desc": "List images on the page with their sources and alt text."},
     "browser_get_text": {"risk": "low", "timeout": 20_000, "desc": "Return the page's visible text."},

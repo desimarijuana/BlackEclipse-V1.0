@@ -272,6 +272,11 @@ class BrowserManager:
             return None
         return max(live, key=lambda s: s.last_activity)
 
+    def list_active(self) -> list[BrowserSession]:
+        """Every non-terminal session, newest activity first (isolation lookup)."""
+        live = [s for s in self._sessions.values() if not s.state.terminal]
+        return sorted(live, key=lambda s: s.last_activity, reverse=True)
+
     async def pause_session(self, session_id: str) -> dict[str, Any]:
         return self.require_session(session_id).pause()
 

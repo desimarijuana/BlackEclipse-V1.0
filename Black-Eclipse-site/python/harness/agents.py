@@ -25,9 +25,10 @@ BROWSER_TOOLS = [
     "browser_launch", "browser_close", "browser_status",
     "browser_navigate", "browser_back", "browser_forward", "browser_refresh", "browser_stop",
     "browser_snapshot", "browser_extract", "browser_screenshot", "browser_vision",
-    "browser_visual_find", "browser_visual_click",
+    "browser_visual_find", "browser_visual_click", "browser_visual_locate",
     "browser_get_images", "browser_get_text", "browser_get_links", "browser_get_forms",
     "browser_get_accessibility_tree", "browser_get_dom",
+    "browser_find", "browser_highlight",
     "browser_click", "browser_type", "browser_fill", "browser_select",
     "browser_check", "browser_uncheck", "browser_press", "browser_hover",
     "browser_scroll", "browser_drag",
@@ -65,6 +66,7 @@ COMPUTER_TOOLS = [
     "computer_session_start", "computer_session_list", "computer_session_close",
     "computer_takeover", "computer_pause", "computer_resume", "computer_release",
     "computer_record_export",
+    "computer_remember", "computer_recall",
     "computer_finance_read", "computer_finance_prepare",
 ]
 

@@ -101,6 +101,19 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "window_id": {"type": "string"},
         "session_id": _SESSION,
     }),
+    # ── Learned desktop knowledge (Eclipse-Memory) ───────────────────────────
+    "computer_remember": _schema({
+        "kind": {"type": "string", "enum": ["layout", "workflow", "recovery", "pattern"],
+                 "description": "What is being learned about the desktop."},
+        "content": {"type": "string", "description": "The knowledge, in one or two sentences."},
+        "application": {"type": "string", "description": "The application it concerns."},
+        "subject": {"type": "string", "description": "Optional subject key."},
+    }, ["kind", "content"]),
+    "computer_recall": _schema({
+        "query": {"type": "string", "description": "What to remember about the desktop."},
+        "application": {"type": "string"},
+    }, ["query"]),
+
     "computer_finance_prepare": _schema({
         "application": {"type": "string", "description": "The trading application."},
         "action": {"type": "string", "enum": ["prepare_order", "buy", "sell", "short", "cover", "submit_order", "cancel_order", "modify_order", "transfer", "withdraw"],
@@ -145,6 +158,10 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "computer_resume": {"risk": "low", "timeout": 15_000, "desc": "Resume a paused/human-held session."},
     "computer_release": {"risk": "low", "timeout": 15_000, "desc": "Release the control lease back to the agent."},
     "computer_record_export": {"risk": "low", "timeout": 20_000, "desc": "Export the session's recorded trajectory to a JSON file for inspection/replay."},
+    "computer_remember": {"risk": "low", "timeout": 20_000, "desc":
+        "Store a learned desktop fact (application layout, a successful workflow, a recovery path) in Eclipse-Memory. "
+        "Explicit and inspectable — never screenshots, never automatic."},
+    "computer_recall": {"risk": "low", "timeout": 15_000, "desc": "Recall previously learned desktop knowledge."},
     "computer_finance_read": {"risk": "low", "timeout": 30_000, "desc":
         "Read financial state from the screen (ticker, bid, ask, position, P&L, …). The result is SCREEN-DERIVED, "
         "carries an explicit source, and is never treated as authoritative market data."},
@@ -153,13 +170,14 @@ TOOL_META: dict[str, dict[str, Any]] = {
         "allowed / approval_required / blocked. Eclipse never performs an unrestricted financial mutation."},
 }
 
-# The computer ACTION tools that change the desktop (or prepare a financial
-# action). The autonomy profile removes these at `plan_only`; the handler's
-# policy engine + finance firewall are the real per-call gates. Exported so the
-# ONE policy authority (`code/policy.py`) has a single source for the set.
+# The computer ELEVATED tools the computer authorizer admits. `computer_use`
+# itself is registered as `read` (like `browser_click`) and gated per-call by the
+# computer policy engine; the finance firewall + takeover are the elevated set.
+# Mirrored by `code/policy.py` `COMPUTER_EFFECTFUL_TOOLS` (the ONE authority for
+# the autonomy boundary).
 EFFECTFUL_TOOLS: tuple[str, ...] = (
-    "computer_use",
     "computer_finance_prepare",
+    "computer_takeover",
 )
 
 ALL_TOOL_NAMES: tuple[str, ...] = tuple(INPUT_SCHEMAS.keys())

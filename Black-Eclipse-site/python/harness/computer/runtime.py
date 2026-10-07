@@ -12,10 +12,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
-def build_computer_manager(*, agent_store: Any = None, bus: Any = None, vision: Any = None) -> Any:
+def build_computer_manager(*, agent_store: Any = None, bus: Any = None, vision: Any = None,
+                           memory_service: Any = None) -> Any:
     from .manager import ComputerManager  # noqa: PLC0415
 
-    return ComputerManager(agent_store=agent_store, bus=bus, vision=vision)
+    return ComputerManager(agent_store=agent_store, bus=bus, vision=vision, memory_service=memory_service)
 
 
 _MANAGER: Optional[Any] = None

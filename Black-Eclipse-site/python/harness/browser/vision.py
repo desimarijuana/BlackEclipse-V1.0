@@ -98,6 +98,59 @@ def fuse(dom_confidence: float, vision_confidence: float, *, dom_threshold: floa
     return FusionDecision(chosen=chosen, dom_confidence=dom_confidence, vision_confidence=vision_confidence, rationale=rationale)
 
 
+async def locate(session: Any, text: str, *, query: Optional[str] = None, model_settings: Any = None) -> dict[str, Any]:
+    """Fuse the DOM locator with a visual match to locate a target on a page.
+
+    The DOM path (visible text) yields a confidence; when a multimodal model is
+    configured, a bounded visual question over the screenshot yields another. The
+    `fuse` decision picks the path and records WHY, and the result carries a stable
+    snapshot reference when one is known so the caller can act on it.
+    """
+    page = session.page()
+    dom_confidence = 0.0
+    ref = ""
+    count = 0
+    try:
+        locator = page.get_by_text(text, exact=False)
+        count = await locator.count()
+        if count >= 1:
+            dom_confidence = 0.92 if count == 1 else 0.7
+            snapshot = session.snapshots.latest
+            if snapshot is not None:
+                needle = text.strip().lower()
+                for element in snapshot.elements.values():
+                    if element.name and needle in element.name.strip().lower():
+                        ref = element.ref
+                        break
+    except Exception:  # noqa: BLE001
+        count = 0
+    vision_confidence = 0.0
+    interpretation = None
+    shot = None
+    try:
+        shot = await session.screenshot()
+    except Exception:  # noqa: BLE001
+        shot = None
+    if shot is not None:
+        from .vision_model import BrowserVisionInterpreter  # noqa: PLC0415
+
+        interp = BrowserVisionInterpreter(model_settings)
+        interpretation = await interp.interpret(shot, query=query or text)
+        if interpretation.available:
+            vision_confidence = 0.85 if interpretation.elements else 0.4
+    decision = fuse(dom_confidence, vision_confidence)
+    return {
+        "text": text,
+        "domConfidence": dom_confidence,
+        "visionConfidence": vision_confidence,
+        "ref": ref,
+        "domCount": count,
+        "screenshot": shot,
+        "fusion": decision.to_dict(),
+        "interpretation": interpretation.to_dict() if interpretation else {"available": False},
+    }
+
+
 class VisionEngine:
     """Captures screenshots and derives a live visual map for a session."""
 

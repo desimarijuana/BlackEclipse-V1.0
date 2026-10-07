@@ -186,7 +186,8 @@ class AppPolicy:
         return PermissionDecision("observe", ALLOW, "allowed", allowed=True, requires_approval=False)
 
     def check_action(self, action: str) -> Optional[PermissionDecision]:
-        """A hard block on a prohibited action, or None."""
+        """A hard block on a prohibited action, or an action absent from a
+        non-empty allowlist. Returns None only when the action is permitted."""
         lowered = (action or "").strip().lower()
         if lowered in {a.lower() for a in self.prohibited_actions}:
             return PermissionDecision(
@@ -194,6 +195,14 @@ class AppPolicy:
                 allowed=False, requires_approval=False, code="COMPUTER_ACTION_PROHIBITED",
                 risk=classify_action(lowered),
             )
+        if self.allowed_actions:
+            allowed = {a.lower() for a in self.allowed_actions}
+            if lowered not in allowed:
+                return PermissionDecision(
+                    lowered, DENY, f"Eclipse isn't permitted to {lowered.replace('_', ' ')} in this task.",
+                    allowed=False, requires_approval=False, code="COMPUTER_ACTION_NOT_ALLOWED",
+                    risk=classify_action(lowered),
+                )
         return None
 
     def to_dict(self) -> dict[str, Any]:

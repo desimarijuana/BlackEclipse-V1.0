@@ -92,21 +92,27 @@ class ActionVerifier:
             result.summary = "verification is disabled; the action ran but its effect wasn't checked"
             return result
 
-        state_changed = (
+        # SEMANTIC change: the accessibility tree, OCR text, window identity or
+        # title. This is the AUTHORITATIVE signal — it is stable and content-based.
+        semantic_change = (
             before.ax_digest != after.ax_digest
             or before.ocr_digest != after.ocr_digest
             or before.window_id != after.window_id
             or before.window_title != after.window_title
-            or before.screen_digest != after.screen_digest
         )
-        result.state_changed = state_changed
-        result.checks.append({"name": "state_changed", "passed": state_changed, "value": state_changed})
-
+        pixel_change = False
         if before.frame is not None and after_frame is not None:
             diff = self._diff.compare(before.frame, after_frame)
             result.diff = diff.to_dict()
-            state_changed = state_changed or diff.changed
-            result.state_changed = state_changed
+            pixel_change = diff.changed
+        # Screen digest folds in the semantic digest; keep it as corroboration.
+        digest_change = before.screen_digest != after.screen_digest
+        state_changed = semantic_change or pixel_change or digest_change
+        result.state_changed = state_changed
+        result.checks.append({
+            "name": "semantic_change", "passed": semantic_change,
+            "pixel_change": pixel_change, "expectation": False,
+        })
 
         # Expectation checks.
         failed_expectations: list[str] = []
@@ -139,9 +145,17 @@ class ActionVerifier:
             result.status = "failed"
             result.warnings.append("The expected effect didn't occur: " + ", ".join(failed_expectations))
             result.summary = "The action ran but the expected change wasn't observed."
-        elif state_changed:
+        elif semantic_change:
+            # A content-based change is a real change.
             result.status = "verified"
-            result.summary = "The desktop changed after the action."
+            result.summary = "The desktop's content changed after the action."
+        elif pixel_change or digest_change:
+            # Pixels moved but the SEMANTIC content did not: this is incidental
+            # churn (a blinking caret, a hover highlight, an animation). It is NOT
+            # a verified effect — the agent must look, not assume.
+            result.status = "uncertain"
+            result.warnings.append("only incidental pixel change was detected; no semantic change")
+            result.summary = "The action ran; only incidental visual change was seen, not a content change."
         else:
             # No expectation and no change ⇒ uncertain (NOT success).
             result.status = "uncertain"

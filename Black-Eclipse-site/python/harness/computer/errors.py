@@ -185,6 +185,19 @@ class WindowNotFound(ComputerError):
     verdict = "reground"
 
 
+class TargetObscured(ComputerError):
+    """The target window/control is covered by another window.
+
+    A foreground SendInput at absolute coordinates would land on the COVERING
+    window. Refused rather than risking a wrong-application click; the caller
+    may raise/bring the target forward first, then retry.
+    """
+
+    code = "COMPUTER_TARGET_OBSCURED"
+    retryable = True
+    verdict = "foreground_required"
+
+
 class ApplicationNotFound(ComputerError):
     code = "COMPUTER_APPLICATION_NOT_FOUND"
     verdict = "reground"
@@ -248,6 +261,7 @@ __all__ = [
     "RecoveryFailed",
     "ScreenCaptureUnavailable",
     "StaleElement",
+    "TargetObscured",
     "TimeoutError_",
     "TargetNotFound",
     "UnsupportedAction",

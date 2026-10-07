@@ -572,6 +572,12 @@ class BrowserSession:
     async def visual_map(self, *, screenshot: Optional[str] = None) -> Any:
         return await self.vision.visual_map(self.page(), self.snapshots, screenshot=screenshot)
 
+    async def visual_locate(self, text: str, *, query: Optional[str] = None, model_settings: Any = None) -> dict[str, Any]:
+        """Locate a target by fusing the DOM locator with a visual match."""
+        from .vision import locate  # noqa: PLC0415
+
+        return await locate(self, text, query=query, model_settings=model_settings)
+
     # ── resolution helpers ───────────────────────────────────────────────────
 
     async def resolve(self, raw_target: Any) -> Any:
@@ -775,95 +781,49 @@ class BrowserSession:
     # ── waiting ──────────────────────────────────────────────────────────────
 
     async def wait(self, *, ms: int = 1000) -> dict[str, Any]:
-        import asyncio  # noqa: PLC0415
+        from . import waiting  # noqa: PLC0415
 
-        await asyncio.sleep(max(0, min(ms, 60_000)) / 1000)
-        return {"waited": ms}
+        return await waiting.wait(self, ms=ms)
 
     async def wait_for_selector(self, raw_target: Any, *, state: str = "visible", timeout: Optional[float] = None) -> dict[str, Any]:
-        # Build the locator WITHOUT requiring the element to already exist — the
-        # point is to WAIT for it to appear/attach.
-        target = Target.parse(raw_target)
-        found = self.resolver._locator_for(self.page(), target)  # noqa: SLF001 - shared resolution
-        if found is None:
-            raise BrowserElementNotFoundError(
-                f"Eclipse needs a way to find that element ({target.describe()}).",
-                session_id=self.id, action="wait_for_element",
-            )
-        locator = found[0]
-        try:
-            await locator.first.wait_for(state=state, timeout=self._timeout(timeout) or 30_000.0)
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserTimeoutError(
-                "The element Eclipse was waiting for didn't appear in time.", session_id=self.id,
-                action="wait_for_element", metadata={"error": str(exc)[:200]},
-            ) from exc
-        return {"found": True, "state": state}
+        from . import waiting  # noqa: PLC0415
+
+        return await waiting.wait_for_selector(self, raw_target, state=state, timeout=timeout)
 
     async def wait_for_text(self, text: str, *, timeout: Optional[float] = None) -> dict[str, Any]:
-        try:
-            await self.page().get_by_text(text, exact=False).first.wait_for(timeout=self._timeout(timeout) or 30_000.0)
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserTimeoutError(
-                "That text didn't appear on the page in time.", session_id=self.id,
-                action="wait_for_text", metadata={"error": str(exc)[:200]},
-            ) from exc
-        return {"found": True, "text": text}
+        from . import waiting  # noqa: PLC0415
+
+        return await waiting.wait_for_text(self, text, timeout=timeout)
 
     async def wait_for_url(self, pattern: str, *, timeout: Optional[float] = None) -> dict[str, Any]:
-        try:
-            await self.page().wait_for_url(pattern, timeout=self._timeout(timeout) or 30_000.0)
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserTimeoutError(
-                "The page didn't reach the expected address in time.", session_id=self.id,
-                action="wait_for_url", metadata={"error": str(exc)[:200]},
-            ) from exc
-        return {"url": self.current_url()}
+        from . import waiting  # noqa: PLC0415
+
+        return await waiting.wait_for_url(self, pattern, timeout=timeout)
 
     async def wait_for_load_state(self, state: str = "load", *, timeout: Optional[float] = None) -> dict[str, Any]:
-        try:
-            await self.page().wait_for_load_state(state, timeout=self._timeout(timeout) or 30_000.0)
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserTimeoutError(
-                "The page didn't finish loading in time.", session_id=self.id,
-                action="wait_for_load_state", metadata={"error": str(exc)[:200]},
-            ) from exc
-        return {"state": state}
+        from . import waiting  # noqa: PLC0415
+
+        return await waiting.wait_for_load_state(self, state, timeout=timeout)
 
     async def wait_for_navigation(self, *, timeout: Optional[float] = None) -> dict[str, Any]:
-        return await self.wait_for_load_state("domcontentloaded", timeout=timeout)
+        from . import waiting  # noqa: PLC0415
+
+        return await waiting.wait_for_navigation(self, timeout=timeout)
 
     async def wait_for_network(self, *, idle_ms: int = 500, timeout: Optional[float] = None) -> dict[str, Any]:
-        try:
-            await self.page().wait_for_load_state("networkidle", timeout=self._timeout(timeout) or 30_000.0)
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserTimeoutError(
-                "The page's network didn't settle in time.", session_id=self.id, action="wait_for_network",
-                metadata={"error": str(exc)[:200]},
-            ) from exc
-        return {"idle": True}
+        from . import waiting  # noqa: PLC0415
+
+        return await waiting.wait_for_network(self, idle_ms=idle_ms, timeout=timeout)
 
     async def wait_for_popup(self, *, timeout: Optional[float] = None) -> dict[str, Any]:
-        import asyncio  # noqa: PLC0415
+        from . import waiting  # noqa: PLC0415
 
-        deadline = time.monotonic() + (self._timeout(timeout) or 30_000.0) / 1000
-        before = set(self.tabs.keys())
-        while time.monotonic() < deadline:
-            if set(self.tabs.keys()) - before:
-                new_tab = (set(self.tabs.keys()) - before).pop()
-                return {"opened": True, "tabId": new_tab}
-            await asyncio.sleep(0.1)
-        raise BrowserTimeoutError("No new window opened in time.", session_id=self.id, action="wait_for_popup")
+        return await waiting.wait_for_popup(self, timeout=timeout)
 
     async def wait_for_download(self, *, timeout: Optional[float] = None) -> dict[str, Any]:
-        import asyncio  # noqa: PLC0415
+        from . import waiting  # noqa: PLC0415
 
-        deadline = time.monotonic() + (self._timeout(timeout) or 30_000.0) / 1000
-        while time.monotonic() < deadline:
-            if self._last_download is not None:
-                return await self.finalize_download(self._last_download)
-            await asyncio.sleep(0.1)
-        raise BrowserTimeoutError("No download started in time.", session_id=self.id, action="wait_for_download")
+        return await waiting.wait_for_download(self, timeout=timeout)
 
     # ── files ────────────────────────────────────────────────────────────────
 

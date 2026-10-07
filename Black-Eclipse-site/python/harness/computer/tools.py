@@ -420,6 +420,31 @@ async def _finance_read(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
     return _ok("finance_read", text, {"financialState": state.to_dict()})
 
 
+async def _remember(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    manager = _manager()
+    if manager is None:
+        return _unavailable()
+    result = manager.memory.remember(
+        kind=str(args.get("kind") or "pattern"), content=str(args.get("content") or ""),
+        application=str(args.get("application") or ""), subject=args.get("subject"),
+    )
+    if not result.get("stored"):
+        return (f"Eclipse couldn't store that knowledge: {result.get('reason')}.",
+                {"status": "not_stored", **result})
+    return _ok("remember", "Stored desktop knowledge in Eclipse-Memory.", result)
+
+
+async def _recall(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    manager = _manager()
+    if manager is None:
+        return _unavailable()
+    memories = manager.memory.recall(query=str(args.get("query") or ""), application=str(args.get("application") or ""))
+    if not memories:
+        return ("Eclipse has no stored knowledge about that.", {"status": "ok", "memories": []})
+    lines = [f"- {m.get('content', '')}" for m in memories[:5]]
+    return _ok("recall", "\n".join(lines), {"memories": memories[:5], "count": len(memories)})
+
+
 async def _finance_prepare(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     manager = _manager()
     if manager is None:
@@ -495,6 +520,8 @@ _HANDLERS: dict[str, Any] = {
     "computer_resume": _resume,
     "computer_release": _release,
     "computer_record_export": _record_export,
+    "computer_remember": _remember,
+    "computer_recall": _recall,
     "computer_finance_read": _finance_read,
     "computer_finance_prepare": _finance_prepare,
 }

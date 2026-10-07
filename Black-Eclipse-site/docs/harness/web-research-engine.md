@@ -161,6 +161,15 @@ started by one tool call can be observed (`research_status`), cancelled
 (`research_update`). Every run writes an immutable `WebResearchSnapshot` to
 `agent-memory.db`.
 
+### Parallel search
+
+Independent planner queries run concurrently in a bounded pool
+(`MAX_CONCURRENT_SEARCHES = 4`), mirroring the concurrent fetch pool
+(`MAX_CONCURRENT_FETCHES = 4`). Results are merged deterministically in query
+order, so the evidence set never depends on completion order, and a cancel
+observed during search still stops the run honestly. Provider rate limits are
+respected by the bound.
+
 ### Long-running tools and the timeout ceiling
 
 The harness bounds every tool call. For a **long-running** tool

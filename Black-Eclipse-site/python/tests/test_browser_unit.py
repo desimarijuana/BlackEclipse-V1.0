@@ -446,3 +446,74 @@ def test_browserbase_availability_honest(monkeypatch):
     finally:
         monkeypatch.delenv("HARNESS_BROWSERBASE_ENABLED", raising=False)
         config_mod.browser_config(refresh=True)
+
+
+# ── Phase C: browser → evidence/source provenance ────────────────────────────
+
+
+def test_browser_source_records_on_the_run_sink():
+    from harness.browser.evidence import is_page_evidence_url, record_browser_source
+
+    class _Sink:
+        def __init__(self):
+            self.calls = []
+
+        def add_fetched_source(self, *, url, title=None, ok=True, retrieved_at=None):
+            self.calls.append({"url": url, "title": title, "ok": ok})
+
+    class _Ctx:
+        source_sink = _Sink()
+
+    recorded = record_browser_source(_Ctx(), url="https://sec.gov/filing", title="10-K")
+    assert recorded is True
+    assert _Ctx.source_sink.calls == [{"url": "https://sec.gov/filing", "title": "10-K", "ok": True}]
+
+    # An internal page is never recorded as a source.
+    assert is_page_evidence_url("about:blank") is False
+    assert is_page_evidence_url("data:text/html,x") is False
+    assert is_page_evidence_url("https://x.com/a") is True
+
+
+def test_browser_source_never_raises_without_sink():
+    from harness.browser.evidence import record_browser_source
+
+    class _Ctx:
+        source_sink = None
+
+    assert record_browser_source(_Ctx(), url="https://x.com") is False
+
+    class _BrokenCtx:
+        class _Sink:
+            def add_fetched_source(self, **kwargs):
+                raise RuntimeError("boom")
+        source_sink = _Sink()
+
+    # A failing sink must never propagate.
+    assert record_browser_source(_BrokenCtx(), url="https://x.com") is False
+
+
+# ── Phase D: DOM + vision fusion ─────────────────────────────────────────────
+
+
+def test_vision_fuse_prefers_dom_when_confident():
+    from harness.browser.vision import fuse
+
+    decision = fuse(dom_confidence=0.97, vision_confidence=0.89)
+    assert decision.chosen == "dom"
+    assert "structure" in decision.rationale.lower()
+
+
+def test_vision_fuse_falls_back_to_vision():
+    from harness.browser.vision import fuse
+
+    decision = fuse(dom_confidence=0.30, vision_confidence=0.80)
+    assert decision.chosen == "vision"
+    assert "visual" in decision.rationale.lower()
+
+
+def test_vision_fuse_reports_uncertainty():
+    from harness.browser.vision import fuse
+
+    decision = fuse(dom_confidence=0.2, vision_confidence=0.1)
+    assert decision.chosen == "dom"
+    assert "uncertain" in decision.rationale.lower() or "confidence" in decision.rationale.lower()

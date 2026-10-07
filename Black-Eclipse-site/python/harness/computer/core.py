@@ -29,6 +29,7 @@ from .errors import (
     PermissionDenied,
     PolicyBlocked,
     TargetNotFound,
+    TargetObscured,
 )
 from .finance.firewall import FinanceActionFirewall
 from .grounding.matching import GroundingQuery
@@ -138,6 +139,7 @@ class ComputerCore:
                 action=action, success=False, verdict=exc.verdict, state="ACTION_FAILED",
                 error=exc.to_dict(), summary=exc.reason,
                 duration_ms=int((time.monotonic() - started) * 1000),
+                recovery_plan=self._recovery_plan_for(exc),
             )
         except Exception as exc:  # noqa: BLE001 - an action failure is data
             return self._failure(action, "COMPUTER_ACTION_FAILED", str(exc)[:300], started, verdict="retry")
@@ -155,7 +157,27 @@ class ComputerCore:
             action=action, success=False, verdict=verdict, state="ACTION_FAILED",
             error=error.to_dict(), summary=message,
             duration_ms=int((time.monotonic() - started) * 1000),
+            recovery_plan=self._recovery_plan_for(error),
         )
+
+    def _recovery_plan_for(self, error: ComputerError) -> list[str]:
+        """The ordered recovery strategies for a failure — the ladder, surfaced.
+
+        The core does not silently retry; it tells the agent which rung to take
+        next, so a caller (or the graph) can act deliberately.
+        """
+        if not self._config.recovery_enabled:
+            return []
+        state = {
+            "COMPUTER_STALE_ELEMENT": "STALE_ELEMENT",
+            "COMPUTER_TARGET_NOT_FOUND": "TARGET_NOT_FOUND",
+            "COMPUTER_WINDOW_NOT_FOUND": "STATE_CHANGED",
+            "COMPUTER_TARGET_OBSCURED": "STATE_CHANGED",
+            "COMPUTER_AMBIGUOUS_TARGET": "AMBIGUOUS_TARGET",
+            "COMPUTER_TIMEOUT": "TIMEOUT",
+            "COMPUTER_PERMISSION_DENIED": "PERMISSION_REQUIRED",
+        }.get(error.code, "ACTION_FAILED")
+        return self.recovery.plan(state, escalate_allowed=self._escalation_allowed())
 
     # ── helpers used by the handlers ─────────────────────────────────────────
 
@@ -255,6 +277,7 @@ class ComputerCore:
 
         # Background attempt that did not take? Escalate to foreground ONCE.
         verification = None
+        escalation_blocked: Optional[ComputerError] = None
         if self._config.verification_enabled:
             verification = await self.session.verify_action(before, action=action, expect=expect, window_id=window_id)
             if used_mode == BACKGROUND and not verification.state_changed and self._escalation_allowed() and not foreground_only:
@@ -265,14 +288,43 @@ class ComputerCore:
                     if self.session.telemetry is not None:
                         self.session.telemetry.record_foreground()
                     verification = await self.session.verify_action(before, action=action, expect=expect, window_id=window_id)
+                except TargetObscured as exc:
+                    # Do NOT keep the (ineffective) background result as success and
+                    # do NOT click blind. Surface the obstruction as the verdict.
+                    escalation_blocked = exc
                 except Exception:  # noqa: BLE001 - keep the background result if escalation fails
                     pass
+
+        if escalation_blocked is not None:
+            result = ActionResult(
+                action=action, success=False, verdict="foreground_required",
+                delivery_mode=used_mode, state="TARGET_NOT_FOUND",
+                error=escalation_blocked.to_dict(),
+                summary=escalation_blocked.reason,
+                verification=verification.to_dict() if verification else None,
+            )
+            self.session.record_action({"action": action, "result": "blocked", "verdict": "foreground_required"})
+            self.session._record_action_db({"action": action, "result": "blocked", "verdict": "foreground_required"})
+            return result
+
+        # An unexpected modal that appeared after the action is a stop signal: the
+        # agent must decide, not continue typing into an unknown dialog.
+        unexpected_dialog = None
+        if self._config.verification_enabled:
+            try:
+                unexpected_dialog = self.session.detect_unexpected_dialog(baseline_window=window_id or "")
+            except Exception:  # noqa: BLE001
+                unexpected_dialog = None
 
         success = bool(delivered) and (verification is None or verification.status != "failed")
         verdict = self._verdict_for(verification, success)
         state = "CONFIRMED" if (verification and verification.status == "verified") else "ACTION_EXECUTED"
         if verification is not None and verification.status == "failed":
             state = "STATE_CHANGED"
+        if unexpected_dialog is not None:
+            state = "UNEXPECTED_DIALOG"
+            verdict = "ask_user"
+            success = False
         snapshot_after = None
         if capture_after:
             try:
@@ -285,8 +337,8 @@ class ComputerCore:
             target=None, evidence=[{"kind": "input", "delivered": delivered}],
             verification=verification.to_dict() if verification else None,
             state=state, observed_change=bool(verification and verification.state_changed),
-            summary=self._summary_for(action, verification, used_mode),
-            snapshot=snapshot_after,
+            summary=self._summary_for(action, verification, used_mode, unexpected_dialog),
+            snapshot=snapshot_after, unexpected_dialog=unexpected_dialog,
         )
         self.session.record_action({
             "action": action, "result": "ok" if success else "failed",
@@ -305,12 +357,16 @@ class ComputerCore:
             return "success"
         if verification.status == "failed":
             return "recapture"
-        # uncertain: the input was delivered but no change was observed. That is
-        # NOT a success — the agent should re-capture and decide.
-        return "success" if (success and verification.state_changed) else "recapture"
+        # uncertain: the input may have been delivered but the EFFECT could not be
+        # confirmed (only incidental pixel churn, no semantic change). This is
+        # NEVER a success — the agent must re-capture and decide. Trusting
+        # `state_changed` here let pixel noise masquerade as success.
+        return "recapture"
 
-    def _summary_for(self, action: str, verification: Any, delivery: str) -> str:
+    def _summary_for(self, action: str, verification: Any, delivery: str, unexpected_dialog: Optional[dict[str, Any]] = None) -> str:
         base = f"{action.replace('_', ' ')} via {delivery} input"
+        if unexpected_dialog is not None:
+            return f"{base}; an unexpected dialog ({unexpected_dialog.get('title') or 'untitled'}) appeared — Eclipse stopped instead of typing into it."
         if verification is None:
             return base + "."
         return f"{base}; {verification.summary}"
@@ -354,6 +410,8 @@ class ComputerCore:
     async def _act_mouse_move(self, *, dry_run: bool = False, x: int = 0, y: int = 0, relative: bool = False, **_: Any) -> ActionResult:
         if dry_run:
             return self._dry("mouse_move", f"move the pointer to ({x},{y})")
+        # Pointer movement is LOW risk and is checked under the `scroll` band
+        # (the low-risk pointer family), not a separate invented vocabulary.
         self.require_permission("scroll", action="mouse_move")
         if relative:
             await self.session.mouse.move_relative(x, y)
@@ -429,11 +487,17 @@ class ComputerCore:
             window_id=window_id, delivery_mode=self.default_delivery,
         )
         verification = await self.session.verify_action(before, action="set_value", window_id=window_id)
+        snapshot_after = None
+        if capture_after:
+            try:
+                snapshot_after = (await self.session.observe(window_id=window_id)).summary()
+            except Exception:  # noqa: BLE001
+                snapshot_after = None
         return ActionResult(
             action="set_value", success=verification.status != "failed", verdict="success" if verification.status == "verified" else "recapture",
             state="CONFIRMED" if verification.status == "verified" else "ACTION_EXECUTED",
             verification=verification.to_dict(), observed_change=verification.state_changed,
-            summary=f"Set {target.description!r}; {verification.summary}",
+            summary=f"Set {target.description!r}; {verification.summary}", snapshot=snapshot_after,
         )
 
     async def _act_drag(self, *, dry_run: bool = False, capture_after: bool = False,
