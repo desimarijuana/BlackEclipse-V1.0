@@ -8,8 +8,38 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
-- **Web research engine — deterministic financial metrics + research-quality score.** The model now never computes a critical financial number itself. New `research/web_finance.py` adapter + four read-only tools (`finance_metrics`, `finance_series`, `finance_valuation`, `finance_metric_catalog`) over the existing calculators: ratio/margin/return metrics via `finance_facts.metrics` (now incl. forward P/E, PEG, **ROIC**, gross/operating/net margin — a metric whose required input is missing is REFUSED, never defaulted); risk/return time-series via `research.calculations` (now incl. **Sortino, historical VaR, beta**); and a new `finance_facts/valuation.py` for **WACC** and **DCF** (explicit forecast + one terminal method; a WACC/DCF is an estimate with every assumption recorded and no rate defaulted). New `research/web_quality.py` computes an explainable, INTERNAL research-quality score (authority, primary coverage, evidence coverage, claim support, freshness, conflict resolution, citation coverage) that drives the COMPLETE/SUFFICIENT/NEEDS_MORE_RESEARCH verdict and is surfaced via `research_quality`; it is never presented as truth. 5 new tools (30 web-research tools), `WEB_RESEARCH_TOOLS` updated, prompt guidance added. Tests: `test_web_finance_quality.py` (23 cases) + extended `test_research_calculations.py`. Docs: `docs/harness/web-research-engine.md`, ADR-H135. `docs updated: docs/harness/web-research-engine.md, docs/harness/decisions.md, docs/CHANGELOG.md`
+- **Test-suite reproducibility: `test_mcp_orphan_reaping` is cwd-independent.**
+  The orphan-reaping test spawned its parent with `sys.path.insert(0,
+  os.path.join(os.getcwd(), "python"))` and `cwd=os.getcwd()`, so it passed only
+  when pytest ran from the repo root and failed ("parent exited before starting
+  its child") when run from `python/` — which is how a contributor or a
+  single-file invocation runs it. It now derives the import root from
+  `Path(__file__).resolve().parent.parent` and passes it to the child. No
+  production code changed. `no doc change — test-only reproducibility fix`.
 
+- **Browser Automation Runtime — Phase 8 (observability, replay, telemetry, cost).**
+  (1) **Replay/inspection** — `browser/replay.py` reconstructs a stored
+  `BrowserTrace` into a bounded (≤500 step) browser-free timeline with a
+  `failureAnalysis` (first failing step's code/category/plain sentence) and a
+  `render_text` human view; exposed as the `browser_replay` tool and
+  `GET /browser/traces/{id}/replay`. It never opens a browser and never
+  re-executes. (2) **Telemetry aggregates** — `browser/telemetry.py` is the ONE
+  process-wide content-free aggregate: session/action/failure/timeout/crash/
+  navigation counters, per-action and per-provider latency (sum/count/max only),
+  vision calls, provider failures, downloads/uploads and error-category buckets,
+  surfaced in `/health.browser.telemetry`, `GET /browser/telemetry`. Every tool
+  call records one action at the single registration seam (`_telemetry_wrap`).
+  (3) **Cost** — accrues from REAL measurements (browser-seconds split local/cloud
+  by the provider's `remote` capability, vision tokens, screenshots, artifact/
+  download bytes); a money figure appears ONLY when a non-zero `HARNESS_BROWSER_COST_*`
+  rate is set, otherwise `ratesConfigured:false` / `estimatedMicros:null`
+  (`GET /browser/cost`). (4) **Structured logs** — a bounded content-free ring
+  queryable by code/level/category/session (`GET /browser/logs`). New config:
+  `HARNESS_BROWSER_COST_*`, `HARNESS_BROWSER_TELEMETRY_LOG_CAP`. Tests:
+  `python/tests/test_browser_observability.py` (telemetry/cost/logs/replay, no
+  browser) and `test_browser_observability_api.py` (routes). Docs:
+  `docs/harness/browser-runtime.md`, ADR-H136. `main.py` unchanged (`/health`
+  browser block is `browser_health()`).
 - **Browser Automation Runtime — Phase C/D (evidence, skills, isolation, fusion).**
   (1) **Evidence/Research integration** — `browser/evidence.py` records every
   consulted `http(s)` page (navigation, snapshot, extract) on the run's existing

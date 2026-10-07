@@ -40,6 +40,7 @@ BROWSER_TOOLS = [
     "browser_download", "browser_upload",
     "browser_console", "browser_network", "browser_errors",
     "browser_evaluate", "browser_cdp", "browser_exec", "browser_dialog",
+    "browser_replay",
     "browser_cookies", "browser_storage", "browser_permissions",
     "browser_session_create", "browser_session_list", "browser_session_pause",
     "browser_session_resume", "browser_session_destroy",

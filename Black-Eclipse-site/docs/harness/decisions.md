@@ -4111,4 +4111,49 @@ tool/API view while the store keeps it whole; the process-wide status/cancel map
 are bounded; events are namespaced `webresearch.*`. Regression tests:
 `test_web_research_hardening.py`.
 
-**Deterministic metrics + quality score (same decision).** The engine never lets the model compute a critical financial number: `research/web_finance.py` adapts the existing calculators (`finance_facts.metrics.derive`, `research.calculations`, and a new `finance_facts.valuation` for WACC/DCF) into `finance_*` tools, each recording formula + inputs + sources and REFUSING a metric whose required input is missing. A DCF/WACC is an estimate, never a reported fact. `research/web_quality.py` adds an explainable, INTERNAL research-quality score used only to decide COMPLETE/SUFFICIENT/NEEDS_MORE_RESEARCH — never presented as truth. Tests: `test_web_finance_quality.py`.
+## ADR-H136 — Browser observability is a content-free aggregate and a browser-free replay, never a second store
+
+**Context.** ADR-H134 made the browser a provider-agnostic runtime with a
+per-task `BrowserTrace`. Traces persisted, but there was no aggregate view over
+all activity and no way to inspect a failure without re-opening a browser; cost
+and structured logs were absent. This is Phase 8 of the browser roadmap.
+
+**Decision.** Observability is two read-only surfaces over the EXISTING trace
+record — neither is a new evidence store:
+
+1. **`telemetry.py` — a process-wide, content-free aggregate.** Counters with a
+   fixed vocabulary (sessions, actions, failures, timeouts, crashes, navigations,
+   downloads, uploads, vision, provider failures), per-action and per-provider
+   latency kept as sum/count/max (never a per-call list), error `category`
+   buckets, a bounded structured-log ring queryable by code/level/category/
+   session, and a cost model. The cost model records REAL measurements (browser-
+   seconds split by the provider's `remote` capability, vision tokens, screenshot
+   count, artifact/download bytes) and produces a **money figure only when the
+   operator configured a non-zero rate** — otherwise `ratesConfigured:false` and
+   `estimatedMicros:null`. Nothing here stores page text, a URL query or a secret.
+   The aggregate is `RLock`-guarded because a counter method appends a log line
+   while holding the lock.
+2. **`replay.py` — a browser-free inspection path.** `replay_trace` reconstructs
+   a stored `BrowserTrace` into a bounded (≤500 steps) timeline and a
+   `failureAnalysis` naming the first failing step's code/category/plain sentence.
+   It never opens a browser and never re-executes; an unverified step is reported
+   unverified, and a clean trace yields `failureAnalysis:null`.
+
+Tools/routes: `browser_replay` (on the ONE `ToolRegistry`); `GET /browser/telemetry`,
+`/browser/cost`, `/browser/logs`, `/browser/traces/{id}/replay`; a small
+content-free summary in `/health.browser.telemetry`. Every tool call records one
+action attempt at the SINGLE registration seam (`_telemetry_wrap`), so no handler
+carries telemetry code.
+
+**Why.** Replay and telemetry are what make the harder phases debuggable and
+trustable in production. Building them as bounded aggregates and a pure read path
+— rather than a second database or a live re-run — keeps memory (the top
+constraint) bounded, keeps secrets out of observability, and honours the harness
+rule that data is never fabricated: an unmeasured cost is reported as absent, not
+guessed.
+
+**Consequences.** New modules `browser/telemetry.py` and `browser/replay.py`;
+cost/observability config (`HARNESS_BROWSER_COST_*`, `HARNESS_BROWSER_TELEMETRY_LOG_CAP`);
+`browser_replay` tool; four operator routes; `/health` grows a telemetry summary;
+tests `test_browser_observability.py` + `test_browser_observability_api.py`.
+`main.py` does not grow (routes live in `routers/browser.py`).

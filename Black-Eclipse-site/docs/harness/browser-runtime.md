@@ -57,6 +57,8 @@ accessibility snapshots with stable references (`@e1`, `@e2`, …).
 | `profiles.py` | `ProfileManager`: confined persistent-profile lifecycle. |
 | `store.py` | `BrowserStore`: sessions/profiles/traces/downloads/vault-metadata tables on `agent-memory.db`. |
 | `trace.py` | `BrowserTrace`: bounded, content-free step record + summary, persisted and emitted. |
+| `telemetry.py` | `BrowserTelemetry`: the process-wide content-free aggregate (counters, latency, error categories, a real-measurement cost model, and a bounded structured log ring queryable by code). |
+| `replay.py` | The browser-free trace inspection path: reconstructs a stored `BrowserTrace` into a bounded timeline + failure analysis (`browser_replay`). |
 | `config.py` | The `browser:` configuration section (env + optional `.black-eclipse/browser.json`). |
 | `errors.py` | The structured error family (`BrowserLaunchError`, `BrowserTimeoutError`, `BrowserHumanInterventionRequired`, …). |
 | `authorizers.py` | The effect authorizer that admits an effectful browser tool into the run's authorizer chain; the handler's policy engine does the real check. |
@@ -90,7 +92,8 @@ Core groups:
   `browser_close_tab`, `browser_new_window`, `browser_switch_window`.
 - **Files:** `browser_download`, `browser_upload` (workspace-confined).
 - **Debugging:** `browser_console`, `browser_network`, `browser_errors`,
-  `browser_evaluate`, `browser_cdp`, `browser_exec`, `browser_dialog`.
+  `browser_evaluate`, `browser_cdp`, `browser_exec`, `browser_dialog`,
+  `browser_replay` (a browser-free stored-trace timeline).
 - **Storage:** `browser_cookies`, `browser_storage`, `browser_permissions`.
 - **Sessions:** `browser_session_create|list|pause|resume|destroy`.
 - **Profiles:** `browser_profile_create|list|use|delete`.
@@ -265,7 +268,8 @@ overridable with `HARNESS_BROWSER_CONFIG`), then env vars. Key knobs:
 (`HARNESS_BROWSERBASE_*`, `HARNESS_LIGHTPANDA_*`, …). Hard ceilings
 (`MAX_SESSIONS_CEILING` etc.) can be lowered but never removed. `/health` returns
 a content-free `browser` block; `/browser/capabilities` returns the full provider
-table.
+table. Observability knobs: `HARNESS_BROWSER_TELEMETRY_LOG_CAP` and the
+`HARNESS_BROWSER_COST_*` rates (all default 0 = no price invented).
 
 ## Observability and tracing
 
@@ -275,11 +279,49 @@ Every action emits `browser.*` events on the run's emitter (`browser.launched`,
 records each step (action, safe params, observation summary, verification, provider,
 timing, error) bounded to a cap, and is readable via `GET /browser/traces`.
 
+**Phase 8 aggregates.** `telemetry.py` holds ONE process-wide, content-free
+aggregate over all activity: session/action/failure/timeout/crash/navigation
+counters, per-action and per-provider latency (sum/count/max only — never a
+per-call list), vision calls, provider failures, downloads/uploads and error
+`category` buckets. The counters are `RLock`-guarded (a counter method may append
+a log line while holding the lock). It never stores page text, a URL query or a
+secret value.
+
+**Cost (Phase 8.3).** Cost accrues from REAL measurements — browser-seconds
+(split local vs cloud by the provider's `remote` capability), vision tokens,
+screenshot count, artifact bytes and download bytes. A money figure is produced
+**only** when the operator configured a non-zero rate
+(`HARNESS_BROWSER_COST_*` / the `cost:` block of `browser.json`); otherwise the
+result carries `ratesConfigured: false` and `estimatedMicros: null` — the
+measurement is reported, a price is never fabricated.
+
+**Structured logs (Phase 8.4).** A bounded (`telemetryLogCap`, default 500) ring
+of content-free lines (`{level, code, message, sessionId, runId, provider}`),
+queryable by code / level / category / session via `GET /browser/logs`. The
+message is a short plain sentence the caller vetted; it is truncated defensively.
+
+**Replay (Phase 8.1).** `replay.replay_trace` reconstructs a stored trace into a
+bounded (`≤500` steps) timeline — one row per step with status (ok / failed /
+unverified / human), what was seen, whether the page changed, and, for a failure,
+its stable `code`, coarse `category` and a plain sentence. `render_text` yields a
+human timeline (“open page → search → find filing → download → extract”). It
+NEVER opens a browser and never re-executes. Read via
+`GET /browser/traces/{id}/replay` or the `browser_replay` tool. A trace with no
+error yields `failureAnalysis: null`; an unverified step is reported unverified,
+never as success.
+
+Aggregates surface in `/health.browser.telemetry` (a small content-free summary),
+`GET /browser/telemetry` (full), `GET /browser/cost`, and `GET /browser/logs`.
+
 ## Testing
 
 - `python/tests/test_browser_unit.py` — policy, router, snapshot parsing, exec
   parsing/refusals, config, provider availability, vault references, registration
   (no browser launched).
+- `python/tests/test_browser_observability.py` — telemetry counters/cost/logs and
+  trace replay (no browser).
+- `python/tests/test_browser_observability_api.py` — the `/browser/telemetry`,
+  `/cost`, `/logs` and `/traces/{id}/replay` routes against a stub manager.
 - `python/tests/test_browser_integration.py` — the acceptance flow against a REAL
   Chromium driving `python/tests/browser_app.py` (a stdlib local test app:
   /login, /forms, /tables, /modal, /dialog, /iframe, /upload, /download, /dynamic,

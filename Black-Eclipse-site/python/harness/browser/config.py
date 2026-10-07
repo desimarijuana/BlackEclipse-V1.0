@@ -93,6 +93,15 @@ class BrowserConfig:
     # Snapshot context budget (tokens × CHARS_PER_TOKEN); over it the full text is
     # persisted and the model gets a paginated head + the path.
     snapshot_max_chars: int = 24_000
+    # Cost rates (Phase 8). ALL default 0 = no price is invented; a measurement is
+    # always recorded, a money figure appears only when a rate is configured.
+    cost_local_second_micros: int = 0
+    cost_cloud_second_micros: int = 0
+    cost_vision_token_micros: int = 0
+    cost_screenshot_micros: int = 0
+    cost_artifact_mb_micros: int = 0
+    # Observability.
+    telemetry_log_cap: int = 500
     # Artifact directories (all confined under `artifacts_root`).
     artifacts_root: Path = field(default_factory=Path)
     profiles_dir: Path = field(default_factory=Path)
@@ -121,6 +130,13 @@ class BrowserConfig:
             "sessions": {"max_concurrent": self.max_concurrent, "idle_timeout_seconds": self.idle_timeout_seconds},
             "limits": {"max_steps": self.max_steps, "max_execution_seconds": self.max_execution_seconds},
             "snapshotMaxChars": self.snapshot_max_chars,
+            "cost": {
+                "localSecondMicros": self.cost_local_second_micros,
+                "cloudSecondMicros": self.cost_cloud_second_micros,
+                "visionTokenMicros": self.cost_vision_token_micros,
+                "screenshotMicros": self.cost_screenshot_micros,
+                "artifactMbMicros": self.cost_artifact_mb_micros,
+            },
             "artifactsRoot": str(self.artifacts_root),
         }
 
@@ -207,6 +223,12 @@ def load_browser_config() -> BrowserConfig:
         max_steps=_int(os.environ.get("HARNESS_BROWSER_MAX_STEPS"), int(limits.get("max_steps", 100)), low=1, high=MAX_STEPS_CEILING),
         max_execution_seconds=_int(os.environ.get("HARNESS_BROWSER_MAX_EXEC_SECONDS"), int(limits.get("max_execution_seconds", 900)), low=5, high=MAX_EXEC_SECONDS_CEILING),
         snapshot_max_chars=_int(os.environ.get("HARNESS_BROWSER_SNAPSHOT_CHARS"), int(top("snapshotMaxChars", 24_000)), low=1_000, high=200_000),
+        cost_local_second_micros=_int(os.environ.get("HARNESS_BROWSER_COST_LOCAL_SECOND_MICROS"), int((file_overrides.get("cost") or {}).get("localSecondMicros", 0)), low=0, high=100_000_000),
+        cost_cloud_second_micros=_int(os.environ.get("HARNESS_BROWSER_COST_CLOUD_SECOND_MICROS"), int((file_overrides.get("cost") or {}).get("cloudSecondMicros", 0)), low=0, high=100_000_000),
+        cost_vision_token_micros=_int(os.environ.get("HARNESS_BROWSER_COST_VISION_TOKEN_MICROS"), int((file_overrides.get("cost") or {}).get("visionTokenMicros", 0)), low=0, high=100_000_000),
+        cost_screenshot_micros=_int(os.environ.get("HARNESS_BROWSER_COST_SCREENSHOT_MICROS"), int((file_overrides.get("cost") or {}).get("screenshotMicros", 0)), low=0, high=100_000_000),
+        cost_artifact_mb_micros=_int(os.environ.get("HARNESS_BROWSER_COST_ARTIFACT_MB_MICROS"), int((file_overrides.get("cost") or {}).get("artifactMbMicros", 0)), low=0, high=100_000_000),
+        telemetry_log_cap=_int(os.environ.get("HARNESS_BROWSER_TELEMETRY_LOG_CAP"), int(top("telemetryLogCap", 500)), low=50, high=10_000),
         artifacts_root=artifacts_root,
     )
     cfg.profiles_dir = _dir("HARNESS_BROWSER_PROFILES_DIR", artifacts_root / "profiles")

@@ -177,6 +177,13 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     }, ["program"]),
     "browser_dialog": _schema({"action": {"type": "string", "enum": ["accept", "dismiss"]}, "text": {"type": "string", "description": "Text for a prompt dialog."}, "session_id": _SESSION}, ["action"]),
 
+    # ── Observability (Phase 8) ─────────────────────────────────────────────
+    "browser_replay": _schema({
+        "trace_id": {"type": "string", "description": "A trace id from browser_status or the run's trace list."},
+        "session_id": _SESSION,
+        "format": {"type": "string", "enum": ["text", "json"], "description": "Return a human timeline (default) or the structured replay."},
+    }, ["trace_id"]),
+
     # ── Storage / permissions ─────────────────────────────────────────────
     "browser_cookies": _schema({"session_id": _SESSION, "action": {"type": "string", "enum": ["list", "set", "clear"]}, "cookie": {"type": "object"}, "urls": {"type": "array", "items": {"type": "string"}}}),
     "browser_storage": _schema({"session_id": _SESSION}),
@@ -312,6 +319,10 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "browser_exec": {"risk": "medium", "effect": "external_action", "timeout": 120_000, "desc":
         "Run a bounded, sandboxed program of browser steps in one call. Accepts a JSON step list or a short browser.<op>(...) script; no host access."},
     "browser_dialog": {"risk": "low", "timeout": 15_000, "desc": "Accept or dismiss a pending page dialog (alert/confirm/prompt)."},
+
+    "browser_replay": {"risk": "low", "timeout": 15_000, "desc":
+        "Replay a stored browser trace as a plain step timeline — what the agent saw, did and why, and why it failed — "
+        "without opening a browser. Give a trace id (see browser_status); returns text or the structured view."},
 
     "browser_cookies": {"risk": "low", "timeout": 15_000, "desc": "List, set or clear cookies. Values are filtered from the model's view by default."},
     "browser_storage": {"risk": "low", "timeout": 15_000, "desc": "Read local/session storage for the current page."},

@@ -36,6 +36,7 @@ from ..persistence import now_iso
 from .router import BrowserProviderRouter, RoutingRequest
 from .session import BrowserSession, SessionState
 from .store import BrowserStore, new_session_id
+from .telemetry import BrowserTelemetry, get_telemetry
 from .trace import BrowserTrace
 from .vault import BrowserVault
 
@@ -54,6 +55,7 @@ class BrowserManager:
         self.config = config or browser_config()
         self.bus = bus
         self.store = BrowserStore(agent_store) if agent_store is not None else None
+        self.telemetry: BrowserTelemetry = get_telemetry()
 
         self._local = LocalChromiumProvider()
         self._providers: dict[str, Any] = {
@@ -91,6 +93,15 @@ class BrowserManager:
             "policy": default_policy().to_dict(),
             "artifactsRoot": str(self.config.artifacts_root),
         }
+
+    def telemetry_snapshot(self) -> dict[str, Any]:
+        return self.telemetry.snapshot()
+
+    def telemetry_cost(self) -> dict[str, Any]:
+        return self.telemetry.cost()
+
+    def recent_logs(self, **filters: Any) -> list[dict[str, Any]]:
+        return self.telemetry.logs(**filters)
 
     def active_count(self) -> int:
         return sum(1 for s in self._sessions.values() if not s.state.terminal)
@@ -162,6 +173,9 @@ class BrowserManager:
             interactive=interactive, allow_remote=allow_remote,
         ))
         if not decision.provider:
+            self.telemetry.record_provider_failure(
+                requested or "none", code="BROWSER_PROVIDER_UNAVAILABLE",
+            )
             raise BrowserUnavailable(
                 decision.rationale, code="BROWSER_PROVIDER_UNAVAILABLE",
                 metadata={"rejected": decision.rejected},
@@ -204,9 +218,11 @@ class BrowserManager:
             else:
                 ps = await provider_impl.launch(options)
         except BrowserError as exc:
+            self.telemetry.session_failed(decision.provider, code=exc.code, session_id=session_id)
             self._emit("browser.session.failed", {"provider": decision.provider, "code": exc.code})
             raise
         except Exception as exc:  # noqa: BLE001
+            self.telemetry.session_failed(decision.provider, code="BROWSER_LAUNCH_FAILED", session_id=session_id)
             self._emit("browser.session.failed", {"provider": decision.provider, "error": str(exc)[:200]})
             raise BrowserUnavailable(
                 "Eclipse couldn't start a browser.", provider=decision.provider, metadata={"error": str(exc)[:200]},
@@ -219,6 +235,9 @@ class BrowserManager:
         )
         session._transition(SessionState.READY)  # noqa: SLF001
         self._sessions[session_id] = session
+        self.telemetry.session_opened(
+            decision.provider, locality=self._locality(decision.provider), session_id=session_id,
+        )
         if self.store is not None and profile_id:
             self.store.save_profile({
                 "id": profile_id, "name": profile_id,
@@ -287,12 +306,24 @@ class BrowserManager:
         session = self._sessions.get(session_id)
         if session is None:
             return {"destroyed": False, "reason": "no such session"}
+        browser_ms = int(max(0.0, time.time() - session.created_at) * 1000)
         try:
             await session.close()
         finally:
             self._sessions.pop(session_id, None)
+        self.telemetry.session_closed(
+            session.provider.id, browser_ms=browser_ms, locality=self._locality(session.provider.id),
+        )
         self._emit("browser.session.destroyed", {"sessionId": session_id})
         return {"destroyed": True, "sessionId": session_id}
+
+    def _locality(self, provider_id: str) -> str:
+        """Whether a provider's work happens on this machine or leaves it."""
+        try:
+            caps = self._providers[provider_id].capabilities()
+            return "cloud" if getattr(caps, "remote", False) else "local"
+        except Exception:  # noqa: BLE001 - an unknown provider is assumed local
+            return "local"
 
     def detach_session(self, session_id: str) -> Optional[BrowserSession]:
         """Remove a session from the pool WITHOUT closing it (used by tests)."""

@@ -20,6 +20,7 @@ The admin tools (sessions/profiles/vault/device) live in `tool_admin.py`.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
@@ -29,6 +30,7 @@ from .errors import BrowserError
 from .evidence import is_page_evidence_url, record_browser_source
 from .policy import wrap_untrusted
 from .schemas import INPUT_SCHEMAS, TOOL_META
+from .telemetry import get_telemetry
 from .tool_admin import ADMIN_HANDLERS
 from .tool_support import (
     bound_log_text,
@@ -119,6 +121,7 @@ async def _navigate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         await emit(ctx, "browser.navigate.failed", {"sessionId": session.id, **exc.to_dict()})
         return refusal(exc, "browser_navigate")
     await emit(ctx, "browser.navigated", {"sessionId": session.id, "url": result["url"]})
+    get_telemetry().record_navigation(session.provider.id)
     record_browser_source(ctx, url=result["url"], title=result.get("title"))
     text = f"Opened {result['url']} — {result.get('title') or '(no title)'}. Call browser_snapshot to see it."
     return ok("navigate", text, result)
@@ -207,6 +210,7 @@ async def _screenshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
     except Exception as exc:  # noqa: BLE001
         return refusal(BrowserError("Eclipse couldn't capture the page.", action="screenshot", metadata={"error": str(exc)[:200]}), "browser_screenshot")
     await emit(ctx, "browser.screenshot", {"sessionId": session.id, "path": path})
+    get_telemetry().record_screenshot()
     return ok("screenshot", f"Screenshot saved to {path}.", {"path": path, "url": session.current_url()})
 
 
@@ -243,6 +247,10 @@ async def _vision(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "sessionId": session.id, "elements": len(visual.elements), "screenshot": shot,
         "interpreted": bool(interpretation and interpretation.available),
     })
+    get_telemetry().record_vision(
+        tokens=getattr(interpretation, "tokens", 0) if interpretation else 0,
+        available=bool(interpretation and interpretation.available),
+    )
     data = visual.to_dict()
     data["interpretation"] = interpretation.to_dict() if interpretation else {"available": False}
     return ok("vision", text, data)
@@ -642,6 +650,9 @@ async def _download(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     except BrowserError as exc:
         return refusal(exc, "browser_download")
     await emit(ctx, "browser.downloaded", {"sessionId": session.id, "path": result.get("path"), "size": result.get("size")})
+    telemetry = get_telemetry()
+    telemetry.record_download()
+    telemetry.note_download_size(result.get("size"))
     return ok("download", f"Downloaded {result.get('filename')} to {result.get('path')}.", result)
 
 
@@ -660,6 +671,9 @@ async def _upload(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         result = await session.upload(args.get("target"), resolved, timeout=opt_timeout(args))
     except BrowserError as exc:
         return refusal(exc, "browser_upload")
+    telemetry = get_telemetry()
+    telemetry.record_upload()
+    telemetry.note_upload_count(result.get("count", len(resolved)))
     return ok("upload", f"Uploaded {result['count']} file(s).", result)
 
 
@@ -775,6 +789,25 @@ async def _dialog(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     if not result.get("handled"):
         return ok("dialog", "No dialog was waiting.", {"pending": False})
     return ok("dialog", f"Handled the page dialog ({result['action']}).", result)
+
+
+async def _replay(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Replay a stored trace as a browser-free timeline (Phase 8.1)."""
+    from .replay import render_text, replay_trace  # noqa: PLC0415
+
+    mgr = manager()
+    if mgr is None or mgr.store is None:
+        return unavailable()
+    trace = mgr.store.get_trace(str(args["trace_id"]))
+    if trace is None:
+        return refusal(
+            {"code": "BROWSER_TRACE_NOT_FOUND", "message": "There's no stored browser trace with that id."},
+            "browser_replay",
+        )
+    view = replay_trace(trace)
+    if str(args.get("format") or "text") == "json":
+        return ok("replay", f"Replayed trace {view['traceId']} ({view['shownSteps']} step(s)).", view)
+    return ok("replay", render_text(view), view)
 
 
 # ── Storage / permissions / interception ─────────────────────────────────────
@@ -927,6 +960,7 @@ _HANDLERS: dict[str, Any] = {
     "browser_cdp": _cdp,
     "browser_exec": _exec,
     "browser_dialog": _dialog,
+    "browser_replay": _replay,
     "browser_cookies": _cookies,
     "browser_storage": _storage,
     "browser_permissions": _permissions,
@@ -941,6 +975,49 @@ async def _fill(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 _HANDLERS["browser_fill"] = _fill
+
+
+def _telemetry_wrap(name: str, handler: Any) -> Any:
+    """Record one content-free action attempt per browser tool call (Phase 8.2).
+
+    Wraps every handler (including the admin tools) at the SINGLE registration
+    seam so no individual handler needs telemetry code and none can be forgotten.
+    Latency is measured here; the provider + failure code are read from the
+    session when the handler resolved one. A recognised op's domain counter
+    (navigations/downloads/…) is bumped by the handler that owns its measurement,
+    not here, so a size/token-aware counter is never double-counted. The wrapper
+    NEVER changes the handler's return value.
+    """
+    from .tool_support import session_of  # noqa: PLC0415
+
+    async def wrapped(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+        telemetry = get_telemetry()
+        started = time.monotonic()
+        provider = ""
+        outcome: tuple[str, Any] | None = None
+        error_code: str | None = None
+        try:
+            session = session_of(args, ctx)[0]
+            provider = getattr(getattr(session, "provider", None), "id", "") or ""
+        except Exception:  # noqa: BLE001 - resolving the session must never break the call
+            pass
+        try:
+            outcome = await handler(args, ctx)
+            data = outcome[1] if isinstance(outcome, tuple) and len(outcome) > 1 else None
+            if isinstance(data, dict) and data.get("status") == "refused":
+                error_code = str(data.get("code") or "BROWSER_REFUSED")
+        except BrowserError as exc:
+            error_code = exc.code
+            raise
+        finally:
+            telemetry.record_action(
+                f"tool.{name}", provider=provider,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                ok=error_code is None, error_code=error_code,
+            )
+        return outcome  # type: ignore[return-value]
+
+    return wrapped
 
 
 def register_browser_tools(registry: ToolRegistry) -> list[str]:
@@ -961,7 +1038,7 @@ def register_browser_tools(registry: ToolRegistry) -> list[str]:
             name=name,
             description=str(meta.get("desc") or name),
             input_schema=schema,
-            handler=handler,
+            handler=_telemetry_wrap(name, handler),
             permission="read" if not meta.get("effect") else "external_action",
             risk=str(meta.get("risk") or "low"),
             timeout_ms=int(meta.get("timeout") or 30_000),

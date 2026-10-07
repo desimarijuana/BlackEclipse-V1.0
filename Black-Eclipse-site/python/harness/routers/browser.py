@@ -48,9 +48,29 @@ def browser_health() -> dict[str, Any]:
             ],
             "sessions": manager.active_count(),
             "toolCount": len([n for n in service.registry.names() if n.startswith("browser_")]),
+            # Content-free aggregate counters (Phase 8.2). Never raises.
+            "telemetry": _telemetry_summary(manager),
         }
     except Exception:  # noqa: BLE001 - a health probe must never break /health
         return {"available": False, "providers": [], "sessions": 0}
+
+
+def _telemetry_summary(manager: Any) -> dict[str, Any]:
+    try:
+        snapshot = manager.telemetry_snapshot()
+    except Exception:  # noqa: BLE001
+        return {}
+    actions = snapshot.get("actions", {})
+    sessions = snapshot.get("sessions", {})
+    return {
+        "sessionsCreated": sessions.get("created"),
+        "activeSessions": sessions.get("active"),
+        "actionCalls": actions.get("calls"),
+        "actionFailures": actions.get("failures"),
+        "timeouts": actions.get("timeouts"),
+        "crashes": actions.get("crashes"),
+        "providerFailures": actions.get("providerFailures"),
+    }
 
 
 @router.get("/browser/capabilities")
@@ -134,6 +154,47 @@ def get_browser_trace(trace_id: str, _: bool = Depends(require_operator)) -> dic
     if trace is None:
         raise HTTPException(status_code=404, detail="no such browser trace")
     return {"success": True, "trace": trace}
+
+
+@router.get("/browser/traces/{trace_id}/replay")
+def replay_browser_trace(trace_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """A browser-free, bounded replay timeline of a stored trace (Phase 8.1)."""
+    from ..browser.replay import render_text, replay_trace  # noqa: PLC0415
+
+    manager = _manager()
+    trace = manager.store.get_trace(trace_id) if manager.store is not None else None
+    if trace is None:
+        raise HTTPException(status_code=404, detail="no such browser trace")
+    view = replay_trace(trace)
+    return {"success": True, "replay": view, "text": render_text(view)}
+
+
+@router.get("/browser/telemetry")
+def browser_telemetry(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The content-free aggregate: sessions, actions, failures, latency, cost."""
+    return {"success": True, **(_manager().telemetry_snapshot())}
+
+
+@router.get("/browser/cost")
+def browser_cost(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Real measurements + a cost estimate ONLY when rates are configured."""
+    return {"success": True, **(_manager().telemetry_cost())}
+
+
+@router.get("/browser/logs")
+def browser_logs(
+    code: Optional[str] = None,
+    level: Optional[str] = None,
+    category: Optional[str] = None,
+    session_id: Optional[str] = None,
+    limit: int = 100,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Query the bounded structured browser log by code/level/category/session."""
+    entries = _manager().recent_logs(
+        code=code, level=level, category=category, session_id=session_id, limit=limit,
+    )
+    return {"success": True, "logs": entries, "count": len(entries)}
 
 
 @router.get("/browser/downloads")

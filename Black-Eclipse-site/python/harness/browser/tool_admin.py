@@ -193,6 +193,9 @@ async def request_human(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
         return error
     result = session.request_human(str(args["reason"]))
     await emit(ctx, "browser.human.requested", {"sessionId": session.id, "reason": args["reason"]})
+    from .telemetry import get_telemetry  # noqa: PLC0415
+
+    get_telemetry().record_human_intervention(session.id)
     text = (
         f"Paused session {session.id} for a person: {args['reason']}. "
         "Eclipse does not bypass CAPTCHA, MFA or security checks. "

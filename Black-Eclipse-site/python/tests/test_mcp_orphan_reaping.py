@@ -31,7 +31,11 @@ RAW = FIXTURES / "raw_fixture.py"
 # its own pid once the server is up. It starts the supervisor on POSIX.
 _PARENT_SOURCE = r'''
 import asyncio, os, sys
-sys.path.insert(0, os.path.join(os.getcwd(), "python"))
+# The harness package lives in the same directory as this test file. Derive it
+# from __file__ (passed as argv[4]) instead of the process cwd: the test is run
+# both from the repo root and from `python/`, and the old `os.getcwd()` form
+# silently resolved a nonexistent path when pytest ran from `python/`.
+sys.path.insert(0, sys.argv[4] if len(sys.argv) > 4 else os.getcwd())
 from harness.mcp.client import MCPConnection
 from harness.mcp.config import MCPServerConfig
 from harness.mcp.orphan_supervisor import child_pgids, supervisor
@@ -120,9 +124,12 @@ def test_hard_parent_kill_leaves_no_surviving_child(tmp_path):
     parent_script.write_text(_PARENT_SOURCE, encoding="utf-8")
     out = tmp_path / "parent.pid"
     child_pidfile = tmp_path / "child.pid"
+    # The interpreter's import root is the `python/` directory that contains this
+    # test file's package, independent of pytest's cwd.
+    python_root = str(Path(__file__).resolve().parent.parent)
     proc = subprocess.Popen(
-        [sys.executable, str(parent_script), str(RAW), str(out), str(child_pidfile)],
-        cwd=os.getcwd(),
+        [sys.executable, str(parent_script), str(RAW), str(out), str(child_pidfile), python_root],
+        cwd=python_root,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
