@@ -73,6 +73,8 @@ class ErrorClass(str, Enum):
     SECURITY_ERROR = "SECURITY_ERROR"
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"
+    # A declared memory/CPU/process limit was exceeded; the tree was killed.
+    RESOURCE_LIMIT = "RESOURCE_LIMIT"
     NONE = "NONE"
 
 
@@ -86,6 +88,9 @@ class ResourceLimits:
     timeout_ms: int = 60_000
     startup_timeout_ms: int = 30_000
     idle_timeout_ms: int = 0             # 0 = disabled
+    # Cumulative CPU-time ceiling in seconds (0 = derive a generous ceiling from
+    # the wall-clock timeout). Enforced by the parent monitor on real CPU time.
+    cpu_seconds: int = 0
     max_stdout_bytes: int = 1_048_576
     max_stderr_bytes: int = 1_048_576
     max_log_lines: int = 10_000
@@ -98,6 +103,7 @@ class ResourceLimits:
             "timeoutMs": self.timeout_ms,
             "startupTimeoutMs": self.startup_timeout_ms,
             "idleTimeoutMs": self.idle_timeout_ms,
+            "cpuSeconds": self.cpu_seconds,
             "maxStdoutBytes": self.max_stdout_bytes,
             "maxStderrBytes": self.max_stderr_bytes,
             "maxLogLines": self.max_log_lines,
@@ -114,6 +120,13 @@ class ResourceLimits:
             except (TypeError, ValueError):
                 return default
 
+        def _int0(name: str, default: int = 0) -> int:
+            """An integer where 0 is a legitimate value (meaning 'unset')."""
+            try:
+                return max(0, int(os.environ.get(name, default)))
+            except (TypeError, ValueError):
+                return default
+
         def _float(name: str, default: float) -> float:
             try:
                 return max(0.1, float(os.environ.get(name, default)))
@@ -126,7 +139,8 @@ class ResourceLimits:
             process_limit=_int("HARNESS_EXEC_MAX_PROCESSES", 64),
             timeout_ms=_int("HARNESS_EXEC_DEFAULT_TIMEOUT_MS", 60_000),
             startup_timeout_ms=_int("HARNESS_EXEC_STARTUP_TIMEOUT_MS", 30_000),
-            idle_timeout_ms=_int("HARNESS_EXEC_IDLE_TIMEOUT_MS", 0),
+            idle_timeout_ms=_int0("HARNESS_EXEC_IDLE_TIMEOUT_MS", 0),
+            cpu_seconds=_int0("HARNESS_EXEC_CPU_SECONDS", 0),
             max_stdout_bytes=_int("HARNESS_EXEC_MAX_OUTPUT_BYTES", 1_048_576),
             max_stderr_bytes=_int("HARNESS_EXEC_MAX_OUTPUT_BYTES", 1_048_576),
             max_log_lines=_int("HARNESS_EXEC_MAX_LOG_LINES", 10_000),
@@ -364,15 +378,12 @@ def new_execution_id() -> str:
 def resource_run_kwargs(limits: "ResourceLimits") -> dict[str, int]:
     """The OS-limit fields a `RunSpec` accepts, derived from `ResourceLimits`.
 
-    `cpu_seconds` is the CPU-time rlimit (whole seconds, floor 1 when a limit is
-    configured); memory and process limits pass through. A zero means "unset" and
-    the platform default applies.
+    `cpu_seconds` is the cumulative CPU-time ceiling: an explicit value when set,
+    otherwise the wall-clock budget rounded up (floor 1). Memory and process
+    limits pass through. A zero means "unset" and the platform default applies.
     """
-    cpu_seconds = 0
-    if limits.timeout_ms:
-        # A generous CPU-time ceiling: the wall-clock budget rounded up. The
-        # wall-clock timeout remains the primary bound; this stops a spin loop
-        # that ignores it on POSIX.
+    cpu_seconds = int(limits.cpu_seconds or 0)
+    if not cpu_seconds and limits.timeout_ms:
         cpu_seconds = max(1, int(limits.timeout_ms // 1000) + 5)
     return {
         "cpu_seconds": cpu_seconds,

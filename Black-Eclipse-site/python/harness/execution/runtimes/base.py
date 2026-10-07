@@ -119,6 +119,115 @@ class BaseRuntime:
                 return found
         return ""
 
+    def _require_program(self, *names: str) -> str:
+        """Resolve a REQUIRED tool to an absolute path, or raise an honest refusal.
+
+        Every argv the adapters produce must START with an absolute executable
+        path: on Windows `npm`/`npx`/`tsc` are `.cmd` shims that `subprocess`
+        cannot spawn by bare name (`FileNotFoundError [WinError 2]`). This is the
+        same resolution the production command broker (`code/commands.py`) uses,
+        so both execution paths agree.
+        """
+        found = self._resolve_on_path(*names)
+        if not found:
+            from .base import RuntimeUnavailable  # noqa: PLC0415
+
+            raise RuntimeUnavailable(
+                f"{names[0]} isn't installed on this computer.",
+                code="EXECUTABLE_MISSING",
+            )
+        return found
+
+    def _program(self, *names: str) -> str:
+        """Resolve a program to an absolute path, falling back to the bare name.
+
+        Used for OPTIONAL helpers (a package manager in a build/test template):
+        an absolute path when present (so Windows can spawn it), otherwise the
+        bare name so the platform's own shell semantics still apply.
+        """
+        return self._resolve_on_path(*names) or names[0]
+
+    def _app_repo(self) -> Optional[Path]:
+        """The app repository root, or None (for app-bundled binaries)."""
+        try:
+            from ...eclipse_memory.config import repo_root  # noqa: PLC0415
+
+            base = Path(repo_root())
+            return base if base.is_dir() else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _node_bin_dirs(self, root: Path) -> list[str]:
+        """`node_modules/.bin` directories a js/ts child should search.
+
+        Order: the project's own first, then the app's bundled one. This is what
+        lets `npm run build` (a project's `tsc --noEmit`) and a local test runner
+        resolve WITHOUT a network install when the project has not been
+        `npm install`-ed but Eclipse ships the toolchain.
+        """
+        dirs: list[str] = []
+        local = root / "node_modules" / ".bin"
+        if local.is_dir():
+            dirs.append(str(local))
+        app = self._app_repo()
+        if app is not None:
+            app_bin = app / "node_modules" / ".bin"
+            if app_bin.is_dir() and str(app_bin) not in dirs:
+                dirs.append(str(app_bin))
+        return dirs
+
+    def _node_env(self, root: Path, extra: Optional[dict[str, str]] = None) -> dict[str, str]:
+        """A child environment with the node bin dirs PREPENDED to PATH.
+
+        `sandbox.build_env` already scrubs everything else; here we only extend the
+        inherited PATH so a `.bin` shim is found. The separator is the platform's.
+        """
+        env = dict(extra or {})
+        dirs = self._node_bin_dirs(root)
+        if dirs:
+            import os
+
+            inherited = os.environ.get("PATH", "")
+            env["PATH"] = os.pathsep.join(dirs + ([inherited] if inherited else []))
+        return env
+
+    def _tool_cache(self, name: str) -> Path:
+        """A stable, writable cache directory for a toolchain (outside the repo).
+
+        The sandbox scrubs the environment, so a toolchain that needs a cache/home
+        (Go's GOCACHE, .NET's CLI home + NuGet packages) must be TOLD where to put
+        it. `/tmp` under the OS temp dir, created on demand — never a secret, never
+        inside the workspace.
+        """
+        import tempfile
+
+        base = Path(tempfile.gettempdir()) / "eclipse-toolcache" / name
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    # Non-secret Windows location/metadata variables a native toolchain (the .NET
+    # SDK, MSVC, NuGet) reads to resolve its own install/package directories. They
+    # are the Windows analogue of PATH — names and paths, never credentials — and
+    # are the ONLY host variables an adapter may re-add beyond the sandbox
+    # allowlist. Passing them does not widen the security boundary the way
+    # forwarding `*TOKEN*`/`*KEY*`/`.env` values would.
+    _WINDOWS_PLATFORM_ENV = (
+        "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+        "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432",
+        "PROGRAMDATA", "ALLUSERSPROFILE", "PUBLIC", "WINDIR", "SYSTEMDRIVE",
+        "COMSPEC", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "USERNAME",
+        "USERDOMAIN", "USERDOMAIN_ROAMINGPROFILE", "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE", "OS", "APPDATA", "LOCALAPPDATA",
+    )
+
+    def _platform_env(self) -> dict[str, str]:
+        """The curated non-secret platform variables, forwarded from the host."""
+        import os
+
+        if os.name != "nt":
+            return {}
+        return {k: os.environ[k] for k in self._WINDOWS_PLATFORM_ENV if k in os.environ}
+
     def _resolve_vendored(self, project: Optional[ProjectInfo]) -> str:
         """The vendored Python the repo ships (scripts/vendor), else ""."""
         try:

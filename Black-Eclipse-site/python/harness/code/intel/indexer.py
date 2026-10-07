@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -65,6 +66,12 @@ class IncrementalIndexer:
         self.ast = ast or ASTEngine(project_id, root=self.root)
         self._on_event = on_event
         self._lock_ok = True
+        # The shared `CodeIndex` connection is `check_same_thread=False`, so two
+        # writers (the background watcher loop and a synchronous index trigger) can
+        # interleave their DELETE-then-INSERT transactions on one connection and
+        # lose rows. Every mutation of this project's index is serialized here; the
+        # lock is re-entrant because `index_workspace` calls `_index_one` directly.
+        self._mutate_lock = threading.RLock()
 
     # ── workspace walk ─────────────────────────────────────────────────────────
     def iter_source_files(self) -> Iterator[tuple[str, Path]]:
@@ -86,6 +93,12 @@ class IncrementalIndexer:
     def index_workspace(self, *, force: bool = False, max_files: int = MAX_INDEX_FILES) -> IndexStats:
         started = time.monotonic()
         stats = IndexStats()
+        with self._mutate_lock:
+            return self._index_workspace_locked(stats, started, force=force, max_files=max_files)
+
+    def _index_workspace_locked(
+        self, stats: "IndexStats", started: float, *, force: bool, max_files: int,
+    ) -> "IndexStats":
         if force:
             self.index.clear()
         known = self.index.known_files()
@@ -123,11 +136,15 @@ class IncrementalIndexer:
             self.index.remove_file(rel)
             stats.removed += 1
         stats.duration_ms = int((time.monotonic() - started) * 1000)
-        self._emit("intel.index.completed", {"**stats": stats.to_dict()})
+        self._emit("intel.index.completed", stats.to_dict())
         return stats
 
     def reindex_file(self, rel: str) -> bool:
         """Re-parse ONE file. False when it is gone/ignored (row removed)."""
+        with self._mutate_lock:
+            return self._reindex_file_locked(rel)
+
+    def _reindex_file_locked(self, rel: str) -> bool:
         if policy.is_ignored(rel) or policy.is_protected(rel):
             self.index.remove_file(rel)
             return False
@@ -156,19 +173,20 @@ class IncrementalIndexer:
     def apply_watch_events(self, events: list[WatchEvent]) -> dict[str, Any]:
         """Apply debounced watcher events: update/remove only affected files."""
         updated = removed = 0
-        for event in events:
-            try:
-                if event.event == "deleted":
-                    self.index.remove_file(event.path)
-                    removed += 1
-                else:
-                    if self.reindex_file(event.path):
-                        updated += 1
-                    if event.event == "renamed" and event.old_path:
-                        self.index.remove_file(event.old_path)
+        with self._mutate_lock:
+            for event in events:
+                try:
+                    if event.event == "deleted":
+                        self.index.remove_file(event.path)
                         removed += 1
-            except Exception:  # noqa: BLE001 - a bad event must not stop the loop
-                continue
+                    else:
+                        if self._reindex_file_locked(event.path):
+                            updated += 1
+                        if event.event == "renamed" and event.old_path:
+                            self.index.remove_file(event.old_path)
+                            removed += 1
+                except Exception:  # noqa: BLE001 - a bad event must not stop the loop
+                    continue
         result = {"updated": updated, "removed": removed, "processed": len(events)}
         if events:
             self._emit("intel.index.incremental", result)

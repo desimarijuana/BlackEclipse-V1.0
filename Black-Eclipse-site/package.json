@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "bin": {
-    "black": "bin/black.js"
+    "black": "bin/black.js",
+    "eclipse": "scripts/eclipse.js"
   },
   "scripts": {
     "postinstall": "prisma generate && node scripts/setup-python.js && node scripts/link-global.js && node scripts/install-git-hooks.js",
@@ -23,6 +24,7 @@
     "test:smoke": "node scripts/test-python.js smoke",
     "test:presets": "node scripts/test-presets.js",
     "demo:btc": "tsx scripts/demo-btc.mts",
+    "eclipse": "node scripts/eclipse.js",
     "check:all": "node scripts/check-all.js"
   },
   "engines": {

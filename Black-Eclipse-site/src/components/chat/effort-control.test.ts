@@ -43,13 +43,35 @@ describe('composer effort control wiring', () => {
     expect(control).toContain('effort-ultra-shock');
     expect(control).toContain('effort-ultra-plasma');
     expect(control).toContain('effort-ultra-core');
-    // The animation is defined once in globals.css and disabled globally by the
-    // prefers-reduced-motion rule.
     const css = source('../../app/globals.css');
     expect(css).toContain('effortUltraGlow');
     expect(css).toContain('effortUltraShock');
     expect(css).toContain('effortUltraSpin');
-    expect(css).toContain('prefers-reduced-motion');
+  });
+
+  it('flows the WHOLE Ultra fill as a travelling gradient, not a static fill', () => {
+    const control = source('./effort-control.tsx');
+    // The aurora fill is the animated fill class (a static Tailwind gradient
+    // would be the "gradient is not moving" bug).
+    expect(control).toContain('effort-ultra-fill');
+    const css = source('../../app/globals.css');
+    expect(css).toContain('effortUltraFlow');
+    expect(css).toMatch(/\.effort-ultra-fill\s*\{[^}]*background-size:\s*200%/);
+    expect(css).toMatch(/\.effort-ultra-fill\s*\{[^}]*animation:\s*effortUltraFlow/);
+  });
+
+  it('EXEMPTS the Ultra energy from the reduce-motion / animations-off kill switches', () => {
+    // Deliberate exception, like the price ticker: the "maximum effort" control
+    // must always read as alive, not freeze into a static band.
+    const css = source('../../app/globals.css');
+    expect(css).toMatch(/a11y-reduce-motion[^{]*effort-ultra-/);
+    expect(css).toMatch(/theme-no-anim[^{]*effort-ultra-/);
+    // Every animated Ultra layer carries its own duration so the exemption can
+    // restore it.
+    for (const cls of ['effort-ultra-fill', 'effort-ultra-glow', 'effort-ultra-shock', 'effort-ultra-beam']) {
+      const re = new RegExp(`\\.${cls}\\s*\\{[^}]*--ultra-dur`);
+      expect(css, cls).toMatch(re);
+    }
   });
 
   it('uses the accent color for the brain and a laser-beam sweep on Ultra', () => {

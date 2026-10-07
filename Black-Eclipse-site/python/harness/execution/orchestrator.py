@@ -305,8 +305,9 @@ class ExecutionOrchestrator:
             (run_raw.output if run_raw else ""), language=context.language, source="run",
         ) if (run_raw and run_raw.exit_code not in (0, None)) else []
         tests = _tests_to_results(test_result)
-        usage = _usage_from(run_raw, context)
+        usage = _usage_from(run_raw, context, build_result)
         status = self._terminal_state(run_raw, build_result, test_result).value
+        error = _resource_error(run_raw) if status == "RESOURCE_LIMIT" else None
         result = ExecutionResult(
             execution_id=context.execution_id,
             status=status,
@@ -322,12 +323,14 @@ class ExecutionOrchestrator:
             resource_usage=usage,
             truncated=bool(run_raw.truncated if run_raw else truncated),
             error_class=ErrorClass.NONE.value if status == "COMPLETED" else _error_class(run_raw, build_result, test_result),
+            error=error,
             context=context.to_dict(),
             build=build_result,
             started_at=started,
             finished_at=time.time(),
             metadata={"testSummary": (test_result.to_dict() if test_result else None),
-                      "risk": request.metadata.get("_risk")},
+                      "risk": request.metadata.get("_risk"),
+                      "resourceLimit": getattr(run_raw, "resource_limit", None)},
         )
         emit("execution.completed", {"executionId": context.execution_id, "status": status,
                                      "exitCode": result.exit_code, "durationMs": result.duration_ms})
@@ -477,6 +480,8 @@ class ExecutionOrchestrator:
         if build_result is not None and not build_result.get("success") and not build_result.get("skipped"):
             return ExecutionState.BUILD_ERROR
         if run_raw is not None:
+            if getattr(run_raw, "resource_limit", None):
+                return ExecutionState.RESOURCE_LIMIT
             if run_raw.cancelled:
                 return ExecutionState.CANCELLED
             if run_raw.timed_out:
@@ -504,16 +509,45 @@ def _tests_to_results(test_result) -> list:
     return list(test_result.failures)
 
 
-def _usage_from(run_raw, context) -> ResourceUsage:
+def _usage_from(run_raw, context, build_result=None) -> ResourceUsage:
+    """Fill ResourceUsage from the run's telemetry, falling back to the build's.
+
+    Every field stays `None` when it is not measurable; wall-clock duration is not
+    relabelled as CPU time.
+    """
+    build = build_result or {}
     if run_raw is None:
-        return ResourceUsage()
+        return ResourceUsage(
+            cpu_ms=_round_int(build.get("cpuMs")),
+            memory_peak_mb=_round2(build.get("memoryPeakMb")),
+            process_count=build.get("processCount"),
+            stdout_bytes=len(str(build.get("stdout", "")).encode("utf-8", "replace")),
+            stderr_bytes=0,
+        )
     return ResourceUsage(
-        cpu_ms=None,  # wall-clock is not CPU time; reported honestly as unknown
-        memory_peak_mb=None,
-        process_count=None,
+        cpu_ms=_round_int(getattr(run_raw, "cpu_ms", None)),
+        memory_peak_mb=_round2(getattr(run_raw, "memory_peak_mb", None)),
+        process_count=getattr(run_raw, "process_count", None),
         stdout_bytes=len(run_raw.output.encode("utf-8", "replace")),
         stderr_bytes=0,
     )
+
+
+def _round_int(value):
+    return int(value) if value is not None else None
+
+
+def _round2(value):
+    return round(float(value), 2) if value is not None else None
+
+
+def _resource_error(run_raw) -> dict[str, Any]:
+    limit = getattr(run_raw, "resource_limit", None) if run_raw is not None else None
+    return {
+        "code": "RESOURCE_LIMIT",
+        "message": f"the run exceeded its {limit or 'resource'} limit and was stopped",
+        "limit": limit,
+    }
 
 
 def _error_class(run_raw, build_result, test_result) -> str:
@@ -522,6 +556,8 @@ def _error_class(run_raw, build_result, test_result) -> str:
     if build_result is not None and not build_result.get("success") and not build_result.get("skipped"):
         return ErrorClass.BUILD_ERROR.value
     if run_raw is not None:
+        if getattr(run_raw, "resource_limit", None):
+            return ErrorClass.RESOURCE_LIMIT.value
         if run_raw.timed_out:
             return ErrorClass.TIMEOUT.value
         if run_raw.cancelled:

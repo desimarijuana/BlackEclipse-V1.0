@@ -73,18 +73,31 @@ class TestRunResult:
 # Each returns `(passed, failed, skipped, parsed)`. `parsed` is False when the
 # parser found no recognizable summary — the caller must then report unparsed.
 
-_VITEST_SUMMARY = re.compile(r"Tests\s+(?P<passed>\d+)\s+passed(?:\s*\|\s*(?P<failed>\d+)\s+failed)?", re.I)
+# Terminal color codes wrap the numbers (`\x1b[1m\x1b[32m2 passed`), so a summary
+# can only be read after stripping ANSI. This is the SAME `strip_ansi` the
+# terminal subsystem uses — one implementation, not a second one.
+def _strip_ansi(text: str) -> str:
+    try:
+        from ...terminal.session import strip_ansi  # noqa: PLC0415
+
+        return strip_ansi(text)
+    except Exception:  # noqa: BLE001 - a missing helper must not break parsing
+        return re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", text)
+
+_VITEST_SUMMARY = re.compile(r"Tests\s+(?:(?P<failed>\d+)\s+failed\s*\|\s*)?(?P<passed>\d+)\s+passed", re.I)
+_VITEST_SUMMARY_ALT = re.compile(r"Tests\s+(?P<passed>\d+)\s+passed(?:\s*\|\s*(?P<failed>\d+)\s+failed)?", re.I)
 _JEST_SUMMARY = re.compile(r"Tests:\s*(?:(?P<failed>\d+)\s+failed,\s*)?(?P<passed>\d+)\s+passed(?:,\s*(?P<skipped>\d+)\s+skipped)?", re.I)
 _PYTEST_SUMMARY = re.compile(r"(?P<count>\d+)\s+(?P<kind>passed|failed|skipped|error|errors|xpassed|xfailed)")
 _GO_SUMMARY = re.compile(r"^(?:ok|FAIL|---)\s", re.M)
 
 
 def _parse_summary(output: str, framework: str) -> tuple[int, int, int, bool]:
-    text = output or ""
+    text = _strip_ansi(output or "")
     if framework in ("vitest",):
-        match = _VITEST_SUMMARY.search(text)
-        if match:
-            return int(match.group("passed")), int(match.group("failed") or 0), 0, True
+        for pattern in (_VITEST_SUMMARY, _VITEST_SUMMARY_ALT):
+            match = pattern.search(text)
+            if match:
+                return int(match.group("passed")), int(match.group("failed") or 0), 0, True
     if framework in ("jest",):
         match = _JEST_SUMMARY.search(text)
         if match:
@@ -103,7 +116,11 @@ def _parse_summary(output: str, framework: str) -> tuple[int, int, int, bool]:
             passed = len(re.findall(r"^ok\s", text, re.M))
             failed = len(re.findall(r"^FAIL\s", text, re.M))
             return passed, failed, 0, True
-    # A generic fallback: pytest-style counts appear in many runners.
+    # A generic fallback: pytest-style / vitest-style counts appear in many runners.
+    for pattern in (_VITEST_SUMMARY, _VITEST_SUMMARY_ALT):
+        match = pattern.search(text)
+        if match and ("Test Files" in text or "vitest" in text.casefold() or framework == "vitest"):
+            return int(match.group("passed")), int(match.group("failed") or 0), 0, True
     if "passed" in text and ("failed" in text or "error" in text or "warning" in text):
         counts = {"passed": 0, "failed": 0, "skipped": 0, "error": 0, "errors": 0}
         found = False

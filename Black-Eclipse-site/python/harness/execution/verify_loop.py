@@ -121,6 +121,73 @@ class ExecutionVerifier:
                               last_build, last_test, evidence, "iteration budget exhausted",
                               int((time.monotonic() - started) * 1000))
 
+    async def arun(
+        self,
+        base_request: ExecutionRequest,
+        *,
+        actor: Any = None,
+        fix: Optional[Any] = None,
+        emit: Optional[Emit] = None,
+        cancel_event: Optional[Any] = None,
+    ) -> RepairOutcome:
+        """Async variant: the `fix` callback may be a coroutine function.
+
+        The orchestrator runs in a worker thread (`asyncio.to_thread`); everything
+        else mirrors `run`, so the two stay in lock-step.
+        """
+        import asyncio
+
+        emit = emit or _noop_emit
+        started = time.monotonic()
+        evidence: list[dict[str, Any]] = []
+        last_build: Optional[dict[str, Any]] = None
+        last_test: Optional[dict[str, Any]] = None
+
+        for iteration in range(1, self.max_iterations + 1):
+            if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+                return RepairOutcome("refused", iteration - 1, self.max_iterations,
+                                      last_build, last_test, evidence, "cancelled",
+                                      int((time.monotonic() - started) * 1000))
+            if time.monotonic() - started > self.max_total_time_s:
+                return RepairOutcome("budget_exhausted", iteration - 1, self.max_iterations,
+                                      last_build, last_test, evidence, "wall-clock budget exceeded",
+                                      int((time.monotonic() - started) * 1000))
+            emit("execution.verify.iteration", {"iteration": iteration, "max": self.max_iterations})
+            request = _clone_for(base_request, ExecutionMode.BUILD_AND_TEST)
+            result = await asyncio.to_thread(
+                self._orchestrator.run, request, actor=actor, cancel_event=cancel_event, emit=emit,
+            )
+            evidence.append({"iteration": iteration, **result.to_dict()})
+            last_build = result.build
+            last_test = (result.metadata or {}).get("testSummary")
+
+            if result.status == "COMPLETED":
+                emit("execution.verify.passed", {"iteration": iteration, "executionId": result.execution_id})
+                return RepairOutcome("passed", iteration, self.max_iterations,
+                                      last_build, last_test, evidence, "",
+                                      int((time.monotonic() - started) * 1000))
+            if result.error_class in ("SECURITY_ERROR", "INFRASTRUCTURE_ERROR"):
+                return RepairOutcome("refused", iteration, self.max_iterations,
+                                      last_build, last_test, evidence,
+                                      f"{result.error_class}: {result.status}",
+                                      int((time.monotonic() - started) * 1000))
+            if fix is None:
+                return RepairOutcome("unrepairable", iteration, self.max_iterations,
+                                      last_build, last_test, evidence, "no fix step is available",
+                                      int((time.monotonic() - started) * 1000))
+            emit("execution.verify.fixing", {"iteration": iteration, "status": result.status})
+            summary = fix(result, iteration)
+            if hasattr(summary, "__await__"):
+                summary = await summary
+            if not summary:
+                return RepairOutcome("unrepairable", iteration, self.max_iterations,
+                                      last_build, last_test, evidence, "the fix step made no change",
+                                      int((time.monotonic() - started) * 1000))
+
+        return RepairOutcome("budget_exhausted", self.max_iterations, self.max_iterations,
+                              last_build, last_test, evidence, "iteration budget exhausted",
+                              int((time.monotonic() - started) * 1000))
+
 
 def _clone_for(request: ExecutionRequest, mode: ExecutionMode) -> ExecutionRequest:
     import copy

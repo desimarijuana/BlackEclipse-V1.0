@@ -95,10 +95,10 @@ _COMMAND_PROGRAMS: dict[str, frozenset[str]] = {
     "lint": frozenset({"npm", "npx", "pnpm", "yarn", "eslint", "ruff"}),
     "unit_test": frozenset({"npm", "npx", "pnpm", "yarn", "vitest", "jest", "pytest"}),
     "python_test": frozenset({"python", "python3", "pytest", "uv"}),
-    "build": frozenset({"npm", "npx", "pnpm", "yarn", "node", "next"}),
+    "build": frozenset({"npm", "npx", "pnpm", "yarn", "node", "next", "go", "cargo", "dotnet", "javac", "mvn", "gradle", "make", "cmake", "gcc", "g++", "clang", "cl"}),
     "format_check": frozenset({"npx", "prettier", "ruff"}),
     "git_read": frozenset({"git"}),
-    "dependency_install": frozenset({"npm", "npx", "pnpm", "yarn", "pip", "pip3", "uv"}),
+    "dependency_install": frozenset({"npm", "npx", "pnpm", "yarn", "pip", "pip3", "uv", "cargo", "go", "dotnet", "composer", "bundler"}),
 }
 
 # Programs that are never allowed, whatever the class. Belt and braces beside
@@ -276,7 +276,7 @@ def _symlink_escape(root_real: Path, absolute: Path) -> bool:
     return False
 
 
-def resolve_within(root: Path, candidate: str) -> Path:
+def resolve_within(root: Path, candidate: str, *, allow_ignored: bool = False) -> Path:
     """Resolve ``candidate`` inside ``root`` or raise ``PolicyDenial``.
 
     The comparison is always on REAL, resolved paths — never the raw string.
@@ -289,6 +289,12 @@ def resolve_within(root: Path, candidate: str) -> Path:
         it (covers an absolute path outside the root);
       * ``PROTECTED_PATH``         — ``is_protected(rel)``;
       * ``IGNORED_PATH``           — ``is_ignored(rel)``.
+
+    ``allow_ignored`` relaxes ONLY the ``IGNORED_PATH`` rule, for a caller that
+    names a real file explicitly rather than walking the tree (the SQL runtime
+    opening an operator-chosen ``.db``/``.sqlite`` database, which the index
+    ignore-globs exist to skip). Traversal, symlink, outside-root and PROTECTED
+    checks are unchanged — so ``.git``/``.env``/keys stay unreachable.
     """
     root_real = Path(os.path.realpath(root))
     raw = Path(str(candidate).replace("\\", os.sep))
@@ -304,7 +310,7 @@ def resolve_within(root: Path, candidate: str) -> Path:
     rel = resolved.relative_to(root_real).as_posix() if resolved != root_real else "."
     if is_protected(rel):
         raise PolicyDenial("PROTECTED_PATH", _REASON_PROTECTED)
-    if is_ignored(rel):
+    if not allow_ignored and is_ignored(rel):
         raise PolicyDenial("IGNORED_PATH", _REASON_IGNORED)
     return resolved
 
@@ -343,6 +349,53 @@ WRITE_TOOLS: tuple[str, ...] = (
 EXECUTION_READ_TOOLS: tuple[str, ...] = (
     "discover_tests", "execution_get", "execution_logs", "execution_result",
     "execution_artifacts", "service_status", "service_logs", "list_services",
+)
+
+# The Application Runtime layer (DevOps). These RUN applications, install
+# dependencies, and drive Docker/Podman/Compose, so they are code-write tools
+# removed at `plan_only`; the read-only surface stays. Mirrors
+# `execution/application/tools.py` (APP_RUNTIME_WRITE_TOOLS / _READ_TOOLS).
+APP_RUNTIME_WRITE_TOOLS: tuple[str, ...] = (
+    "runtime_start", "runtime_stop", "runtime_restart", "runtime_cleanup",
+    "runtime_recover",
+    "package_install", "package_add", "package_remove", "package_update",
+    "package_run", "package_build", "package_test",
+    "container_build", "container_run", "container_start", "container_stop",
+    "container_restart", "container_exec", "container_remove", "container_pull",
+    "container_rmi", "container_network", "container_volume",
+    "compose_build", "compose_up", "compose_down", "compose_start",
+    "compose_stop", "compose_restart", "compose_exec", "compose_pull", "compose_rm",
+    "environment_set", "environment_unset",
+)
+
+APP_RUNTIME_READ_TOOLS: tuple[str, ...] = (
+    "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
+    "runtime_health", "runtime_logs", "runtime_reconcile", "runtime_diagnose",
+    "runtime_metrics",
+    "package_detect", "package_version", "package_list", "package_audit",
+    "container_logs", "container_inspect", "container_stats", "container_list",
+    "container_images", "container_health",
+    "compose_validate", "compose_config", "compose_ps", "compose_logs",
+    "environment_inspect", "environment_validate", "environment_load",
+    "environment_compare",
+    "port_check", "port_find_free", "port_list", "port_identify_process",
+    "health_check", "health_status",
+    # Orchestration / infrastructure / cloud read-only surface.
+    "k8s_status", "k8s_get", "k8s_get_pods", "k8s_describe", "k8s_logs",
+    "k8s_rollout", "helm_list", "helm_status", "kustomize_build",
+    "terraform_init", "terraform_validate", "terraform_fmt", "terraform_plan",
+    "terraform_output", "terraform_state",
+    "cloud_providers", "deploy_status", "deploy_logs",
+)
+
+# Orchestration / infrastructure / cloud mutations (removed at `plan_only`, and
+# each is an `external_action` requiring a single-use approval at call time).
+# A production deploy and every delete/destroy additionally require authorization.
+APP_RUNTIME_K8S_WRITE_TOOLS: tuple[str, ...] = (
+    "k8s_apply", "k8s_delete", "k8s_scale", "k8s_exec",
+    "helm_install", "helm_uninstall",
+    "terraform_apply", "terraform_destroy",
+    "deploy_run", "deploy_rollback", "deploy_delete",
 )
 
 # The file-system subsystem's mutating tools (Phase FS). They are code.write
@@ -394,11 +447,87 @@ def is_code_write(name: str) -> bool:
     return name.startswith("workspace_") or name in FS_WRITE_TOOLS or name in INTEL_WRITE_TOOLS
 
 
+def is_git_write(name: str) -> bool:
+    """Whether a tool name is a LOCAL Git mutation (effect `write`).
+
+    The Git effect authorizer admits these under the run's autonomy profile; a
+    `dangerous`/`destructive`/`critical` classified operation additionally needs a
+    single-use operator approval. Remote tools are NOT covered here.
+    """
+    return name in GIT_WRITE_TOOLS
+
+
+def is_git_external(name: str) -> bool:
+    """Whether a tool name is a REMOTE Git/VCS action (effect `external_action`).
+
+    These require the `approve_external` profile AND a single-use operator
+    approval bound to the exact operation.
+    """
+    return name in GIT_EXTERNAL_TOOLS
+
+
 # External actions — commit / push / open a PR / deploy. approve_external only,
 # and each is STILL an effectful external_action requiring a single-use approval.
 EXTERNAL_ACTION_TOOLS: tuple[str, ...] = (
     "code_commit", "code_push", "code_open_pr", "code_deploy",
 )
+
+# ── Git / Version-Control subsystem (the Git engine) ─────────────────────────
+#
+# The Git tools are classified by EFFECT exactly like every other tool, so the
+# autonomy boundary stays structural. Three sets:
+#
+#   GIT_READ_TOOLS      — read-only git/vcs inspection; available at every profile.
+#   GIT_WRITE_TOOLS     — LOCAL mutations (local history/index/worktree); removed
+#                         at `plan_only`, present at `edit_verify`.
+#   GIT_EXTERNAL_TOOLS  — REMOTE mutations (fetch/pull/push/PR/CI); removed below
+#                         `approve_external`, and each still needs a single-use
+#                         operator approval via the Git effect authorizer.
+#
+# `git/operations.py` owns the per-operation RISK; these tuples own the GRANT.
+GIT_READ_TOOLS: tuple[str, ...] = (
+    "git_repository_info", "git_list_repositories", "git_status", "git_diff",
+    "git_diff_cached", "git_diff_range", "git_log", "git_show", "git_commit_info",
+    "git_blame", "git_reflog", "git_branch_list", "git_conflicts",
+    "git_operation_state", "git_stash_list", "git_stash_show", "git_tag_list",
+    "git_remote_list", "git_worktree_list", "git_submodule_list", "git_config_get",
+    "git_config_list", "git_hooks", "git_lfs_status", "git_clean_preview",
+    "git_clean_preview", "git_ignore_check", "git_generate_commit_message",
+    "git_recovery_options", "git_list_hunks", "git_tag_show",
+    "vcs_status", "vcs_list_repositories", "vcs_get_repository", "vcs_list_branches",
+    "vcs_list_commits", "vcs_get_pull_request", "vcs_list_pull_requests",
+    "vcs_list_reviews", "vcs_get_review_comments", "vcs_ci_status",
+    "vcs_list_workflow_runs", "vcs_get_job_logs", "vcs_generate_pull_request",
+)
+
+GIT_WRITE_TOOLS: tuple[str, ...] = (
+    "git_stage", "git_unstage", "git_stage_hunks", "git_unstage_hunks", "git_apply_patch",
+    "git_commit", "git_generate_and_commit",
+    "git_create_branch", "git_checkout", "git_delete_branch", "git_rename_branch",
+    "git_set_upstream", "git_merge", "git_merge_abort", "git_merge_continue",
+    "git_rebase", "git_rebase_plan", "git_rebase_abort", "git_rebase_continue", "git_rebase_skip",
+    "git_cherry_pick", "git_cherry_pick_abort", "git_cherry_pick_continue",
+    "git_revert", "git_revert_abort", "git_revert_continue", "git_reset",
+    "git_resolve_conflict", "git_abort_operation", "git_continue_operation",
+    "git_stash_push", "git_stash_apply", "git_stash_pop", "git_stash_drop",
+    "git_tag_create", "git_tag_delete", "git_worktree_add", "git_worktree_remove",
+    "git_submodule_update",     "git_bisect_start", "git_bisect_mark", "git_bisect_reset",
+    "git_clean", "git_config_set",
+    # Long-tail: path-level ops, stash/tag/worktree/submodule/LFS extras.
+    "git_move_path", "git_remove_paths", "git_restore", "git_unset_upstream",
+    "git_stash_branch", "git_stash_clear", "git_worktree_prune", "git_worktree_move",
+    "git_submodule_init", "git_submodule_sync", "git_lfs_fetch", "git_lfs_pull",
+)
+
+GIT_EXTERNAL_TOOLS: tuple[str, ...] = (
+    "git_fetch", "git_pull", "git_push", "git_remote_add", "git_remote_remove",
+    "git_remote_set_url", "git_tag_push",
+    "vcs_create_branch", "vcs_create_pull_request", "vcs_update_pull_request",
+    "vcs_close_pull_request", "vcs_merge_pull_request", "vcs_request_review",
+    "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
+)
+
+GIT_TOOLS: tuple[str, ...] = (*GIT_READ_TOOLS, *GIT_WRITE_TOOLS, *GIT_EXTERNAL_TOOLS)
 
 # The terminal subsystem's effectful tools (execution, sessions, process control).
 # Like the shell tools, they are removed at `plan_only` so the autonomy boundary is
@@ -424,6 +553,7 @@ READ_ONLY_TOOLS: tuple[str, ...] = (
     "workspace_read", "workspace_docs", "workspace_diff",
     *TERMINAL_READ_TOOLS,
     *EXECUTION_READ_TOOLS,
+    *APP_RUNTIME_READ_TOOLS,
 )
 
 
@@ -437,13 +567,17 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS)
     elif autonomy == "edit_verify":
-        banned = set(EXTERNAL_ACTION_TOOLS)
+        # Local container/process mutations stay; CLUSTER/INFRA/CLOUD mutations
+        # (kubectl apply/delete/scale/exec, helm install/uninstall, terraform
+        # apply/destroy, deploy/rollback/delete) are removed — they touch live
+        # infrastructure beyond the task's own folder and need `approve_external`.
+        banned = set(EXTERNAL_ACTION_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS)
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 

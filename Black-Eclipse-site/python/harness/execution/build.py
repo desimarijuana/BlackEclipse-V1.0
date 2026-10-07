@@ -36,6 +36,9 @@ class BuildResult:
     skipped: bool = False
     reason: str = ""
     backend: str = ""
+    cpu_ms: Optional[float] = None
+    memory_peak_mb: Optional[float] = None
+    process_count: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +52,9 @@ class BuildResult:
             "skipped": self.skipped,
             "reason": self.reason,
             "backend": self.backend,
+            "cpuMs": self.cpu_ms,
+            "memoryPeakMb": self.memory_peak_mb,
+            "processCount": self.process_count,
         }
 
 
@@ -100,6 +106,12 @@ class BuildEngine:
             errors=errors, stdout=raw.output, stderr="",
             command=list(prepared.argv), backend=raw.backend,
             reason="timed out" if raw.timed_out else ("cancelled" if raw.cancelled else ""),
+            cpu_ms=getattr(raw, "cpu_ms", None),
+            memory_peak_mb=(
+                round(raw.memory_peak_mb, 2)
+                if getattr(raw, "memory_peak_mb", None) is not None else None
+            ),
+            process_count=getattr(raw, "process_count", None),
         )
 
 

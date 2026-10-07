@@ -38,7 +38,9 @@ function skin(option: ReasoningOption): {
       return {
         label: "text-primary",
         track: "bg-primary/[0.06] border border-primary/30",
-        fill: "bg-gradient-to-r from-primary/20 via-primary/45 to-primary/75",
+        // The whole fill flows (`.effort-ultra-fill` drives the travelling
+        // gradient); this class only seeds the base tint.
+        fill: "effort-ultra-fill",
       };
     case "violet":
       return {
@@ -83,13 +85,16 @@ export function EffortControl({ value, index, onIndexChange, disabled = false }:
           // Ultra gets a live energy skin on the PILL itself, so the effect is
           // visible at rest (the popover that carries it closes on pick).
           ultra
-            ? "bg-primary/15 border-primary/45 text-primary overflow-visible"
+            ? "effort-ultra-fill border-primary/45 text-primary overflow-visible"
             : isOverride
               ? cn("bg-accent/25 border-border/40", tint.label)
               : "bg-accent/25 border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40",
         )}
       >
-        {/* A slim laser beam sweeping the pill while Ultra is active. */}
+        {/* The pill's own background flows (`.effort-ultra-fill` on the button).
+            The beam must be clipped to the rounded shape, so it lives in an
+            overflow-hidden overlay; the button itself keeps `overflow-visible`
+            so the thumb glow can spill. */}
         {ultra && (
           <span
             aria-hidden

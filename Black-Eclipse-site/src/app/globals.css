@@ -310,16 +310,39 @@ html:not(.dark) .ws-glass {
   animation: fadeIn 0.4s ease-out backwards;
 }
 
-/* ── Effort slider "Ultra" thumb — an ENERGY core ─────────────────────────────
+/* ── Effort slider "Ultra" stop — an ENERGY fill ──────────────────────────────
  * The top stop of the composer's model-intelligence slider. Everything is drawn
- * from the theme's `--primary` token (the same green as --ring/--chart-1) so it
- * reads as the app accent, never a foreign palette. Layered effect:
- *   • a soft outer glow that pulses          (effortUltraGlow)
- *   • a rotating plasma ring                 (effortUltraSpin)
- *   • two expanding energy shockwaves        (effortUltraShock)
- *   • the brain core throbbing with energy   (effortUltraCore)
- * Motion is disabled globally by the prefers-reduced-motion block below, leaving
- * a static (fully-lit) core as the fallback. */
+ * from the theme's `--primary` token so it reads as the app accent, never a
+ * foreign palette. Layered effect:
+ *   • the WHOLE fill flows as a travelling gradient  (effortUltraFlow)
+ *   • a laser beam sweeps over it                    (effortUltraBeam)
+ *   • a soft outer glow that pulses                  (effortUltraGlow)
+ *   • a rotating plasma ring                         (effortUltraSpin)
+ *   • two expanding energy shockwaves                (effortUltraShock)
+ *   • the brain core throbbing with energy           (effortUltraCore)
+ *
+ * Every element carries `--ultra-dur` so one exemption rule (near the a11y kill
+ * switches) can restore its own timing. DELIBERATE EXCEPTION: unlike the rest of
+ * the app, the Ultra energy is NOT silenced by the reduce-motion / animations-off
+ * switches — it is the explicit "maximum effort" affordance and must always read
+ * as alive, the same intent the price ticker carries. */
+@keyframes effortUltraFlow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.effort-ultra-fill {
+  --ultra-dur: 2.6s;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--primary) 18%, transparent) 0%,
+    color-mix(in srgb, var(--primary) 55%, transparent) 22%,
+    color-mix(in srgb, var(--primary) 22%, transparent) 50%,
+    color-mix(in srgb, var(--primary) 72%, transparent) 78%,
+    color-mix(in srgb, var(--primary) 18%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: effortUltraFlow var(--ultra-dur) linear infinite;
+}
 @keyframes effortUltraGlow {
   0%, 100% { transform: scale(1); opacity: 0.5; }
   50% { transform: scale(1.5); opacity: 0.9; }
@@ -336,47 +359,54 @@ html:not(.dark) .ws-glass {
   50% { transform: scale(1.12); filter: brightness(1.6) drop-shadow(0 0 9px var(--primary)); }
 }
 .effort-ultra-glow {
-  animation: effortUltraGlow 1.6s ease-in-out infinite;
+  --ultra-dur: 1.6s;
+  animation: effortUltraGlow var(--ultra-dur) ease-in-out infinite;
 }
 .effort-ultra-plasma {
+  --ultra-dur: 3.6s;
   background: conic-gradient(from 0deg, transparent 0%, var(--primary) 45%, transparent 70%);
   mask: radial-gradient(circle, transparent 58%, #000 63%);
-  animation: effortUltraSpin 3.6s linear infinite;
+  animation: effortUltraSpin var(--ultra-dur) linear infinite;
 }
 .effort-ultra-shock {
-  animation: effortUltraShock 1.7s ease-out infinite;
+  --ultra-dur: 1.7s;
+  animation: effortUltraShock var(--ultra-dur) ease-out infinite;
 }
 .effort-ultra-shock-2 {
-  animation: effortUltraShock 1.7s ease-out infinite;
+  --ultra-dur: 1.7s;
+  animation: effortUltraShock var(--ultra-dur) ease-out infinite;
   animation-delay: 0.85s;
 }
 .effort-ultra-core {
-  animation: effortUltraCore 1.1s ease-in-out infinite;
+  --ultra-dur: 1.1s;
+  animation: effortUltraCore var(--ultra-dur) ease-in-out infinite;
 }
 .effort-ultra-sparks {
-  animation: effortUltraSpin 4.5s linear infinite;
+  --ultra-dur: 4.5s;
+  animation: effortUltraSpin var(--ultra-dur) linear infinite;
 }
 /* A laser beam that sweeps left→right across the Ultra fill, with a soft
  * leading edge and a trailing streak. */
 @keyframes effortUltraBeam {
-  0% { left: -30%; opacity: 0; }
+  0% { left: -40%; opacity: 0; }
   10% { opacity: 1; }
   90% { opacity: 1; }
   100% { left: 110%; opacity: 0; }
 }
 .effort-ultra-beam {
-  width: 38%;
+  --ultra-dur: 2.6s;
+  width: 34%;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--primary) 35%, transparent) 55%,
-    color-mix(in srgb, var(--primary) 90%, #ffffff) 82%,
+    color-mix(in srgb, var(--primary) 45%, transparent) 55%,
+    color-mix(in srgb, var(--primary) 95%, #ffffff) 82%,
     #ffffff 92%,
-    color-mix(in srgb, var(--primary) 90%, #ffffff) 96%,
+    color-mix(in srgb, var(--primary) 95%, #ffffff) 96%,
     transparent 100%
   );
   filter: blur(1px) drop-shadow(0 0 6px var(--primary));
-  animation: effortUltraBeam 2.6s ease-in-out infinite;
+  animation: effortUltraBeam var(--ultra-dur) ease-in-out infinite;
 }
 
 
@@ -1510,6 +1540,20 @@ body {
 .theme-no-anim .price-ribbon-track,
 .price-ribbon-track.price-ribbon-track {
   animation-duration: 24s !important;
+  animation-iteration-count: infinite !important;
+}
+
+/* The composer's Ultra ("maximum effort") energy is deliberately EXEMPT from the
+ * reduce-motion / animations-off kill switches — the same intent the price
+ * ticker carries. It is the explicit "this is the strongest" affordance; frozen,
+ * it reads as a broken static band. Every layer carries `--ultra-dur`, so one
+ * rule restores its own timing against BOTH the class rules and the OS media
+ * query (a class/attribute selector out-specifies the universal `*` even with
+ * `!important` on both sides). */
+.a11y-reduce-motion [class*="effort-ultra-"],
+.theme-no-anim [class*="effort-ultra-"],
+[class*="effort-ultra-"][class*="effort-ultra-"] {
+  animation-duration: var(--ultra-dur, 2.6s) !important;
   animation-iteration-count: infinite !important;
 }
 

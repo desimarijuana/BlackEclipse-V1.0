@@ -1015,7 +1015,7 @@ _READ_TOOLS = (
     "list_directory", "read_file", "search_text", "search_files", "find_files",
     "search_symbols", "find_references", "file_metadata", "file_hash",
     "file_permissions", "index_workspace", "watch_file", "watch_directory",
-    "verify_file", "validate_changes", "git_status",
+    "verify_file", "validate_changes",
 )
 _WRITE_TOOLS = (
     "write_file", "create_file", "delete_file", "move_file", "copy_file",

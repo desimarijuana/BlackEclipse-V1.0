@@ -3714,4 +3714,216 @@ otherwise). Retrieval tools are prefixed `execution_`/`service_` to preserve the
 code-agent's finance-tool guard. Tests: `test_execution_{unit,runtime,security,e2e,
 tools}.py`. Architecture: `docs/harness/execution-architecture.md`.
 
+## ADR-H130 - Git is a layered engine with a closed operation table and a separate VCS provider layer, not CLI wrappers
 
+**Status:** Accepted (2026-10-06)
+
+**Context.** Eclipse could read a git checkout's status (a fixed, argument-free
+read in `code/fs/git.py` and `code/workspace.py`) and could run a closed
+`git_read` command class, but it could NOT drive a project through a full Git
+workflow: create a branch, stage selectively, commit, merge, rebase, resolve
+conflicts, stash, tag, worktree, push safely, or open a pull request. The
+tempting shortcut — wrap `git status`/`commit`/`push` with a shell string and let
+the model pass arguments — would put an unbounded, un-recoverable, un-auditable
+capability in front of an autonomous agent, with no risk classification, no
+recovery, no journal, and no separation between local version control and remote
+hosting.
+
+**Decision.**
+
+1. **A layered subsystem, not a wrapper.** `python/harness/git/` composes
+   discovery, ONE controlled executor, machine parsers, a state machine, a safety
+   engine, a recovery manager, an operation journal and a lock behind a single
+   `GitService` facade. Tools and routes are thin adapters over it.
+
+2. **A CLOSED operation table.** `catalog.py` is the only place a git argv is
+   defined; `operations.py` validates every value (no leading `-`, no pathspec
+   magic, no NUL, bounded). The model never supplies an executable, a flag or a
+   shell fragment. A subcommand absent from the table is unreachable.
+
+3. **The sandbox discipline extends to git.** The executor runs one fixed argv
+   with NO shell, a scrubbed environment, `GIT_TERMINAL_PROMPT=0` (fail, never
+   hang on a credential) and `GIT_EDITOR=true`/`GIT_MERGE_AUTOEDIT=no` (never
+   block on an editor), under the per-repository mutating lock, with a bounded
+   timeout and output cap.
+
+4. **Machine output only.** Status/diff/log/blame/worktree/… are parsed from
+   fixed machine formats (`--porcelain=v2`, NUL-delimited `--format`), never
+   human-readable output that can drift between git versions.
+
+5. **Risk is machine-readable; authorization is layered.** Every op carries a
+   SAFE…CRITICAL band. The autonomy profile is the grant
+   (`code.policy.allowed_tools`: `plan_only` removes writes + remotes,
+   `edit_verify` keeps local writes, `approve_external` keeps remotes); the Git
+   effect authorizer then requires a SINGLE-USE operator approval for any
+   dangerous/destructive op and for EVERY remote action. A force push is
+   `critical` and never the default.
+
+6. **Recoverable by construction.** Multi-step operations are detected from the
+   repository's own sentinel files on every call, never a cached flag; a conflict
+   is a structured failure plus a persisted active-operation record; the journal
+   records every mutation (sanitized); nothing discards work automatically.
+
+7. **Local Git and remote hosting are separate.** Git is the local VCS; GitHub/
+   GitLab/Bitbucket are remote collaboration providers behind `VCSProvider` with
+   a normalized PR=MR model. Tokens come from operator-declared env-var NAMES and
+   are never exposed; a remote result is never faked.
+
+**Why.** An autonomous agent must not be able to destroy history, overwrite
+unpushed work, force-push, or silently bypass hooks — and it must be able to
+recover when a merge or rebase stops half-done. A closed table + a single
+executor + a risk/authorization engine + a recoverable state machine + a journal
+gives a capability that is secure by construction, honest by default, and
+testable in isolation.
+
+**Consequences.** New package `python/harness/git/` (+ `git/vcs/`); route group
+`routers/git.py` (`/git/*`, operator-gated); the effect-authorizer composition is
+extracted to `code/authorizers.py` (so `graph.py` stays under its ratchet);
+`code/policy.py` gains `GIT_READ_TOOLS`/`GIT_WRITE_TOOLS`/`GIT_EXTERNAL_TOOLS` and
+narrows them in `allowed_tools`; the Git tools register on the SAME registry via
+`service.py` (`register_git_subsystem`), like the terminal and execution
+subsystems; the fs subsystem's older read `git_status` tool is removed in favour
+of the one richer engine tool (the `FileSystemService.git_status` method and the
+`file_metadata` git awareness are kept). No new third-party dependency (the VCS
+HTTP client is stdlib `urllib`). Tests: `test_git_{engine,mutations,security,tools,
+integration}.py` (isolated temp repositories). Architecture:
+`docs/harness/git-version-control.md`.
+
+## ADR-H131 — The Application Runtime is a provider-agnostic lifecycle over the one sandbox and the one terminal
+
+**Status:** Accepted (2026-10-06)
+
+**Context.** Eclipse could run one-off snippets, build a project and run its
+tests, and it had a real terminal (persistent processes, ports, trees). It could
+NOT understand an *application*: discover its framework and package manager,
+install dependencies, start its services, check whether it is actually healthy,
+diagnose why it isn't, recover it, or track it across an Eclipse restart. The
+tempting shortcut — a bag of `docker`/`npm` shell wrappers the model strings
+together — would couple the agent to Docker and npm, bypass the sandbox, expose
+secrets, and conflate "a process exists" with "the app works".
+
+**Decision.**
+
+1. **One provider-agnostic registry.** `RuntimeRegistry` holds package managers,
+   container runtimes, compose, and the (empty, extension-only) Kubernetes/
+   Terraform/cloud seams. Adding Kubernetes or AWS later means registering an
+   adapter, not rewriting the engine. Adapters declare a CLOSED capability set,
+   so no caller asks an adapter for a meaningless operation.
+
+2. **One lifecycle.** `ApplicationRuntimeManager` owns DISCOVER → VALIDATE →
+   PREPARE → INSTALL → BUILD → START → HEALTH → RUNNING → OBSERVE → STOP →
+   CLEANUP and delegates every concrete action (discovery, argv, containers,
+   ports, health, persistence). It never implements a language or an engine.
+
+3. **Reuse, never rebuild.** Local services start through the EXISTING
+   `TerminalManager`; every argv runs through the ONE `code/sandbox.py`; the
+   autonomy boundary is the EXISTING `code/policy.py`; runtime state lives on the
+   ONE `agent-memory.db`; runtime errors reuse the execution layer's diagnostic
+   parser for their code location.
+
+4. **`RUNNING` is not `HEALTHY`.** State (`DISCOVERED…RUNNING/DEGRADED/STOPPED/
+   FAILED`) is explicit and validated; health is a SEPARATE report produced only
+   by a passing process/TCP/HTTP/container/database/custom check. A service that
+   starts but never answers becomes `DEGRADED`.
+
+5. **Honest failures.** A missing runtime/manager/engine is a structured refusal
+   (`RUNTIME_MISSING`, `PACKAGE_MANAGER_UNAVAILABLE`, `ENGINE_UNAVAILABLE`), never
+   a silent switch or a fake success. A declared/lockfile package manager is
+   authoritative (no pnpm→npm fallback). Reconciliation after an Eclipse restart
+   believes a persisted `RUNNING` only when the live terminal still knows the
+   process.
+
+6. **Security by construction.** Every argv is a validated list — no shell, no
+   string concatenation; names/images/ports/volumes/env keys are validated.
+   Secret values never reach the model, logs or events (only `[SECRET]` and
+   existence). Destructive ops (`container.rm`, `volume rm`, `rmi`,
+   `compose down/rm`, `.env` writes) are `external_action` tools removed at
+   `plan_only` AND require explicit authorization.
+
+7. **Bounded recovery.** A single bounded diagnose→strategy→act→verify loop
+   (`HARNESS_APP_RECOVERY_MAX_ATTEMPTS`, default 3, hard cap 10) records every
+   attempt and never acts on an irrecoverable diagnosis. No `while true`.
+
+**Why.** An autonomous agent that runs applications must be secure by
+construction, honest by default, provider-agnostic, and testable in isolation —
+exactly like the terminal, execution, code-intelligence and Git subsystems before
+it. A registry + one lifecycle + reused primitives delivers that; a bag of
+wrappers cannot.
+
+**Consequences.** New package `python/harness/execution/application/`; route group
+`routers/application.py` (`/runtime/*`, operator-gated); `code/policy.py` gains
+`APP_RUNTIME_WRITE_TOOLS`/`APP_RUNTIME_READ_TOOLS` and narrows them in
+`allowed_tools`; the tools register on the SAME registry via `service.py`; the
+front door adds `application-{client,browser}.ts`, `/api/runtime/**` and an
+Applications tab in the terminal dock. No new third-party dependency (the
+container/compose adapters use the existing sandbox). Tests:
+`test_application_{unit,runtime,security,tools,api,e2e}.py`. Architecture:
+`docs/harness/application-runtime.md`.
+
+
+
+## ADR-H132 - Orchestration, infrastructure and cloud are declarative CLI adapters over one base, and deployment is a bounded lifecycle
+
+**Status:** Accepted (2026-10-06)
+
+**Context.** ADR-H131 shipped the local Application Runtime with empty
+Kubernetes/Terraform/cloud seams. Filling them the tempting way — a per-provider
+module each re-implementing sandbox discipline, argv building and JSON parsing —
+would multiply the security surface with every provider and couple the engine to
+each CLI.
+
+**Decision.**
+
+1. **One `CliAdapter` base.** `kubectl`/`helm`/`kustomize`, `terraform`, and
+   `aws`/`az`/`gcloud`/`wrangler`/`vercel`/`railway`/`render` are each a
+   declarative configuration: `kind`, `binary`, `capabilities`, and a CLOSED
+   `operations` table of `CliOperation`s (an `argv` builder + a `validator`).
+   Argument validation, JSON parsing, the sandbox call and the availability probe
+   live ONCE in the base. A new provider is data, not a new engine.
+
+2. **The sandbox discipline is inherited.** Every operation runs through
+   `code/sandbox.py` with a scrubbed environment, a bounded timeout and output cap,
+   and NO shell. A resource name/namespace/image/file/command containing a shell
+   metacharacter is a structured `INVALID_ARG` refusal.
+
+3. **Honest availability, honest capabilities.** A missing binary is
+   `ENGINE_UNAVAILABLE`; an adapter declares a CLOSED capability set drawn from
+   `ALL_CAPABILITIES`, so no caller asks for a meaningless operation. Credentials
+   reach a cloud CLI only through its OWN ambient mechanism — this layer never
+   passes or reads a secret, and it reports only whether a declared credential env
+   NAME is set.
+
+4. **Deployment is a bounded lifecycle, not a shell call.** `DeploymentEngine`
+   runs validate → build → test → package → deploy → verify, delegating build/test
+   to the SAME package managers the local runtime uses and deploy to a cloud
+   adapter. A `production` deploy requires explicit authorization; a deployment is
+   `deployed` only when the provider accepts it — never claimed live from a status
+   call alone.
+
+5. **Authorization is layered and structural.** The cluster/infra/cloud MUTATIONS
+   are removed at `edit_verify` and `plan_only` (`code.policy.allowed_tools`); every
+   one is an `external_action` and is additionally gated at call time
+   (`terraform_apply`/`terraform_destroy`/`k8s_delete`/`helm_uninstall`/
+   `deploy_delete`/a production `deploy_run`). Reads stay available at every profile.
+
+6. **A real CLI, not a wrapper.** `harness/cli.py` builds the SAME process-wide
+   manager the agent tools and the API use, so the CLI, the agent and the UI cannot
+   disagree. It is structured (`--json`), it refuses a destructive command without
+   `--authorized`, and it adds no execution logic.
+
+**Why.** The provider-agnostic registry promised in ADR-H131 only pays off if the
+providers themselves are uniform and secure by construction. One declarative base
++ a closed capability contract + a bounded deployment lifecycle makes Kubernetes,
+Terraform and seven clouds additive and reviewable, without multiplying the attack
+surface or coupling the engine to any CLI.
+
+**Consequences.** New modules `cli_base.py`, `orchestrators.py`,
+`infrastructure.py`, `cloud.py`, `deployment.py`, `cache.py`, `cli.py`,
+`scripts/eclipse.js`; 29 new agent tools (`k8s_*`/`helm_*`/`kustomize_*`/
+`terraform_*`/`cloud_*`/`deploy_*`) in `k8s_infra_tools.py`; `code/policy.py` gains
+`APP_RUNTIME_K8S_WRITE_TOOLS` and narrows it at `edit_verify`/`plan_only`; route
+group `routers/application.py` gains the orchestrator/terraform/deploy routes;
+front door `application-{client,browser}.ts` + `/api/runtime/**` + the Applications
+provider footer. No new third-party dependency. Tests:
+`test_application_{orchestration,deploy}.py`. Architecture:
+`docs/harness/application-runtime.md`.

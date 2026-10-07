@@ -190,10 +190,12 @@ class _FakeEmitter:
 
 def _ctx(root, emitter=None):
     from harness.code.tools import make_code_authorizer, register_code_tools
+    from harness.git.register import register_git_subsystem
     from harness.tools import ToolContext, ToolRegistry
 
     registry = ToolRegistry()
     register_code_tools(registry)
+    register_git_subsystem(registry)
     ctx = ToolContext(
         run_id="r", log=lambda *_: None, workspace=make_ws(root), autonomy="edit_verify",
         authorize_effect=make_code_authorizer(), direct=True, emitter=emitter,
@@ -206,10 +208,15 @@ def _call(registry, name, args, ctx):
 
 
 def test_registry_registers_verify_and_git_tools(tmp_path):
-    registry, _ = _ctx(tree(tmp_path))
-    for name in ("verify_file", "validate_changes", "git_status"):
+    root = tree(tmp_path)
+    registry, _ = _ctx(root)
+    for name in ("verify_file", "validate_changes"):
         tool = registry.get(name)
         assert tool is not None and tool.permission == "read"
+    # `git_status` is the ONE Git-engine tool (registered by `register_git_tools`),
+    # still read-only.
+    git_tool = registry.get("git_status")
+    assert git_tool is not None and git_tool.permission == "read"
 
 
 def test_verify_file_tool_through_registry(tmp_path):

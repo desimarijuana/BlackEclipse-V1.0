@@ -51,6 +51,15 @@ langchain-groq>=0.2
 pywinpty>=2,<4; sys_platform == "win32"
 ptyprocess>=0.7; sys_platform != "win32"
 
+# The Code Execution & Verification Layer's SQL runtime reaches PostgreSQL and
+# DuckDB through these. SQLite needs no driver (stdlib). Both are optional in
+# effect — a missing one makes its dialect REFUSE with SQL_DRIVER_MISSING rather
+# than fabricate a connection — but installed by default so `execute_sql` can
+# actually reach the dialects Eclipse advertises. `pg8000` is pure-Python (no
+# build toolchain); `duckdb` is an embedded wheel (no server).
+pg8000>=1.31,<2
+duckdb>=1.0
+
 # Tests
 pytest>=8.0
 pytest-asyncio>=0.24

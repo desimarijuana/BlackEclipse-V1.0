@@ -22,6 +22,18 @@ from .models import Diagnostic
 MAX_DIAGNOSTICS = 200
 MAX_MESSAGE_CHARS = 600
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Strip terminal color/control codes. Reuses the terminal subsystem's helper."""
+    try:
+        from ...terminal.session import strip_ansi  # noqa: PLC0415
+
+        return strip_ansi(text)
+    except Exception:  # noqa: BLE001
+        return _ANSI.sub("", text)
+
 # src/app.ts(42,17): error TS2339: Property 'foo' does not exist on type 'X'.
 _TS = re.compile(
     r"^(?P<file>[^\s(][^()]*?)\((?P<line>\d+),(?P<col>\d+)\):\s*"
@@ -246,10 +258,12 @@ def normalize(output: str, *, language: str = "", source: str = "") -> list[Diag
     The FIRST parser that yields diagnostics wins, so a TypeScript build uses the
     `tsc` parser and never mis-reads a stack frame as a compiler error. When no
     parser matches but the output is non-empty and looks like an error, a single
-    message-only diagnostic is returned (no fabricated location).
+    message-only diagnostic is returned (no fabricated location). Terminal color
+    codes are stripped first so a colored `file:line:col` or stack frame matches.
     """
     if not output or not output.strip():
         return []
+    output = _strip_ansi(output)
     order = _LANGUAGE_ORDER.get(language.casefold(), ("generic", "javascript", "python", "typescript", "lint"))
     for name in order:
         parser = _PARSER_BY_NAME.get(name)

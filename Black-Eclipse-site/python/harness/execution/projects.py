@@ -116,10 +116,26 @@ class ProjectInfo:
 
 def _read_text(path: Path, *, limit: int = MAX_MANIFEST_BYTES) -> str:
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        with open(path, "r", encoding="utf-8-sig", errors="replace") as handle:
             return handle.read(limit)
     except OSError:
         return ""
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    """Read a JSON manifest, tolerating a UTF-8 BOM (Windows editors add one).
+
+    A `package.json`/`tsconfig.json` saved by Notepad or PowerShell commonly begins
+    with a BOM; it is valid JSON and Eclipse MUST read it. Returns `{}` on any
+    missing/invalid file — never raises.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(_read_text(path) or "{}")
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def language_from_extension(path: str) -> str:
@@ -257,10 +273,7 @@ class ProjectDetector:
         package = root / "package.json"
         if not package.is_file():
             return
-        try:
-            data = json.loads(_read_text(package) or "{}")
-        except json.JSONDecodeError:
-            return
+        data = read_json(package)
         # A package.json with TypeScript config or deps implies a TS project.
         deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
         if "typescript" in deps and "typescript" not in info.languages:

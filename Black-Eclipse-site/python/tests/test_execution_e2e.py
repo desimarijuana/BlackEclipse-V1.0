@@ -132,3 +132,35 @@ def test_execution_tools_registered_and_gated(tmp_path):
     assert "build_project" in names
     assert registry.get("execute_python").permission == "write"
     assert registry.get("discover_tests").permission == "read"
+
+
+def test_execution_tools_are_reachable_from_a_chat_coding_turn():
+    """A chat coding turn (autonomy `edit_verify`) binds the execution tools.
+
+    Registers the REAL code + execution tools on one registry and resolves the
+    surface with the SAME resolver the graph uses, then asserts the BOUND schemas
+    (not the prompt). At `plan_only` the execute/build tools are removed; the
+    read-only evidence tools stay.
+    """
+    from harness.agents import ECLIPSE_AGENT
+    from harness.code.tools import register_code_tools
+    from harness.execution.tools import register_execution_tools
+    from harness.graph import resolve_surface
+    from harness.tools import ToolRegistry
+
+    registry = ToolRegistry()
+    register_code_tools(registry)
+    register_execution_tools(registry)
+
+    def _bound(autonomy):
+        allowed, _prompt = resolve_surface(ECLIPSE_AGENT, registry, {}, autonomy)
+        return {s["name"] for s in registry.schemas(allowed)}
+
+    change = _bound("edit_verify")
+    assert {"execute_python", "execute_javascript", "execute_typescript", "execute_sql",
+            "build_project", "test_project", "run_verification", "start_service"} <= change
+    assert {"discover_tests", "execution_get", "service_status"} <= change
+
+    question = _bound("plan_only")
+    assert not ({"execute_python", "build_project", "start_service"} & question)
+    assert {"discover_tests", "execution_get"} <= question

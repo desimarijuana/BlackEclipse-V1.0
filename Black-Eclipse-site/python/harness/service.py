@@ -152,11 +152,38 @@ class AgenticService:
         self.execution = ExecutionService(store=self.store, terminal=self.terminal)
         set_execution_service(self.execution)
         register_execution_tools(self.registry)
+        # The Application Runtime layer (DevOps): discovery, package managers,
+        # Docker/Podman/Compose, health checks, ports, diagnostics, bounded
+        # recovery. Built on the SAME terminal manager and `code/sandbox.py`; its
+        # tools register on the SAME registry, so agent and UI share one engine.
+        from .execution.application.manager import ApplicationRuntimeManager, build_runtime_registry  # noqa: PLC0415
+        from .execution.application.runtime import set_application_runtime  # noqa: PLC0415
+        from .execution.application.store import ApplicationRuntimeStore  # noqa: PLC0415
+        from .execution.application.tools import register_application_tools  # noqa: PLC0415
+
+        self.application_store = ApplicationRuntimeStore(self.store)
+        self.application_runtime = ApplicationRuntimeManager(
+            registry=build_runtime_registry(), terminal=self.terminal,
+            store=self.application_store, bus=self.bus,
+        )
+        set_application_runtime(self.application_runtime)
+        register_application_tools(self.registry)
         # Disposable code workspaces (Phase 2): rows in agent-memory.db bound to
         # the one store connection.
         from .code.store import CodeWorkspaceStore  # noqa: PLC0415
 
         self.code_store = CodeWorkspaceStore(self.store)
+        # Git / Version-Control subsystem: ONE process-wide service bound to the
+        # same agent-memory connection (journal + active-operation tables). Its
+        # journal is owned by the service; the tools resolve it through the module
+        # singleton so a tool handler never carries the store. Registered on the
+        # SAME registry like the terminal and execution subsystems.
+        from .git.register import register_git_subsystem  # noqa: PLC0415
+        from .git.service import GitService, set_git_service  # noqa: PLC0415
+
+        self.git = GitService(self.store)
+        set_git_service(self.git)
+        register_git_subsystem(self.registry)
         # The Code Intelligence & Understanding Engine (CIUE): ONE process-wide
         # runtime holding the LSP manager and a per-workspace code index/watcher.
         # Its events ride the process-wide bus. Built before any run so the
@@ -390,6 +417,35 @@ class AgenticService:
             layer.stop()
         except Exception:  # noqa: BLE001 - shutdown must never raise
             log.warning("execution shutdown failed", exc_info=True)
+
+    def reconcile_application_runtime(self) -> dict[str, Any]:
+        """Reconcile the application runtimes left by a previous process (never raises).
+
+        A runtime that was RUNNING is re-examined: if its processes/containers are
+        gone it becomes DEGRADED. Eclipse never fabricates a running runtime.
+        """
+        manager = getattr(self, "application_runtime", None)
+        if manager is None:
+            return {"status": "ok", "reconciled": [], "note": "no application runtime"}
+        try:
+            result = manager.reconcile()
+            log.info("application runtime reconciled %s runtime(s)", result.get("count", 0))
+            return result
+        except Exception:  # noqa: BLE001 - reconciliation must never block boot
+            log.warning("application runtime reconciliation failed", exc_info=True)
+            return {"status": "error", "reconciled": []}
+
+    def stop_application_runtime(self) -> None:
+        """Stop every application this process started, on shutdown (never raises)."""
+        manager = getattr(self, "application_runtime", None)
+        if manager is None:
+            return
+        try:
+            for handle in list(manager._runtimes.values()):  # noqa: SLF001
+                if handle.state.value not in ("STOPPED", "FAILED"):
+                    manager.stop(handle.runtime_id)
+        except Exception:  # noqa: BLE001 - shutdown must never raise
+            log.warning("application runtime shutdown failed", exc_info=True)
 
     async def start_mcp(self) -> None:
         """Connect enabled MCP servers and register selected read-only tools.

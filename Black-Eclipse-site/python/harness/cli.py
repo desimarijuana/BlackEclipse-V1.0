@@ -1,0 +1,466 @@
+"""The Eclipse CLI — a thin, structured command surface over the Application Runtime.
+
+Usage (run from `Black-Eclipse-site/python/` with the runtime interpreter):
+
+    python -m harness.cli runtime detect
+    python -m harness.cli runtime inspect [--root PATH]
+    python -m harness.cli runtime start  [--root PATH] [--no-install] [--build] [--compose]
+    python -m harness.cli runtime status RUNTIME_ID
+    python -m harness.cli runtime stop   RUNTIME_ID
+    python -m harness.cli runtime restart RUNTIME_ID
+    python -m harness.cli runtime health RUNTIME_ID
+    python -m harness.cli runtime logs   RUNTIME_ID [--tail N]
+    python -m harness.cli runtime diagnose RUNTIME_ID
+    python -m harness.cli runtime recover RUNTIME_ID
+    python -m harness.cli runtime reconcile
+    python -m harness.cli package detect|version|list|install|build|test [--root PATH]
+    python -m harness.cli container ps|logs|exec|images ...
+    python -m harness.cli compose up|down|ps|logs ...
+    python -m harness.cli environment inspect|validate [--root PATH]
+    python -m harness.cli port list|check PORT|find-free
+    python -m harness.cli k8s get|logs|apply|delete ... [--authorized]
+    python -m harness.cli terraform validate|plan|apply|destroy ... [--authorized]
+    python -m harness.cli deploy run|status|logs|rollback ... [--authorized]
+
+It is a REAL CLI, not a shell wrapper: it builds the SAME process-wide
+`ApplicationRuntimeManager` the agent tools and the API use, so the CLI, the agent
+and the UI can never disagree. Output is JSON by default (`--json`), a plain
+one-line summary otherwise. Destructive commands print a structured refusal unless
+`--authorized` is passed.
+
+This module adds NO execution logic; it is a thin adapter over the runtime.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Optional
+
+
+def _build_manager(root: Optional[str]) -> Any:
+    """Build a standalone runtime manager for a CLI invocation."""
+    from .execution.application.manager import ApplicationRuntimeManager, build_runtime_registry
+    from .execution.application.store import ApplicationRuntimeStore
+    from .persistence import AgentMemoryStore
+    from .terminal.runtime import build_terminal_manager, set_terminal_manager
+
+    store = AgentMemoryStore()
+    terminal = build_terminal_manager(store=None, bus=_Bus())
+    set_terminal_manager(terminal)
+    manager = ApplicationRuntimeManager(
+        registry=build_runtime_registry(), terminal=terminal,
+        store=ApplicationRuntimeStore(store), bus=_Bus(),
+    )
+    return manager
+
+
+class _Bus:
+    """A no-op event bus: the CLI prints results directly; it has no SSE consumer."""
+
+    def publish(self, _event: dict[str, Any]) -> None:
+        return None
+
+
+def _emit(args: argparse.Namespace, data: Any, summary: str) -> int:
+    if getattr(args, "json", False):
+        print(json.dumps(data, indent=2, default=str))
+        return 0
+    print(summary)
+    return 0
+
+
+def _refusal(code: str, reason: str) -> int:
+    print(f"REFUSED ({code}): {reason}", file=sys.stderr)
+    return 2
+
+
+def _resolve_root(value: Optional[str]) -> Path:
+    if value:
+        return Path(value).resolve()
+    return Path.cwd()
+
+
+# ── command handlers ─────────────────────────────────────────────────────────────
+
+
+def _cmd_runtime(args: argparse.Namespace, manager: Any) -> int:
+    action = args.action
+    root = _resolve_root(args.root)
+    if action == "detect":
+        from .execution.application.environment import EnvironmentDetector
+
+        data = EnvironmentDetector().detect()
+        available = [n for n, info in data.get("tools", {}).items() if info.get("available")]
+        return _emit(args, data, f"{len(available)} tool(s) available")
+    if action == "capabilities":
+        data = manager.describe()
+        return _emit(args, data, "capabilities reported")
+    if action == "inspect":
+        data = manager.inspect(root)
+        desc = data.get("descriptor", {})
+        return _emit(args, data, f"{desc.get('name')} — {desc.get('framework') or desc.get('language') or 'project'}")
+    if action == "start":
+        handle = manager.start(
+            root, install=not args.no_install, build=bool(args.build),
+            use_compose=(True if args.compose else None), wait_ready=not args.no_wait,
+        )
+        if handle.state.value == "FAILED":
+            return _refusal((handle.last_error or {}).get("category", "FAILED"),
+                            (handle.last_error or {}).get("message", "could not start"))
+        return _emit(args, handle.to_dict(), f"started {handle.runtime_id} ({handle.state.value})")
+    if action == "status" or action == "health":
+        data = manager.status(args.runtime_id)
+        if data.get("status") == "not_found":
+            return _refusal("NOT_FOUND", "no such runtime")
+        runtime = data.get("runtime", {})
+        return _emit(args, data, f"{args.runtime_id}: {runtime.get('state')} health={runtime.get('health', {}).get('status')}")
+    if action == "stop":
+        data = manager.stop(args.runtime_id)
+        return _emit(args, data, f"stopped {args.runtime_id}") if data.get("status") == "ok" else _refusal("NOT_FOUND", "no such runtime")
+    if action == "restart":
+        try:
+            handle = manager.restart(args.runtime_id)
+        except KeyError:
+            return _refusal("NOT_FOUND", "no such runtime")
+        return _emit(args, handle.to_dict(), f"restarted {handle.runtime_id}")
+    if action == "cleanup":
+        data = manager.cleanup(args.runtime_id)
+        return _emit(args, data, f"cleaned {args.runtime_id}") if data.get("status") == "ok" else _refusal("NOT_FOUND", "no such runtime")
+    if action == "logs":
+        data = manager.logs(args.runtime_id, tail=args.tail)
+        if data.get("status") == "not_found":
+            return _refusal("NOT_FOUND", "no such runtime")
+        text = "\n".join(s.get("text", "") for s in data.get("streams", []))
+        return _emit(args, data, text or "no output")
+    if action == "diagnose":
+        data = manager.diagnose(args.runtime_id)
+        if data.get("status") == "not_found":
+            return _refusal("NOT_FOUND", "no such runtime")
+        diag = data.get("diagnosis", {})
+        return _emit(args, data, f"{diag.get('category')}: {diag.get('message')}")
+    if action == "recover":
+        data = manager.recover(args.runtime_id, max_attempts=args.max_attempts)
+        if data.get("status") == "not_found":
+            return _refusal("NOT_FOUND", "no such runtime")
+        rec = data.get("recovery", {})
+        return _emit(args, data, f"recovered={rec.get('recovered')} attempts={rec.get('attempts')}")
+    if action == "reconcile":
+        data = manager.reconcile()
+        return _emit(args, data, f"reconciled {data.get('count', 0)} runtime(s)")
+    if action == "list":
+        data = manager.list()
+        return _emit(args, {"runtimes": data}, f"{len(data)} runtime(s)")
+    return _refusal("UNKNOWN_ACTION", f"unknown runtime action {action!r}")
+
+
+def _cmd_package(args: argparse.Namespace, manager: Any) -> int:
+    from .execution.application.tools import _HANDLERS
+    import asyncio
+
+    root = _resolve_root(args.root)
+    ctx = _cli_context(root, manager, args.authorized)
+    mapping = {
+        "detect": "package_detect", "version": "package_version", "list": "package_list",
+        "install": "package_install", "add": "package_add", "remove": "package_remove",
+        "update": "package_update", "build": "package_build", "test": "package_test",
+        "audit": "package_audit", "run": "package_run",
+    }
+    name = mapping.get(args.action)
+    if name is None:
+        return _refusal("UNKNOWN_ACTION", f"unknown package action {args.action!r}")
+    payload: dict[str, Any] = {}
+    if args.manager:
+        payload["manager"] = args.manager
+    if getattr(args, "packages", None):
+        payload["packages"] = args.packages
+    if getattr(args, "script", None):
+        payload["script"] = args.script
+    if args.action in ("build", "test"):
+        payload[args.action] = True
+    text, data = asyncio.get_event_loop().run_until_complete(_HANDLERS[name](payload, ctx))
+    if data.get("status") == "refused":
+        return _refusal(data.get("code", "REFUSED"), data.get("reason", ""))
+    return _emit(args, data, text)
+
+
+def _cmd_environment(args: argparse.Namespace, manager: Any) -> int:
+    import asyncio
+
+    from .execution.application.tools import _HANDLERS
+
+    root = _resolve_root(args.root)
+    ctx = _cli_context(root, manager, args.authorized)
+    mapping = {"inspect": "environment_inspect", "validate": "environment_validate",
+               "load": "environment_load", "compare": "environment_compare",
+               "set": "environment_set", "unset": "environment_unset"}
+    name = mapping.get(args.action)
+    if name is None:
+        return _refusal("UNKNOWN_ACTION", f"unknown environment action {args.action!r}")
+    payload: dict[str, Any] = {}
+    for field_name in ("file", "name", "value", "left", "right"):
+        value = getattr(args, field_name, None)
+        if value:
+            payload[field_name] = value
+    text, data = asyncio.get_event_loop().run_until_complete(_HANDLERS[name](payload, ctx))
+    if data.get("status") == "refused":
+        return _refusal(data.get("code", "REFUSED"), data.get("reason", ""))
+    return _emit(args, data, text)
+
+
+def _cmd_port(args: argparse.Namespace, manager: Any) -> int:
+    if args.action == "list":
+        data = manager.ports.summary()
+        return _emit(args, data, f"{data.get('count', 0)} listening port(s)")
+    if args.action == "check":
+        data = manager.ports.check(args.port)
+        return _emit(args, data, f"port {args.port}: {'in use' if data.get('inUse') else 'free'}")
+    if args.action == "find-free":
+        record = manager.ports.allocate(preferred=args.preferred or 0, owner="cli")
+        return _emit(args, record.to_dict(), f"free port: {record.port}")
+    if args.action == "identify":
+        conflict = manager.ports.identify(args.port)
+        if conflict is None:
+            return _emit(args, {"port": args.port, "inUse": False}, f"port {args.port} is free")
+        return _emit(args, conflict.to_dict(), f"held by {conflict.owner}")
+    return _refusal("UNKNOWN_ACTION", f"unknown port action {args.action!r}")
+
+
+def _cmd_container(args: argparse.Namespace, manager: Any) -> int:
+    engine = manager.container()
+    if engine is None:
+        return _refusal("ENGINE_UNAVAILABLE", "no container engine (Docker or Podman) is available")
+    if args.action == "ps":
+        result = engine.ps(all=not args.running)
+    elif args.action == "logs":
+        result = engine.logs(args.container, tail=args.tail)
+    elif args.action == "exec":
+        result = engine.exec(args.container, args.command)
+    elif args.action == "images":
+        result = engine.images()
+    elif args.action == "inspect":
+        result = engine.inspect(args.container)
+    else:
+        return _refusal("UNKNOWN_ACTION", f"unknown container action {args.action!r}")
+    data = result.to_dict()
+    if not result.ok:
+        return _refusal(result.code, result.reason or result.output[-400:])
+    return _emit(args, data, result.output[-400:] or "ok")
+
+
+def _cmd_compose(args: argparse.Namespace, manager: Any) -> int:
+    compose = manager.compose_adapter()
+    if compose is None:
+        return _refusal("ENGINE_UNAVAILABLE", "no compose engine is available")
+    root = _resolve_root(args.root)
+    from .execution.application._tool_common import default_compose_file
+
+    compose_file = default_compose_file(root)
+    if args.action == "up":
+        result = compose.up(cwd=root, compose_file=compose_file, detach=True, build=args.build)
+    elif args.action == "down":
+        result = compose.down(cwd=root, compose_file=compose_file, volumes=args.volumes)
+    elif args.action == "ps":
+        result = compose.ps(cwd=root, compose_file=compose_file)
+    elif args.action == "logs":
+        result = compose.logs(cwd=root, compose_file=compose_file, service=args.service, tail=args.tail)
+    else:
+        return _refusal("UNKNOWN_ACTION", f"unknown compose action {args.action!r}")
+    data = result.to_dict()
+    if not result.ok:
+        return _refusal(result.code, result.reason or result.output[-400:])
+    return _emit(args, data, result.output[-400:] or "ok")
+
+
+def _cmd_k8s(args: argparse.Namespace, manager: Any) -> int:
+    operation = {"get": "get", "pods": "get_pods", "logs": "logs", "describe": "describe",
+                 "apply": "apply", "delete": "delete", "scale": "scale", "exec": "exec"}.get(args.action)
+    if operation is None:
+        return _refusal("UNKNOWN_ACTION", f"unknown k8s action {args.action!r}")
+    if operation in ("apply", "delete", "scale", "exec") and not args.authorized:
+        return _refusal("AUTHORIZATION_REQUIRED", "this Kubernetes mutation needs --authorized")
+    payload = {k: v for k, v in vars(args).items()
+               if k in ("kind", "name", "namespace", "selector", "container", "file", "replicas", "command") and v}
+    result = manager.run_orchestrator(operation, payload)
+    if isinstance(result, dict):
+        return _refusal(result.get("code", "REFUSED"), result.get("reason", ""))
+    if not result.ok:
+        return _refusal(result.code, result.reason or result.output[-400:])
+    return _emit(args, result.to_dict(), result.output[-400:] or "ok")
+
+
+def _cmd_terraform(args: argparse.Namespace, manager: Any) -> int:
+    if args.action in ("apply", "destroy") and not args.authorized:
+        return _refusal("AUTHORIZATION_REQUIRED", "this Terraform operation needs --authorized")
+    payload = {"autoApprove": args.auto_approve}
+    if args.dir:
+        payload["dir"] = args.dir
+    result = manager.run_infrastructure(args.action, payload)
+    if isinstance(result, dict):
+        return _refusal(result.get("code", "REFUSED"), result.get("reason", ""))
+    if not result.ok:
+        return _refusal(result.code, result.reason or result.output[-400:])
+    return _emit(args, result.to_dict(), result.output[-400:] or "ok")
+
+
+def _cmd_deploy(args: argparse.Namespace, manager: Any) -> int:
+    root = _resolve_root(args.root)
+    if args.action == "run":
+        outcome = manager.deployment.deploy(
+            root, provider=args.provider, environment=args.environment,
+            service=args.service, install=not args.no_install, build=args.build,
+            authorize=args.authorized,
+        )
+        data = outcome.to_dict()
+        if outcome.status == "failed":
+            return _refusal((outcome.error or {}).get("code", "DEPLOY_FAILED"),
+                            (outcome.error or {}).get("message", "failed"))
+        return _emit(args, data, f"deployment {outcome.status}")
+    if args.action == "status":
+        result = manager.deployment.status(provider=args.provider, service=args.service)
+    elif args.action == "logs":
+        result = manager.deployment.logs(provider=args.provider, service=args.service)
+    elif args.action == "rollback":
+        result = manager.deployment.rollback(provider=args.provider, service=args.service)
+    else:
+        return _refusal("UNKNOWN_ACTION", f"unknown deploy action {args.action!r}")
+    if isinstance(result, dict):
+        return _refusal(result.get("code", "REFUSED"), result.get("reason", ""))
+    if not result.ok:
+        return _refusal(result.code, result.reason or result.output[-400:])
+    return _emit(args, result.to_dict(), result.output[-400:] or "ok")
+
+
+def _cli_context(root: Path, manager: Any, authorized: bool) -> Any:
+    from .code.policy import WorkspaceBinding
+    from .code.workspace import ResolvedWorkspace
+    from .tools import ToolContext
+
+    binding = WorkspaceBinding(id="cli", root=root, base_revision="", strategy="direct")
+    resolved = ResolvedWorkspace(id="cli", root=root, base_revision="", strategy="direct", binding=binding)
+    ctx = ToolContext(run_id="", log=lambda *_: None, workspace=resolved,
+                      autonomy="approve_external", direct=True)
+    # A CLI invocation is an operator act: `--authorized` sets the operator bit the
+    # tools check before a destructive operation.
+    try:
+        ctx.operator = bool(authorized)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+    return ctx
+
+
+# ── argument parsing ──────────────────────────────────────────────────────────────
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="eclipse", description="Eclipse application runtime CLI")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    sub = parser.add_subparsers(dest="group", required=True)
+
+    # `--json` is accepted BOTH before the group and after the action, so
+    # `eclipse runtime inspect --json` and `eclipse --json runtime inspect` agree.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    runtime = sub.add_parser("runtime", parents=[common], help="application runtime")
+    runtime.add_argument("action", choices=[
+        "detect", "capabilities", "inspect", "start", "status", "health", "stop",
+        "restart", "cleanup", "logs", "diagnose", "recover", "reconcile", "list"])
+    runtime.add_argument("runtime_id", nargs="?", default="")
+    runtime.add_argument("--root")
+    runtime.add_argument("--no-install", action="store_true")
+    runtime.add_argument("--build", action="store_true")
+    runtime.add_argument("--compose", action="store_true")
+    runtime.add_argument("--no-wait", action="store_true")
+    runtime.add_argument("--tail", type=int, default=200)
+    runtime.add_argument("--max-attempts", type=int, default=None)
+
+    package = sub.add_parser("package", parents=[common], help="package managers")
+    package.add_argument("action", choices=["detect", "version", "list", "install", "add", "remove", "update", "build", "test", "audit", "run"])
+    package.add_argument("--root")
+    package.add_argument("--manager", default="")
+    package.add_argument("--packages", nargs="*", default=[])
+    package.add_argument("--script", default="")
+    package.add_argument("--authorized", action="store_true")
+
+    environment = sub.add_parser("environment", parents=[common], help="environment files")
+    environment.add_argument("action", choices=["inspect", "validate", "load", "compare", "set", "unset"])
+    environment.add_argument("--root")
+    environment.add_argument("--file", default=".env")
+    environment.add_argument("--name", default="")
+    environment.add_argument("--value", default="")
+    environment.add_argument("--left", default=".env")
+    environment.add_argument("--right", default=".env.example")
+    environment.add_argument("--authorized", action="store_true")
+
+    port = sub.add_parser("port", parents=[common], help="ports")
+    port.add_argument("action", choices=["list", "check", "find-free", "identify"])
+    port.add_argument("port", nargs="?", type=int, default=0)
+    port.add_argument("--preferred", type=int, default=0)
+
+    container = sub.add_parser("container", parents=[common], help="Docker/Podman containers")
+    container.add_argument("action", choices=["ps", "logs", "exec", "images", "inspect"])
+    container.add_argument("container", nargs="?", default="")
+    container.add_argument("command", nargs="*", default=[])
+    container.add_argument("--tail", type=int, default=200)
+    container.add_argument("--running", action="store_true")
+
+    compose = sub.add_parser("compose", parents=[common], help="Docker Compose")
+    compose.add_argument("action", choices=["up", "down", "ps", "logs"])
+    compose.add_argument("--root")
+    compose.add_argument("--service", default="")
+    compose.add_argument("--tail", type=int, default=200)
+    compose.add_argument("--build", action="store_true")
+    compose.add_argument("--volumes", action="store_true")
+    compose.add_argument("--authorized", action="store_true")
+
+    k8s = sub.add_parser("k8s", parents=[common], help="Kubernetes / Helm / Kustomize")
+    k8s.add_argument("action", choices=["get", "pods", "logs", "describe", "apply", "delete", "scale", "exec"])
+    k8s.add_argument("--kind", default="")
+    k8s.add_argument("--name", default="")
+    k8s.add_argument("--namespace", default="")
+    k8s.add_argument("--selector", default="")
+    k8s.add_argument("--container", default="")
+    k8s.add_argument("--file", default="")
+    k8s.add_argument("--replicas", type=int, default=None)
+    k8s.add_argument("command", nargs="*", default=[])
+    k8s.add_argument("--authorized", action="store_true")
+
+    terraform = sub.add_parser("terraform", parents=[common], help="Terraform")
+    terraform.add_argument("action", choices=["init", "validate", "fmt", "plan", "apply", "destroy", "output", "state"])
+    terraform.add_argument("--dir", default="")
+    terraform.add_argument("--auto-approve", action="store_true")
+    terraform.add_argument("--authorized", action="store_true")
+
+    deploy = sub.add_parser("deploy", parents=[common], help="cloud deploy")
+    deploy.add_argument("action", choices=["run", "status", "logs", "rollback"])
+    deploy.add_argument("--root")
+    deploy.add_argument("--provider", default="")
+    deploy.add_argument("--environment", default="staging")
+    deploy.add_argument("--service", default="")
+    deploy.add_argument("--no-install", action="store_true")
+    deploy.add_argument("--build", action="store_true")
+    deploy.add_argument("--authorized", action="store_true")
+
+    return parser
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        manager = _build_manager(getattr(args, "root", None))
+    except Exception as exc:  # noqa: BLE001 - a missing runtime is a clean CLI error
+        return _refusal("RUNTIME_UNAVAILABLE", f"the application runtime could not start: {type(exc).__name__}")
+    handlers = {
+        "runtime": _cmd_runtime, "package": _cmd_package, "environment": _cmd_environment,
+        "port": _cmd_port, "container": _cmd_container, "compose": _cmd_compose,
+        "k8s": _cmd_k8s, "terraform": _cmd_terraform, "deploy": _cmd_deploy,
+    }
+    return handlers[args.group](args, manager)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

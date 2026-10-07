@@ -121,6 +121,25 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 9: build a finance tool from a ready-made shape. Gated by the
         # run's editing profile (a workspace-bound code.write).
         "scaffold_kit",
+        # Application Runtime (DevOps): the read-only surface is always available
+        # ("inspect this project", "what's using port 3000", "is it healthy").
+        # Starting/stopping an application requires a coding turn (the chat code
+        # profile) so the write tools are NOT declared here.
+        "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
+        "runtime_health", "runtime_logs", "runtime_diagnose", "runtime_metrics",
+        "package_detect", "package_version", "package_list",
+        "container_list", "container_logs", "container_inspect", "container_health",
+        "compose_validate", "compose_config", "compose_ps", "compose_logs",
+        "environment_inspect", "environment_validate",
+        "port_check", "port_find_free", "port_list", "port_identify_process",
+        "health_check", "health_status",
+        # Orchestration / infrastructure / cloud read-only surface (Kubernetes,
+        # Terraform, deploy status) so the finance agent can answer "what's
+        # deployed" without a coding turn. Mutations live on the code surface.
+        "k8s_status", "k8s_get", "k8s_get_pods", "k8s_describe", "k8s_logs",
+        "k8s_rollout", "helm_list", "helm_status", "kustomize_build",
+        "terraform_validate", "terraform_plan", "terraform_output", "terraform_state",
+        "cloud_providers", "deploy_status", "deploy_logs",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -203,6 +222,39 @@ CODE_AGENT_TOOLS = [
     "service_status", "service_logs", "list_services",
     "execution_get", "execution_logs", "execution_result",
     "execution_artifacts", "cancel_execution",
+    # Application Runtime layer (DevOps): discover/prepare/run/observe apps,
+    # package managers, Docker/Podman/Compose, environment, ports and health.
+    # The write half is removed at `plan_only` by `code.policy.allowed_tools`.
+    "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
+    "runtime_health", "runtime_logs", "runtime_reconcile", "runtime_diagnose",
+    "runtime_metrics", "runtime_start", "runtime_stop", "runtime_restart",
+    "runtime_cleanup", "runtime_recover",
+    "package_detect", "package_version", "package_list", "package_audit",
+    "package_install", "package_add", "package_remove", "package_update",
+    "package_run", "package_build", "package_test",
+    "container_logs", "container_inspect", "container_stats", "container_list",
+    "container_images", "container_health", "container_build", "container_run",
+    "container_start", "container_stop", "container_restart", "container_exec",
+    "container_remove", "container_pull", "container_rmi", "container_network",
+    "container_volume",
+    "compose_validate", "compose_config", "compose_ps", "compose_logs",
+    "compose_build", "compose_up", "compose_down", "compose_start",
+    "compose_stop", "compose_restart", "compose_exec", "compose_pull", "compose_rm",
+    "environment_inspect", "environment_validate", "environment_load",
+    "environment_compare", "environment_set", "environment_unset",
+    "port_check", "port_find_free", "port_list", "port_identify_process",
+    "health_check", "health_status",
+    # Orchestration / infrastructure / cloud (Kubernetes, Helm, Kustomize,
+    # Terraform, deploy). Cluster/infra/cloud mutations need `approve_external`.
+    "k8s_status", "k8s_get", "k8s_get_pods", "k8s_describe", "k8s_logs",
+    "k8s_rollout", "helm_list", "helm_status", "kustomize_build",
+    "terraform_init", "terraform_validate", "terraform_fmt", "terraform_plan",
+    "terraform_output", "terraform_state",
+    "cloud_providers", "deploy_status", "deploy_logs",
+    "k8s_apply", "k8s_delete", "k8s_scale", "k8s_exec",
+    "helm_install", "helm_uninstall",
+    "terraform_apply", "terraform_destroy",
+    "deploy_run", "deploy_rollback", "deploy_delete",
     # Verification (Phase 4) — the final answer is checked against the ledger.
     # Memory/session recall stays available: read-only context, NOT the finance family.
     "memory", "skill_list", "skill_view", "session_search", "session_open",
@@ -219,6 +271,41 @@ CODE_AGENT_TOOLS = [
     "code_find_related_tests", "code_rename_symbol",
     # External actions (Phase 5) — approve_external only, each single-use approved.
     "code_commit", "code_push", "code_open_pr", "code_deploy",
+    # Git / Version-Control subsystem (the Git engine). Read + LOCAL mutation +
+    # REMOTE. The autonomy boundary is applied by `code.policy.allowed_tools`, and
+    # the Git effect authorizer gates every dangerous/destructive operation and
+    # every remote action with a single-use operator approval.
+    "git_repository_info", "git_list_repositories", "git_status", "git_diff",
+    "git_diff_cached", "git_diff_range", "git_log", "git_show", "git_commit_info",
+    "git_blame", "git_reflog", "git_branch_list", "git_conflicts",
+    "git_operation_state", "git_stash_list", "git_stash_show", "git_tag_list",
+    "git_remote_list", "git_worktree_list", "git_submodule_list", "git_config_get",
+    "git_config_list", "git_hooks", "git_lfs_status", "git_clean_preview",
+    "git_ignore_check", "git_generate_commit_message", "git_recovery_options", "git_list_hunks",
+    "git_stage", "git_unstage", "git_stage_hunks", "git_unstage_hunks", "git_apply_patch",
+    "git_commit", "git_generate_and_commit",
+    "git_create_branch", "git_checkout", "git_delete_branch", "git_rename_branch",
+    "git_set_upstream", "git_merge", "git_merge_abort", "git_merge_continue",
+    "git_rebase", "git_rebase_plan", "git_rebase_abort", "git_rebase_continue", "git_rebase_skip",
+    "git_cherry_pick", "git_cherry_pick_abort", "git_cherry_pick_continue",
+    "git_revert", "git_revert_abort", "git_revert_continue", "git_reset",
+    "git_resolve_conflict", "git_abort_operation", "git_continue_operation",
+    "git_stash_push", "git_stash_apply", "git_stash_pop", "git_stash_drop",
+    "git_tag_create", "git_tag_delete", "git_worktree_add", "git_worktree_remove",
+    "git_submodule_update", "git_bisect_start", "git_bisect_mark", "git_bisect_reset",
+    "git_clean", "git_config_set",
+    "git_move_path", "git_remove_paths", "git_restore", "git_unset_upstream",
+    "git_stash_branch", "git_stash_clear", "git_worktree_prune", "git_worktree_move",
+    "git_submodule_init", "git_submodule_sync", "git_lfs_fetch", "git_lfs_pull",
+    "git_fetch", "git_pull", "git_push", "git_remote_add", "git_remote_remove",
+    "git_remote_set_url", "git_tag_push",
+    "vcs_status", "vcs_list_repositories", "vcs_get_repository", "vcs_list_branches",
+    "vcs_list_commits", "vcs_get_pull_request", "vcs_list_pull_requests",
+    "vcs_list_reviews", "vcs_get_review_comments", "vcs_ci_status",
+    "vcs_list_workflow_runs", "vcs_get_job_logs", "vcs_generate_pull_request",
+    "vcs_create_branch", "vcs_create_pull_request", "vcs_update_pull_request",
+    "vcs_close_pull_request", "vcs_merge_pull_request", "vcs_request_review",
+    "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
     # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
     "delegate",
     # Analysis sandbox (Phase 8) — compute a derived metric in isolation.
@@ -283,6 +370,30 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "service_status", "service_logs", "list_services",
     "execution_get", "execution_logs", "execution_result",
     "execution_artifacts", "cancel_execution",
+    # Application Runtime layer (DevOps) for a chat coding turn. The write half is
+    # removed at `plan_only` by the ONE policy authority, so a question turn keeps
+    # only the read-only surface.
+    "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
+    "runtime_health", "runtime_logs", "runtime_diagnose", "runtime_metrics",
+    "runtime_start", "runtime_stop", "runtime_restart", "runtime_recover",
+    "package_detect", "package_version", "package_list",
+    "package_install", "package_run", "package_build", "package_test",
+    "container_logs", "container_inspect", "container_list", "container_health",
+    "compose_validate", "compose_config", "compose_ps", "compose_logs",
+    "compose_up", "compose_down",
+    "environment_inspect", "environment_validate",
+    "port_check", "port_find_free", "port_list", "port_identify_process",
+    "health_check", "health_status",
+    # Orchestration / infra / cloud for a chat coding turn. Cluster/infra/cloud
+    # mutations are removed at `edit_verify`/`plan_only` by the ONE policy authority.
+    "k8s_status", "k8s_get", "k8s_get_pods", "k8s_describe", "k8s_logs",
+    "k8s_rollout", "helm_list", "helm_status", "kustomize_build",
+    "terraform_init", "terraform_validate", "terraform_plan",
+    "terraform_output", "terraform_state",
+    "cloud_providers", "deploy_status", "deploy_logs",
+    "k8s_apply", "k8s_delete", "k8s_scale", "k8s_exec",
+    "helm_install", "helm_uninstall", "terraform_apply", "terraform_destroy",
+    "deploy_run", "deploy_rollback", "deploy_delete",
     # Code Intelligence & Understanding Engine (CIUE): semantic/structural
     # navigation + the one semantic rename (removed at `plan_only`).
     "code_get_definition", "code_find_references", "code_find_symbol",
@@ -296,6 +407,31 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "code_find_related_tests", "code_rename_symbol",
     # parallel read-only explore children for large codebases
     "delegate",
+    # Git / Version-Control subsystem: read + LOCAL mutation only. External
+    # actions (fetch/pull/push/PR/CI) stay on the Code Tasks surface beside the
+    # approval panel, exactly like `code_commit`/`code_push`.
+    "git_repository_info", "git_list_repositories", "git_status", "git_diff",
+    "git_diff_cached", "git_diff_range", "git_log", "git_show", "git_commit_info",
+    "git_blame", "git_reflog", "git_branch_list", "git_conflicts",
+    "git_operation_state", "git_stash_list", "git_stash_show", "git_tag_list",
+    "git_remote_list", "git_worktree_list", "git_submodule_list", "git_config_get",
+    "git_config_list", "git_hooks", "git_lfs_status", "git_clean_preview",
+    "git_ignore_check", "git_generate_commit_message", "git_recovery_options", "git_list_hunks",
+    "git_stage", "git_unstage", "git_stage_hunks", "git_unstage_hunks", "git_apply_patch",
+    "git_commit", "git_generate_and_commit",
+    "git_create_branch", "git_checkout", "git_delete_branch", "git_rename_branch",
+    "git_set_upstream", "git_merge", "git_merge_abort", "git_merge_continue",
+    "git_rebase", "git_rebase_plan", "git_rebase_abort", "git_rebase_continue", "git_rebase_skip",
+    "git_cherry_pick", "git_cherry_pick_abort", "git_cherry_pick_continue",
+    "git_revert", "git_revert_abort", "git_revert_continue", "git_reset",
+    "git_resolve_conflict", "git_abort_operation", "git_continue_operation",
+    "git_stash_push", "git_stash_apply", "git_stash_pop", "git_stash_drop",
+    "git_tag_create", "git_tag_delete", "git_worktree_add", "git_worktree_remove",
+    "git_submodule_update", "git_bisect_start", "git_bisect_mark", "git_bisect_reset",
+    "git_clean", "git_config_set",
+    "git_move_path", "git_remove_paths", "git_restore", "git_unset_upstream",
+    "git_stash_branch", "git_stash_clear", "git_worktree_prune", "git_worktree_move",
+    "git_submodule_init", "git_submodule_sync", "git_lfs_fetch", "git_lfs_pull",
     # read-only context, unchanged from ECLIPSE_AGENT
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     # finance tools stay available: a code change may need the vault for a fixture

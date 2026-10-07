@@ -45,9 +45,11 @@ from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
 from .routers.code import router as code_router
+from .routers.application import router as application_router
 from .routers.code_intel import router as code_intel_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
+from .routers.git import router as git_router
 from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
@@ -97,6 +99,9 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Terminal subsystem recovery: reconcile persisted process/session rows.
         # A failure is a diagnostic, never a boot blocker.
         service.start_terminal()
+        # Application Runtime reconciliation: re-examine the runtimes left by a
+        # previous process. A failure is a diagnostic, never a boot blocker.
+        service.reconcile_application_runtime()
         # Code Intelligence & Understanding Engine (CIUE): warm the code index in
         # the background. Language servers start lazily on first use. A failure is
         # a diagnostic, never a boot blocker.
@@ -121,6 +126,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await service.stop_learning_review()
             await service.stop_code_intel()
             await service.stop_mcp()
+            service.stop_application_runtime()
             service.stop_execution()
             await service.stop_terminal()
 
@@ -129,10 +135,12 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_l
 
 # Route groups extracted into `harness/routers/`; registered here so the public
 # surface stays `harness.main:app` and paths are unchanged.
+app.include_router(application_router)
 app.include_router(code_router)
 app.include_router(code_intel_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
+app.include_router(git_router)
 app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(memory_router)

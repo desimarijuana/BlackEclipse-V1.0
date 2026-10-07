@@ -77,6 +77,15 @@ class RawResult:
     backend: str
     # Set when the process could not be started (so the caller reports a refusal).
     launch_error: Optional[str] = None
+    # Real resource telemetry, measured by the backend. `None` = unmeasurable on
+    # this platform — never a fabricated zero. `memory_peak_mb` is the peak RSS
+    # observed across the process tree during the run.
+    cpu_ms: Optional[float] = None
+    memory_peak_mb: Optional[float] = None
+    process_count: Optional[int] = None
+    # Set to the breached limit name ("memory" | "cpu" | "processes") when the
+    # parent monitor killed the tree for exceeding a declared resource limit.
+    resource_limit: Optional[str] = None
 
 
 def build_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
@@ -97,6 +106,85 @@ def build_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
     if extra:
         env.update({str(k): str(v) for k, v in extra.items()})
     return env
+
+
+def _sample_tree(pid: int) -> Any:
+    """Sample the process tree's resource usage, or None when unsupported.
+
+    Reuses the execution layer's telemetry module (stdlib `ctypes` on Windows,
+    `/proc` on Linux) so the sandbox and the execution layer share ONE sampler.
+    """
+    try:
+        from ..execution import telemetry  # noqa: PLC0415
+
+        return telemetry.sample_tree(pid)
+    except Exception:  # noqa: BLE001 - telemetry must never break a run
+        return None
+
+
+def _limit_breach(
+    sample: Any,
+    peak_memory_mb: Optional[float],
+    cpu_ms: Optional[float],
+    max_memory_mb: int,
+    max_cpu_seconds: int,
+    max_processes: int,
+) -> Optional[str]:
+    """The name of the first declared limit the sample exceeds, or None.
+
+    CPU is enforced on CUMULATIVE CPU time (across the tree), memory on PEAK RSS,
+    processes on the tree's process count. A limit of 0 means unset. Only a real
+    measurement can breach — an unmeasurable value never causes a kill.
+    """
+    if max_memory_mb and peak_memory_mb is not None and peak_memory_mb > max_memory_mb:
+        return "memory"
+    if max_cpu_seconds and cpu_ms is not None and cpu_ms > max_cpu_seconds * 1000:
+        return "cpu"
+    if max_processes and sample is not None and getattr(sample, "process_count", None):
+        if sample.process_count > max_processes:
+            return "processes"
+    return None
+
+
+# Kernel-enforcement signatures: the OS DENIES the operation at the limit (rather
+# than letting the process climb past it), so the parent monitor never samples a
+# breach. Windows Job Objects do exactly this (`ProcessMemoryLimit` →
+# `MemoryError`; `ActiveProcessLimit` → WinError 1816), as does RLIMIT_AS on
+# POSIX. When we declared a matching limit, the denial IS the limit firing.
+# The needles are deliberately PRECISE: a loose token (e.g. a bare "137") would
+# match a line number or a temp path and mis-classify an ordinary failure.
+_LIMIT_SIGNATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("memory", (
+        "MemoryError", "Cannot allocate memory", "Out of memory",
+        "STATUS_COMMITMENT_LIMIT", "bad_alloc", "std::bad_alloc",
+    )),
+    ("processes", (
+        "WinError 1816", "Not enough quota is available to process this command",
+        "fork: retry", "Resource temporarily unavailable",
+    )),
+    ("cpu", (
+        "CPU time limit exceeded", "Killed by signal 9",
+    )),
+)
+
+
+def _signature_limit(text: str, spec: "RunSpec") -> Optional[str]:
+    """A declared limit that the kernel's denial matches, or None."""
+    haystack = text or ""
+    if not haystack.strip():
+        return None
+    lowered = haystack.lower()
+    for name, needles in _LIMIT_SIGNATURES:
+        declared = {
+            "memory": bool(spec.memory_mb),
+            "processes": bool(spec.process_limit),
+            "cpu": bool(spec.cpu_seconds),
+        }[name]
+        if not declared:
+            continue
+        if any(needle.lower() in lowered for needle in needles):
+            return name
+    return None
 
 
 def _read_stream(stream: Any, cap: int, sink: dict[str, Any], done: threading.Event) -> None:
@@ -152,10 +240,47 @@ class _BaseBackend:
         reader.start()
 
         timed_out = cancelled = killed = False
+        resource_limit: Optional[str] = None
         deadline = started + max(1, int(spec.timeout_s))
+        # Resource telemetry: sample the process tree while it runs and keep the
+        # peak. Sampling is cheap (a couple of syscalls) and best-effort — an
+        # unmeasurable value stays None.
+        peak_memory_mb: Optional[float] = None
+        last_cpu_ms: Optional[float] = None
+        last_process_count: Optional[int] = None
+        sample_every = 0.25
+        last_sample = 0.0
+        # The parent-side enforcement thresholds. Windows Job-Object limits already
+        # kill on breach; these also cover POSIX and give a deterministic verdict.
+        max_memory_mb = int(spec.memory_mb or 0)
+        max_cpu_seconds = int(spec.cpu_seconds or 0)
+        max_processes = int(spec.process_limit or 0)
+        # Sample immediately after spawn so even a very short process is measured.
+        first = _sample_tree(proc.pid)
+        if first is not None:
+            peak_memory_mb = first.memory_mb
+            last_cpu_ms = first.cpu_ms
+            last_process_count = first.process_count
         while True:
             if proc.poll() is not None:
                 break
+            now_monotonic = time.monotonic()
+            if now_monotonic - last_sample >= sample_every:
+                last_sample = now_monotonic
+                sample = _sample_tree(proc.pid)
+                if sample is not None:
+                    if sample.memory_mb is not None:
+                        peak_memory_mb = max(peak_memory_mb or 0.0, sample.memory_mb)
+                    last_cpu_ms = sample.cpu_ms
+                    last_process_count = sample.process_count
+                # Enforce the declared limits, killing the whole tree on breach.
+                breach = _limit_breach(sample, peak_memory_mb, last_cpu_ms,
+                                       max_memory_mb, max_cpu_seconds, max_processes)
+                if breach:
+                    resource_limit = breach
+                    killed = True
+                    self._kill_tree(proc)
+                    break
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
                 killed = True
@@ -167,6 +292,16 @@ class _BaseBackend:
                 self._kill_tree(proc)
                 break
             time.sleep(_POLL_S)
+        # Take one final CPU sample while the handle is still valid (a process that
+        # has already exited may not read, so this is best-effort).
+        final_sample = _sample_tree(proc.pid)
+        if final_sample is not None:
+            if final_sample.cpu_ms is not None:
+                last_cpu_ms = final_sample.cpu_ms
+            if final_sample.memory_mb is not None:
+                peak_memory_mb = max(peak_memory_mb or 0.0, final_sample.memory_mb)
+            if final_sample.process_count is not None:
+                last_process_count = final_sample.process_count
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:  # pragma: no cover - kill should be prompt
@@ -180,6 +315,13 @@ class _BaseBackend:
         raw: bytes = sink.get("data", b"")
         total: int = int(sink.get("total", len(raw)))
         text = raw.decode("utf-8", "replace")
+        # If the kernel DENIED an operation at a declared limit (Windows Job
+        # Objects, POSIX RLIMIT_AS), the parent monitor saw no climbing breach but
+        # the run still hit the limit — classify it from the output signature.
+        if resource_limit is None and not cancelled and not timed_out:
+            resource_limit = _signature_limit(text, spec)
+            if resource_limit:
+                killed = True
         return RawResult(
             exit_code=proc.returncode,
             timed_out=timed_out,
@@ -190,6 +332,10 @@ class _BaseBackend:
             total_chars=total,
             duration_ms=int((time.monotonic() - started) * 1000),
             backend=self.name,
+            cpu_ms=last_cpu_ms,
+            memory_peak_mb=peak_memory_mb,
+            process_count=last_process_count,
+            resource_limit=resource_limit,
         )
 
     def _popen(self, spec: RunSpec) -> subprocess.Popen:  # pragma: no cover - overridden

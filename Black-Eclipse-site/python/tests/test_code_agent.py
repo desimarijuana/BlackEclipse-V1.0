@@ -65,11 +65,16 @@ def test_code_agent_has_no_finance_tool():
     # `delegate` (Phase 7) and `analysis_run` (Phase 8) are shared ORCHESTRATION /
     # COMPUTE capabilities, not finance tools: neither holds a data permission of
     # its own, and both are gated (delegation by narrowing, analysis by being off
-    # per run).
+    # per run). The Application Runtime tools (`runtime_*`/`package_*`/… and the
+    # orchestration/infra/cloud tools) are also shared DevOps capabilities with no
+    # finance data permission.
+    from harness.execution.application.tools import ALL_TOOL_NAMES as APP_TOOLS
+
+    app_runtime = set(APP_TOOLS)
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
-    })
+    } - app_runtime)
 
 
 def test_code_agent_does_not_allow_mcp():
@@ -78,11 +83,22 @@ def test_code_agent_does_not_allow_mcp():
 
 def test_finance_agent_unchanged_no_code_tool():
     for name in ECLIPSE_AGENT.tools:
-        assert not name.startswith(CODE_TOOL_PREFIXES), name
-    # Phase 5: 24 tools, no code tool. Phase 7 adds `delegate` (25); Phase 8 adds
-    # `analysis_run` (26); Phase 9 adds `scaffold_kit` (27) — shared capabilities
-    # with no finance permission of their own, each gated.
-    assert len(ECLIPSE_AGENT.tools) == 27
+        assert not name.startswith(CODE_TOOL_PREFIXES) or name.startswith(
+            ("runtime_", "package_", "container_", "compose_", "environment_", "port_", "health_",
+             "k8s_", "helm_", "kustomize_", "terraform_", "cloud_", "deploy_")), name
+    # Phase 5: 24 tools, no code tool. Phase 7 adds `delegate`; Phase 8 adds
+    # `analysis_run`; Phase 9 adds `scaffold_kit` — shared capabilities. The
+    # Application Runtime adds a read-only DevOps surface (local + orchestration /
+    # infra / cloud read-only) so the finance agent can answer "inspect this
+    # project" / "what's deployed" without a coding turn.
+    declared_app = [t for t in ECLIPSE_AGENT.tools if t.startswith(
+        ("runtime_", "package_", "container_", "compose_", "environment_", "port_", "health_",
+         "k8s_", "helm_", "kustomize_", "terraform_", "cloud_", "deploy_"))]
+    assert len(ECLIPSE_AGENT.tools) == 27 + len(declared_app)
+    assert "runtime_inspect" in ECLIPSE_AGENT.tools
+    assert "runtime_start" not in ECLIPSE_AGENT.tools
+    assert "k8s_get" in ECLIPSE_AGENT.tools
+    assert "k8s_apply" not in ECLIPSE_AGENT.tools
     assert "delegate" in ECLIPSE_AGENT.tools
     assert "analysis_run" in ECLIPSE_AGENT.tools
     assert "scaffold_kit" in ECLIPSE_AGENT.tools

@@ -166,56 +166,10 @@ def _effect_authorizer(
     emitter: RunEmitter,
     workspace_id: Optional[str] = None,
 ) -> Optional[Any]:
-    """The run's effect authorizer, composed with the code authorizers.
+    """The run's effect authorizer (composition lives in `code/authorizers.py`)."""
+    from .code.authorizers import build_effect_authorizer  # noqa: PLC0415
 
-    A `workspace_*` write is authorized by the run's autonomy profile (Phase 2);
-    a `code_*` external action requires a single-use, workspace-bound operator
-    approval (Phase 5); every other non-read tool falls to the MCP approvals
-    authorizer (single-use operator approval) — or is refused when no store is
-    wired. With no authorizer at all the registry refuses every non-read tool,
-    the safe default.
-    """
-    from .code.tools import make_code_authorizer  # noqa: PLC0415
-
-    mcp_authorizer = None
-    if approvals is not None:
-        from .mcp.approvals import make_effect_authorizer
-
-        mcp_authorizer = make_effect_authorizer(approvals, run_id, emitter)
-    code_authorizer = make_code_authorizer(mcp_authorizer)
-    # Generic terminal: an `allow` command runs, an `ask` command needs a
-    # single-use workspace-bound approval, a `deny` is refused. Composed OVER the
-    # code/MCP authorizer so every other non-read tool is unchanged.
-    from .code.terminal_tools import make_terminal_authorizer  # noqa: PLC0415
-
-    code_authorizer = make_terminal_authorizer(code_authorizer)
-
-    from .code.shell_tools import make_shell_authorizer  # noqa: PLC0415
-
-    code_authorizer = make_shell_authorizer(code_authorizer)
-
-    # The terminal subsystem's own tools (`execute_command`, `start_process`, …)
-    # are classified exactly like the shell tools: allow runs, ask needs a
-    # single-use workspace-bound approval, deny is refused. Composed OVER the
-    # existing chain so every other tool is unchanged.
-    from .terminal.tools import make_terminal_tool_authorizer  # noqa: PLC0415
-
-    code_authorizer = make_terminal_tool_authorizer(code_authorizer)
-
-    if approvals is None or not workspace_id:
-        return code_authorizer
-
-    from .code.actions import make_code_action_authorizer  # noqa: PLC0415
-
-    action_authorizer = make_code_action_authorizer(approvals, run_id, workspace_id, emitter)
-
-    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
-        name = str(getattr(tool, "name", ""))
-        if name.startswith("code_"):
-            return bool(await action_authorizer(tool, args, ctx))
-        return bool(await code_authorizer(tool, args, ctx))
-
-    return authorize
+    return build_effect_authorizer(approvals, run_id, emitter, workspace_id)
 
 
 def effective_allowlist(

@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -184,6 +185,12 @@ class CodeIndex:
         self.project_id = project_id
         self.path = path or code_index_path(project_id)
         self._db = self._connect(self.path)
+        # The connection is `check_same_thread=False`: several threads (the
+        # background watcher loop, a synchronous index trigger, the LSP diagnostics
+        # writer) may mutate this one project's rows. A multi-statement transaction
+        # on a shared connection is not atomic across threads, so EVERY mutation is
+        # serialized through this re-entrant lock. Reads are unaffected.
+        self._write_lock = threading.RLock()
         try:
             self._init_schema()
         except sqlite3.DatabaseError:
@@ -193,15 +200,16 @@ class CodeIndex:
             self.recover()
 
     def _init_schema(self) -> None:
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA synchronous=NORMAL")
-        self._db.executescript(_SCHEMA)
-        self._db.execute(
-            "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
-            (str(SCHEMA_VERSION),),
-        )
-        self._db.commit()
+        with self._write_lock:
+            self._db.row_factory = sqlite3.Row
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA synchronous=NORMAL")
+            self._db.executescript(_SCHEMA)
+            self._db.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
+                (str(SCHEMA_VERSION),),
+            )
+            self._db.commit()
 
     @staticmethod
     def _connect(path: Path) -> sqlite3.Connection:
@@ -240,18 +248,20 @@ class CodeIndex:
         """
         stamp = time.strftime("%Y%m%d-%H%M%S")
         backup = self.path.with_suffix(f".corrupt-{stamp}.db")
-        try:
-            if self.path.exists():
-                self._db.close()
-                shutil.move(str(self.path), str(backup))
-        except OSError:
-            pass
-        self._db = self._connect(self.path)
-        self._init_schema()
+        with self._write_lock:
+            try:
+                if self.path.exists():
+                    self._db.close()
+                    shutil.move(str(self.path), str(backup))
+            except OSError:
+                pass
+            self._db = self._connect(self.path)
+            self._init_schema()
         return {"recovered": True, "backup": str(backup)}
 
     # ── project registration ──────────────────────────────────────────────────
     def set_project(self, *, workspace_id: str, root: str, languages: list[str], frameworks: list[str]) -> None:
+      with self._write_lock:
         self._db.execute(
             """INSERT OR REPLACE INTO projects
                (project_id, workspace_id, root, languages, frameworks, updated_at)
@@ -288,7 +298,7 @@ class CodeIndex:
     ) -> int:
         """Replace one file's rows atomically. Returns the symbol count."""
         pid = self.project_id
-        with self._db:
+        with self._write_lock, self._db:
             self._delete_file_rows(rel)
             self._db.execute(
                 """INSERT OR REPLACE INTO files
@@ -350,14 +360,15 @@ class CodeIndex:
 
     def touch_file(self, rel: str, *, mtime_ns: int, size: int) -> None:
         """Refresh a file's mtime/size without touching its rows (content identical)."""
-        self._db.execute(
-            "UPDATE files SET mtime_ns=?, size=?, indexed_at=? WHERE project_id=? AND rel=?",
-            (int(mtime_ns), int(size), _now(), self.project_id, rel),
-        )
-        self._db.commit()
+        with self._write_lock:
+            self._db.execute(
+                "UPDATE files SET mtime_ns=?, size=?, indexed_at=? WHERE project_id=? AND rel=?",
+                (int(mtime_ns), int(size), _now(), self.project_id, rel),
+            )
+            self._db.commit()
 
     def remove_file(self, rel: str) -> None:
-        with self._db:
+        with self._write_lock, self._db:
             self._delete_file_rows(rel)
 
     def _delete_file_rows(self, rel: str) -> None:
@@ -371,7 +382,7 @@ class CodeIndex:
         self._db.execute("DELETE FROM diagnostics WHERE project_id=? AND rel=?", (pid, rel))
 
     def clear(self) -> None:
-        with self._db:
+        with self._write_lock, self._db:
             for table in ("files", "symbols", "references_", "imports", "dependencies",
                           "call_edges", "diagnostics"):
                 self._db.execute(f"DELETE FROM {table} WHERE project_id=?", (self.project_id,))
@@ -534,7 +545,7 @@ class CodeIndex:
         return {r["language"]: int(r["n"]) for r in rows}
 
     def set_diagnostics(self, rel: str, diagnostics: list[dict[str, Any]]) -> None:
-        with self._db:
+        with self._write_lock, self._db:
             self._db.execute(
                 "DELETE FROM diagnostics WHERE project_id=? AND rel=?", (self.project_id, rel),
             )

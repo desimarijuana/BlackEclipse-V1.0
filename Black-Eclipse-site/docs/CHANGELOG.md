@@ -1,4 +1,4 @@
-# Change Log
+﻿# Change Log
 
 ## Rotation policy
 
@@ -8,7 +8,231 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-06
 
-- **Code Execution & Verification Layer — Eclipse can now run, build, test,
+- **Application Runtime â€” the future tiers are now real, and the layer is
+  production-hardened.** (1) **Orchestration:** `KubernetesAdapter`,
+  `HelmAdapter`, `KustomizeAdapter` (a closed operation table, validated args,
+  JSON output parsed), behind one shared `CliAdapter` base. (2) **Infrastructure:**
+  `TerraformAdapter` (init/validate/fmt/plan/apply/destroy/output/state; apply and
+  destroy are CRITICAL). (3) **Cloud:** `AwsAdapter`/`AzureAdapter`/`GcpAdapter`/
+  `CloudflareAdapter`/`VercelAdapter`/`RailwayAdapter`/`RenderAdapter` â€” the common
+  `deploy`/`status`/`logs`/`rollback`/`delete` surface, credentials read only
+  through each provider's own ambient mechanism. (4) **`DeploymentEngine`**:
+  validateâ†’buildâ†’testâ†’packageâ†’deployâ†’verify; a production deploy requires
+  authorization; a deployment is never claimed live from a status call alone.
+  (5) **29 new agent tools** (`k8s_*`, `helm_*`, `kustomize_*`, `terraform_*`,
+  `cloud_providers`, `deploy_*`) â€” 96 application-runtime tools total â€” with the
+  cluster/infra/cloud mutations removed at `edit_verify`/`plan_only` and each
+  destructive one requiring authorization. (6) **A real CLI** (`python -m
+  harness.cli`, `eclipse` bin, `npm run eclipse`): `runtime|package|environment|
+  port|container|compose|k8s|terraform|deploy` over the SAME manager the agent
+  uses, JSON output, `--authorized` for destructive commands. (7) **Production
+  hardening:** an mtime-keyed `DiscoveryCache` (invalidated on any manifest/
+  lockfile/compose/.env change), health-check exponential backoff, and bounded/
+  filtered runtime logs (substring/severity/errors-only + line cap). (8) HTTP
+  routes (`/runtime/orchestrator/*`, `/runtime/terraform/*`, `/runtime/deploy`,
+  `/runtime/orchestrators`) and the Applications-tab provider footer. Docs:
+  `docs/harness/application-runtime.md`; ADR-H132. Tests:
+  `test_application_{orchestration,deploy}.py` + expanded unit/security/reachability.
+
+- **Git subsystem â€” interactive Git made limitless (no TTY).** Removed the two
+  "needs a terminal" limitations. (1) **Selective hunk staging**: new
+  `git/diffs.py` parses a unified diff into files/hunks and re-renders a chosen
+  subset, which `git apply --cached` stages â€” tools `git_list_hunks`,
+  `git_stage_hunks`, `git_unstage_hunks`, `git_apply_patch` (git's `add -p` is no
+  longer needed). (2) **Automated interactive rebase**: new `git/rebase_plan.py`
+  + machine `_sequence_editor.py`/`_message_editor.py` drive `git rebase -i`
+  through env vars so `git_rebase_plan` performs pick/reword/edit/squash/fixup/
+  drop/reorder from a structured plan; a partial plan never reorders or drops an
+  unnamed commit. (3) **Long-tail capabilities** now exposed in
+  `git/tools_extra.py`: `git_move_path`, `git_remove_paths`, `git_restore`,
+  `git_unset_upstream`, `git_stash_branch`, `git_stash_clear`, `git_tag_show`,
+  `git_worktree_prune`, `git_worktree_move`, `git_submodule_init`,
+  `git_submodule_sync`, `git_lfs_fetch`, `git_lfs_pull` (115 git/vcs tools total).
+  (4) **Opt-in live provider tests** (`test_git_provider_live.py`) exercise a real
+  GitHub/GitLab/Bitbucket account (skipped unless `BLACK_ECLIPSE_PROVIDER_IT=1` +
+  a token + `BLACK_ECLIPSE_PROVIDER_REPO`; never in `npm test`). New tests in
+  `test_git_advanced.py` (20 tests). `interactive=True` was dropped from the plain
+  rebase op (the planned op is the only path to `-i`). docs updated:
+  `docs/harness/git-version-control.md`.
+
+- **Execution layer â€” every caveat closed: extra languages, DB dialects and OS
+  resource limits are now verified end-to-end, not just unit-tested.** (1) **Seven
+  toolchains executed for real** (Go, Java, PHP, C, C++, C#, Rust) against a
+  portable toolchain set fetched into `%TEMP%` (no admin, nothing installed
+  globally). Fixes found and made: Go needed a real `GOCACHE`/`GOTMPDIR` (the
+  sandbox scrubs the env); C/C++ now actually compile a standalone source into a
+  runnable binary (previously only drove `make`/`cmake`, so a bare `.c`/`.cpp`
+  could never run); the .NET adapter needed `DOTNET_CLI_HOME`/`NUGET_PACKAGES` plus
+  a curated non-secret Windows platform env (real `%APPDATA%`, `%PROGRAMFILES%`,
+  `%USERPROFILE%`, â€¦) because NuGet/MSBuild resolve paths the sandbox allowlist
+  strips. (2) **SQL dialects**: DuckDB runs embedded end-to-end (create/insert/
+  select + cross-execution persistence); PostgreSQL now selects `psycopg`/
+  `psycopg2`/`pg8000` â€” with a libpqâ†’pg8000 keyword translation (`dbname`â†’
+  `database`) â€” and a *connection* failure is reported as `SQL_CONNECT_FAILED`
+  (previously mis-labelled `SQL_DRIVER_MISSING`), while an absent driver still
+  refuses honestly; `pg8000` and `duckdb` were added to `python/requirements.txt`
+  as optional-but-default. (3) **OS resource limits enforced + classified**: the
+  sandbox now kills the process tree and reports `RESOURCE_LIMIT` for memory,
+  cumulative-CPU and process-count breaches â€” both when the parent monitor samples
+  a peak and when the kernel (Windows Job Object / POSIX `RLIMIT_AS`) DENIES an
+  operation at the limit (`MemoryError`, `WinError 1816`). `ResourceLimits` gains
+  `cpu_seconds`; `ErrorClass.RESOURCE_LIMIT` is new. A latent bug was fixed where
+  `from_env` clamped an unset `cpu_seconds` to `1`, imposing a 1-second CPU
+  ceiling on every execution. Tests `python/tests/test_execution_resources.py`.
+  Full Python suite green (3203); tsc clean; eval gates PASS. docs updated:
+  `docs/harness/execution-architecture.md`, `docs/harness/decisions.md`
+  (ADR-H129 consequences), `docs/NAVIGATION.md` (trigger row).
+
+- **Git subsystem hardening pass (production review fixes).** (1) **Worktree
+  escape** â€” `git_worktree_add`/`git_worktree_remove`/`git_worktree_move` accepted
+  a `../â€¦` or absolute filesystem path, so a working tree (and a later
+  `worktree remove --force`) could land outside the project; a path is now
+  realpath-confined to the repository root or a sibling under its parent (a
+  sibling worktree is the normal `git worktree` layout; a climb above the parent
+  or a system path is refused). (2) **Global git-config escalation** â€” a
+  `git_config_set --global` write (machine-wide: `core.hooksPath`, `core.sshCommand`,
+  â€¦) was only `caution`/no-approval; it is now `dangerous` and requires a
+  single-use operator approval. (3) **Refspec force** â€” a leading-`+` refspec (a
+  force push that bypasses `--force-with-lease`) is now rejected by a dedicated
+  `refspec` validator. (4) **Cross-host credential leak** â€” the VCS HTTP client now
+  drops the `Authorization` header on a redirect to a different host (urllib
+  otherwise re-sends it); a CI job log is also passed through the shared
+  redaction before it reaches the model. Regression tests added to
+  `test_git_security.py` (worktree confinement, global-config risk, `+refspec`);
+  150 Git tests pass. docs updated: `docs/harness/git-version-control.md`.
+
+- **New Application Runtime / DevOps subsystem.** Eclipse now understands
+  *applications*, not shell commands. New package
+  `python/harness/execution/application/`: a provider-agnostic `RuntimeRegistry`
+  (package managers, container runtimes, compose, and empty-but-live Kubernetes/
+  Terraform/cloud seams); `ApplicationDiscovery` (framework/language/package
+  manager/lockfile, install-build-dev-start-test-lint commands, Docker/Compose,
+  env files, required vars, databases/caches, services, ports, service graph);
+  `EnvironmentDetector` + `EnvironmentManager` (secret values masked as
+  `[SECRET]`, never returned); 11 package-manager adapters
+  (npm/pnpm/yarn/bun/pip/uv/poetry/cargo/go/maven/gradle, declared manager is
+  authoritative â€” no silent npm switch); `DockerAdapter`/`PodmanAdapter` behind
+  one `ContainerRuntimeAdapter`; `DockerComposeAdapter`/`PodmanComposeAdapter`;
+  `PortManager`; `HealthCheckEngine` (process/tcp/http/container/database/custom
+  â€” `RUNNING` is never `HEALTHY`); `RuntimeDiagnosticsEngine` (structured
+  category + a `{file,line,column}` location linking runtime errors to code
+  intelligence); `RecoveryEngine` (bounded diagnoseâ†’actâ†’verify, never a loop);
+  `ApplicationRuntimeStore` on `agent-memory.db`; a closed event vocabulary;
+  `ApplicationRuntimeManager` (the ONE lifecycle) with boot reconciliation.
+  67 agent tools (`runtime_*`, `package_*`, `container_*`, `compose_*`,
+  `environment_*`, `port_*`, `health_*`) on the SAME registry, the write half
+  removed at `plan_only`; route group `/runtime/*` (operator-gated); front door
+  `application-{client,browser}.ts` + `/api/runtime/**` + an Applications tab in
+  the terminal dock. No new dependency; every argv runs through the ONE sandbox.
+  Docs: `docs/harness/application-runtime.md`; ADR-H131. Tests:
+  `python/tests/test_application_{unit,runtime,security,tools,api,e2e}.py`
+  (+ `test_size_budget.py` split of `application/tools.py`).
+
+- **New Git / Version-Control subsystem.** A production-grade Git engine + VCS
+  provider layer for the agentic coding environment â€” not a wrapper. New package
+  `python/harness/git/`: repository discovery (normal/`.git`-file/bare/nested/
+  worktree/submodule), a CLOSED operation table (`catalog.py`) with strict value
+  validation, the ONE controlled executor (absolute argv, no shell, scrubbed env,
+  `GIT_EDITOR=true`/`GIT_MERGE_AUTOEDIT=no` so a merge never blocks on an editor,
+  timeout + output cap), machine-readable parsers, a structured error model, the
+  multi-step operation state machine + conflict-marker parser, a risk/safety
+  engine (secret + large-file scans reusing the ONE `session_index` pattern set,
+  protected branches, `.black-eclipse/git.json` policy, untrusted-repo inspection
+  that never runs a hook), an operation journal + active-operation store on
+  `agent-memory.db`, a per-repository mutating lock, recovery/reconcile, and a
+  per-repository mutating lock. Local Git is separate from the remote VCS layer
+  (`git/vcs/`: `VCSProvider` + `GitHubProvider`/`GitLabProvider`/
+  `BitbucketProvider`, a normalized PR=MR model, and a stdlib-only HTTP client;
+  tokens come from operator-declared env-var NAMES and are never exposed). The
+  full tool surface (`git_*` reads + local mutations + `vcs_*` remote actions) is
+  registered on the SAME registry via `register_git_subsystem`; the ONE policy
+  authority narrows it by autonomy (`GIT_READ_TOOLS`/`GIT_WRITE_TOOLS`/
+  `GIT_EXTERNAL_TOOLS`), and the Git effect authorizer requires a single-use
+  operator approval for every dangerous/destructive operation and every remote
+  action (a force push is `critical`, never the default). Routes `/git/*` serve
+  the UI from the same service. Tests: `test_git_{engine,mutations,security,tools,
+  integration,api}.py` (163 tests, isolated temp repos). The fs subsystem's older
+  read `git_status` tool was removed in favour of the one richer engine tool (the
+  `FileSystemService.git_status` method and `file_metadata` git awareness stay).
+  docs updated: `docs/harness/git-version-control.md` (new), `docs/NAVIGATION.md`.
+
+- **Execution-layer build/test fixes found by an autonomous buildâ†’testâ†’fixâ†’
+  retest run on Windows.** (1) **Bare program names could not be spawned** â€” the
+  JS/TS adapters emitted `['npm', ...]`/`['npx', ...]`/`['tsc', ...]`, which
+  `subprocess` cannot run on Windows (`npm`/`npx`/`tsc` are `.CMD`/`.cmd` shims;
+  `FileNotFoundError [WinError 2]`), so `build_project`/`test_project` reported
+  `exitCode=null`, empty output. Every adapter now emits an ABSOLUTE executable
+  path (`base._require_program`/`_program`), matching `code/commands.py`.
+  (2) **Toolchain resolution / offline** â€” a project with no local `node_modules`
+  now resolves `tsc` and the test runner from Eclipse's OWN bundled
+  `node_modules/.bin` (via `_app_bin` + `_node_env`, which prepends the node bin
+  dirs to the scrubbed `PATH`), so `npm run build`/`vitest` work without a network
+  install and without fetching a different version. (3) **UTF-8 BOM manifests** â€”
+  `package.json`/`tsconfig.json` saved with a BOM (Windows editors, PowerShell)
+  failed to parse, so the test framework/scripts were missed and the engine fell
+  back to `node --test`; `projects.read_json`/`_read_text` now read `utf-8-sig`
+  and the TS adapter uses it. (4) **ANSI color codes broke result parsing** â€”
+  vitest color-codes its summary, so a PASSING run reported `parsed:false`/0 tests
+  and colored compiler errors produced no diagnostics; `testing._parse_summary`
+  and `diagnostics.normalize` now strip ANSI first (reusing the terminal
+  subsystem's `strip_ansi`). (5) vitest/jest now run with a machine-readable
+  reporter (`--reporter=json`/`--json`) so per-test failures (name, file,
+  expected/actual) are extracted structurally. Verified end-to-end: build PASS â†’
+  tests fail (`add` expected 5, got -1) â†’ structured diagnostic â†’ agent fixes
+  `a - b`â†’`a + b` (tests untouched) â†’ rebuild PASS â†’ **2 passed / 0 failed**.
+  Regression tests in `python/tests/test_execution_capabilities.py`. docs updated:
+  `docs/harness/execution-architecture.md`.
+
+- **Execution-layer bug fixes found by an end-to-end verification pass (TypeScript
+  and SQL).** (1) `TypeScriptRuntime.prepare_run` built `['npx', '<file.ts>']` â€” it
+  dropped the `tsx`/`ts-node` program for the `npx` runner, so every TypeScript
+  execution failed with `[WinError 2]`. Rewritten as a `_runner_prefix()` that
+  always emits an invocable program followed by the file, preferring the project's
+  declared `tsx`/`ts-node`, then the app's own bundled `tsx` (`<repo>/node_modules/
+  .bin`, offline), then `npx`. (2) `SqlRuntime` rejected multi-statement scripts
+  ("You can only execute one statement at a time") and never committed DML, so
+  `INSERT`s reported COMPLETED but a later `SELECT` returned 0 rows â€” a fake
+  success. The runner now splits a script into statements (quote/comment aware),
+  executes each, and **commits** (rolls back on error); it returns per-statement
+  results plus the last result set. (3) A database filename matching the index
+  ignore-globs (`*.db`/`*.sqlite`) was refused as `IGNORED_PATH`, so a real DB could
+  not be opened; `policy.resolve_within` gains an explicit `allow_ignored=False`
+  opt-in that the SQL runtime uses â€” traversal, symlink, outside-root and
+  PROTECTED checks are unchanged. Regression tests added to
+  `python/tests/test_execution_capabilities.py`. docs updated:
+  `docs/harness/execution-architecture.md` (SQL/TypeScript notes).
+
+- **Execution layer hardening â€” every earlier limitation closed.** (1) The
+  sandbox now measures REAL resource usage with no `psutil`: a new
+  `execution/telemetry.py` samples CPU time (`GetProcessTimes` on Windows;
+  `/proc/<pid>/stat` on Linux) and peak RSS (`GetProcessMemoryInfo` /
+  `/proc/<pid>/statm`) across the whole process tree, and the values flow into
+  `RawResult` â†’ `ResourceUsage` â†’ the `ExecutionMetric` rows (`cpuMs`/
+  `memoryPeakMb`/`processCount`); an unmeasurable value stays `None`, never a
+  fabricated zero. (2) `SqlRuntime` connects PostgreSQL through any installed
+  PEP-249 driver (`psycopg`, `psycopg2`, pure-Python `pg8000`), plus MySQL
+  (`pymysql`/`MySQLdb`) and DuckDB, refusing with a stable `SQL_DRIVER_MISSING`
+  when none is present â€” never pretending to connect. (3) Eight more real
+  runtime adapters ship: Go, Rust, Java, C#, C, C++, PHP, Ruby (inline where the
+  language supports it â€” Go/Java/PHP/Ruby â€” and honest `UNAVAILABLE`/refusal
+  otherwise); `build`/`test` wired for `go`/`cargo`/`maven`/`gradle`/`dotnet`/
+  `cmake`/`make`. (4) `run_verification` can now fix code IN-PROCESS: a new
+  `execution/autofix.py` (opt-in via `HARNESS_EXEC_AUTOFIX=1`) asks the RUN's own
+  model for one schema-validated, diagnostic-driven, workspace-confined edit and
+  applies it through the filesystem service; it never touches a
+  security/infrastructure failure and never retries blindly. (5) An intermittent
+  CIUE index flake (`fileCount == 0`) was root-caused and fixed: the shared
+  `check_same_thread=False` `CodeIndex` connection now serializes EVERY mutation
+  (`IncrementalIndexer._mutate_lock` + `CodeIndex._write_lock`), so the background
+  watcher and a synchronous index trigger can no longer interleave
+  delete/insert transactions and lose rows; regression test
+  `python/tests/test_intel_index_concurrency.py` (25/25 stable). Tests
+  `python/tests/test_execution_capabilities.py` + the reachability case in
+  `test_execution_e2e.py`. Full Python suite green; docs updated:
+  `docs/harness/execution-architecture.md`, `docs/harness/decisions.md`
+  (ADR-H129 consequences), `docs/NAVIGATION.md` (trigger row).
+
+- **Code Execution & Verification Layer â€” Eclipse can now run, build, test,
   diagnose and VERIFY software autonomously.** New subsystem
   `python/harness/execution/`: a strict `ExecutionState` machine (validated
   transitions, `execution/state.py`), strongly-typed domain models
@@ -24,7 +248,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   lands on a terminal state (`orchestrator.py`), an `ExecutionStore` for history
   and evidence on the ONE `agent-memory.db` connection (`store.py`), an
   `ExecutionScheduler`/`ExecutionWorkflow`/`RetryPolicy` (`scheduler.py`/
-  `workflow.py`), a `ExecutionVerifier` bounded build→test→fix loop
+  `workflow.py`), a `ExecutionVerifier` bounded buildâ†’testâ†’fix loop
   (`verify_loop.py`), and a `ServiceManager`/`PortManager`/`HealthChecker` built
   on the EXISTING terminal process manager   (`services.py`). It reuses
   `code/sandbox.py` as the ONE execution primitive (no second spawn path), the
@@ -48,7 +272,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/harness/routers/execution.py` (`/execution/*`, operator-gated). Tests
   `python/tests/test_execution_{unit,runtime,security,e2e,tools}.py` (state
   machine, diagnostics, policy, real Python/JS/SQL/shell runs, timeout/cancel/
-  traversal/secret attacks, the build→test→fix→retest acceptance loop). Full
+  traversal/secret attacks, the buildâ†’testâ†’fixâ†’retest acceptance loop). Full
   Python suite green (2930); Vitest 2169; tsc clean. docs updated:
   `docs/harness/execution-architecture.md` (new),
   `docs/harness/decisions.md` (ADR-H129), `docs/NAVIGATION.md` (trigger row).
@@ -57,7 +281,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `typescript-language-server` and a 220-file multi-language monorepo.** Running
   the engine end-to-end (real subprocess LSP, edits, diagnostics, watcher,
   concurrency) surfaced and fixed: (1) `lsp.client.uri_to_path` now percent-decodes
-  before the Windows drive-letter fix, so `file:///c%3A/…` LSP results match the
+  before the Windows drive-letter fix, so `file:///c%3A/â€¦` LSP results match the
   workspace; (2) `manager._normalize_locations` understands the `LocationLink`
   (`targetUri`/`targetRange`) shape; (3) `get_definition`/`get_references` send the
   symbol's real name column (`_symbol_position`) not the indentation column;
@@ -71,17 +295,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   absolute LSP paths; (10) `_enrich_location` returns a stable `location` object on
   the LSP path too (one shape across engines); (11) `CodeIndex.integrity_ok` adds a
   schema probe so non-database bytes are detected and recovered; (12)
-  `policy.IGNORED_DIRS` excludes `dist`/`build`/`target`/`coverage`/`generated`/…;
+  `policy.IGNORED_DIRS` excludes `dist`/`build`/`target`/`coverage`/`generated`/â€¦;
   (13) the context engine is prefix-aware (`authentication` reaches `Auth*`) and
   bounded; (14) `CodeIntelRuntime` indexes asynchronously so the first query never
   blocks on a full walk. New regression tests `python/tests/test_intel_regressions.py`.
   Full Python suite green (2870); Vitest 2169; tsc clean. docs updated:
-  `docs/harness/code-intelligence.md` (unchanged — behaviour now matches the doc),
+  `docs/harness/code-intelligence.md` (unchanged â€” behaviour now matches the doc),
   `docs/harness/decisions.md` (ADR-H128 already covers the design).
 
 - **Code Intelligence & Understanding Engine (CIUE): the agent now understands
   software structurally and semantically.** New subsystem
-  `python/harness/code/intel/` — one `CodeIntelligenceManager` over an LSP manager
+  `python/harness/code/intel/` â€” one `CodeIntelligenceManager` over an LSP manager
   (`lsp/`), an AST engine (`ast.py`), an optional Tree-sitter layer
   (`treesitter.py`), a DEDICATED incremental code index (`persistence/index.py`
   under `.black-eclipse/code-index/`, never agent memory), a dependency graph, a
@@ -97,35 +321,50 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   reused fs watcher); routes `python/harness/routers/code_intel.py` (`/code/intel/*`,
   operator-gated) and a content-free `codeIntel` block in `/health`; plain-language
   labels in `src/lib/agent/response-model.ts`. Reuses the existing path authority,
-  fs reading/encoding/watching/extractors and tool/event/authorizer seams — no
+  fs reading/encoding/watching/extractors and tool/event/authorizer seams â€” no
   second filesystem, registry or confinement. Tests `python/tests/test_intel{,_tools,
   _lsp,_api}.py` + fixtures `python/tests/fixtures/intel/` + a fake language-server
   subprocess; ADR-H128. docs updated: `docs/harness/code-intelligence.md` (new),
   `docs/harness/decisions.md` (ADR-H128), `docs/NAVIGATION.md` (trigger row).
 
+- **Ultra effort: the fill now FLOWS as a real moving gradient (was a static
+  fill + thin beam).** The reported "gradient is not moving" was two things:
+  (a) the fill was a static Tailwind gradient with only a narrow beam sweeping
+  it, and (b) under the app's reduce-motion / "animations off" settings (or the
+  OS preference) a global rule froze *every* animation to 0.001ms, pinning the
+  beam at the left â€” a frozen band. Fix: `.effort-ultra-fill` animates the WHOLE
+  fill (`background-size: 200%` + `effortUltraFlow`) on both the slider and the
+  persistent pill, the beam is kept on top, and the Ultra energy is now
+  DELIBERATELY EXEMPT from the reduce-motion / animations-off kill switches (like
+  the price ticker) â€” each layer carries `--ultra-dur` so one rule restores its
+  timing. Verified with Playwright frame-diffs: the fill and beam both change
+  every frame under default, OS reduce-motion, AND the app's no-anim classes.
+  tests updated: `effort-control.test.ts`.
+  no doc change â€” visual-only; behavior unchanged (see the Ultra behavior entry).
+
 - **Ultra effort: fixed the "animation doesn't work" report (two real bugs).**
   Diagnosed live with Playwright. (1) The brain SVG rendered muted GRAY, not the
   accent: a global CSS remap forces `.text-primary` to gray with `!important`,
   and its `.dark` variant out-specifies the `svg.text-primary { color: var(--brand) }`
-  green rule — a solid green icon must not rely on `text-primary`. Added a
+  green rule â€” a solid green icon must not rely on `text-primary`. Added a
   dedicated `.effort-accent` class and used it for the brain (pill + core).
   (2) The energy effect lived only INSIDE the popover, which closes the moment a
-  level is picked — so at rest the always-visible pill was static. Extracted the
+  level is picked â€” so at rest the always-visible pill was static. Extracted the
   core into a shared `EnergyCore` and put a live laser-beam sweep on the
   persistent pill while Ultra is active. Verified by frame-diff (frames change)
   and the computed brain color = `#7aff78`. Added tests.
-  no doc change — visual-only; behavior unchanged (see the Ultra behavior entry).
+  no doc change â€” visual-only; behavior unchanged (see the Ultra behavior entry).
 
 - **Ultra effort thumb: an "energy core" animation.** Reworked the composer
   slider's top-stop thumb (`effort-control.tsx` + `globals.css`) into a layered
-  energy effect — a pulsing outer glow, a rotating conic plasma ring, two
+  energy effect â€” a pulsing outer glow, a rotating conic plasma ring, two
   phase-offset expanding shockwaves, three orbiting sparks, and a throbbing
-  brain core — all in the theme `--primary` green and disabled by the global
+  brain core â€” all in the theme `--primary` green and disabled by the global
   `prefers-reduced-motion` rule (static, fully-lit fallback). Replaced the old
   single pulse + static rays. The brain icon is now a SOLID accent fill (both
   the trigger pill and the Ultra core), and the Ultra fill carries a laser beam
   that sweeps the full bar (`effortUltraBeam`).
-  no doc change — visual-only; behavior unchanged (see the Ultra behavior entry).
+  no doc change â€” visual-only; behavior unchanged (see the Ultra behavior entry).
 
 - **Composer effort slider: theme-consistent skin, animated Ultra, and a real
   top stop.** Re-skinned `EffortControl` to the theme tokens (`--primary` green,
@@ -133,7 +372,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   matched the trigger pill to the model-selector chrome. The Ultra thumb now
   animates (pulsing glow + slowly radiating rays, `globals.css`
   `effortUltraPulse`/`effortUltraSpin`, reduced-motion safe). Made the top stop
-  actually strongest: `prepare_model` normalizes `very_high` → the runtime's
+  actually strongest: `prepare_model` normalizes `very_high` â†’ the runtime's
   `max` tier (was mapped to `high`, so Ultra == High), so Anthropic `thinking`
   (16384) and Gemini `thinking_budget` (24576) deepen beyond High; native
   OpenAI caps Ultra at `high` (its knob has no higher tier). `low`/Minimal stays
@@ -141,12 +380,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 
 - **Chat composer: per-question "model intelligence" effort slider.** Added
-  `EffortControl` (`src/components/chat/effort-control.tsx`) — the Faster→Smarter
-  slider from the reference — beside the model selector in `ChatInput`, wired
+  `EffortControl` (`src/components/chat/effort-control.tsx`) â€” the Fasterâ†’Smarter
+  slider from the reference â€” beside the model selector in `ChatInput`, wired
   through `EmptyState` and `stock-chat.tsx`. It is a PER-QUESTION override (not a
   Settings edit): a new `useReasoningEffort` hook persists the choice client-side
-  (`be_reasoning_effort_v1`), and the level rides `ChatOptions.reasoningEffort` →
-  `/api/harness/chat[/stream]` → `chatWithAgent`/`startChatRun` →
+  (`be_reasoning_effort_v1`), and the level rides `ChatOptions.reasoningEffort` â†’
+  `/api/harness/chat[/stream]` â†’ `chatWithAgent`/`startChatRun` â†’
   `input.context.reasoning`, where it OUTRANKS the saved
   `LLMConfig.reasoningEffort` default; Auto sends nothing. Reuses the shared
   vocabulary (`reasoning.ts`, extended with captions + skins and slider index
@@ -154,7 +393,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (reasoning mapping, run-service precedence, composer reachability).
   docs updated: `docs/ARCHITECTURE.md` (reasoning-effort section).
 
-- **Settings › General: reorganized the preset/customization surface.** The
+- **Settings â€º General: reorganized the preset/customization surface.** The
   merged General section no longer reads as one long undifferentiated stack.
   The General sub-tab is now four titled sections (Startup & Display, Live Data,
   Behavior & Safety, Background) and finally exposes the previously-dead
@@ -162,7 +401,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `START_SCREEN_OPTIONS` but nothing rendered it). The Theme tab is now "Theme &
   Presets": presets lead, the brand generator and token editors sit under a
   "Fine-tune" group, and the duplicated Glass & Sidebar controls were removed
-  (surfaces now live only on the Glass & Surfaces tab — the sidebar card moved
+  (surfaces now live only on the Glass & Surfaces tab â€” the sidebar card moved
   there so no control was lost). Presets render as **miniature app screenshots**
   built from each theme's own tokens (rail + glass cards + a chart line) rather
   than flat gradient circles. The draft Live-preview/Apply/Discard toolbar is now
@@ -170,13 +409,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Background and Language & Access autosave instantly and no longer show it.
   Extracted shared `Panel`/`Field`/`Toggle`/`SectionHeader`/`SubSection` into
   `src/components/screens/settings-ui.tsx`, removing four sets of duplicates.
-  no doc change — UI layout/UX reorg; no architecture, contract, data-shape or
+  no doc change â€” UI layout/UX reorg; no architecture, contract, data-shape or
   setup change.
 
 - **File System Toolset: full validation run; one correctness fix.**
   A 141-check validation driven through the real registered tools (and verified
   against on-disk state) found `find_references` trusted a stale workspace index:
-  a file created or changed after the last indexing pass was invisible — a §30
+  a file created or changed after the last indexing pass was invisible â€” a Â§30
   stale-information violation. Fixed: `find_references` now refreshes the index
   incrementally before trusting it (`symbols.find_references(refresh_index=True)`),
   and skips the extra walk when an active watcher already keeps it current
@@ -188,13 +427,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   spec deliverables), plus transaction/index events.** `code/fs/verify.py` is the
   verification layer: `validate_syntax` (Python `ast`, JSON, TOML, and a bounded
   string/comment-aware bracket-balance scan for JS/TS/Go/Rust/Java/C#/C/C++),
-  `validate_changes` (check proposed edits WITHOUT writing — the same
+  `validate_changes` (check proposed edits WITHOUT writing â€” the same
   all-or-nothing rule `multi_file_patch` enforces), and a post-write verdict now
   carried on every `write_file`/`create_file`/patch/insert/delete result
   (`verification.verified`, syntax error + line). New tools `verify_file` and
-  `validate_changes`. `code/fs/git.py` adds additive Git awareness — normalized
+  `validate_changes`. `code/fs/git.py` adds additive Git awareness â€” normalized
   `modified`/`untracked`/`staged`/`deleted`/`renamed`/`copied`/`conflicted` states
-  plus branch/HEAD, one fixed argument-free argv, never a hard dependency — via
+  plus branch/HEAD, one fixed argument-free argv, never a hard dependency â€” via
   the new `git_status` tool and a `git` field on `file_metadata`. `apply_diff`/
   `multi_file_patch` now emit `fs.transaction.started|committed|rolled_back` and
   `index_workspace` emits `fs.index.updated`. 20 new tests; full Python suite 2808
@@ -202,8 +441,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/code-filesystem.md`, `docs/NAVIGATION.md`.
 
 - **File System subsystem: closed the four stated limitations.** (1) Watchers now
-  use a NATIVE OS backend when available — Windows `ReadDirectoryChangesW` and
-  Linux `inotify`, built on `ctypes`/`libc` only (`code/fs/watch_native.py`) — with
+  use a NATIVE OS backend when available â€” Windows `ReadDirectoryChangesW` and
+  Linux `inotify`, built on `ctypes`/`libc` only (`code/fs/watch_native.py`) â€” with
   transparent degradation to the portable polling watch (the fallback re-baselines
   so it reports only future changes); `watcher.status()` reports the active
   backend. (2) Symbol extraction is now parser-backed and broader: Python `ast`
@@ -214,7 +453,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   column on the index, migrated in place) and names its engine. (4) `edit_file`
   deterministically parses a plain instruction (`code/fs/intent.py`) into a
   concrete minimal edit ("rename X to Y", "add X after Y", "delete X") and falls
-  back to the inspection packet — never a guess — for a vague one. 20 new tests;
+  back to the inspection packet â€” never a guess â€” for a vague one. 20 new tests;
   full Python suite 2788 passed; `npx tsc --noEmit` clean.
   docs updated: `docs/harness/code-filesystem.md`, `docs/NAVIGATION.md`.
 
@@ -231,12 +470,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `insert_text`, `delete_text`, `apply_diff`, `multi_file_patch`) with hash-guarded
   optimistic concurrency, ambiguity refusal, atomic writes and byte-exact rollback,
   metadata/hash/permissions, a SEPARATE incremental workspace index
-  (`<repo>/.black-eclipse/workspace-index/<id>.db` — never agent memory), portable
+  (`<repo>/.black-eclipse/workspace-index/<id>.db` â€” never agent memory), portable
   debounced file watchers with cache invalidation + incremental re-index, and the
-  high-level `edit_file` (inspect → locate → minimal patch → verify). 28 tools
+  high-level `edit_file` (inspect â†’ locate â†’ minimal patch â†’ verify). 28 tools
   registered; the write half is removed at `plan_only` by the ONE policy authority
   (`code/policy.py`), effects are admitted by the existing `make_code_authorizer`,
-  and every path is re-checked by `permissions.require` → `decide_write`. Writes
+  and every path is re-checked by `permissions.require` â†’ `decide_write`. Writes
   land in the disposable code workspace (or the user's approved folder in direct
   mode), never silently in the checkout. 115 new tests; full Python suite 2732
   passed; `npx tsc --noEmit` clean.
@@ -246,18 +485,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 ## 2026-10-05
 
 - **AI settings: added a reasoning-effort ("model variant") control, and fixed
-  the Manage-models action + widened its dialog.** Settings › AI › Active setup
+  the Manage-models action + widened its dialog.** Settings â€º AI â€º Active setup
   now has an **Auto / Minimal / Standard / High / Ultra** selector
   (`src/lib/agent/reasoning.ts`): Auto (the default) sends no override and the
   runtime's task profile keeps choosing; the four levels map to the runtime's
   `low`/`medium`/`high`/`very_high`. It persists as `LLMConfig.reasoningEffort`
   (`setLLMConfig`, `null` = Auto; masked-into `/api/settings`) and is forwarded as
   `input.context.reasoning`, which the router honors as a requirement and
-  `prepare_model` applies to a native reasoning control only — never to an
+  `prepare_model` applies to a native reasoning control only â€” never to an
   OpenAI-compatible endpoint that lacks one. Fixes: the composer's per-provider
   **Manage** button opened the dialog behind the still-open `z-[110]` dropdown
   (now the menu closes first, and the dialog is `z-[130]`); the no-arg "Manage
-  models…" path could resolve to `undefined` and render nothing (now falls back
+  modelsâ€¦" path could resolve to `undefined` and render nothing (now falls back
   to the active/first usable provider); the dialog was `max-w-2xl` (now `max-w-3xl`
   with a roomier, 3-column model grid).
   `npx tsc --noEmit` clean; `vitest` 2151 passed, `pytest` model-runtime 64 passed.
@@ -283,32 +522,32 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `status: disabled` and the root stays untrusted until an operator grants both.
   Verified with the vendored interpreter (`./scripts/vendor/python/python.exe`).
   docs updated: `docs/NAVIGATION.md` (project skill root row + CFA task row).
-  no source-contract change — data-only skill folders; no app or harness code
+  no source-contract change â€” data-only skill folders; no app or harness code
   touched.
 
 - **Renamed the "Market Screener" page to "Market Discover"; aligned the Skills
-  header icon with the sidebar.** Every user-facing string was updated — the
+  header icon with the sidebar.** Every user-facing string was updated â€” the
   sidebar/i18n nav label (`nav.discovery`), the page `<h1>`, the search registry
-  page + "Open …" action, market-result subtitles, the workspace panel
+  page + "Open â€¦" action, market-result subtitles, the workspace panel
   label/title, the settings section + provider-registry copy (`providers/
-  directory.ts` `usedBy` labels), and the "Back to …" buttons. The Skills
+  directory.ts` `usedBy` labels), and the "Back to â€¦" buttons. The Skills
   Library header now uses the same `Blocks` (Phosphor `SquaresFour`) glyph as
   the sidebar's Skills item, replacing a mismatched `Sparkles`. Internal
   symbol/function names (`useScreenerFilters`, `StockScreenerWidget`, the
-  `screener` panel id) are unchanged — the page id/tab stays `discovery`.
+  `screener` panel id) are unchanged â€” the page id/tab stays `discovery`.
   `npx tsc --noEmit` clean; search/sidebar/i18n tests (149) pass; `next build`
   compiles.
-  no doc change — UI naming/icon consistency only; no contract change.
+  no doc change â€” UI naming/icon consistency only; no contract change.
 
 - **Fix: the approval card could not be reached from the two most important
-  paths — patching code and the streaming chat.** Three defects: (1) the code
+  paths â€” patching code and the streaming chat.** Three defects: (1) the code
   authorizer's `workspace_patch_apply` branch created a PENDING request but
   returned without pausing, so a code write was refused with no card; it now
   blocks on the shared `pause_for_decision` gate and re-claims on approval
   (deny/timeout still refuses). (2) `approvalMode` was set only in the streaming
   chat payload; it is now a per-call-site opt-in on `run-service.ts` (`startRun`
   gains `approvalMode?`), set by the streaming chat path and deliberately UNSET
-  for the synchronous `/api/harness/chat` and generic `/runs` callers — a pause
+  for the synchronous `/api/harness/chat` and generic `/runs` callers â€” a pause
   there would block the HTTP request with no card to resolve it. (3) The
   `code_write`/`code_write_session` approval kinds were reviewable in the MCP
   panel but a paused run needs the card, not that panel. Added: an end-to-end
@@ -320,7 +559,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`run-service.test.ts`, +3). Also fixed the Python stale-runtime detector
   (`python-runtime.ts` `harnessSourceMtimeMs`): it scanned ONLY top-level
   `python/harness/*.py`, so edits in `code/`, `mcp/`, `terminal/`, `skills/` never
-  marked a running runtime stale — the runtime kept serving old code after a
+  marked a running runtime stale â€” the runtime kept serving old code after a
   change. It now walks the whole tree, so `npm run dev` picks up harness changes.
   `npx tsc --noEmit` clean; full `vitest` 2144 passed, `pytest` 2653 passed, eval
   gates pass.
@@ -332,8 +571,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   list now excludes anything already shown under Connected/Popular, so a
   connected non-popular provider (e.g. xAI) or an active keyless local server no
   longer renders twice. Shared `ProviderRegistry` (Economics / Market / News) now
-  groups rows by state — **Configured**, **Available** (built-in/keyless),
-  **Needs a key** — with the key-gated list collapsed past 6 and a filter, and
+  groups rows by state â€” **Configured**, **Available** (built-in/keyless),
+  **Needs a key** â€” with the key-gated list collapsed past 6 and a filter, and
   keeps the Economics by-kind sub-grouping. News feeds moved out of the flat
   74-row wall into a new `news-feeds-panel.tsx`: grouped Live/Paused, searchable,
   with inline add/remove. Market and Investor Eye pages gained consistent
@@ -341,7 +580,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   map, Event sources). No contract change: `NewsFeed` shape and `/api/settings`
   payload unchanged. `npx tsc --noEmit` clean; `vitest` 2141 passed, `pytest`
   2649 passed.
-  no doc change — UI organization only; data contracts unchanged.
+  no doc change â€” UI organization only; data contracts unchanged.
 
 - **Approval cards: Eclipse now asks before any effectful step, and pauses the
   run until you answer.** Effectful actions (MCP write/action, external
@@ -352,7 +591,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   in-process gate (`_GATES`/`notify_decision` in `python/harness/mcp/approvals.py`,
   shared `pause_for_decision`/`_await_then_reclaim`). Approve resumes the run in
   place and runs exactly that one step; deny/timeout refuses as before. The
-  decision is still the single-use, digest-bound approval — pause only changes how
+  decision is still the single-use, digest-bound approval â€” pause only changes how
   long the run waits, never whether a call is authorized; the wait is bounded
   below the run deadline and a runtime restart falls back to deny-and-retry. New
   frosted-glass `ApprovalCard` (`src/components/chat/approval-card.tsx`, portaled
@@ -368,56 +607,56 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Settings modal now opens instantly and no longer hangs on a slow market
   fetch.** Four causes fixed: (1) `/api/markets` and `/api/settings` were
   fetched in `Promise.all`, so a cold JDDS market build blocked the whole modal
-  until it resolved — they now load independently and settings paints the moment
+  until it resolved â€” they now load independently and settings paints the moment
   it lands; (2) the settings dialog is unmounted on close, so every open
-  re-fetched behind a skeleton — a module-level snapshot now paints cached
+  re-fetched behind a skeleton â€” a module-level snapshot now paints cached
   values instantly and revalidates quietly; (3) the code-split `Settings` chunk
-  was only ever fetched on first open — it is now warmed during idle and has a
+  was only ever fetched on first open â€” it is now warmed during idle and has a
   loading fallback; (4) `GET /api/settings` now uses the same in-memory SWR cache
   as `/api/markets`, so reads are instant even while the startup WarmUp/NewsIngest
   jobs hold SQLite (POST keeps the cache coherent). Measured with a production
   build + Playwright: modal open **510 ms** (fixed) vs the old build failing to
-  appear within 15 s; `/api/settings` warm **22–28 ms** (fixed) vs old spikes of
-  **17–30 s** under startup IO load. NOTE: the running dev server was serving a
+  appear within 15 s; `/api/settings` warm **22â€“28 ms** (fixed) vs old spikes of
+  **17â€“30 s** under startup IO load. NOTE: the running dev server was serving a
   stale production build, so the fix only takes effect after a rebuild
   (`npm run up`). `npx tsc --noEmit` clean; full `vitest` 2140 passed,
   `pytest` 2642 passed.
-  no doc change — load-path/perf fix only, no contract change.
+  no doc change â€” load-path/perf fix only, no contract change.
 
 - **Investor Eye Trade layer: hovering a country isolates ITS trade routes.**
   With the Trade layer on, the map showed every route, so hovering a country
   told you nothing about that country. Now the pointer answers "what does THIS
   country trade?": entering a country region isolates the routes that touch it
   (its links draw full-strength, every other route is hidden) and leaving
-  restores the full web. Wired on both projections — the 2D geo map via new
+  restores the full web. Wired on both projections â€” the 2D geo map via new
   `mouseover`/`mouseout` region hooks in `bindLayerEvents`, the globe via the
-  existing raycast pick — through a new `hoveredCountryIso` option. A
+  existing raycast pick â€” through a new `hoveredCountryIso` option. A
   click-selection still wins over hover. Isolated routes are marked `silent` so
   they cannot steal the pointer from the region and make the layer flicker. A
   country with no route honestly shows none. Tests: `map-echarts.test.ts` (+6).
   `npx tsc --noEmit` clean; investor-eye tests pass.
-  no doc change — behaviour within the existing `lines` layer contract.
+  no doc change â€” behaviour within the existing `lines` layer contract.
 
 - **Dark sidebars are always black/charcoal (never neutral grey).** The shipped
   default sidebar moved from grey `#2a2a2e` to charcoal `#141416`, and the
   `SIDEBAR_PRESETS` list dropped its `Grey` entry in favour of black/charcoal
-  options (`Black`, `Charcoal`, `Slate`, `Smoke`, `Crystal` — the last two keep
+  options (`Black`, `Charcoal`, `Slate`, `Smoke`, `Crystal` â€” the last two keep
   only a faint cool/warm cast). Every dark-scheme preset's rail is now under
   luminance 0.011. Verified with `npx tsc --noEmit` and the theme tests (54 pass).
-  no doc change — preset/default tweak; contracts unchanged.
+  no doc change â€” preset/default tweak; contracts unchanged.
 
 - **White presets listed after the dark ones + Electric Blue Crystal sidebar.**
   The four white-background presets (`White`, `Paper`, `Snow`, `Ivory`) now sit
   at the END of `THEME_PRESETS` so the preset buttons read all dark looks first,
-  then go light — instead of interrupting the dark grid at the top. Electric Blue
+  then go light â€” instead of interrupting the dark grid at the top. Electric Blue
   now uses the translucent Crystal sidebar recipe (`#26262c` @ 0.55 / blur 34)
   rather than the default neutral Grey, so the cold blue brand carries into the
   rail. Verified with `npx tsc --noEmit` and the theme tests.
-  no doc change — preset list/ordering tweak; contracts unchanged.
+  no doc change â€” preset list/ordering tweak; contracts unchanged.
 
 - **Added white-background theme presets (`White`, `Paper`, `Snow`, `Ivory`).**
   A new internal `scheme: 'dark' | 'light'` token on `EclipseTheme` lets a
-  preset switch the whole app to a light look in one click — selectable from the
+  preset switch the whole app to a light look in one click â€” selectable from the
   normal preset grid, no separate mode toggle. `applyThemeToDocument` owns the
   `dark` class (was hardcoded in `layout.tsx`, which now only seeds the dark
   default plus a pre-paint script to avoid a flash) and scopes color vars to
@@ -433,7 +672,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Settings: removed the yellow "providers need a key" attention dots.** The
   rail and mobile pill indicators (and the `ATTENTION` map / `useProviderHealth`
   wiring behind them) are gone (`settings.tsx`). `npx tsc --noEmit` clean.
-  no doc change — UI-surface removal only.
+  no doc change â€” UI-surface removal only.
 
 - **General settings: folded the full-screen preview launcher into the sticky
   Live-preview/Apply card, and fixed the rail item text alignment.** The
@@ -442,7 +681,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   separate card below it. The left-nav buttons inherited browser-default
   `text-align: center`, so wrapped description lines centered under the icon;
   added `text-left` (`settings.tsx`). `npx tsc --noEmit` clean.
-  no doc change — UI-surface layout fix only.
+  no doc change â€” UI-surface layout fix only.
 
 - **Settings cleanup: removed the provider-count status banner and the footer
   "N/M feeds live" readout.** Dropped the `SettingsStatusHeader` component
@@ -450,7 +689,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   keeps only the save-state line and the Reload button. `npx tsc --noEmit`
   clean; `vitest` green apart from a pre-existing `stock-chat.tsx` size-budget
   failure (unrelated, file not touched).
-  no doc change — copy/UI-surface removal only.
+  no doc change â€” copy/UI-surface removal only.
 
 - **Restored a green size-budget guard after the terminal/model work grew the
   SPA shell.** `stock-chat.tsx` reached 1237 lines (terminal-dock plumbing plus
@@ -458,7 +697,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   1212, so `size-budget.test.ts` failed on `main`. Bumped the ratchet to 1237
   with a note; the file may still only shrink from here. `npx tsc --noEmit`
   clean; `vitest` size-budget suite passes.
-  no doc change — test budget bookkeeping only.
+  no doc change â€” test budget bookkeeping only.
 
 - **Market Screener / Market Bubbles "Ask AI" runs no longer fail on an
   uninstalled default model.** The buttons themselves were correctly wired (they
@@ -472,7 +711,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   in the `discovered_models_v1` snapshot (`served` map, replaced per probe, not
   merged), `GET /api/harness/chat/models` reports it per provider, and
   `useChatModel` auto-probes a keyless local provider and adopts the first served
-  model — VISIBLY (the composer selector updates) and persisted to the vault. An
+  model â€” VISIBLY (the composer selector updates) and persisted to the vault. An
   explicit user pick is never overridden; nothing changes when the provider
   serves nothing known. Added `pickServableModel` (+5 vitest), discover `served`
   tests in `route.test.ts` (+3) and `model-runtime-browser.test.ts` (+1), and a
@@ -484,13 +723,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   "Accent" token is wired up.** Two real bugs in the customization system.
   (1) Every frosted-glass tier (`.glass-card`, `-strong`, `-subtle`, `.glass-tooltip`,
   `.glass-button`, `.glass-drawer`, tab/command/ws strips) used a **hardcoded**
-  `rgba(18,18,20,…)` tint, so the theme's "Surface" color only recolored flat
-  `bg-card` blocks — editing Surface barely changed the UI. `themeCssVars` now
+  `rgba(18,18,20,â€¦)` tint, so the theme's "Surface" color only recolored flat
+  `bg-card` blocks â€” editing Surface barely changed the UI. `themeCssVars` now
   emits `--card-rgb` (the Surface as an `r g b` triplet) and every glass recipe
-  builds its tint as `rgb(var(--card-rgb, <fallback>) / α)`. (2) The theme's
+  builds its tint as `rgb(var(--card-rgb, <fallback>) / Î±)`. (2) The theme's
   "Accent" color was emitted as `--brand-accent` / `--brand-accent-rgb` but
   consumed **nowhere**, so editing Accent did nothing visible. The shared
-  `TabBar` active pill now carries a primary→accent gradient + accent hairline,
+  `TabBar` active pill now carries a primaryâ†’accent gradient + accent hairline,
   giving the token a real consumer. Verified with pixel diffs: changing Surface
   went from ~1.4% to ~8.7% of the viewport, and Accent visibly tints the active
   tab. Tests: `theme/tokens.test.ts` (+1 for `--card-rgb`). `vitest` 2113 passed;
@@ -500,7 +739,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   icon now renders Phosphor (`@phosphor-icons/react`) via a new central surface
   `src/lib/icons/index.ts`, which re-exports each glyph under its original Lucide
   name (plus `LucideIcon`), so all ~165 importing modules keep their existing call
-  sites and only the import specifier changed (`lucide-react` → `@/lib/icons`).
+  sites and only the import specifier changed (`lucide-react` â†’ `@/lib/icons`).
   This gives the dark glass UI a distinctive shape language and Phosphor weights
   (fill/duotone). Selected/active states were converted from `fill="currentColor"`
   to `weight="fill"` (Phosphor outlines are filled paths, so `fill="none"` would
@@ -516,27 +755,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   you could not see *which* link the click referred to or what it connected. The
   selected route now draws full-strength (thicker, opaque) while every other
   route dims to 10% opacity, the flow animation stops (a moving target cannot be
-  "the one"), and the two endpoint countries get glowing labelled markers — so
+  "the one"), and the two endpoint countries get glowing labelled markers â€” so
   "what is traded between X and Y" reads straight off the map. The line datum now
   carries `fromName`/`toName`/`fromIso`/`toIso`/`eventKey`, and a dedicated
   `tradeTooltip` leads with the ROUTE and the traded goods instead of a generic
-  event blurb. `selectedEventKey` is threaded `WorldMap` → `buildMapOption` on
+  event blurb. `selectedEventKey` is threaded `WorldMap` â†’ `buildMapOption` on
   the main screen, full-page map, and dashboard widget. Tests:
   `layers.test.ts` (+1), `map-echarts.test.ts` (+3). `npx tsc --noEmit` clean;
   `vitest` 2106 passed (the 1 failing `pytest` test is in the model-runtime area
   from concurrent work, untouched by this change).
-  no doc change — behaviour within the existing `lines` layer contract.
+  no doc change â€” behaviour within the existing `lines` layer contract.
 
 - **Restored the sidebar width to its original `w-60` (was shrunk to `w-52`).**
   A prior commit narrowed the desktop sidebar and the Settings rail from `w-60`
   to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
-  `settings.tsx` rail). no doc change — layout fix; no contract change.
+  `settings.tsx` rail). no doc change â€” layout fix; no contract change.
 
 - **Terminal command approvals now actually surface; agent steered to auto-allowed
   `mkdir`.** An agent asked to "create a folder on my Desktop" reported it was
-  blocked. Two causes, both fixed. (1) A terminal `ask` command (`New-Item …`)
+  blocked. Two causes, both fixed. (1) A terminal `ask` command (`New-Item â€¦`)
   creates a pending approval, but `/code/approvals` only listed `kind='code_action'`,
-  so the request was invisible in the UI — the user could never approve it and the
+  so the request was invisible in the UI â€” the user could never approve it and the
   agent looped. The route now lists and decides `code_action` + `terminal_command`
   + `shell_command`. (2) `mkdir`/`md` is already `allow` (runs with no approval;
   verified it creates the folder), but the code-agent prompt did not say so, so the
@@ -549,7 +788,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Terminal: the "dock back" icon is now an inward-corners glyph, not a download
   arrow.** `ArrowDownToLine` read as a download button, so the detached pop-out's
   "dock back" control now uses `CornersIn` (a dock/restore glyph), matching the
-  restore control on the docked panel. no doc change — icon swap only.
+  restore control on the docked panel. no doc change â€” icon swap only.
 
 - **Terminal: the `[?1;2c` prompt garbage is gone.** Root cause: the shell asks
   the terminal "what are you?" (Device Attributes, `ESC[c`); xterm auto-replies
@@ -557,7 +796,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   PowerShell, which cannot interpret it and ECHOED the literal text at the prompt.
   Filtering the output could not fix it (the shell had already echoed the bytes).
   The reply is now dropped from the INPUT stream (`filterTerminalInput` in
-  `xterm-terminal.tsx`) before it reaches the PTY — the shell never needs it — with
+  `xterm-terminal.tsx`) before it reaches the PTY â€” the shell never needs it â€” with
   the output-side strip kept as a fallback for a session that echoed it earlier.
   Verified in-browser: no `?1;2c`, typing unchanged. Vitest **2140 passed**; Python
   **2642 passed**; eval gates ALL PASS; `npx tsc --noEmit` clean.
@@ -569,9 +808,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   layout, and the service pre-opens one idle shell at boot (`TerminalManager.warm_shell`
   + `WARM_OWNER`, adopted by the first UI open). Measured: open-to-prompt went from
   ~24s to ~1.1s. Also fixed the warm path's undefined `WARM_OWNER`/unwired boot call.
-  (2) Icons: replaced the inaccurate set with semantic Phosphor icons — `Rows3`
+  (2) Icons: replaced the inaccurate set with semantic Phosphor icons â€” `Rows3`
   (dock bottom), `Columns3` (dock right), `CornersOut`/`CornersIn` (full/restore),
-  `Export` (detach), `AppWindow` (new window), `Cpu` (processes) — added to
+  `Export` (detach), `AppWindow` (new window), `Cpu` (processes) â€” added to
   `src/lib/icons`. (3) Glass: the dock and the pop-out use `glass-card-strong`
   (measured `backdrop-filter: blur(22px) saturate(1.4)`); the xterm host is
   transparent so the frost shows through, and the pop-out is portaled to `document.body`
@@ -609,7 +848,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   layout (the floating `terminal-panel.tsx` is deleted). Placement is persisted and
   the shell hydrates it on mount (`useTerminalShell`), so the docked region reserves
   its space on first paint. The terminal refits and the PTY resizes on every
-  placement change, and the shell is preserved across placement switches (bottom →
+  placement change, and the shell is preserved across placement switches (bottom â†’
   right keeps history). Fixed a latent `api-guard` same-origin check in the same
   change (see above). Extracted `useTerminalShell` to keep `stock-chat.tsx` within its
   size ratchet. docs updated: `docs/harness/terminal-architecture.md`.
@@ -617,18 +856,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Terminal: fix typing and add bottom / right / full-page placement.** Three real
   bugs fixed. (1) Typing did nothing: the mutation guard compared `Origin`
   (`http://127.0.0.1:3000`) against the request host (`localhost`) byte-for-byte,
-  so every browser mutation — including opening a session — got a 403
+  so every browser mutation â€” including opening a session â€” got a 403
   "Cross-origin requests are not allowed". Loopback aliases are now normalized to
   one origin (`normalizeHost`), so same-machine requests are allowed while a real
   cross-site request is still blocked. (2) The terminal rendered but received no
   output: React StrictMode double-mounts the effect and the first cleanup's
-  `stopRef` was never reset, so the stream loop exited immediately — now reset on
+  `stopRef` was never reset, so the stream loop exited immediately â€” now reset on
   every mount (and the terminal auto-focuses so typing works without a click).
-  (3) Typed commands ran jumbled ("terminal" → "terimnal"): one HTTP request per
+  (3) Typed commands ran jumbled ("terminal" â†’ "terimnal"): one HTTP request per
   keystroke let concurrent writes interleave. Writes are now serialized with a
   per-session lock in the runtime, and the client drains an ordered input queue
   (one in-flight request, coalescing keystrokes without reordering). Added a
-  placement control — **dock bottom / dock right (full height) / full page** — with
+  placement control â€” **dock bottom / dock right (full height) / full page** â€” with
   the choice persisted; the terminal refits and the PTY resizes on every placement
   change. Tests: `api-guard.test.ts` (+2 loopback-origin), `terminal-keybind.test.ts`
   (+3 placement, +2 ordered-queue). Full Python suite **2642 passed**; Vitest
@@ -651,7 +890,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **Real interactive terminal UI (xterm.js over a live PTY).** The Terminal tab was
   a fake one-shot command box: line-based, no streaming, no interactive programs.
-  It is now a genuine terminal — xterm.js
+  It is now a genuine terminal â€” xterm.js
   (`src/components/terminal/xterm-terminal.tsx`) rendering a live PTY-backed shell
   in the runtime. Keystrokes go straight to the PTY
   (`POST /terminal/sessions/{id}/raw`), output arrives over a low-latency long-poll
@@ -662,7 +901,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Added `@xterm/xterm` + `@xterm/addon-fit`. Backend: a per-session output
   `Condition` wakes the stream the instant output lands, `wait_for_output`,
   `stream_shell_output`, `send_shell_raw`, and an `owner` filter on session listing.
-  Tests: `test_terminal_api.py` +2 (owner reattach, raw-input→stream round trip).
+  Tests: `test_terminal_api.py` +2 (owner reattach, raw-inputâ†’stream round trip).
   Full Python suite **2639 passed**; Vitest **2093 passed**; `npx tsc --noEmit`
   clean. docs updated: `docs/harness/terminal-architecture.md` (UI section).
 
@@ -680,7 +919,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `NOT_IMPLEMENTED`; SSH uses the host's own OpenSSH config/agent and never reads a
   key. New `runtime.extra_env()` forwards only non-secret host vars
   (`DOCKER_HOST`, `SSH_AUTH_SOCK`). (4) `terminal/resources.py` adds CPU/memory
-  telemetry (no `psutil`) plus `ResourceLimits` — a start past `maxProcesses` is
+  telemetry (no `psutil`) plus `ResourceLimits` â€” a start past `maxProcesses` is
   refused `PROCESS_LIMIT`, and a process over its output/lifetime bound is FLAGGED
   `runaway` (never auto-killed) with a `terminal.process.runaway` event; surfaced
   by `resource_report`/`system_info` and `/terminal/resources`. Also made the
@@ -693,7 +932,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/terminal-architecture.md`, `docs/NAVIGATION.md`,
   `docs/harness/decisions.md` (`ADR-H127`).
 
-- **Terminal/Shell/Process execution subsystem — the execution backbone.**
+- **Terminal/Shell/Process execution subsystem â€” the execution backbone.**
   Added `python/harness/terminal/` (one `TerminalManager` shared by agent tools and
   the UI): persistent shells (`open_shell`/`run_shell_command`/`write_shell_input`/
   `read_shell_output`/`resize_shell`/`send_shell_control`), background process
@@ -724,34 +963,34 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Refresh, and uses the identical `glass-button` recipe; the dashboard widget
   gets an `accent` variant that matches its own `bg-accent/30` header buttons.
   `npx tsc --noEmit` clean; investor-eye tests pass.
-  no doc change — control styling/placement only; no contract change.
+  no doc change â€” control styling/placement only; no contract change.
 
 - **Investor Eye heatmap: scope its visualMap (event dots no longer turn purple
   and stick) + coarser density grid.** Two regressions in the `event-heatmap`
   layer. (1) A continuous ECharts `visualMap` defaults to `seriesIndex: 'all'`,
-  so it recoloured EVERY series from its `value` — the event pins (value = a
-  0.2–1 severity weight) were re-tinted to the low/violet end, and because the
+  so it recoloured EVERY series from its `value` â€” the event pins (value = a
+  0.2â€“1 severity weight) were re-tinted to the low/violet end, and because the
   update path only `replaceMerge`d `series`, the mapping (and the purple) stayed
   after the heatmap was switched off. The `visualMap` is now scoped with
   `seriesId: 'event-heatmap'`, and `world-map.tsx` replaces `visualMap` too, so
   turning the layer off REMOVES the mapping and every layer reverts to its own
-  colouring. (2) The heatmap reused the pin-cluster grid (0.1° at high counts),
+  colouring. (2) The heatmap reused the pin-cluster grid (0.1Â° at high counts),
   so every event was its own faint speck instead of a regional hotspot. It now
-  aggregates on a coarse `heatmapCellDegrees()` grid (1.5–8° by count), so
+  aggregates on a coarse `heatmapCellDegrees()` grid (1.5â€“8Â° by count), so
   neighbouring events accumulate into one hotspot the way a heatmap should.
   Tests: `map-echarts.test.ts` (+2 visualMap-scoping cases).
   `npx tsc --noEmit` clean.
-  no doc change — bug fix to heatmap rendering; `MapLayerType`/contract unchanged.
+  no doc change â€” bug fix to heatmap rendering; `MapLayerType`/contract unchanged.
 
 
 - **Fixed the composer model dropdown crashing on open (Base UI error #31).**
   `ModelSelector` in `chat-input.tsx` rendered `DropdownMenuLabel` (Base UI
   `Menu.GroupLabel`) as a direct child of `DropdownMenuContent`, but a group
-  label requires a `<Menu.Group>` ancestor — clicking the pill threw
+  label requires a `<Menu.Group>` ancestor â€” clicking the pill threw
   `Base UI error #31` and the menu never appeared. Wrapped the label + model
   list in `DropdownMenuGroup`. Verified with a Playwright probe: menu opens,
   lists all providers/models, no console errors. `vitest` 2085 passed;
-  `npx tsc --noEmit` clean. no doc change — bug fix; no contract change.
+  `npx tsc --noEmit` clean. no doc change â€” bug fix; no contract change.
 
 - **Model menu restyled to frosted glass.** The composer model dropdown and its
   Provider submenu used the opaque `bg-popover` fill, so it read as a flat solid
@@ -764,12 +1003,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   background is visibly blurred through the panel and submenu, no console
   errors). This changes every consumer of the shared `DropdownMenuContent`
   (composer model selector is the only one today). `vitest` 2087 passed;
-  `npx tsc --noEmit` clean. no doc change — visual-only restyle using the
+  `npx tsc --noEmit` clean. no doc change â€” visual-only restyle using the
   existing glass system; no architecture/contract change.
 
 - **Scrollbar + provider-status colour toned down (professional, neutral).** The
   global scrollbar was brand-tinted, and on hover it turned bright brand green
-  (`#7aff78`) — a loud yellow-green streak on dark glass. Both global scrollbar
+  (`#7aff78`) â€” a loud yellow-green streak on dark glass. Both global scrollbar
   blocks in `globals.css` (the early brand block + the late `#262626`/`var(--brand)`
   cascade layer) now use a neutral translucent-white thumb
   (`rgba(255,255,255,0.16)`, `0.30` hover) on a transparent track, so no theme can
@@ -777,61 +1016,61 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   submenu, the `needs key` / `no key` labels were saturated amber/green; they are
   now muted (`text-muted-foreground/50`; `key set` at `text-emerald-400/70`), so
   the menu reads as chrome rather than a traffic-light. `vitest` 2087 passed;
-  `npx tsc --noEmit` clean. no doc change — visual-only; no contract change.
+  `npx tsc --noEmit` clean. no doc change â€” visual-only; no contract change.
 
 - **Composer model menu: fixed dead item handlers + made "Discover" list and keep
   every installed model.** Three compounding bugs. (1) The shadcn-style wrapper
   `dropdown-menu.tsx` exposed Radix's `onSelect` API, but Base UI's `Menu.Item`
-  only fires `onClick` — so **every** menu item (`setModel`, provider switch,
+  only fires `onClick` â€” so **every** menu item (`setModel`, provider switch,
   Discover, Custom) silently did nothing. All items now use `onClick`, with
   `closeOnClick={false}` where the menu must stay open (Discover, Custom id).
   (2) `ModelRegistry.discover_models` returned only the *newly registered* models,
   so a second "Discover" click returned an empty list; it now returns the
-  provider's full registered set (idempotent) — Python test added.
+  provider's full registered set (idempotent) â€” Python test added.
   (3) The composer catalog (`GET /api/harness/chat/models`) read only the static
-  preset (`llama3.1`, …), never the runtime's discovered registry, so installed
+  preset (`llama3.1`, â€¦), never the runtime's discovered registry, so installed
   Ollama models vanished on reload. The route now merges `listRuntimeModels()`
   (best-effort, server-side) per provider. Result: an Ollama "Discover" now shows
   ALL installed models and they persist across reloads. Tests: `models/route.test.ts`
   (+2), `test_model_runtime.py` (+1). `vitest` 2089 passed; `pytest` green;
   `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
 
-- **Model menu: providers that need a key now link straight to Settings › AI.**
+- **Model menu: providers that need a key now link straight to Settings â€º AI.**
   Clicking a provider whose key is missing previously selected it and then failed
   at run time. The Provider submenu item now detects `!keyless && !available` and
   dispatches the command bus to `settings.ai`
   (`useCommandStore.getState().dispatch({ tab: "settings", subroute: "settings.ai" })`)
-  — the established modal-navigation idiom — so the user lands on the AI/LLM page
+  â€” the established modal-navigation idiom â€” so the user lands on the AI/LLM page
   to paste the key. The label changed from "needs key" to a primary "Add key" with
   a key icon. Keyless/configured providers still select normally. `vitest` 2089
-  passed; `npx tsc --noEmit` clean. no doc change — small navigation affordance;
+  passed; `npx tsc --noEmit` clean. no doc change â€” small navigation affordance;
   no architecture/contract change.
 
-- **Settings › AI redesigned: grouped providers, connect/disconnect, readable
+- **Settings â€º AI redesigned: grouped providers, connect/disconnect, readable
   active model.** The old surface dumped every provider into one two-column grid
   beside a duplicate config form, so it was unclear what was selected or how to
   add/remove a key. New `ai-provider-settings.tsx` groups it: (1) **Active setup**
-  — the current provider + model echoed prominently, with model picker, base URL,
+  â€” the current provider + model echoed prominently, with model picker, base URL,
   context window, key editor and Test, in one card; (2) **Connected providers**
-  — those that work (key set, or keyless local), each with **Disconnect**
-  (deletes the vault key) or **Use**; (3) **Popular providers** — one click to
-  **Connect** (reveals the key field) or select; (4) **Show more providers** —
+  â€” those that work (key set, or keyless local), each with **Disconnect**
+  (deletes the vault key) or **Use**; (3) **Popular providers** â€” one click to
+  **Connect** (reveals the key field) or select; (4) **Show more providers** â€”
   the rest, collapsed. Provider state is derived honestly (Active / Connected /
   Ready / Not connected). `ProviderKeyEditor` gained an `onChanged` callback.
   The model picker (`model-picker.tsx`) no longer shows a raw `__custom__`
-  sentinel — the current id is always in the Select, with a separate "Custom
-  model id…" toggle. `GET /api/harness/models` now merges runtime-discovered
+  sentinel â€” the current id is always in the Select, with a separate "Custom
+  model idâ€¦" toggle. `GET /api/harness/models` now merges runtime-discovered
   models, so the Settings picker reads the operator's installed Ollama models
   too. Tests: `api/harness/models/route.test.ts` (+3). `vitest` 2092 passed;
   `pytest` green; `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
 
-- **Settings › AI: removed themed (blue) borders, provider cards now full-width.**
+- **Settings â€º AI: removed themed (blue) borders, provider cards now full-width.**
   The provider cards and section icon used `border-primary/*` / `border-emerald-*`,
-  which resolve to the active theme's brand colour — so under a blue theme
+  which resolve to the active theme's brand colour â€” so under a blue theme
   ("Electric Blue", "Blueprint") every card had a blue outline. They now use
   neutral white-alpha borders, so no theme can tint the chrome. The catalog
   grids also changed from two columns (`sm:grid-cols-2`) to a single full-width
-  column. `vitest` 2092 passed; `npx tsc --noEmit` clean. no doc change —
+  column. `vitest` 2092 passed; `npx tsc --noEmit` clean. no doc change â€”
   visual-only; no contract change.
 
 - **Site sidebars unified to one neutral grey, accent-free look; rows shortened.**
@@ -841,28 +1080,28 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `glass-card-subtle` panel that drifted from the shell rail. Green `primary`
   accents (active mode button, active nav row/icon, shortcut badge, settings gear,
   Settings header/chevron/nav pills) were replaced with neutral white-wash
-  (`bg-white/[0.08]`, `text-foreground`). Nav rows shrank `h-10` → `h-9`. The
-  shipped sidebar tint moved `#1a1a1c` → `#2a2a2e` (clearly grey) and
+  (`bg-white/[0.08]`, `text-foreground`). Nav rows shrank `h-10` â†’ `h-9`. The
+  shipped sidebar tint moved `#1a1a1c` â†’ `#2a2a2e` (clearly grey) and
   `SIDEBAR_PRESETS` gained a `Grey` default preset (`charcoal` retained). Tests
-  updated in `lib/theme/tokens.test.ts`. no doc change — surface styling only; no
+  updated in `lib/theme/tokens.test.ts`. no doc change â€” surface styling only; no
   architecture/contract change.
 
 - **ChatBot transcript rail de-accented; default sidebar width reduced.** The chat
-  page's right-edge `MessageRail` ticks no longer use the green brand accent —
+  page's right-edge `MessageRail` ticks no longer use the green brand accent â€”
   idle ticks are `bg-muted-foreground/50`, hover/active brighten to a neutral
-  `bg-foreground/70–80` with no glow. The default sidebar width dropped `w-60`
-  (15rem) → `w-52` (13rem) on the shell rail (`layout/sidebar.tsx`), its mobile
+  `bg-foreground/70â€“80` with no glow. The default sidebar width dropped `w-60`
+  (15rem) â†’ `w-52` (13rem) on the shell rail (`layout/sidebar.tsx`), its mobile
   drawer, and the Settings rail (`screens/settings.tsx`) so the default chrome is
   less dominant. `npx tsc --noEmit` clean; `vitest` 2092 passed.
-  no doc change — surface styling only; no architecture/contract change.
+  no doc change â€” surface styling only; no architecture/contract change.
 
 - **Chat scrollbars de-accented to neutral grey.** The chat transcript's visible
-  scrollbar (`.chat-transcript-scroll`) was still brand-green — after scrolling
+  scrollbar (`.chat-transcript-scroll`) was still brand-green â€” after scrolling
   up it rendered as a bright vertical streak on the right edge of the ChatBot
   page. It (plus `.chat-composer-scroll` and `.tv-metrics-rail`) now uses the
   same neutral `rgba(255,255,255,0.16)` thumb / `0.30` hover as the global bar,
-  and the transcript/composer bars slimmed 8/10px → 6px. `npx tsc --noEmit`
-  clean; `vitest` 2092 passed. no doc change — styling only.
+  and the transcript/composer bars slimmed 8/10px â†’ 6px. `npx tsc --noEmit`
+  clean; `vitest` 2092 passed. no doc change â€” styling only.
 
 - **Chat transcript scrollbar replaced with a short capped thumb.** The native
   transcript bar always spans the full scroll-container height (it ran down the
@@ -871,13 +1110,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   capped at ~28% of the track, inset 6px from the top/bottom, tracking the
   reading position via a ResizeObserver + scroll listener. The unused
   `.chat-transcript-scroll` CSS was removed. `npx tsc --noEmit` clean;
-  `vitest` 2092 passed. no doc change — styling only.
+  `vitest` 2092 passed. no doc change â€” styling only.
 
 - **Settings model dropdown no longer renders behind the modal; discovered
   models persist; all connected providers usable from chat.** Three fixes:
   (1) `SelectContent` and `DropdownMenuContent` were portaled at `z-50` while the
   Settings `Dialog` popup/overlay sit at `z-[100]`, so the model list painted
-  behind the modal — both moved to `z-[110]` (same for `TooltipContent`, which
+  behind the modal â€” both moved to `z-[110]` (same for `TooltipContent`, which
   has the identical class of bug). Verified live with Playwright against a fresh
   dev server: the popup now computes `z-110` and sits above the dialog at
   `z-100`. (2) "Discover installed models"
@@ -895,16 +1134,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
 
 - **`Select` dropdown restyled to frosted glass.** The select popup used a flat
-  opaque `bg-popover` panel with a generic `ring`/`shadow-md` — visually a plain
+  opaque `bg-popover` panel with a generic `ring`/`shadow-md` â€” visually a plain
   system menu, and the odd one out next to the `DropdownMenu` (which already uses
   `.glass-tooltip`). It now uses the same `.glass-tooltip` frosted recipe
   (translucent tint + backdrop blur + saturation, rounded-2xl, soft shadow +
   inset highlight), with roomier rounded items, a neutral white-wash
   hover/selected state, a primary-tinted check indicator, and gradient scroll
   affordances instead of opaque `bg-popover` strips. `npx tsc --noEmit` clean;
-  `vitest` 2093 passed. no doc change — styling only.
+  `vitest` 2093 passed. no doc change â€” styling only.
 
-- **Every provider can enumerate its live models (OpenRouter, OpenAI, Groq, …).**
+- **Every provider can enumerate its live models (OpenRouter, OpenAI, Groq, â€¦).**
   Previously only local servers + routers (Ollama/LM Studio/OpenRouter) offered
   "Discover installed models"; a hosted API showed only its declared sample, so
   you could not pull e.g. OpenRouter's catalog. Fixes: `ProviderSpec.dynamic_discovery`
@@ -915,7 +1154,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `AnthropicAdapter`/`GoogleAdapter` override `discover_models` for their own
   list shapes); and the Next discover route now resolves the provider key
   server-side from the env/vault (`resolveProviderKey`) with a preset base-URL
-  fallback, since the browser never holds it — so a private endpoint that would
+  fallback, since the browser never holds it â€” so a private endpoint that would
   401 keyless now enumerates. Discovered ids are cached in the durable snapshot
   added earlier. Tests: `python/tests/test_model_runtime.py` (catalog flags +
   adapter probes + parser). `npx tsc --noEmit` clean; vitest 2093 passed;
@@ -929,10 +1168,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   showing the full catalog; the enabled subset is what the compact pickers show,
   persisted per provider in `src/lib/agent/enabled-models.ts` (`be_enabled_models_v1`,
   shared zustand store + pure `compactModels()` with `MODEL_LIST_SOFT_LIMIT`=40).
-  Both Settings → AI (`model-picker.tsx`) and the chat composer
+  Both Settings â†’ AI (`model-picker.tsx`) and the chat composer
   (`chat-input.tsx` `ModelSelector`) gained a "Manage" affordance and render the
   same dialog, so curation is reflected everywhere. It is a client-side filter,
-  never an allowlist (the runtime accepts any id; "Custom model id…" still
+  never an allowlist (the runtime accepts any id; "Custom model idâ€¦" still
   works). `npx tsc --noEmit` clean; vitest 2112 passed (incl.
   `enabled-models.test.ts`). docs updated: `docs/ARCHITECTURE.md`,
   `docs/NAVIGATION.md`.
@@ -942,17 +1181,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Composer model selector: fixed to be ALWAYS visible + switch providers.**
   The previous attempt gated the dropdown on a non-empty model list, so for the
   default configuration (one saved model) it never rendered and the pill stayed a
-  static label — the selector appeared "broken". It also only offered the active
+  static label â€” the selector appeared "broken". It also only offered the active
   provider's models, so there was nothing to switch to. `chat-input.tsx` now
   renders an always-present `ModelSelector`; `use-chat-model.ts` + new
   `GET /api/harness/chat/models` list the models the operator can actually use
   across ALL providers (availability derived server-side from the real env/vault;
   models from the runtime catalog with a preset-default fallback when the runtime
   is down). Selecting a model/provider PERSISTS it to the settings vault via
-  `POST /api/settings` — the source the runtime reads — so the next message uses
+  `POST /api/settings` â€” the source the runtime reads â€” so the next message uses
   it; it is also sent per-turn as `model`. Provider switch persists provider +
   base URL + default model together; a failed save shows the error and reverts;
-  a "Custom model id…" entry types any id; local/router providers get a live
+  a "Custom model idâ€¦" entry types any id; local/router providers get a live
   discover action. Tests: `models/route.test.ts` (+4). `vitest` 2085 passed;
   `pytest` 2550 passed; `npx tsc --noEmit` clean; eval gates ALL PASS.
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
@@ -963,9 +1202,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   now backs the pill as a dropdown of the models the configured provider can
   serve (the runtime's declared catalog + a live `discover` probe for local
   servers/routers), persisted in localStorage, and the choice is threaded
-  end-to-end: `ChatOptions.model` → chat request body `model` → `startChatRun`/
-  `chatWithAgent` → `resolveModelSettings(model)` → the run's
-  `modelSettings.model`. It overrides ONLY the model — provider/key/base URL stay
+  end-to-end: `ChatOptions.model` â†’ chat request body `model` â†’ `startChatRun`/
+  `chatWithAgent` â†’ `resolveModelSettings(model)` â†’ the run's
+  `modelSettings.model`. It overrides ONLY the model â€” provider/key/base URL stay
   the operator's configured ones, and a declared context window is dropped since
   it belongs to the previous (provider, model). Never a fabricated list: with no
   catalog it degrades to the saved model alone. `stock-chat.tsx` stays at its
@@ -978,27 +1217,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Added a standalone `HeatmapToggle` (Flame icon) on the main map (top-left of
   the map surface), the full-page map dock, and the dashboard "Investor Eye Map"
   widget header. It uses the SAME visible control recipe as its sibling buttons
-  (`border-white/15 bg-accent/30`, active = `border-primary/40 bg-primary/15`) —
+  (`border-white/15 bg-accent/30`, active = `border-primary/40 bg-primary/15`) â€”
   an earlier `glass-button`/`glass-card-subtle` restyle blended into the dark map
   and made the control effectively invisible. Restyled the heat layer:
-  `pointSize`/`blurSize` 22/28 → 16/18 and `minOpacity` 0.35 → 0.12 so sparse
+  `pointSize`/`blurSize` 22/28 â†’ 16/18 and `minOpacity` 0.35 â†’ 0.12 so sparse
   regions stay dark and only genuine concentrations light up, and replaced the
-  blue→red `visualMap` ramp with a warm violet→magenta→rose→orange→yellow ramp
+  blueâ†’red `visualMap` ramp with a warm violetâ†’magentaâ†’roseâ†’orangeâ†’yellow ramp
   that contrasts the blue/cyan map surface instead of blending into it. The
   widget header now wraps so the extra control cannot be clipped. `vitest` 414
   investor-eye tests pass; `npx tsc --noEmit` clean.
-  no doc change — presentation/control tuning; layer contract unchanged.
+  no doc change â€” presentation/control tuning; layer contract unchanged.
 
 - **Investor Eye Map dashboard widget had no layer controls.** The embeddable
   "Investor Eye Map" widget rendered the world map with only expand/Open buttons
-  and no way to toggle layers — so the Event Heatmap (and every other layer) was
+  and no way to toggle layers â€” so the Event Heatmap (and every other layer) was
   unreachable from the dashboard, unlike the full Investor Eye screen. Added a
   Layers button opening a popover that reuses the canonical `LayerController`
   (same chips, colours, availability rules), portaled to `document.body` and
   anchored to the button because the widget card is `overflow-hidden` and would
   otherwise clip it; the popover flips above the button near the viewport bottom.
   `vitest` 2079 passed; `npx tsc --noEmit` clean.
-  no doc change — the Investor Eye Map widget is already covered by the workspace
+  no doc change â€” the Investor Eye Map widget is already covered by the workspace
   skill; this is a control-surface fix, no contract change.
 
 - **Investor Eye: event heatmap now actually reads as a heatmap; pins shrunk to
@@ -1012,20 +1251,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   the controller: `availableLayers` never included `event-heatmap`, so its chip
   was dimmed as "no data" and looked broken. Enabled the heatmap by default
   (`DEFAULT_LAYERS`) and gave it a legend swatch (new `heat` glyph in
-  `SYMBOL_PATHS`). Markers reduced to Bloomberg scale — 2D pins 18/14/11/8 →
-  8/6/5/4 and glow halos 26/17/10/5 → 12/8/5/3; globe core 17 → 9 and ring 24 →
-  13 — so hundreds of dots stay legible instead of collapsing into blobs.
+  `SYMBOL_PATHS`). Markers reduced to Bloomberg scale â€” 2D pins 18/14/11/8 â†’
+  8/6/5/4 and glow halos 26/17/10/5 â†’ 12/8/5/3; globe core 17 â†’ 9 and ring 24 â†’
+  13 â€” so hundreds of dots stay legible instead of collapsing into blobs.
   Tests: `layers.test.ts` (+3 heatmap density cases). `vitest` 2079 passed;
   `npx tsc --noEmit` clean.
-  no doc change — layer rendering/tuning only; heatmap contract already documented
-  in `docs/investor-eye-architecture.md` §2.13.
+  no doc change â€” layer rendering/tuning only; heatmap contract already documented
+  in `docs/investor-eye-architecture.md` Â§2.13.
 
 - **Fix: configured models were silently substituted + Ollama's installed models
   were unselectable.** The front door stores a BARE model id (`cfg.model`) with a
   separate provider id. `ModelRouter` resolved a bare id only when it was
   globally unambiguous, so any model not in the static catalog (an operator's
   `deepseek-v4.1-flash`, any custom/local model) looked "unknown" and the router
-  fell through to its own best pick — `deepseek/deepseek-v4.1-flash` resolved to
+  fell through to its own best pick â€” `deepseek/deepseek-v4.1-flash` resolved to
   `google/gemini-2.0-flash`, so the user's model never ran. `ModelRuntime` now
   qualifies the bare id with the run's provider (`_explicit_ref`), so ANY model
   id the operator configured is honoured as the explicit choice and never
@@ -1035,8 +1274,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   shaped only for a provider-native control (Anthropic/Google/native-OpenAI) that
   declares reasoning support. Third: the Settings model dropdown only ever showed
   the static catalog, never the models actually installed, so Ollama showed
-  `llama3.1…phi3` and nothing the operator had pulled. Added runtime model
-  discovery — `POST /model-runtime/providers/{id}/discover` probes the live
+  `llama3.1â€¦phi3` and nothing the operator had pulled. Added runtime model
+  discovery â€” `POST /model-runtime/providers/{id}/discover` probes the live
   `/models` endpoint (Ollama/LM Studio/router) and registers what it serves, with
   a new `ModelPicker` component (extracted from `settings.tsx`, which stays under
   its size ratchet) exposing a "Discover installed models" action; a failed probe
@@ -1047,8 +1286,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   passed; `npx tsc --noEmit` clean; eval gates ALL PASS.
   docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`
 
-- **Reverted the General › Theme "ChatBot background" card.**
-  The color option already lives under Settings › General › Background
+- **Reverted the General â€º Theme "ChatBot background" card.**
+  The color option already lives under Settings â€º General â€º Background
   (`background-settings.tsx`), so the duplicate card added earlier today in
   `customization-settings.tsx` was removed and that file restored.
 
@@ -1056,9 +1295,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/theme/tokens.ts`: the `eclipse` preset's ChatBot landing now uses
   `solidColor: '#131615'` and wordmark `textColor: '#e6ffe5'` (previously both
   derived from the accent/primary mix). `npx tsc --noEmit` clean; `vitest` passed.
-  no doc change — preset token values only, no contract/shape change.
+  no doc change â€” preset token values only, no contract/shape change.
 
-- **Dedicated "ChatBot background" color in Settings › General › Theme.**
+- **Dedicated "ChatBot background" color in Settings â€º General â€º Theme.**
   Added a "ChatBot background" card to the theme Colors area
   (`src/components/screens/customization-settings.tsx`) that sets the flat
   backdrop color of the empty ChatBot landing only, independent of the app-wide
@@ -1069,7 +1308,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   counts toward `dirty`. `vitest` passed; `npx tsc --noEmit` clean.
   docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
 
-- **Fix: Settings › AI could not add an API key or select most providers.**
+- **Fix: Settings â€º AI could not add an API key or select most providers.**
   Root cause was the keyless-local key sentinel `"local"`: a local endpoint
   (Ollama) persisted `apiKey:"local"` in `llm_config`, and switching to a hosted
   provider kept it, so `getLLMConfig` never fell back to the provider-key vault
@@ -1101,8 +1340,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   the keep-alive block in `src/components/screens/stock-chat.tsx`, the sidebar
   entry in `src/lib/sidebar/config.ts`), i18n `modelRuntime.*`/`nav.modelRuntime`,
   and the global-search page `page-model-runtime`. User routing overrides
-  (spec §44) round-trip through `LLMConfig.routingPolicy` → the run's
-  `input.context.modelPolicy` → the runtime's `RoutingRequirements`, toggleable
+  (spec Â§44) round-trip through `LLMConfig.routingPolicy` â†’ the run's
+  `input.context.modelPolicy` â†’ the runtime's `RoutingRequirements`, toggleable
   in the Routing pane ("local models only", "avoid paid models").
   Tests: `src/lib/harness/model-runtime-browser.test.ts`,
   `src/components/screens/model-runtime/model-runtime-screens.test.ts`,
@@ -1114,7 +1353,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **Provider-agnostic Model Runtime layer (the agent no longer talks to a
   provider).** New package `python/harness/model_runtime/` implements
-  `Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider`: provider and
+  `Agent â†’ ModelRuntime â†’ ModelRouter â†’ ProviderAdapter â†’ Provider`: provider and
   model registries seeded from the existing `PROVIDER_CATALOG`; capability
   detection as states (supported/unsupported/unknown/degraded); 15 task profiles;
   dynamically-resolved aliases (`eclipse-fast|smart|reasoning|coder|vision|cheap|local`);
@@ -1140,13 +1379,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Bounded replanning added to the one execution graph (Phase 11).** A tool step
   that FAILS or STALLS (the agent re-issues the same `(tool,args)` set as the
   previous turn) may now divert through ONE `replan` node on the SAME
-  `tools → agent` edge before continuing. The node appends inert prose naming the
-  failures/stall — it authorizes nothing, widens no allowlist, and builds no
+  `tools â†’ agent` edge before continuing. The node appends inert prose naming the
+  failures/stall â€” it authorizes nothing, widens no allowlist, and builds no
   second loop/registry/adapter. New module `python/harness/replan.py` owns the
   trigger (`should_replan`; a stall outranks a failure), the bound
   (`ReplanBudget.max_replans`, default 2), the deterministic directive and an
   optional best-effort model-authored plan. Flag-gated `HARNESS_REPLAN_ENABLED`
-  (default OFF) — when off the graph is byte-identical to before. Emits a
+  (default OFF) â€” when off the graph is byte-identical to before. Emits a
   persisted `run.replanned` event. To respect the `graph.py` size ratchet, the
   checkpoint (de)serialization moved to `python/harness/checkpoint_io.py` and the
   history-bounding + dropped-context helpers moved to `python/harness/history.py`
@@ -1159,9 +1398,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   preset's giant ChatBot landing wordmark (the "ECLIPSE AGENT" text) now uses
   Michroma (`var(--font-michroma)`), replacing the per-preset Bodoni / VT323 /
   IBM Plex Mono / Playfair choices. `src/lib/theme/tokens.ts`: `ECLIPSE_WORDMARK_FONT`
-  → `PRESET_WORDMARK_FONT` and all 12 presets reference it (size, opacity and
+  â†’ `PRESET_WORDMARK_FONT` and all 12 presets reference it (size, opacity and
   uppercase unchanged). `vitest` 2074 passed; `npx tsc --noEmit` clean.
-  no doc change — theme-token value only, no contract/shape change.
+  no doc change â€” theme-token value only, no contract/shape change.
 
 ## 2026-10-03
 
@@ -1177,7 +1416,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   every preset's ChatBot landing is a simple **flat** solid derived in the
   `preset()` helper: a very dark neutral grey (`LANDING_BASE` `#0f0f11`) carrying
   only the faintest shade of the preset's ACCENT hue
-  (`mixHex(accent, LANDING_BASE, 0.05)`) — dark and low-saturation, not a bright
+  (`mixHex(accent, LANDING_BASE, 0.05)`) â€” dark and low-saturation, not a bright
   wash. All preset wordmarks use the unified "ECLIPSE AGENT" text in a whiteish
   tone (`#e8e8ea`). Presets also now carry an **Aurora palette snapshot**
   (`ThemePreset.aurora`, derived from the theme's bullish/bearish colors via
@@ -1188,7 +1427,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `preview`/`cancelPreview`). Added an official **Electric Blue** preset matching
   the user's recovered saved look (primary `#77edfd`, accent `#36c8d3`, black
   background, dramatic shadow, frosted glass) with a dark accent-tinted landing.
-  A `flat` solid backdrop is a genuine solid fill — the color is emitted as
+  A `flat` solid backdrop is a genuine solid fill â€” the color is emitted as
   `--app-bg-color` onto the layer's `background-color` and no `background-image`
   is set, so the ChatBot landing paints no gradient function at all. `tsc` clean;
   vitest 2055 passed. docs updated: `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`
@@ -1197,17 +1436,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `event-heatmap` layer (new `MapLayerType` `'heatmap'`): ECharts `heatmap`
   series on the 2D geo map, one datum per geolocated event, intensity =
   severity weight (`severityWeight`), `pointSize` 16 / `blurSize` 22, a
-  continuous `visualMap` legend (blue→cyan→yellow→orange→red, HIGH/LOW labels),
+  continuous `visualMap` legend (blueâ†’cyanâ†’yellowâ†’orangeâ†’red, HIGH/LOW labels),
   and per-event tooltips (severity, type, published time). On the globe the
-  heatmap is not drawn — `echarts-gl` has no heatmap series; the event pins
+  heatmap is not drawn â€” `echarts-gl` has no heatmap series; the event pins
   remain there. New layer toggle in the Layer Controller (`Event Heatmap`,
   group `events`, off by default; `DEFAULT_LAYERS` updated). `tsc` clean;
   test suite passes. docs updated: `docs/CHANGELOG.md`
 
 - **Attachments accept every practical file type.** A type audit showed source
-  code (`.py`/`.js`/`.ts`/`.go`/…), `.rtf`, `.eml`, OpenDocument (`.odt`/`.ods`/
+  code (`.py`/`.js`/`.ts`/`.go`/â€¦), `.rtf`, `.eml`, OpenDocument (`.odt`/`.ods`/
   `.odp`), `.epub`, and any unknown/no-extension file were refused as
-  "unsupported" — a coding/finance agent must read all of them. `extract.ts` now:
+  "unsupported" â€” a coding/finance agent must read all of them. `extract.ts` now:
   recognises a broad text+code extension set; reads OpenDocument + epub via the
   same ZIP+XML path (per-extension member map); strips RTF control words; runs a
   readable-string scan for old binary Office (`.doc`/`.xls`/`.ppt`) and unknown
@@ -1234,7 +1473,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Tests: `pdf-extraction.test.ts`. `tsc` clean; vitest 2051 passed.
   docs updated: `docs/CHANGELOG.md`
 
-- **Theme presets are now holistic — the ChatBot landing changes with them.**
+- **Theme presets are now holistic â€” the ChatBot landing changes with them.**
   Selecting a preset only recolored tokens (colors, fonts, glass, sidebar
   surface); the ChatBot wallpaper/solid fill and giant wordmark live in the
   separate `useBackgroundStore`, so they never changed. A preset now carries an
@@ -1245,7 +1484,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `ChatWordmark` reads `previewPrefs ?? prefs` so glyphs update), Apply commits it
   (`applyPreset(theme, background)`), Discard reverts. Save/update/export/import
   round-trip the backdrop. Broke a store-to-store import cycle by replacing
-  `backgrounds.ts`→`useThemeStore` with `refreshBackground()` called after every
+  `backgrounds.ts`â†’`useThemeStore` with `refreshBackground()` called after every
   theme write. Also: the sidebar collapsed mark, expanded wordmark and mobile
   header now honor `theme.logoUrl` (falling back to shipped assets/monogram), and
   the Heading-font control reaches `font-heading` elements (dedicated
@@ -1257,18 +1496,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Code harness defaults to `edit_verify` so writes/executes work.** The
   code task store (`code/tasks.py` `DEFAULT_AUTONOMY`) and the code-agent run
   fallback (`graph.py`) both defaulted to `plan_only`, which the Phase-5 tool
-  allowlist strips of every write/execute tool — the harness could not create
+  allowlist strips of every write/execute tool â€” the harness could not create
   files or run commands unless the front door explicitly sent a different
   autonomy. Both now default to `edit_verify` (file create/write + command
   execution, no external git actions). Router docstrings updated. `npm run
-  test` eval gates all pass; `npx tsc --noEmit` clean. no doc change —
+  test` eval gates all pass; `npx tsc --noEmit` clean. no doc change â€”
   policy tables in `docs/harness/decisions.md` already describe `edit_verify`;
   only the default value changed.
 
 - **Coding-agent harness: persistent terminal, auto-verify, write approvals,
   explore delegation, diff rendering.** Five additive changes make the code
   surface behave like a real agent harness (opencode/hermes class):
-  (1) `terminal_run` now keeps a per-workspace session — `cd <dir>`,
+  (1) `terminal_run` now keeps a per-workspace session â€” `cd <dir>`,
   `export KEY=VAL`/`set KEY=VAL` and `pwd` persist across calls (confined to
   the worktree root, `terminal_tools.py` `_SESSIONS`), and `build_run_spec`
   accepts `env_extra`; the effect authorizer treats session mutations as
@@ -1287,13 +1526,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   coding turn. (5) Fenced ` ```diff ` blocks render with per-line +/-/@@
   coloring in the chat markdown renderer. Test: `test_chat_code_profile.py`
   updated for the `delegate` addition. Full suite 2474 passed; `tsc` clean.
-  no doc change — behavior is additive and documented in module docstrings.
+  no doc change â€” behavior is additive and documented in module docstrings.
 
 - **Code-turn step/time budget raised (MAX_STEPS_EXCEEDED fix).** A chat turn
   carrying `edit_verify`/`approve_external` now gets `max_steps >= 24` (code
-  agent preset already had 24) and `runTimeoutMs >= 600s` — previously the
+  agent preset already had 24) and `runTimeoutMs >= 600s` â€” previously the
   finance agent's 8 steps / 120s killed multi-phase coding turns right before
-  the file write. `graph.py`. `tsc` clean. no doc change — budget internals.
+  the file write. `graph.py`. `tsc` clean. no doc change â€” budget internals.
 - **Write/execute now require explicit approval in-app.** `make_code_authorizer`
   creates a pending `code_write` approval (keyed to the changed-path digest)
   and emits an `approval.requested` event; the terminal authorizer emits the
@@ -1311,14 +1550,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `CHAT_CODE_TOOLS`, `CODE_AGENT_TOOLS`, the effect-authorizer chain
   (`make_shell_authorizer`), and `policy.WRITE_TOOLS`. Smoke-tested against
   PowerShell. `tsc` clean; targeted tests pass; size ratchets bumped.
-  no doc change — new capability documented in module docstrings.
+  no doc change â€” new capability documented in module docstrings.
 - **Visible terminal panel (Ctrl/Cmd + `).** New `TerminalPanel`
   (`src/components/layout/terminal-panel.tsx`): a glass bottom sheet with
   command history (arrow keys), colored stdout/stderr, exit code and duration,
   and copy-friendly mono output. Backed by `POST /api/code/shell`, which
   proxies to the runtime's new `POST /code/shell`; cwd is confined to the
   server-resolved workspace root. Documented in the keyboard-shortcuts help.
-  `tsc` clean. no doc change — additive UI.
+  `tsc` clean. no doc change â€” additive UI.
 - **Intent classifier broadened for filesystem requests.** "Count the files on
   my desktop" and similar ("list/show/open/read ... files/folder/desktop/path")
   now classify as `code_change`, so the turn gets the code profile
@@ -1331,8 +1570,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **Attachments are VISIBLE at the composer.** An attached file used to be hidden
   behind a collapsed session bar, so "did it attach?" was unanswerable. Files now
-  render as chips directly above the chat composer — a file icon, the name, and an
-  X to remove — plus the "Attached N" count. Shown on both the empty landing and
+  render as chips directly above the chat composer â€” a file icon, the name, and an
+  X to remove â€” plus the "Attached N" count. Shown on both the empty landing and
   an active conversation. The chip list merges pending (attached before a session
   exists) and saved context files, de-duplicated (`mergeAttachmentChips`, pure and
   tested). Verified in a real browser (Playwright): attaching a file renders the
@@ -1341,26 +1580,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/CHANGELOG.md`
 
 - **Attachments actually work: real file names + Office documents.** The file-name
-  guard was an ASCII allowlist, which REJECTED extremely common real names —
-  `notes(1).md`, `résumé.pdf`, `Q3 [final].xlsx`, `R&D.csv` — so "attach a file"
+  guard was an ASCII allowlist, which REJECTED extremely common real names â€”
+  `notes(1).md`, `rÃ©sumÃ©.pdf`, `Q3 [final].xlsx`, `R&D.csv` â€” so "attach a file"
   failed with "Invalid file name" for most files a person picks. It is now a
   denylist (path separators, control chars, Windows reserved names) that accepts
   Unicode and ordinary punctuation while still refusing traversal. Also added real
-  extraction for `.docx`/`.xlsx`/`.pptx` (Office files are ZIP+XML — a
+  extraction for `.docx`/`.xlsx`/`.pptx` (Office files are ZIP+XML â€” a
   dependency-free bounded ZIP reader extracts the text) so the most common finance
   documents are no longer "unsupported". Verified live: `my report(1).pdf`,
-  `résumé.txt`, `Q3 [final].md`, `R&D.csv` all upload; a generated `earnings.docx`
+  `rÃ©sumÃ©.txt`, `Q3 [final].md`, `R&D.csv` all upload; a generated `earnings.docx`
   uploads and its text reaches `loadContextDocuments`. Tests: 6 new cases.
   `tsc` clean; vitest 2038 passed; pytest 2474 passed.
   docs updated: `docs/CHANGELOG.md`
 
 - **ChatBot landing composer no longer floats up.** Commit `3445a2f` wrapped
-  `EmptyState` (which pins the composer with `flex-1 … justify-end`) in a plain
+  `EmptyState` (which pins the composer with `flex-1 â€¦ justify-end`) in a plain
   `flex w-full flex-col items-center` div with no `flex-1`, so the `justify-between`
   column had nothing to push against and the input box drifted upward. The wrapper
-  now grows (`flex-1 … min-h-0`), restoring the bottom-pinned composer.
+  now grows (`flex-1 â€¦ min-h-0`), restoring the bottom-pinned composer.
   `tsc` clean.
-  no doc change — layout bug fix, contracts intact.
+  no doc change â€” layout bug fix, contracts intact.
 
 - **Chat can now create files on your PC; attachments show; honest narration.**
   Three real defects behind "it won't create a file / can't attach". (1) The
@@ -1370,7 +1609,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   user-selected trusted root edits the real folder, the built-in repo stays
   isolated (`workspace.trusted_root_selected` + `graph._resolve_direct`). (2)
   Attaching a file on the EMPTY state put it in a ref with zero UI feedback, and
-  the first message started the run before the upload landed — so the file neither
+  the first message started the run before the upload landed â€” so the file neither
   showed nor reached the run. Pending files now render immediately in the session
   bar (shown in the empty state too) and `handleSend` awaits `flushPending` so the
   first turn's context includes them. (3) Tool output said "disposable copy" even
@@ -1381,7 +1620,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `tsc` clean; vitest 2033 passed; pytest 2473 passed.
   docs updated: `docs/CHANGELOG.md`
 
-- **Editor: a real explorer tree — create files/folders, expand in place, delete.**
+- **Editor: a real explorer tree â€” create files/folders, expand in place, delete.**
   The editor had no "+" control at all and clicking a folder navigated away, so a
   file could not be added. The tree is now an editor explorer: click a file to
   open it, click a folder to expand it in place, "+" (new file / new folder) opens
@@ -1396,9 +1635,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **The chat stream now reads like a real coding harness.** Tool activity showed
   only a tool NAME ("Reading a file"); it now shows what the tool is doing and
-  what came back — "Writing the change `stream.py` → 1 file(s)", "Running
-  `python stream.py` → exit 0". Added `python/harness/code/activity.py`
-  (`tool_detail`/`tool_result_summary`) — a pure, bounded, content-free derivation
+  what came back â€” "Writing the change `stream.py` â†’ 1 file(s)", "Running
+  `python stream.py` â†’ exit 0". Added `python/harness/code/activity.py`
+  (`tool_detail`/`tool_result_summary`) â€” a pure, bounded, content-free derivation
   (a command, a file PATH, the changed PATHS; never file text, so a secret in a
   patch body never reaches the stream). `graph.py` emits `detail` on
   `tool.requested` and `summary` on `tool.completed`; the client carries
@@ -1413,13 +1652,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Eclipse can now work on a folder you choose, not only its own repo. (1) **Trusted
   roots**: a folder picker (`/workspace/browse`) and an operator-approved, persisted
   allowlist (`TrustedRoot` in `agent-memory.db`); the SELECTED root becomes what
-  `workspace.default_root()` resolves to, after the env override — so zero-config is
+  `workspace.default_root()` resolves to, after the env override â€” so zero-config is
   unchanged. (2) **Direct mode**: `worktree.allocate(direct=True)` edits the selected
   real folder (strategy `"direct"`; `release` never deletes it); a code task defaults
-  to direct when a folder is selected. Confinement is unchanged — `resolve_within` +
+  to direct when a folder is selected. Confinement is unchanged â€” `resolve_within` +
   `PROTECTED_PATHS` still apply, so the human editor and the agent share one boundary.
   (3) **`terminal_run`**: an arbitrary command WITHOUT a shell, classified
-  allow/ask/deny in Python — safe tools run, others need a per-command single-use
+  allow/ask/deny in Python â€” safe tools run, others need a per-command single-use
   approval, destructive/shell/downloader commands are refused; runs through the
   existing sandbox and is recorded in the ledger. (4) **Editor UI** (AppTab `editor`):
   file tree + text editor + save, plus the folder picker. Verified live: approved a
@@ -1433,25 +1672,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Alert symbol search un-capped; fired alerts now visible app-wide.** Two real
   defects behind "only 4 assets / no notification". (1) `/api/quote` symbol
   autocomplete was hard-capped at 8 rows (`LIMIT 8` + `.slice(0,8)`) via
-  `searchSymbols`, and de-duped by symbol alone — so searching "A" showed 8 and
+  `searchSymbols`, and de-duped by symbol alone â€” so searching "A" showed 8 and
   a ticker listed in two markets collapsed to one. Now up to 100 rows, de-duped by
   `symbol|market`, with the alert builder, market-overview strip, price-ribbon and
-  chart-compare suggestion lists raised from 8→50 and made scrollable. (2) Desktop
-  notifications silently no-op unless the user opted in AND granted permission —
+  chart-compare suggestion lists raised from 8â†’50 and made scrollable. (2) Desktop
+  notifications silently no-op unless the user opted in AND granted permission â€”
   which is why no notification appeared. `AlertNotificationProvider` now ALWAYS
   shows an app-wide bottom-right in-app toast for every fired alert (all tabs, no
   permission needed) and additionally raises the OS notification when enabled; it
   is the single owner of delivery via the `be:alert-notify` event (the Settings
   test button no longer calls `showAlertNotification` directly, which double-fired).
   Verified against a forced rebuild: `?q=A` returns 100, a test fire created a new
-  event (8→9), the notification bundle is live; `tsc --noEmit` clean; eslint clean;
+  event (8â†’9), the notification bundle is live; `tsc --noEmit` clean; eslint clean;
   vitest 2031 passed.
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
 
 - **Fix three real failures that made the code harness non-functional from the
   UI.** Exercising the live stack (not just the test suite) showed "build me X"
   could never complete. (1) **HTTP 500 on every code task**: `POST /code/tasks`
-  recorded the `task.created` `RunCheckpoint` (FK → `HarnessRun(id)`) BEFORE the
+  recorded the `task.created` `RunCheckpoint` (FK â†’ `HarnessRun(id)`) BEFORE the
   run row existed, so `record_created` raised `sqlite3.IntegrityError: FOREIGN
   KEY constraint failed`; the route now creates the run row first and
   `execute_run` reuses a pre-created row (only in `created` status). (2) **No
@@ -1474,11 +1713,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **Remove the remaining hardcoded 4-market lists.** After the alert builder fix,
   an audit of every market list found two more that were silently narrowed to
-  `US/PK/IN/CRYPTO`: the Settings › General "Default Market" *fallback*
+  `US/PK/IN/CRYPTO`: the Settings â€º General "Default Market" *fallback*
   (`general-settings.tsx` `ALL_MARKETS`, now derived from `HEATMAP_MARKETS`) and
   the legacy agent's `get_price` tool description (`src/lib/agent/tools.ts`, now
   names several markets). The Market Data panel and screener already load the
-  full set from JDDS (`/api/markets` → 28). Verified against a forced rebuild:
+  full set from JDDS (`/api/markets` â†’ 28). Verified against a forced rebuild:
   the old `["US","PK","IN","CRYPTO"]` literal is gone from `.next`, 28 markets /
   1,455 crypto assets are reachable, and `npm run demo:btc` is 6/6 PASS.
   `tsc --noEmit` clean; eslint clean; vitest 2027 passed.
@@ -1491,22 +1730,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `["US","PK","IN","CRYPTO"]`. It now lists every market the alert feed can
   actually quote (`HEATMAP_MARKETS` minus FOREX/COMMODITIES, which have no Yahoo
   suffix) in `src/app/alerts/alerts-client.tsx`. Added `scripts/demo-btc.mts`
-  (`npm run demo:btc`), a live end-to-end demo: JDDS vault → yfinance CRYPTO
-  `BTC-USD` (~$84k) → the bare-`US BTC` ETF trap it disambiguates (~$37) → the
-  alert engine's `fetchSnapshots` → markets beyond the old hardcoded list
-  (UK/JP/DE/CRYPTO) → the running app's `/api/quote`. Verified: demo OK, 6 legs,
+  (`npm run demo:btc`), a live end-to-end demo: JDDS vault â†’ yfinance CRYPTO
+  `BTC-USD` (~$84k) â†’ the bare-`US BTC` ETF trap it disambiguates (~$37) â†’ the
+  alert engine's `fetchSnapshots` â†’ markets beyond the old hardcoded list
+  (UK/JP/DE/CRYPTO) â†’ the running app's `/api/quote`. Verified: demo OK, 6 legs,
   0 failed; `tsc --noEmit` clean; vitest 2027 passed.
   docs updated: `docs/NAVIGATION.md`
 
 - **Universal financial-fact engine, slice 6: point-in-time, research router and
-  corporate-action ingestion — the remaining sections.** Closes the three gaps the
-  audit named. `finance_facts/point_in_time.py` (§15) keeps period_end /
+  corporate-action ingestion â€” the remaining sections.** Closes the three gaps the
+  audit named. `finance_facts/point_in_time.py` (Â§15) keeps period_end /
   publication / retrieval distinct and refuses a later report under an earlier
   cutoff (`latest_known_per_metric` returns the revision available THEN, not the
-  newest that exists today). `finance_facts/router.py` (§24) classifies a question
-  into an intent and returns the evidence areas it NEEDS — with sector-specific
-  additions — so the agent plans retrieval instead of taking whatever JDdS holds.
-  `finance_facts/corporate_actions.py::extract_from_series` (§17) derives splits and
+  newest that exists today). `finance_facts/router.py` (Â§24) classifies a question
+  into an intent and returns the evidence areas it NEEDS â€” with sector-specific
+  additions â€” so the agent plans retrieval instead of taking whatever JDdS holds.
+  `finance_facts/corporate_actions.py::extract_from_series` (Â§17) derives splits and
   dividends from the price series the yfinance bridge already carried
   (`scripts/yfinance_bridge.py` now emits `Dividends`/`Stock Splits` per bar;
   `normalize_history` lifts them to `stock_split`/`dividend` observations). Tests:
@@ -1516,12 +1755,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
 
 - **Universal financial-fact engine, slice 5: the final-answer gate.** Closes the
-  loop — the answer is now checked against the run's own validated facts, exactly
+  loop â€” the answer is now checked against the run's own validated facts, exactly
   as code claims are checked against the verification ledger. `finance_facts/enforce.py`
   (`enforce_finance_answer`) is deterministic and makes no model call: if the answer
   asserts a metric the run's analysis EXCLUDED (ambiguous definition, no period,
   superseded) or states one side of a cross-source conflict without saying so, it
-  requires a disclosure — it never silently strips the number. An already-present
+  requires a disclosure â€” it never silently strips the number. An already-present
   in-sentence disclosure is honoured, so it never nags. `source_collector.py` now
   accumulates the per-retrieval analysis across the run (deduplicated, higher
   confidence wins) and carries it on the `research` blob's `financeAnalysis`;
@@ -1531,7 +1770,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Full release gate: vitest 178 files / 2026 tests, pytest 2413, ALL GATES PASSED.
   docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
 
-- **Desktop-alert notifications — audit hardening.** A review of the new
+- **Desktop-alert notifications â€” audit hardening.** A review of the new
   desktop-notification provider found a real de-dup defect: it tracked only the
   single last-seen event id, but the `/api/alerts/live` feed is capped at 50 rows
   (`take: 50`), so a burst of alerts could push the last-seen id out of the window
@@ -1552,10 +1791,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`src/components/layout/alert-notification-provider.tsx`), mounted once in
   `src/app/layout.tsx`, polls the always-recorded `GET /api/alerts/live` stream
   (10s, first poll seeds history so nothing replays) and raises one notification
-  per genuinely new event. Settings › Alerts/Notifications
+  per genuinely new event. Settings â€º Alerts/Notifications
   (`alert-notifications-settings.tsx`) gained a "Desktop notifications" toggle
   with honest `off`/`blocked`/`on` state and a test-notification button. No service
-  worker, so notifications show only while a BlackEclipse page is open — stated in
+  worker, so notifications show only while a BlackEclipse page is open â€” stated in
   the UI. Additive; no schema/API contract change. Tests:
   `src/lib/alerts/browser-notifier.test.ts` (5). Full suite 2021 passed;
   `tsc --noEmit` clean.
@@ -1564,7 +1803,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Universal financial-fact engine, slice 4b: self-review fixes.** A careful pass
   over the new engine found and fixed four real defects. (1) `conflicts.detect_conflict`
   flagged two time-series bars at different dates as a disagreement and a single
-  source repeating itself as a conflict — it now requires the same period AND
+  source repeating itself as a conflict â€” it now requires the same period AND
   different sources, and compares by canonical concept so two labels of one
   definition are comparable. (2) `analysis.analyze_result` reported each conflict
   twice (once per direction) and grouped by raw label; it now detects each pair once
@@ -1584,7 +1823,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   retrieval result: lift each value into a `FinancialFact`, run the ordered
   data-quality gates, compute evidence-based confidence, detect and explain
   cross-source conflicts, build the evidence graph and report orphans, and classify
-  the entity. A fact is marked **admissible** (only disclosures — stale, soft
+  the entity. A fact is marked **admissible** (only disclosures â€” stale, soft
   source) or **excluded** (no entity/period/definition, superseded, unreproducible);
   `presentable` is false when anything is excluded, so an ambiguous `revenue` is
   withheld rather than presented as a clean figure. `retrieval_tools._finish`
@@ -1601,7 +1840,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   summary.** The deterministic fact engine now runs on live retrieval output.
   `finance_facts/adapter.py::annotate_result` lifts every normalized object of a
   retrieval result into a `FinancialFact` and produces the honesty notes the
-  answer must carry — accounting-definition ambiguity, detected business type, the
+  answer must carry â€” accounting-definition ambiguity, detected business type, the
   financial-framework warning for entities containing banks/insurers, cross-source
   definition differences vs real disagreements, and stale values.
   `retrieval_tools._summarize` appends a "Data-quality notes:" block when there is
@@ -1612,7 +1851,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   no ticker-specific logic; no schema/jdds.db change.
   docs updated: `docs/CHANGELOG.md`
 
-- **Phase 14 — the code capability, reachable from chat.** A coding request typed
+- **Phase 14 â€” the code capability, reachable from chat.** A coding request typed
   in ordinary conversation is now served by the code capability that already
   existed, instead of refusing for lack of a tool. A deterministic, model-free
   classifier `python/harness/code/request_intent.py::classify_code_request`
@@ -1620,10 +1859,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `code_change` | `code_question` | `not_code`, with an AMBIGUOUS turn defaulting
   to `not_code` (the refusal path is the safe failure). `agents.CHAT_CODE_TOOLS`
   is a NARROWED profile applied per turn inside the existing
-  `graph.resolve_surface`, after the autonomy narrowing: `code_change` →
-  `edit_verify` (write/execute/verify), `code_question` → `plan_only` (read-only).
+  `graph.resolve_surface`, after the autonomy narrowing: `code_change` â†’
+  `edit_verify` (write/execute/verify), `code_question` â†’ `plan_only` (read-only).
   The four external actions (`code_commit`/`code_push`/`code_open_pr`/
-  `code_deploy`) are absent from the declared set — external actions stay on the
+  `code_deploy`) are absent from the declared set â€” external actions stay on the
   Code Tasks surface. The front door gains additive `autonomy`
   (`plan_only`|`edit_verify` only, fail-closed on anything else) and
   `analysisEnabled` on `RunRequestPayload`; `startChatRun` resolves and sends them
@@ -1633,7 +1872,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   shows what Eclipse did in plain words. The code task list gains "Build this"
   (existing `/api/code/tasks`) and "Schedule" (existing `/api/jobs`, created
   DISABLED with `agent_id="code-agent"`, `autonomy="edit_verify"`). The runtime's
-  registered tool set is UNCHANGED — an allowlist and a payload, never a tool.
+  registered tool set is UNCHANGED â€” an allowlist and a payload, never a tool.
   Tests: `python/tests/test_code_request_intent.py`,
   `test_chat_code_profile.py`, `test_code_reachability.py`,
   `src/components/chat/chat-capability-panel.test.ts`; ADR-H117.
@@ -1645,21 +1884,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   The ADR-H117 append introduced mixed CRLF/LF into `docs/harness/decisions.md`
   (caught by `gitignore-guard.test.ts`), normalized back to LF. (b) The first cut
   of "Build this" only appeared on existing task rows, so an empty task list still
-  had no way to start a work order — the exact symptom the phase existed to
+  had no way to start a work order â€” the exact symptom the phase existed to
   remove; `task-list.tsx` now renders a "what should Eclipse build or fix?"
   composer above the list and the empty state. (c) The classifier returned
   `not_code` for the user's literal wish ("create a new application", "build
   algorithms", "build a Monte Carlo simulator"); the software-object vocabulary
   gained those artifacts, a homograph guard stops "test the market" / "build a
-  portfolio" self-matching, and `what does…` questions plus reported symptoms and
+  portfolio" self-matching, and `what doesâ€¦` questions plus reported symptoms and
   named errors now classify correctly. (d) A refused code step
   (`code.refused`/`code.patch.refused`) now renders its ONE plain refusal
   sentence, with the raw code behind "details", instead of a technical operation
-  label. Tests: `test_code_request_intent.py` 22→43 cases, `events.test.ts` two
-  refusal cases. (e) The §6.4 capability view is now a first-class
+  label. Tests: `test_code_request_intent.py` 22â†’43 cases, `events.test.ts` two
+  refusal cases. (e) The Â§6.4 capability view is now a first-class
   `RunResult.capability` (`{kind, profile, headline, verification}`), derived in
   `python/harness/code/capability.py` from the run's verification blob (the
-  profile rides inside that existing additive blob — no new column, `persistence.py`
+  profile rides inside that existing additive blob â€” no new column, `persistence.py`
   ratchet untouched) and mirrored client-side by `coerceChatCapability`; the panel
   prefers it and falls back to the flat fields for older rows. Gates: vitest
   **178/2027**, pytest **2415**, `npm run build` exit 0.
@@ -1667,19 +1906,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **Universal financial-fact engine, slice 2: derived metrics, corporate actions,
   evidence graph.** Completes the deterministic foundation. `finance_facts/metrics.py`
-  derives P/E, P/B (COMMON equity, §7), EV/EBITDA, ROE (parent-attributable), growth
+  derives P/E, P/B (COMMON equity, Â§7), EV/EBITDA, ROE (parent-attributable), growth
   and more, each returning a `DerivedMetric` with formula + inputs + input periods +
   input sources + timestamp, and REFUSING mixed currency/period or a negative-EPS
   P/E rather than fabricating a number. `finance_facts/corporate_actions.py` flags
   splits/buybacks/spin-offs/M&A that make a naive historical comparison invalid and
   adjusts a pre-split price only when the ratio is known. `finance_facts/evidence.py`
-  builds the Question→Claim→Derived→Fact→Source graph and detects orphans (a claim
+  builds the Questionâ†’Claimâ†’Derivedâ†’Factâ†’Source graph and detects orphans (a claim
   with no fact, a fact with no source). Tests: `test_finance_facts_metrics.py` (14
   cases). Still no ticker-specific logic; still pure Python; no schema/jdds.db change.
   docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
 
 - **Universal financial-fact foundation: every fact carries its meaning, not just
-  its value.** New pure-Python package `python/harness/finance_facts/` — the
+  its value.** New pure-Python package `python/harness/finance_facts/` â€” the
   deterministic layer the LLM reasons OVER (no prompts for rules). It EXTENDS the
   Phase-4 evidence machinery (`research/{claims,supersession,calculations,periods}.py`
   are reused, not rebuilt) and adds the dimensions they lacked: a
@@ -1687,39 +1926,39 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   period TYPE, distinct publication/source/retrieved timestamps, accounting +
   reporting standard, consolidation + attribution + ownership level,
   reported/derived, freshness, confidence, supersedes); an accounting ontology
-  (`semantics.py`) that keeps Revenue ≠ Net Sales ≠ Gross Revenue and separates
+  (`semantics.py`) that keeps Revenue â‰  Net Sales â‰  Gross Revenue and separates
   net income / attributable-to-parent / NCI and gross/net/financial debt and the
   cash variants (an ambiguous label like "revenue" resolves to None, never a
-  silent guess); a universal period model (`periods_ext.py`) where FY ≠ TTM and H1
-  ≠ FY; an independent TTM engine (`ttm.py`) that sums four adjacent quarters and
+  silent guess); a universal period model (`periods_ext.py`) where FY â‰  TTM and H1
+  â‰  FY; an independent TTM engine (`ttm.py`) that sums four adjacent quarters and
   flags a material vendor difference as CONFLICT with an investigation checklist;
   per-metric freshness (`freshness.py`); an evidence-based confidence model
   (`confidence.py`); sector classification + sector metric sets (`sector.py`, bank
-  CET1/NIM, insurance combined ratio, REIT FFO, crypto, …); currency/unit + FX-basis
+  CET1/NIM, insurance combined ratio, REIT FFO, crypto, â€¦); currency/unit + FX-basis
   normalization (`fx.py`); a structured semantic conflict record (`conflicts.py`)
   where consolidated-vs-parent earnings is a definition difference, not an error;
   and the ordered data-quality gate chain with distinct N/A reasons (`quality.py`).
-  Nothing is ticker-specific — KCHOL is one row in the diverse regression suite
+  Nothing is ticker-specific â€” KCHOL is one row in the diverse regression suite
   (`test_finance_facts.py`, 33 cases: US tech, bank, insurance, REIT, energy,
   mining, holding/conglomerate, crypto, NCI, negative earnings, restated, ADR,
-  stale-vault — asserted on RULES, not symbols). No prisma/schema.prisma or jdds.db
+  stale-vault â€” asserted on RULES, not symbols). No prisma/schema.prisma or jdds.db
   change. This is the foundation slice; wiring it into the retrieval/research path
   is the next phase.
   docs updated: `docs/NAVIGATION.md`, this file
 
-- **Phase 13 follow-up 3 — general multi-source, not price-only: the vault is a
+- **Phase 13 follow-up 3 â€” general multi-source, not price-only: the vault is a
   cache, not a precondition.** The earlier fixes verified the price leg, but two
   data classes were still vault-bound and would fail or go stale for anything the
   committed snapshot lacks: `fundamentals` (company profile) and `market_snapshot`
   (a symbol absent from the universe, or a vault row with no stored price).
   `src/lib/harness/data-bridge.ts` now enriches the profile from the existing live
-  fundamentals pipeline (SEC → FMP → Yahoo) when the vault lacks it — and says
+  fundamentals pipeline (SEC â†’ FMP â†’ Yahoo) when the vault lacks it â€” and says
   which one answered via `profileSource`; `live_quote`/`market_snapshot` resolve an
   instrument outside the vault for a known covered market (`resolveAnyInstrument`
   recovers a `not_found` the same way `financial_statements` already did), so a
   live quote serves a symbol the vault never stored and the snapshot is never
   `UNAVAILABLE` merely because JDdS is. The identity gate still refuses
-  AMBIGUOUS / `not_covered` / wrong-currency answers — the vault is skipped, not
+  AMBIGUOUS / `not_covered` / wrong-currency answers â€” the vault is skipped, not
   bypassed. The yfinance bridge now also carries `marketCap`. Tests:
   `data-bridge.test.ts` (profile enrichment + vault-hit short-circuit),
   `data-bridge-phase2.test.ts` (live fallback for no-row and no-price);
@@ -1728,18 +1967,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H116), this file,
   `docs/harness/roadmap/progress/phase-13-progress.md`
 
-- **Phase 13 follow-up 2 — per-field provenance: a live price no longer launders a
+- **Phase 13 follow-up 2 â€” per-field provenance: a live price no longer launders a
   stale market cap.** The first follow-up routed `get_market_snapshot` through the
   arbitrated layer, but the live provider used for US equities (yfinance
   `fast_info`) returns a price and **no market cap**, so the cap always fell back to
-  JDdS — and the whole payload was stamped "verified", repeating the original demo
+  JDdS â€” and the whole payload was stamped "verified", repeating the original demo
   defect in a new form (a verified-looking badge on a months-old cap). Two fixes:
   (1) the yfinance bridge now carries `marketCap` when the provider exposes it
   (`scripts/yfinance_bridge.py`, `fetchers/yfinance.ts`, `data-bridge.ts`), so the
   cap is genuinely cross-checked when possible; (2) when it is not, the snapshot
   tool now labels **each field** by origin (`finance_tools.py`): a value from a
   source that answered now is live; a value that fell back to the stored snapshot is
-  annotated `— saved snapshot` with its stored time and source, and the top-level
+  annotated `â€” saved snapshot` with its stored time and source, and the top-level
   `verified` flag is true only when the PRICE itself is live (each `*Origin` is
   exposed on the structured payload). Regression tests:
   `test_demo_live_price_but_no_live_cap_labels_the_cap_saved` (the real US-equity
@@ -1747,13 +1986,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H116), this file,
   `docs/harness/roadmap/progress/phase-13-progress.md`
 
-- **Background Solid mode — fully tunable gradient/pattern and wordmark
+- **Background Solid mode â€” fully tunable gradient/pattern and wordmark
   typography.** The gradient/pattern styles were static (fixed angle, fixed tile
   size) and the wordmark only offered font + size. Added: gradient shape
   (`solidGradientType`: linear/radial) and `solidGradientAngle`; pattern tile
-  size `solidPatternScale` (4–80px) beside strength; and wordmark typography
-  controls `textWeight` (100–900), `textWidth` (font-stretch, 50–200%),
-  `textLetterSpacing` (−0.1–0.5em), `textLineHeight` (0.7–2), `textItalic` and
+  size `solidPatternScale` (4â€“80px) beside strength; and wordmark typography
+  controls `textWeight` (100â€“900), `textWidth` (font-stretch, 50â€“200%),
+  `textLetterSpacing` (âˆ’0.1â€“0.5em), `textLineHeight` (0.7â€“2), `textItalic` and
   `textUppercase`. `ChatWordmark` applies them; `resolveBackgroundCss` uses the
   gradient type/angle and pattern pitch. All new fields are normalized/clamped
   (`textWeight` rounds to the nearest 100). Settings panel gains the matching
@@ -1761,11 +2000,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/ARCHITECTURE.md`, this file; test:
   `src/lib/backgrounds.test.ts`
 
-- **Phase 13 follow-up — the price/market-cap ROUTE the agent actually used now
+- **Phase 13 follow-up â€” the price/market-cap ROUTE the agent actually used now
   verifies across sources.** The Phase-13 arbitration fixed the retrieval layer,
   but the Eclipse Agent had a second market-cap tool, `get_market_snapshot`
   (`python/harness/finance_tools.py`), that went STRAIGHT to JDdS and never ran
-  the layer at all — so a months-old market cap was returned as current (the
+  the layer at all â€” so a months-old market cap was returned as current (the
   reported demo: "market cap of AMD" showed stale data). `get_market_snapshot`
   now runs its price/change/market-cap leg through the same arbitrated
   `current_quote` path (`_verified_price_leg`): a fresh live reading beats the
@@ -1782,7 +2021,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H115), this file,
   `docs/harness/roadmap/progress/phase-13-progress.md`
 
-- **Landing wordmark font list was all system fallbacks — now real,
+- **Landing wordmark font list was all system fallbacks â€” now real,
   self-hosted faces.** Every `WORDMARK_FONT_OPTIONS` value was a font-family
   stack for a face the app never loaded (e.g. "Bodoni Moda", "Didot", "Playfair
   Display"), so all options rendered as the same system fallback and the choice
@@ -1800,14 +2039,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   sync with the `layout.tsx` imports.
   docs updated: `docs/ARCHITECTURE.md`; app config: `src/app/layout.tsx`
 
-- **Background: two types — Image or Solid (color/gradient/pattern + wordmark).**
-  Reworked Settings › General › Background after removing the dead "Pattern"
+- **Background: two types â€” Image or Solid (color/gradient/pattern + wordmark).**
+  Reworked Settings â€º General â€º Background after removing the dead "Pattern"
   type. The type is now a real choice of two: **Image** (shipped/uploaded
   wallpaper, the default) or **Solid**. Solid has a `solidFill` of
   **Flat** / **Gradient** / **Pattern**: a `solidColor`, a two-color
-  `solidColor`→`solidColor2` gradient (empty stops follow the theme background /
+  `solidColor`â†’`solidColor2` gradient (empty stops follow the theme background /
   brand tint), or a texture (`solidPattern`: grid / dots / diagonal / ASCII, at
-  `solidPatternOpacity`) over the base fill — each with a customizable wordmark
+  `solidPatternOpacity`) over the base fill â€” each with a customizable wordmark
   (text, font, color, size, strength, alignment, vertical). `BackgroundMode` is
   `image | solid`; `BackgroundPrefs` gains `solidFill`, `solidColor`,
   `solidColor2`, `solidPattern`, `solidPatternOpacity`, `textColor`. The
@@ -1817,17 +2056,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (base fill + optional texture as a `background-image` list; brand-tinted ink);
   `ChatWordmark` applies `textColor`. The font picker is now a clickable
   preview grid (each option renders its own name in that typeface) instead of a
-  Radix `Select` — more robust inside the modal and it actually shows the fonts.
+  Radix `Select` â€” more robust inside the modal and it actually shows the fonts.
   A saved `mode: 'pattern'` / `'none'` normalizes back to the default image.
   Tests updated; `resolveBackgroundCss`/`applyBackgroundToDocument` lost their
   now-unused `patternImage` parameter.
   docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, this file; test:
   `src/lib/backgrounds.test.ts`
 
-- **Phase 13 — source authority and freshness arbitration landed.** A price,
+- **Phase 13 â€” source authority and freshness arbitration landed.** A price,
   series or macro answer is now chosen by freshness-then-strength across all
   eligible sources, with the disagreement preserved, instead of by the first
-  source in a static table. Added `python/harness/retrieval/authority.py` — the
+  source in a static table. Added `python/harness/retrieval/authority.py` â€” the
   ONE ordering table (`AUTHORITY`, one `DataTypeAuthority` row per data type) and
   a pure decision function (`decide_source`). `current_quote`,
   `historical_prices`, `macro_series` and `company_profile` become **arbitrated**:
@@ -1845,7 +2084,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   snapshot, not a live reading` (never worded as live). `data-bridge.ts`
   `marketSnapshot` supplies `observationSource: "snapshot_write"`; `liveQuote`
   supplies `provider_asof` only when the provider reports its own market time,
-  else `unknown` — its old `asOf: new Date()` (the retrieval clock) is corrected.
+  else `unknown` â€” its old `asOf: new Date()` (the retrieval clock) is corrected.
   New `source.*` i18n keys and the extended plain-language gates. ADR-H115 and
   ADR-H116 written; `NAVIGATION.md` rows 149/150/352 updated. Tests:
   `test_source_authority.py` (15 cases, including the vault-vs-live disagreement
@@ -1855,8 +2094,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/progress/phase-13-progress.md`,
   `docs/harness/roadmap/phase-13-source-authority.md`, `docs/harness/roadmap/README.md`
 
-- **Roadmap round 2 authored: phases 13–20 (reachability, source truth, and output)
-  added to `docs/harness/roadmap/`.** Round 1 (phases 0–12) built the machinery of a
+- **Roadmap round 2 authored: phases 13â€“20 (reachability, source truth, and output)
+  added to `docs/harness/roadmap/`.** Round 1 (phases 0â€“12) built the machinery of a
   harness; this round closes the six gaps a user reports against the *running* system,
   each traced to a measured cause and each with a paste-ready prompt. Added:
   `phase-13-source-authority.md` (the market-data vault is first for every
@@ -1864,39 +2103,39 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   consulted; measured from the live `jdds.db`: 0 of 55 195 price rows are fresh
   within 15 min and 22.2 % are older than 7 days, while `data-bridge.ts` hard-codes
   `cadenceSeconds: 24*60*60` and `validate.py` measures staleness only at dataset
-  level — the phase adds one `AUTHORITY` table, arbitrated dispatch and
+  level â€” the phase adds one `AUTHORITY` table, arbitrated dispatch and
   per-observation age, and deletes `_PLAN`/`_SINGLE_BEST`), `phase-14-reachable-code-capability.md`
   (the code modules exist on the one registry, but `eclipse-agent`'s 27-tool
   allowlist has no code tool, `RunRequestPayload` has no `autonomy` field at all, and
-  `analysisEnabled` is referenced **0** times in `src/` — the phase adds a
+  `analysisEnabled` is referenced **0** times in `src/` â€” the phase adds a
   deterministic request classifier, a narrow chat code profile and a chat capability
   panel), `phase-15-attachments-and-artifacts.md` (extract.ts is text+PDF only with a
   20 000-char silent truncation; the chat artifact surface prints a filename and a
   12-char hash and no route serves the file; `code_commit`'s handler performs **no git
-  operation** yet returns `status: "approved"` — the phase adds office extractors,
+  operation** yet returns `status: "approved"` â€” the phase adds office extractors,
   stated truncation, an artifact-serving route and a user-decided promotion with
   Option B recommended), `phase-16-bulk-acquisition.md` (the answer budget is 4
   searches / 8 fetches / 90 s, the analysis sandbox is `network=False` with 16 allowed
-  imports, and the TS scraper layer is unreachable from the runtime — the phase adds a
+  imports, and the TS scraper layer is unreachable from the runtime â€” the phase adds a
   declared attributable source registry, an explicit acquisition budget and a new
   `data.collect` permission noun), `phase-17-working-on-a-cadence.md` (the job model,
-  scheduler, delivery and seven templates exist; no tool can create a job — the phase
+  scheduler, delivery and seven templates exist; no tool can create a job â€” the phase
   adds a fixed catalogue, a default-off operator switch and an unattended-report
   honesty contract), `phase-18-visual-output.md` (no plotting library is importable and
-  no artifact can be shown — the phase adds a deterministic renderer that the model's
+  no artifact can be shown â€” the phase adds a deterministic renderer that the model's
   program never gains access to, plus a bootstrap Monte Carlo that records its seed),
-  `phase-19-self-verification.md` (the ledger's claim classes cover commands only —
+  `phase-19-self-verification.md` (the ledger's claim classes cover commands only â€”
   the phase adds artifact checks, a data-driven change-review rule table and two claim
   classes), and `phase-20-measuring-all-of-it.md` (the generated capability statement
-  covers seven code shapes and omits every new class — the phase registers all classes
+  covers seven code shapes and omits every new class â€” the phase registers all classes
   and publishes the unmeasured ones as unmeasured, with the eval step added inside the
   existing `test-evals.js`). The index gains the phase rows, the round-2 ordering
-  rules, the measured six-gap ledger (§1.2), a supersede note on §2, and the
-  ADR-H115…H125 assignments. Measured baseline re-established this session on the
-  untouched tree: `npm run check:all` → `ALL GATES PASSED` (vitest 175 files / 1 995
+  rules, the measured six-gap ledger (Â§1.2), a supersede note on Â§2, and the
+  ADR-H115â€¦H125 assignments. Measured baseline re-established this session on the
+  untouched tree: `npm run check:all` â†’ `ALL GATES PASSED` (vitest 175 files / 1 995
   tests; pytest 2 278 passed). No runtime file was changed by this entry; the phase
   folders are proposals with no code behind them yet.
-  docs updated: `harness/roadmap/README.md`, `harness/roadmap/phase-13…20`,
+  docs updated: `harness/roadmap/README.md`, `harness/roadmap/phase-13â€¦20`,
   `harness/roadmap/NAVIGATION` row 62 (trigger table), this file
 
 - **ChatBot landing text is now opt-in (off by default).** The giant wordmark
@@ -1923,9 +2162,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   pattern behind it are not hidden; non-chat tabs keep their existing frosted
   `glass-card` fill. Mobile keeps the full-bleed panel (sidebar is a drawer
   there). Sidebar unchanged.
-  no doc change — presentational corner treatment, no architecture/contract/
+  no doc change â€” presentational corner treatment, no architecture/contract/
   setup change (the content-panel host is already described in
-  `docs/ARCHITECTURE.md` §Presentation).
+  `docs/ARCHITECTURE.md` Â§Presentation).
 
 ## 2026-10-01
 
@@ -1936,7 +2175,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   and modern Chrome no longer supports `-webkit-backdrop-filter`
   (`CSS.supports('-webkit-backdrop-filter')` is false). Because that rule also
   carries `!important`, the lower-specificity per-tier `.glass-card` rule could
-  not win — so whenever the theme had been customized (which adds
+  not win â€” so whenever the theme had been customized (which adds
   `theme-glass-active` to `<html>`), EVERY glass surface lost its blur and the
   background showed through sharply. Removed the `-webkit-` declarations in both
   the active and off blocks; the compiled CSS now emits the standard property (and
@@ -1952,16 +2191,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   and returns the same state reference when nothing moved so it cannot loop. Its
   `Sparkles` glyph is replaced with `Bot` (robot) in the pill, transcript header
   and provider pill, and the pill/transcript/composer backgrounds switch from
-  `.glass-card-strong` (tint 0.85 — above the frosted threshold, so the blur was
+  `.glass-card-strong` (tint 0.85 â€” above the frosted threshold, so the blur was
   invisible) to `.glass-card` (tint 0.55 + blur 18) so the frost actually renders.
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 
 - **Tighten the Command Center gaps and fix adding widgets to an emptied
   layout.** Two independent issues. (1) Density: added a `dense` prop to
-  `CustomizableWorkspace`/`WorkspaceCanvas` (gutters only — inter-zone
-  `gap-4→gap-1.5`, section stack `gap-3→gap-1.5`, column/card gaps
-  `gap-2.5→gap-1.5`, section padding `p-1→p-0.5`, header/edit-bar margins
-  `mb-3→mb-2`) and passed it from `DashboardScreen`; also cut the outer wrapper
+  `CustomizableWorkspace`/`WorkspaceCanvas` (gutters only â€” inter-zone
+  `gap-4â†’gap-1.5`, section stack `gap-3â†’gap-1.5`, column/card gaps
+  `gap-2.5â†’gap-1.5`, section padding `p-1â†’p-0.5`, header/edit-bar margins
+  `mb-3â†’mb-2`) and passed it from `DashboardScreen`; also cut the outer wrapper
   in `stock-chat.tsx` from `px-4 md:px-8 py-8` to `px-2 md:px-4 py-3`. Fund
   workspaces keep the original spacing. (2) Empty-centre add: after deleting
   every centre widget while the Watchlist/Market rails remained, `pruneLayout`
@@ -1976,13 +2215,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 - **Fix the gitignore guard so it no longer requires `jdds.db` on disk.** The
   guard's own intent is "untracked, not deleted", but it asserted
-  `existsSync(jdds.db)` — which fails on a fresh CI checkout, where the
+  `existsSync(jdds.db)` â€” which fails on a fresh CI checkout, where the
   gitignored runtime vault is (correctly) absent. It now proves the real property:
   `jdds.db` is git-ignored AND not tracked (`git ls-files --error-unmatch`). This
   unblocks the root `.github/workflows/ci.yml` gate, which mirrors check-all.js.
-  No doc change — test-only; the runtime and the DB posture are unchanged.
+  No doc change â€” test-only; the runtime and the DB posture are unchanged.
 
-- **Surface closure follow-up — client-safe browser clients for the code and jobs
+- **Surface closure follow-up â€” client-safe browser clients for the code and jobs
   surfaces.** Restarting the dev server revealed why the mounted screens had never
   worked: `jobs-screen.tsx` and the code panels (client components) imported the
   server-only `jobs-client.ts`/`code-client.ts`, which pull `python-runtime.ts`
@@ -1997,12 +2236,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/roadmap/progress/surface-closure-progress.md`,
   `docs/CHANGELOG.md`.
 
-- **Front-door surface closure — mount the code and jobs surfaces.** The Python
+- **Front-door surface closure â€” mount the code and jobs surfaces.** The Python
   runtime for the code capability, jobs and the Phase-12 eval was complete and its
   gates green, but several finished UI surfaces existed as files nothing imported,
   so no user could reach them. New `src/components/screens/code/code-screen.tsx`
   (a thin container wiring the EXISTING Phase-5 panels to the existing
-  `code-client` — no agentic logic) and the existing `JobsScreen` are now mounted
+  `code-client` â€” no agentic logic) and the existing `JobsScreen` are now mounted
   from the shell: AppTab `code`/`jobs` in the new single source `src/lib/app-tabs.ts`
   (both `sidebar.tsx` and `search/types.ts` now re-export it, closing a drift),
   dynamic imports + keep-alive blocks in `stock-chat.tsx`, sidebar sections in
@@ -2016,14 +2255,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/progress/phase-12-progress.md`,
   `docs/harness/roadmap/progress/surface-closure-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 12 — evaluation harness, safety cases and the standing gate.**
+- **Eclipse-as-a-Harness Phase 12 â€” evaluation harness, safety cases and the standing gate.**
   Extends `python/harness/code/eval/` with a task + safety evaluation beside the
   Phase-4 verification eval, additively (the verification eval keeps its name/API):
   `dataset_tasks_v1.json` (seven labelled fixtures by difficulty, including a
   refusal case graded in the OPPOSITE direction), `safety_cases.py` (eleven
   adversarial cases as data), `tasks.py`/`safety.py`/`statement.py` (runners +
-  the generated capability statement). A deterministic floor — never a blended
-  score — gates `falseVerifiedRate == 0.0`, `refusalCorrectness == 1.0`,
+  the generated capability statement). A deterministic floor â€” never a blended
+  score â€” gates `falseVerifiedRate == 0.0`, `refusalCorrectness == 1.0`,
   `refusalRecordedRate == 1.0`, `kitAcceptanceRate == 1.0` and an exact dataset
   checksum; `taskSuccessRate` is measured and printed, not a gate. The code eval
   is added inside `scripts/test-evals.js` (which `scripts/check-all.js` already
@@ -2038,13 +2277,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/phase-12-evaluation-gate.md`,
   `docs/harness/roadmap/progress/phase-12-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 11 — surface and scale.**
+- **Eclipse-as-a-Harness Phase 11 â€” surface and scale.**
   Delivery grows from two adapters to three behind the Phase-6 `DeliveryAdapter`
   protocol: new `python/harness/jobs/delivery.py` `messaging` adapter (a template
   KEY + params, never a composed sentence) and the `artifact` file contract
   (`.black-eclipse/artifacts/<runId>/{report.md,receipt.json,meta.json}`, path
   derived from the run id and confined by policy). Every configured target records
-  its OWN `DeliveryOutcome` on the run row — no rolled-up boolean; a delivery
+  its OWN `DeliveryOutcome` on the run row â€” no rolled-up boolean; a delivery
   failure never fails the run. Additive `JobDeliveryTarget` + `destination`/`targets`
   and a `scopeId` FILTER label on jobs, code tasks, artifacts and code workspaces
   (`test_surface_tenancy_isolation.py` mirrors the older tenancy boundary; a
@@ -2063,7 +2302,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/progress/phase-11-progress.md`,
   `docs/harness/runbook-{add-a-job,add-a-kit,failed-code-task}.md`.
 
-- **Eclipse-as-a-Harness Phase 10 — self-improvement v2 (code as well as skills).**
+- **Eclipse-as-a-Harness Phase 10 â€” self-improvement v2 (code as well as skills).**
   New `python/harness/code/evolution.py` (a recurrence bridge that consumes the
   existing `LearningRecurrence` counter, `propose_ops` with the FROZEN set and the
   `skills/patches.py` FORBIDDEN_FIELDS, a worktree evaluation recorded through the
@@ -2082,7 +2321,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-10-self-improvement.md`,
   `docs/harness/roadmap/progress/phase-10-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 9 — finance application scaffold kits.**
+- **Eclipse-as-a-Harness Phase 9 â€” finance application scaffold kits.**
   New `python/harness/code/kits/` (a validated kit contract + loader that refuses
   a kit with no acceptance test or an undeclared output) and eight kits:
   `market_data_adapter`, `mcp_server`, `ratio_calculator`, `backtest_strategy`,
@@ -2101,9 +2340,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-09-scaffold-kits.md`,
   `docs/harness/roadmap/progress/phase-09-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 8 — analysis sandbox (computing, not just retrieving).**
+- **Eclipse-as-a-Harness Phase 8 â€” analysis sandbox (computing, not just retrieving).**
   New `python/harness/code/execution.py` (bounded, reproducible analysis on the
-  Phase 3 sandbox: AST import allowlist — never eval/exec — source/input/interpreter/
+  Phase 3 sandbox: AST import allowlist â€” never eval/exec â€” source/input/interpreter/
   package digests, artifact collection with SHA-256 identity, and the `Provenance`
   contract). The provenance rule is enforced in code: every execution output is
   `kind="computed"`, a computed number with no provenance renders `UNAVAILABLE`
@@ -2120,7 +2359,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-08-analysis-sandbox.md`,
   `docs/harness/roadmap/progress/phase-08-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 7 — delegation and child runs.**
+- **Eclipse-as-a-Harness Phase 7 â€” delegation and child runs.**
   New `python/harness/delegation.py` (`DelegationChild`/`DelegationRequest`/`ChildOutcome`/
   `DelegationResult`, `VerifiableHandle`, `child_actor`, `narrow_tools`,
   `partition_claims`, `aggregate`, `run_delegation`; `MAX_CHILDREN=4`, `MAX_DEPTH=2`,
@@ -2141,8 +2380,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/roadmap/phase-07-delegation.md`,
   `docs/harness/roadmap/progress/phase-07-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 5 — coding agent, autonomy profiles, approvals.**
-  New `code-agent` preset (`agents.py`) whose allowlist is the REAL Phase 1–3
+- **Eclipse-as-a-Harness Phase 5 â€” coding agent, autonomy profiles, approvals.**
+  New `code-agent` preset (`agents.py`) whose allowlist is the REAL Phase 1â€“3
   code tools and NO finance tool, and which does not set `allowMcpTools`;
   `CODE_AGENT_SYSTEM_PROMPT` in `prompts.py`. Autonomy is structural:
   `code/policy.allowed_tools(autonomy, declared)` is the ONE place a
@@ -2165,7 +2404,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
   `docs/harness/roadmap/phase-05-coding-agent.md`, `docs/NAVIGATION.md`
 
-- **Prompt follow-up — navigator prompt correctness + guard coverage.** Fixed
+- **Prompt follow-up â€” navigator prompt correctness + guard coverage.** Fixed
   the Repository Navigator prompt (`CODE_NAVIGATOR_SYSTEM_PROMPT`) which
   contradicted its own allowlist: it claimed exactly five read tools and that it
   "cannot run any command" while `CODE_NAVIGATOR.tools` has nine (including
@@ -2180,16 +2419,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   modelling". Deleted two redundant restatements (the duplicate citation line
   and the duplicate bound-schemas sentence). Added generalised guard tests
   across both presets in `python/tests/test_memory_tools.py` +
-  `test_prompt_segments.py`. Prompt 17,443 → 17,294 chars (~4,324 est. tokens),
+  `test_prompt_segments.py`. Prompt 17,443 â†’ 17,294 chars (~4,324 est. tokens),
   under the 17,500 ceiling. docs updated: `docs/harness/decisions.md`
   (ADR-H106), `docs/harness/architecture.md`,
   `docs/harness/prompt-followup-progress.md`.
 
-- **Eclipse-as-a-Harness Phase 4 — verify-and-repair trust spine.** New
+- **Eclipse-as-a-Harness Phase 4 â€” verify-and-repair trust spine.** New
   `python/harness/code/verify.py` (the per-run `VerificationLedger`; a
   deterministic, negation-aware sentence-level claim parser; `enforce_answer`
   marking/stripping an unbacked pass-claim with `UNVERIFIED`) and
-  `python/harness/code/repair.py` (the bounded plan→edit→check→repair loop with a
+  `python/harness/code/repair.py` (the bounded planâ†’editâ†’checkâ†’repair loop with a
   `RepairBudget` checked before every edit; `refused` for an unavailable check;
   `no_checks` when none). `execute_run` constructs/rehydrates the ledger, records
   every command execution as proof, enforces the final answer, and persists
@@ -2204,7 +2443,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
   `docs/harness/roadmap/phase-04-verify-and-repair.md`, `docs/NAVIGATION.md`
 
-- **Eclipse Agent Prompt v2 — finance-harness completion.** Added the
+- **Eclipse Agent Prompt v2 â€” finance-harness completion.** Added the
   finance-harness contract to `ECLIPSE_AGENT_SYSTEM_PROMPT`: `# Market data
   semantics` (session state, price/period basis, corporate actions,
   point-in-time vs restated, FX, staleness), `# Inputs and authority` (7-rank
@@ -2217,8 +2456,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   but never-populated `session_summary` prompt segment
   (`python/harness/prompt_segments.py`). Paid for the growth by tightening
   `# Investment Analysis`, `## MCP tools`, `## Tool calls`, the identity preamble
-  and `# Tool-use enforcement`, retaining every rule. Prompt 15,302 → 17,443
-  chars (~3,826 → ~4,361 est. tokens), under the 17,500 ceiling. Guard tests
+  and `# Tool-use enforcement`, retaining every rule. Prompt 15,302 â†’ 17,443
+  chars (~3,826 â†’ ~4,361 est. tokens), under the 17,500 ceiling. Guard tests
   added in `python/tests/test_memory_tools.py` and
   `python/tests/test_prompt_segments.py`. docs updated:
   `docs/harness/decisions.md` (ADR-H104), `docs/harness/architecture.md`,
@@ -2237,12 +2476,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   statement per rule (39.7% of prior size) with finance-native examples, compacted
   the 52-bullet identity preamble to a bounded role statement, made the bound tool
   schemas authoritative (removed the dead `_TOOLS_LIST_SENTENCE` replacement), and
-  added prompt guard tests. Prompt 18,826 → 15,302 chars (~4,707 → 3,826 est.
+  added prompt guard tests. Prompt 18,826 â†’ 15,302 chars (~4,707 â†’ 3,826 est.
   tokens). Removed the now-redundant `'What time is it?' -> date` example.
   docs updated: `docs/harness/decisions.md` (ADR-H103),
   `docs/harness/architecture.md`, `docs/NAVIGATION.md`.
 
-- **Eclipse-as-a-Harness Phase 3 — sandboxed command broker.** New
+- **Eclipse-as-a-Harness Phase 3 â€” sandboxed command broker.** New
   `python/harness/code/commands.py` (the closed command-class TABLE: ArgSpec
   validation, a closed `EXECUTABLES` map, the vendored interpreter named once, a
   CLOSED `git_read` subcommand set, `dependency_install` off by default with
@@ -2259,33 +2498,33 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/i18n`; `test_plain_language.py` + the jargon gate extended. ADR-H102
   appended (the series ended at H101). Baseline frozen in
   `docs/harness/roadmap/progress/phase-03-progress.md` (vitest 169/1966; pytest
-  1841→1883; eval gates pass). docs updated: `docs/harness/decisions.md`,
+  1841â†’1883; eval gates pass). docs updated: `docs/harness/decisions.md`,
   `docs/harness/roadmap/README.md`,
   `docs/harness/roadmap/phase-03-command-broker.md`, `docs/NAVIGATION.md`
 
-- **Eclipse-as-a-Harness Phase 2 — isolated worktree patch authoring.** New
+- **Eclipse-as-a-Harness Phase 2 â€” isolated worktree patch authoring.** New
   `python/harness/code/worktree.py` (allocate a disposable copy at
   `<root>/.black-eclipse/code-workspaces/<id>` via `git worktree add --detach`,
   bounded snapshot fallback reported honestly, `release` refusing anything outside
   the scratch root and idempotent, `diff`, `sweep_expired`), `code/patch.py`
   (closed op set create/replace/delete/move, structural validation before any
-  write, content-hash base refusal, unique-span `replace`, ATOMIC — a refusal
+  write, content-hash base refusal, unique-span `replace`, ATOMIC â€” a refusal
   applies nothing, before/after hashes, `revert` newest-first), and
   `code/store.py` (the `CodeWorkspace` table bound to the ONE `AgentMemoryStore`
   connection; `persistence.py` untouched). Three tools added to
-  `register_code_tools` — `workspace_patch_apply` (write), `workspace_diff`
-  (read), `workspace_revert` (write) — authorized by the run's autonomy profile
+  `register_code_tools` â€” `workspace_patch_apply` (write), `workspace_diff`
+  (read), `workspace_revert` (write) â€” authorized by the run's autonomy profile
   via a code authorizer composed into the single effect authorizer; `RunRequest`
   gains an optional `autonomy`; `code-navigator` gains the three tools.
   `sweep_expired` wired into startup maintenance. Front-door i18n `task.authoring.*`
   progress/result lines + authoring `refusal.*` codes + `plain-language.test.ts`
   extended; human tool labels added. ADR-H101 appended (the series ended at H100).
   Baseline frozen in `docs/harness/roadmap/progress/phase-02-progress.md` (vitest
-  169/1966; pytest 1808→1839; eval gates pass). docs updated:
+  169/1966; pytest 1808â†’1839; eval gates pass). docs updated:
   `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
   `docs/harness/roadmap/phase-02-worktree-patching.md`, `docs/NAVIGATION.md`
 
-- **Eclipse-as-a-Harness Phase 1 — read-only repository navigator.** Five
+- **Eclipse-as-a-Harness Phase 1 â€” read-only repository navigator.** Five
   read-only tools on the EXISTING `ToolRegistry` (`workspace_status`,
   `workspace_list`, `workspace_search`, `workspace_read`, `workspace_docs`; all
   `permission="read"`, `risk="low"`), registered once from `service.py`. New
@@ -2297,18 +2536,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `SYMLINK_ESCAPE`, plus `PROTECTED_PATH` / `IGNORED_PATH`); `jdds.db` reports
   `PROTECTED_PATH`, never `BINARY_FILE`. Reads are line-numbered with a
   continuation offset, refuse binary, and redact secret-shaped lines to
-  `«redacted»` via `session_index.redact_span` (one pattern set). New
+  `Â«redactedÂ»` via `session_index.redact_span` (one pattern set). New
   `code-navigator` agent preset (only the five tools, no MCP); `RunRequest.workspace`
   (optional, additive; can only confirm the server root) wired through
   `ToolContext.workspace`; front-door `validateWorkspaceRef` + types; i18n
-  `task.*`/`refusal.*` keys + a code→sentence map and the `plain-language.test.ts`
+  `task.*`/`refusal.*` keys + a codeâ†’sentence map and the `plain-language.test.ts`
   jargon gate. ADR-H100 appended (the series ended at H99, not H92). Baseline
   frozen in `docs/harness/roadmap/progress/phase-01-progress.md` (vitest 168/1962;
-  pytest 1777→1808; eval gates pass). docs updated: `docs/harness/decisions.md`,
+  pytest 1777â†’1808; eval gates pass). docs updated: `docs/harness/decisions.md`,
   `docs/harness/roadmap/README.md`,
   `docs/harness/roadmap/phase-01-repository-navigator.md`, `docs/NAVIGATION.md`
 
-- **Eclipse-as-a-Harness Phase 0 — code capability becomes a tested policy
+- **Eclipse-as-a-Harness Phase 0 â€” code capability becomes a tested policy
   decision (ships NO tools).** New `python/harness/code/policy.py` is the single
   policy authority: `AUTONOMY_PROFILES`, `PROTECTED_PATHS`, `IGNORED_DIRS`/
   `IGNORED_GLOBS`, `COMMAND_CLASSES`, `NETWORK_DEFAULT`, `SECRET_ENV_ALLOWLIST`,
@@ -2319,7 +2558,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `CODE_PERMISSIONS`, and narrows `FORBIDDEN_PERMISSIONS` to
   trade/broker/production. `skills/permissions.py` `Actor` gains
   `workspace_id`/`autonomy`; `granted()` unions `code_grants` only when both are
-  set (unknown profile → nothing, fail-closed), and a caller grant can no longer
+  set (unknown profile â†’ nothing, fail-closed), and a caller grant can no longer
   smuggle a code verb. New `python/tests/test_code_policy.py` (33 tests, incl.
   path-escape and command refusals and the plain-language seed gate). ADR-H97/
   H98/H99 appended (the series already ended at H96, not H92). Baseline gate
@@ -2328,8 +2567,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
   `docs/harness/roadmap/phase-00-policy-and-baseline.md`, `docs/NAVIGATION.md`
 
-- **ChatBot landing wordmark — user-authored giant text + font.** Settings ›
-  General › Background gained a "Landing text" card: a text field, a curated
+- **ChatBot landing wordmark â€” user-authored giant text + font.** Settings â€º
+  General â€º Background gained a "Landing text" card: a text field, a curated
   display-font list (`WORDMARK_FONT_OPTIONS`), alignment, size (vw), strength and
   vertical position. A new presentational `ChatWordmark`
   (`src/components/chat/chat-wordmark.tsx`) paints the text behind the ChatBot
@@ -2338,10 +2577,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   wordmark. Six new `BackgroundPrefs` fields flow through the existing
   `backgrounds.ts` store/prefs (localStorage `be_background_v1`), so it applies
   instantly and persists. Tests cover normalization/clamping.
-  no doc change — UI-only presentation preference; no architecture, contract or
+  no doc change â€” UI-only presentation preference; no architecture, contract or
   setup change.
 
-- **Eclipse-as-a-Harness Phase 6 — harness-owned jobs and event triggers.**
+- **Eclipse-as-a-Harness Phase 6 â€” harness-owned jobs and event triggers.**
   New `python/harness/jobs/` package: `model.py` (`JobDefinition`/`JobTarget`/
   `JobDelivery`, `enabled` defaults FALSE per ADR-H39), `store.py` (the
   `HarnessJob`/`HarnessJobRun` tables on the ONE `agent-memory.db` connection),
@@ -2349,7 +2588,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   aliases), `guardrails.py` (save-time permission binding, workspace-required code
   jobs, operator-gated `approve_external`, `policy.resolve_within` watch-path
   confinement, skill-version pinning, unknown-adapter refusal), `scheduler.py`
-  (`JobScheduler` — one lifespan task beside `start_mcp()`, injected clock, no
+  (`JobScheduler` â€” one lifespan task beside `start_mcp()`, injected clock, no
   overlap, bounded in-flight runs, `max_runtime_s` cooperative cancel, once-only
   missed-run reconciliation recorded with `missed=1`, the breaker reused from
   `mcp/circuit.py`), `triggers.py` (SHA-256 webhook tokens shown once; a bounded
@@ -2367,24 +2606,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
-- **Harness closeout Phases 8–9 — eval harness, rollout, docs.** `scripts/test-evals.js`
+- **Harness closeout Phases 8â€“9 â€” eval harness, rollout, docs.** `scripts/test-evals.js`
   runs four new OFFLINE gates: the capability-matrix gate
   (`scripts/eval-capability-matrix.ts`) and the Python route_health / workflow /
   resume gates (`python/harness/eval_gates/`), each failing non-zero on a floor
   violation. The workflow path and the route-probe schedule ship behind flags
   (`HARNESS_WORKFLOWS_ENABLED` / `HARNESS_ROUTE_PROBE_ENABLED`), both default OFF;
-  a run with no `workflowId` is unchanged. Architecture, NAVIGATION and ADR-H93…H96
+  a run with no `workflowId` is unchanged. Architecture, NAVIGATION and ADR-H93â€¦H96
   documented. docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
   `docs/harness/decisions.md`, `docs/harness/harness-closeout-progress.md`
 
-- **Harness closeout Phase 7 — observability: one source of truth.** Verified the
+- **Harness closeout Phase 7 â€” observability: one source of truth.** Verified the
   retrieval planner's health index reads the same SourceHealth ledger as
   `get_source_health`, with a test asserting equal verdicts. `explain_run` now
   includes the workflow step tree, run lineage, and the resume point; workflow
   steps emit per-step events on the existing bus; `run-explanation-panel.tsx`
   renders them. docs updated: `docs/harness/harness-closeout-progress.md`
 
-- **Harness closeout Phase 6 — permissions, sandboxing, egress.** `ToolDefinition`
+- **Harness closeout Phase 6 â€” permissions, sandboxing, egress.** `ToolDefinition`
   gained `version`/`deprecated`/`replacement`; the registry warns once per run
   when a deprecated tool is called (naming its replacement) and still executes it.
   Confirmed and tested the four egress guards (private-address, non-https hop,
@@ -2392,10 +2631,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   sentinel credential and asserts it appears in no persisted row.
   docs updated: `docs/harness/harness-closeout-progress.md`
 
-- **Harness closeout Phase 5 — the composable workflow graph.** New
+- **Harness closeout Phase 5 â€” the composable workflow graph.** New
   `python/harness/workflows/` (model/validate/store/compile) compiles a versioned,
-  bounded `Workflow` onto the EXISTING `execute_run` graph — no second loop,
-  registry or model adapter. A step's tool scope = agent allowlist ∩ step tools,
+  bounded `Workflow` onto the EXISTING `execute_run` graph â€” no second loop,
+  registry or model adapter. A step's tool scope = agent allowlist âˆ© step tools,
   enforced at the `ToolRegistry.execute(allowed=...)` seam (a denied call is a
   structured `TOOL_FORBIDDEN`); approval steps reuse the single-use `ApprovalStore`;
   parallel branches share the run cancel event/cache. Flag-gated
@@ -2404,7 +2643,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/app/api/harness/workflows/**`.
   docs updated: `docs/harness/harness-closeout-progress.md`
 
-- **Harness closeout Phases 3–4 — matrix truthfulness + data-route gaps.**
+- **Harness closeout Phases 3â€“4 â€” matrix truthfulness + data-route gaps.**
   `buildCapabilityMatrix` now reconciles every axis and represents an impossible
   fact as `matrixInconsistent` (with a reason) instead of smoothing it over; CH/KW/QA
   gained real COVERAGE entries with correct ISO currencies (CHF/KWD/QAR) and the
@@ -2415,21 +2654,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   secondary; thin markets gained symbol-candidate chains.  No jdds.db commit.
   docs updated: `docs/harness/harness-closeout-progress.md`
 
-- **Harness closeout Phase 2 — one authoritative route-health ledger.**
+- **Harness closeout Phase 2 â€” one authoritative route-health ledger.**
   `sourceHealth()` now returns a compact recorded SUMMARY by default and withholds
   the ~1,200 declared-but-unrun routes (opt-in via `recordedOnly`/`includeDeclared`),
   so `get_source_health` is readable inside the 24k tool bound instead of showing
   only "unknown" rows. `capabilityMatrix()` canonicalises its market key to match;
   a migration folds legacy rows (incl. literal `unknown`) onto canonical keys.
   `SourceHealth` gained `lastSuccessAt`/`lastFailureAt`. A bounded cross-market
-  probe records one attempt per (market × capability) into the same ledger, with a
+  probe records one attempt per (market Ã— capability) into the same ledger, with a
   manual one-shot (`POST /api/harness/route-probe`, `scripts/probe-route-health.ts`)
   and a recurring schedule OFF by default behind `HARNESS_ROUTE_PROBE_ENABLED`.
   The ledger surface moved to `src/lib/harness/health-ledger.ts` to respect the
   size ratchet.
   docs updated: `docs/harness/harness-closeout-progress.md`
 
-- **Harness closeout Phase 1 — run lineage, durable checkpoints, idempotent
+- **Harness closeout Phase 1 â€” run lineage, durable checkpoints, idempotent
   resume.** Each run can now survive a crash: `HarnessRun.parentRunId`/`workflowId`
   record lineage; a new `RunCheckpoint` table stores a bounded per-boundary
   reference (agent step / tool results / terminal), and `ToolExecutionIdempotency`
@@ -2441,7 +2680,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   helpers were extracted to `python/harness/graph_context.py`.
   docs updated: `docs/harness/harness-closeout-progress.md`
 
-- **Tool-loop integrity Phase 1 — the release gate's one red test was a UTC
+- **Tool-loop integrity Phase 1 â€” the release gate's one red test was a UTC
   month-rollover time bomb.** `weekly.test.ts`'s `buildMonthlyWrapped` test
   derived its period from `new Date()` while its fixtures were hardcoded to
   2026-09; after 20:00 EDT on Sep 30 (UTC already Oct 1) the prefix resolved to
@@ -2451,7 +2690,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   A testing convention was added to `CONTRIBUTING.md`.
   docs updated: `CONTRIBUTING.md`, `docs/harness/tool-loop-integrity-progress.md`
 
-- **Tool-loop integrity Phase 2 — duplicate tool-call suppression is scoped to
+- **Tool-loop integrity Phase 2 â€” duplicate tool-call suppression is scoped to
   one agent step, not the whole run (ADR-H90).** `seen_calls` now resets per
   `tools_node` invocation, so a legitimate re-issue in a later turn (next page,
   re-poll, retry) executes instead of being refused with a stale "use the earlier
@@ -2460,7 +2699,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H90),
   `docs/harness/architecture.md`, `docs/NAVIGATION.md`
 
-- **Tool-loop integrity Phase 3 — native tool-result text is bounded at the one
+- **Tool-loop integrity Phase 3 â€” native tool-result text is bounded at the one
   execution seam (ADR-H91).** `ToolRegistry.execute` trims a model-facing text
   result to `MAX_TOOL_RESULT_CHARS = 24_000` with a non-JSON marker and
   `truncated`/`shown_chars`/`total_chars` fields; the graph emits `tool.truncated`.
@@ -2471,7 +2710,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H91),
   `docs/harness/architecture.md`, `docs/NAVIGATION.md`
 
-- **Tool-loop integrity Phase 4 — an effectful-tool approval is single-use
+- **Tool-loop integrity Phase 4 â€” an effectful-tool approval is single-use
   (ADR-H92).** `ApprovalStore.consume` atomically claims an approved, unexpired
   approval (guarded `UPDATE` + rowcount) and moves it to a terminal `consumed`
   state with `usedAt`; a second identical call is refused and creates a fresh
@@ -2493,43 +2732,43 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/OVERVIEW.md`
 
 - **Background zoom could not go below 100%.** The Zoom control was hard-clamped
-  to a 100% minimum in two places — `normalizeBackgroundPrefs` (`backgrounds.ts`)
-  and the slider `min` (`background-settings.tsx`) — even though the CSS and
+  to a 100% minimum in two places â€” `normalizeBackgroundPrefs` (`backgrounds.ts`)
+  and the slider `min` (`background-settings.tsx`) â€” even though the CSS and
   `resolveBackgroundCss` already support 50%. Lowered the floor to 50% in both, so
   the wallpaper can be shrunk. Test updated plus a sub-100% regression assertion.
   docs updated: `docs/ARCHITECTURE.md`
 
-- **MCP integrity close-out — live supply-chain verdict surfaced; catalog-change
+- **MCP integrity close-out â€” live supply-chain verdict surfaced; catalog-change
   counters shown; the report's dead `upstreamChecked` flag made real.**
   `SupplyChainChecker` now records the last observation per
   `(ecosystem, package, version)` with a wall-clock `checkedAt`; a read-only
   `observe_command` lets `supply_chain_report` attach `liveVerdict` to a
   configured package and DERIVE `upstreamChecked` from real observations (the
-  caller `upstream_checked` parameter is removed — it had no caller and could
+  caller `upstream_checked` parameter is removed â€” it had no caller and could
   never be true). The route stays offline. The card/lifecycle panel now render
   `lifecycle.catalogChanges`/`lastCatalogChangeAt` beside the existing "catalog
-  changed" banner, via a pure `catalogChangeSummary` helper — no event consumer
+  changed" banner, via a pure `catalogChangeSummary` helper â€” no event consumer
   was added. `python/tests/test_retrieval_health.py` and the health-aware
   retrieval workstream are adjacent scope (uncommitted, tested green).
   docs updated: `docs/harness/mcp-integrity-progress.md` (Milestone 11),
   `docs/harness/decisions.md` (ADR-H88/H89), `docs/NAVIGATION.md`
 
-- **`memory` tool — save crash on missing/null `confidence` fixed.** `save`
+- **`memory` tool â€” save crash on missing/null `confidence` fixed.** `save`
   crashed with `float() argument must be a string or a real number, not
   'NoneType'` when `confidence` was present-but-null (`args.get("confidence",
   0.8)` returns `None` for a JSON `null`). Added `_coerce_confidence`
-  (missing/empty/NaN/out-of-range → default 0.8, bounded 0..1) and wrapped the
+  (missing/empty/NaN/out-of-range â†’ default 0.8, bounded 0..1) and wrapped the
   authorize+commit call so any malformed input returns a typed `invalid_input`
   refusal instead of an unhandled `TypeError`. The per-turn write-authorization
   gate is untouched (its fail-closed false negative is intentional). Tests added
   for save-without-confidence, save-with-null, and malformed confidence.
-  no doc change — bug fix, contract unchanged.
+  no doc change â€” bug fix, contract unchanged.
 
-- **Background — Eclipse I is the official first-run wallpaper; added resize controls.** Factored the shipped default into `DEFAULT_BACKGROUND_ID = 'eclipse-1'` (the official background new users get) and marked it with a "Default" badge in the picker. Added image resize controls: **Zoom** (100–300%), **Horizontal** and **Vertical** focal position (0–100%), alongside the existing Fit and Darkening. The wallpaper image moved onto the layer's `::before` so zoom scales only the art (the dim scrim stays full-size), and the resolver now emits `--app-bg-zoom` + a focal `--app-bg-position`. `BackgroundPrefs` gained `scale`/`positionX`/`positionY` (normalized/clamped).
+- **Background â€” Eclipse I is the official first-run wallpaper; added resize controls.** Factored the shipped default into `DEFAULT_BACKGROUND_ID = 'eclipse-1'` (the official background new users get) and marked it with a "Default" badge in the picker. Added image resize controls: **Zoom** (100â€“300%), **Horizontal** and **Vertical** focal position (0â€“100%), alongside the existing Fit and Darkening. The wallpaper image moved onto the layer's `::before` so zoom scales only the art (the dim scrim stays full-size), and the resolver now emits `--app-bg-zoom` + a focal `--app-bg-position`. `BackgroundPrefs` gained `scale`/`positionX`/`positionY` (normalized/clamped).
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
 
-- **Sidebar — clicking the ChatBot icon always starts a new chat.** The ChatBot nav item used to just switch to the chat tab, resuming whichever conversation was last active. It now calls `onNewChat()` before switching tabs, so clicking it opens a fresh chat every time; previous conversations remain reachable from the history list above the nav.
-  no doc change — bug fix; no architecture, contract, setup, or data-shape change.
+- **Sidebar â€” clicking the ChatBot icon always starts a new chat.** The ChatBot nav item used to just switch to the chat tab, resuming whichever conversation was last active. It now calls `onNewChat()` before switching tabs, so clicking it opens a fresh chat every time; previous conversations remain reachable from the history list above the nav.
+  no doc change â€” bug fix; no architecture, contract, setup, or data-shape change.
 
 - **MCP: no-op `list_changed` no longer emits a "catalog changed" event, and the
   live supply-chain check is now a visible operator setting.** Two honesty/
@@ -2537,7 +2776,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   every inbound `list_changed` and emitted `mcp.catalog.changed` unconditionally.
   A server that announces a change that never materialises (or fires the
   notification gratuitously) therefore produced a stream of misleading "catalog
-  changed" signals — the operator would be asked to re-confirm an identical
+  changed" signals â€” the operator would be asked to re-confirm an identical
   catalog. The handler now snapshots `rt.catalog_digest` before the refresh and
   suppresses the event when the digest is unchanged; discovery, the registry
   reconcile and a real digest change all still run and emit. Regression:
@@ -2548,7 +2787,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `MCPServerConfig.live_supply_chain_check` defaulted to **true** and did an
   outbound 8s OSV query on every `npx`/`uvx` spawn, but no operator surface
   mentioned it: not in the editor, not in the example config, and absent from the
-  TS `MCPServerView`/`MCPServerInput`/`DraftServer` contract — so a save from the
+  TS `MCPServerView`/`MCPServerInput`/`DraftServer` contract â€” so a save from the
   editor would have DROPPED an operator's explicit `false` and silently
   re-enabled the network call. Added the view/input/draft fields with a
   `!== false` default (absent = the documented default), the round-trip mapping,
@@ -2576,18 +2815,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_retrieval_health.py`.
   docs updated: `docs/harness/decisions.md` (ADR-H86), `docs/NAVIGATION.md`
 
-- **Memory — confirmed and documented the verification/source policy (P2-11).**
+- **Memory â€” confirmed and documented the verification/source policy (P2-11).**
   No code change: `source=explicit_user` grants authority but is stored
   `unverified`; only a user correction or an explicit `verification="verified"`
   marks a record verified. Recorded that "most records unverified" is intended
   and that the model-initiated `save` write gate is deliberate.
   docs updated: `docs/harness/memory-maturity-baseline.md`
 
-- **Source health — canonical route keys + persisted probes (P0-3/P1-5).** The
+- **Source health â€” canonical route keys + persisted probes (P0-3/P1-5).** The
   `SourceHealth` ledger was fragmented: the same route appeared under `Equity`
   and `equity`, under `unknown`/`*`, and the `research_health` probe tested one
   provider (`duckduckgo-html`/`safe-get`) while production recorded another
-  (`WEB`) — so a working provider was reported as failing and per-route success
+  (`WEB`) â€” so a working provider was reported as failing and per-route success
   rates were wrong. Added `src/lib/harness/health-key.ts` with a closed
   vocabulary (`canonicalMarket`/`canonicalAssetClass`/`canonicalSource`, alias
   folding to one source per provider) applied on both write and read, and made
@@ -2597,7 +2836,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H85), `docs/NAVIGATION.md`,
   `docs/DATA-FLOW.md`
 
-- **`memory` tool — null-limit crash fixed.** `action=list` failed with
+- **`memory` tool â€” null-limit crash fixed.** `action=list` failed with
   `TypeError: int() argument must be a string ... not 'NoneType'` when the model
   emitted a present-but-null `limit` (JSON `null`): `args.get("limit", 20)`
   returns `None` because the key exists, so `int(None)` raised. Coerced the
@@ -2605,12 +2844,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   the positional default (`memory` search/list, `session_open` before/after),
   which also catches `None`; added a regression test asserting both branches
   tolerate `limit: null`.
-  no doc change — bug fix, contract unchanged.
+  no doc change â€” bug fix, contract unchanged.
 
-- **MCP integrity — real-server defects fixed and the remaining gaps closed.**
+- **MCP integrity â€” real-server defects fixed and the remaining gaps closed.**
   Two sessions. First: a provider-side error body returned with `isError=false`
   is now a failure (pure `looks_like_provider_error` classifier, an explicit
-  rendered failure, `mcp_tool_provider_error`); **Test is not Verify** — a new
+  rendered failure, `mcp_tool_provider_error`); **Test is not Verify** â€” a new
   operator-triggered `POST /mcp/servers/{id}/verify` makes one bounded read call
   and records a content-free verdict; the un-launchable `sec-edgar-mcp` preset is
   replaced with the launched `@pipeworx/mcp-edgar`; `notion`/`dropbox` ids become
@@ -2629,26 +2868,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   passing summary line; the test-only `_testtmp.py` moved to
   `python/tests/_tmp_helper.py` and is adopted by `python/conftest.py`.
   docs updated: `docs/harness/mcp-integrity-progress.md` (new + continuation),
-  `docs/harness/decisions.md` (ADR-H77–H84), `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H77â€“H84), `docs/harness/architecture.md`,
   `docs/NAVIGATION.md`, `docs/harness/mcp-phase-6-progress.md`,
   `docs/harness/mcp-ui-parity-progress.md`, `CONTRIBUTING.md`
 
-- **General settings — Start screen control removed; background picker promoted.** Removed the "Start screen" button grid from Settings › General › General (the boot tab now just follows the default/deep link; `general-prefs` still stores it for compatibility). The Background panel now leads the General tab, and the shipped **Eclipse I** wallpaper is the default on first run (`DEFAULT_BACKGROUND.mode = 'image'`, `preset = 'eclipse-1'`). The wallpaper fills the main content panel (right of the sidebar) on the ChatBot landing only (empty transcript) and resizes with it, so opening the sidebar keeps the image fully visible; the sidebar keeps its normal (non-transparent) frost. Follow-up to the background feature below.
-  no doc change — same unreleased feature; docs already describe the background system.
+- **General settings â€” Start screen control removed; background picker promoted.** Removed the "Start screen" button grid from Settings â€º General â€º General (the boot tab now just follows the default/deep link; `general-prefs` still stores it for compatibility). The Background panel now leads the General tab, and the shipped **Eclipse I** wallpaper is the default on first run (`DEFAULT_BACKGROUND.mode = 'image'`, `preset = 'eclipse-1'`). The wallpaper fills the main content panel (right of the sidebar) on the ChatBot landing only (empty transcript) and resizes with it, so opening the sidebar keeps the image fully visible; the sidebar keeps its normal (non-transparent) frost. Follow-up to the background feature below.
+  no doc change â€” same unreleased feature; docs already describe the background system.
 
-- **Background fix — scrim was an invalid `background-image` layer.** The legibility scrim was written as a bare color (`rgba(0,0,0,0.45)`), but a color is not a valid `background-image` value; CSS dropped the *entire* multi-layer declaration, so no pattern or wallpaper ever painted. The scrim is now a solid-gradient image (`linear-gradient(rgba(...), rgba(...))`) and the CSS `var()` fallback changed from `transparent` to `none`. Same-day follow-up to the background feature below.
-  no doc change — bug fix in an unreleased change.
+- **Background fix â€” scrim was an invalid `background-image` layer.** The legibility scrim was written as a bare color (`rgba(0,0,0,0.45)`), but a color is not a valid `background-image` value; CSS dropped the *entire* multi-layer declaration, so no pattern or wallpaper ever painted. The scrim is now a solid-gradient image (`linear-gradient(rgba(...), rgba(...))`) and the CSS `var()` fallback changed from `transparent` to `none`. Same-day follow-up to the background feature below.
+  no doc change â€” bug fix in an unreleased change.
 
-- **Settings › General › Background — customizable page wallpaper.** The hardcoded, dead `/backgrounds/eclipse bg.svg` chat-landing block (the file no longer exists) is replaced by a real background system in `src/lib/backgrounds.ts` (Settings › General › Background). Mode `none | pattern | image`: `pattern` absorbs the old Solid/Gradient/Grid control from Customization › Glass & Surfaces (single background surface now, tinted by brand, app-wide), and `image` offers the shipped Eclipse wallpapers (`public/backgrounds/eclipse bg-1.svg`/`-3.png`/`-4.svg`/`-5.svg`) or a user picture. Wallpapers paint the **ChatBot landing only** via a `.app-bg-layer` filling the main content panel (right of the sidebar, so the menu overlays the image). Custom uploads are downscaled client-side (~2560px, JPEG/PNG, up to 30 MB in) and stored in **IndexedDB** (`be_background`/`custom`) so a full-res wallpaper never eats the ~5 MB localStorage budget; prefs live in `be_background_v1`. Adds fit (cover/contain/tile) and a darkening scrim for legibility. Applied via `useHydrateBackground` in `stock-chat.tsx`.
+- **Settings â€º General â€º Background â€” customizable page wallpaper.** The hardcoded, dead `/backgrounds/eclipse bg.svg` chat-landing block (the file no longer exists) is replaced by a real background system in `src/lib/backgrounds.ts` (Settings â€º General â€º Background). Mode `none | pattern | image`: `pattern` absorbs the old Solid/Gradient/Grid control from Customization â€º Glass & Surfaces (single background surface now, tinted by brand, app-wide), and `image` offers the shipped Eclipse wallpapers (`public/backgrounds/eclipse bg-1.svg`/`-3.png`/`-4.svg`/`-5.svg`) or a user picture. Wallpapers paint the **ChatBot landing only** via a `.app-bg-layer` filling the main content panel (right of the sidebar, so the menu overlays the image). Custom uploads are downscaled client-side (~2560px, JPEG/PNG, up to 30 MB in) and stored in **IndexedDB** (`be_background`/`custom`) so a full-res wallpaper never eats the ~5 MB localStorage budget; prefs live in `be_background_v1`. Adds fit (cover/contain/tile) and a darkening scrim for legibility. Applied via `useHydrateBackground` in `stock-chat.tsx`.
   docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
 
 - **Root .gitignore: ignore a stray root node_modules/.** A tool running vitest from the repo root created `node_modules/.vite`; ignored so it can never be committed.
-  no doc change — ignore-rule only.
+  no doc change â€” ignore-rule only.
 
-- **Terminal cleanup — guard floor, line endings, commits.** Pinned the CHANGELOG guard floor to 345 and added an archive-seam assertion; normalized the 66 working-tree files that mixed CRLF/bare LF (content proven unchanged) and added a mixed-ending guard; recorded the `jdds.db` purge recommendation (keep it) and the smoke/CI caveats. Two commits: `8153d35` (line endings) and `43085d8` (closeout).
+- **Terminal cleanup â€” guard floor, line endings, commits.** Pinned the CHANGELOG guard floor to 345 and added an archive-seam assertion; normalized the 66 working-tree files that mixed CRLF/bare LF (content proven unchanged) and added a mixed-ending guard; recorded the `jdds.db` purge recommendation (keep it) and the smoke/CI caveats. Two commits: `8153d35` (line endings) and `43085d8` (closeout).
   docs updated: `docs/harness/terminal-cleanup-progress.md`, `docs/harness/closeout-progress.md`, `docs/NAVIGATION.md`
 
-- **Terminal cleanup — codex checkpoint refs, filter remnant, stale lock.** Deleted
+- **Terminal cleanup â€” codex checkpoint refs, filter remnant, stale lock.** Deleted
   the 12 
 efs/codex/turn-diffs/checkpoints/* refs (12 exclusive jdds.db blobs,
   1.53 GB decompressed) and the 
@@ -2658,20 +2897,20 @@ efs/original/ filter remnant plus a stale
   docs updated: docs/harness/terminal-cleanup-progress.md,
   docs/harness/closeout-progress.md, docs/NAVIGATION.md
 
-- **Closeout follow-up — CHANGELOG sections consolidated.** Same-date sections are
+- **Closeout follow-up â€” CHANGELOG sections consolidated.** Same-date sections are
   now merged to exactly one section per date, the two malformed single-hash date
   headings in the archive were corrected, and an empty duplicate heading removed.
   Entry count preserved (350 before, 350 after); the rotation guard now asserts
   per-date uniqueness, no malformed heading, and an append-only floor.
   docs updated: `docs/harness/closeout-progress.md`
 
-- **Closeout — history measurement, line endings, CHANGELOG forensics, CI.**
+- **Closeout â€” history measurement, line endings, CHANGELOG forensics, CI.**
   Measured the five open items (see `docs/harness/closeout-progress.md`): the
   `jdds.db` history load is 20 blobs (the 12 `refs/codex/...` checkpoint refs hold
   ~1.53 GB exclusive; `backup-before-email-rewrite` has no exclusive blobs), and
   history purge/archive are prepared but not executed. Added a root
   `.gitattributes` (LF normalization; `.wav`/`.ico`/`.db` binary) so a one-line
-  edit no longer shows a phantom whole-file diff — renormalized `ARCHITECT.md`
+  edit no longer shows a phantom whole-file diff â€” renormalized `ARCHITECT.md`
   alone, content proven unchanged by SHA. Reconciled the CHANGELOG rotation
   forensically (0 entries lost; 4 hardening entries re-filed from `2026-09-15` to
   `2026-09-30`; "347" corrected) and added a rotation guard. Restored CI at the
@@ -2683,7 +2922,7 @@ efs/original/ filter remnant plus a stale
   `docs/harness/engineering-hardening-progress.md`, `CONTRIBUTING.md`,
   `.gitattributes`, `.github/workflows/ci.yml`
 
-- **Engineering hardening — the release gate is now local and runnable.** Deleted
+- **Engineering hardening â€” the release gate is now local and runnable.** Deleted
   the unreachable `Black-Eclipse-site/.github/workflows/` (GitHub reads only root
   `/.github/workflows`, and the git root is above the app dir). Added
   `npm run check:all` (`scripts/check-all.js`) as the one honest gate, and moved
@@ -2695,7 +2934,7 @@ efs/original/ filter remnant plus a stale
   `docs/harness/decisions.md` (ADR-H75), `skills/ARCHITECT.md` (ADR-039),
   `docs/NAVIGATION.md`
 
-- **Engineering hardening — took `jdds.db` out of git.** `git rm --cached`ed the
+- **Engineering hardening â€” took `jdds.db` out of git.** `git rm --cached`ed the
   60 MB vault (file kept on disk); ignored it at the app level with the new
   distribution story (`scripts/doctor.js` provisions it via `npx prisma db push`).
   Fixed the root `.gitignore` (the broken `0`/`0-shm`/`0-wal` lines are now
@@ -2704,7 +2943,7 @@ efs/original/ filter remnant plus a stale
   The full history-purge procedure (2B) is written up but not executed.
   docs updated: `docs/harness/engineering-hardening-progress.md`
 
-- **Engineering hardening — front-door tests and authorization.** Guarded the four
+- **Engineering hardening â€” front-door tests and authorization.** Guarded the four
   previously-unguarded mutation routes (`POST/DELETE /api/symbols`,
   `POST /api/investor-eye/portfolio`, `POST /api/memory-providers/search`,
   `DELETE /api/skill-executions/[runId]`). Added route tests for them plus
@@ -2713,7 +2952,7 @@ efs/original/ filter remnant plus a stale
   flaky macro-health test that made a real network call.
   docs updated: `docs/harness/engineering-hardening-progress.md`
 
-- **Engineering hardening — size and lint discipline.** Replaced the single 200 KB
+- **Engineering hardening â€” size and lint discipline.** Replaced the single 200 KB
   file-size ceiling with a graduated guard (hard 1200 lines + a non-growing
   ratchet; soft 800) in `src/lib/size-budget.test.ts`, and added the equivalent
   Python guard `python/tests/test_size_budget.py`. Removed genuinely dead symbols
@@ -2721,7 +2960,7 @@ efs/original/ filter remnant plus a stale
   warnings from 34 to 24 with no blanket disables.
   docs updated: `docs/harness/engineering-hardening-progress.md`
 
-- **Engineering hardening — MCP leftovers closed or re-stated.** Non-text MCP
+- **Engineering hardening â€” MCP leftovers closed or re-stated.** Non-text MCP
   results keep a metadata-only path but now state plainly that content exists and
   was not shown (the runtime has no binary channel). The supply-chain report is
   re-stated as offline-only (offlineOnly/upstreamChecked/generatedAt; the
@@ -2733,7 +2972,7 @@ esource_schemes
   docs updated: docs/harness/engineering-hardening-progress.md,
   docs/harness/mcp-ui-parity-progress.md
 
-- **Engineering hardening — documentation reconciliation.** Updated
+- **Engineering hardening â€” documentation reconciliation.** Updated
   gentic-plan-implementaion.md so MCP Phases 5D/5F/5H/5I reflect shipped
   reality (5F and 5H implemented, 5D/5I complete except the documented OAuth
   https and subscriptions non-goals). Completed the app-level ADR mirror:
@@ -2750,7 +2989,7 @@ esource_schemes
   docs/harness/phase-4-progress.md,
   docs/harness/engineering-hardening-progress.md
 
-- **MCP Phase 6.1 — round-trip integrity (fixes a silent authority downgrade).**
+- **MCP Phase 6.1 â€” round-trip integrity (fixes a silent authority downgrade).**
   `upsert_mcp_config` now implements "absent means preserve; explicitly present
   means replace" using the incoming model's `model_fields_set`, so a partial save
   (the old UI payload) can no longer reset `trust`, `lazy`, `tools`,
@@ -2759,11 +2998,11 @@ esource_schemes
   create-if-absent so re-installing never resets a user's changes. `public_dict()`
   also emits the raw operator-set bounds so the wire is lossless. A hard
   invariant is added: a save may never widen authority by omission. TS
-  `MCPServerView`/`MCPServerInput` carry every field; the view↔draft mapping is a
+  `MCPServerView`/`MCPServerInput` carry every field; the viewâ†”draft mapping is a
   pure tested module `src/lib/harness/mcp-draft.ts`.
   docs updated: `docs/harness/mcp-ui-parity-progress.md`, `docs/NAVIGATION.md`,
   `docs/harness/decisions.md` (ADR-H74)
-- **MCP Phase 6.1 — full-fidelity editor and status surfaces.** The settings UI
+- **MCP Phase 6.1 â€” full-fidelity editor and status surfaces.** The settings UI
   reaches every Phase-6 field: trust tier, include/exclude filters, per-tool
   effects, native data sources, capability toggles, lazy/keepalive/idle/lifetime,
   TLS/mTLS, limits, SSE transport and OAuth sign-in. The server editor is
@@ -2771,40 +3010,40 @@ esource_schemes
   runtime's retry/keepalive/recycle/metrics block honestly; approvals gain status
   filtering; the config load error is shown loudly.
   docs updated: `docs/NAVIGATION.md`, `docs/harness/mcp-ui-parity-progress.md`
-- **MCP Phase 6.1 — product surface, leftovers and `manager.py` split.** New
+- **MCP Phase 6.1 â€” product surface, leftovers and `manager.py` split.** New
   front-door routes `POST /api/harness/mcp/integrations/[id]/install` and
   `GET /api/harness/mcp/supply-chain`; the wizard installs a preset and the
   supply-chain panel renders offline. Non-text MCP content now reports MIME type +
   byte size instead of an opaque omission. `resource_schemes` adds an optional
   per-server narrowing with the global allowlist as a hard ceiling. `manager.py`
   is split by pure extraction into `runtime.py`, `introspection.py` and
-  `oauth_flow.py` (1579 → 1226 lines), `MCPManager` facade unchanged.
+  `oauth_flow.py` (1579 â†’ 1226 lines), `MCPManager` facade unchanged.
   docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
   `docs/harness/mcp-ui-parity-progress.md`
 
-- **Docs — Eclipse-as-a-Harness roadmap: the phased plan for the code/coding-agent,
-  job, delegation and self-improvement capability.** New `docs/harness/roadmap/` —
-  one file per phase (`README.md` + `phase-00-policy-and-baseline.md` …
+- **Docs â€” Eclipse-as-a-Harness roadmap: the phased plan for the code/coding-agent,
+  job, delegation and self-improvement capability.** New `docs/harness/roadmap/` â€”
+  one file per phase (`README.md` + `phase-00-policy-and-baseline.md` â€¦
   `phase-12-evaluation-gate.md`) instead of one long document, so a reader opens
   only the phase they are running. `README.md` carries a verified capability ledger
   against a harness like Hermes (what exists: the one runtime, retrieval,
   evidence-gated research, skills, memory, MCP; what does not: any code
   read/write/run capability, isolation, a harness-owned scheduler, delegation,
   self-modification beyond skills), the four structural gaps, the invariants that
-  survive every phase (indexed 3.1–3.8 so the phase files can cite them), §0 the
+  survive every phase (indexed 3.1â€“3.8 so the phase files can cite them), Â§0 the
   audience rules, work already in flight (`run_lineage.py`, `graph_context.py`),
   the file map and the ADR table. Every phase file uses one canonical heading
-  scheme (numbered §1–§11, a `## Contents` table, numbered `### 6.x` contracts) and
+  scheme (numbered Â§1â€“Â§11, a `## Contents` table, numbered `### 6.x` contracts) and
   ships its exact contracts (real signatures, DDL, routes), runnable acceptance
   gates and a paste-ready prompt, ending in the repo's docs obligation. Each phase
-  also carries a **§4 "Who can use it (the non-expert obligation)"**: the
-  capability is for the whole finance field — analysts, PMs, traders, advisors,
-  accountants, risk officers, students, small-business owners — not engineers or
+  also carries a **Â§4 "Who can use it (the non-expert obligation)"**: the
+  capability is for the whole finance field â€” analysts, PMs, traders, advisors,
+  accountants, risk officers, students, small-business owners â€” not engineers or
   quants only. User-facing text names the finance job and never the mechanism, copy
   lives as keys in `src/lib/i18n/`, refusals are one plain sentence with a next
   step, and each phase adds a plain-language gate over
   `policy.PLAIN_LANGUAGE_DENYLIST`. The ADR series is numbered contiguously from the
-  current tail: **ADR-H93…ADR-H114**. Planning docs only — no code, tests or runtime
+  current tail: **ADR-H93â€¦ADR-H114**. Planning docs only â€” no code, tests or runtime
   behaviour changed. The earlier single-file roadmap is kept as a `status: Stale`
   pointer (`docs/harness/eclipse-harness-roadmap.md`) per the "mark stale, never
   delete" rule.

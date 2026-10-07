@@ -21,6 +21,7 @@ refuses a request the profile does not permit).
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -281,25 +282,40 @@ async def discover_tests(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
 
 
 async def run_verification(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    """The bounded build→test→fix→rebuild→retest loop (no model fix in-process)."""
+    """The bounded build→test→fix→rebuild→retest loop.
+
+    A fix step is attached only when model autofix is enabled for this deployment
+    (`HARNESS_EXEC_AUTOFIX=1`) AND the run carries model settings; the tool's
+    `autofix` argument can force it off for one call. Without a fix step the loop
+    still runs once and reports the failing evidence honestly.
+    """
     if not _grants_execute(ctx):
         return _refusal(*_PROFILE_DENIED)
     service = _service()
     if service is None:
         return _refusal(*_NO_SERVICE)
-    if not _binding_available(ctx):
+    binding = workspace_binding(ctx)
+    if binding is None:
         return _refusal(*_NO_WORKSPACE)
     model = ProjectModeInput(**{k: v for k, v in (args or {}).items() if k in ("timeoutMs", "test_policy") and v is not None})
     request = build_request(ctx, language="", mode="BUILD_AND_TEST", timeout_ms=model.timeoutMs, test_policy=(model.test_policy or None))
-    outcome = await asyncio.to_thread(
-        service.verifier.run, request, actor=make_actor(ctx), emit=_emitter(ctx),
+
+    from .autofix import autofix_enabled, make_model_fix  # noqa: PLC0415
+
+    root = Path(binding.root)
+    fix = None
+    if autofix_enabled() and getattr(ctx, "model_settings", None) is not None:
+        fix = make_model_fix(ctx, root, binding, make_actor(ctx))
+    outcome = await service.verifier.arun(
+        request, actor=make_actor(ctx), fix=fix, emit=_emitter(ctx),
     )
     data = outcome.to_dict()
     text = (
         f"Verification {outcome.status} after {outcome.iterations} attempt(s)."
+        + (" I fixed the failure and re-ran it." if fix is not None and outcome.status == "passed" and outcome.iterations > 1 else "")
         + (f" {outcome.stopped_reason}." if outcome.stopped_reason else "")
     )
-    return text, {"status": outcome.status, **data}
+    return text, {"status": outcome.status, "autofix": fix is not None, **data}
 
 
 # ── execution retrieval ──────────────────────────────────────────────────────
