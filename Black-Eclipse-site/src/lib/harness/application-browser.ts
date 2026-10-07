@@ -102,3 +102,50 @@ export function listAdapters(): Promise<{
 }> {
   return api("/api/runtime/orchestrators");
 }
+
+export interface ProviderReadinessRow {
+  name: string;
+  kind: string;
+  installed: boolean;
+  version: string;
+  authenticated: boolean | null;
+  credentialsRequired: string[];
+  hint: string;
+}
+
+export interface ProviderReadiness {
+  ready: boolean;
+  providers: ProviderReadinessRow[];
+  missing: string[];
+  unauthenticated: string[];
+  hints: string[];
+}
+
+export function providerReadiness(): Promise<ProviderReadiness> {
+  return api("/api/runtime/providers");
+}
+
+export interface WorkspaceGraph {
+  nodes: Array<{ id: string; name: string; root: string; framework: string; dependsOn: string[] }>;
+  startupOrder: string[];
+  stopOrder: string[];
+  hasCycle: boolean;
+}
+
+export function workspaceGraph(): Promise<WorkspaceGraph> {
+  return api("/api/runtime/workspace/graph");
+}
+
+export interface MetricSample {
+  cpuMs: number | null;
+  memoryMb: number | null;
+  processCount: number | null;
+  sampledAt: string;
+}
+
+export function metricsHistory(runtimeId: string, limit = 60): Promise<{
+  samples: MetricSample[];
+  trend: Record<string, { direction: string; samples: number; first?: number; last?: number }>;
+}> {
+  return api(`/api/runtime/${encodeURIComponent(runtimeId)}/metrics/history?limit=${limit}`);
+}

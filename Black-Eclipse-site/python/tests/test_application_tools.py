@@ -49,6 +49,17 @@ def test_tool_surface_is_stable():
     assert not (set(APP_RUNTIME_WRITE_TOOLS) & set(APP_RUNTIME_READ_TOOLS))
 
 
+def test_new_capability_tools_are_registered():
+    registry = ToolRegistry()
+    names = set(register_application_tools(registry))
+    for name in ("runtime_metrics_history", "workspace_graph", "workspace_start",
+                 "workspace_stop", "k8s_port_forward", "k8s_logs_follow", "deploy_promote"):
+        assert name in names, name
+    assert registry.get("workspace_graph").permission == "read"
+    assert registry.get("workspace_start").permission == "write"
+    assert registry.get("deploy_promote").permission == "write"
+
+
 def test_autonomy_boundary_structural():
     """The write tools are ABSENT at plan_only; the read tools stay."""
     from harness.agents import ECLIPSE_AGENT

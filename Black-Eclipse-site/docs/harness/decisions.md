@@ -3927,3 +3927,71 @@ front door `application-{client,browser}.ts` + `/api/runtime/**` + the Applicati
 provider footer. No new third-party dependency. Tests:
 `test_application_{orchestration,deploy}.py`. Architecture:
 `docs/harness/application-runtime.md`.
+## ADR-H133 - Provider readiness, managed long-running CLI ops, staged promotion and a cross-application graph complete the Application Runtime
+
+**Status:** Accepted (2026-10-06)
+
+**Context.** ADR-H132 shipped the orchestration/infra/cloud adapters and the
+deployment lifecycle. Four real gaps remained: (1) a missing CLI or an
+unauthenticated provider was honest only at CALL time, never at boot; (2) a
+long-running CLI operation (`kubectl port-forward`, `logs -f`) had no home, so it
+was refused as a one-shot op; (3) a deploy was one-shot, with no staging→production
+promotion or rollback-on-failure; (4) the runtime understood ONE application, not
+a workspace of several.
+
+**Decision.**
+
+1. **Readiness is a first-class, non-secret report.** `provisioning.py` answers
+   "is this machine ready to run/deploy THIS project" from the registry's
+   availability probes plus each provider's own ambient-credential status. It is
+   on `/health`, `GET /runtime/providers` and `eclipse providers`. A credential is
+   never read; only whether a declared env NAME is set. An unknown auth state is
+   `null`, never a fabricated boolean.
+
+2. **Long-running CLI ops are managed processes.** `managed_cli.py` builds the
+   argv for `kubectl port-forward` / `kubectl logs -f` and starts it through the
+   EXISTING terminal process manager — tree-killed, cancellable, streamed, visible
+   in the Processes UI. It reuses the SAME closed-argv validation as `CliAdapter`,
+   so there is no second argument surface. A one-shot adapter still refuses a
+   blocking operation; the managed bridge is the right home for it.
+
+3. **Promotion is a staged, health-gated pipeline.** `DeploymentEngine.promote()`
+   deploys staging, requires authorization to cross to production, and ROLLS BACK
+   on a production failure. A staging failure never touches production. Every stage
+   is a real `deploy()`; nothing is claimed live without a passing check.
+
+4. **A workspace is a graph, not a list.** `app_graph.py` builds a deterministic
+   dependency graph over several applications (declared in `.black-eclipse/app.json`
+   or a monorepo heuristic), with a stable topological `startupOrder` (dependencies
+   first) and `stopOrder` (dependents first); a cycle breaks honestly. `workspace_ops`
+   drives the existing `start`/`stop` in that order. No second lifecycle.
+
+5. **Metrics accrete into a trend.** An `AppRuntimeMetric` sample is persisted on
+   each `metrics()` read, bounded by a retention sweep, and summarised honestly
+   (`rising`/`falling`/`flat`/`unknown` — never a false `flat` from too few samples).
+
+6. **The compose engine is the authoritative graph fallback.** When the tolerant
+   reader finds no services, `docker compose config` resolves anchors/merges/
+   includes via the SAME `ComposeAdapter`; the engine's answer wins.
+
+7. **The remaining work is opt-in and testable.** The live provider tests are
+   gated behind `BLACK_ECLIPSE_PROVIDER_IT` (never in `npm test`), mirroring the Git
+   provider suite. The deploy job templates ship disabled and stay subject to the
+   same per-action authorization as a manual deploy.
+
+**Why.** A production runtime must be observable before it runs (readiness), must
+be able to hold a long-running connection it cannot express as a one-shot, must
+never leave production half-shipped, and must understand the shape of the thing it
+is running. Each of these closes a real operational gap without widening authority
+or duplicating a primitive.
+
+**Consequences.** New modules `provisioning.py`, `managed_cli.py`, `app_graph.py`,
+`workspace_ops.py`, `observability.py`, `policy.py`; `manager.py` stays under its
+size ceiling by delegating to `observability`/`workspace_ops`; 5 new tools
+(`runtime_metrics_history`, `workspace_graph`/`_start`/`_stop`, `k8s_port_forward`,
+`k8s_logs_follow`, `deploy_promote`) → 103 application-runtime tools; new routes
+`/runtime/providers`, `/runtime/workspace/graph`, `/runtime/{id}/metrics/history`;
+CLI `providers` and `workspace` groups; `/health.runtimeProviders`; two deploy job
+templates; a Providers UI tab; `test_application_{provisioning,workspace}.py` +
+`test_application_provider_live.py`. No new third-party dependency. Architecture:
+`docs/harness/application-runtime.md`.

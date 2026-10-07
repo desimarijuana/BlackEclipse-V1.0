@@ -32,7 +32,13 @@ python/harness/execution/application/
   orchestrators.py    KubernetesAdapter + HelmAdapter + KustomizeAdapter
   infrastructure.py   TerraformAdapter
   cloud.py            AWS/Azure/GCP/Cloudflare/Vercel/Railway/Render adapters
-  deployment.py       DeploymentEngine (validate→build→test→package→deploy→verify)
+  deployment.py       DeploymentEngine (validate→build→test→package→deploy→verify; promote)
+  provisioning.py     provider readiness (installed + signed in, non-secret)
+  managed_cli.py      long-running CLI ops (port-forward, logs -f) as managed processes
+  app_graph.py        cross-application dependency graph (monorepo ordering)
+  workspace_ops.py    start/stop MANY applications in dependency order
+  observability.py    status/list/logs/events/metrics/metrics-history
+  policy.py           RuntimePolicy (risk bands + ALLOW/ASK/DENY)
   ports.py            PortManager (check/find_free/identify/list; over the terminal port table)
   health.py           HealthCheckEngine (process/tcp/http/container/database/custom; backoff)
   diagnostics.py      RuntimeDiagnosticsEngine (classify → code location for CIUE)
@@ -209,10 +215,15 @@ eclipse environment inspect|validate|load|compare|set|unset
 eclipse port list|check|find-free|identify
 eclipse container ps|logs|exec|images|inspect
 eclipse compose up|down|ps|logs
+eclipse providers [--root PATH]
+eclipse workspace graph|start|stop
 eclipse k8s get|pods|logs|describe|apply|delete|scale|exec
 eclipse terraform init|validate|fmt|plan|apply|destroy|output|state
 eclipse deploy run|status|logs|rollback
 ```
+
+The deploy line also supports `eclipse deploy run --environment production --authorized`
+and (`promote`) the staging→production promotion with rollback.
 
 Run it as `npm run eclipse -- <args>` or `node scripts/eclipse.js <args>`. A
 destructive command refuses unless `--authorized` is passed. Output is JSON with
@@ -248,6 +259,44 @@ it; it is never claimed live from a status call alone.
   caps the returned lines (`max_lines`), so a chatty service cannot flood the
   caller. Each stream keeps its own process id and status.
 - **Bounded recovery** — `HARNESS_APP_RECOVERY_MAX_ATTEMPTS` (default 3, cap 10).
+
+## Provider readiness (provisioning)
+
+`manager.readiness(root)` / `eclipse providers` / `GET /runtime/providers` report,
+without any secret value, which orchestration/infra/cloud tools are **installed**
+and **signed in**, plus a plain next step per gap. `/health` carries a summary
+(`runtimeProviders`) so a missing tool is a boot-time instruction, not a runtime
+surprise. A provider whose credentials are unknown reports `authenticated: null`,
+never a fabricated `true`.
+
+## Long-running CLI operations
+
+`kubectl port-forward` and `kubectl logs -f` are not one-shot: `ManagedCli` starts
+them through the EXISTING terminal process manager (tree-killed, cancellable,
+streamed, visible in the Processes UI with `purpose="port-forward"`). The same
+closed-argv validation applies, so an injected resource name is a structured
+refusal.
+
+## Deployment promotion
+
+`eclipse deploy` / `DeploymentEngine.promote()` runs staging → (authorization) →
+production, with a **health-gated rollback**: a staging failure never touches
+production, and a production failure rolls back to the previous good release.
+
+## Multi-application workspaces
+
+`ApplicationGraph` (`app_graph.py`) orders several applications by declared
+dependency (`.black-eclipse/app.json` `dependsOn`), with a monorepo heuristic
+(`apps/*`, `packages/*`, `services/*`). `workspace_graph` / `workspace_start` /
+`workspace_stop` (and `eclipse workspace`) start dependencies first and stop
+dependents first. A cycle breaks honestly rather than looping.
+
+## Testing
+
+- Deterministic adapter tests use `CliAdapter(runner=…)` (a canned runner), so no
+  real CLI is needed (`test_application_orchestration.py`).
+- Live provider tests are **opt-in** (`BLACK_ECLIPSE_PROVIDER_IT=1` +
+  `BLACK_ECLIPSE_PROVIDER=<name>`), never in `npm test`.
 
 ## Troubleshooting
 

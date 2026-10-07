@@ -96,6 +96,13 @@ def runtime_providers(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, **_runtime().readiness()}
 
 
+@router.get("/runtime/workspace/graph")
+def workspace_graph(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The cross-application dependency graph under the workspace. Read-only."""
+    root = _workspace_root()
+    return {"success": True, **_runtime().app_graph(root)}
+
+
 @router.get("/runtime/deploy/providers")
 def deploy_providers(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, "providers": _runtime().registry.deployments.describe()}

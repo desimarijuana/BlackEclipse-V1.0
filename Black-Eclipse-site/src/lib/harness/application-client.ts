@@ -200,3 +200,11 @@ export function runTerraform(
 export function runDeploy(body: Record<string, unknown>): Promise<{ success: boolean; deployment: unknown }> {
   return requestRuntime("/deploy", { method: "POST", body: JSON.stringify(body) });
 }
+
+export function providerReadiness(): Promise<unknown> {
+  return requestRuntime("/providers");
+}
+
+export function workspaceGraphApi(): Promise<unknown> {
+  return requestRuntime("/workspace/graph");
+}

@@ -220,6 +220,24 @@ def _cmd_environment(args: argparse.Namespace, manager: Any) -> int:
     return _emit(args, data, text)
 
 
+def _cmd_workspace(args: argparse.Namespace, manager: Any) -> int:
+    """The cross-application graph + ordered start/stop (a monorepo workflow)."""
+    root = _resolve_root(args.root)
+    if args.action == "graph":
+        data = manager.app_graph(root)
+        order = data.get("startupOrder", [])
+        return _emit(args, data, f"{len(data.get('nodes', []))} app(s); start order: {', '.join(order)}")
+    if args.action == "start":
+        data = manager.start_workspace(root, install=not args.no_install, build=args.build)
+        if data.get("status") == "failed":
+            return _refusal("WORKSPACE_START_FAILED", data.get("reason", "an application could not start"))
+        return _emit(args, data, f"started {len(data.get('started', []))} app(s)")
+    if args.action == "stop":
+        data = manager.stop_workspace(root)
+        return _emit(args, data, f"stopped {len(data.get('stopped', []))} app(s)")
+    return _refusal("UNKNOWN_ACTION", f"unknown workspace action {args.action!r}")
+
+
 def _cmd_providers(args: argparse.Namespace, manager: Any) -> int:
     """The provider install/auth readiness report.
 
@@ -437,6 +455,12 @@ def build_parser() -> argparse.ArgumentParser:
     providers = sub.add_parser("providers", parents=[common], help="provider readiness (installed + signed in)")
     providers.add_argument("--root")
 
+    workspace = sub.add_parser("workspace", parents=[common], help="multi-application graph + ordered start/stop")
+    workspace.add_argument("action", choices=["graph", "start", "stop"])
+    workspace.add_argument("--root")
+    workspace.add_argument("--no-install", action="store_true")
+    workspace.add_argument("--build", action="store_true")
+
     container = sub.add_parser("container", parents=[common], help="Docker/Podman containers")
     container.add_argument("action", choices=["ps", "logs", "exec", "images", "inspect"])
     container.add_argument("container", nargs="?", default="")
@@ -494,7 +518,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     handlers = {
         "runtime": _cmd_runtime, "package": _cmd_package, "environment": _cmd_environment,
         "port": _cmd_port, "container": _cmd_container, "compose": _cmd_compose,
-        "providers": _cmd_providers,
+        "providers": _cmd_providers, "workspace": _cmd_workspace,
         "k8s": _cmd_k8s, "terraform": _cmd_terraform, "deploy": _cmd_deploy,
     }
     return handlers[args.group](args, manager)

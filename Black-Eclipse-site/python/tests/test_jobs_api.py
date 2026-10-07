@@ -65,7 +65,8 @@ def test_every_operator_route_allows_loopback(client, method, path, body):
 def test_templates_are_all_disabled(client):
     body = client.get("/jobs/templates").json()
     assert body["success"] is True
-    assert len(body["templates"]) == 7
+    # The seven finance templates + the two Application Runtime deploy templates.
+    assert len(body["templates"]) == 9
 
 
 def test_create_from_template_is_disabled(client):

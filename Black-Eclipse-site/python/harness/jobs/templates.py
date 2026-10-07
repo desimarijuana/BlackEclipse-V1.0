@@ -154,6 +154,56 @@ JOB_TEMPLATES: tuple[JobTemplate, ...] = (
             TemplateParameter("folder", "Which folder?", example="C:\\work\\my-finance-tools"),
         ],
     ),
+    JobTemplate(
+        id="deploy-app-on-schedule",
+        name="Deploy an app on a schedule",
+        description=(
+            "Ship the application in a folder you choose to a host you choose, on a "
+            "cadence. Eclipse prepares, builds, deploys and checks it each time, and "
+            "tells you if it didn't come up. You approve it once, when you set it up."
+        ),
+        kind="cron",
+        cron="0 9 * * 1-5",
+        target={
+            "kind": "objective",
+            "objective": (
+                "Deploy the application at {folder} to {provider}. Prepare and build it "
+                "first, deploy it, then check that it is healthy and report the result."
+            ),
+            # Deploying crosses the local boundary, so the job runs with the profile
+            # that can perform an approved external action. The run is STILL subject
+            # to the same per-action authorization as a manual deploy.
+            "autonomy": "approve_external",
+            "workspace_root": "{folder}",
+        },
+        parameters=[
+            TemplateParameter("folder", "Which application folder?", example="C:\\work\\my-api"),
+            TemplateParameter("provider", "Where should it go?", example="vercel"),
+        ],
+    ),
+    JobTemplate(
+        id="deploy-app-on-webhook",
+        name="Deploy an app when a webhook fires",
+        description=(
+            "Ship the application in a folder you choose whenever a deploy hook is "
+            "called — a good fit for a CI job or a manual button. Eclipse prepares, "
+            "builds, deploys and checks it, and reports what happened."
+        ),
+        kind="webhook",
+        target={
+            "kind": "objective",
+            "objective": (
+                "Deploy the application at {folder} to {provider}. Prepare and build it "
+                "first, deploy it, then check that it is healthy and report the result."
+            ),
+            "autonomy": "approve_external",
+            "workspace_root": "{folder}",
+        },
+        parameters=[
+            TemplateParameter("folder", "Which application folder?", example="C:\\work\\my-api"),
+            TemplateParameter("provider", "Where should it go?", example="vercel"),
+        ],
+    ),
 )
 
 

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   AppWindow,
   Boxes,
+  Cloud,
   Columns3,
   CornersIn,
   CornersOut,
@@ -20,10 +21,11 @@ import { cn } from '@/lib/utils';
 import { ProcessPanel } from '@/components/terminal/process-panel';
 import { PortPanel } from '@/components/terminal/port-panel';
 import { ApplicationRuntimePanel } from '@/components/terminal/runtime-panel';
+import { ProviderReadinessPanel } from '@/components/terminal/provider-panel';
 import { XtermTerminal } from '@/components/terminal/xterm-terminal';
 import { useTerminalStore, terminalOwnerId, type TerminalPlacement } from '@/lib/terminal/store';
 
-type View = 'terminal' | 'processes' | 'ports' | 'applications';
+type View = 'terminal' | 'processes' | 'ports' | 'applications' | 'providers';
 
 const PLACEMENT_OPTIONS: Array<{ id: TerminalPlacement; label: string; icon: typeof Columns3 }> = [
   { id: 'bottom', label: 'Dock to bottom', icon: Rows3 },
@@ -222,6 +224,7 @@ export function TerminalDock({ slot }: { slot: TerminalPlacement }) {
     { id: 'processes', label: 'Processes', icon: Cpu },
     { id: 'ports', label: 'Ports', icon: Network },
     { id: 'applications', label: 'Applications', icon: Boxes },
+    { id: 'providers', label: 'Providers', icon: Cloud },
   ];
 
   const isFull = slot === 'full';
@@ -359,6 +362,8 @@ export function TerminalDock({ slot }: { slot: TerminalPlacement }) {
           <PortPanel />
         ) : view === 'applications' ? (
           <ApplicationRuntimePanel />
+        ) : view === 'providers' ? (
+          <ProviderReadinessPanel />
         ) : (
           <XtermTerminal key={activeOwner} owner={activeOwner} fill onSession={onSession} />
         )}

@@ -225,6 +225,33 @@ class ApplicationRuntimeManager:
             self._discovery_cache.put(root, descriptor)
         return descriptor
 
+    def compose_services(self, root: Path, descriptor: ApplicationDescriptor) -> list[ComposeService]:
+        """The compose services, preferring the tolerant reader then the engine.
+
+        The reader understands the common shapes and never needs the engine. When it
+        finds nothing (or when a richer graph is wanted) and a compose engine is
+        available, `docker compose config` resolves anchors/merges/includes for us
+        via the SAME `ComposeAdapter` the runtime uses. The engine's answer wins
+        because it is authoritative; a missing engine is simply the reader's answer.
+        """
+        services = _compose_services(root, descriptor)
+        if services:
+            return services
+        if not descriptor.compose_file:
+            return []
+        compose = self.compose_adapter()
+        if compose is None:
+            return []
+        try:
+            result = compose.config(cwd=Path(root), compose_file=descriptor.compose_file)
+        except Exception:  # noqa: BLE001 - a config failure must not break inspection
+            return []
+        if not getattr(result, "ok", False):
+            return []
+        from .compose import services_from_compose_config
+
+        return services_from_compose_config(getattr(result, "services", []) or [])
+
     def _discover_uncached(self, root: Path, *, name: str = "") -> ApplicationDescriptor:
         descriptor = self.discovery.discover(root, name=name)
         # Resolve the actual container engine availability for the report.
@@ -309,7 +336,7 @@ class ApplicationRuntimeManager:
         # DISCOVER
         descriptor = self.discover(root, name=name)
         handle.descriptor = descriptor
-        compose_services = _compose_services(root, descriptor)
+        compose_services = self.compose_services(root, descriptor)
         graph = build_service_graph(descriptor, compose_services)
         handle.graph = graph
         handle.services = list(descriptor.services)

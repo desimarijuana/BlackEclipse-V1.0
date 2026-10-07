@@ -8,6 +8,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-06
 
+- **Application Runtime — the remaining limitations closed (production hardening
+  + the last capabilities).** (1) **Provider readiness gate** — `provisioning.py`
+  reports (non-secret) which orchestration/infra/cloud tools are installed AND
+  signed in, with a plain next step per gap; surfaced on `/health`
+  (`runtimeProviders`), `GET /runtime/providers`, `eclipse providers`. A provider
+  whose credentials are unknown reports `null`, never a fabricated `true`.
+  (2) **Metric history** — `AppRuntimeMetric` on `agent-memory.db`, a trend summary
+  (`rising`/`falling`/`flat`/`unknown`, never a false `flat`), `runtime_metrics_history`
+  + `GET /runtime/{id}/metrics/history` + `eclipse runtime metrics-history`.
+  (3) **Long-running CLI ops as managed processes** — `managed_cli.py` starts
+  `kubectl port-forward` / `kubectl logs -f` through the EXISTING terminal process
+  manager (tree-killed, cancellable, streamed); tools `k8s_port_forward` /
+  `k8s_logs_follow`. (4) **Deployment promotion** — `DeploymentEngine.promote()` +
+  `deploy_promote`: staging → (authorization) → production with a health-gated
+  ROLLBACK; a staging failure never touches production. (5) **Cross-application
+  graph** — `app_graph.py` + `workspace_ops.py`: order several apps by declared
+  dependency (`.black-eclipse/app.json`) or a monorepo heuristic, with
+  `workspace_graph` / `workspace_start` / `workspace_stop` and `eclipse workspace`.
+  (6) **Compose-config fallback** — when the tolerant reader finds no services,
+  `docker compose config` resolves anchors/merges/includes for the graph via the
+  SAME `ComposeAdapter`. (7) **Auto-deploy job templates** — two Application Runtime
+  templates (`deploy-app-on-schedule`, `deploy-app-on-webhook`) wired to the jobs
+  scheduler, shipping disabled and still subject to per-action authorization.
+  (8) **UI** — a Providers tab (readiness + workspace graph) in the terminal dock.
+  (9) **Opt-in live provider tests** (`test_application_provider_live.py`,
+  `BLACK_ECLIPSE_PROVIDER_IT=1`). 103 application-runtime tools total. Docs:
+  `docs/harness/application-runtime.md`; ADR-H133. Tests:
+  `test_application_{provisioning,workspace}.py` + expanded deploy/orchestration.
+
 - **Git UI now uses the ONE engine (no second implementation).** Corrected an
   architecture violation: the Settings Git panel used a standalone TypeScript Git
   wrapper (`src/lib/git/service.ts`) that spawned git from Node, bypassing the
@@ -22,13 +51,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/git-version-control.md`.
 
 - **Size-budget guard green again after the Application Runtime commit.** The
-  Git/Application-Runtime change (146f6d5) left two modules above the 1200-line
-  hard ceiling — `main.py` (1220) and `execution/application/manager.py` (1239) —
-  so `test_size_budget.py` failed. Applied the repo's sanctioned mechanism:
-  justified `RATCHET_PY` entries pinned to the measured size (both may only
-  shrink; route-group extraction and adapter separation noted as the split
-  candidates). Full Python suite green (3274). no doc change — test-only ratchet
-  bookkeeping.
+  Git/Application-Runtime change (146f6d5) left `main.py` (1220 lines) above the
+  1200-line hard ceiling — together with `execution/application/manager.py`
+  (1239) at the time — so `test_size_budget.py` failed. `manager.py` was split
+  under the ceiling by the follow-up work; `main.py` got a justified `RATCHET_PY`
+  entry pinned to 1220 (route-group extraction noted as the split candidate; may
+  only shrink from here). Full Python suite green. no doc change — test-only
+  ratchet bookkeeping.
 
 - **Backup: consistent snapshot of all runtime SQLite state.** Took `VACUUM INTO`
   copies (WAL-safe while the app runs) of `jdds.db`, `agent-memory.db`,

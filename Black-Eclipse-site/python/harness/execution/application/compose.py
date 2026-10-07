@@ -373,9 +373,46 @@ def _svc_summary(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def services_from_compose_config(rows: list[dict[str, Any]]) -> list[Any]:
+    """Adapt `docker compose config` service rows into `discovery.ComposeService`s.
+
+    The engine's resolved config understands anchors/merges/includes that the
+    tolerant reader cannot; this is the authoritative fallback for the graph.
+    """
+    from .discovery import ComposeService
+
+    out: list[ComposeService] = []
+    for row in rows:
+        name = str(row.get("name") or row.get("Service") or "").strip()
+        if not name:
+            continue
+        ports: list[int] = []
+        for port in (row.get("ports") or []):
+            value = port.get("published") or port.get("target") if isinstance(port, dict) else port
+            try:
+                ports.append(int(str(value).split(":")[-1]))
+            except (TypeError, ValueError):
+                continue
+        depends = row.get("dependsOn") or row.get("depends_on") or []
+        if isinstance(depends, dict):
+            depends = list(depends.keys())
+        env = row.get("environment") or []
+        out.append(ComposeService(
+            name=name,
+            image=str(row.get("image") or ""),
+            build=str(row.get("build") or ""),
+            ports=ports,
+            depends_on=[str(d) for d in depends],
+            environment=[str(e) for e in (env if isinstance(env, list) else list(env.keys()))],
+            healthcheck=bool(row.get("healthcheck")),
+        ))
+    return out
+
+
 __all__ = [
     "ComposeAdapter",
     "ComposeResult",
     "DockerComposeAdapter",
     "PodmanComposeAdapter",
+    "services_from_compose_config",
 ]
