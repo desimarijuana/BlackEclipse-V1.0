@@ -312,6 +312,65 @@ export function searchProviderPreset(id: string): SearchProviderPreset | null {
   return SEARCH_PROVIDER_PRESETS.find((p) => p.id === id) ?? null;
 }
 
+/**
+ * Resolve the operator's `SEARCH_API_CONFIG` into a full config.
+ *
+ * Two accepted shapes, so an operator can add a provider WITHOUT hand-writing
+ * JSON:
+ *   - a preset name, e.g. `"tavily"`, or `{"preset":"tavily"}` — the endpoint and
+ *     field paths come from `SEARCH_PROVIDER_PRESETS`;
+ *   - a full `{"url":…,"resultsPath":…}` object (any JSON search API).
+ *
+ * Returns the merged config (minus the key) or null when the value is neither a
+ * known preset nor a usable object. Never invents a URL.
+ */
+export function resolveSearchApiConfig(raw: unknown): Omit<CustomSearchConfig, "apiKey"> | null {
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // A bare string is treated as a preset name (e.g. "tavily").
+      parsed = { preset: text };
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+
+  // A preset name (optionally with an overridden url, e.g. a self-hosted SearXNG
+  // base) fills every field; explicit fields in the object still win.
+  if (typeof obj.preset === "string") {
+    const preset = searchProviderPreset(obj.preset);
+    if (!preset) return null;
+    const merged = { ...preset.config, ...cleanOverrides(obj) };
+    return merged.url ? merged : null;
+  }
+  if (typeof obj.url === "string" && obj.url.trim()) {
+    return {
+      url: obj.url.trim(),
+      authKind: (obj.authKind as CustomSearchConfig["authKind"]) ?? "query",
+      authParam: typeof obj.authParam === "string" ? obj.authParam : "key",
+      resultsPath: typeof obj.resultsPath === "string" ? obj.resultsPath : "results",
+      titlePath: typeof obj.titlePath === "string" ? obj.titlePath : "title",
+      urlPath: typeof obj.urlPath === "string" ? obj.urlPath : "url",
+      snippetPath: typeof obj.snippetPath === "string" ? obj.snippetPath : "snippet",
+    };
+  }
+  return null;
+}
+
+/** String fields from a raw object (ignores the `preset` marker itself). */
+function cleanOverrides(obj: Record<string, unknown>): Partial<Omit<CustomSearchConfig, "apiKey">> {
+  const out: Record<string, string> = {};
+  for (const key of ["url", "authKind", "authParam", "resultsPath", "titlePath", "urlPath", "snippetPath"]) {
+    const value = obj[key];
+    if (typeof value === "string" && value.trim()) out[key] = value.trim();
+  }
+  return out as Partial<Omit<CustomSearchConfig, "apiKey">>;
+}
+
 function getPath(root: unknown, path: string): unknown {
   if (!path) return undefined;
   let current: unknown = root;

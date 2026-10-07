@@ -8,6 +8,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Search provider: configure a real provider by name, not JSON.** The
+  `SEARCH_PROVIDER_PRESETS` catalog (Tavily, Brave, Exa, Serper, SearXNG) is now
+  reachable: `resolveSearchApiConfig` accepts `SEARCH_API_CONFIG` as a preset name
+  (`"tavily"` / `{"preset":"tavily"}`) or a full config object, and
+  `data-bridge.resolveCustomSearchProvider` uses it, so an operator adds an
+  independent second search route with a name + key (`SEARCH_API_KEY`) instead of
+  hand-writing the JSON shape. Tests: `src/lib/web-search-presets.test.ts`.
+
 - **Browser Automation Runtime — Phase 9 (provider layer completion).**
   (1) **Camofox** (`camofox`) — a stealth Firefox backend (Playwright `firefox`,
   not CDP): resolves a Camoufox binary (`camoufox` package resolver or

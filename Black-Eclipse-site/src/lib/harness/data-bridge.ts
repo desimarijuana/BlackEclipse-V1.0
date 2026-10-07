@@ -16,7 +16,7 @@ import { searchWeb, fetchWebPageDetailed } from "@/lib/web-research";
 import {
   CustomJsonSearchProvider,
   resolveSearchProviders,
-  type CustomSearchConfig,
+  resolveSearchApiConfig,
   type SearchProvider,
 } from "@/lib/web-search";
 import type { RetrievalDiagnostic } from "@/lib/retrieval-diagnostics";
@@ -1273,29 +1273,18 @@ async function resolveCustomSearchProvider(): Promise<SearchProvider | null> {
     return null;
   }
   if (!raw || !raw.trim()) return null;
-  let parsed: Partial<CustomSearchConfig>;
-  try {
-    parsed = JSON.parse(raw) as Partial<CustomSearchConfig>;
-  } catch {
-    return null;
-  }
-  if (!parsed.url) return null;
+  // Accepts a preset name ("tavily") OR a full JSON config object, so an operator
+  // never has to hand-write JSON. The endpoint + field paths are validated in one
+  // place (`resolveSearchApiConfig`), which never invents a URL.
+  const config = resolveSearchApiConfig(raw);
+  if (!config || !config.url) return null;
   let apiKey: string | null = null;
   try {
     apiKey = await resolveProviderKey("SEARCH_API_KEY");
   } catch {
     apiKey = null;
   }
-  return new CustomJsonSearchProvider({
-    url: parsed.url,
-    apiKey,
-    authKind: parsed.authKind ?? "query",
-    authParam: parsed.authParam ?? "key",
-    resultsPath: parsed.resultsPath ?? "results",
-    titlePath: parsed.titlePath ?? "title",
-    urlPath: parsed.urlPath ?? "url",
-    snippetPath: parsed.snippetPath ?? "snippet",
-  });
+  return new CustomJsonSearchProvider({ ...config, apiKey });
 }
 
 /** A concise, user-safe summary of a set of diagnostics. */
