@@ -185,3 +185,49 @@ def test_coverage_answered_questions_is_conservative():
     # Only the question with a matching keyword counts as answered.
     assert coverage["answeredQuestions"] == 1
     assert coverage["questionsTotal"] == 2
+
+
+# ── concurrent search ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_searches_run_concurrently():
+    """Independent sub-question queries run in parallel, not one after another."""
+    import asyncio
+
+    from harness.research.web_contracts import ResearchDepth, ResearchIntent
+    from harness.research.web_providers import SearchProviderRegistry
+    from harness.research.web_contracts import SearchResponse, SearchResult
+
+    inflight = 0
+    max_inflight = 0
+
+    class SlowProvider:
+        name = "slow"
+        capabilities = ("web",)
+
+        def available(self):
+            return True
+
+        async def search(self, query, *, limit=8, **kw):
+            nonlocal inflight, max_inflight
+            inflight += 1
+            max_inflight = max(max_inflight, inflight)
+            await asyncio.sleep(0.05)
+            inflight -= 1
+            return SearchResponse(
+                query=query, status="OK", provider=self.name,
+                results=[SearchResult(resultId="r", title="T", url=f"https://x.com/{query}", snippet="s")],
+            )
+
+    reg = SearchProviderRegistry()
+    reg.register(SlowProvider(), kind="web", priority=1)
+    engine = ResearchEngine(bridge=None, registry=reg)
+    mandate, plan = await engine.create_research(
+        ResearchRequest(question="NVIDIA valuation revenue earnings fiscal analysis deep", depth=ResearchDepth.DEEP)
+    )
+    assert len(plan.queries) >= 2
+    await engine.execute_research(mandate, plan)
+    # With a bounded pool of 4 and >=2 independent queries, more than one search
+    # must have overlapped — proving the loop is concurrent, not sequential.
+    assert max_inflight >= 2

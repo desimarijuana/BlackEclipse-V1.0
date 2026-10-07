@@ -69,6 +69,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   cleared at resume) while a create→cancel→execute still honors the cancel. Tests:
   `test_web_research_store.py` (7 cases). Doc: `docs/harness/web-research-engine.md`.
 
+- **Web research engine — parallel sub-question search.** Independent planner queries now run concurrently (bounded pool of 4) instead of sequentially, so a deep multi-branch question finishes faster; results are merged deterministically in query order (the evidence set never depends on completion order), a cancel observed during search still stops the run honestly, and a new regression test proves overlap. Doc: `docs/harness/web-research-engine.md`.
+
 - **Computer Use Engine — a production-grade desktop-control runtime.** New
   `python/harness/computer/` package (62 modules) implementing the full agentic
   loop `OBSERVE → … → AUTHORIZE → ACT → VERIFY → RECOVER`: a platform-independent

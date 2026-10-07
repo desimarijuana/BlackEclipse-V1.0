@@ -63,6 +63,7 @@ from .web_verify import (
 
 # Bounds so a single run can never run away.
 MAX_CONCURRENT_FETCHES = 4
+MAX_CONCURRENT_SEARCHES = 4
 TOP_SOURCES_PER_QUERY = 3
 
 # Process-wide control/status maps so a run started by one tool call can be
@@ -266,35 +267,51 @@ class ResearchEngine:
         await self._set_state(status, "SEARCHING")
 
         # ── Search (concurrent, bounded, budget-aware) ────────────────────────────
+        # Independent sub-question queries run in PARALLEL (bounded), not one after
+        # another: the planner already produced non-overlapping queries, and each
+        # is an independent provider call. Results are merged deterministically in
+        # query order, so the evidence set does not depend on completion order.
         raw_results: list[dict[str, Any]] = []
         search_diagnostics: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
         queries = plan.queries[: max(1, mandate.budget.get("maxQueries", 12))]
-        for query in queries:
-            if cancel.is_set():
-                return await self._finish_cancelled(mandate, plan, status, raw_results)
-            if time.monotonic() - started > mandate.budget.get("maxSeconds", 120.0):
-                errors.append("time budget exhausted during search")
-                break
-            try:
-                response = await self._registry.search(
-                    query,
-                    kind="web",
-                    limit=8,
-                    preference=mandate.budget.get("preferredProvider"),
-                )
-            except Exception as exc:  # noqa: BLE001 - a provider failure is data
-                errors.append(f"search {query!r} failed: {exc}")
+        search_sem = asyncio.Semaphore(MAX_CONCURRENT_SEARCHES)
+
+        async def _search_one(query: str) -> list[dict[str, Any]]:
+            if cancel.is_set() or time.monotonic() - started > mandate.budget.get("maxSeconds", 120.0):
+                return []
+            async with search_sem:
+                try:
+                    response = await self._registry.search(
+                        query,
+                        kind="web",
+                        limit=8,
+                        preference=mandate.budget.get("preferredProvider"),
+                    )
+                except Exception as exc:  # noqa: BLE001 - a provider failure is data
+                    errors.append(f"search {query!r} failed: {exc}")
+                    return []
+                search_diagnostics.extend(response.diagnostics or [])
+                await self._emit("webresearch.web_search", {"query": query, "results": len(response.results), "provider": response.provider, "status": response.status})
+                return [r.model_dump() for r in response.results]
+
+        batches = await asyncio.gather(*[_search_one(q) for q in queries], return_exceptions=True)
+        for batch in batches:
+            if isinstance(batch, Exception):
+                errors.append(f"search batch failed: {batch}")
                 continue
-            search_diagnostics.extend(response.diagnostics or [])
-            for item in response.results:
-                if item.url in seen_urls:
+            for item in batch:
+                url = item.get("url")
+                if not url or url in seen_urls:
                     continue
-                seen_urls.add(item.url)
-                raw_results.append(item.model_dump())
-            await self._emit("webresearch.web_search", {"query": query, "results": len(response.results), "provider": response.provider, "status": response.status})
+                seen_urls.add(url)
+                raw_results.append(item)
 
         status.sourceCount = len(raw_results)
+
+        # A cancel observed before or during search stops the run here, honestly.
+        if cancel.is_set():
+            return await self._finish_cancelled(mandate, plan, status, raw_results)
 
         # ── Extract (concurrent, bounded) ──────────────────────────────────────────
         await self._set_state(status, "EXTRACTING")
@@ -1002,6 +1019,7 @@ __all__ = [
     "EngineResult",
     "run_web_research",
     "MAX_CONCURRENT_FETCHES",
+    "MAX_CONCURRENT_SEARCHES",
     "request_cancel",
     "run_status",
 ]
