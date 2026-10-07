@@ -183,3 +183,28 @@ the actual input path without disturbing the live desktop. It covers observation
 stale handles, UI change, grounding, verification, input, recovery, freeze/race,
 the finance firewall matrix, takeover, sensitive data, audit/replay/memory,
 latency, session isolation, failure injection, prompt injection and focus-safety.
+
+Additional production harnesses:
+
+- **`test_computer_demos.py`** — the demo workflows (locate/read, find-and-click,
+  set-value-and-verify, read financial state, prepare-never-submit) run against
+  owned Win32 windows with the real driver.
+- **`test_computer_benchmark.py`** — the Eclipse CUA Benchmark: grounding
+  accuracy, verification accuracy, recovery success, task completion, and the
+  finance priority (`false_action_rate_read_only`, `dangerous_action_rate`,
+  `noop_false_success_rate`), each asserted at its production bar.
+- **`computer_finance_e2e.py`** + **`computer_finance_terminal.py`** — a full
+  finance scenario on a mock trading terminal: screen-derived state with
+  provenance, a deterministic rebalance calc, and proof (from the terminal's own
+  click log) that read_only blocks, assisted holds for approval, and no mutation
+  control is ever clicked.
+
+## High-risk target gate
+
+A CRITICAL action (a financial mutation, or a Submit/Buy/Sell/Transfer control an
+adapter flags risky) is held to a stricter standard than a normal click:
+`ComputerCore` refuses a **coordinate-only** target or a target whose confidence
+is below the floor, and requires the target to be grounded against the CURRENT
+snapshot. A caller can override only by passing BOTH `allow_coordinates=true` and
+`confirm_coordinates=true`. Coordinates are never the primary method for a
+critical action.

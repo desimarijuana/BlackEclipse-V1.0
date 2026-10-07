@@ -273,6 +273,66 @@ def test_snapshot_ids_are_unique_across_engines():
     assert not (ids_a & ids_b)
 
 
+# ── P0: a critical action refuses a coordinate-only / low-confidence target ──
+
+@pytest.mark.asyncio
+async def test_high_risk_action_refuses_coordinate_target():
+    from tests.test_computer_safety import _FakeDriver, _session
+    from harness.computer.core import ComputerCore
+    from harness.computer.errors import PolicyBlocked
+    from harness.computer.policy import ALLOW, default_policy
+
+    session, _ = _session(fake=_FakeDriver())
+    policy = default_policy()
+    for perm in ("click", "foreground"):
+        policy.permissions[perm] = ALLOW
+    session.policy = policy
+    await session.observe()
+    core = ComputerCore(session, config=session._config)
+    snap = session.latest_snapshot
+    # A "Submit Order" click by raw coordinates must be refused.
+    with pytest.raises(PolicyBlocked) as exc:
+        core._resolve_target(  # noqa: SLF001 - direct gate test
+            {"coordinates": [100, 100], "target": "Submit Order"},
+            high_risk=True,
+        )
+    assert exc.value.code == "COMPUTER_POLICY_BLOCKED"
+
+
+@pytest.mark.asyncio
+async def test_high_risk_action_allows_semantic_target():
+    from tests.test_computer_safety import _FakeDriver, _session
+    from harness.computer.core import ComputerCore
+    from harness.computer.policy import ALLOW, default_policy
+
+    session, _ = _session(fake=_FakeDriver())
+    policy = default_policy()
+    policy.permissions["click"] = ALLOW
+    session.policy = policy
+    await session.observe()
+    core = ComputerCore(session, config=session._config)
+    snap = session.latest_snapshot
+    el = next((e for e in snap.elements if e.name == "Submit Order"), None)
+    target = core._resolve_target(  # noqa: SLF001
+        {"element": el.ref, "snapshot_id": snap.snapshot_id},
+        high_risk=True,
+    )
+    assert target.method == "accessibility"
+
+
+def test_is_high_risk_detects_financial_and_destructive_labels():
+    from tests.test_computer_safety import _FakeDriver, _session
+    from harness.computer.core import ComputerCore
+    from harness.computer.models import Target
+
+    session, _ = _session(fake=_FakeDriver())
+    core = ComputerCore(session, config=session._config)
+    t = Target(description="", method="accessibility", confidence=1.0, name="Submit Order")
+    assert core._is_high_risk_target({"target": "submit order"}, t)  # noqa: SLF001
+    assert core._is_high_risk_target({"name": "Transfer funds"}, t)  # noqa: SLF001
+    assert not core._is_high_risk_target({"target": "Cancel"}, Target(description="", method="accessibility", confidence=1.0, name="Cancel"))  # noqa: SLF001
+
+
 # ── P1: memory uses a PERMITTED source and stores semantic (not coordinate) ──
 
 def test_computer_memory_uses_a_permitted_source(tmp_path, monkeypatch):

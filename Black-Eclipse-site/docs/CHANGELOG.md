@@ -8,7 +8,54 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
-- **Web research engine — surfacing, autonomy, and provider ergonomics.** Closed three of the "what it is NOT" gaps. (1) **Evidence reaches the chat Sources panel** — the web-research tools now route each fetched evidence item and each detected conflict into the run's `source_sink`, so web provenance renders in the SAME Sources area the retrieval layer uses (no new wire contract); a failed fetch becomes a failed route, never a citation (`source_collector.add_web_source`/`add_web_conflict`). (2) **Research is now schedulable** — three evidence-backed job templates (`deep-research-brief`, `competitor-watch`, `research-topic-digest`) let research run on a cadence in the background through the existing job scheduler; each ships inert and passes the same save-time guardrails. (3) **Search-provider presets** — `SEARCH_PROVIDER_PRESETS` (Tavily/Brave/Exa/Serper/SearXNG) fill the `SEARCH_API_CONFIG` shape so an operator adds a real provider by name + key instead of hand-writing JSON, and the keyless-blocked diagnostic now names the fix. Tests: `test_web_research_sources_jobs.py` (6 cases). Docs: `docs/harness/web-research-engine.md`, ADR-H135. `docs updated: docs/harness/web-research-engine.md, docs/harness/decisions.md, docs/CHANGELOG.md`
+- **Computer Use Engine — production readiness: high-risk target gate, prompt
+  guidance, benchmark and live demo + finance harnesses.** (1) **High-risk target
+  gate** — `ComputerCore._resolve_target(high_risk=True)` refuses a
+  coordinate-only or low-confidence target for a CRITICAL action (a financial
+  mutation, or a Submit/Buy/Sell/Transfer control the adapter flags risky), so a
+  critical action can never be a blind pixel click; a caller may override only
+  with BOTH `allow_coordinates` and `confirm_coordinates`. `_is_high_risk_target`
+  derives the classification from the financial-mutation vocabulary, the
+  destructive-label heuristic and the application adapter. (2) **Model guidance**
+  — a `## Computer Use (native desktop)` prompt block (observe-first, stale-handle
+  refusal, verdict/recovery, untrusted screen data, the finance firewall);
+  prompt ceiling raised to 23300. (3) **Eclipse CUA Benchmark**
+  (`tests/test_computer_benchmark.py`) measures grounding accuracy, verification
+  accuracy, recovery success, task completion and — the finance priority —
+  false-action rate and dangerous-action rate, all at their production bar
+  (0 false/dangerous actions). (4) **Live demo workflows**
+  (`tests/test_computer_demos.py`) run demos 1–5 against owned Win32 windows with
+  the REAL Windows driver. (5) **End-to-end finance harness**
+  (`tests/computer_finance_e2e.py` + `computer_finance_terminal.py`) drives a mock
+  trading terminal: reads screen-derived state with provenance, computes a
+  rebalance via the deterministic calculator, and proves the firewall blocks
+  read_only, holds assisted for approval, and NEVER clicks a mutation control
+  (checked against the terminal's own click log). Also: the fake test driver now
+  models a position-aware semantic change on click, and
+  `test_mcp_orphan_reaping` is cwd-independent. Docs:
+  `docs/harness/computer-use.md`. 21 new tests. `docs updated:
+  docs/harness/computer-use.md, docs/CHANGELOG.md`
+
+- **Browser Automation Runtime — Phase H (hardening: frames, interception, device,
+  recovery, injection).** (1) **Frames** — a `Target` may carry `frame` (nested
+  with `>>`); the resolver scopes every strategy inside `page.frame_locator(...)`
+  and `browser_snapshot` accepts `frame`, so cross-origin/nested frames are
+  observed and acted on like the top document (cross-frame action routing).
+  (2) **Recovery** — a coordinate-only target (or a locator that can't click an
+  occluded/stale element) falls back to a pixel click (`strategy:"coordinates"`);
+  a crashed/closed provider session surfaces a structured failure, a destroyed
+  session is cleanly recreated, and an unavailable explicit provider falls back to
+  the next-best. (3) **Device emulation** — `browser/devices.py` resolves a
+  descriptor from whichever catalog the runtime exposes (Playwright instance
+  `devices` / module export / driver `local_utils`) and reports the applied
+  viewport/UA/locale/timezone; unknown device = honest error. `browser_set_*` and
+  `emulate_device` record their override on the session. Device/viewport ops
+  extracted to `browser/context_ops.py` (kept `session.py` under its ceiling).
+  (4) **Prompt injection** — adversarial test pages (`/injection-text`,
+  `/injection-tools`, `/injection-attrs`) prove page content never changes policy,
+  permission levels, or the tool registry. Tests: `test_browser_hardening.py`
+  (real Chromium) and `test_browser_hardening_unit.py` (offline). Docs:
+  `docs/harness/browser-runtime.md`, ADR-H137. `session.py` net-shrinks.
 
 - **Test-suite reproducibility: `test_mcp_orphan_reaping` is cwd-independent.**
   The orphan-reaping test spawned its parent with `sys.path.insert(0,

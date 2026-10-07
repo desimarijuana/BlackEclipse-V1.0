@@ -190,12 +190,56 @@ class ComputerCore:
         except Exception:  # noqa: BLE001
             return ""
 
-    def _resolve_target(self, params: dict[str, Any]) -> Target:
-        """Ground an element/coordinates/description request to a Target."""
+    def _resolve_target(self, params: dict[str, Any], *, high_risk: bool = False) -> Target:
+        """Ground an element/coordinates/description request to a Target, with a
+        HIGH-RISK gate: a critical action refuses a coordinate-only target or a
+        low-confidence guess — it requires a semantic, freshly-observed target.
+        """
         snapshot = self.session.latest_snapshot
         if snapshot is None:
             raise TargetNotFound("Eclipse needs an observation before it can act.", session_id=self.session.id)
+        target = self._ground_target(params, snapshot)
+        if high_risk:
+            self._require_safe_high_risk_target(target, params)
+        return target
 
+    def _require_safe_high_risk_target(self, target: Target, params: dict[str, Any]) -> None:
+        """Refuse a critical action whose target is not safe to act on blind.
+
+        A high-risk action (a financial mutation, a Submit/Buy/Sell control) must
+        be grounded SEMANTICALLY against a FRESH observation with adequate
+        confidence. Raw coordinates, relative coordinates, a low-confidence
+        guess, or a snapshot that is no longer current are all refused.
+        """
+        from .errors import PolicyBlocked  # noqa: PLC0415
+
+        allowed_coords = bool(params.get("allow_coordinates")) and bool(params.get("confirm_coordinates"))
+        if target.method in ("coordinate", "relative_coordinate") and not allowed_coords:
+            raise PolicyBlocked(
+                "A critical action needs a semantic target, not a coordinate guess. "
+                "Re-capture and target the control by name/role, or pass "
+                "allow_coordinates=true AND confirm_coordinates=true to override.",
+                action="high_risk_target", verdict="blocked",
+                metadata={"method": target.method},
+            )
+        floor = max(self._config.grounding_min_confidence, 0.6)
+        if target.confidence < floor:
+            raise PolicyBlocked(
+                f"The target's confidence ({target.confidence:.2f}) is below the {floor:.2f} "
+                "required for a critical action.",
+                action="high_risk_target", verdict="blocked",
+                metadata={"confidence": target.confidence, "min": floor},
+            )
+        # The target must be grounded against the CURRENT snapshot.
+        if target.snapshot_id and self.session.latest_snapshot and target.snapshot_id != self.session.latest_snapshot.snapshot_id:
+            from .errors import StaleElement  # noqa: PLC0415
+
+            raise StaleElement(
+                "The target was grounded against an older observation; re-capture before the critical action.",
+                session_id=self.session.id, target=target.description,
+            )
+
+    def _ground_target(self, params: dict[str, Any], snapshot: Any) -> Target:
         element = params.get("element")
         if element is not None:
             check = self.session.validate_handle(
@@ -382,10 +426,46 @@ class ComputerCore:
             snapshot=snapshot.summary(), evidence=[{"kind": "snapshot", "id": snapshot.snapshot_id}],
         )
 
+    def _is_high_risk_target(self, params: dict[str, Any], target: Target) -> bool:
+        """Whether acting on this target is a CRITICAL/high-risk action.
+
+        True when the intent names a financial mutation (submit/buy/sell/…), the
+        clicked label looks destructive (the same vocabulary the browser policy
+        uses), or the current application adapter flags the action as risky. A
+        high-risk action is then held to the semantic-target gate in
+        `_require_safe_high_risk_target`.
+        """
+        from .policy import is_financial_mutation  # noqa: PLC0415
+        from ..browser.policy import looks_destructive  # noqa: PLC0415
+
+        words = " ".join(str(params.get(k) or "") for k in ("target", "name", "text", "value", "intent")).lower()
+        if any(is_financial_mutation(w) for w in words.replace("-", " ").replace("_", " ").split()):
+            return True
+        if looks_destructive(words) or looks_destructive(target.name or "") or looks_destructive(target.description or ""):
+            return True
+        if self.session.latest_snapshot and self.session.latest_snapshot.window_id:
+            try:
+                window = self.session.driver.get_window(self.session.latest_snapshot.window_id)
+                adapter = self.session.adapter_for(
+                    app_name=window.app if window else "", title=window.title if window else "",
+                )
+                if adapter.has_native_api and adapter.risky_actions:
+                    # A trading terminal is present: any click is potentially a
+                    # mutation control. Ground it semantically.
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
     async def _act_click(self, *, dry_run: bool = False, button: str = "left", count: int = 1,
                          capture_after: bool = False, foreground: bool = False, params: Optional[dict] = None, **kwargs: Any) -> ActionResult:
         params = dict(kwargs)
         target = self._resolve_target(params)
+        high_risk = self._is_high_risk_target(params, target)
+        if high_risk:
+            # Re-resolve with the high-risk gate so a coordinate/low-confidence
+            # target for a mutation control is refused, not clicked blind.
+            target = self._resolve_target(params, high_risk=True)
         if dry_run:
             return self._dry("click" if count == 1 else "double_click",
                              f"click {target.description!r} via {button} button")

@@ -42,6 +42,9 @@ class _FakeDriver:
         self.clicks: list[tuple[int, int, str]] = []
         self.keys: list[str] = []
         self.typed: list[str] = []
+        # A click on a control changes the window's AX content (a real semantic
+        # change), so verification can observe an effect — matching a real app.
+        self.status = "IDLE"
         self._windows = [self._window()]
 
     async def start(self) -> None:
@@ -85,8 +88,12 @@ class _FakeDriver:
         from harness.computer.models import AXNode
         root = AXNode(role="window", name="Test", bounds=Bounds(0, 0, 800, 600))
         root.children = [
+            AXNode(role="button", name="Save", bounds=Bounds(20, 20, 110, 32), interactive=True),
+            AXNode(role="button", name="Save As", bounds=Bounds(140, 20, 110, 32), interactive=True),
+            AXNode(role="button", name="Cancel", bounds=Bounds(260, 20, 110, 32), interactive=True),
             AXNode(role="button", name="Submit Order", bounds=Bounds(700, 500, 80, 30), interactive=True),
             AXNode(role="textbox", name="Ticker", bounds=Bounds(100, 100, 120, 24), interactive=True),
+            AXNode(role="text", name=f"STATUS={self.status}", bounds=Bounds(20, 400, 300, 24)),
         ]
         return root
 
@@ -100,7 +107,16 @@ class _FakeDriver:
     async def click(self, x, y, *, button="left", count=1, delivery_mode="background", window_id=None):
         from harness.computer.drivers.base import InputResult
         self.clicks.append((x, y, delivery_mode))
+        # Only a click that LANDS ON a control changes the window's content — a
+        # click on blank space is a true no-op (so a false success is detectable).
+        if self._hit_control(x, y):
+            self.status = "CLICKED"
         return InputResult(delivered=True, delivery_mode=delivery_mode)
+
+    def _hit_control(self, x: int, y: int) -> bool:
+        spans = [(20, 20, 130, 52), (140, 20, 250, 52), (260, 20, 370, 52),
+                 (700, 500, 780, 530), (100, 100, 220, 124)]
+        return any(x1 <= x <= x2 and y1 <= y <= y2 for x1, y1, x2, y2 in spans)
 
     async def type_text(self, text, *, delivery_mode="background", window_id=None):
         from harness.computer.drivers.base import InputResult
