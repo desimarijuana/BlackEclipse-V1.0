@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { en } from '@/lib/i18n/dictionaries/en';
 
 // The jobs surface names the finance JOB, never the mechanism. This asserts the
@@ -74,28 +72,5 @@ describe('jobs screen copy', () => {
       expect(en[key], key).toBeTruthy();
       expect(leaks(en[key]), key).toEqual([]);
     }
-  });
-});
-
-// ── Reachability ─────────────────────────────────────────────────────────────
-// The jobs surface existed but NOTHING imported it, so no user could create a
-// job and the scheduler had nothing to run. Asserting on the shell's source text
-// is deliberate: mounting is not otherwise observable from a unit test, and it is
-// exactly what silently regressed.
-function readShellSource(): string {
-  const here = fileURLToPath(new URL('../../screens/stock-chat.tsx', import.meta.url));
-  return readFileSync(here, 'utf8');
-}
-
-describe('jobs surface reachability', () => {
-  it('is reachable from the shell: the tab is mounted and the nav points at it', () => {
-    const source = readShellSource();
-    expect(source).toContain('screens/jobs/jobs-screen');
-    expect(source).toContain("visited.has('jobs')");
-  });
-
-  it('the jobs section is mounted in the sidebar and carries a plain label', () => {
-    expect(en['nav.jobs']).toBeTruthy();
-    expect(leaks(en['nav.jobs'])).toEqual([]);
   });
 });

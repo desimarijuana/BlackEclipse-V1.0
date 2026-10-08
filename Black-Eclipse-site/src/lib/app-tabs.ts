@@ -23,12 +23,4 @@ export type AppTab =
   | 'market-workspace'
   | 'investor-eye'
   | 'skills'
-  | 'memory'
-  | 'code'
-  | 'jobs'
-  | 'research'
-  | 'backtest'
-  | 'editor'
-  | 'model-runtime'
-  | 'search'
-  | 'tasks';
+  | 'memory';

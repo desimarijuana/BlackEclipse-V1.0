@@ -1,7 +1,7 @@
 ---
 title: Overview & Mental Model
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-10-08
 ---
 
 # Overview & Mental Model
@@ -95,6 +95,15 @@ selected mode still applies — use Alt+T / Alt+A to switch.
 | Eclipse Memory | Dedicated `eclipse-memory.db` control store: memories, corrections, mistakes, policies, health |
 
 Plus an embedded **Chart** tab reached from other screens (TradingView-backed).
+
+The remaining agentic capabilities — Code Tasks, Editor, Scheduled Jobs, Tasks,
+Plugins, Model Control Center, Search Intelligence, Research and Backtest — are
+**not** sidebar tabs. They remain fully available from the ChatBot, which drives
+them through its tools (code/filesystem tools, `research_*`, quant backtest
+tools). Setup that used to live on those screens is reached elsewhere: provider
+credentials under **Settings › AI**, MCP servers under **Settings › MCP**, and
+retrieval under **Settings › Market**. The former screens' files are retained but
+unmounted.
 
 ## The one concept that confuses newcomers: two workspaces
 

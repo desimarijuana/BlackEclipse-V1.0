@@ -23,14 +23,10 @@ export const en = {
   'nav.alerts': 'Price Alerts',
   'nav.skills': 'Skills',
   'nav.memory': 'Eclipse Memory',
-  'nav.code': 'Code Tasks',
-'nav.jobs': 'Scheduled Jobs',
-'nav.tasks': 'Tasks',
-'nav.research': 'Research',
-'nav.backtest': 'Backtest',
-  'nav.editor': 'Editor',
-  'nav.modelRuntime': 'Model Control Center',
-  'nav.search': 'Search Intelligence',
+  'plugins.title': 'Plugins',
+  'plugins.empty': 'No plugins installed.',
+  'plugins.enable': 'Enable',
+  'plugins.disable': 'Disable',
 
   // Common actions & nouns
   'common.settings': 'Settings',

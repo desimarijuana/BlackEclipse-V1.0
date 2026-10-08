@@ -8,6 +8,96 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Trimmed the Agentic sidebar mode to ChatBot, Skills and Eclipse Memory;
+  the other agentic capabilities stay available through ChatBot.** The
+  Terminal/Agentic switcher and its machinery are kept (`NavGroup`,
+  `navGroupsFor`, `modeForTab`, the store `mode`/`setMode`, the switcher UI,
+  Alt+T/Alt+A). Removed only the eight agentic nav tabs/mounts — Code Tasks,
+  Editor, Scheduled Jobs, Tasks, Plugins, Model Control Center, Search
+  Intelligence, Research, Backtest — from `DEFAULT_SIDEBAR_SECTIONS`
+  (`src/lib/sidebar/config.ts`) and from the keep-alive render blocks + dynamic
+  imports in `stock-chat.tsx`; dropped them from `AppTab`, `NavTabId`, the
+  command-palette registry/deep-link allowlist and their `nav.*` i18n keys.
+  Skills and Eclipse Memory remain full pages in the Agentic menu. The backend is
+  untouched: the Python tools (`workspace_*`, `command_run`, `quant_*`,
+  `research_*`, `search_*`, `plugin_*`, task/plan tools) and all `/api/**` routes
+  remain, so every removed surface is still driveable from chat. Front-door setup
+  is unaffected (provider keys = Settings › AI, MCP = Settings › MCP, retrieval =
+  Settings › Market). Removed screens' component files are retained but
+  unreferenced. tests: updated `sidebar/config.test.ts`,
+  `search/registry.test.ts`, and the screen reachability guards. docs updated:
+  `docs/OVERVIEW.md`, `docs/ARCHITECTURE.md`, this file.
+
+- **Agent-to-Agent (A2A) — a first-class registry + typed message bus over the
+  EXISTING execution plane.** New `python/harness/a2a/`: a versioned **Agent
+  Registry** (`registry.py`; agent behaviour is data — capabilities, tools,
+  permissions, budgets, delegation rights) with a capability index, a typed
+  **AgentEnvelope** protocol (`protocol.py`; closed message types, per-type
+  payload validation, content-derived idempotency key) and a durable **MessageBus**
+  (`bus.py`; publish/consume/acknowledge/reject/dead-letter, TTL, one delivery per
+  recipient) over the ONE `agent-memory.db` (`store.py`: `A2A{Agen,AgentVersion,
+  Message,MessageDelivery,Delegation,Event,Budget,Approval,Result}`). Delegation
+  creates a durable child **Task** dispatched by the existing `TaskScheduler` — a
+  delegated task IS a normal `service.run`, never a second loop. Adds
+  `delegate_task`/`spawn_agent`/`send_message`/`receive_message`/`wait_agent`/
+  `cancel_agent`/`merge_results`/`ask_agent`/`broadcast_message`/`get_agent`/
+  `list_agents`/`get_agent_status`/`get_task_status`/`get_task_result`/
+  `request_review`/`request_approval`/`report_failure` (`tools.py`, `A2A_TOOLS`,
+  on `ECLIPSE_AGENT`). Least privilege (`permissions.py`): child budgets and
+  spawned agents are the INTERSECTION of the parent's; `operator` is never
+  inherited; trading/external capabilities are approval-gated and `trading-agent`
+  holds no analysis tools. Results merge with normalization, dedupe, evidence
+  linking and numeric-conflict detection (`results.py`); an unbacked claim is
+  disclosed as unsupported with capped confidence, never promoted to fact. A
+  **Supervisor + QA** stage returns PASS/REWORK_REQUIRED/BLOCKED
+  (`supervisor.py`). Built-in catalogue of 15 specialists + `AgentConfig` presets
+  (`agents_seed.py`). Operator-gated routes `python/harness/routers/a2a.py`
+  (`/a2a/*`); boot wiring `boot.install_a2a_layer`/`recover_a2a`. Tests
+  `python/tests/test_a2a_{core,bus,delegation,results,security,tools_api}.py`
+  (61). docs updated: `docs/harness/agent-to-agent.md` (new),
+  `docs/harness/decisions.md` (ADR-H155), `docs/NAVIGATION.md`, this file.
+
+- **Event System — a canonical, durable event model bridged to the existing run
+  bus.** New `python/harness/event_system/`: a canonical `EclipseEvent` envelope
+  (`envelope.py`) with auto-propagating correlation/causation/trace via
+  `contextvars` and secret redaction; a centralized `EventRegistry`
+  (`registry.py`) declaring every event type/namespace with schema, producer,
+  consumers, permission, priority, retention, retry and sensitivity; an indexed
+  durable store on `agent-memory.db` (`HarnessEventLog` + `HarnessEventConsumer`
+  + `HarnessEventDeadLetter` + `HarnessEventSubscription`) queryable by
+  id/type/correlation/causation/trace/task/workflow/agent/time with a causation
+  graph; an `EventBus` (`bus.py`) with publish/publishMany/subscribe/unsubscribe/
+  once/request, composable middleware, per-consumer async workers with
+  backpressure, exponential-backoff retry (never retrying non-retryable classes),
+  consumer idempotency, a real DLQ, metrics and graceful shutdown; `config.py`
+  env switches; `replay.py` (observe/simulation/full, operator-gated, destructive
+  confirmation); `rules.py` (event→action via the Automation Engine); a
+  `service.py` facade with built-in memory-candidate, self-improvement
+  (loop/depth-guarded) and market-sampler consumers; boot wiring via
+  `bootstrap.py`. The bus **bridges** to `harness.events.EventBus` (ingests every
+  legacy event reusing its id; never echoes legacy events back) rather than
+  introducing a second transport. Task events now publish canonical names
+  (`task.created`, plan→`workflow.created`) and the automation engine publishes
+  `schedule.triggered`. Operator-gated `/events/*` console API
+  (`routers/events.py`) + front door (`src/lib/harness/events-client.ts`,
+  `src/app/api/events/[[...path]]/route.ts`) + standalone `/events` console UI.
+  Tests `python/tests/test_events_{core,bus,service,api}.py` (46). docs updated:
+  `docs/harness/event-system.md` (new), `docs/harness/decisions.md` (ADR-H153),
+  `docs/NAVIGATION.md`, this file.
+
+- **Event System — source wiring.** The remaining registered families now emit at
+  their sources: a thread-safe process-wide emitter `event_system/emit.py`
+  (`publish_event`), legacy-name normalization so `terminal.process.*` becomes
+  canonical `process.started/completed/failed`, the workspace watcher publishes
+  `file.created/changed/deleted` (debounced), `portfolio/service.py` publishes
+  `portfolio.position.added/updated/removed`, `eclipse_memory/service.py` publishes
+  `memory.created/updated`, and `quant/runner.py` publishes
+  `backtest.started/completed/failed`. The size ratchet was re-pinned for the
+  in-flight Plugin Platform growth (`graph.py`, `service.py`) and the new
+  emissions (`portfolio/service.py`, `eclipse_memory/service.py`). Tests
+  `python/tests/test_events_emit.py` + `test_events_core.py` normalization cases.
+  docs updated: `docs/harness/event-system.md`, this file.
+
 - **Task / Plan production hardening: plan roll-up, plan-level model settings, and
   a real-runtime E2E.** (1) `TaskManager.recompute_plan` now derives a plan's
   terminal status from its tasks — a plan reaches `COMPLETED` on its own when its
@@ -467,6 +557,50 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   injected clock, operator gating + CRUD cycle + legacy-adapter equivalence).
   docs updated: `docs/harness/automation-engine.md` (new),
   `docs/harness/decisions.md` (ADR-H114), `docs/NAVIGATION.md`, this file.
+
+- **Plugin Platform — a production native plugin/extension system.** New
+  `python/harness/plugins/`: a fully validated, versioned manifest with a closed
+  permission vocabulary, a closed lifecycle state machine
+  (`install/enable/disable/update/rollback/repair/uninstall`, atomic install,
+  automatic rollback on a failed update, restart-durable state), a persistence
+  store on `agent-memory.db` (registry + contributions + config + encrypted
+  secrets + scoped storage + bounded logs + health + install history), and a
+  developer SDK (`Plugin` + `@tool/@skill/@hook/@command/@event_handler/@worker/
+  @webhook/@ui_panel/@data_provider/@research_provider`) whose `PluginContext`
+  enforces permissions at every call site (network, filesystem, database,
+  secrets, events, tasks, memory, research, …). Contributed tools register on the
+  ONE `ToolRegistry` as `plug_<id>_<name>` and effectful ones reuse the existing
+  approval authorizer; plugin events ride the ONE run bus (ingested by the Event
+  System); hooks run at `before/after_tool_call` (full canonical set registered).
+  A controlled HTTP client centralizes timeouts/retries/rate limiting/circuit
+  breaking + a metadata-IP SSRF guard; secrets are Fernet-encrypted at rest;
+  package integrity is checksum-verified on load and package paths are
+  traversal-checked. Surfaces: agent tools `plugin_*`, operator-gated
+  `/plugins/*` routes, the `eclipse plugin …` CLI, a local marketplace index, a
+  health manager and a doctor. Reference plugins ship under `bundled/`
+  (hello-world + github/slack/jira/postgres/binance/sec). Tests
+  `python/tests/test_plugins_{manifest,lifecycle,sdk,security,reference,cli_api}.py`
+  (63 cases). docs updated: `docs/harness/plugin-platform.md` (new),
+  `docs/harness/decisions.md` (ADR-H154), `docs/NAVIGATION.md`, this file.
+
+- **Plugin Platform — process sandbox, OAuth2, hosted registry, outbound
+  webhooks/WebSocket, and plugin UI.** Extended `python/harness/plugins/`:
+  `sandbox.py`/`sandbox_runner.py` run `community`/`untrusted` Python plugins in a
+  **separate OS process** over JSON-RPC (host-proxied context so every permission
+  check/SSRF guard/secret boundary still applies; crash isolation, per-call
+  timeouts, message-size limit, optional POSIX `RLIMIT_AS`); `oauth.py` implements
+  `client_credentials`, `device_code` (RFC 8628) and `authorization_code` + PKCE
+  (S256) with refresh/revoke, tokens in the encrypted store, exposed via
+  `ctx.auth.token()`; `registry_client.py` adds a **hosted registry** (HTTP/local
+  index, SHA-256 verified download, zip-slip/symlink-guarded extract) wired to
+  `install_from_registry`; outbound **webhook delivery** (HMAC + retries + DLQ)
+  and a reconnecting **WebSocket** client (`ctx.http.connect_ws`); declarative
+  **plugin UI view specs** (`render_ui`) rendered by a new `Plugins` screen
+  (`src/components/screens/plugins/plugins-screen.tsx` + `plugins-browser.ts` +
+  `/api/harness/plugins/**` proxy). New routes/CLI for all five. Tests
+  `python/tests/test_plugins_{oauth,webhooks_ws,registry,sandbox}.py` +
+  `src/components/screens/plugins/plugins-screen.test.ts`; sidebar/tab/nav wired.
+  docs updated: `docs/harness/plugin-platform.md`, `docs/NAVIGATION.md`, this file.
 
 ## 2026-10-07
 

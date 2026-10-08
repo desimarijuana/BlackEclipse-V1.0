@@ -28,8 +28,6 @@ export const APP_TABS: readonly AppTab[] = [
   'investor-eye',
   'skills',
   'memory',
-  'research',
-  'backtest',
 ];
 
 /** Query keys consumed by the link format itself (never treated as params). */

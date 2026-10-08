@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { en } from '@/lib/i18n/dictionaries/en';
 import { healthBucket, capabilityStateKey } from '@/lib/harness/model-runtime-browser';
 
@@ -88,27 +86,5 @@ describe('render helpers', () => {
     expect(healthBucket(1)).toBe('good');
     expect(healthBucket(0.85)).toBe('watch');
     expect(healthBucket(0.5)).toBe('bad');
-  });
-});
-
-// ── Reachability ─────────────────────────────────────────────────────────────
-// The screen existed but nothing imported it would mean no user could inspect or
-// route models. Asserting on the shell's source text is deliberate: mounting is
-// not otherwise observable from a unit test, and it is what silently regresses.
-function readShellSource(): string {
-  const here = fileURLToPath(new URL('../../screens/stock-chat.tsx', import.meta.url));
-  return readFileSync(here, 'utf8');
-}
-
-describe('model runtime surface reachability', () => {
-  it('is reachable from the shell: the tab is mounted', () => {
-    const source = readShellSource();
-    expect(source).toContain('screens/model-runtime/model-runtime-screen');
-    expect(source).toContain("visited.has('model-runtime')");
-  });
-
-  it('the nav points at it with a plain label', () => {
-    expect(en['nav.modelRuntime']).toBeTruthy();
-    expect(leaks(en['nav.modelRuntime'])).toEqual([]);
   });
 });
