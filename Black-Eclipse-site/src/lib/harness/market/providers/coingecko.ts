@@ -4,6 +4,7 @@
 
 import { safeGet } from "@/lib/connectors/security";
 import { resolveProviderKey } from "@/lib/provider-keys";
+import { rateLimitFromHeaders, type RateLimitInfo } from "../rate-limit";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "../types";
 
 const BASE = process.env.COINGECKO_BASE || "https://api.coingecko.com/api/v3";
@@ -42,26 +43,27 @@ async function coinId(request: MarketDataRequest): Promise<string> {
   return hit.id;
 }
 
-async function getJson(url: string): Promise<Record<string, unknown>> {
+async function getJson(url: string): Promise<{ data: Record<string, unknown>; rateLimit?: RateLimitInfo }> {
   const key = await resolveProviderKey("COINGECKO_API_KEY").catch(() => null);
   const headers: Record<string, string> = { Accept: "application/json" };
   if (key && key.trim()) headers["x-cg-demo-api-key"] = key.trim();
   const res = await safeGet({ url, timeoutMs: 12000, maxBytes: 4 * 1024 * 1024, headers });
+  const rateLimit = rateLimitFromHeaders("coingecko", res.headers);
   if (res.status === 429) throw new ProviderError("coingecko rate limited", "RATE_LIMITED", true, 429);
   if (res.status >= 400) throw new ProviderError(`coingecko HTTP ${res.status}`, "PROVIDER_UNAVAILABLE", res.status >= 500, res.status);
   try {
-    return JSON.parse(res.text);
+    return { data: JSON.parse(res.text) as Record<string, unknown>, rateLimit };
   } catch {
     throw new ProviderError("coingecko parse failure", "DATA_NOT_AVAILABLE", false);
   }
 }
 
-async function coin(request: MarketDataRequest): Promise<{ id: string; md: Record<string, unknown> }> {
+async function coin(request: MarketDataRequest): Promise<{ id: string; md: Record<string, unknown>; rateLimit?: RateLimitInfo }> {
   const id = await coinId(request);
-  const json = await getJson(`${BASE}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`);
+  const { data: json, rateLimit } = await getJson(`${BASE}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`);
   const md = json.market_data as Record<string, unknown>;
   if (!md) throw new ProviderError(`no market data for ${id}`, "DATA_NOT_AVAILABLE", false);
-  return { id, md };
+  return { id, md, rateLimit };
 }
 
 function usd(block: unknown): number | null {
@@ -73,10 +75,10 @@ function usd(block: unknown): number | null {
 }
 
 async function fetchSupply(request: MarketDataRequest): Promise<Record<string, unknown>> {
-  const { md } = await coin(request);
+  const { md, rateLimit } = await coin(request);
   const circulation = usd(md.market_cap);
   return {
-    status: "OK", provider: "coingecko", symbol: request.symbol,
+    status: "OK", provider: "coingecko", symbol: request.symbol, rateLimit,
     circulatingSupply: (md.circulating_supply as number) ?? null,
     totalSupply: (md.total_supply as number) ?? null,
     maxSupply: (md.max_supply as number) ?? null,
@@ -88,9 +90,9 @@ async function fetchSupply(request: MarketDataRequest): Promise<Record<string, u
 }
 
 async function fetchMarketCap(request: MarketDataRequest): Promise<Record<string, unknown>> {
-  const { md } = await coin(request);
+  const { md, rateLimit } = await coin(request);
   return {
-    status: "OK", provider: "coingecko", symbol: request.symbol,
+    status: "OK", provider: "coingecko", symbol: request.symbol, rateLimit,
     marketCap: usd(md.market_cap),
     price: usd(md.current_price),
     sharesOutstanding: (md.circulating_supply as number) ?? null,
@@ -101,9 +103,9 @@ async function fetchMarketCap(request: MarketDataRequest): Promise<Record<string
 }
 
 async function fetchQuote(request: MarketDataRequest): Promise<Record<string, unknown>> {
-  const { md } = await coin(request);
+  const { md, rateLimit } = await coin(request);
   return {
-    status: "OK", provider: "coingecko", symbol: request.symbol,
+    status: "OK", provider: "coingecko", symbol: request.symbol, rateLimit,
     price: {
       price: usd(md.current_price),
       changePct: (md.price_change_percentage_24h as number) ?? null,

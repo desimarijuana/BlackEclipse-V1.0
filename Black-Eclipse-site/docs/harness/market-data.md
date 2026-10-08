@@ -120,16 +120,54 @@ guard: a `realtime` request is never served a value older than the realtime
 ceiling, even if the write TTL has not elapsed. In-flight requests are
 deduplicated. There is no Redis (single-node, zero-config).
 
+## Rate limiting — measured, not assumed
+
+`ratelimit.py` paces providers on the DECLARED limit **and** the provider's REAL
+quota reported in its responses:
+
+  * declared `requests_per_minute` / concurrency are enforced with a sliding
+    window and an in-flight cap;
+  * a provider's live quota is OBSERVED from response headers (Binance
+    `X-MBX-USED-WEIGHT-1M`, generic `x-ratelimit-*`, `Retry-After`) and the
+    **effective** limit is the stricter of declared and observed;
+  * a 429 opens a cooldown for that provider;
+  * per-provider call counts and latency are tracked, and declared-vs-observed is
+    surfaced (never conflated) in the operator console.
+
+Headers are captured in TS (`connectors/security.ts` now returns response
+headers; `market/rate-limit.ts` parses them per provider) and fed back through
+the bridge payload's `rateLimit` block into `MarketRateLimiter.observe`.
+
+## Observability & admin (console)
+
+The Market Data Layer has an operator console rendered inside Settings › Data &
+providers (composed with the Financial Data Gateway panel — no parallel admin):
+providers + key presence, per-provider health, **declared-vs-observed rate
+limits** with latency, the real-time stream state/subscriptions/metrics, the
+cache stats, and recent data-quality findings. It reads the SAME Python state the
+agent tools use, through the front-door proxy.
+
+Routes (operator-gated): `GET /market/providers`, `GET /market/health` (cache,
+metrics, provider metrics + rate limits), `GET /market/quality`,
+`GET /market/stream`, `POST /market/stream/subscribe`,
+`POST /market/stream/unsubscribe`. The front door proxies them at
+`/api/harness/market/*` (`src/app/api/harness/market/[...path]/route.ts`), merging
+credential presence for `/market/providers`. Client: `src/lib/harness/market-client.ts`;
+UI: `src/components/screens/market-data-console.tsx`.
+
 ## Streaming
 
 `streaming.py` is a real WebSocket architecture (Binance combined stream):
 connection manager (one socket per provider, subscriptions multiplexed) →
 normalizer → sequence validation + dedup → bounded event bus → subscribers.
-It supports subscribe/unsubscribe, multiple symbols/event types, heartbeat,
-reconnect with exponential backoff, ordered resubscription, sequence-gap
-detection (`book_state="resync_required"`), deduplication, backpressure (oldest
-event dropped) and graceful shutdown. When `websockets` is absent or the market
-is closed, it reports honestly — never a fake poller.
+Durability is explicit: subscribe/unsubscribe, multiple symbols/event types,
+heartbeat, **jittered** exponential-backoff reconnect, ordered resubscription,
+sequence-gap detection (`book_state="resync_required"`), deduplication (bounded
+LRU), backpressure (oldest event dropped), a **silence watchdog** that reconnects
+a connected-but-silent socket, an optional reconnect cap (parks honestly at
+`state="backoff"`; a later subscribe resets it), and graceful shutdown. It is
+covered by deterministic reconnect/soak tests and an opt-in live soak
+(`BLACK_ECLIPSE_MARKET_LIVE=1`).
 
 ## Provenance & point-in-time
 
@@ -171,15 +209,21 @@ Env vars (safe defaults; no source edit required):
 `HARNESS_MARKET_CONFLICT_TOLERANCE`, `HARNESS_MARKET_REALTIME_MAX_AGE_S`,
 `HARNESS_MARKET_STREAMING`, `HARNESS_MARKET_STREAM_MAX_SUBS`,
 `HARNESS_MARKET_STREAM_QUEUE`, `HARNESS_MARKET_STREAM_RECONNECT_MAX_S`,
+`HARNESS_MARKET_STREAM_BACKOFF_BASE_S`, `HARNESS_MARKET_STREAM_JITTER`,
+`HARNESS_MARKET_STREAM_STALE_S`, `HARNESS_MARKET_STREAM_MAX_RECONNECTS`,
 `HARNESS_MARKET_DISABLED_PROVIDERS` (comma-separated).
 
 ## Testing
 
 `python/tests/test_market_unit.py`, `test_market_gateway.py`,
-`test_market_streaming.py` cover contracts, instruments, quality, cache,
-routing, failure handling, streaming lifecycle and full tool invocation through
-the real registry. `src/lib/harness/market/bridge.test.ts` covers the TS adapter
-dispatcher. All provider calls are faked; no network.
+`test_market_streaming.py`, `test_market_ratelimit.py` cover contracts,
+instruments, quality, cache, routing, pacing (declared + observed quota),
+failure handling, streaming lifecycle **and durability/soak** (many reconnect
+cycles, bounded dedup memory, silence watchdog), and full tool invocation through
+the real registry. `test_market_live.py` is an opt-in live REST/WS soak
+(`BLACK_ECLIPSE_MARKET_LIVE=1`). `src/lib/harness/market/bridge.test.ts` and
+`rate-limit.test.ts` cover the TS adapter dispatcher and header parsing. All
+offline tests fake provider calls; no network.
 
 ## Known limitations (honest)
 
@@ -187,6 +231,7 @@ dispatcher. All provider calls are faked; no network.
   no equity venue adapter is implemented. The gateway returns
   `UNSUPPORTED_CAPABILITY` for an equity order book rather than a fake one.
 - **Equity options Greeks** depend on the provider's `greeks=true` support; a
-  missing Greek is `null`, never `0`.
+  missing Greek is `null`, never `0` — Eclipse does not yet compute them.
 - **Streaming** implements Binance public streams; other streaming providers are
-  declared but not implemented.
+  declared but not implemented. Reconnect/durability is covered by deterministic
+  soak tests; a live soak is opt-in (`BLACK_ECLIPSE_MARKET_LIVE=1`).

@@ -117,6 +117,16 @@ class MarketConfig:
     stream_max_subscriptions: int = field(default_factory=lambda: _env_int("HARNESS_MARKET_STREAM_MAX_SUBS", 64))
     stream_queue_size: int = field(default_factory=lambda: _env_int("HARNESS_MARKET_STREAM_QUEUE", 1000))
     stream_reconnect_max_s: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_STREAM_RECONNECT_MAX_S", 30.0))
+    # Initial reconnect backoff (doubles on each attempt up to the max).
+    stream_backoff_base_s: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_STREAM_BACKOFF_BASE_S", 0.5))
+    # Jitter as a fraction of the backoff delay (0 = none). Prevents a fleet of
+    # reconnects from synchronizing on one provider.
+    stream_backoff_jitter: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_STREAM_JITTER", 0.3))
+    # A connected-but-silent stream is reconnected after this many seconds.
+    stream_stale_timeout_s: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_STREAM_STALE_S", 45.0))
+    # Cap on reconnect attempts before the manager parks in an honest `backoff`
+    # state (a later subscribe resets it).
+    stream_max_reconnects: int = field(default_factory=lambda: _env_int("HARNESS_MARKET_STREAM_MAX_RECONNECTS", 0))
     # ── Provider enable/disable ─────────────────────────────────────────────
     disabled_providers: tuple[str, ...] = field(
         default_factory=lambda: tuple(_env_list("HARNESS_MARKET_DISABLED_PROVIDERS"))

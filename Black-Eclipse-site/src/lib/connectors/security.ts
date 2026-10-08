@@ -390,6 +390,13 @@ export interface SafeGetResult {
    * followed); `safeGetFollowing` sets it to the last hop actually fetched.
    */
   url: string;
+  /**
+   * Response headers (lowercased keys). Used by the market adapters to read a
+   * provider's REAL rate-limit/quota headers (`b-app-id`-style, Binance
+   * `x-mbx-used-weight-1m`, `retry-after`, …) so pacing is measured against the
+   * live limit. Additive; absent on older callers/tests.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface SafeGetDeps {
@@ -467,7 +474,15 @@ export async function safeGet(
         return;
       }
       readCappedBody(res as unknown as AsyncIterable<Uint8Array>, maxBytes, options.binary)
-        .then((body) => resolve({ status, contentType, text: body.text, buffer: body.buffer, bytes: body.bytes, url: options.url }))
+        .then((body) => resolve({
+          status,
+          contentType,
+          text: body.text,
+          buffer: body.buffer,
+          bytes: body.bytes,
+          url: options.url,
+          headers: lowercasedHeaders(res.headers),
+        }))
         .catch(reject);
     });
     req.on("error", (err: NodeJS.ErrnoException) => {
@@ -484,3 +499,13 @@ export async function safeGet(
 }
 
 export const MAX_REDIRECTS = 5;
+
+/** Flatten Node response headers into a lowercased string map (first value). */
+function lowercasedHeaders(headers: import("node:http").IncomingHttpHeaders): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (value === undefined) continue;
+    out[key.toLowerCase()] = Array.isArray(value) ? value.join(", ") : String(value);
+  }
+  return out;
+}

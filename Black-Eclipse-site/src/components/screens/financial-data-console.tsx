@@ -29,6 +29,7 @@ import {
 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Panel } from "./settings-ui";
+import { MarketDataConsole } from "./market-data-console";
 
 type ProviderState = "connected" | "declared" | "keyless";
 
@@ -136,6 +137,7 @@ export function FinancialDataConsole() {
   const declared = providers.filter((p) => !p.implemented);
 
   return (
+    <>
     <Panel className="p-5 md:p-6" data-anchor="financial-gateway">
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -199,13 +201,15 @@ export function FinancialDataConsole() {
           )}
 
           <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground/70">
-            A “declared” provider has no runnable adapter: its dependency is named, not faked.
+            A "declared" provider has no runnable adapter: its dependency is named, not faked.
             Attribution, redistribution and storage terms are recorded per provider — review them
             before redistributing any data.
           </p>
         </>
       )}
     </Panel>
+    <MarketDataConsole />
+    </>
   );
 }
 

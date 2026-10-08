@@ -33,6 +33,7 @@ from .errors import (
     DATA_NOT_AVAILABLE,
     INVALID_REQUEST,
     MarketError,
+    RATE_LIMITED,
     UNSUPPORTED_CAPABILITY,
     classify_bridge_failure,
 )
@@ -63,6 +64,7 @@ from .models import (
     VolumeStats,
 )
 from .quality import evaluate
+from .ratelimit import MarketRateLimiter
 
 # Capability id → the bridge capability the TS adapter router serves it under.
 _BRIDGE_CAPABILITY = "market_data"
@@ -124,7 +126,12 @@ class MarketDataGateway:
             "failures": 0,
             "conflicts": 0,
             "fallbacks": 0,
+            "rateLimited": 0,
         }
+        # Per-provider observability: call counts + cumulative/observed latency.
+        self.provider_stats: dict[str, dict[str, float]] = {}
+        # Provider-aware pacing with live-quota observation (measured, not assumed).
+        self.rate_limits = MarketRateLimiter()
         # The router is optional at construction so a test can inject one; the
         # default is built lazily so importing the gateway never imports the
         # provider registry eagerly.
@@ -272,19 +279,37 @@ class MarketDataGateway:
                 break
             if router and not router.allow(provider):
                 continue
+            # Measured pacing: honoring declared AND live-observed quota. A denied
+            # acquire does not call the provider — it falls through to the next.
+            declared = router.get(provider).rate_limit if router else None
+            decision = await self.rate_limits.acquire(provider, declared)
+            if not decision.allowed:
+                self.metrics["rateLimited"] += 1
+                last_error = MarketError(RATE_LIMITED, decision.reason or "provider paced",
+                                         provider=provider, capability=capability,
+                                         retryable=True, retry_after_s=decision.retry_after_s)
+                continue
             if index > 0:
                 self.metrics["fallbacks"] += 1
-            payload, error = await self._fetch_provider(
-                capability, instrument, params, provider=provider, freshness=freshness
-            )
+            started = time.monotonic()
+            try:
+                payload, error = await self._fetch_provider(
+                    capability, instrument, params, provider=provider, freshness=freshness
+                )
+            finally:
+                await self.rate_limits.release(provider)
+            self._note_provider(provider, (time.monotonic() - started) * 1000)
             if error is not None or payload is None:
                 last_error = error
+                if error is not None and error.code == RATE_LIMITED:
+                    await self.rate_limits.record_429(provider, error.retry_after_s)
                 if router:
                     router.record_failure(provider)
-                if error is not None and error.code in ("RATE_LIMITED", "AUTHENTICATION_FAILED"):
-                    # A hard provider-level failure: try the next provider.
-                    continue
+                # A hard provider-level failure: try the next provider.
                 continue
+            # Capture the provider's REAL quota when it reported one, so pacing is
+            # measured against the live limit rather than a declared guess.
+            await self._observe_rate_limit(provider, payload)
             if router:
                 router.record_success(provider)
             record = normalize(payload, instrument, provider, freshness)
@@ -321,6 +346,46 @@ class MarketDataGateway:
             except Exception:  # noqa: BLE001 - routing is best-effort; empty order is honest
                 self._router = None
         return self._router
+
+    def _note_provider(self, provider: str, latency_ms: float) -> None:
+        """Per-provider call count + observed latency (operator metrics)."""
+        stat = self.provider_stats.setdefault(
+            provider, {"calls": 0.0, "totalLatencyMs": 0.0, "lastLatencyMs": 0.0, "maxLatencyMs": 0.0}
+        )
+        stat["calls"] += 1
+        stat["totalLatencyMs"] += latency_ms
+        stat["lastLatencyMs"] = latency_ms
+        stat["maxLatencyMs"] = max(stat["maxLatencyMs"], latency_ms)
+
+    async def _observe_rate_limit(self, provider: str, payload: dict[str, Any]) -> None:
+        """Feed a provider-reported quota into the limiter (measured pacing)."""
+        meta = payload.get("rateLimit")
+        if not isinstance(meta, dict):
+            return
+        try:
+            await self.rate_limits.observe(
+                provider,
+                limit=meta.get("limit") if isinstance(meta.get("limit"), int) else None,
+                used=meta.get("used") if isinstance(meta.get("used"), int) else None,
+                remaining=meta.get("remaining") if isinstance(meta.get("remaining"), int) else None,
+                window_seconds=meta.get("windowSeconds") if isinstance(meta.get("windowSeconds"), int) else None,
+                retry_after_s=meta.get("retryAfterS") if isinstance(meta.get("retryAfterS"), (int, float)) else None,
+            )
+        except Exception:  # noqa: BLE001 - observation is best-effort
+            pass
+
+    def provider_metrics(self) -> dict[str, Any]:
+        """Per-provider latency/count summary + the live rate-limit snapshot."""
+        out: dict[str, Any] = {}
+        for provider, stat in self.provider_stats.items():
+            calls = stat["calls"] or 1
+            out[provider] = {
+                "calls": int(stat["calls"]),
+                "avgLatencyMs": round(stat["totalLatencyMs"] / calls, 1),
+                "lastLatencyMs": round(stat["lastLatencyMs"], 1),
+                "maxLatencyMs": round(stat["maxLatencyMs"], 1),
+            }
+        return {"providers": out, "rateLimits": self.rate_limits.snapshot()}
 
     # ── Public capabilities ──────────────────────────────────────────────────
 

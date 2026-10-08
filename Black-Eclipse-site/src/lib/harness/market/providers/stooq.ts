@@ -2,6 +2,7 @@
 // when the Yahoo bridge/binary is unavailable. One SSRF-hardened GET, CSV parse.
 
 import { safeGet } from "@/lib/connectors/security";
+import { rateLimitFromHeaders } from "../rate-limit";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "../types";
 
 function stooqSymbol(request: MarketDataRequest): string {
@@ -25,6 +26,7 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
   const symbol = stooqSymbol(request);
   const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=${i}`;
   const res = await safeGet({ url, timeoutMs: 12000, maxBytes: 6 * 1024 * 1024 });
+  const rateLimit = rateLimitFromHeaders("stooq", res.headers);
   if (res.status >= 400) {
     throw new ProviderError(`stooq HTTP ${res.status}`, "PROVIDER_UNAVAILABLE", res.status >= 500, res.status);
   }
@@ -42,7 +44,7 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
   }).filter((b) => Number.isFinite(b.close) && b.close > 0);
   if (bars.length === 0) throw new ProviderError(`empty series for ${symbol}`, "DATA_NOT_AVAILABLE", false);
   return {
-    status: "OK", provider: "stooq", symbol: request.symbol, interval, adjusted: false,
+    status: "OK", provider: "stooq", symbol: request.symbol, rateLimit, interval, adjusted: false,
     series: bars, asOf: bars[bars.length - 1].timestamp,
     observationTime: null, observationSource: "unknown",
   };

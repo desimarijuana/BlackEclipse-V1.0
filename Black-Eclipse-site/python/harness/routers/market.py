@@ -43,6 +43,7 @@ async def market_health(_: bool = Depends(require_operator)) -> dict[str, Any]:
         "available": True,
         "cache": gateway.cache.stats(),
         "metrics": dict(gateway.metrics),
+        "providerMetrics": gateway.provider_metrics(),
         "config": {
             "maxProviders": gateway.config.max_providers,
             "requestTimeoutMs": gateway.config.request_timeout_ms,

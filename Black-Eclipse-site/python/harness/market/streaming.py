@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -183,9 +184,10 @@ class MarketStreamManager:
         self._seen_order: list[str] = []
         self.metrics: dict[str, int] = {
             "events": 0, "deduped": 0, "reconnects": 0, "sequenceGaps": 0,
-            "dropped": 0,
+            "dropped": 0, "staleReconnects": 0,
         }
-        self.state = "idle"  # idle | connecting | connected | reconnecting | closed
+        self.state = "idle"  # idle | connecting | connected | reconnecting | backoff | unavailable | closed
+        self._reconnect_attempts = 0
 
     # ── Transport ────────────────────────────────────────────────────────────
     async def _connect(self, url: str) -> Any:
@@ -219,6 +221,7 @@ class MarketStreamManager:
         )
         if self._task is None or self._task.done():
             self._stop.clear()
+            self._reconnect_attempts = 0
             self._task = asyncio.create_task(self._run())
         return sub_id
 
@@ -268,11 +271,17 @@ class MarketStreamManager:
 
     async def _run(self) -> None:
         cfg = get_config()
-        backoff = 0.5
+        backoff = cfg.stream_backoff_base_s
         while not self._stop.is_set():
             symbols, events = self._combined_streams()
             if not symbols:
                 await asyncio.sleep(0.25)
+                continue
+            if cfg.stream_max_reconnects and self._reconnect_attempts >= cfg.stream_max_reconnects:
+                # Park honestly rather than reconnect forever; a later subscribe
+                # resets the counter (see `subscribe`).
+                self.state = "backoff"
+                await asyncio.sleep(1.0)
                 continue
             url = binance_stream_url(symbols, events)
             self.state = "connecting"
@@ -282,13 +291,14 @@ class MarketStreamManager:
                 self.state = "unavailable"
                 return
             except Exception:  # noqa: BLE001 - a connect failure is retried
+                self._reconnect_attempts += 1
                 self.state = "reconnecting"
                 self.metrics["reconnects"] += 1
-                await asyncio.sleep(min(cfg.stream_reconnect_max_s, backoff))
+                await asyncio.sleep(_jittered(min(cfg.stream_reconnect_max_s, backoff), cfg.stream_backoff_jitter))
                 backoff = min(cfg.stream_reconnect_max_s, backoff * 2)
                 continue
             self.state = "connected"
-            backoff = 0.5
+            backoff = cfg.stream_backoff_base_s
             try:
                 await self._consume(socket)
             except asyncio.CancelledError:
@@ -299,22 +309,35 @@ class MarketStreamManager:
                 await _safe_close(socket)
             if self._stop.is_set():
                 break
+            self._reconnect_attempts += 1
             self.state = "reconnecting"
             self.metrics["reconnects"] += 1
-            await asyncio.sleep(min(cfg.stream_reconnect_max_s, backoff))
+            await asyncio.sleep(_jittered(min(cfg.stream_reconnect_max_s, backoff), cfg.stream_backoff_jitter))
             backoff = min(cfg.stream_reconnect_max_s, backoff * 2)
         self.state = "closed"
 
     async def _consume(self, socket: Any) -> None:
-        async for raw in _iter_messages(socket):
-            if self._stop.is_set():
-                break
+        """Read frames with a silence watchdog.
+
+        A connected-but-silent socket (a half-open connection a TCP keepalive
+        will not catch) is treated as a drop after `stream_stale_timeout_s` so
+        the manager reconnects instead of hanging forever.
+        """
+        stale = get_config().stream_stale_timeout_s
+        iterator = _iter_messages(socket).__aiter__()
+        while not self._stop.is_set():
+            try:
+                raw = await asyncio.wait_for(iterator.__anext__(), timeout=max(1.0, stale))
+            except asyncio.TimeoutError:
+                self.metrics["staleReconnects"] = self.metrics.get("staleReconnects", 0) + 1
+                return  # force reconnect
+            except StopAsyncIteration:
+                return
             try:
                 frame = json.loads(raw)
             except (TypeError, ValueError):
                 continue
             event_type = "trade"
-            data = frame.get("data") if isinstance(frame, dict) else None
             stream = frame.get("stream") if isinstance(frame, dict) else None
             if stream:
                 if "@depth" in stream:
@@ -389,6 +412,13 @@ class MarketStreamManager:
             return await asyncio.wait_for(sub.queue.get(), timeout=timeout)
         except asyncio.TimeoutError:
             return None
+
+
+def _jittered(delay: float, jitter: float) -> float:
+    """Apply symmetric jitter so reconnects do not synchronize across clients."""
+    if jitter <= 0:
+        return max(0.0, delay)
+    return max(0.0, delay * (1.0 + random.uniform(-jitter, jitter)))
 
 
 async def _iter_messages(socket: Any):

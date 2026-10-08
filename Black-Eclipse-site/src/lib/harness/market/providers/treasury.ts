@@ -4,6 +4,7 @@
 
 import { safeGet } from "@/lib/connectors/security";
 import { resolveProviderKey } from "@/lib/provider-keys";
+import { rateLimitFromHeaders } from "../rate-limit";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "../types";
 
 const SERIES: Record<string, string> = {
@@ -32,6 +33,7 @@ async function fetchBond(request: MarketDataRequest): Promise<Record<string, unk
   const keyParam = key && key.trim() ? `&api_key=${encodeURIComponent(key.trim())}` : "";
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}${keyParam}`;
   const res = await safeGet({ url, timeoutMs: 15000, maxBytes: 8 * 1024 * 1024 });
+  const rateLimit = rateLimitFromHeaders("treasury", res.headers);
   if (res.status >= 400) {
     throw new ProviderError(`treasury HTTP ${res.status}`, "PROVIDER_UNAVAILABLE", res.status >= 500, res.status);
   }
@@ -58,6 +60,7 @@ async function fetchBond(request: MarketDataRequest): Promise<Record<string, unk
     status: "OK",
     provider: "treasury",
     symbol: request.symbol,
+    rateLimit,
     yield: latestValue,
     price: null,
     maturity: null,

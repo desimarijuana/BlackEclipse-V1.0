@@ -3,13 +3,14 @@
 // One SSRF-hardened GET to the ECB daily XML feed.
 
 import { safeGet } from "@/lib/connectors/security";
+import { rateLimitFromHeaders, type RateLimitInfo } from "../rate-limit";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "../types";
 
 const URL = process.env.ECB_FX_URL || "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
 
-let cache: { at: number; rates: Record<string, number>; date: string | null } | null = null;
+let cache: { at: number; rates: Record<string, number>; date: string | null; rateLimit?: RateLimitInfo } | null = null;
 
-async function rates(): Promise<{ rates: Record<string, number>; date: string | null }> {
+async function rates(): Promise<{ rates: Record<string, number>; date: string | null; rateLimit?: RateLimitInfo }> {
   if (cache && Date.now() - cache.at < 3600_000) return cache;
   const res = await safeGet({ url: URL, timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 });
   if (res.status >= 400) throw new ProviderError(`ecb HTTP ${res.status}`, "PROVIDER_UNAVAILABLE", res.status >= 500, res.status);
@@ -21,14 +22,14 @@ async function rates(): Promise<{ rates: Record<string, number>; date: string | 
     map[m[1]] = Number(m[2]);
   }
   if (Object.keys(map).length < 2) throw new ProviderError("ecb parse failure", "DATA_NOT_AVAILABLE", false);
-  cache = { at: Date.now(), rates: map, date: dateMatch?.[1] ?? null };
+  cache = { at: Date.now(), rates: map, date: dateMatch?.[1] ?? null, rateLimit: rateLimitFromHeaders("fx", res.headers) };
   return cache;
 }
 
 async function fetchFx(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const base = (request.providerSymbols?.fx?.slice(0, 3) || request.symbol.slice(0, 3)).toUpperCase();
   const quote = (request.providerSymbols?.fx?.slice(3, 6) || request.symbol.slice(3, 6)).toUpperCase();
-  const { rates: r, date } = await rates();
+  const { rates: r, date, rateLimit } = await rates();
   // ECB publishes EUR-based rates. Convert base→quote via EUR.
   const baseRate = r[base];
   const quoteRate = r[quote];
@@ -42,6 +43,7 @@ async function fetchFx(request: MarketDataRequest): Promise<Record<string, unkno
     status: "OK",
     provider: "fx",
     symbol: `${base}${quote}`,
+    rateLimit,
     base,
     quote,
     mid: rate,

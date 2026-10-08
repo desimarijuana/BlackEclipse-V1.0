@@ -175,3 +175,97 @@ def test_unavailable_without_transport():
 
 async def _return(value):
     return value
+
+
+# ── Durability / soak ───────────────────────────────────────────────────────
+
+def _fast_stream_config(monkeypatch):
+    from harness.market.config import reset_config
+
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_BACKOFF_BASE_S", "0.01")
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_RECONNECT_MAX_S", "0.05")
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_JITTER", "0.0")
+    reset_config()
+    return reset_config
+
+
+def test_jitter_is_bounded_and_deterministic():
+    import random
+
+    from harness.market.streaming import _jittered
+
+    random.seed(1)
+    for _ in range(50):
+        v = _jittered(10.0, 0.3)
+        assert 7.0 <= v <= 13.0
+    assert _jittered(4.0, 0.0) == 4.0
+
+
+def test_soak_reconnect_cycles_bounded(monkeypatch):
+    """Many disconnect→reconnect cycles do not leak or grow memory unboundedly."""
+    reset = _fast_stream_config(monkeypatch)
+
+    def connect(url: str):
+        return _return(FakeSocket([trade_frame(trade_id=1)], disconnect_after=True))
+
+    manager = MarketStreamManager(connect=connect)
+
+    async def run():
+        loop = asyncio.get_event_loop()
+        sub = await manager.subscribe(["BTCUSDT"], ("trade",))
+        deadline = loop.time() + 1.2
+        received = 0
+        while loop.time() < deadline:
+            ev = await manager.next_event(sub, timeout=0.2)
+            if ev is not None:
+                received += 1
+        await manager.stop()
+        return received
+
+    received = asyncio.run(run())
+    reset()
+    assert manager.metrics["reconnects"] >= 3
+    # The dedup set is bounded regardless of how many cycles ran.
+    assert len(manager._seen_ids) <= 8192  # noqa: SLF001
+    assert manager.state in ("closed", "reconnecting")
+
+
+def test_dedup_set_is_bounded_under_load(monkeypatch):
+    """Feeding far more than the cap of unique events keeps the set bounded."""
+    manager = MarketStreamManager(connect=lambda url: _return(FakeSocket([])))
+
+    async def run():
+        for i in range(12_000):
+            ev = normalize_binance_frame(trade_frame(trade_id=i), "trade")
+            await manager._validate(ev)  # noqa: SLF001
+        return len(manager._seen_ids)  # noqa: SLF001
+
+    size = asyncio.run(run())
+    assert size <= 8192
+
+
+def test_stale_watchdog_forces_reconnect(monkeypatch):
+    """A connected-but-silent socket is reconnected, not hung forever."""
+    from harness.market.config import reset_config
+
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_STALE_S", "0.2")
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_BACKOFF_BASE_S", "0.01")
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_RECONNECT_MAX_S", "0.05")
+    reset_config()
+
+    def connect(url: str):
+        return _return(FakeSocket([], disconnect_after=False))  # never speaks, never drops
+
+    manager = MarketStreamManager(connect=connect)
+
+    async def run():
+        loop = asyncio.get_event_loop()
+        await manager.subscribe(["BTCUSDT"], ("trade",))
+        deadline = loop.time() + 1.0
+        while loop.time() < deadline:
+            await asyncio.sleep(0.05)
+        await manager.stop()
+
+    asyncio.run(run())
+    reset_config()
+    assert manager.metrics.get("staleReconnects", 0) >= 1

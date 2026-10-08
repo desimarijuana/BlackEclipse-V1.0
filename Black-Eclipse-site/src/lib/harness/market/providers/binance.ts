@@ -3,8 +3,11 @@
 // Keyless public REST endpoints, reached through the SSRF-hardened `safeGet`.
 // Covers spot quotes/klines/depth/trades and USDT-M futures funding + open
 // interest. The provider symbol map supplies the exchange ticker (`BTCUSDT`).
+// Every response's REAL rate-limit weight headers are captured so pacing is
+// measured against the live quota, not a declared guess.
 
 import { safeGet } from "@/lib/connectors/security";
+import { rateLimitFromHeaders, type RateLimitInfo } from "../rate-limit";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "../types";
 
 const SPOT = process.env.BINANCE_SPOT_BASE || "https://api.binance.com";
@@ -19,8 +22,14 @@ function tickerFor(request: MarketDataRequest): string {
   return (request.providerSymbols?.binance || `${request.symbol.replace("-", "")}`).toUpperCase();
 }
 
-async function getJson(url: string): Promise<unknown> {
+interface BinanceGet {
+  data: unknown;
+  rateLimit?: RateLimitInfo;
+}
+
+async function getJson(url: string, futures = false): Promise<BinanceGet> {
   const res = await safeGet({ url, timeoutMs: 12000, maxBytes: 6 * 1024 * 1024, headers: { Accept: "application/json" } });
+  const rateLimit = rateLimitFromHeaders("binance", res.headers, { futures });
   if (res.status === 429 || res.status === 418) {
     throw new ProviderError(`binance rate limited (HTTP ${res.status})`, "RATE_LIMITED", true, res.status);
   }
@@ -28,7 +37,7 @@ async function getJson(url: string): Promise<unknown> {
     throw new ProviderError(`binance HTTP ${res.status}`, "PROVIDER_UNAVAILABLE", res.status >= 500, res.status);
   }
   try {
-    return JSON.parse(res.text);
+    return { data: JSON.parse(res.text), rateLimit };
   } catch {
     throw new ProviderError("binance parse failure", "DATA_NOT_AVAILABLE", false);
   }
@@ -41,13 +50,15 @@ function num(v: unknown): number | null {
 
 async function fetchQuote(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const symbol = tickerFor(request);
-  const data = (await getJson(`${SPOT}/api/v3/ticker/24hr?symbol=${symbol}`)) as Record<string, unknown>;
+  const { data: raw, rateLimit } = await getJson(`${SPOT}/api/v3/ticker/24hr?symbol=${symbol}`);
+  const data = raw as Record<string, unknown>;
   const price = num(data.lastPrice);
   if (price == null) throw new ProviderError(`no quote for ${symbol}`, "DATA_NOT_AVAILABLE", false);
   return {
     status: "OK",
     provider: "binance",
     symbol: request.symbol,
+    rateLimit,
     price: {
       price,
       changePct: num(data.priceChangePercent),
@@ -71,7 +82,7 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
   let url = `${SPOT}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${Math.min(1000, request.limit || 500)}`;
   if (request.start) url += `&startTime=${Date.parse(request.start)}`;
   if (request.end) url += `&endTime=${Date.parse(request.end)}`;
-  const data = await getJson(url);
+  const { data, rateLimit } = await getJson(url);
   if (!Array.isArray(data) || data.length === 0) {
     throw new ProviderError(`no klines for ${symbol}`, "DATA_NOT_AVAILABLE", false);
   }
@@ -84,6 +95,7 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
     status: "OK",
     provider: "binance",
     symbol: request.symbol,
+    rateLimit,
     interval: request.interval || "1d",
     adjusted: false,
     series: bars,
@@ -96,7 +108,8 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
 async function fetchOrderbook(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const symbol = tickerFor(request);
   const depth = Math.min(100, Math.max(5, request.depth || 20));
-  const data = (await getJson(`${SPOT}/api/v3/depth?symbol=${symbol}&limit=${depth}`)) as Record<string, unknown>;
+  const { data: raw, rateLimit } = await getJson(`${SPOT}/api/v3/depth?symbol=${symbol}&limit=${depth}`);
+  const data = raw as Record<string, unknown>;
   const bids = ((data.bids as unknown[][]) ?? []).map((l) => [num(l[0]), num(l[1])]);
   const asks = ((data.asks as unknown[][]) ?? []).map((l) => [num(l[0]), num(l[1])]);
   if (bids.length === 0 && asks.length === 0) {
@@ -106,6 +119,7 @@ async function fetchOrderbook(request: MarketDataRequest): Promise<Record<string
     status: "OK",
     provider: "binance",
     symbol: request.symbol,
+    rateLimit,
     bids, asks,
     sequence: num(data.lastUpdateId),
     bookState: "snapshot",
@@ -118,7 +132,7 @@ async function fetchOrderbook(request: MarketDataRequest): Promise<Record<string
 async function fetchTrades(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const symbol = tickerFor(request);
   const limit = Math.min(1000, Math.max(1, request.limit || 100));
-  const data = await getJson(`${SPOT}/api/v3/trades?symbol=${symbol}&limit=${limit}`);
+  const { data, rateLimit } = await getJson(`${SPOT}/api/v3/trades?symbol=${symbol}&limit=${limit}`);
   if (!Array.isArray(data) || data.length === 0) {
     throw new ProviderError(`no trades for ${symbol}`, "DATA_NOT_AVAILABLE", false);
   }
@@ -135,6 +149,7 @@ async function fetchTrades(request: MarketDataRequest): Promise<Record<string, u
     status: "OK",
     provider: "binance",
     symbol: request.symbol,
+    rateLimit,
     trades,
     exchange: "BINANCE",
     observationTime: trades[0]?.timestamp ?? null,
@@ -144,12 +159,13 @@ async function fetchTrades(request: MarketDataRequest): Promise<Record<string, u
 
 async function fetchFunding(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const symbol = tickerFor(request);
-  const data = (await getJson(`${FUTURES}/fapi/v1/premiumIndex?symbol=${symbol}`)) as Record<string, unknown>;
+  const { data: raw, rateLimit } = await getJson(`${FUTURES}/fapi/v1/premiumIndex?symbol=${symbol}`, true);
+  const data = raw as Record<string, unknown>;
   const rate = num(data.lastFundingRate);
   if (rate == null) throw new ProviderError(`no funding for ${symbol}`, "DATA_NOT_AVAILABLE", false);
   let historical: Array<Record<string, unknown>> = [];
   if (request.history && request.history > 0) {
-    const rows = await getJson(`${FUTURES}/fapi/v1/fundingRate?symbol=${symbol}&limit=${Math.min(1000, request.history)}`);
+    const { data: rows } = await getJson(`${FUTURES}/fapi/v1/fundingRate?symbol=${symbol}&limit=${Math.min(1000, request.history)}`, true);
     if (Array.isArray(rows)) {
       historical = rows.map((r: Record<string, unknown>) => ({
         timestamp: new Date((r.fundingTime as number) ?? 0).toISOString(),
@@ -161,6 +177,7 @@ async function fetchFunding(request: MarketDataRequest): Promise<Record<string, 
     status: "OK",
     provider: "binance",
     symbol: request.symbol,
+    rateLimit,
     fundingRate: rate,
     fundingIntervalHours: 8,
     nextFundingTime: data.nextFundingTime ? new Date(data.nextFundingTime as number).toISOString() : null,
@@ -174,13 +191,15 @@ async function fetchFunding(request: MarketDataRequest): Promise<Record<string, 
 
 async function fetchOpenInterest(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const symbol = tickerFor(request);
-  const data = (await getJson(`${FUTURES}/fapi/v1/openInterest?symbol=${symbol}`)) as Record<string, unknown>;
+  const { data: raw, rateLimit } = await getJson(`${FUTURES}/fapi/v1/openInterest?symbol=${symbol}`, true);
+  const data = raw as Record<string, unknown>;
   const oi = num(data.openInterest);
   if (oi == null) throw new ProviderError(`no open interest for ${symbol}`, "DATA_NOT_AVAILABLE", false);
   return {
     status: "OK",
     provider: "binance",
     symbol: request.symbol,
+    rateLimit,
     openInterest: oi,
     openInterestUsd: null,
     oiChange: null,
