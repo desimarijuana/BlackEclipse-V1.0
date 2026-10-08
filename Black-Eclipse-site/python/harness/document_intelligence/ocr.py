@@ -68,9 +68,15 @@ def ocr_available(cfg: Optional[DocumentConfig] = None) -> bool:
 
 
 def _vision_transcribe(image_bytes: bytes, *, settings: Any, question: str, timeout_s: float = 90.0) -> OCRInfo:
-    """Transcribe an image with a vision model, reusing the vision call path."""
+    """Transcribe an image with a vision model, reusing the vision call path.
+
+    The vision ROUTER picks the model (native-first, then any credentialed vision
+    model), so a text-only run model still gets a real VLM when one is available.
+    """
     try:
         from ..vision.providers import call_model  # noqa: PLC0415
+        from ..vision.contracts import VisionInput  # noqa: PLC0415
+        from ..vision.routing import plan_route  # noqa: PLC0415
     except Exception as exc:  # noqa: BLE001
         return OCRInfo(available=False, engine="vision", method="vision", error=str(exc))
 
@@ -82,6 +88,13 @@ def _vision_transcribe(image_bytes: bytes, *, settings: Any, question: str, time
         decoded = decode_bytes(image_bytes, source="document-page")
     except Exception as exc:  # noqa: BLE001
         return OCRInfo(available=False, engine="vision", method="vision", error=str(exc))
+
+    # Route to a model that can actually see images.
+    plan = plan_route(VisionInput(source="", source_kind="bytes", mode="analyze"), run_settings=settings)
+    if not plan.usable:
+        return OCRInfo(available=False, engine="vision", method="vision",
+                       error=f"no vision model is available ({plan.reason})")
+    settings = plan.settings
 
     prompt = (
         "Transcribe ALL text visible in this document image exactly, preserving reading "

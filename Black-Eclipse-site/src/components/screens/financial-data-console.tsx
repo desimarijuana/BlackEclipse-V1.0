@@ -201,9 +201,9 @@ export function FinancialDataConsole() {
           )}
 
           <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground/70">
-            A "declared" provider has no runnable adapter: its dependency is named, not faked.
-            Attribution, redistribution and storage terms are recorded per provider — review them
-            before redistributing any data.
+            A provider marked declared has no runnable adapter: its dependency is named, not
+            faked. Attribution, redistribution and storage terms are recorded per provider —
+            review them before redistributing any data.
           </p>
         </>
       )}

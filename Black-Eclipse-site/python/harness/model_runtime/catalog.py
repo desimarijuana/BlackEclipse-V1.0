@@ -42,7 +42,11 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, CapabilityState]] = {
         "structured_output": _SUPPORTED,
         "tool_calling": _SUPPORTED,
         "parallel_tool_calls": _SUPPORTED,
-        "vision": _SUPPORTED,
+        # `vision` is deliberately NOT defaulted here: the "openai" SDK KIND is
+        # shared by OpenAI, Ollama, LM Studio, DeepSeek, xAI, Together, Groq and
+        # every OpenAI-compatible endpoint, and most of those serve text-only
+        # models. Whether THIS model sees images is decided per-model by the
+        # overrides below (or a runtime probe), never assumed from the protocol.
         "embeddings": _UNKNOWN,
         "reasoning": _UNKNOWN,
     },
@@ -86,38 +90,147 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, CapabilityState]] = {
     "router": {},
 }
 
-# Model-substring overrides, longest substring wins. Keyed provider-kind aware
-# where the same name means different things across servers.
-MODEL_CAPABILITY_OVERRIDES: dict[str, dict[str, CapabilityState]] = {
-    # OpenAI reasoning models.
+# Model-substring overrides, longest substring wins. Keyed by a lowercase
+# substring of the model id; because the same name can mean different things
+# across servers, entries state only what is true of the FAMILY.
+#
+# The `vision` entries are the source of truth for "can this model see an
+# image?" when a provider's kind (e.g. the shared `openai` protocol) cannot say.
+# A family that is text-only is declared `vision: UNSUPPORTED` so the runtime
+# never wastes a round-trip (and never claims a capability it lacks); a family
+# that genuinely reads images (a VLM) is declared `vision: SUPPORTED`.
+_MODEL_CAPABILITY_OVERRIDES_RAW: dict[str, dict[str, CapabilityState]] = {
+    # ── OpenAI ──────────────────────────────────────────────────────────────
+    # Reasoning models accept image input.
     "o1": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED, "vision": _SUPPORTED},
+    "o1-mini": {"reasoning": _SUPPORTED, "vision": _UNSUPPORTED},
+    "o1-preview": {"reasoning": _SUPPORTED, "vision": _UNSUPPORTED},
     "o3": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED, "vision": _SUPPORTED},
+    "o3-mini": {"reasoning": _SUPPORTED, "vision": _UNSUPPORTED},
     "o4": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED, "vision": _SUPPORTED},
     "gpt-4o": {"vision": _SUPPORTED, "tool_calling": _SUPPORTED},
+    "chatgpt-4o": {"vision": _SUPPORTED},
     "gpt-4.1": {"vision": _SUPPORTED, "tool_calling": _SUPPORTED, "reasoning": _SUPPORTED},
-    # Anthropic extended thinking.
+    "gpt-4.5": {"vision": _SUPPORTED, "reasoning": _SUPPORTED},
+    "gpt-4-turbo": {"vision": _SUPPORTED},
+    "gpt-4-vision": {"vision": _SUPPORTED},
+    "gpt-4-1106": {"vision": _SUPPORTED},
+    "gpt-4-0125": {"vision": _SUPPORTED},
+    "gpt-5": {"vision": _SUPPORTED, "reasoning": _SUPPORTED},
+    # Plain gpt-4 / gpt-3.5 are text-only.
+    "gpt-4": {"vision": _UNSUPPORTED},
+    "gpt-3.5": {"vision": _UNSUPPORTED},
+
+    # ── Anthropic (all modern Claude chat models read images) ────────────────
+    "claude-3": {"vision": _SUPPORTED},
     "claude-4": {"reasoning": _SUPPORTED, "vision": _SUPPORTED},
     "claude-3-7": {"reasoning": _SUPPORTED, "vision": _SUPPORTED},
-    # Google.
+    "claude-3-5": {"vision": _SUPPORTED},
+    "claude-opus": {"vision": _SUPPORTED},
+    "claude-sonnet": {"vision": _SUPPORTED},
+    "claude-haiku": {"vision": _SUPPORTED},
+
+    # ── Google (all Gemini chat models read images) ─────────────────────────
+    "gemini": {"vision": _SUPPORTED},
     "gemini-1.5": {"long_context": _SUPPORTED, "vision": _SUPPORTED},
+    "gemini-2.0": {"vision": _SUPPORTED},
     "gemini-2.5": {"reasoning": _SUPPORTED, "vision": _SUPPORTED, "long_context": _SUPPORTED},
-    # DeepSeek.
-    "deepseek-chat": {"tool_calling": _SUPPORTED, "structured_output": _SUPPORTED},
-    "deepseek-reasoner": {"reasoning": _SUPPORTED, "tool_calling": _UNSUPPORTED},
-    # Open-weight reasoning.
-    "r1": {"reasoning": _SUPPORTED, "tool_calling": _UNKNOWN},
-    "qwq": {"reasoning": _SUPPORTED},
-    "qwen3": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED},
-    # Kimi / Moonshot.
-    "kimi-k2": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED},
-    "moonshot": {"tool_calling": _SUPPORTED},
-    # Embedding-only families: not chat models.
-    "embed": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED},
-    "bge": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED},
-    "nomic-embed": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED},
-    # Image-generation models. Declared so the vision subsystem's
-    # `image_generate` tool can route to a genuinely capable model; an
-    # undeclared model is never assumed to generate images.
+    "gemma-3": {"vision": _SUPPORTED},
+    "gemma3": {"vision": _SUPPORTED},
+    "gemma-2": {"vision": _UNSUPPORTED},
+    "gemma2": {"vision": _UNSUPPORTED},
+    "pali": {"vision": _SUPPORTED},
+
+    # ── xAI Grok ────────────────────────────────────────────────────────────
+    "grok-2-vision": {"vision": _SUPPORTED},
+    "grok-vision": {"vision": _SUPPORTED},
+    "grok-4": {"vision": _SUPPORTED, "reasoning": _SUPPORTED},
+    "grok-2": {"vision": _UNSUPPORTED},
+    "grok-3": {"vision": _UNSUPPORTED},
+
+    # ── Open-weight vision-language models (llava / qwen-vl / etc.) ─────────
+    "llava": {"vision": _SUPPORTED, "tool_calling": _UNSUPPORTED},
+    "bakllava": {"vision": _SUPPORTED},
+    "llava-llama3": {"vision": _SUPPORTED},
+    "llava-phi3": {"vision": _SUPPORTED},
+    "llava-onevision": {"vision": _SUPPORTED},
+    "llava-next": {"vision": _SUPPORTED},
+    "minicpm-v": {"vision": _SUPPORTED},
+    "minicpm-o": {"vision": _SUPPORTED},
+    "moondream": {"vision": _SUPPORTED},
+    "pixtral": {"vision": _SUPPORTED},
+    "qwen-vl": {"vision": _SUPPORTED},
+    "qwen2-vl": {"vision": _SUPPORTED},
+    "qwen2.5-vl": {"vision": _SUPPORTED},
+    "qwen3-vl": {"vision": _SUPPORTED},
+    "qwenvl": {"vision": _SUPPORTED},
+    "qwen2.5-omni": {"vision": _SUPPORTED, "audio_input": _SUPPORTED},
+    "llama-3.2-vision": {"vision": _SUPPORTED},
+    "llama-3.2-11b-vision": {"vision": _SUPPORTED},
+    "llama-3.2-90b-vision": {"vision": _SUPPORTED},
+    "llama-4": {"vision": _SUPPORTED},
+    "llama4": {"vision": _SUPPORTED},
+    # A model whose own name says "vision" is a VLM. This catch-all is the LAST
+    # resort after the specific families above and the text-only declarations
+    # below; longest-match means a specific entry always wins over it.
+    "vision": {"vision": _SUPPORTED},
+    "internvl": {"vision": _SUPPORTED},
+    "phi-3-vision": {"vision": _SUPPORTED},
+    "phi-3.5-vision": {"vision": _SUPPORTED},
+    "phi-4-multimodal": {"vision": _SUPPORTED, "audio_input": _SUPPORTED},
+    "granite-vision": {"vision": _SUPPORTED},
+    "cogvlm": {"vision": _SUPPORTED},
+    "fuyu": {"vision": _SUPPORTED},
+    "idefics": {"vision": _SUPPORTED},
+    "ovis": {"vision": _SUPPORTED},
+    "glm-4v": {"vision": _SUPPORTED},
+    "yi-vl": {"vision": _SUPPORTED},
+    "molmo": {"vision": _SUPPORTED},
+    "smolvlm": {"vision": _SUPPORTED},
+    "nemotron-vl": {"vision": _SUPPORTED},
+    "deepseek-vl": {"vision": _SUPPORTED},
+    "florence": {"vision": _SUPPORTED},
+    "kosmos": {"vision": _SUPPORTED},
+    "chameleon": {"vision": _SUPPORTED},
+    "command-a-vision": {"vision": _SUPPORTED},
+    "mistral-small-3": {"vision": _SUPPORTED},
+    "mistral-medium-3": {"vision": _SUPPORTED},
+    "doubao-vision": {"vision": _SUPPORTED},
+
+    # ── Text-only families (declared so no round-trip is wasted) ─────────────
+    "deepseek-chat": {"tool_calling": _SUPPORTED, "structured_output": _SUPPORTED, "vision": _UNSUPPORTED},
+    "deepseek-reasoner": {"reasoning": _SUPPORTED, "tool_calling": _UNSUPPORTED, "vision": _UNSUPPORTED},
+    "deepseek-coder": {"vision": _UNSUPPORTED},
+    "r1": {"reasoning": _SUPPORTED, "tool_calling": _UNKNOWN, "vision": _UNSUPPORTED},
+    "qwq": {"reasoning": _SUPPORTED, "vision": _UNSUPPORTED},
+    "qwen3": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED, "vision": _UNSUPPORTED},
+    "qwen2.5": {"vision": _UNSUPPORTED},
+    "qwen2": {"vision": _UNSUPPORTED},
+    "kimi": {"reasoning": _SUPPORTED, "tool_calling": _SUPPORTED, "vision": _UNSUPPORTED},
+    "moonshot": {"tool_calling": _SUPPORTED, "vision": _UNSUPPORTED},
+    "llama-3.3": {"vision": _UNSUPPORTED},
+    "llama-3.1": {"vision": _UNSUPPORTED},
+    "llama3.1": {"vision": _UNSUPPORTED},
+    "llama3.3": {"vision": _UNSUPPORTED},
+    "llama-3": {"vision": _UNSUPPORTED},
+    "llama3": {"vision": _UNSUPPORTED},
+    "llama-2": {"vision": _UNSUPPORTED},
+    "mixtral": {"vision": _UNSUPPORTED},
+    "mistral": {"vision": _UNSUPPORTED},
+    "codestral": {"vision": _UNSUPPORTED},
+    "phi3": {"vision": _UNSUPPORTED},
+    "phi-3": {"vision": _UNSUPPORTED},
+    "phi-4": {"vision": _UNSUPPORTED},
+    "command-r": {"vision": _UNSUPPORTED},
+    "sonar": {"vision": _UNSUPPORTED},
+    "aya": {"vision": _UNSUPPORTED},
+
+    # ── Embedding-only families: not chat models ────────────────────────────
+    "embed": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED, "vision": _UNSUPPORTED},
+    "bge": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED, "vision": _UNSUPPORTED},
+    "nomic-embed": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED, "vision": _UNSUPPORTED},
+
+    # ── Image-generation models (never assumed) ─────────────────────────────
     "dall-e": {"image_generation": _SUPPORTED},
     "gpt-image": {"image_generation": _SUPPORTED},
     "imagen": {"image_generation": _SUPPORTED},
@@ -125,6 +238,13 @@ MODEL_CAPABILITY_OVERRIDES: dict[str, dict[str, CapabilityState]] = {
     "sdxl": {"image_generation": _SUPPORTED},
     "flux": {"image_generation": _SUPPORTED},
 }
+
+# Longest-substring matching means a MORE SPECIFIC entry must not be shadowed by
+# a generic one. We sort by descending length here purely for readability; the
+# resolver in `capability.py` already picks the longest match regardless of order.
+MODEL_CAPABILITY_OVERRIDES: dict[str, dict[str, CapabilityState]] = dict(
+    sorted(_MODEL_CAPABILITY_OVERRIDES_RAW.items(), key=lambda kv: len(kv[0]), reverse=True)
+)
 
 # Model families that are genuinely long-context even without a per-model
 # declaration (used only when the resolved window is unknown).

@@ -188,13 +188,17 @@ def test_plan_route_native_when_model_sees_images() -> None:
     assert plan.kind == "native" and plan.usable
 
 
-def test_plan_route_local_only_refuses_cloud_only_model() -> None:
+def test_plan_route_local_only_never_uses_a_cloud_model() -> None:
     from harness.schemas import ModelSettings
 
     settings = ModelSettings(provider="openai", model="gpt-4o", api_key="x", base_url="http://x")
     plan = plan_route(VisionInput(source="x", source_kind="path", local_only=True), run_settings=settings)
-    # gpt-4o is cloud; a local-only request must not route to it.
-    assert plan.kind == "none"
+    # gpt-4o is cloud; a local-only request must NEVER route to it (native or
+    # auxiliary). It may route to an available LOCAL vision model, or report none.
+    assert plan.kind != "native"
+    if plan.usable:
+        assert getattr(plan.settings, "provider", None) != "openai"
+        assert all(c.local for c in plan.candidates) or not plan.candidates
 
 
 # ── security ───────────────────────────────────────────────────────────────────

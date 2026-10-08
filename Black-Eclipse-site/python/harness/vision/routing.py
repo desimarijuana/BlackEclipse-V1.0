@@ -21,7 +21,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .capabilities import VISION_SUPPORT, VisionCapabilities, capabilities_for_settings
+from .capabilities import (
+    VISION_SUPPORT,
+    VisionCapabilities,
+    capabilities_for_model,
+    capabilities_for_settings,
+)
 from .config import VisionConfig, vision_config
 from .contracts import VisionInput
 from .errors import VisionError, VisionErrorClass
@@ -115,6 +120,15 @@ def plan_route(
     task profile are used, constrained by credentials and privacy.
     """
     cfg = cfg or vision_config()
+    # Fall back to the process-wide runtime so registry vision models are always
+    # considered — the orchestrator/tools may not pass one explicitly.
+    if runtime is None:
+        try:
+            from ..model_runtime import get_runtime  # noqa: PLC0415
+
+            runtime = get_runtime()
+        except Exception:  # noqa: BLE001
+            runtime = None
     mode = input.privacy or cfg.privacy_mode
     sensitive = bool(input.sensitive)
     allow_cloud_sensitive = cfg.allow_cloud_for_sensitive
@@ -126,7 +140,10 @@ def plan_route(
     if input.local_only:
         privacy = PrivacyDecision(allow_local=True, allow_cloud=False, prefer="local", reason="run requested local-only")
 
-    run_caps = capabilities_for_settings(run_settings, task="vision") if run_settings is not None else VisionCapabilities()
+    # The native decision asks about the RUN'S OWN model directly — never a model
+    # the router might substitute. Otherwise a text-only run model on a provider
+    # that also hosts a VLM could be wrongly reported native and receive the image.
+    run_caps = capabilities_for_model(run_settings) if run_settings is not None else VisionCapabilities()
 
     # Auxiliary candidates are computed in both paths so a NATIVE plan still has
     # a fallback if the native model's vision call fails at runtime (spec §9).
@@ -220,7 +237,9 @@ def _auxiliary_candidates(
 def _registry_candidates(runtime: Any, run_settings: Any, privacy: PrivacyDecision) -> list[RouteCandidate]:
     out: list[RouteCandidate] = []
     try:
-        models = runtime.models.findByCapability(VISION_SUPPORT)
+        # `findByCapability` takes an iterable of keys; pass a LIST so a string
+        # is not iterated character-by-character (which matched nothing).
+        models = runtime.models.findByCapability([VISION_SUPPORT])
     except Exception:  # noqa: BLE001
         return out
     for model_info in models:
@@ -244,15 +263,29 @@ def _registry_candidates(runtime: Any, run_settings: Any, privacy: PrivacyDecisi
 
 
 def _settings_for_model(run_settings: Any, provider_id: Optional[str], model_id: Optional[str], provider: Any) -> Any:
+    """Build settings for a vision candidate on `provider_id`.
+
+    Same provider reuses the run's credentials. A DIFFERENT provider is only
+    usable when the process can actually reach it: a keyless local server, or a
+    hosted provider whose environment credential is present. A remote provider the
+    run holds no key for is never selected (ADR-H146 §31/§45).
+    """
     try:
         if run_settings is not None and getattr(run_settings, "provider", None) == provider_id:
             return run_settings.model_copy(update={"model": model_id})
-        if provider is not None and provider.keyless:
-            if run_settings is not None:
-                return run_settings.model_copy(update={
-                    "provider": provider_id, "model": model_id,
-                    "base_url": provider.default_base_url, "api_key": None,
-                })
+        from ..models import provider_has_credentials  # noqa: PLC0415
+
+        if provider is not None and provider.keyless and run_settings is not None:
+            return run_settings.model_copy(update={
+                "provider": provider_id, "model": model_id,
+                "base_url": provider.default_base_url, "api_key": None,
+            })
+        if run_settings is not None and provider_has_credentials(provider_id or ""):
+            return run_settings.model_copy(update={
+                "provider": provider_id, "model": model_id,
+                "base_url": (getattr(provider, "default_base_url", None) or run_settings.base_url),
+                "api_key": None,
+            })
     except Exception:  # noqa: BLE001
         return None
     return None
@@ -261,7 +294,7 @@ def _settings_for_model(run_settings: Any, provider_id: Optional[str], model_id:
 def _as_candidate(settings: Any, *, run_settings: Any, runtime: Any, privacy: PrivacyDecision) -> Optional[RouteCandidate]:
     if settings is None:
         return None
-    caps = capabilities_for_settings(settings, task="vision")
+    caps = capabilities_for_model(settings)
     local = caps.local
     if local and not privacy.allow_local:
         return None
@@ -287,14 +320,23 @@ def _coerce_model_ref(ref: str, run_settings: Any) -> Any:
             provider_id, model_id = ref.split("/", 1)
             if getattr(run_settings, "provider", None) == provider_id:
                 return run_settings.model_copy(update={"model": model_id})
-            # Different provider: only usable when keyless (resolved elsewhere).
+            # A different provider is usable only when the process can reach it: a
+            # keyless local server, or a hosted provider with an env credential.
             from ..model_runtime import get_runtime  # noqa: PLC0415
 
             provider = get_runtime().providers.get_provider(provider_id)
+            from ..models import provider_has_credentials  # noqa: PLC0415
+
             if provider is not None and provider.keyless:
                 return run_settings.model_copy(update={
                     "provider": provider_id, "model": model_id,
                     "base_url": provider.default_base_url, "api_key": None,
+                })
+            if provider_has_credentials(provider_id):
+                return run_settings.model_copy(update={
+                    "provider": provider_id, "model": model_id,
+                    "base_url": (provider.default_base_url if provider else None) or run_settings.base_url,
+                    "api_key": None,
                 })
             return None
         return run_settings.model_copy(update={"model": ref})

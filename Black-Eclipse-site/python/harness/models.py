@@ -134,10 +134,15 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "accounts/fireworks/models/mixtral-8x7b-instruct",
     ],
     # Local servers and routers list models at runtime; the operator supplies the
-    # id. ollama/lmstudio keep their documented default only.
-    "ollama": ["llama3.1", "llama3.2", "qwen2.5", "mistral", "phi3"],
-    "lmstudio": ["local-model"],
-    "openrouter": ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-flash-1.5"],
+    # id. The declared lists include the common open-weight VISION models so the
+    # vision subsystem can find a local VLM without a discovery round-trip; the
+    # list is a convenience, never an allowlist.
+    "ollama": ["llama3.1", "llama3.2", "qwen2.5", "qwen2.5-vl", "llava", "llava-llama3", "minicpm-v", "moondream", "gemma3", "mistral", "phi3"],
+    "lmstudio": ["local-model", "llava", "qwen2.5-vl", "gemma-3"],
+    "openrouter": [
+        "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-flash-1.5",
+        "qwen/qwen2.5-vl-72b-instruct", "meta-llama/llama-3.2-11b-vision-instruct",
+    ],
 }
 
 
@@ -312,6 +317,25 @@ def _resolve_key(settings: ModelSettings, spec: ProviderSpec) -> Optional[str]:
     if spec.keyless:
         return "local"
     return None
+
+
+def provider_has_credentials(provider_id: str) -> bool:
+    """Whether a credential for `provider_id` is resolvable OUTSIDE the run.
+
+    True for a keyless (local) provider, or a hosted provider whose declared env
+    var holds a key. This lets a subsystem (notably vision) use a DIFFERENT
+    provider's model as a fallback ONLY when the operator has actually supplied a
+    credential for it — never routing to a provider the process holds no key for
+    (ADR-H146 §31/§45).
+    """
+    spec = PROVIDER_CATALOG.get(provider_id or "")
+    if spec is None:
+        return False
+    if spec.keyless:
+        return True
+    if spec.env_var and os.environ.get(spec.env_var):
+        return True
+    return False
 
 
 def build_chat_model(settings: ModelSettings) -> Any:

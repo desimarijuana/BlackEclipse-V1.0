@@ -286,7 +286,10 @@ def _parse_context(ctx: DocumentContext, cfg: DocumentConfig) -> ParseContext:
         return await route_ocr(image_bytes, cfg=cfg, settings=ctx.run_settings)
 
     async def _analyze(image_bytes: bytes, question: str, mode: str = "analyze") -> Any:
-        return await _vision_analyze(image_bytes, question, mode=mode, settings=ctx.run_settings, timeout_s=120.0)
+        return await _vision_analyze(
+            image_bytes, question, mode=mode, settings=ctx.run_settings, timeout_s=120.0,
+            asset_store=ctx.asset_store, emitter=ctx.emitter, run_id=ctx.run_id,
+        )
 
     return ParseContext(
         cfg=cfg, run_settings=ctx.run_settings, aux_settings=ctx.aux_settings, bridge=ctx.bridge,
@@ -295,32 +298,34 @@ def _parse_context(ctx: DocumentContext, cfg: DocumentConfig) -> ParseContext:
     )
 
 
-async def _vision_analyze(image_bytes: bytes, question: str, *, mode: str, settings: Any, timeout_s: float) -> Any:
+async def _vision_analyze(
+    image_bytes: bytes, question: str, *, mode: str, settings: Any, timeout_s: float,
+    asset_store: Any = None, emitter: Any = None, run_id: Optional[str] = None,
+) -> Any:
+    """Analyze an embedded document image through the VISION ORCHESTRATOR.
+
+    Routing (native-first, then any credentialed vision model) is owned by the
+    vision subsystem, so a document whose run model is text-only still gets a real
+    vision model when one is available — instead of sending the image to a model
+    that cannot read it.
+    """
     try:
-        from ..vision.providers import call_model
-        from ..vision.image import decode_bytes
-        from ..vision.contracts import VisionResult, VisualObservation
+        from ..vision.contracts import VisionInput
+        from ..vision.orchestrator import VisionContext, orchestrate
 
-        decoded = decode_bytes(image_bytes, source="document-image")
-        prompt = (
-            "You are Eclipse's document-vision engine. " + (question or "Describe this image.")
-            + " Reply with one JSON object: "
-            '{"description":"<answer>","observations":[{"text":"...","confidence":0..1}],"confidence":0..1}'
+        # `source_kind="bytes"` reads the bytes from `source` — the documented
+        # seam `vision.load.resolve_source` supports.
+        vision_input = VisionInput(
+            source=image_bytes, source_kind="bytes",  # type: ignore[arg-type]
+            question=question or "Describe this image.",
+            mode="analyze", model_settings=settings,
+            options={"mime": "image/png"},
+            task_hint="document_analysis",
         )
-        result = await call_model(settings, prompt, [decoded.image], task="document_analysis",
-                                  timeout_s=timeout_s, structured=True)
-        from ..vision.analyze import extract_json
-
-        payload = extract_json(result.text) or {}
-        observations = [
-            VisualObservation(text=str(o.get("text")), confidence=float(o.get("confidence", 0.5) or 0.5), method="model")
-            for o in (payload.get("observations") or []) if isinstance(o, dict) and o.get("text")
-        ]
-        return VisionResult(
-            ok=True, mode="document", description=str(payload.get("description") or result.text)[:8000],
-            observations=observations, objects=observations, confidence=float(payload.get("confidence", 0.6) or 0.6),
-            provider=result.provider, model=result.model, backend=result.backend,
+        ctx = VisionContext(
+            run_settings=settings, emitter=emitter, asset_store=asset_store, run_id=run_id,
         )
+        return await orchestrate(vision_input, ctx)
     except Exception as exc:  # noqa: BLE001 - vision is best-effort for an embedded image
         return {"ok": False, "error": {"errorClass": "VISION_UNAVAILABLE", "message": str(exc)}}
 

@@ -109,17 +109,34 @@ def capabilities_for_settings(settings: Any, *, task: Optional[str] = None) -> V
         resolution = get_runtime().resolve_for_run(settings, task=task or "default")
         return capabilities_for_resolution(resolution)
     except Exception:  # noqa: BLE001 - detection must never crash the orchestrator
-        provider_id = getattr(settings, "provider", None)
-        try:
-            caps = detect_capabilities(kind=_kind_of(provider_id), model_id=getattr(settings, "model", "") or "")
-            return VisionCapabilities(
-                vision=caps.state(VISION_SUPPORT),
-                structured_output=caps.state("structured_output"),
-                local=_local_provider(provider_id),
-                model_id=getattr(settings, "model", None), provider=provider_id,
-            )
-        except Exception:  # noqa: BLE001
-            return VisionCapabilities(model_id=getattr(settings, "model", None), provider=provider_id)
+        return capabilities_for_model(settings)
+
+
+def capabilities_for_model(settings: Any) -> VisionCapabilities:
+    """The vision capabilities of the model `settings` names, DIRECTLY.
+
+    Unlike `capabilities_for_settings` this never lets the router substitute a
+    different model: it answers "can THIS provider/model see an image?". That
+    matters for the native-first decision, where attributing a routed model's
+    capability to the run's declared model would wrongly claim native vision and
+    then send the image to a model that cannot read it.
+    """
+    if settings is None:
+        return VisionCapabilities()
+    provider_id = getattr(settings, "provider", None)
+    model_id = getattr(settings, "model", None)
+    try:
+        caps = detect_capabilities(kind=_kind_of(provider_id), model_id=model_id or "")
+        return VisionCapabilities(
+            vision=caps.state(VISION_SUPPORT),
+            structured_output=caps.state("structured_output"),
+            tool_calling=caps.state("tool_calling"),
+            local=_local_provider(provider_id),
+            model_id=model_id, provider=provider_id,
+            supported_formats=DEFAULT_IMAGE_FORMATS,
+        )
+    except Exception:  # noqa: BLE001
+        return VisionCapabilities(model_id=model_id, provider=provider_id)
 
 
 def _kind_of(provider_id: Optional[str]) -> str:
