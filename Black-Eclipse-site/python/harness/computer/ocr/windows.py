@@ -43,7 +43,7 @@ class WindowsOCREngine(OCREngine):
         try:
             from winsdk.windows.media.ocr import OcrEngine  # noqa: PLC0415
 
-            if not OcrEngine.get_available_recognizer_languages():
+            if OcrEngine.try_create_from_user_profile_languages() is None:
                 self.reason = "Windows has no OCR language pack installed"
                 return
             self.available = True

@@ -111,6 +111,15 @@ class ComputerCore:
                 action="act", verdict="blocked",
             )
 
+    def broker_guard(self) -> None:
+        """Refuse an action while another session holds the machine-wide lease."""
+        acquire = getattr(self.session, "acquire_desktop", None)
+        if callable(acquire) and not acquire():
+            raise PermissionDenied(
+                "Another desktop session is controlling this machine right now; retry shortly.",
+                action="act", verdict="retry",
+            )
+
     # ── observation ──────────────────────────────────────────────────────────
 
     async def observe(self, *, window_id: Optional[str] = None, mode: Optional[str] = None, persist_image: bool = True) -> Snapshot:
@@ -143,8 +152,13 @@ class ComputerCore:
             )
         self.session.actions_started = started_count + 1
         timeout = max(1, int(self._config.action_timeout_seconds))
+        acquired = False
         try:
             self.takeover_guard()
+            # Hold the machine-wide control lease ONLY for this action, so a
+            # concurrent session serializes rather than interleaves input.
+            acquired = self.session.acquire_desktop()
+            self.broker_guard()
             result = await asyncio.wait_for(handler(dry_run=dry_run, **params), timeout=timeout)
         except asyncio.TimeoutError:
             self.session.record_action({"action": action, "result": "failed", "verdict": "retry", "code": "COMPUTER_TIMEOUT"})
@@ -165,6 +179,9 @@ class ComputerCore:
             )
         except Exception as exc:  # noqa: BLE001 - an action failure is data
             return self._failure(action, "COMPUTER_ACTION_FAILED", str(exc)[:300], started, verdict="retry")
+        finally:
+            if acquired:
+                self.session.release_desktop()
         result.duration_ms = int((time.monotonic() - started) * 1000)
         if self.session.telemetry is not None:
             self.session.telemetry.record_action(action=action, success=result.success,

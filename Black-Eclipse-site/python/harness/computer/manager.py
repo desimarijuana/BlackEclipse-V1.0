@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from .config import ComputerConfig, computer_config, MAX_SESSIONS_CEILING
 from .applications.registry import build_adapter_registry
+from .desktop import available_desktop_provider
 from .diagnostics import diagnose
 from .drivers import build_driver
 from .errors import ComputerError, ComputerUnavailable
@@ -54,6 +55,12 @@ class ComputerManager:
         # provided router wins, otherwise an honest unavailable router is used.
         self.vision = vision
         self.takeover = TakeoverManager()
+        from .broker import get_broker  # noqa: PLC0415
+
+        self.broker = get_broker()
+        # The provisioner decides WHERE a session runs: the shared local desktop
+        # (default) or an isolated one (Xvfb). Built at start.
+        self.provisioner: Any = None
         self.telemetry = ComputerTelemetry(bus=bus)
         self.security = SecurityLayer(redaction_enabled=self.config.sensitive_data_redaction)
         self.extractor = FinancialExtractor()
@@ -80,6 +87,16 @@ class ComputerManager:
             from .accessibility.null import NullAXProvider  # noqa: PLC0415
 
             self.ax = NullAXProvider()
+        # Build the provisioner for the configured isolation mode. A failure here
+        # must never block boot: fall back to the shared local desktop.
+        try:
+            from .desktop import build_provisioner  # noqa: PLC0415
+
+            self.provisioner = build_provisioner(self.config)
+        except Exception:  # noqa: BLE001
+            from .desktop import LocalDesktopProvisioner  # noqa: PLC0415
+
+            self.provisioner = LocalDesktopProvisioner()
 
     async def stop(self) -> None:
         if self._sweep_task is not None:
@@ -120,6 +137,9 @@ class ComputerManager:
         caps = self.driver.capabilities()
         caps.ocr = bool(getattr(self.ocr, "available", False))
         caps.vision = bool(getattr(self.vision, "engine", None) and self.vision.engine(sensitive=False).available) if self.vision else False
+        provisioner = self.provisioner if self.provisioner is not None else available_desktop_provider(self.config)
+        # A provisioned isolated desktop makes `headless_desktop` true.
+        caps.headless_desktop = bool(getattr(provisioner, "headless", False) and getattr(provisioner, "available", False))
         return {
             "enabled": self.config.enabled,
             "driver": self.driver.id,
@@ -133,6 +153,8 @@ class ComputerManager:
                 "actionTimeoutSeconds": self.config.action_timeout_seconds,
             },
             "adapters": build_adapter_registry().describe(),
+            "desktop": provisioner.describe(),
+            "broker": self.broker.to_dict(),
             "artifactsRoot": str(self.config.artifacts_root),
         }
 
@@ -201,8 +223,28 @@ class ComputerManager:
                     code="COMPUTER_SESSION_LIMIT",
                 )
         session_id = new_session_id()
+        # Provision the desktop for this session: the shared local desktop (default)
+        # or an isolated one (its own Xvfb display). An isolated instance owns its
+        # driver; the shared path reuses the process driver.
+        instance = None
+        driver, ax = self.driver, self.ax
+        provisioner = self.provisioner
+        if provisioner is not None and getattr(provisioner, "isolated", False):
+            try:
+                instance = await provisioner.create(
+                    config=self.config, base_driver=self.driver, base_ax=self.ax, base_ocr=self.ocr,
+                )
+                driver = instance.driver
+                ax = instance.ax or self.ax
+            except Exception as exc:  # noqa: BLE001 - an isolation failure must be honest
+                from .errors import ComputerUnavailable  # noqa: PLC0415
+
+                raise ComputerUnavailable(
+                    f"An isolated desktop couldn't be provisioned: {str(exc)[:160]}",
+                    code="COMPUTER_ISOLATION_UNAVAILABLE",
+                ) from exc
         session = ComputerSession(
-            session_id=session_id, driver=self.driver, ax=self.ax, ocr=self.ocr,
+            session_id=session_id, driver=driver, ax=ax, ocr=self.ocr,
             vision_router=self._router(), config=self.config, store=self.store,
             telemetry=self.telemetry, agent_id=agent_id, user_id=user_id, task_id=task_id,
             run_id=run_id, machine_id=machine_id,
@@ -213,6 +255,13 @@ class ComputerManager:
         # Bind the session to its control lease so the core's takeover guard reads
         # ONE authority (the manager's TakeoverManager).
         session._lease_check = lambda: self.takeover.agent_may_act(session_id)  # noqa: SLF001
+        # Only a SHARED-desktop session needs the machine-wide broker; an isolated
+        # session has its own display, so it neither waits nor blocks others.
+        if instance is None or not instance.isolated:
+            session._broker_acquire = lambda: self.broker.acquire(session_id)  # noqa: SLF001
+            session._broker_release = lambda: self.broker.release(session_id)  # noqa: SLF001
+        session._instance = instance  # noqa: SLF001
+        session._isolated = bool(instance is not None and instance.isolated)  # noqa: SLF001
         self._sessions[session_id] = session
         self._emit("computer.session.created", session.snapshot_summary())
         return session
@@ -248,6 +297,13 @@ class ComputerManager:
         if session is None:
             return {"destroyed": False, "reason": "no such session"}
         await session.close()
+        # Tear down an isolated desktop (a shared one owns nothing).
+        instance = getattr(session, "_instance", None)
+        if instance is not None and getattr(instance, "isolated", False) and self.provisioner is not None:
+            try:
+                await self.provisioner.destroy(instance)
+            except Exception:  # noqa: BLE001 - teardown must never raise
+                pass
         self._emit("computer.session.destroyed", {"sessionId": session_id})
         return {"destroyed": True, "sessionId": session_id}
 

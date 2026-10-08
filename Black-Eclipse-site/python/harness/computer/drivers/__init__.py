@@ -19,9 +19,9 @@ def available_backend() -> str:
     if sys.platform == "win32":
         return "windows"
     if sys.platform == "darwin":
-        return "macos"      # not yet implemented → null until it is
+        return "macos"
     if sys.platform.startswith("linux"):
-        return "linux"      # not yet implemented → null until it is
+        return "linux"
     return "null"
 
 
@@ -38,8 +38,31 @@ def build_driver(backend: Optional[str] = None) -> ComputerDriver:
             return WindowsDriver()
         return NullDriver(sys.platform, "the windows driver is only available on Windows")
 
-    if choice in ("macos", "linux"):
-        return NullDriver(sys.platform, f"the {choice} driver is not yet implemented")
+    if choice == "linux":
+        if sys.platform.startswith("linux"):
+            from .linux import LinuxX11Driver  # noqa: PLC0415
+
+            return LinuxX11Driver()
+        return NullDriver(sys.platform, "the linux driver is only available on Linux")
+
+    if choice == "macos":
+        if sys.platform == "darwin":
+            from .macos import MacOSDriver  # noqa: PLC0415
+
+            return MacOSDriver()
+        return NullDriver(sys.platform, "the macos driver is only available on macOS")
+
+    if choice == "wayland":
+        if sys.platform.startswith("linux"):
+            from .wayland import WaylandDriver  # noqa: PLC0415
+
+            return WaylandDriver()
+        return NullDriver(sys.platform, "the wayland driver is only available on Linux")
+
+    if choice == "window":
+        # The contained-window driver needs a base driver + a window id; a bare
+        # selection is an honest null (the provisioner builds it correctly).
+        return NullDriver(sys.platform, "the window driver is built by a desktop provisioner")
 
     if choice == "null":
         return NullDriver(sys.platform, "the null driver was explicitly selected")

@@ -32,6 +32,7 @@ OBSERVATION_MODES = ("som", "vision", "ax", "ocr")
 VISION_MODES = ("local", "cloud", "hybrid")
 FINANCE_MODES = ("read_only", "assisted", "autonomous", "simulation")
 COMPUTER_MODES = ("dry_run", "live")
+ISOLATION_MODES = ("off", "auto", "on")
 
 
 def _truthy(value: Optional[str], default: bool) -> bool:
@@ -73,7 +74,17 @@ class ComputerConfig:
     mode: str = "background"
     # dry_run: describe the action, change nothing.
     computer_mode: str = "live"
-    driver_backend: str = "auto"      # auto | windows | null
+    driver_backend: str = "auto"      # auto | windows | linux | macos | null
+    # Isolation: off = the shared local desktop (zero-config default); auto =
+    # the platform's isolated backend (Xvfb on Linux; Windows Sandbox on Windows),
+    # used only when genuinely available; on = require it (falls back if absent).
+    isolation: str = "off"            # off | auto | on
+    isolation_provider: str = "auto"  # auto | local | x11 | wayland | windows_sandbox | rdp
+    headless_display_base: int = 99
+    headless_screen: str = "1920x1080x24"
+    # RDP isolation (isolation_provider=rdp): an operator-supplied host or .rdp file.
+    rdp_host: str = ""
+    rdp_file: str = ""
     observation_default_mode: str = "som"
     # Vision.
     vision_mode: str = "hybrid"       # local | cloud | hybrid
@@ -126,6 +137,11 @@ class ComputerConfig:
             "mode": self.mode,
             "computerMode": self.computer_mode,
             "driver": {"backend": self.driver_backend},
+            "isolation": {
+                "mode": self.isolation, "provider": self.isolation_provider,
+                "displayBase": self.headless_display_base, "screen": self.headless_screen,
+                "rdpHost": self.rdp_host, "rdpFile": self.rdp_file,
+            },
             "observation": {"defaultMode": self.observation_default_mode},
             "vision": {
                 "mode": self.vision_mode,
@@ -214,12 +230,26 @@ def load_computer_config() -> ComputerConfig:
     artifacts_root = Path(raw_artifacts).expanduser() if raw_artifacts else default_artifacts
 
     driver_block = overrides.get("driver") if isinstance(overrides.get("driver"), dict) else {}
+    isolation_block = overrides.get("isolation") if isinstance(overrides.get("isolation"), dict) else {}
 
     cfg = ComputerConfig(
         enabled=_truthy(os.environ.get("HARNESS_COMPUTER_ENABLED"), bool(top("enabled", True))),
         mode=_choice(os.environ.get("HARNESS_COMPUTER_MODE") or nested(overrides, "mode", "background"), DELIVERY_MODES, "background"),
         computer_mode=_choice(os.environ.get("HARNESS_COMPUTER_RUN_MODE") or top("computer_mode", "live"), COMPUTER_MODES, "live"),
         driver_backend=str(os.environ.get("HARNESS_COMPUTER_DRIVER") or driver_block.get("backend", "auto")),
+        isolation=_choice(
+            os.environ.get("HARNESS_COMPUTER_ISOLATION") or isolation_block.get("mode", "off"),
+            ISOLATION_MODES, "off",
+        ),
+        isolation_provider=str(
+            os.environ.get("HARNESS_COMPUTER_ISOLATION_PROVIDER") or isolation_block.get("provider", "auto")
+        ),
+        headless_display_base=_int(
+            os.environ.get("HARNESS_COMPUTER_DISPLAY_BASE"), int(isolation_block.get("display_base", 99)), low=1, high=9999
+        ),
+        headless_screen=str(isolation_block.get("screen", "1920x1080x24")),
+        rdp_host=str(os.environ.get("HARNESS_COMPUTER_RDP_HOST") or isolation_block.get("rdp_host", "")),
+        rdp_file=str(os.environ.get("HARNESS_COMPUTER_RDP_FILE") or isolation_block.get("rdp_file", "")),
         observation_default_mode=_choice(
             os.environ.get("HARNESS_COMPUTER_OBSERVATION") or observation.get("default_mode", "som"),
             OBSERVATION_MODES, "som",
@@ -293,6 +323,7 @@ __all__ = [
     "ComputerConfig",
     "DELIVERY_MODES",
     "FINANCE_MODES",
+    "ISOLATION_MODES",
     "MAX_ACTIONS_CEILING",
     "MAX_RECORDING_FRAMES_CEILING",
     "MAX_SESSIONS_CEILING",

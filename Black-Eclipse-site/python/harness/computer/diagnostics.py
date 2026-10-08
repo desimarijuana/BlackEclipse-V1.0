@@ -31,6 +31,17 @@ def _os_info() -> dict[str, Any]:
     return info
 
 
+def _accessibility_detail() -> str:
+    """The accessibility backend names for this platform (honest, per-OS)."""
+    if sys.platform == "win32":
+        return "UI Automation (uiautomation) / Win32"
+    if sys.platform == "darwin":
+        return "AX API (Accessibility permission required)"
+    if sys.platform.startswith("linux"):
+        return "AT-SPI (python3-pyatspi)"
+    return "no accessibility backend on this platform"
+
+
 def diagnose(manager: Any) -> dict[str, Any]:
     """A structured readiness report for the Computer Use capability."""
     if manager is None:
@@ -50,7 +61,7 @@ def diagnose(manager: Any) -> dict[str, Any]:
         checks.append({"name": name, "ok": bool(ok), "detail": detail})
 
     add("driver", driver.id != "null", f"{driver.label} ({driver.id})")
-    add("accessibility", capabilities.accessibility, "UI Automation / AT-SPI / AX")
+    add("accessibility", capabilities.accessibility, _accessibility_detail())
     add("screen_capture", capabilities.screen_capture, "screen capture")
     add("input_dispatch", capabilities.foreground_input or capabilities.background_input,
         "background" if capabilities.background_input else "foreground only")

@@ -3,6 +3,14 @@
   "computer_use": {
     "mode": "background",
     "driver": { "backend": "auto" },
+    "isolation": {
+      "mode": "off",
+      "provider": "auto",
+      "display_base": 99,
+      "screen": "1920x1080x24",
+      "rdp_host": "",
+      "rdp_file": ""
+    },
     "observation": { "default_mode": "som" },
     "vision": {
       "mode": "hybrid",

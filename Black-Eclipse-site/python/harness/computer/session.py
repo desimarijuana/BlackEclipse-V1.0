@@ -110,6 +110,8 @@ class ComputerSession:
         self.focus_before_action: Optional[str] = None
         # Monotonic count of actions STARTED, for the hard `max_actions` ceiling.
         self.actions_started = 0
+        # Whether this session drives its OWN desktop (isolated) or the shared one.
+        self._isolated = False
 
         self.windows = WindowManager(driver)
         self.applications = ApplicationManager(driver)
@@ -189,6 +191,7 @@ class ComputerSession:
         return {
             "sessionId": self.id, "state": self.state.value, "driver": self.driver.id,
             "displayState": self._display_state(), "riskMode": self.risk_mode,
+            "isolated": self._isolated,
             "currentSnapshot": self._latest_snapshot.snapshot_id if self._latest_snapshot else None,
             "currentTask": self.current_task, "actions": len(self.action_history),
             "createdAt": _iso(self.created_at),
@@ -248,6 +251,19 @@ class ComputerSession:
         """Whether the control lease currently permits the agent to act."""
         check = getattr(self, "_lease_check", None)
         return bool(check()) if callable(check) else True
+
+    def acquire_desktop(self) -> bool:
+        """Acquire the machine-wide desktop control lease (serialize sessions)."""
+        acquire = getattr(self, "_broker_acquire", None)
+        return bool(acquire()) if callable(acquire) else True
+
+    def release_desktop(self) -> None:
+        release = getattr(self, "_broker_release", None)
+        if callable(release):
+            try:
+                release()
+            except Exception:  # noqa: BLE001
+                pass
 
     def validate_handle(self, *, snapshot_id: Optional[str], ref: Optional[str], identity: Optional[str] = None) -> StaleCheck:
         """Confirm a snapshot element handle is still valid.
@@ -488,6 +504,7 @@ class ComputerSession:
             pass
 
     async def close(self) -> dict[str, Any]:
+        self.release_desktop()
         self._transition(SessionState.TERMINATED)
         try:
             self.recorder.export()

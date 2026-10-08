@@ -54,20 +54,21 @@ The browser is **not** replaced by Computer Use, and vice versa. Browser *chrome
 | `core.py` | the platform-independent orchestrator (`ComputerCore`): the ONE loop; delivery-mode escalation; finance routing |
 | `manager.py` | the process-wide `ComputerManager` (sessions, driver, engines, leases, store) |
 | `session.py` | one `ComputerSession`: state, snapshot cache, stale-handle validation, focus restore |
-| `drivers/` | `ComputerDriver` interface + `windows.py` (ctypes Win32) + `null.py`; the factory picks the platform driver |
-| `accessibility/` | AX providers: `windows.py` (UIA when installed, Win32 child-window baseline), `null.py` |
+| `drivers/` | `ComputerDriver` interface + `windows.py` (ctypes Win32), `linux.py` (ctypes X11/XTest), `macos.py` (ctypes Core Graphics/AX), `wayland.py` (grim/ydotool), `window.py` (attach to a contained remote/isolated desktop) + `null.py`; the factory picks the platform driver |
+| `accessibility/` | AX providers: `windows.py` (UIA when installed, Win32 child-window baseline), `linux.py` (AT-SPI), `macos.py` (AX API), `null.py` |
 | `observation.py` | builds a `Snapshot` in mode `som`/`ax`/`ocr`/`vision`; mints snapshot ids + numbered handles |
 | `grounding/` | `Grounder` (the fixed hierarchy) + pure matchers |
 | `actions/` | `mouse.py`, `keyboard.py`, `value.py` (`set_value`), `keymap.py` (semantic shortcuts) |
 | `windows/` · `applications/` | window management; application management + the `ApplicationAdapter` framework and initial adapters |
 | `screenshots/` | capture + region intelligence + screen diff |
-| `ocr/` | first-class OCR (Tesseract when installed; honest null otherwise) |
+| `ocr/` | first-class OCR (`windows.py` OS-native via `winsdk`; Tesseract; honest null otherwise) |
 | `vision/` | provider-agnostic vision via the harness model runtime; local/cloud/hybrid routing |
 | `verification/` | `ActionVerifier` (verified / failed / uncertain) |
 | `recovery.py` | the recovery ladder + `RecoveryEngine` |
-| `policy.py` · `security.py` | permission engine + risk bands; sensitive-region detection/redaction |
+| `policy.py` · `security.py` | permission engine + risk bands; sensitive-region detection/redaction; challenge + injection detection |
 | `finance/` | field vocabulary, screen extraction (with provenance), the **Finance Action Firewall** |
-| `takeover.py` | the control lease (`take_over`/`pause`/`resume`/`release`) |
+| `takeover.py` · `broker.py` | the per-session control lease; the machine-wide session broker |
+| `desktop.py` | `DesktopProvisioner` (local shared; real Xvfb, RDP, Windows Sandbox; Wayland attach) — create/attach/teardown of a session's desktop |
 | `recording.py` · `replay.py` | trajectories + deterministic replay |
 | `telemetry.py` · `diagnostics.py` | metrics; the doctor |
 | `store.py` · `memory.py` | `agent-memory.db` tables; Eclipse-Memory knowledge (not JDdS) |
@@ -140,6 +141,35 @@ verdict `retry`) and a hard session budget (`max_actions`; breach ⇒
 `BudgetExceeded`/`COMPUTER_BUDGET_EXCEEDED`, verdict `abort`). A dry run still
 counts against the budget, matching what `capabilities().limits` reports.
 
+## Isolated desktops
+
+`desktop.py` decides WHERE a session runs. `isolation.mode=off` (default) uses the
+shared local desktop; `auto`/`on` provisions an isolated one, falling back to local
+with a reason if the backend is absent. `headless_desktop` is true only for a
+genuinely provisioned isolated desktop.
+
+| Provider | Backend | Isolated | Status |
+|---|---|---|---|
+| `local` | the operator's desktop | no | default; sessions serialize via `broker.py` |
+| `x11` | private `Xvfb :N` per session | yes | **real** — create/attach/teardown, tested |
+| `rdp` | `mstsc` to `rdp.host`/`rdp.file` | yes | **real** — attaches a `WindowDriver` to the client window |
+| `windows_sandbox` | `WindowsSandbox.exe` guest window | yes | **real** — attaches to the sandbox client window |
+| `wayland` | nested headless compositor (`wlheadless-run`/`sway`/`weston`) | yes | **real** — private socket; `grim` capture + `ydotool` input |
+
+- **`WindowDriver`** (`drivers/window.py`) is the attach mechanism for remote/isolated
+  desktops: it scopes capture/input to the contained desktop window and translates
+  window-local coordinates to absolute foreground events. Input is **background-first
+  when the base driver supports it**, escalating to foreground (with verification)
+  otherwise. Because the guest's native accessibility tree is not host-visible, the
+  driver derives a real element tree from **OCR of the contained window**
+  (`source=ocr`); with no OCR backend it reports `accessibility:false` honestly.
+- An **isolated session does not take the machine-wide broker**, so N agents run
+  concurrently on N desktops; shared sessions still serialize.
+- **`WaylandDriver`** (`drivers/wayland.py`) reports capture and input separately:
+  a missing `grim` makes capture False, a missing `ydotool` makes input False —
+  each with a reason. `WaylandHeadlessProvisioner` gives a session its own headless
+  compositor socket when a launcher/compositor is installed.
+
 ## Security, permissions, finance
 
 - The **policy engine** (`policy.py`) is the ONE permission authority:
@@ -186,9 +216,14 @@ counts against the budget, matching what `capabilities().limits` reports.
 (`HARNESS_COMPUTER_*`). A reference file is committed at `computer.example.json`.
 Notable keys now wired end-to-end: `vision.model` (overrides the resolved vision
 model id), `ocr.enabled` (disables OCR entirely) and `ocr.backend`
-(`auto|winocr|tesseract|none`), and the finance allowlists
+(`auto|winocr|tesseract|none`), the finance allowlists
 `finance.allowed_apps|allowed_accounts|allowed_instruments`
-(`HARNESS_COMPUTER_FINANCE_ALLOWED_*`).
+(`HARNESS_COMPUTER_FINANCE_ALLOWED_*`), and desktop isolation
+`isolation.mode` (`off|auto|on`), `isolation.provider`
+(`auto|local|x11|wayland|windows_sandbox|rdp`), `isolation.display_base`,
+`isolation.screen`, `isolation.rdp_host`, `isolation.rdp_file`
+(`HARNESS_COMPUTER_ISOLATION`, `HARNESS_COMPUTER_ISOLATION_PROVIDER`,
+`HARNESS_COMPUTER_DISPLAY_BASE`, `HARNESS_COMPUTER_RDP_HOST`, `HARNESS_COMPUTER_RDP_FILE`).
 
 ## Honesty (nothing is fabricated)
 
@@ -200,6 +235,29 @@ third-party package required). `auto` OCR prefers the OS-native engine
 (UIA via `uiautomation`) and the native OCR are optional and their absence is
 reported, not hidden. `Pillow`/`uiautomation`/`winsdk` are declared in
 `requirements.txt` and installed/repaired by `setup-python.js`/`doctor.js`.
+
+## Platform support and roadmap
+
+| Platform | Driver | Input | Accessibility | Status |
+|---|---|---|---|---|
+| Windows | `windows.py` (ctypes Win32) | foreground (SendInput) + background (PostMessage) | UIA (installed) / Win32 baseline | **Ready** |
+| Linux/X11 | `linux.py` (ctypes X11/XTest) | foreground (XTest) | AT-SPI (if `python3-pyatspi`) | Implemented; live-verification pending |
+| macOS | `macos.py` (ctypes CGEvent/AX) | foreground (CGEvent) | AX API (Accessibility TCC) | Implemented; TCC permissions required |
+| Linux/Wayland | — | — | — | Honest `NullDriver` (no global-input API) |
+
+The driver factory returns a real driver per platform and a genuine `NullDriver`
+where no backend exists (Wayland-only sessions without `grim`/`ydotool`, unknown
+OS). Isolated desktops are covered above. Remaining honest gaps:
+
+- **Live app verification** (`tests/test_computer_apps_live.py`, opt-in via
+  `BLACK_ECLIPSE_CUA_APPS=1`) drives real apps; adapters carry a `verified` flag
+  that defaults False (knowledge record) until a live run marks it with a build note.
+- **Xvfb** has an opt-in live test (`tests/test_computer_xvfb_live.py`,
+  `BLACK_ECLIPSE_CUA_XVFB=1` on Linux) — the injected-probe lifecycle runs everywhere,
+  the real capture runs on a Linux host.
+- **Sandbox/RDP input** is best-effort: background-first where the base driver
+  supports it, else foreground with verification; a client may still not forward
+  every event. The guest element tree is OCR-derived, not native AX.
 
 ## Tests
 

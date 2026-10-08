@@ -82,6 +82,15 @@ class ApplicationAdapter:
         haystack = (text or "").lower()
         return any(marker in haystack for marker in self.ready_markers)
 
+    def mark_verified(self, note: str) -> None:
+        """Record that a live rig drove this adapter against the real app.
+
+        Only a rig (or an operator decision) should call this; it is never set by
+        construction, so `verified` stays an honest claim.
+        """
+        self.verified = True
+        self.verified_note = note
+
     def describe(self) -> dict[str, Any]:
         return {
             "id": self.id, "name": self.name,

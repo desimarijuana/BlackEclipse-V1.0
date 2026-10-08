@@ -6,6 +6,8 @@ the fix cannot silently regress.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from harness.computer.errors import TargetObscured
@@ -562,3 +564,372 @@ def test_headless_desktop_provider_reports_honestly():
     if provider.id == "null":
         assert provider.available is False
         assert provider.reason
+
+
+# ── Phase B: isolated-desktop provisioners ───────────────────────────────────
+
+def test_isolation_off_selects_the_local_shared_desktop():
+    from harness.computer.config import ComputerConfig
+    from harness.computer.desktop import build_provisioner
+
+    provisioner = build_provisioner(ComputerConfig(isolation="off"))
+    assert provisioner.id == "local"
+    assert provisioner.isolated is False and provisioner.headless is False
+    assert provisioner.available is True
+
+
+def test_windows_sandbox_is_honest_about_availability():
+    from harness.computer.desktop import WindowsSandboxProvisioner
+
+    # No injected launcher ⇒ availability depends on this host; either way it is
+    # honest (available with a path, or unavailable with a reason).
+    provider = WindowsSandboxProvisioner(process_factory=None, wsb_path=None)
+    assert provider.isolated is True and provider.headless is True
+    if provider.available:
+        assert provider._wsb
+    else:
+        assert provider.reason
+
+
+def test_xvfb_provisioner_unavailable_without_xvfb():
+    from harness.computer.desktop import X11HeadlessProvisioner
+
+    # No injected factory and a bogus binary ⇒ honest unavailable.
+    provider = X11HeadlessProvisioner(xvfb_path=None, process_factory=None)
+    if provider.available:  # a Linux host with Xvfb installed
+        assert provider._xvfb_path
+    else:
+        assert provider.reason
+
+
+@pytest.mark.asyncio
+async def test_xvfb_lifecycle_with_injected_spawn():
+    """The full create/attach/teardown lifecycle, driven by an injected spawner
+    and socket probe so it is testable without Xvfb installed."""
+    from harness.computer.desktop import X11HeadlessProvisioner
+
+    spawned: list[tuple[str, str]] = []
+    existing: set[str] = set()
+    terminated: list[bool] = []
+
+    class _Proc:
+        def terminate(self):
+            terminated.append(True)
+
+    def spawn(argv, display):
+        spawned.append((argv, display))
+        existing.add(f"/tmp/.X11-unix/X{display.lstrip(':')}")
+        return _Proc()
+
+    provisioner = X11HeadlessProvisioner(
+        xvfb_path="/usr/bin/Xvfb",
+        process_factory=spawn,
+        socket_exists=lambda p: p in existing,
+        start_timeout=2.0,
+    )
+    assert provisioner.available is True
+
+    # The LinuxX11Driver can't start off-Linux; inject a stand-in driver.
+    class _FakeDriver:
+        id = "linux"
+        _ax = None
+
+        async def start(self):
+            return None
+
+        async def stop(self):
+            return None
+
+    import harness.computer.drivers.linux as linux_mod
+
+    original = linux_mod.LinuxX11Driver
+    linux_mod.LinuxX11Driver = lambda **kw: _FakeDriver()
+    try:
+        instance = await provisioner.create(config=None)
+    finally:
+        linux_mod.LinuxX11Driver = original
+
+    assert instance.isolated is True and instance.headless is True
+    assert instance.display and instance.display.startswith(":")
+    assert spawned and spawned[0][1] == instance.display
+    await provisioner.destroy(instance)
+    assert terminated == [True]
+
+
+@pytest.mark.asyncio
+async def test_windows_sandbox_attach_lifecycle_with_injected_hooks():
+    """Sandbox create attaches a WindowDriver to the guest window, then tears down."""
+    from harness.computer.desktop import WindowsSandboxProvisioner
+
+    terminated: list[bool] = []
+
+    class _Proc:
+        def terminate(self):
+            terminated.append(True)
+
+    async def _noop():
+        return None
+
+    class _Base:
+        id = "windows"
+        platform = "windows"
+
+        async def start(self):
+            return None
+
+        async def focus_window(self, window_id, *, foreground=False):
+            from harness.computer.drivers.base import InputResult
+            return InputResult(delivered=True, delivery_mode="foreground")
+
+        def get_window(self, wid):
+            from harness.computer.models import Bounds, WindowInfo
+            return WindowInfo(id="42", title="Windows Sandbox", app="WindowsSandboxClient",
+                              bounds=Bounds(100, 100, 800, 600), focused=True)
+
+        def list_windows(self):
+            return [self.get_window("42")]
+
+    provisioner = WindowsSandboxProvisioner(
+        wsb_path=r"C:\Windows\System32\WindowsSandbox.exe",
+        process_factory=lambda _p: _Proc(),
+        window_probe=lambda hint: "42",
+    )
+    assert provisioner.available is True
+    instance = await provisioner.create(config=None, base_driver=_Base())
+    assert instance.isolated is True and instance.headless is True
+    assert instance.metadata["window"] == "42"
+    assert instance.driver.id == "window"
+    # Capture is scoped to the contained window, not the whole desktop.
+    assert instance.driver.list_displays()[0].bounds.width == 800
+    # Input is translated from window-local to absolute coordinates.
+    ox, oy, _w, _h = instance.driver._origin()
+    assert (ox, oy) == (100, 100)
+    await provisioner.destroy(instance)
+    assert terminated == [True]
+
+
+@pytest.mark.asyncio
+async def test_rdp_provisioner_needs_a_host_or_file():
+    from harness.computer.desktop import RdpDesktopProvisioner
+
+    no_target = RdpDesktopProvisioner(process_factory=None)
+    if not no_target.available:
+        assert "rdp" in no_target.reason.lower() or "mstsc" in no_target.reason.lower()
+
+    spawned: list[list[str]] = []
+
+    class _Proc:
+        def terminate(self):
+            pass
+
+    provisioner = RdpDesktopProvisioner(
+        host="desk.example.com",
+        mstsc_path=r"C:\Windows\System32\mstsc.exe",
+        process_factory=lambda argv: spawned.append(argv) or _Proc(),
+        window_probe=lambda hint: "7",
+    )
+    assert provisioner.available is True
+
+    class _Base:
+        id = "windows"
+        platform = "windows"
+
+        async def focus_window(self, window_id, *, foreground=False):
+            from harness.computer.drivers.base import InputResult
+            return InputResult(delivered=True, delivery_mode="foreground")
+
+        def get_window(self, wid):
+            from harness.computer.models import Bounds, WindowInfo
+            return WindowInfo(id="7", title="desk.example.com - Remote Desktop",
+                              app="mstsc", bounds=Bounds(0, 0, 1280, 1024), focused=True)
+
+        def list_windows(self):
+            return [self.get_window("7")]
+
+    instance = await provisioner.create(config=None, base_driver=_Base())
+    assert spawned and "/v:desk.example.com" in spawned[0]
+    assert instance.driver.id == "window"
+    await provisioner.destroy(instance)
+
+
+def test_wayland_provisioner_reports_honestly():
+    from harness.computer.desktop import WaylandHeadlessProvisioner
+
+    provider = WaylandHeadlessProvisioner()
+    if provider.available:
+        assert provider.isolated is True and provider.headless is True
+    else:
+        assert provider.reason
+
+
+def test_build_provisioner_supports_all_named_backends():
+    from harness.computer.config import ComputerConfig
+    from harness.computer.desktop import build_provisioner
+
+    for name in ("local", "x11", "wayland", "windows_sandbox", "rdp"):
+        provisioner = build_provisioner(ComputerConfig(isolation="on", isolation_provider=name))
+        # Whatever the host, the result is a real provisioner object, never a crash.
+        assert provisioner is not None
+        assert hasattr(provisioner, "describe")
+    # The RDP provider honours configured host/file.
+    cfg = ComputerConfig(isolation="on", isolation_provider="rdp", rdp_host="h")
+    assert cfg.rdp_host == "h"
+
+
+@pytest.mark.asyncio
+async def test_wayland_headless_lifecycle_with_injected_spawn():
+    """A private headless Wayland compositor: create → attach → teardown."""
+    from harness.computer.desktop import WaylandHeadlessProvisioner
+
+    terminated: list[bool] = []
+    spawned: list[list[str]] = []
+    existing: set[str] = set()
+
+    class _Proc:
+        def terminate(self):
+            terminated.append(True)
+
+    def spawn(argv, env):
+        spawned.append(argv)
+        existing.add(os.path.join(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"]))
+        return _Proc()
+
+    provisioner = WaylandHeadlessProvisioner(
+        launcher="/usr/bin/wlheadless-run",
+        compositor="/usr/bin/sway",
+        process_factory=spawn,
+        socket_exists=lambda p: p in existing,
+        start_timeout=2.0,
+    )
+    assert provisioner.available is True
+
+    class _FakeWaylandDriver:
+        id = "wayland"
+        platform = "linux"
+
+        def __init__(self, **kw):
+            self._display = kw.get("display")
+
+        async def start(self):
+            return None
+
+        async def stop(self):
+            return None
+
+    import harness.computer.drivers.wayland as wl_mod
+
+    original = wl_mod.WaylandDriver
+    wl_mod.WaylandDriver = _FakeWaylandDriver
+    try:
+        instance = await provisioner.create(config=None)
+    finally:
+        wl_mod.WaylandDriver = original
+    assert instance.isolated is True and instance.headless is True
+    assert spawned and spawned[0][0] == "/usr/bin/wlheadless-run"
+    assert instance.display and instance.display.startswith("wayland-")
+    await provisioner.destroy(instance)
+    assert terminated == [True]
+
+
+def test_window_driver_ocr_accessibility_bridge():
+    """The bridge turns OCR of the contained window into a real element tree."""
+    from harness.computer.drivers.window import WindowDriver
+    from harness.computer.ocr.engine import OCRLine, OCRResult, OCRWord
+    from harness.computer.models import Bounds
+
+    class _FakeBase:
+        id = "windows"
+        platform = "windows"
+
+        def get_window(self, wid):
+            from harness.computer.models import WindowInfo
+            return WindowInfo(id="9", title="Sandbox", app="client",
+                              bounds=Bounds(50, 60, 400, 300), focused=True)
+
+        def list_windows(self):
+            return [self.get_window("9")]
+
+    class _FakeOCR:
+        available = True
+
+        def read(self, image, *, bounds=None):
+            line = OCRLine(
+                text="Buy Sell", bounds=Bounds(10, 20, 120, 24), confidence=0.9,
+                words=[OCRWord("Buy", Bounds(10, 20, 40, 24), 0.9),
+                       OCRWord("Sell", Bounds(60, 20, 40, 24), 0.9)],
+            )
+            return OCRResult(available=True, engine="fake", text="Buy Sell",
+                             lines=[line], words=line.words, confidence=0.9)
+
+    driver = WindowDriver(_FakeBase(), window_id="9", ocr=_FakeOCR(), accessibility_bridge=True)
+    # The bridge reads pixels synchronously; inject a fake grab with the window size.
+    from PIL import Image
+
+    driver._sync_grab = lambda: Image.new("RGB", (400, 300), "white")
+    tree = driver.accessibility_tree("9")
+    assert tree is not None
+    names = [n.name for n in tree.walk() if n.name]
+    assert "Buy" in names and "Sell" in names
+    # Bounds are translated to absolute (window origin added).
+    buy = next(n for n in tree.walk() if n.name == "Buy")
+    assert buy.bounds.x == 60 and buy.bounds.y == 80
+    # Capabilities honestly report a derived (OCR) tree.
+    assert driver.capabilities().accessibility is True
+    assert any("OCR" in note for note in driver.capabilities().notes)
+
+
+def test_window_driver_without_ocr_reports_no_accessibility():
+    from harness.computer.drivers.window import WindowDriver
+
+    class _FakeBase:
+        id = "windows"
+        platform = "windows"
+
+    driver = WindowDriver(_FakeBase(), window_id="9", ocr=None)
+    assert driver.accessibility_tree("9") is None
+    assert driver.capabilities().accessibility is False
+
+
+@pytest.mark.asyncio
+async def test_isolated_session_skips_the_machine_broker(monkeypatch):
+    """An isolated session has its own display: it must NOT take the shared
+    machine-wide broker, so it neither waits nor blocks the local desktop."""
+    from harness.computer.config import ComputerConfig
+    from harness.computer.manager import ComputerManager
+
+    class _FakeDriver:
+        id = "fake"
+        label = "fake"
+
+        def capabilities(self):
+            from harness.computer.models import Capabilities
+            return Capabilities(platform="test", foreground_input=True, screen_capture=True)
+
+        def contract(self):
+            from harness.computer.models import DriverContract
+            return DriverContract(platform="test")
+
+        async def start(self):
+            return None
+
+    class _FakeProvisioner:
+        id = "x11"
+        isolated = True
+        headless = True
+        available = True
+
+        async def create(self, **kwargs):
+            from harness.computer.desktop import DesktopInstance
+            return DesktopInstance(id="i1", provider_id="x11", driver=_FakeDriver(), isolated=True, headless=True)
+
+        async def destroy(self, instance):
+            return None
+
+    manager = ComputerManager(config=ComputerConfig())
+    manager.driver = _FakeDriver()
+    manager.provisioner = _FakeProvisioner()
+    session = await manager.create_session()
+    # The isolated session must not be bound to the shared broker.
+    assert getattr(session, "_broker_acquire", None) is None
+    # And the shared broker stays free for another session.
+    assert manager.broker.owner() is None
