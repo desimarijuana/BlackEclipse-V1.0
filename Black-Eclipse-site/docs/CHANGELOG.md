@@ -8,6 +8,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Agent Workspace — execution-observability panel (Phase 1–8).** Added a global,
+  portaled **Agent Workspace** that shows what the agent is doing in real time
+  without flooding chat: a normalized event model (`src/lib/agent-workspace/`
+  `types`/`normalize`/`reducer`/`store`/`stream`/`history`/`ingest`/`format`), a
+  batched immer store, and 13 panels (Overview, Activity, Tasks, Changes, Context,
+  Terminal, Research, Browser, Computer, Artifacts, Approvals, Telemetry, History)
+  plus a virtualized large-output Viewer. It is fed by the **ONE existing** chat SSE
+  stream via a single new seam (`ingestHarnessFrame`) in `src/lib/agent/registry.ts`
+  — no second event bus. Mounted once in `src/app/layout.tsx` + a top-bar toggle, so
+  the existing left sidebar, shell and every screen are untouched. Large outputs are
+  `ArtifactRef` handles; approvals reuse the existing decide endpoint. Unit +
+  reachability tests (`agent-workspace.test.ts`, `agent-workspace-reachability.test.ts`).
+  Docs updated: `docs/agent-workspace.md` (new), `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` (ADR-042).
+
 - **Authentication & multi-user mode — opt-in, auto-engages off loopback.**
   BlackEclipse is now able to require a signed-in user, without breaking
   zero-config. A single mode resolver (`src/lib/auth/config.ts`) makes auth

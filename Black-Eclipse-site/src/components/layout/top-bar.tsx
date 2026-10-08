@@ -9,6 +9,7 @@ import { useT } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { useTerminalStore } from '@/lib/terminal/store';
+import { AgentWorkspaceToggle } from '@/components/agent-workspace/workspace';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -100,6 +101,7 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
                 K
               </kbd>
             </button>
+            <AgentWorkspaceToggle />
             <TerminalButton />
          </div>
      </div>

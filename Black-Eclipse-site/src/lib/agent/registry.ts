@@ -1,5 +1,6 @@
 import type { AgentProvider, AgentStatusEvent, AgentTool, ChatMessage, ChatOptions } from './types';
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
+import { ingestHarnessFrame } from '@/lib/agent-workspace/ingest';
 
 export { unwrapEventPayload } from './events';
 
@@ -128,6 +129,10 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
   let streamError: string | null = null;
 
   const parse = createSseParser((event, data) => {
+    // Feed the Agent Workspace observability layer from the same stream. This is
+    // additive: it never changes what the chat does with the frame.
+    ingestHarnessFrame(event, data);
+
     // Normalize first — this is the ONE place raw frames become typed events.
     const uiEvent = normalizeHarnessEvent(event, data);
     if (uiEvent) options?.onEvent?.(uiEvent);

@@ -426,6 +426,7 @@ health).
 | Git service contracts | `src/lib/git/service.ts` (`GitStatus`, `GitFileChange`, `GitCommitInfo`) |
 | Mutation guard | `src/lib/api-guard.ts` |
 | Tab ids | `AppTab` in `src/components/layout/sidebar.tsx` |
+| Agent Workspace (execution observability) | `src/lib/agent-workspace/` (`types`/`normalize`/`reducer`/`store`/`stream`/`history`/`ingest`/`format`), `src/components/agent-workspace/**` (dock + 13 panels + Viewer), mounted globally in `src/app/layout.tsx` + top-bar toggle; design `docs/agent-workspace.md`; ADR-042 |
 
 ## Documentation trigger table
 
@@ -447,6 +448,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `python/harness/eclipse_memory/`, `python/harness/memory_tools.py`, `src/lib/harness/eclipse-memory-*.ts`, `src/components/screens/eclipse-memory/`, `src/app/api/eclipse-memory/` | `harness/phase-3-memory-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | `src/lib/regime/`, `src/app/api/regime/` | `ARCHITECTURE.md` (Market Regime), `DATA-FLOW.md`, `OVERVIEW.md` |
+| `src/lib/agent-workspace/`, `src/components/agent-workspace/`, the global mount in `src/app/layout.tsx` | `agent-workspace.md`, this file, `DECISIONS.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | `python/harness/workflows/`, `python/harness/run_lineage.py`, `python/harness/eval_gates/`, `python/harness/health-ledger.ts`… (run lineage/checkpoints/resume, the workflow compiler, the route-health ledger + probe, provider eligibility, the eval gates) | `harness/architecture.md` (execution graph / workflow / health-keying / capability-matrix sections), `harness/decisions.md` (ADR-H93…H96), this file |
 | A new top-level folder or major module | this file |
