@@ -935,6 +935,22 @@ async def _request_or_claim(ctx: Any, args: dict[str, Any], *, key: str, command
 
     ws_id = str(getattr(workspace, "id", ""))
     digest = _hashlib.sha256(f"{ws_id}\x00{key.strip()}".encode("utf-8")).hexdigest()
+    # Standing grant ("always allow <program> in this workspace"). The caller
+    # already refused a `deny`, so a grant can never make a destructive command run.
+    head = command.strip().split(None, 1)[0].casefold() if command.strip() else ""
+    grant_pattern = "open_shell" if key == "open_shell" else (head or command.strip().casefold())
+    grants = getattr(approvals, "grants", None)
+    if grants is not None and grant_pattern and grants.matches("command", ws_id, grant_pattern) is not None:
+        try:
+            from ..code.tools import emit_code_event  # noqa: PLC0415
+
+            await emit_code_event(ctx, "approval.granted", {
+                "kind": _APPROVAL_KIND, "grantPattern": grant_pattern,
+                "workspaceId": ws_id, "command": command[:180],
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        return True
     if approvals.consume_kind(kind=_APPROVAL_KIND, request_key=ws_id, digest=digest, workspace_id=ws_id) is not None:
         return True
     pending = None
@@ -943,6 +959,7 @@ async def _request_or_claim(ctx: Any, args: dict[str, Any], *, key: str, command
             kind=_APPROVAL_KIND, request_key=ws_id, digest=digest, effect="external_action",
             run_id=str(getattr(ctx, "run_id", "")), workspace_id=ws_id,
             action_summary=f"Run a command: {command[:180]}", risk="medium",
+            grant_kind="command", grant_pattern=grant_pattern, grant_scope=ws_id,
         )
     except Exception:  # noqa: BLE001
         pass
@@ -958,6 +975,8 @@ async def _request_or_claim(ctx: Any, args: dict[str, Any], *, key: str, command
             "risk": "medium",
             "command": command[:180],
             "workspaceId": ws_id,
+            "grantPattern": grant_pattern,
+            "grantLabel": f"Always allow `{grant_pattern}` in this workspace" if grant_pattern else None,
         })
     except Exception:  # noqa: BLE001
         pass

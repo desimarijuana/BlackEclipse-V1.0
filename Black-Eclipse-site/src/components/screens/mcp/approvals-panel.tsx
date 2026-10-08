@@ -82,12 +82,12 @@ export function MCPApprovalsPanel({ busy, onError }: { busy: boolean; onError: (
               <div key={a.id} className={cn("rounded-xl border px-3 py-2",
                 expired ? "border-border/20 bg-muted/10 opacity-80"
                   : decided ? "border-border/20 bg-muted/10"
-                    : "border-amber-500/20 bg-amber-500/5")}>
+                    : "border-primary/20 bg-primary/5")}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-mono text-foreground">{a.tool}</span>
                   <EffectBadge effect={a.effect} />
                   <span className={cn("text-[9px] font-bold uppercase",
-                    a.status === "approved" ? "text-emerald-400" : a.status === "consumed" ? "text-sky-400" : a.status === "denied" ? "text-rose-400" : a.status === "expired" ? "text-muted-foreground" : "text-amber-300")}>
+                    a.status === "approved" ? "text-emerald-400" : a.status === "consumed" ? "text-sky-400" : a.status === "denied" ? "text-rose-400" : a.status === "expired" ? "text-muted-foreground" : "text-primary")}>
                     {a.status}
                   </span>
                   {a.risk && (

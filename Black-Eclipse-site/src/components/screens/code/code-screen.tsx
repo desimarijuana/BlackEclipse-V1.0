@@ -29,6 +29,7 @@ import {
 import { TaskList } from './task-list';
 import { TaskDetail } from './task-detail';
 import { CodeApprovals } from './code-approvals';
+import { StandingGrantsPanel } from './standing-grants';
 
 type CodeView = 'tasks' | 'approvals';
 
@@ -142,11 +143,12 @@ export function CodeScreen() {
         )}
       </div>
 
-      <div className={cn(view !== 'approvals' && 'hidden')}>
+      <div className={cn(view !== 'approvals' && 'hidden', 'space-y-3')}>
         <CodeApprovals
           approvals={approvals}
           onDecide={(id, approve) => { void decideCodeApproval(id, approve).then(after); }}
         />
+        <StandingGrantsPanel />
       </div>
     </div>
   );

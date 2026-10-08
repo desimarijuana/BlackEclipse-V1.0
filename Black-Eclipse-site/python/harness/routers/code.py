@@ -54,6 +54,9 @@ class CodeIntentRequest(BaseModel):
 class DecideApprovalRequest(BaseModel):
     approve: bool
     reason: str = Field("", max_length=400)
+    # "Always allow": create a standing grant for the exact program/tool the
+    # pending approval describes (only when the row carries a grantable pattern).
+    remember: bool = False
 
 
 class RequestActionRequest(BaseModel):
@@ -360,7 +363,10 @@ def decide_code_approval(
     decided = service.approvals.decide(
         approval_id, approve=body.approve, decided_by="operator", reason=body.reason,
     )
-    return {"success": True, "approval": decided}
+    grant = None
+    if body.approve and body.remember:
+        grant = service.approvals.remember_grant(approval_id)
+    return {"success": True, "approval": decided, "grant": grant}
 
 
 @router.post("/code/tasks/{task_id}/actions")

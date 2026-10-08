@@ -204,11 +204,12 @@ export async function listMCPApprovals(status?: string): Promise<MCPApprovalView
 export async function decideMCPApproval(
   approvalId: string,
   approve: boolean,
-  reason = ""
+  reason = "",
+  remember = false
 ): Promise<MCPApprovalView> {
   const body = await request<{ approval: MCPApprovalView }>(
     `/mcp/approvals/${encodeURIComponent(approvalId)}/decide`,
-    { method: "POST", body: JSON.stringify({ approve, reason }) }
+    { method: "POST", body: JSON.stringify({ approve, reason, remember }) }
   );
   return body.approval;
 }

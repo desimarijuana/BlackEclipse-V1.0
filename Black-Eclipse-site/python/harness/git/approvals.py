@@ -95,6 +95,16 @@ def make_git_authorizer(
         # Already authorized for THIS call-scope at an earlier seam.
         if ctx is not None and getattr(ctx, "effect_authorized_digest", None) == digest:
             return True
+        # A standing grant may remember a NON-dangerous operation (a remote
+        # push/pull), never a destructive one (hard reset, cleanup, force delete).
+        op_risk = _operation_risk(name, args or {}, declared)
+        grant_pattern = name if op_risk not in _APPROVAL_RISKS else None
+        grants = getattr(approvals, "grants", None)
+        if grants is not None and grant_pattern and grants.matches("git_operation", ws_id, grant_pattern) is not None:
+            _mark_authorized(ctx, digest)
+            if emitter is not None:
+                await emitter.emit("git.action.approved", {"tool": name, "grant": True})
+            return True
         claimed = approvals.consume_kind(
             kind=GIT_APPROVAL_KIND, request_key=f"git:{name}", digest=digest,
             workspace_id=ws_id or None,
@@ -114,6 +124,7 @@ def make_git_authorizer(
                 run_id=run_id, workspace_id=ws_id or None,
                 action_summary=_summary(name, args or {}),
                 risk=declared,
+                grant_kind="git_operation", grant_pattern=grant_pattern, grant_scope=ws_id or None,
             )
             if emitter is not None:
                 await emitter.emit("approval.requested", {
@@ -122,6 +133,8 @@ def make_git_authorizer(
                     "summary": _summary(name, args or {}),
                     "effect": effect or "write", "risk": declared, "tool": name,
                     "workspaceId": ws_id,
+                    "grantPattern": grant_pattern,
+                    "grantLabel": f"Always allow `{name}` in this workspace" if grant_pattern else None,
                 })
         except Exception:  # noqa: BLE001 - a store failure must never authorize
             pass

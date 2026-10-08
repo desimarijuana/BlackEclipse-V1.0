@@ -177,6 +177,7 @@ async def decide_mcp_approval(
     approval_id: str, payload: dict[str, Any], _: None = Depends(require_mcp_operator)
 ) -> JSONResponse:
     approve = bool(payload.get("approve"))
+    remember = bool(payload.get("remember"))
     result = service.approvals.decide(
         approval_id, approve=approve,
         decided_by=str(payload.get("decidedBy") or "operator"),
@@ -184,7 +185,13 @@ async def decide_mcp_approval(
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Approval not found")
-    return JSONResponse({"success": True, "approval": result})
+    # "Always allow": create the standing grant the row describes, AFTER the
+    # single-use decision is committed. A grant is created only for a real
+    # approval, and only when the row carries a grantable pattern.
+    grant = None
+    if approve and remember:
+        grant = service.approvals.remember_grant(approval_id)
+    return JSONResponse({"success": True, "approval": result, "grant": grant})
 
 
 @router.get("/mcp/integrations")

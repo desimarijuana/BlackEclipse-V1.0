@@ -20,14 +20,15 @@
 // future callers) raise the same toast+desktop pair without duplicating logic.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isEnabled, showAlertNotification } from '@/lib/alerts/browser-notifier';
+import { ALERT_NOTIFY_EVENT, isEnabled, showAlertNotification } from '@/lib/alerts/browser-notifier';
 import { seedSeen, selectNewEvents, type LiveAlertEvent } from '@/lib/alerts/event-diff';
 
 const POLL_MS = 10_000;
 const TOAST_MS = 8_000;
 const MAX_TOASTS = 4;
 
-export const ALERT_NOTIFY_EVENT = 'be:alert-notify';
+// Re-exported for the surfaces that already import it from this module.
+export { ALERT_NOTIFY_EVENT };
 
 interface Toast {
   id: string;

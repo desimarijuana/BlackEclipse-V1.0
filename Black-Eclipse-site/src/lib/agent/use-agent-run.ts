@@ -15,9 +15,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAgentProvider } from './registry';
 import type { ChatMessage } from './types';
 import type { HarnessUiEvent } from './events';
-import type { AssistantTurn } from './response-model';
+import type { AssistantTurn, PendingApproval } from './response-model';
 import { emptyTurn } from './response-model';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
+import { sound } from '@/lib/sounds';
+import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
 
 export interface StartRunArgs {
   /** Conversation turns BEFORE the new user message (role + content). */
@@ -52,8 +54,9 @@ export interface UseAgentRun {
   /**
    * Answer the current approval card. Resolves the paused run in place; the
    * card clears immediately and a failed POST restores it so the user can retry.
+   * `remember` additionally creates a standing grant ("Always allow").
    */
-  decide: (approve: boolean) => Promise<void>;
+  decide: (approve: boolean, remember?: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -171,6 +174,20 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           t.pendingApproval = event.approval;
           t.status = 'awaiting_approval';
           publish(true);
+          // Make it impossible to miss: a distinct cue, an in-app toast, and (if
+          // opted in) an OS notification — the same channel the alert system uses.
+          sound.notification();
+          if (typeof window !== 'undefined') {
+            const grant = event.approval.grantPattern ? ' You can also allow it always.' : '';
+            window.dispatchEvent(
+              new CustomEvent(ALERT_NOTIFY_EVENT, {
+                detail: {
+                  title: 'Approval needed',
+                  body: `${event.approval.title}.${grant}`,
+                },
+              }),
+            );
+          }
           break;
         }
         case 'approval_resolved': {
@@ -271,8 +288,8 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
   }, [runId]);
 
   const decide = useCallback(
-    async (approve: boolean) => {
-      const pending = turnRef.current.pendingApproval;
+    async (approve: boolean, remember = false) => {
+      const pending: PendingApproval | undefined = turnRef.current.pendingApproval;
       if (!pending) return;
       // Clear the card optimistically so the buttons cannot double-submit; the
       // runtime's `approval.resolved` event is the authoritative clear. Restore
@@ -286,7 +303,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ approve }),
+            body: JSON.stringify({ approve, remember: approve && remember }),
           },
         );
         if (!res.ok) throw new Error(`decision failed (${res.status})`);

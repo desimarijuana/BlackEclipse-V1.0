@@ -4372,6 +4372,52 @@ the invariant: an absent backend degrades to a reason, never a fake desktop.
 `test_computer_hardening.py`. macOS/Linux drivers, VM/headless desktops and an
 app-verification rig remain open (tracked in the Computer Use roadmap).
 
+## ADR-H144 — An "Always allow" permission is a separate, revocable standing grant, not a repeatable approval
+
+**Context.** ADR-H92 made every effectful approval single-use and explicitly
+deferred a standing grant. In practice a user running `python3`, `npm` or `git`
+in a chosen folder is re-asked for every new command string, because the approval
+is digest-bound to the exact command. The fatigue is real; the fix must not weaken
+the single-use guarantee or let a misread toggle run something destructive.
+
+**Decision.**
+
+1. **A grant is a separate record, not a longer-lived approval.**
+   `python/harness/grants.py` (`GrantStore`, table `StandingGrant` on the ONE
+   `agent-memory.db`) stores `(kind, scope, pattern)` — one program/tool in one
+   workspace. `McpApproval` is untouched: it stays single-use. A grant removes the
+   *asking*; the store still authorizes nothing by itself.
+2. **Grants are consulted BEFORE a request is created, never instead of the
+   classification.** Each authorizer (shell, terminal, terminal subsystem, MCP,
+   Git) checks `grants.matches(kind, scope, pattern)` first. A `deny`-classified
+   command and an unknown MCP effect are refused before the check, so a grant can
+   never make a destructive action run. A match emits `approval.granted` and the
+   run proceeds — no card.
+3. **Only an operator can mint a grant, and only from a real approval.**
+   `ApprovalStore.remember_grant()` builds the grant from the pending row's OWN
+   `grantPattern`/`grantKind`/`grantScope` columns (set by the authorizer), so a
+   caller can never name an arbitrary pattern. The decide routes pass `remember`
+   only on an approve. High-risk actions and dangerous/destructive/critical Git
+   ops carry no pattern, so "Always allow" is never offered.
+4. **Grants are listed and revoked by a dedicated surface.** `GET /grants` +
+   `POST /grants/{id}/revoke` (operator-gated), fronted by
+   `src/lib/harness/grants-client.ts` and the `StandingGrantsPanel` (Code ›
+   Approvals). Revocation is immediate and idempotent.
+5. **The request is never silent.** An `approval_request` plays the `notification`
+   cue and raises the shared toast/OS notice, so a paused run is not missed.
+
+**Why.** Single-use remains the authorization invariant; the grant is a narrow,
+labeled, revocable convenience over the *prompt only*. Scoping to a program (not
+the exact command) is what actually reduces fatigue, while keeping a denied or
+destructive command impossible to remember.
+
+**Consequences.** New `grants.py`, `routers/grants.py`; additive columns on
+`McpApproval`; `ApprovalStore.grants`/`remember_grant`; every authorizer gains one
+grant check and sets the `grant*` fields; `remember` on both decide routes; the
+redesigned `ApprovalCard` (emerald, no yellow) with Allow once / Always allow /
+Cancel; `ALERT_NOTIFY_EVENT` moves to `lib/alerts/browser-notifier.ts`. ADR-H92 is
+unchanged for the store. Tests: `python/tests/test_standing_grants.py`.
+
 ## ADR-H145 — Authentication is opt-in and auto-engages off loopback; the front door is the boundary, not the runtime
 
 **Context.** BlackEclipse shipped as a single-user local app with no

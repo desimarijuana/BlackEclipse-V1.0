@@ -114,6 +114,21 @@ def make_terminal_authorizer(inner: Any = None):
             return False
         ws_id = str(getattr(workspace, "id", ""))
         digest = terminal_digest(ws_id, command)
+        # Standing grant ("always allow <program> in this workspace"). A `deny`
+        # was already returned above, so a grant can never make a destructive
+        # command run.
+        grant_pattern = str(verdict.program or command.strip().split(None, 1)[0] or "").casefold()
+        grants = getattr(approvals, "grants", None)
+        if grants is not None and grant_pattern and grants.matches("command", ws_id, grant_pattern) is not None:
+            try:
+                from .tools import emit_code_event as _emit  # noqa: PLC0415
+                await _emit(ctx, "approval.granted", {
+                    "kind": APPROVAL_KIND, "grantPattern": grant_pattern,
+                    "workspaceId": ws_id, "command": command[:180],
+                })
+            except Exception:  # noqa: BLE001
+                pass
+            return True
         claimed = approvals.consume_kind(
             kind=APPROVAL_KIND, request_key=ws_id, digest=digest, workspace_id=ws_id,
         )
@@ -128,6 +143,7 @@ def make_terminal_authorizer(inner: Any = None):
                 workspace_id=ws_id,
                 action_summary=f"Run a command: {command[:180]}",
                 risk="medium",
+                grant_kind="command", grant_pattern=grant_pattern, grant_scope=ws_id,
             )
         except Exception:  # noqa: BLE001 - a request failure must not crash the call
             pass
@@ -142,6 +158,8 @@ def make_terminal_authorizer(inner: Any = None):
                 "risk": "medium",
                 "command": command[:180],
                 "workspaceId": ws_id,
+                "grantPattern": grant_pattern,
+                "grantLabel": f"Always allow `{grant_pattern}` in this workspace" if grant_pattern else None,
             })
         except Exception:  # noqa: BLE001
             pass

@@ -1087,6 +1087,28 @@ behave identically. The card UI is
 the composer in both chat surfaces, driven by `HarnessUiEvent.approval_request` /
 `approval_resolved` and the `awaiting_approval` status.
 
+An `approval_request` also plays the `notification` cue and raises the shared
+toast/OS notice (`ALERT_NOTIFY_EVENT`), so a paused run is never missed.
+
+**Standing grants — "always allow" (ADR-H144).** Repeatedly re-asking for the same
+program is stopped by a separate, revocable permission, NOT by making an approval
+repeatable. `python/harness/grants.py` (`GrantStore`, table `StandingGrant` on
+`agent-memory.db`) stores `(kind, scope, pattern)` — one program/tool in one
+workspace (`command` covers shell/terminal/terminal-subsystem, `mcp_tool` a tool on
+a server). Every authorizer consults `grants.matches(...)` BEFORE creating a
+pending request: a match authorizes immediately and emits `approval.granted`. The
+`deny` classification and unknown effects are still checked first, so a grant can
+never run a destructive command or an unknown effect; high-risk and
+dangerous/destructive/critical Git ops are never grantable. A grant is minted ONLY
+by an `ApprovalStore.remember_grant()` on a real pending approval (from the row's
+own `grantPattern`/`grantKind`/`grantScope` columns), via the decide routes'
+`remember` flag; `GET /grants` + `POST /grants/{id}/revoke` (`routers/grants.py`,
+fronted by `src/lib/harness/grants-client.ts` + `src/app/api/harness/grants/**`)
+list and revoke them. The card offers **Allow once / Always allow `<program>` /
+Cancel**; "Always allow" appears only when the runtime marked the action
+grantable. `McpApproval` stays single-use (ADR-H92) — a grant removes asking, the
+store still authorizes.
+
 | To add… | Do this |
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |

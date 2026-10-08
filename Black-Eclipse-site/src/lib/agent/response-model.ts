@@ -36,6 +36,14 @@ export interface PendingApproval {
   effect?: string;
   /** Declared risk (`low` | `medium` | `high`) when the runtime reports one. */
   risk?: string;
+  /**
+   * The `(kind, scope, pattern)` a "Always allow" choice would remember, e.g.
+   * the program `python3` or the MCP tool name. Absent when the runtime did not
+   * mark the action grantable — the card then shows no "Always allow" button.
+   */
+  grantPattern?: string;
+  /** Human label for the grant, e.g. "Always allow `python3` in this workspace". */
+  grantLabel?: string;
 }
 
 /** One thing the agent did (a tool call, a retrieval source, or a context note). */

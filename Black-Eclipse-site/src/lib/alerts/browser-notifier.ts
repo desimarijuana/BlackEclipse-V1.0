@@ -16,6 +16,14 @@
 
 const STORAGE_KEY = 'be_alerts_browser_v1';
 
+/**
+ * The window event any surface dispatches to raise the shared in-app toast +
+ * desktop notification pair (handled by `AlertNotificationProvider`). Held in
+ * this pure lib so non-React callers (e.g. the agent-run hook) can raise a
+ * notice without importing the provider component.
+ */
+export const ALERT_NOTIFY_EVENT = 'be:alert-notify';
+
 /** Preference-change event so mounted surfaces refresh their toggle state. */
 export const BROWSER_NOTIFY_EVENT = 'be:alert-notify-pref';
 

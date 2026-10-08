@@ -8,6 +8,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Approvals — "Always allow" standing grants, a redesigned card, and an alert
+  on request.** Made the repeated approval prompts stoppable. (1) New
+  `python/harness/grants.py` (`GrantStore` on the ONE `agent-memory.db`, table
+  `StandingGrant`): an explicit, operator-only, revocable permission scoped to
+  `(kind, scope, pattern)` — one program/tool in one workspace. (2)
+  `ApprovalStore` gains `.grants`, additive `grantPattern`/`grantKind`/`grantScope`
+  columns on `McpApproval`, and `remember_grant()` (built ONLY from the row's own
+  columns). (3) The shell/terminal/terminal-subsystem/MCP/Git authorizers consult
+  a grant BEFORE creating a pending request: a match authorizes immediately and
+  emits `approval.granted`; a `deny`-classified command is still refused first, and
+  a dangerous/destructive/critical Git op is never grantable. (4) `POST
+  /mcp/approvals/{id}/decide` and `POST /code/approvals/{id}/decide` accept
+  `remember`; new operator-gated `GET /grants` + `POST /grants/{id}/revoke`
+  (`routers/grants.py`), fronted by `src/lib/harness/grants-client.ts` +
+  `grants-browser.ts` + `src/app/api/harness/grants/**`. (5) Redesigned
+  `ApprovalCard` — no yellow: the app's emerald primary + neutral/rose risk scale,
+  buttons **Allow once / Always allow `<program>` / Cancel**; "Always allow" is
+  offered only when the runtime marks the action grantable and never for high
+  risk. (6) An `approval_request` now plays the `notification` cue and raises the
+  shared toast/OS notice (`ALERT_NOTIFY_EVENT`). (7) New `StandingGrantsPanel`
+  (Code › Approvals) lists and revokes grants. Docs: `docs/harness/decisions.md`
+  (ADR-H144), `docs/harness/architecture.md`, `docs/NAVIGATION.md`; tests
+  `python/tests/test_standing_grants.py`.
+
 - **Agent Workspace — execution-observability panel (Phase 1–8).** Added a global,
   portaled **Agent Workspace** that shows what the agent is doing in real time
   without flooding chat: a normalized event model (`src/lib/agent-workspace/`

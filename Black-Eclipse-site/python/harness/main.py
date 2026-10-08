@@ -52,6 +52,7 @@ from .routers.computer import router as computer_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
 from .routers.git import router as git_router
+from .routers.grants import router as grants_router
 from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
@@ -87,6 +88,7 @@ app.include_router(computer_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
 app.include_router(git_router)
+app.include_router(grants_router)
 app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(memory_router)

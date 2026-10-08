@@ -11,8 +11,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const { id } = await params;
-    const body = (await request.json().catch(() => ({}))) as { approve?: unknown; reason?: unknown };
-    const approval = await decideMCPApproval(id, Boolean(body.approve), typeof body.reason === "string" ? body.reason : "");
+    const body = (await request.json().catch(() => ({}))) as { approve?: unknown; reason?: unknown; remember?: unknown };
+    const approval = await decideMCPApproval(
+      id,
+      Boolean(body.approve),
+      typeof body.reason === "string" ? body.reason : "",
+      Boolean(body.remember),
+    );
     return NextResponse.json({ success: true, approval });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

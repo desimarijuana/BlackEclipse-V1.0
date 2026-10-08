@@ -364,6 +364,10 @@ export const en = {
   'code.approvals.denied': 'Denied',
   'code.approvals.used': 'Already used once',
   'code.approvals.needsOk': 'I did not run that — it needs the app owner’s OK. Ask them and I’ll continue.',
+  'code.approvals.loadFailed': 'I couldn’t load the waiting actions just now. Try again in a moment.',
+  'code.approvals.grants.title': 'Always-allowed permissions',
+  'code.approvals.grants.none': 'No standing permissions.',
+  'code.approvals.grants.revoke': 'Revoke',
 
   // Chat code capability (Phase 14) — a coding request made in ordinary
   // conversation. The user sees what Eclipse will DO, never the classifier's

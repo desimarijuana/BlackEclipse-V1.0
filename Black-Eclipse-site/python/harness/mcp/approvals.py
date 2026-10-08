@@ -165,6 +165,11 @@ class ApprovalStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._ensure_schema()
+        # Standing grants ("always allow") live behind the SAME connection. The
+        # approval store stays single-use; a grant only removes the asking.
+        from ..grants import GrantStore  # noqa: PLC0415
+
+        self.grants = GrantStore(store)
 
     @property
     def _db(self):
@@ -207,6 +212,12 @@ class ApprovalStore:
         for name in ("actionSummary", "affectedData", "risk", "usedAt"):
             if name not in existing:
                 self._db.execute(f"ALTER TABLE McpApproval ADD COLUMN {name} TEXT")
+        # Additive: the standing-grant a request COULD create (so "always allow"
+        # knows exactly what to remember). `grantPattern` is the program / tool /
+        # operation; `grantKind` namespaces it; `grantScope` is the workspace.
+        for name in ("grantPattern", "grantKind", "grantScope"):
+            if name not in existing:
+                self._db.execute(f"ALTER TABLE McpApproval ADD COLUMN {name} TEXT")
         # Phase 5: one approval store for two kinds. `kind` defaults to the
         # current meaning, so every existing row is correct without being touched;
         # `workspaceId` is set only for a `code_action` row.
@@ -234,6 +245,9 @@ class ApprovalStore:
         action_summary: Optional[str] = None,
         affected_data: Optional[str] = None,
         risk: Optional[str] = None,
+        grant_kind: Optional[str] = None,
+        grant_pattern: Optional[str] = None,
+        grant_scope: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create (or return an existing) pending approval for this exact call."""
         if effect not in APPROVABLE_EFFECTS:
@@ -280,17 +294,21 @@ class ApprovalStore:
             """INSERT INTO McpApproval
                (id, serverId, tool, eclipseTool, effect, argsDigest, argsPreview, status,
                 createdAt, expiresAt, decidedAt, decidedBy, reason, requestedByRunId,
-                actionSummary, affectedData, risk)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                actionSummary, affectedData, risk, grantPattern, grantKind, grantScope)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["id"], server_id, tool, eclipse_tool, effect, digest,
                 record["argsPreview"], PENDING, record["createdAt"], record["expiresAt"],
                 None, None, None, run_id, summary, affected_json, risk,
+                grant_pattern, grant_kind, grant_scope,
             ),
         )
         record["actionSummary"] = summary
         record["affectedData"] = affected_data
         record["risk"] = risk
+        record["grantPattern"] = grant_pattern
+        record["grantKind"] = grant_kind
+        record["grantScope"] = grant_scope
         # The row's kind defaults to 'mcp_tool' in the DDL; make it explicit on
         # the returned record so a caller/tests can see it without a re-read.
         record["kind"] = "mcp_tool"
@@ -372,13 +390,22 @@ class ApprovalStore:
         affected_data: Optional[str] = None,
         risk: Optional[str] = None,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
+        grant_kind: Optional[str] = None,
+        grant_pattern: Optional[str] = None,
+        grant_scope: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create (or return the existing pending / terminal denial for) one
         approval of `kind`. The physical home is `McpApproval`; `kind` +
         `workspaceId` are additive. A PENDING request is reused; a CONSUMED one is
         not (a new call needs a fresh decision); a DENIAL is terminal for the
         digest. `serverId`/`tool` are overloaded for a code action: `serverId`
-        carries the kind-qualified request key and `tool` the action name."""
+        carries the kind-qualified request key and `tool` the action name.
+
+        `grant_kind`/`grant_pattern`/`grant_scope` describe the standing grant a
+        "always allow" decision would create (the program/tool and its scope).
+        They are advisory display data only — the authorizer that consults grants
+        is the sole authority on whether a grant applies.
+        """
         if effect not in APPROVABLE_EFFECTS:
             raise ValueError(f"effect {effect!r} is not approvable")
         pending = self._find_one_kind(kind, request_key, digest, PENDING)
@@ -400,12 +427,14 @@ class ApprovalStore:
             """INSERT INTO McpApproval
                (id, serverId, tool, eclipseTool, effect, argsDigest, argsPreview, status,
                 createdAt, expiresAt, decidedAt, decidedBy, reason, requestedByRunId,
-                actionSummary, affectedData, risk, kind, workspaceId)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                actionSummary, affectedData, risk, kind, workspaceId,
+                grantPattern, grantKind, grantScope)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 approval_id, request_key, request_key, request_key, effect, digest,
                 "", PENDING, _iso(now), _iso(now + timedelta(seconds=ttl)),
                 None, None, None, run_id, summary, affected_json, risk, kind, workspace_id,
+                grant_pattern, grant_kind, grant_scope,
             ),
         )
         self._db.commit()
@@ -490,6 +519,33 @@ class ApprovalStore:
         notify_decision(approval_id)
         return self.get(approval_id)
 
+    def remember_grant(self, approval_id: str) -> Optional[dict[str, Any]]:
+        """Create the standing grant a pending approval describes, if any.
+
+        Called by the decide routes when the operator chose "always allow". The
+        grant is built ONLY from the row's own `grant*` columns, which the
+        authorizers set — a caller can never name an arbitrary pattern. Returns
+        the grant, or None when the row has nothing grantable (so the surface can
+        report honestly rather than pretend a grant exists).
+        """
+        record = self.get(approval_id)
+        if record is None:
+            return None
+        pattern = str(record.get("grantPattern") or "").strip()
+        kind = str(record.get("grantKind") or "").strip()
+        if not pattern or not kind:
+            return None
+        scope = str(record.get("grantScope") or record.get("workspaceId") or "")
+        return self.grants.add(
+            kind=kind,
+            pattern=pattern,
+            scope=scope,
+            label=pattern,
+            risk=record.get("risk"),
+            source=record.get("kind"),
+            created_by="operator",
+        )
+
     # -- pause/resume (approval cards) ---------------------------------------
 
     async def wait_for_decision(self, approval_id: str, timeout_s: float = 900.0) -> Optional[dict[str, Any]]:
@@ -564,6 +620,18 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
         # without consuming a second approval.
         if ctx is not None and getattr(ctx, "effect_authorized_digest", None) == digest:
             return True
+        # Standing grant ("always allow <tool> on <server>"): removes the prompt
+        # for this tool on this server. Unknown effects never reach here.
+        grants = getattr(approvals, "grants", None)
+        if grants is not None and grants.matches("mcp_tool", server_id, original) is not None:
+            _mark_authorized(ctx, digest)
+            if emitter is not None:
+                await emitter.emit("mcp.tool.approved", {
+                    "serverId": server_id, "tool": original,
+                    "eclipseTool": getattr(tool, "name", ""), "effect": effect,
+                    "grant": True,
+                })
+            return True
         claimed = approvals.consume(server_id, original, clean_args)
         if claimed is not None:
             _mark_authorized(ctx, digest)
@@ -589,6 +657,7 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
                 action_summary=getattr(tool, "effect_action_summary", None),
                 affected_data=getattr(tool, "effect_affected_data", None),
                 risk=getattr(tool, "effect_risk", None),
+                grant_kind="mcp_tool", grant_pattern=original, grant_scope=server_id,
             )
             if emitter is not None:
                 await emitter.emit("approval.requested", {
@@ -602,6 +671,8 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
                     "risk": getattr(tool, "effect_risk", None),
                     "tool": original,
                     "serverId": server_id,
+                    "grantPattern": original,
+                    "grantLabel": f"Always allow `{original}` on `{server_id}`",
                 })
                 # Legacy event name, kept alongside the approval-card event so
                 # existing consumers (architecture doc, MCP UI) are unchanged.

@@ -253,12 +253,23 @@ export function normalizeHarnessEvent(
         summary: str(payload.summary),
         effect: str(payload.effect),
         risk: str(payload.risk),
+        // The "always allow" target: the program/tool and the label the runtime
+        // derived. Absent when the action is not grantable (never offered).
+        grantPattern: str(payload.grantPattern),
+        grantLabel: str(payload.grantLabel),
       },
     };
   }
 
   if (event === 'approval.resolved') {
     return { kind: 'approval_resolved', id: str(payload.approvalId), approved: payload.approved === true };
+  }
+
+  // A standing grant short-circuited the prompt (runtime `approval.granted`).
+  // No card is shown; the run proceeds. Surfaced only so the UI can close any
+  // stale card for the same step.
+  if (event === 'approval.granted') {
+    return { kind: 'approval_resolved', approved: true };
   }
 
   // Front-door terminal frame: carries the authoritative answer.
