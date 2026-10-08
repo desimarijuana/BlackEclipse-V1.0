@@ -76,10 +76,20 @@ async def _boot() -> None:
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
+    # Event System: the durable event store + bus. Started AFTER the subsystems
+    # that publish, so their legacy run-bus emissions are ingested from boot.
+    from .event_system.bootstrap import start_events
+    await start_events(service)
     # The Task / Plan runtime: one durable scheduler task that claims runnable
     # tasks and dispatches each through the ordinary run path. Started after jobs
     # so a task-triggering job sees a live scheduler.
     await service.start_tasks()
+    # The Plugin Platform: reload every plugin enabled before the last shutdown.
+    # Durable state means a restart restores the same active plugin set; a plugin
+    # that fails to reload is quarantined as FAILED, never silently dropped.
+    from .plugins.bootstrap import start_plugins
+
+    await start_plugins(service)
     # Parallel execution & DAG orchestration: register the tools and recover any
     # execution left mid-flight by a previous process. Best-effort, never a boot
     # blocker.
@@ -87,6 +97,20 @@ async def _boot() -> None:
 
     install_orchestration_layer(service)
     await recover_orchestration(service)
+    # Agent-to-Agent: the versioned Agent Registry + durable Message Bus + budgets,
+    # and the A2A tools. Delegated tasks are executed by the TaskScheduler above.
+    from .a2a.bootstrap import install_a2a_layer, recover_a2a
+
+    install_a2a_layer(service)
+    recover_a2a(service)
+    # Execution Fabric (ADR-H156): the durable queue + worker pool + execution-mode
+    # router. Installed AFTER the subsystems it workers over (agent runtime,
+    # tools, automation, events, plugins) so its event rules can subscribe to a
+    # live Event System. It recovers any job left mid-flight by a previous process.
+    from .fabric.bootstrap import install_fabric_layer, start_fabric
+
+    install_fabric_layer(service)
+    await start_fabric(service)
     # Unified search: build the vector/FTS index from existing sources in the
     # background (non-blocking). With no embedding provider this is an honest
     # keyword-only index; disabled by HARNESS_SEARCH_WARM_INDEX=0.
@@ -96,12 +120,34 @@ async def _boot() -> None:
             search_layer.schedule_warm_index()
         except Exception:  # noqa: BLE001 - warm-up must never block boot
             log.warning("[harness-py] search warm index skipped", exc_info=True)
+    # Observability platform: report readiness once every subsystem is live.
+    try:
+        from .observability.integration import start_observability
+
+        start_observability(service)
+    except Exception:  # noqa: BLE001 - telemetry startup must never block boot
+        log.warning("[harness-py] observability startup skipped", exc_info=True)
 
 
 async def _shutdown() -> None:
     """Stop every subsystem on the last exit. Cancel queued work and terminate
     subprocesses cleanly so none leak across restarts. Never raises."""
+    from .plugins.bootstrap import stop_plugins
+
+    await stop_plugins(service)
+    # Flush + close telemetry sinks FIRST so terminal-job/plugin events reach a
+    # live exporter before the bus is torn down.
+    from .observability.integration import stop_observability
+
+    stop_observability(service)
+    # Drain the Execution Fabric BEFORE the event system so its terminal
+    # publications still reach a live bus, releasing locks and cancelling work.
+    from .fabric.bootstrap import stop_fabric
+
+    await stop_fabric(service)
+    from .event_system.bootstrap import stop_events
     await service.stop_tasks()
+    await stop_events(service)
     await service.stop_automation()
     orchestration = getattr(service, "orchestration", None)
     if orchestration is not None:

@@ -268,6 +268,10 @@ class ToolContext:
     # size its OWN internal budget so it can return a bounded partial result
     # BEFORE the harness hard-kills it. None = no declared per-call budget known.
     tool_timeout_ms: Optional[int] = None
+    # The process-wide Plugin Platform manager. Set by the graph from the service;
+    # None = the `plugin_*` tools resolve the module singleton (or report the
+    # platform unavailable). Attached per run, never a global.
+    plugin_manager: Any = None
 
 
 class DataBridge:

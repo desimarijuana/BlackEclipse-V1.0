@@ -92,6 +92,28 @@ def _stable_key(name: str, args: dict[str, Any]) -> str:
     return f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
 
 
+async def _run_plugin_hook(name: str, payload: dict[str, Any]) -> Optional[str]:
+    """Run a plugin hook if the platform has any for `name`.
+
+    Returns a veto reason when the hook phase did not proceed (an `abort` hook
+    failed), else None. Never raises and never blocks: a missing platform, a
+    missing hook, or a hook timeout is a no-op for the core operation.
+    """
+    try:
+        from .plugins.bootstrap import get_plugin_manager  # noqa: PLC0415
+
+        manager = get_plugin_manager()
+        if manager is None or not manager.hooks.has(name):
+            return None
+        outcome = await manager.run_hook(name, payload)
+        if not outcome.proceed:
+            errors = outcome.errors or []
+            return errors[0].get("error") if errors else "hook vetoed the call"
+    except Exception:  # noqa: BLE001 - a hook must never break a core operation
+        return None
+    return None
+
+
 def _extract_usage(message: Any) -> tuple[int, int]:
     """Best-effort (prompt, completion) token counts from a LangChain message.
 
@@ -196,6 +218,9 @@ def effective_allowlist(
     allowed = set(agent.tools)
     if agent.allowMcpTools:
         allowed.update(name for name in registry.names() if name.startswith("mcp_"))
+    if getattr(agent, "allowPluginTools", False):
+        allowed.update(name for name in registry.names() if name.startswith("plug_"))
+        allowed.update(name for name in registry.names() if name.startswith("plugin_"))
     if autonomy is not None:
         from .code.policy import allowed_tools  # noqa: PLC0415
 
@@ -762,10 +787,29 @@ def build_graph(
                 failure_details.append({"name": name, "code": "TOOL_FORBIDDEN"})
             else:
                 seen_calls[key] = seen_calls.get(key, 0) + 1
-                result = await registry.execute(
-                    name, call_id, args, ctx, allowed=allowed, timeout_ms=tool_timeout_ms
+                # Plugin hook: a plugin may observe or veto a tool call. The hook
+                # phase is bounded and a failing `continue` hook never blocks.
+                veto = await _run_plugin_hook(
+                    "before_tool_call",
+                    {"tool": name, "arguments": args if isinstance(args, dict) else {},
+                     "runId": request.runId},
                 )
+                if veto:
+                    from .tools import ToolResult  # noqa: PLC0415
+
+                    result = ToolResult(
+                        tool_call_id=call_id, name=name, ok=False,
+                        text=f"Tool {name!r} was blocked by a plugin hook: {veto}",
+                    )
+                else:
+                    result = await registry.execute(
+                        name, call_id, args, ctx, allowed=allowed, timeout_ms=tool_timeout_ms
+                    )
                 result_text = result.text
+                await _run_plugin_hook(
+                    "after_tool_call",
+                    {"tool": name, "ok": result.ok, "runId": request.runId},
+                )
                 # Record the executed call so a resume never re-runs it.
                 if lineage is not None:
                     lineage.mark_tool_executed(request.runId, step_index, call_id, result)

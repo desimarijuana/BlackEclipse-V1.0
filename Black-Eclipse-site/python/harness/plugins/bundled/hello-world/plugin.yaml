@@ -1,0 +1,84 @@
+id: hello-world
+name: Hello World
+version: 1.0.0
+publisher: black-eclipse
+category: examples
+tags: [reference, demo]
+description: >-
+  The reference plugin. It exercises every contribution surface (tool, skill,
+  event, hook, command, UI panel, worker) and shows the permission-checked SDK.
+
+eclipse:
+  min_version: 1.0.0
+
+sdk:
+  version: ">=1.0.0"
+
+runtime:
+  type: python
+  entrypoint: plugin:HelloPlugin
+
+permissions:
+  - events.publish
+  - events.subscribe
+  - secrets
+  - notifications
+
+dependencies: []
+
+contributes:
+  tools:
+    - name: greet
+      description: Greet someone using the configured greeting.
+      permission: read
+    - name: fetch_status
+      description: A capability that needs network access (refused without it).
+      permission: read
+    - name: echo
+      description: Echo a value back.
+      permission: read
+  skills:
+    - name: hello-skill
+      description: A minimal reference skill.
+  hooks:
+    - name: before_tool_call
+  events:
+    subscribes:
+      - hello.ping
+    publishes:
+      - hello.pong
+  commands:
+    - name: status
+      description: Return the plugin's own status.
+  ui:
+    - kind: panel
+      id: hello-panel
+      title: Hello
+  workers:
+    - name: heartbeat
+      interval_seconds: 0
+
+configuration:
+  - key: greeting
+    type: string
+    title: Greeting
+    description: The word used when greeting.
+    default: Hello
+  - key: excited
+    type: boolean
+    title: Excited
+    default: false
+  - key: apiKey
+    type: secret
+    title: API key
+    description: A demo secret.
+
+authentication:
+  type: none
+
+storage:
+  kv: true
+  files: true
+  sqlite: false
+
+compatibility: {}

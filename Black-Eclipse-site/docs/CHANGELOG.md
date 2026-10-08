@@ -8,6 +8,71 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Observability Platform — one vendor-neutral, fail-open telemetry layer that
+  projects the existing event bus into OpenTelemetry-shaped traces, metrics,
+  structured logs, token/cost accounting, SLOs, anomaly/loop detection and error
+  tracking, with export to OTLP/Langfuse/Sentry/Prometheus/JSONL and a
+  `/observability/*` operator API.** New `python/harness/observability/`:
+  `config.py` (single env-resolved `ObservabilityConfig`, never raises),
+  `context.py` (`ObservationContext` + `contextvars` propagation + W3C
+  `traceparent` inject/extract), `events.py` (closed `HOOKS` vocabulary + typed
+  `HookEvent`), `observers.py` (`Observer`/`ObserverHub`, fail-open + quarantine),
+  `tracing.py` (`Tracer`/`Span`/`SpanStore` + `trajectory()`),
+  `metrics.py` (counters/gauges/histograms + Prometheus + RED/USE),
+  `costs.py` (`CostEngine` + `PricingRegistry`, data not code), `redaction.py`
+  (the ONE redactor: keys, bearer/JWT/private-key/connection-string, optional
+  PII), `sampling.py` (head + tail, always keeps errors/security/anomalies),
+  `health.py`, `anomaly.py` (`LoopDetector` + statistical `AnomalyDetector`),
+  `slo.py`, `logging_setup.py` (structured JSON with context + redaction),
+  `exporters.py` (`Exporter` + non-blocking `BoundedExporter` with bounded queue,
+  batching, retry + backoff, circuit breaker; OTLP/HTTP, Langfuse, Sentry, JSONL,
+  console, in-memory sinks), `core.py` (`ObservabilityHub` — ingestion, metrics,
+  cost, exports, diagnostics), `integration.py` (`RunEventProjector` projecting
+  `service.bus` runs/models/tools/jobs/plugins/A2A/events, `ModelObserverBridge`,
+  `install_observability`/`start`/`stop`). Routes
+  `python/harness/routers/observability.py` (`/observability/*`, operator-gated)
+  included by `main.py`; `install_observability(self)` at the end of
+  `AgenticService.__init__`; `start_observability`/`stop_observability` in
+  `boot.py` (structured logging installed on boot). Tests
+  `python/tests/test_observability_{core,integration,failure,security,trace,perf,api,e2e}.py`
+  (51): context propagation, span relationships, observer fail-open/quarantine,
+  redaction, sampling, cost/token math, metrics/Prometheus, anomaly/loop, SLO,
+  bus projection, dead/flaky/slow exporters + circuit breaker, secret leakage,
+  cross-worker/queue/A2A trace integrity, overhead bounds. Fail-open by design: a
+  telemetry backend outage drops-and-counts and can never break a run. docs
+  updated: `docs/harness/observability.md` (new),
+  `docs/harness/decisions.md` (ADR-H158), `docs/NAVIGATION.md`, this file.
+- **Execution Fabric — one execution substrate: an `ExecutionManager` that routes
+  every unit of work to DIRECT / CONCURRENT / BACKGROUND / DURABLE over a NATIVE
+  durable queue (no Redis/BullMQ/Postgres — the runtime is single-process,
+  zero-config, SQLite), with a worker pool that reuses the existing runtime.**
+  New `python/harness/fabric/`: `models.py` (Job/JobState/ExecutionMode/QueueName/
+  WorkerKind/priorities/WorkerOutcome), `state.py` (a closed job state machine),
+  `config.py` (env config + validation), `store.py` (`FabricStore`:
+  `FabricJob`/`FabricJobAttempt`/`FabricJobEvent`/`FabricWorker`/`FabricLock`/
+  `FabricIdempotency` on the ONE `agent-memory.db`), `policies.py`
+  (`ExecutionPolicy` + `PolicyRegistry` per job type), `metrics.py`, `locks.py`
+  (`DistributedLockManager`), `workers.py` (`BaseWorker`/`FunctionWorker`/
+  `WorkerRegistry`/`WorkerManager`: atomic claim, lease heartbeats, timeouts,
+  hard cancellation, retry with exponential backoff + jitter, dead-letter,
+  crash recovery, graceful drain), `builtin_workers.py` (agent→`service.run`,
+  tool→`ToolRegistry.execute`, python/code→`code.sandbox`, plugin→PluginManager,
+  automation→AutomationEngine, notification/event→bus+Event System, research/
+  browser/market/quant→named tool else agent run), `integrations.py` (event rules
+  → jobs), `manager.py` (`ExecutionManager` routing, idempotency/coalescing,
+  priority, parent/root lineage, DAG delegation to the existing orchestration
+  engine, admin retry/replay), `tools.py` (the `fabric_*` tools), `bootstrap.py`.
+  Routes `python/harness/routers/fabric.py` (`/fabric/*`, operator-gated);
+  `main.py` includes the router; `boot.py` installs/starts/stops the layer
+  (`service.py` is untouched — it wires from boot). Front door
+  `src/app/api/fabric/[[...path]]/route.ts` + UI console `/fabric`
+  (`src/app/fabric/` + `src/lib/harness/fabric-types.ts`): Queues, Workers, Jobs
+  (timeline + attempts), Dead letters, Metrics. Tests
+  `python/tests/test_fabric_{state,store,workers,manager,integration}.py` (51) +
+  `src/lib/harness/fabric-types.test.ts`. docs updated:
+  `docs/harness/execution-fabric.md` (new), `docs/harness/decisions.md`
+  (ADR-H156), `docs/NAVIGATION.md`, this file.
+
 - **Trimmed the Agentic sidebar mode to ChatBot, Skills and Eclipse Memory;
   the other agentic capabilities stay available through ChatBot.** The
   Terminal/Agentic switcher and its machinery are kept (`NavGroup`,
@@ -601,6 +666,37 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_plugins_{oauth,webhooks_ws,registry,sandbox}.py` +
   `src/components/screens/plugins/plugins-screen.test.ts`; sidebar/tab/nav wired.
   docs updated: `docs/harness/plugin-platform.md`, `docs/NAVIGATION.md`, this file.
+
+- **Agent Evaluation System — a first-class way to measure whether the agent is
+  getting better or worse, by running the REAL runtime.** New
+  `python/harness/evaluation/`: `tasks.py` (versioned `EvaluationTask` schema +
+  dataset loader, `(task_id, task_version)`-scoped results), `environments.py`
+  (deterministic filesystem/database/finance/memory/mock_services/composite
+  environments with `setup/reset/snapshot/restore/seed/execute/inspect_state/
+  teardown`), `trajectory.py` (capture from the runtime's own event bus + the
+  normalized versioned format), `stats.py` (`pass@1`/`pass@k`/variance/Wilson CI/
+  flakiness), `taxonomy.py` (multi-label failure taxonomy), `graders/` (a
+  pluggable engine with 12 built-ins: exact/state/tool/research/citation/
+  financial/code/browser/memory/safety/semantic/hallucination — financial values
+  are independently recomputed, code is executed, state is read from the
+  environment), `scoring.py` (per-dimension metrics + thresholds + a composite
+  that returns `None` when a critical dimension fails), `runner.py` (the runner +
+  `ScriptedAgentInvoker` offline tier and `ServiceAgentInvoker` live tier, with
+  contextvar isolation so trials run concurrently), `store.py` (11 durable tables
+  on the ONE `agent-memory.db`), `baseline.py`, `regression.py`, `report.py`
+  (JSON/JSONL/Markdown/HTML), `replay.py`, `mining.py` (production-failure →
+  deduplicated regression candidate), `improvement.py` (the self-improvement
+  verification loop with the anti-regression rule), `experiments.py` (A/B, model
+  matrix, routing, skill/memory deltas), `dependencies.py` (affected-component
+  map), `gate.py`, `cli.py`, `tools.py` (sandbox tools), and
+  `datasets/benchmark_v1.json` (31 labelled tasks across 15 categories).
+  `scripts/test-evals.js` runs the offline gate on a private temp DB as one more
+  floor; `harness/cli.py` dispatches `eclipse eval …`; `routers/evaluation.py`
+  (`/evaluation/*`, operator-gated) is included by `main.py`. Tests
+  `python/tests/test_evaluation_{tasks,graders,scoring,runner,store,regression,
+  report_replay,mining_improvement,cli_gate,api}.py` (89, incl. the
+  gate-has-teeth proofs). docs updated: `docs/harness/agent-evaluation.md` (new),
+  `docs/harness/decisions.md` (ADR-H157), `docs/NAVIGATION.md`, this file.
 
 ## 2026-10-07
 

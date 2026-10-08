@@ -1,0 +1,34 @@
+id: postgres
+name: PostgreSQL
+version: 1.0.0
+publisher: black-eclipse
+category: data
+tags: [database, sql]
+description: Run read queries against a PostgreSQL database.
+runtime:
+  type: python
+  entrypoint: plugin:PostgresPlugin
+permissions:
+  - database
+  - secrets
+contributes:
+  tools:
+    - name: query
+      description: Run a read-only SQL query.
+      permission: external_action
+configuration:
+  - key: host
+    type: string
+    default: localhost
+  - key: port
+    type: number
+    default: 5432
+  - key: database
+    type: string
+  - key: user
+    type: string
+  - key: password
+    type: secret
+authentication:
+  type: basic
+storage: {}

@@ -128,6 +128,13 @@ class AgentConfig(BaseModel):
     # tools: registration itself already enforces enabled + selected + read-only.
     allowMcpTools: bool = False  # noqa: N815
 
+    # When True, the run's effective allowlist is expanded to include the Plugin
+    # Platform tools (`plugin_*` discovery/invoke) and the enabled plugins'
+    # contributed tools (`plug_*`). Default False, so a custom/skill agent keeps
+    # its exact allowlist. Contributed plugin tools are only registered when their
+    # plugin is enabled, which is an operator decision.
+    allowPluginTools: bool = False  # noqa: N815
+
     model_config = {"populate_by_name": True}
 
 

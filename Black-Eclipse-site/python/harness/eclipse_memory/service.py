@@ -266,6 +266,14 @@ class EclipseMemoryService:
                 published_at=evidence.get("publishedAt"),
                 verification_status=evidence.get("verificationStatus", "unknown"),
             )
+        # Announce the durable write on the Event System (canonical `memory.created`).
+        # Best-effort: a publish failure must never fail a memory write.
+        from ..event_system.emit import publish_event  # noqa: PLC0415
+
+        publish_event("memory.created", {
+            "memoryId": memory["id"], "memoryType": memory_type, "scope": scope,
+            "status": memory.get("status"),
+        }, source="memory")
         return memory
 
     def propose_memory(
@@ -304,6 +312,11 @@ class EclipseMemoryService:
             self.store.append_memory_event(
                 f"memory.{status}", memory_id=memory_id, data={"reviewedBy": reviewed_by}
             )
+            from ..event_system.emit import publish_event  # noqa: PLC0415
+
+            publish_event("memory.updated", {
+                "memoryId": memory_id, "status": status,
+            }, source="memory")
         return updated
 
     def _find_duplicate(self, signature: str) -> Optional[dict[str, Any]]:

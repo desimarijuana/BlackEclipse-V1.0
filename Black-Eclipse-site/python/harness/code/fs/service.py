@@ -22,6 +22,28 @@ from .resolver import workspace_info
 # Read-only operations that are always allowed for an allowlisted run.
 READ_CAPABILITY = "read"
 
+# Watcher kinds → canonical Event System names. The watcher already debounces and
+# coalesces, so this is not an event storm.
+_FILE_EVENT_BY_KIND = {
+    "created": "file.created",
+    "modified": "file.changed",
+    "deleted": "file.deleted",
+    "renamed": "file.changed",
+}
+
+
+def _publish_watch_events(events: list[Any]) -> None:
+    """Fan debounced watcher events onto the canonical Event System (best-effort)."""
+    from ...event_system.emit import publish_event  # noqa: PLC0415
+
+    for event in events:
+        canonical = _FILE_EVENT_BY_KIND.get(getattr(event, "event", ""))
+        if canonical:
+            publish_event(canonical, {
+                "path": getattr(event, "path", None),
+                "oldPath": getattr(event, "old_path", None),
+            }, source="code.fs")
+
 
 class FileSystemService:
     """One workspace-bound filesystem service instance (per run)."""
@@ -192,6 +214,7 @@ class FileSystemService:
         index = self._get_index(create=False)
         self._watcher = watch.WorkspaceWatcher(
             self._ws, targets=paths, recursive=recursive, index=index,
+            on_event=_publish_watch_events,
         )
         if start:
             self._watcher.start()

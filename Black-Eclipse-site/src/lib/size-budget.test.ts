@@ -56,9 +56,10 @@ const RATCHET: Record<string, number> = {
   // row (it moved out of the root layout to reserve real column space). Grew
   // again by one dynamic import + one keep-alive block each for the Portfolio
   // and Unified Search tabs, then the Task / Plan runtime's mount (a dynamic
-  // import + one keep-alive block). May only shrink from here; the shell's
+  // import + one keep-alive block). Grew once more by one dynamic import + one
+  // keep-alive block for the Plugins tab. May only shrink from here; the shell's
   // per-tab keep-alive blocks are the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1308,
+  "src/components/screens/stock-chat.tsx": 1320,
 };
 
 export interface SizeEntry {

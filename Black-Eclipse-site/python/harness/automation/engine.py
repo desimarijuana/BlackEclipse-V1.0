@@ -304,6 +304,18 @@ class AutomationEngine:
     ) -> Optional[str]:
         if definition.state != "active":
             return None
+        # Scheduler → `schedule.triggered` → Event Bus, so a timed fire is an
+        # observable event rather than a tightly-coupled Scheduler→Agent jump.
+        if trigger_type in ("schedule", "cron", "interval", "one_time", "misfire", "recovery", "catch_up"):
+            try:
+                await self.emit_event("schedule.triggered", {
+                    "automationId": definition.id,
+                    "triggerType": trigger_type,
+                    "triggerRef": trigger_ref,
+                    "scheduledFor": scheduled_for,
+                })
+            except Exception:  # noqa: BLE001 - an advisory event never blocks a fire
+                log.debug("schedule.triggered emit failed", exc_info=True)
         # Advance the due anchor BEFORE launching so a re-tick cannot double-fire.
         self._advance_next_run(definition)
         allowed, reason = self._breaker_allows(definition)

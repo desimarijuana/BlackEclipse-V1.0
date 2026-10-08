@@ -1,0 +1,28 @@
+id: binance
+name: Binance Market Data
+version: 1.0.0
+publisher: black-eclipse
+category: finance
+tags: [crypto, market-data, ohlcv]
+description: Spot prices and klines from the public Binance REST API.
+runtime:
+  type: python
+  entrypoint: plugin:BinancePlugin
+permissions:
+  - network
+contributes:
+  tools:
+    - name: ticker
+      description: Latest price for a symbol.
+      permission: read
+    - name: klines
+      description: Historical candlesticks (OHLCV) for a symbol.
+      permission: read
+  data_providers:
+    - name: binance-spot
+      kinds: [price, ohlcv]
+configuration:
+  - key: apiBase
+    type: string
+    default: https://api.binance.com
+storage: {}

@@ -366,6 +366,27 @@ class AgenticService:
         from .tasks.bootstrap import install_task_layer  # noqa: PLC0415
 
         install_task_layer(self)
+        # The Plugin Platform: ONE process-wide manager owning the registry, the
+        # runtime instances, the event bridge, the hook registry, per-plugin
+        # config/secrets/storage and health. Boot wiring lives in
+        # `plugins/bootstrap.py`; it reuses the ONE agent-memory connection, the
+        # ONE tool registry and the process-wide bus. Plugins enabled before the
+        # last shutdown are reloaded by `start_plugins` in the lifespan.
+        from .plugins.bootstrap import install_plugin_layer  # noqa: PLC0415
+
+        install_plugin_layer(self)
+        # Observability platform: ONE process-wide hub fed by this service's
+        # universal event bus (runs, models, tools, jobs, plugins, A2A, events)
+        # and the model-runtime observer. It is fail-open: a telemetry backend
+        # outage can never break a run. Installed LAST so every subsystem it
+        # observes already exists. Never blocks boot.
+        try:
+            from .observability.integration import install_observability  # noqa: PLC0415
+
+            install_observability(self)
+        except Exception:  # noqa: BLE001 - observability is optional; never block boot
+            self.observability = None
+            log.warning("observability platform unavailable", exc_info=True)
 
     def _observe_model_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Forward model-runtime observability events onto the harness bus.

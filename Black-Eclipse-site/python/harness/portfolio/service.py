@@ -179,7 +179,16 @@ class PortfolioService:
         """`add_position` creates a BUY (or TRANSFER_IN) transaction — never a raw UPDATE."""
         body = dict(payload)
         body.setdefault("type", TransactionType.BUY.value)
-        return self.add_transaction(portfolio_id, body, actor_id=actor_id)
+        result = self.add_transaction(portfolio_id, body, actor_id=actor_id)
+        if result.get("status") == "SUCCESS":
+            from ..event_system.emit import publish_event  # noqa: PLC0415
+
+            publish_event("portfolio.position.added", {
+                "portfolioId": portfolio_id,
+                "symbol": str(body.get("symbol") or "").upper(),
+                "duplicate": bool(result.get("duplicate")),
+            }, source="portfolio")
+        return result
 
     async def remove_position(self, portfolio_id: str, payload: dict[str, Any],
                               *, actor_id: Optional[str] = None) -> dict[str, Any]:
@@ -208,7 +217,7 @@ class PortfolioService:
                 f"no price supplied to remove {symbol}; a disposal needs a price for realized P&L",
                 {"symbol": symbol},
             ))
-        return self.add_transaction(portfolio_id, {
+        outcome = self.add_transaction(portfolio_id, {
             "type": TransactionType.SELL.value,
             "symbol": symbol,
             "quantity": str(qty),
@@ -219,6 +228,13 @@ class PortfolioService:
             "reason": payload.get("reason"),
             "notes": payload.get("notes"),
         }, actor_id=actor_id)
+        if outcome.get("status") == "SUCCESS":
+            from ..event_system.emit import publish_event  # noqa: PLC0415
+
+            publish_event("portfolio.position.removed", {
+                "portfolioId": portfolio_id, "symbol": symbol,
+            }, source="portfolio")
+        return outcome
 
     def update_position(self, portfolio_id: str, payload: dict[str, Any],
                         *, actor_id: Optional[str] = None) -> dict[str, Any]:
@@ -269,6 +285,11 @@ class PortfolioService:
         )
         if outcome.get("status") == "SUCCESS":
             outcome["changed"] = True
+            from ..event_system.emit import publish_event  # noqa: PLC0415
+
+            publish_event("portfolio.position.updated", {
+                "portfolioId": portfolio_id, "symbol": symbol, "reason": reason,
+            }, source="portfolio")
         return outcome
 
     def set_position_metadata(self, portfolio_id: str, payload: dict[str, Any],

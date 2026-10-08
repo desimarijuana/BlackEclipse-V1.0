@@ -1,0 +1,31 @@
+id: slack
+name: Slack
+version: 1.0.0
+publisher: black-eclipse
+category: integrations
+tags: [messaging, notifications]
+description: Send messages and list channels in a Slack workspace.
+runtime:
+  type: python
+  entrypoint: plugin:SlackPlugin
+permissions:
+  - network
+  - secrets
+contributes:
+  tools:
+    - name: list_channels
+      description: List public channels in the workspace.
+      permission: read
+    - name: post_message
+      description: Post a message to a channel.
+      permission: external_action
+configuration:
+  - key: apiBase
+    type: string
+    default: https://slack.com/api
+  - key: token
+    type: secret
+    title: Bot/user OAuth token
+authentication:
+  type: bearer
+storage: {}

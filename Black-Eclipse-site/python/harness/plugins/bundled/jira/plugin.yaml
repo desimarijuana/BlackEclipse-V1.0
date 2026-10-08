@@ -1,0 +1,32 @@
+id: jira
+name: Jira
+version: 1.0.0
+publisher: black-eclipse
+category: developer
+tags: [issues, project-management]
+description: Search and read Jira issues.
+runtime:
+  type: python
+  entrypoint: plugin:JiraPlugin
+permissions:
+  - network
+  - secrets
+contributes:
+  tools:
+    - name: search_issues
+      description: Search issues with a JQL query.
+      permission: read
+configuration:
+  - key: baseUrl
+    type: string
+    title: Jira base URL
+    default: https://your-domain.atlassian.net
+  - key: email
+    type: string
+    title: Account email
+  - key: apiToken
+    type: secret
+    title: API token
+authentication:
+  type: basic
+storage: {}

@@ -1,0 +1,41 @@
+id: github
+name: GitHub
+version: 1.0.0
+publisher: black-eclipse
+category: developer
+tags: [git, issues, pull-requests]
+description: Repositories, issues and pull requests from the GitHub REST API.
+runtime:
+  type: python
+  entrypoint: plugin:GitHubPlugin
+permissions:
+  - network
+  - secrets
+  - events.subscribe
+contributes:
+  tools:
+    - name: get_repo
+      description: Fetch a repository's metadata.
+      permission: read
+    - name: list_issues
+      description: List open issues for a repository.
+      permission: read
+  skills:
+    - name: github-research
+      description: Research a repository's activity and open issues.
+  events:
+    subscribes:
+      - github.push
+configuration:
+  - key: apiBase
+    type: string
+    title: API base URL
+    default: https://api.github.com
+  - key: token
+    type: secret
+    title: Personal access token
+authentication:
+  type: api_key
+  api_key_field: token
+storage:
+  kv: true

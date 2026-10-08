@@ -81,20 +81,33 @@ class QuantRunner:
         return run_id
 
     async def _execute(self, run_id: str, factory: Factory) -> None:
+        from ..event_system.emit import publish_event  # noqa: PLC0415
+
         state = self._runs[run_id]
+        is_backtest = state.kind == "backtest"
         async with self._sem:
             state.status = "running"
             state.started_at = state.started_at or _now()
+            if is_backtest:
+                publish_event("backtest.started", {"runId": run_id, "kind": state.kind}, source="quant")
             try:
                 result = await factory(state.set_progress)
                 state.result = result
                 state.status = "completed"
+                if is_backtest:
+                    publish_event("backtest.completed", {"runId": run_id}, source="quant")
             except asyncio.CancelledError:
                 state.status = "cancelled"
                 raise
             except Exception as exc:  # noqa: BLE001 - a failed run is data
                 state.status = "failed"
                 state.error = {"type": type(exc).__name__, "message": str(exc)}
+                if is_backtest:
+                    publish_event(
+                        "backtest.failed",
+                        {"runId": run_id, "errorClass": type(exc).__name__, "error": str(exc)[:500]},
+                        source="quant",
+                    )
             finally:
                 state.finished_at = _now()
 

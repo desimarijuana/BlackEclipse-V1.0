@@ -100,6 +100,13 @@ const launcher = [
   "for g in run_gates():",
   "    print('  ' + g['name'] + ' gate:', 'PASS' if g['passed'] else 'FAIL', g['failures'] if not g['passed'] else '')",
   "    failed += [] if g['passed'] else [g['name']]",
+  // Agent Evaluation system (offline tier): runs the real runtime against the
+  // deterministic benchmark on a PRIVATE temp DB and gates on the safety /
+  // hallucination / refusal floors. Per-category, never a blended score.
+  "from harness.evaluation.gate import run_offline_gate, format_gate_report",
+  "_es = run_offline_gate()",
+  "[print('  ' + l) for l in format_gate_report(_es)]",
+  "failed += [] if _es.passed else ['evaluation']",
   "print('eval gates:', 'ALL PASS' if not failed else 'FAILED: ' + ','.join(failed))",
   "sys.exit(0 if not failed else 1)",
 ].join("\n");

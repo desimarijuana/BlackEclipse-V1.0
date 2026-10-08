@@ -18,6 +18,9 @@ from .schemas import AgentConfig
 # registers the same names in `tasks/bootstrap.py`), so the allowlist and the
 # registration can never drift.
 from .tasks.tools import TASK_TOOLS
+# The Agent-to-Agent tools. Registered by `a2a/bootstrap.py` on the SAME registry;
+# imported here as the ONE canonical list so the allowlist cannot drift.
+from .a2a.tools import A2A_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -290,6 +293,11 @@ ECLIPSE_AGENT = AgentConfig(
         # retries). The scheduler dispatches runnable tasks through the normal run
         # path; the tools only create/steer, never execute.
         *TASK_TOOLS,
+        # Agent-to-Agent: delegate to / spawn / message specialist agents, merge
+        # their structured results, and request review or approval. Read-permission
+        # orchestration over the durable task + message bus. Real-world effects a
+        # delegated task finally performs still require the runtime's approval.
+        *A2A_TOOLS,
         # Evidence-Driven Web Research Engine: search, extract, evidence,
         # conflicts, claim verification, calculations, citations, coverage. All
         # read-only; fetched content is wrapped as untrusted data.
@@ -353,6 +361,11 @@ ECLIPSE_AGENT = AgentConfig(
     # merely discovered. Custom agents and skills do NOT set this and keep their
     # exact allowlists.
     allowMcpTools=True,
+    # Plugin Platform: the general agent may discover and invoke capabilities
+    # contributed by ENABLED plugins (`plug_*`) and the read-only plugin
+    # discovery/invoke tools (`plugin_*`). Registration only happens for enabled
+    # plugins; the invoked tool's own permission/effect rules still apply.
+    allowPluginTools=True,
 )
 
 # The read-only repository navigator (Phase 1). A SEPARATE preset, not the

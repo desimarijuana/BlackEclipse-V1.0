@@ -77,6 +77,25 @@ def _refusal(code: str, reason: str) -> int:
     return 2
 
 
+def _run(coro: Any) -> Any:
+    """Run a coroutine from synchronous CLI code on a fresh loop.
+
+    Avoids the deprecated implicit `asyncio.get_event_loop()` and works whether
+    or not a loop happens to exist in the current thread.
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def _resolve_root(value: Optional[str]) -> Path:
     if value:
         return Path(value).resolve()
@@ -190,7 +209,7 @@ def _cmd_package(args: argparse.Namespace, manager: Any) -> int:
         payload["script"] = args.script
     if args.action in ("build", "test"):
         payload[args.action] = True
-    text, data = asyncio.get_event_loop().run_until_complete(_HANDLERS[name](payload, ctx))
+    text, data = _run(_HANDLERS[name](payload, ctx))
     if data.get("status") == "refused":
         return _refusal(data.get("code", "REFUSED"), data.get("reason", ""))
     return _emit(args, data, text)
@@ -214,7 +233,7 @@ def _cmd_environment(args: argparse.Namespace, manager: Any) -> int:
         value = getattr(args, field_name, None)
         if value:
             payload[field_name] = value
-    text, data = asyncio.get_event_loop().run_until_complete(_HANDLERS[name](payload, ctx))
+    text, data = _run(_HANDLERS[name](payload, ctx))
     if data.get("status") == "refused":
         return _refusal(data.get("code", "REFUSED"), data.get("reason", ""))
     return _emit(args, data, text)
@@ -404,7 +423,7 @@ def _cmd_computer(args: argparse.Namespace, manager: Any) -> int:
         trajectory = Replayer.load(args.path)
         return _emit(args, Replayer().inspect(trajectory).to_dict(), "replayed (inspect mode)")
     try:
-        asyncio.get_event_loop().run_until_complete(mgr.start())
+        _run(mgr.start())
     except Exception as exc:  # noqa: BLE001 - a driver failure is a clean CLI error
         return _refusal("DRIVER_UNAVAILABLE", f"the desktop driver could not start: {type(exc).__name__}")
 
@@ -431,6 +450,236 @@ def _cmd_computer(args: argparse.Namespace, manager: Any) -> int:
         sessions = mgr.list_sessions()
         return _emit(args, {"sessions": sessions}, f"{len(sessions)} session(s)")
     return _refusal("UNKNOWN_ACTION", f"unknown computer action {action!r}")
+
+
+def _build_plugin_manager() -> Any:
+    """Build a standalone PluginManager over the runtime's own store + registry.
+
+    Uses the SAME manager the runtime uses (same DB, same plugin root), so the
+    CLI and the running app can never disagree about installed plugins.
+    """
+    from .events import EventBus
+    from .persistence import AgentMemoryStore
+    from .plugins.manager import PluginManager
+    from .tools import ToolRegistry
+
+    store = AgentMemoryStore()
+    return PluginManager(store, ToolRegistry(), EventBus(), None)
+
+
+def _cmd_plugin(args: argparse.Namespace, _manager: Any) -> int:
+    """The plugin CLI: lifecycle + developer commands. Real, not a placeholder."""
+    import asyncio
+    import json as _json
+
+    from .plugins.loader import checksum, read_manifest
+
+    manager = _build_plugin_manager()
+    action = args.action
+    target = args.target or ""
+    source = args.source or ""
+
+    if action == "list":
+        return _emit(args, {"plugins": manager.list(), "summary": manager.summary()},
+                     f"{len(manager.list())} plugin(s)")
+    if action == "available":
+        return _emit(args, {"plugins": manager.available()}, f"{len(manager.available())} available")
+    if action == "search":
+        results = manager.search(target)
+        return _emit(args, {"results": results}, f"{len(results)} match(es)")
+    if action == "capabilities":
+        caps = manager.capabilities()
+        return _emit(args, {"capabilities": caps}, f"{len(caps)} capability(ies)")
+    if action == "install":
+        if not target:
+            return _refusal("MISSING_TARGET", "install requires a source path or plugin id")
+        try:
+            result = _run(
+                manager.install(target, enable=args.enable, operator=True, trust=args.trust, replace=True)
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "INSTALL_FAILED"), str(exc))
+        return _emit(args, result, f"installed {result.get('plugin', {}).get('name', target)}")
+    if action == "uninstall":
+        try:
+            result = _run(manager.uninstall(target))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "UNINSTALL_FAILED"), str(exc))
+        return _emit(args, result, f"uninstalled {target}")
+    if action == "enable":
+        try:
+            result = _run(manager.enable(target, operator=True))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "ENABLE_FAILED"), str(exc))
+        return _emit(args, result, f"enabled {target}")
+    if action == "disable":
+        try:
+            result = _run(manager.disable(target))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "DISABLE_FAILED"), str(exc))
+        return _emit(args, result, f"disabled {target}")
+    if action == "update":
+        if not source:
+            return _refusal("MISSING_SOURCE", "update requires <plugin-id> <source>")
+        try:
+            result = _run(manager.update(target, source, operator=True))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "UPDATE_FAILED"), str(exc))
+        return _emit(args, result, f"updated {target}")
+    if action == "rollback":
+        try:
+            result = _run(manager.rollback(target, operator=True))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "ROLLBACK_FAILED"), str(exc))
+        return _emit(args, result, f"rolled back {target}")
+    if action == "repair":
+        try:
+            result = _run(manager.repair(target, operator=True))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "REPAIR_FAILED"), str(exc))
+        return _emit(args, result, f"repaired {target}")
+    if action == "inspect":
+        try:
+            data = manager.inspect(target)
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "NOT_FOUND"), str(exc))
+        return _emit(args, data, f"{data['plugin']['name']} {data['plugin']['version']} [{data['plugin']['status']}]")
+    if action == "health":
+        if target:
+            return _emit(args, manager.health_report(target), f"{target}: {manager.health_report(target)['status']}")
+        from .plugins import health as health_mod
+
+        data = health_mod.summarize(manager.store, manager.store.list_plugins())
+        return _emit(args, data, f"{data['enabled']}/{data['installed']} enabled, {data['unhealthy']} unhealthy")
+    if action == "doctor":
+        report = manager.doctor(target)
+        return _emit(args, report, report["summary"])
+    if action == "logs":
+        logs = manager.logs(target)
+        return _emit(args, {"logs": logs}, "\n".join(f"{row['at']} {row['level']}: {row['message']}" for row in logs) or "no logs")
+    if action == "config":
+        if source:
+            data = manager.set_config(target, _json.loads(source))
+            return _emit(args, data, "config updated")
+        return _emit(args, manager.config_view(target), "config")
+    if action == "validate":
+        path = Path(target)
+        try:
+            manifest, _raw = read_manifest(path)
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "MANIFEST_INVALID"), str(exc))
+        return _emit(args, {"valid": True, "manifest": manifest.to_dict()},
+                     f"valid: {manifest.id} {manifest.version}")
+    if action == "create":
+        return _scaffold_plugin(args, target)
+    if action == "package":
+        path = Path(target)
+        try:
+            manifest, _raw = read_manifest(path)
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "MANIFEST_INVALID"), str(exc))
+        digest = checksum(path)
+        payload = {"id": manifest.id, "version": manifest.version, "checksum": digest}
+        (path / ".eclipse-plugin.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+        return _emit(args, payload, f"packaged {manifest.id} ({digest[:12]})")
+    if action == "dev":
+        try:
+            _run(
+                manager.install(target, enable=True, operator=True, replace=True)
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "DEV_FAILED"), str(exc))
+        return _emit(args, manager.inspect(target), f"dev mode: {target} installed and enabled")
+    if action == "auth":
+        try:
+            result = _run(manager.oauth_start(target))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "AUTH_FAILED"), str(exc))
+        summary = result.get("authorizationUrl") or (
+            f"visit {result.get('verificationUri')} and enter code {result.get('userCode')}"
+        )
+        return _emit(args, result, f"authorize: {summary}")
+    if action == "auth-status":
+        try:
+            data = manager.auth_status(target)
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "AUTH_FAILED"), str(exc))
+        return _emit(args, data, f"{target}: authorized={data.get('authorized')}")
+    if action == "auth-complete":
+        try:
+            result = _run(manager.oauth_complete(target, args.code or source, args.state))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "AUTH_FAILED"), str(exc))
+        return _emit(args, result, "authorization complete")
+    if action == "auth-refresh":
+        try:
+            result = _run(manager.oauth_refresh(target))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "AUTH_FAILED"), str(exc))
+        return _emit(args, result, "token refreshed")
+    if action == "logout":
+        try:
+            result = _run(manager.oauth_revoke(target))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "AUTH_FAILED"), str(exc))
+        return _emit(args, result, f"credentials cleared for {target}")
+    if action == "registry-search":
+        try:
+            results = manager.registry_search(target, source=args.registry)
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "REGISTRY_FAILED"), str(exc))
+        return _emit(args, {"results": results}, f"{len(results)} registry match(es)")
+    if action == "registry-install":
+        try:
+            result = _run(manager.install_from_registry(
+                target, source=args.registry, version=args.version, enable=args.enable, operator=True))
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "REGISTRY_FAILED"), str(exc))
+        return _emit(args, result, f"installed {target} from registry")
+    if action == "webhooks":
+        return _emit(args, {"webhooks": manager.webhook_targets(target)}, "webhook targets")
+    if action == "webhook-target":
+        try:
+            result = manager.set_webhook_target(target, args.webhook, args.url, signing_secret=args.secret)
+        except Exception as exc:  # noqa: BLE001
+            return _refusal(getattr(exc, "code", "WEBHOOK_FAILED"), str(exc))
+        return _emit(args, result, f"target set for {target}/{args.webhook}")
+    return _refusal("UNKNOWN_ACTION", f"unknown plugin action {action!r}")
+
+
+def _scaffold_plugin(args: argparse.Namespace, target: str) -> int:
+    """Write a starter plugin (manifest + entrypoint) to `target`."""
+    import json as _json
+
+    if not target:
+        return _refusal("MISSING_TARGET", "create requires a target directory")
+    root = Path(target)
+    plugin_id = getattr(args, "id", None) or root.name.replace("_", "-").lower()
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = f"""id: {plugin_id}
+name: {plugin_id}
+version: 0.1.0
+description: A new BlackEclipse plugin.
+runtime:
+  type: python
+  entrypoint: plugin:PluginImpl
+permissions: []
+contributes:
+  tools:
+    - name: hello
+      description: Say hello.
+"""
+    (root / "plugin.yaml").write_text(manifest, encoding="utf-8")
+    (root / "plugin.py").write_text(
+        'from harness.plugins.sdk import Plugin, tool\n\n\n'
+        "class PluginImpl(Plugin):\n"
+        '    @tool(name="hello", description="Say hello.", schema={"type": "object", "properties": {}})\n'
+        "    async def hello(self, args, ctx):\n"
+        "        return {'hello': 'world'}\n\n\n"
+        "plugin = PluginImpl\n",
+        encoding="utf-8",
+    )
+    return _emit(args, {"created": str(root), "id": plugin_id}, f"created plugin at {root}")
 
 
 def _cli_context(root: Path, manager: Any, authorized: bool) -> Any:
@@ -558,16 +807,46 @@ def build_parser() -> argparse.ArgumentParser:
     computer.add_argument("action", choices=["doctor", "status", "capabilities", "windows", "apps", "displays", "sessions", "replay"])
     computer.add_argument("--path", default="", help="trajectory JSON path for `replay`")
 
+    plugin = sub.add_parser("plugin", parents=[common], help="plugin platform")
+    plugin.add_argument("action", choices=[
+        "list", "available", "search", "capabilities", "install", "uninstall", "enable",
+        "disable", "update", "rollback", "repair", "inspect", "health", "doctor", "logs",
+        "config", "validate", "create", "package", "dev",
+        "auth", "auth-status", "auth-complete", "auth-refresh", "logout",
+        "registry-search", "registry-install", "webhooks", "webhook-target",
+    ])
+    plugin.add_argument("target", nargs="?", default="", help="plugin id, path, or query")
+    plugin.add_argument("source", nargs="?", default="", help="source path (update) or config JSON (config)")
+    plugin.add_argument("--enable", action="store_true", help="enable after install")
+    plugin.add_argument("--trust", default=None, help="trust level: trusted|verified|community|untrusted")
+    plugin.add_argument("--id", default=None, help="plugin id (create)")
+    plugin.add_argument("--code", default="", help="OAuth authorization code")
+    plugin.add_argument("--state", default="", help="OAuth state")
+    plugin.add_argument("--registry", default=None, help="registry URL or local path")
+    plugin.add_argument("--version", default=None, help="registry version to install")
+    plugin.add_argument("--url", default="", help="outbound webhook target URL")
+    plugin.add_argument("--webhook", default="", help="webhook id")
+    plugin.add_argument("--secret", default=None, help="webhook signing secret")
+
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    # The `eval` group has its own argument surface and needs no application
+    # manager, so it is dispatched before the shared parser (like `computer`).
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "eval":
+        from .evaluation.cli import run_cli
+        return run_cli(raw[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     # The `computer` group owns its own desktop runtime and needs no application
     # manager, so it never pays the Application Runtime boot cost.
     if getattr(args, "group", "") == "computer":
         return _cmd_computer(args, None)
+    # The `plugin` group builds its own PluginManager over the runtime's store.
+    if getattr(args, "group", "") == "plugin":
+        return _cmd_plugin(args, None)
     try:
         manager = _build_manager(getattr(args, "root", None))
     except Exception as exc:  # noqa: BLE001 - a missing runtime is a clean CLI error

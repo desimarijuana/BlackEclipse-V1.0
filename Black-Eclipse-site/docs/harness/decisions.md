@@ -4943,3 +4943,277 @@ runtime is single-process (the lease makes that explicit and crash-safe rather t
 promising multi-process throughput). Tests: `python/tests/test_automation_*.py`.
 Docs: `docs/harness/automation-engine.md`. Front door:
 `src/lib/harness/automation-{client,browser}.ts`, `src/app/api/automations/**`.
+
+
+## ADR-H153 - One Event System: a canonical envelope + registry over a durable, indexed event store, bridged to the existing run bus
+
+**Decision.** Eclipse gains a first-class Event System (`python/harness/event_system/`)
+that owns the ONE canonical event model. An `EclipseEvent` carries a globally
+unique id, a UTC timestamp, `type` + `version`, source, actor, correlation /
+causation / trace ids, session / task / workflow / agent associations, priority,
+a validated payload and metadata. A centralized `EventRegistry` declares each
+event type (or namespace) with its schema, producer, allowed consumers,
+permission, priority, retention, retry policy and sensitivity; names are never
+scattered as magic strings. Events are persisted to an indexed `HarnessEventLog`
+on the ONE `agent-memory.db` (plus `HarnessEventConsumer` for consumer-level
+idempotency, `HarnessEventDeadLetter` for the DLQ, and
+`HarnessEventSubscription` for declared subscriptions). The `EventBus` provides
+`publish` / `publishMany` / `subscribe` / `unsubscribe` / `once` / `request`,
+composable middleware (validation → authorization → redaction → enrichment →
+persistence → routing → delivery → metrics), per-consumer async workers with
+bounded queues (backpressure), exponential-backoff retry with jitter (never
+retrying a non-retryable error class), idempotent consumers, a real dead-letter
+queue, tracing and graceful shutdown.
+
+**Why.** The runtime already emitted events in several places — the per-run SSE
+`EventBus`/`RunEmitter`, orchestration and task event vocabularies, and the
+Automation Engine's event routing — but there was no single durable event model:
+no canonical envelope, no centralized naming/validation, no store queryable by
+correlation / causation / task / workflow / agent, no consumer idempotency, no
+DLQ, no replay and no console. The risk of the obvious fix was a SECOND bus and
+divergent vocabularies. This ADR takes the opposite choice: the existing run bus
+stays the low-latency live transport, and the new `EventBus` **bridges** to it —
+ingesting every legacy event (reusing its id so dedup holds) and echoing new
+typed events back — so there is one transport abstraction and one model. The
+task publisher (`tasks/bootstrap.py`) now emits canonical names
+(`task.created`, not `task.task_created`, and `workflow.created` for plans), and
+the scheduler emits `schedule.triggered`, so a timed fire is an observable event
+rather than a coupled Scheduler→Agent jump.
+
+**Consequences.** Correlation and causation propagate automatically through
+`contextvars` — a follow-up event created inside a handler inherits them without
+the developer threading ids through every call. Sensitive events require an
+operator actor and declared permissions are checked with the ONE permission
+authority (`skills.permissions`); payloads are redacted (by key and by value
+pattern) as a publish middleware so a secret can never reach the store. Replay
+is explicit and three-mode (`observe` / `simulation` / `full`); `full` requires
+operator authorization and destructive/financial types require confirmation, and
+a replayed event is a NEW event (new id, `metadata.originalId`) so idempotency
+keys on it and the replay fires. Built-in consumers are deliberately conservative
+to avoid loops and storms: a memory-candidate extractor emits bounded
+`memory.candidate.created` events (the Event Store is never agent memory), a
+self-improvement trigger requests an `evaluation.started` at most twice per
+correlation and never past depth 6, and a market sampler coalesces
+`market.price.updated` into `market.snapshot.updated` so a price tick can never
+cause one LLM call. Event→action rules reuse the Automation Engine
+(`EventRuleBridge`) rather than introducing a second scheduler. The console is a
+standalone `/events` route over an operator-gated `/events/*` API. Tests:
+`python/tests/test_events_{core,bus,service,api}.py`. Docs:
+`docs/harness/event-system.md`.
+
+## ADR-H154 — Plugins extend Eclipse through its existing systems under a closed manifest, a closed permission vocabulary and enforced isolation
+
+**Decision.** Third-party extensions are first-class plugins, validated against a
+versioned manifest (`python/harness/plugins/manifest.py`), granted exactly their
+declared permissions and enforced at every call site
+(`permissions.py` + `runtime.PluginContext`), driven through a closed lifecycle
+state machine (`model.py`) with durable state on `agent-memory.db` (`store.py`)
+and an atomic/rollback-safe manager (`manager.py`). A plugin contributes tools,
+skills, events, hooks, commands, UI, workers, webhooks and provider descriptors
+through a small SDK (`sdk.py`). Contributed tools register on the ONE
+`ToolRegistry` (`plug_<id>_<name>`); events publish/subscribe on the ONE run bus
+that the Event System ingests; hooks run at the canonical points; effectful
+contributed tools reuse the existing effect authorizer. There is no second tool
+runtime, event bus, scheduler or agent loop.
+
+**Why.** Eclipse already has the composition surfaces (Tool Registry, Event Bus,
+hooks, Evidence engine, approvals). A plugin system that forked any of them would
+double the security and observability surface. More importantly, "declared
+permissions" are only real if enforced where the resource is touched, and a
+manifest is only trustworthy if the runtime is cross-checked against it. Closing
+both — the vocabulary and the manifest-vs-runtime agreement — is what makes
+installing third-party code a governed act rather than a leap of faith. A closed
+lifecycle with an exclusive writer avoids the class of bugs where plugin state
+and reality drift across restarts.
+
+**Consequences.** Unknown permissions, malformed SemVer and undeclared/missing
+contributions are hard rejections. Elevated permissions (`process.spawn`,
+`terminal`, `browser`, `database`, `filesystem.write`) require an operator to
+enable. Secrets are encrypted at rest (Fernet, 0600 key file), scoped and never
+excluded from logs/telemetry by construction; package integrity is
+checksum-verified on load and package file paths are traversal-checked; the only
+network path is the controlled HTTP client (timeouts/retries/rate limiting/circuit
+breaking + metadata-IP SSRF guard). State is durable, so a restart restores the
+enabled set and a plugin that fails to reload becomes FAILED rather than silently
+vanishing. Agent reach is opt-in (`allowPluginTools`) and capability-discovered
+(`plugin_capabilities`/`plugin_invoke`) so enabled plugins do not bloat every
+prompt. `docs/harness/plugin-platform.md` is the operator/author entry point;
+`docs/NAVIGATION.md` and `docs/CHANGELOG.md` are updated in the same change.
+Untrusted code is additionally isolated in a **separate OS process** (JSON-RPC
+with a host-proxied context), so a plugin crash cannot crash Core; OAuth2 token
+lifecycle, a SHA-256-verified hosted registry, outbound webhooks, a WebSocket
+client and declarative UI view specs are host-owned seams the plugin never
+reimplements.
+
+## ADR-H155 - Agent-to-Agent is a registry + typed message bus over the EXISTING execution plane; a delegated task is a normal run
+
+**Decision.** Eclipse's A2A subsystem lives in `python/harness/a2a/` and consists
+of a versioned **Agent Registry** (agent behaviour is DATA: capabilities, tools,
+permissions, budgets, delegation rights), a typed **AgentEnvelope protocol** with
+per-type payload validation and a content-derived idempotency key, a durable
+**MessageBus** (publish/consume/acknowledge/reject/dead-letter over
+`agent-memory.db`), per-root-run **budgets**, **least-privilege authorization**
+with a spawn intersection and an approval gate for trading/external actions, a
+**result/finding/conflict** merger, and a **Supervisor + QA** stage. The model-
+facing surface is `A2A_TOOLS`; the operator surface is `/a2a/*`.
+
+**Why.** Multi-agent behaviour is where systems most easily fork their own
+runtime: a second agent loop, an in-memory queue, a parallel tool registry, a
+second database. Eclipse already has exactly ONE of each — `execute_run`, the
+`ToolRegistry`, the `EventBus`, the Task runtime (durable tasks + scheduler +
+checkpoints) and `agent-memory.db`. The A2A layer therefore creates a durable
+**Task** for every delegation and lets the existing `TaskScheduler` dispatch it
+through the ordinary run path; messages are rows, not events; the process
+`EventBus` only wakes live waiters. This keeps one security surface, one
+observability surface and one persistence layer.
+
+**Consequences.** Delegation is non-blocking (returns a task handle); `wait_agent`
+is event-driven, never a poll/sleep. Privileges only ever narrow: a child budget,
+a spawned agent and a delegated tool set are each the INTERSECTION of the parent's,
+and `operator` is never inherited. A capability that touches the real world
+(trading, deployment) is approval-gated, so a research agent cannot trade merely by
+delegating to one. Findings must carry evidence references; an unbacked or
+unverifiable claim is disclosed as **unsupported** with capped confidence, never
+promoted to fact. Every message is durable, correlated, idempotent and retryable,
+so a crash between publish and consume loses nothing. The A2A tools are registered
+on the ONE registry and reachable from `ECLIPSE_AGENT`; the layer is wired from
+`boot.py` so the service construction block stays under its size ratchet.
+`docs/harness/agent-to-agent.md` is the entry point; `docs/NAVIGATION.md` and
+`docs/CHANGELOG.md` are updated in the same change. The Agent Studio graph/live-
+execution views (spec §41) are not built yet.
+
+## ADR-H156 - Execution is one substrate: an ExecutionManager routes to DIRECT/CONCURRENT/BACKGROUND/DURABLE over a native durable queue, not a second runtime
+
+**Decision.** Eclipse gains an **Execution Fabric** in `python/harness/fabric/`
+that is the common substrate beneath every asynchronous or long-running unit of
+work. `ExecutionManager.submit(...)` routes each unit by its type's
+`ExecutionPolicy` to one of four modes — `DIRECT` (inline, unpersisted),
+`CONCURRENT` (queued, awaited), `BACKGROUND` (queued, fire-and-forget),
+`DURABLE` (queued, persisted, idempotent) — over a **native durable queue** on
+the ONE `agent-memory.db` connection, served by a **worker pool** (`WorkerManager`)
+that claims atomically, heartbeats leases, enforces timeouts, hard-cancels,
+retries with backoff + jitter, dead-letters exhausted work, recovers orphaned
+jobs and drains on shutdown. Jobs move through a **closed state machine** and
+carry correlation/trace/parent/root ids; a `PolicyRegistry` holds the defaults;
+`DistributedLockManager` provides TTL'd owner+token locks; and event rules map
+selected events to jobs (data, not code in producers).
+
+**Why.** The runtime is a single-process, zero-config, SQLite-backed Python
+service (AGENTS.md). Introducing Redis + BullMQ + PostgreSQL (as a generic
+"queue layer" brief suggests) would violate the repository's own rules — no
+dependency without justification, zero-config must keep working, reuse before
+rebuild — and would create a second, disconnected execution plane beside the
+already-strong `orchestration` DAG engine, the `tasks` scheduler, the automation
+engine, the event system, the plugins and the browser/quant/sandbox runtimes.
+The honest gap was not "a queue product" but a **unified routing seam** plus a
+durable background worker pool that reuses those capabilities. The Fabric is
+that seam: workers never re-implement a capability — an `agent` job calls
+`service.run`, a `tool` job calls `ToolRegistry.execute`, `python`/`code` call
+the isolated `code.sandbox`, `plugin` calls the plugin manager, `automation`
+calls the automation engine, and `notification`/`event` publish on the shared
+bus. It persists to the same database as everything else.
+
+**Consequences.** One execution surface, one persistence layer, one security
+surface, one observability surface. Priorities are Eclipse's own
+(`USER_REQUEST` … `MAINTENANCE`) so bulk ingestion cannot starve an interactive
+request. Idempotency keys coalesce duplicate durable submissions. A worker crash
+cannot lose durable work: the lease lapses and `recover()` re-queues it. The
+manager is the ONE place a new job type is registered (policy + worker), and the
+agent tools + `/fabric/*` admin API + `/fabric` console all read the SAME
+manager, so they can never disagree. `service.py` is untouched (the layer wires
+via `fabric/bootstrap.py` from `boot.py`). If a future deployment genuinely needs
+a distributed broker, the `ExecutionManager` boundary is where it would be
+swapped in without touching a single agent or tool. `docs/harness/execution-fabric.md`
+is the entry point; `docs/NAVIGATION.md` and `docs/CHANGELOG.md` are updated in
+the same change.
+
+## ADR-H157 - The agent is measured by running the REAL runtime against versioned, environment-isolated tasks, and every result is per-dimension (never one blended score)
+
+**Decision.** Eclipse gains a first-class **Agent Evaluation System** in
+`python/harness/evaluation/`. It executes versioned, environment-isolated tasks
+through the real agent runtime — the same `harness.graph.execute_run` tool loop
+the product uses — captures the complete trajectory from the runtime's own event
+bus, grades it with a pluggable grader engine, aggregates trials with statistics,
+persists every result to the ONE `agent-memory.db` connection, compares against
+frozen baselines and detects per-dimension regressions. Two invokers share one
+runner: a **scripted** offline tier (the real graph with a deterministic scripted
+chat model — the model is the only substituted part) and a **live** tier (the
+production `AgenticService.run` with a real model). Isolation between concurrent
+trials is by `contextvars`, so independent trials run in parallel in one process.
+The offline gate is a single step inside the repo's one release gate
+(`scripts/test-evals.js`), runs on a private temp database, and is
+per-category — never a blended score. An unmeasurable metric renders `UNKNOWN`,
+never `0`; a gate fails only on a MEASURED violation.
+
+**Why.** "The tests are green" was the whole claim about agent quality; nothing
+measured whether the agent was getting better or worse across task success,
+planning, tool selection and arguments, research/citation quality, financial
+calculation accuracy, code correctness, memory, safety or hallucination. A single
+score would hide the category that always fails behind the one that always
+succeeds, and a fake or simplified agent under test would measure the harness
+rather than the product. The repo already had the pieces to do this honestly: a
+real LangGraph tool loop with a documented model seam (used by its own tests), a
+durable event bus, a shared SQLite store, and an established eval-pack pattern
+(`research/eval`, `eclipse_memory/eval`, `code/eval`). The evaluation system
+reuses all of them and adds only the missing measurement surface — tasks,
+environments, trajectory capture, graders, trials, baselines, regression gates,
+reporting, mining and the self-improvement verification loop.
+
+**Consequences.** The capability is now measurable end to end: the offline gate
+runs 31 labelled tasks across 15 categories through the real runtime and reports
+per-category pass counts plus separate dimensions (task success, tool accuracy,
+financial/citation/code accuracy, hallucination rate, safety score, cost,
+latency, tokens). Graders are pluggable and deterministic where determinism is
+possible — financial calculations are independently recomputed, code is actually
+executed, state is read from the environment, safety reads the runtime's own
+structured refusal codes. Tool arguments, which the runtime's `tool.requested`
+event deliberately omits for privacy, are recorded at the `ToolRegistry`
+boundary and folded back into the trajectory, so argument accuracy is gradeable
+without changing the runtime. A production failure can be mined into a
+deduplicated regression candidate and, once its expected behavior is validated,
+promoted into the standing suite; the self-improvement loop accepts a change only
+when the target improves AND no critical capability regresses. Historical results
+are versioned by task, dataset and grader so a change never silently
+reinterprets an old score. `docs/harness/agent-evaluation.md` is the entry point;
+`docs/NAVIGATION.md` and `docs/CHANGELOG.md` are updated in the same change.
+
+## ADR-H158 - Observability is one vendor-neutral platform that projects the existing event bus; it is fail-open and never a second runtime
+
+**Decision.** Eclipse gains an **Observability Platform** in
+`python/harness/observability/`. It is a cross-cutting telemetry layer built on
+the standard library only, with an Eclipse-native abstraction
+(`ObservabilityHub`, `HookEvent`, `Observer`, `ObservationContext`, `Tracer`,
+`MetricsRegistry`, `CostEngine`, `Redactor`, `Sampler`, `BoundedExporter`) and
+optional vendor adapters behind one `Exporter` protocol (OTLP/HTTP, Langfuse,
+Sentry, JSONL, console, in-memory). It derives telemetry by subscribing **once**
+to the existing universal `service.bus` (`RunEventProjector`) and chains the
+`model_runtime`'s single observer (`ModelObserverBridge`), rather than adding
+instrumentation calls through every subsystem. `install_observability(service)`
+is called at the end of `AgenticService.__init__`; `start_observability` /
+`stop_observability` run in the FastAPI lifespan; routes are `/observability/*`
+(operator-gated).
+
+**Why.** The brief asked for OpenTelemetry + Prometheus + Grafana + Loki + Tempo
++ Langfuse + Sentry. Introducing those dependencies into a **single-process,
+zero-config, SQLite-backed** runtime, and re-instrumenting forty subsystems,
+would violate the repository's own rules (no unjustified dependencies,
+zero-config must keep working, reuse before rebuild, keep files small) and would
+create a second, competing telemetry stack beside the existing per-subsystem
+`telemetry.py` modules, `event_system/metrics.py`, `fabric/metrics.py` and the
+model runtime's own usage/cost/routing accounting. The honest gap was a **unified,
+vendor-neutral telemetry layer** that (a) correlates every operation under one
+trace, (b) is fail-open so a backend outage cannot break a run, and (c) projects
+the event stream Eclipse already emits. OpenTelemetry remains the instrumentation
+convention (W3C-shaped ids, `inject`/`extract`); the vendor backends are adapters,
+not the core abstraction.
+
+**Consequences.** One ingestion path, one cost engine, one redactor, one export
+pipeline. A dead/failing/slow backend only drops and counts telemetry never a
+run because every export is bounded, non-blocking, retried and circuit-broken.
+Secrets are stripped by the single `Redactor` before any record leaves the
+process. Errors, failed runs and anomalies are always sampled. The whole run
+trajectory is reconstructable from one trace via
+`/observability/traces/{id}/trajectory`. New subsystems join the trace by
+publishing on the bus (preferred) or calling `get_hub().emit`/`.span` never by
+adding a second stack. `docs/harness/observability.md` is the entry point;
+`docs/NAVIGATION.md` and `docs/CHANGELOG.md` are updated in the same change.
