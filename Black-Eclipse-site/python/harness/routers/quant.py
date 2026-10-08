@@ -27,6 +27,7 @@ from ..quant.robustness import (
     SensitivityConfig,
     SensitivityEngine,
 )
+from ..quant.runner import get_runner
 from ..quant.strategy import errors_only
 from ..quant.tools import _CAPABILITY
 from ..quant.walkforward import WalkForwardConfig, WalkForwardEngine
@@ -178,6 +179,7 @@ class BacktestBody(BaseModel):
     riskFreeRate: float = 0.0
     randomSeed: int = 42
     save: bool = True
+    background: bool = False
 
 
 @router.post("/quant/backtest")
@@ -199,22 +201,25 @@ async def run_backtest_route(body: BacktestBody, _: bool = Depends(require_opera
                 "code": "STRATEGY_VALIDATION_FAILED", "message": "strategy is invalid",
                 "issues": [i.to_dict() for i in errs],
             })
-        gateway = _market_gateway()
-        dataset = await dataset_from_strategy(
-            gateway, strategy, start=body.start, end=body.end, symbols=body.symbols
-        )
-        result = run_backtest(strategy, dataset, BacktestConfig(
-            initial_capital=body.initialCapital, start=body.start, end=body.end,
-            risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
-        ))
-        exp_id = None
-        if body.save:
-            exp_id = store.save_experiment(
-                result, strategy_id=strategy.id, strategy_version=strategy.version, kind="backtest"
+
+        async def work(progress: Any) -> dict:
+            dataset = await dataset_from_strategy(
+                _market_gateway(), strategy, start=body.start, end=body.end, symbols=body.symbols
             )
-        payload = result.to_dict(include_series=True)
-        payload["experimentId"] = exp_id
-        return payload
+            result = run_backtest(strategy, dataset, BacktestConfig(
+                initial_capital=body.initialCapital, start=body.start, end=body.end,
+                risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
+            ))
+            exp_id = None
+            if body.save:
+                exp_id = store.save_experiment(
+                    result, strategy_id=strategy.id, strategy_version=strategy.version, kind="backtest"
+                )
+            payload = result.to_dict(include_series=True)
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "backtest", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -229,6 +234,7 @@ class PortfolioBacktestBody(BaseModel):
     riskFreeRate: float = 0.0
     randomSeed: int = 42
     save: bool = True
+    background: bool = False
 
 
 @router.post("/quant/portfolio-backtest")
@@ -245,24 +251,29 @@ async def portfolio_backtest_route(body: PortfolioBacktestBody,
         if len(primaries) != 1:
             raise HTTPException(status_code=422, detail={
                 "code": "TIMEFRAME_MISMATCH", "message": "all strategies must share one primary timeframe"})
-        symbols = sorted({sym for s in strategies for sym in s.universe.symbols})
-        confirmation = sorted({tf for s in strategies for tf in s.timeframes.confirmation})
-        dataset = await resolve_dataset(
-            _market_gateway(), symbols, primary=next(iter(primaries)),
-            confirmation=confirmation, start=body.start, end=body.end,
-        )
-        result = run_portfolio_backtest(strategies, dataset, BacktestConfig(
-            initial_capital=body.initialCapital, start=body.start, end=body.end,
-            risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
-        ))
-        exp_id = None
-        if body.save:
-            exp_id = store.save_experiment(
-                result, strategy_id=None,
-                strategy_version=",".join(s.version for s in strategies), kind="portfolio_backtest")
-        payload = result.to_dict(include_series=True)
-        payload["experimentId"] = exp_id
-        return payload
+
+        async def work(progress: Any) -> dict:
+            symbols = sorted({sym for s in strategies for sym in s.universe.symbols})
+            confirmation = sorted({tf for s in strategies for tf in s.timeframes.confirmation})
+            dataset = await resolve_dataset(
+                _market_gateway(), symbols, primary=next(iter(primaries)),
+                confirmation=confirmation, start=body.start, end=body.end,
+            )
+            result = run_portfolio_backtest(strategies, dataset, BacktestConfig(
+                initial_capital=body.initialCapital, start=body.start, end=body.end,
+                risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
+            ))
+            exp_id = None
+            if body.save:
+                exp_id = store.save_experiment(
+                    result, strategy_id=None,
+                    strategy_version=",".join(s.version for s in strategies),
+                    kind="portfolio_backtest")
+            payload = result.to_dict(include_series=True)
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "portfolio_backtest", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -281,6 +292,16 @@ class ResearchBody(BaseModel):
     riskFreeRate: float = 0.0
     seed: int = 42
     save: bool = True
+    # Run the work off the request loop; returns a runId to poll.
+    background: bool = False
+
+
+async def _maybe_background(body: Any, kind: str, work: Any) -> dict:
+    """Either await `work(progress)` or submit it to the background runner."""
+    if getattr(body, "background", False):
+        run_id = get_runner().submit(kind, work)
+        return {"runId": run_id, "status": "queued", "kind": kind, "background": True}
+    return await work(lambda *_a: None)
 
 
 def _load_strategy(store: Any, strategy_id: str, version: Optional[str]) -> StrategySpec:
@@ -312,20 +333,23 @@ async def optimize_route(body: OptimizeBody, _: bool = Depends(require_operator)
     try:
         store = _store()
         strategy = _load_strategy(store, body.strategyId, body.version)
-        dataset = await _dataset_for(strategy, body)
-        result = OptimizationEngine(strategy, dataset, ParamSpace.from_dict(body.paramSpace),
-                                    OptimizationConfig(
-                                        method=body.method, objective=body.objective,
-                                        objectives=body.objectives,
-                                        max_evaluations=body.maxEvaluations, seed=body.seed,
-                                        initial_capital=body.initialCapital,
-                                        risk_free_rate=body.riskFreeRate,
-                                        start=body.start, end=body.end, symbols=body.symbols,
-                                    )).run()
-        exp_id = _save(store, result, strategy, "optimization", body.save)
-        payload = result.to_dict()
-        payload["experimentId"] = exp_id
-        return payload
+
+        async def work(progress: Any) -> dict:
+            dataset = await _dataset_for(strategy, body)
+            result = OptimizationEngine(
+                strategy, dataset, ParamSpace.from_dict(body.paramSpace),
+                OptimizationConfig(
+                    method=body.method, objective=body.objective, objectives=body.objectives,
+                    max_evaluations=body.maxEvaluations, seed=body.seed,
+                    initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+                    start=body.start, end=body.end, symbols=body.symbols,
+                ), progress=progress).run()
+            exp_id = _save(store, result, strategy, "optimization", body.save)
+            payload = result.to_dict()
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "optimization", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -348,18 +372,22 @@ async def walk_forward_route(body: WalkForwardBody, _: bool = Depends(require_op
     try:
         store = _store()
         strategy = _load_strategy(store, body.strategyId, body.version)
-        dataset = await _dataset_for(strategy, body)
-        result = WalkForwardEngine(strategy, dataset, WalkForwardConfig(
-            train_bars=body.trainBars, test_bars=body.testBars, step_bars=body.stepBars,
-            method=body.method, objective=body.objective, param_space=body.paramSpace,
-            max_evaluations=body.maxEvaluations, seed=body.seed,
-            initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
-            anchored=body.anchored,
-        )).run()
-        exp_id = _save(store, result, strategy, "walk_forward", body.save)
-        payload = result.to_dict()
-        payload["experimentId"] = exp_id
-        return payload
+
+        async def work(progress: Any) -> dict:
+            dataset = await _dataset_for(strategy, body)
+            result = WalkForwardEngine(strategy, dataset, WalkForwardConfig(
+                train_bars=body.trainBars, test_bars=body.testBars, step_bars=body.stepBars,
+                method=body.method, objective=body.objective, param_space=body.paramSpace,
+                max_evaluations=body.maxEvaluations, seed=body.seed,
+                initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+                anchored=body.anchored,
+            ), progress=progress).run()
+            exp_id = _save(store, result, strategy, "walk_forward", body.save)
+            payload = result.to_dict()
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "walk_forward", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -380,17 +408,21 @@ async def monte_carlo_route(body: MonteCarloBody, _: bool = Depends(require_oper
     try:
         store = _store()
         strategy = _load_strategy(store, body.strategyId, body.version)
-        dataset = await _dataset_for(strategy, body)
-        result = MonteCarloEngine(strategy, dataset, MonteCarloConfig(
-            method=body.method, simulations=body.simulations, seed=body.seed,
-            ruin_threshold=body.ruinThreshold, perturbation_pct=body.perturbationPct,
-            perturbation=body.perturbation, execution_perturbation=body.executionPerturbation,
-            initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
-        )).run()
-        exp_id = _save(store, result, strategy, "monte_carlo", body.save)
-        payload = result.to_dict()
-        payload["experimentId"] = exp_id
-        return payload
+
+        async def work(progress: Any) -> dict:
+            dataset = await _dataset_for(strategy, body)
+            result = MonteCarloEngine(strategy, dataset, MonteCarloConfig(
+                method=body.method, simulations=body.simulations, seed=body.seed,
+                ruin_threshold=body.ruinThreshold, perturbation_pct=body.perturbationPct,
+                perturbation=body.perturbation, execution_perturbation=body.executionPerturbation,
+                initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+            ), progress=progress).run()
+            exp_id = _save(store, result, strategy, "monte_carlo", body.save)
+            payload = result.to_dict()
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "monte_carlo", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -407,15 +439,19 @@ async def sensitivity_route(body: SensitivityBody, _: bool = Depends(require_ope
     try:
         store = _store()
         strategy = _load_strategy(store, body.strategyId, body.version)
-        dataset = await _dataset_for(strategy, body)
-        result = SensitivityEngine(strategy, dataset, SensitivityConfig(
-            param_ranges=body.paramRanges, objective=body.objective, seed=body.seed,
-            initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
-        )).run()
-        exp_id = _save(store, result, strategy, "sensitivity", body.save)
-        payload = result.to_dict()
-        payload["experimentId"] = exp_id
-        return payload
+
+        async def work(progress: Any) -> dict:
+            dataset = await _dataset_for(strategy, body)
+            result = SensitivityEngine(strategy, dataset, SensitivityConfig(
+                param_ranges=body.paramRanges, objective=body.objective, seed=body.seed,
+                initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+            )).run()
+            exp_id = _save(store, result, strategy, "sensitivity", body.save)
+            payload = result.to_dict()
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "sensitivity", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -434,20 +470,44 @@ async def robustness_route(body: RobustnessBody, _: bool = Depends(require_opera
     try:
         store = _store()
         strategy = _load_strategy(store, body.strategyId, body.version)
-        dataset = await _dataset_for(strategy, body)
-        result = RobustnessEngine(strategy, dataset, RobustnessConfig(
-            param_ranges=body.paramRanges, objective=body.objective,
-            cost_multipliers=body.costMultipliers, min_trades=body.minTrades, seed=body.seed,
-            initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
-        )).run()
-        exp_id = _save(store, result, strategy, "robustness", body.save)
-        payload = result.to_dict()
-        payload["experimentId"] = exp_id
-        return payload
+
+        async def work(progress: Any) -> dict:
+            dataset = await _dataset_for(strategy, body)
+            result = RobustnessEngine(strategy, dataset, RobustnessConfig(
+                param_ranges=body.paramRanges, objective=body.objective,
+                cost_multipliers=body.costMultipliers, min_trades=body.minTrades, seed=body.seed,
+                initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+            ), progress=progress).run()
+            exp_id = _save(store, result, strategy, "robustness", body.save)
+            payload = result.to_dict()
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "robustness", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
+
+
+# ── Background runs ──────────────────────────────────────────────────────────
+
+@router.get("/quant/runs")
+async def list_runs(_: bool = Depends(require_operator)) -> dict:
+    return {"runs": get_runner().list()}
+
+
+@router.get("/quant/runs/{run_id}")
+async def get_run(run_id: str, result: bool = False, _: bool = Depends(require_operator)) -> dict:
+    run = get_runner().get(run_id, include_result=result)
+    if run is None:
+        raise HTTPException(status_code=404, detail={"code": "RUN_NOT_FOUND", "message": run_id})
+    return run
+
+
+@router.post("/quant/runs/{run_id}/cancel")
+async def cancel_run(run_id: str, _: bool = Depends(require_operator)) -> dict:
+    return {"cancelled": get_runner().cancel(run_id), "runId": run_id}
 
 
 # ── Experiments ──────────────────────────────────────────────────────────────

@@ -188,6 +188,7 @@ export function BacktestScreen() {
   const [spread, setSpread] = useState(5);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [bgMode, setBgMode] = useState(true);
 
   useEffect(() => {
     if (state.selected) {
@@ -236,11 +237,12 @@ export function BacktestScreen() {
       end: end || undefined,
       initialCapital: capital,
       save: true,
+      background: bgMode,
     });
     if (result && result.status === 'OK' && !result.trades.length) {
       setNotice('The run completed with no trades (check history length, warm-up and rule thresholds).');
     }
-  }, [parseSpec, symbols, start, end, capital, commission, slippage, spread, state]);
+  }, [parseSpec, symbols, start, end, capital, commission, slippage, spread, state, bgMode]);
 
   const handleSave = useCallback(async () => {
     setFormError(null);
@@ -391,10 +393,16 @@ export function BacktestScreen() {
             </div>
           </div>
 
+          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <input type="checkbox" checked={bgMode} onChange={(e) => setBgMode(e.target.checked)} />
+            Run in background (poll progress)
+          </label>
           <button type="button" onClick={() => void handleRun()} disabled={state.running}
             className="glass-button-add flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50">
             {state.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {state.running ? 'Running…' : 'Run backtest'}
+            {state.running
+              ? `Running…${state.progress ? ` ${Math.round(state.progress.percent)}%` : ''}`
+              : 'Run backtest'}
           </button>
 
           <div className="rounded-xl border border-white/10 p-2">
@@ -495,6 +503,7 @@ export function BacktestScreen() {
             selected={state.selected}
             running={state.running}
             research={state.research}
+            progress={state.progress}
             onRun={state.runResearch}
             onError={setFormError}
           />

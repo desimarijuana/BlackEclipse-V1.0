@@ -49,6 +49,7 @@ market data → indicator context → signal (rules) → risk → order
 | Shared research-result envelope | `quant/research.py` |
 | Strategy + experiment persistence, artifacts | `quant/store.py` |
 | Golden synthetic datasets | `quant/fixtures.py` |
+| Background run runner (status/progress/cancel) | `quant/runner.py` |
 | Agent tools | `quant/tools.py` |
 | HTTP routes | `routers/quant.py` |
 | Boot wiring | `quant/bootstrap.py` |
@@ -146,6 +147,31 @@ long-only runs the two MUST agree on realized P&L; this is asserted by
 Wiring short-capable strategies into the ledger is deferred and would be an
 extension of the accounting core, not a fork (see ADR-H150).
 
+## Production notes
+
+**Live market-data path.** The engine reads bars through the ONE Market Data
+Gateway. Two fixes make real history actually loadable: `_fetch_provider` now
+forwards each provider's OWN ticker (`providerSymbols`, so `BTC-USD` → `BTCUSDT`
+for Binance instead of asking Binance for a pair it does not trade), and
+intraday crypto (`1m`…`4h`) prefers Binance over the yfinance/stooq adapters
+that collapse intraday bars to a calendar date. Covered by
+`python/tests/test_market_intraday_routing.py`.
+
+**Background execution.** Backtests and research runs accept `background: true`
+on their POST body; the work is submitted to `quant/runner.py` (an asyncio task
+behind a concurrency semaphore) and the caller polls
+`GET /quant/runs/{id}[/cancel]`. The runner reports a stage + percent
+(optimization reports evaluated/total, Monte-Carlo reports simulations, etc.),
+supports cancellation, and retains the result in memory for an hour (the durable
+copy is the experiment artifact). The Backtest UI has a "Run in background"
+toggle and polls the same endpoints. Heavy runs therefore never block the
+request loop.
+
+**Performance.** Indicators are O(n) and the engine is a single pass over the
+merged timeline; `python/tests/test_quant_performance.py` guards against an
+accidental quadratic (a 5000-bar/eight-indicator backtest runs in well under a
+second, asserted under a generous 20s ceiling).
+
 ## Extending it
 
 - **New indicator**: add to `INDICATOR_CATALOG` + `compute_one` in
@@ -163,13 +189,11 @@ Greeks, option strategies) is its own build and is not faked. `futures` is
 `partial`. Everything else in the required tool list now has a working,
 tested engine behind it.
 
-Backtests currently run **in-request** (the `run_backtest` tool declares a
-bounded `long_running` budget; the HTTP proxy uses a 300s timeout). The
-harness job scheduler (`python/harness/jobs/`) only runs `skill`/`objective`
-targets and has no job-level progress/cancel, so offloading very large
-backtests/optimizations to a background job is a later hardening step (it would
-add a job target kind + progress/cancel surface). It is documented here rather
-than faked: today a run that exceeds the bound fails honestly.
+Heavy runs are offloaded in-process (see **Background execution** above), so a
+long backtest/optimization no longer blocks the request. Deeper scaling — a
+distributed worker pool or the harness job scheduler hosting quant targets with
+cross-process persistence — is a later step; today background runs are bounded
+by the process lifetime and retained in memory for an hour.
 
 Data-quality findings from the dataset (gaps, duplicates, out-of-order,
 incomplete bars) are surfaced as `DATA_*` warnings on the result; they are never

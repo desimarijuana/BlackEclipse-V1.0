@@ -143,10 +143,20 @@ class RobustnessConfig:
 
 class RobustnessEngine:
     def __init__(self, strategy: StrategySpec, dataset: MarketDataset,
-                 config: Optional[RobustnessConfig] = None) -> None:
+                 config: Optional[RobustnessConfig] = None,
+                 *, progress: Optional[Any] = None) -> None:
         self.strategy = strategy
         self.dataset = dataset
         self.config = config or RobustnessConfig()
+        self._progress = progress
+
+    def _report(self, done: int, total: int) -> None:
+        if self._progress is None:
+            return
+        try:
+            self._progress("stage", done, total)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _base(self):
         return _run(self.strategy, self.dataset, BacktestConfig(
@@ -206,6 +216,7 @@ class RobustnessEngine:
 
     def run(self) -> ResearchResult:
         started = time.monotonic()
+        self._report(0, 4)
         base = self._base()
         base_obj = objective_score(self.config.objective, base.metrics)
         warnings: list[dict[str, Any]] = []
@@ -224,6 +235,7 @@ class RobustnessEngine:
         else:
             collapses = []
 
+        self._report(2, 4)
         cost = self._cost_sensitivity()
         material = False
         if base_obj is not None:
@@ -240,6 +252,7 @@ class RobustnessEngine:
             conclusions.append(
                 "Strategy performance is concentrated in a small number of trades.")
 
+        self._report(3, 4)
         regime = self._regime()
         regime_dependent = False
         if regime:

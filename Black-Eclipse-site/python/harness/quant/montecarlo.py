@@ -88,14 +88,24 @@ def _percentiles(values: list[float], points: list[int]) -> dict[str, float]:
 
 class MonteCarloEngine:
     def __init__(self, strategy: StrategySpec, dataset: MarketDataset,
-                 config: Optional[MonteCarloConfig] = None) -> None:
+                 config: Optional[MonteCarloConfig] = None,
+                 *, progress: Optional[Any] = None) -> None:
         self.strategy = strategy
         self.dataset = dataset
         self.config = config or MonteCarloConfig()
+        self._progress = progress
         if self.config.method not in _METHODS:
             raise MonteCarloError(f"unknown monte-carlo method {self.config.method!r}")
         if self.config.simulations < 1:
             raise MonteCarloError("simulations must be >= 1")
+
+    def _report(self, done: int, total: int) -> None:
+        if self._progress is None:
+            return
+        try:
+            self._progress("simulating", done, total)
+        except Exception:  # noqa: BLE001 - progress must never break a run
+            pass
 
     def _base(self) -> Any:
         return run_backtest(
@@ -127,7 +137,8 @@ class MonteCarloEngine:
             pnls = [t["netPnl"] for t in base.trades]
             if not pnls:
                 warnings.append(warn("NO_TRADES", "base run produced no trades; nothing to resample"))
-            for _ in range(c.simulations):
+            for _i in range(c.simulations):
+                self._report(_i + 1, c.simulations)
                 seq = list(pnls)
                 rng.shuffle(seq)
                 equity = [c.initial_capital]
@@ -140,7 +151,8 @@ class MonteCarloEngine:
             rets = [eq[i] / eq[i - 1] - 1.0 for i in range(1, len(eq)) if eq[i - 1]]
             if not rets:
                 warnings.append(warn("NO_RETURNS", "base equity curve is empty"))
-            for _ in range(c.simulations):
+            for _i in range(c.simulations):
+                self._report(_i + 1, c.simulations)
                 sample = [rng.choice(rets) for _ in range(len(rets))] if rets else []
                 equity = [c.initial_capital]
                 for r0 in sample:
@@ -152,7 +164,8 @@ class MonteCarloEngine:
             paths = list(c.perturbation.keys()) or _numeric_paths(base_dict)
             if not paths:
                 warnings.append(warn("NO_PARAMETERS", "no numeric parameters to perturb"))
-            for _ in range(c.simulations):
+            for _i in range(c.simulations):
+                self._report(_i + 1, c.simulations)
                 spec_dict = self.strategy.to_dict()
                 for path in paths:
                     base_val = get_path(spec_dict, path, None)
@@ -177,7 +190,8 @@ class MonteCarloEngine:
                     failures += 1
         else:  # execution_perturbation
             factors = c.execution_perturbation or {"commission": 1.5, "slippage": 1.5}
-            for _ in range(c.simulations):
+            for _i in range(c.simulations):
+                self._report(_i + 1, c.simulations)
                 spec_dict = self.strategy.to_dict()
                 exec_cfg = spec_dict.setdefault("execution", {})
                 for key, factor in factors.items():

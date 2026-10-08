@@ -269,11 +269,13 @@ class OptimizationConfig:
 
 class OptimizationEngine:
     def __init__(self, strategy: StrategySpec, dataset: MarketDataset,
-                 space: ParamSpace, config: Optional[OptimizationConfig] = None) -> None:
+                 space: ParamSpace, config: Optional[OptimizationConfig] = None,
+                 *, progress: Optional[Callable[[str, int, int], None]] = None) -> None:
         self.strategy = strategy
         self.dataset = dataset
         self.space = space
         self.config = config or OptimizationConfig()
+        self._progress = progress
         if self.space.is_empty():
             raise OptimizationError("an optimization needs at least one parameter axis")
         objectives = self.config.objectives or [self.config.objective]
@@ -308,6 +310,11 @@ class OptimizationEngine:
         except Exception as exc:  # noqa: BLE001
             return Trial(params=params, score=None, metrics={}, status="failed", error=str(exc))
         score = objective_score(self.objectives[0], result.metrics)
+        if self._progress is not None:
+            try:
+                self._progress("evaluating", self._seq, self.config.max_evaluations)
+            except Exception:  # noqa: BLE001 - progress must never break a run
+                pass
         return Trial(params=params, score=score, metrics=result.metrics, status="ok",
                      duration_ms=int((time.monotonic() - started) * 1000))
 

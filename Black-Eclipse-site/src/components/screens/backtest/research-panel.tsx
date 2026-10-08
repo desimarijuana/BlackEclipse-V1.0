@@ -14,6 +14,7 @@ export interface ResearchPanelProps {
   selected: StrategyRecord | null;
   running: boolean;
   research: ResearchResult | null;
+  progress?: { stage: string; percent: number } | null;
   onRun: (kind: 'optimize' | 'walkForward' | 'monteCarlo' | 'sensitivity' | 'robustness',
            body: ResearchRequest) => Promise<ResearchResult | null>;
   onError: (message: string | null) => void;
@@ -44,7 +45,7 @@ function Badge({ verdict }: { verdict?: string }) {
   return <span className={cn('rounded-md border px-2 py-0.5 font-mono text-[10px] uppercase', tone)}>{verdict}</span>;
 }
 
-export function ResearchPanel({ selected, running, research, onRun, onError }: ResearchPanelProps) {
+export function ResearchPanel({ selected, running, research, progress, onRun, onError }: ResearchPanelProps) {
   const [objective, setObjective] = useState('sharpe');
   const [method, setMethod] = useState('random');
   const [spaceText, setSpaceText] = useState(() => defaultSpace(selected?.spec));
@@ -52,6 +53,7 @@ export function ResearchPanel({ selected, running, research, onRun, onError }: R
   const [trainBars, setTrainBars] = useState(250);
   const [testBars, setTestBars] = useState(100);
   const [simulations, setSimulations] = useState(500);
+  const [background, setBackground] = useState(true);
 
   const resetSpace = () => setSpaceText(defaultSpace(selected?.spec));
 
@@ -76,6 +78,7 @@ export function ResearchPanel({ selected, running, research, onRun, onError }: R
     onError(null);
     const b = base();
     if (!b) return;
+    b.background = background;
     if (kind === 'optimize' || kind === 'walkForward') {
       const space = parseSpace();
       if (!space) return;
@@ -160,7 +163,7 @@ export function ResearchPanel({ selected, running, research, onRun, onError }: R
           className="h-[110px] w-full resize-y rounded-lg border border-white/10 bg-black/30 p-2 font-mono text-[10px] text-foreground outline-none" />
       </label>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         {buttons.map(([kind, label]) => (
           <button key={kind} type="button" disabled={running} onClick={() => trigger(kind)}
             className="glass-button flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs disabled:opacity-50">
@@ -168,6 +171,15 @@ export function ResearchPanel({ selected, running, research, onRun, onError }: R
             {label}
           </button>
         ))}
+        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <input type="checkbox" checked={background} onChange={(e) => setBackground(e.target.checked)} />
+          Run in background
+        </label>
+        {running && progress && (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {progress.stage} {Math.round(progress.percent)}%
+          </span>
+        )}
       </div>
 
       {research && <ResearchResultView research={research} />}

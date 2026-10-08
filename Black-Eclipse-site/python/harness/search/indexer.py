@@ -79,13 +79,20 @@ async def index_document(
     # is left untouched (no re-embedding), so a bulk re-index only pays for what
     # changed. `force=True` overrides this.
     existing_same = store.get_document(doc.document_id)
+    want_vectors = embedder.available
+    same_state = existing_same is not None and existing_same.get("state")
+    skippable_state = same_state == IndexState.INDEXED.value or (
+        # A keyword-only (STALE) document is already complete while no embedding
+        # provider is available; when one appears it is re-indexed to add vectors.
+        same_state == IndexState.STALE.value and not want_vectors
+    )
     if (
         not force
         and existing_same is not None
         and existing_same.get("contentHash") == doc.content_hash
-        and existing_same.get("state") == IndexState.INDEXED.value
+        and skippable_state
     ):
-        result.state = IndexState.INDEXED.value
+        result.state = same_state or IndexState.INDEXED.value
         result.unchanged = True
         result.chunks = int(existing_same.get("chunkCount") or 0)
         return result

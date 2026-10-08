@@ -21,11 +21,33 @@ import {
 export type ResearchKind =
   | 'optimize' | 'walkForward' | 'monteCarlo' | 'sensitivity' | 'robustness';
 
+export interface RunProgress {
+  stage: string;
+  percent: number;
+}
+
+/** Poll a background run to completion; returns its result or throws. */
+async function pollRun<T>(
+  runId: string,
+  onProgress?: (p: RunProgress) => void,
+): Promise<T | null> {
+  for (let i = 0; i < 3600; i += 1) {
+    const view = await backtestClient.getRun(runId, true);
+    onProgress?.({ stage: view.stage || view.status, percent: view.percent });
+    if (view.status === 'completed') return (view.result as T) ?? null;
+    if (view.status === 'failed') throw new Error(view.error?.message ?? 'run failed');
+    if (view.status === 'cancelled') throw new Error('run cancelled');
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error('run timed out');
+}
+
 export interface BacktestScreenState {
   strategies: StrategySummary[];
   experiments: ExperimentSummary[];
   result: BacktestResult | null;
   research: ResearchResult | null;
+  progress: RunProgress | null;
   selectedId: string | null;
   selected: StrategyRecord | null;
   capabilities: Record<string, string>;
@@ -40,6 +62,7 @@ const initial: BacktestScreenState = {
   experiments: [],
   result: null,
   research: null,
+  progress: null,
   selectedId: null,
   selected: null,
   capabilities: {},
@@ -91,20 +114,24 @@ export function useBacktestScreen() {
   }, []);
 
   const run = useCallback(async (input: RunBacktestInput) => {
-    setState((s) => ({ ...s, running: true, error: null, notice: null }));
+    setState((s) => ({ ...s, running: true, error: null, notice: null, progress: null }));
     try {
-      const result = await backtestClient.runBacktest(input);
-      setState((s) => ({ ...s, running: false, result }));
+      const raw = (await backtestClient.runBacktest(input)) as unknown as
+        BacktestResult | { runId: string };
+      const result = 'runId' in raw
+        ? await pollRun<BacktestResult>(raw.runId, (p) => setState((s) => ({ ...s, progress: p })))
+        : raw;
+      setState((s) => ({ ...s, running: false, result, progress: null }));
       void refresh();
       return result;
     } catch (err) {
-      setState((s) => ({ ...s, running: false, error: err instanceof Error ? err.message : 'run failed' }));
+      setState((s) => ({ ...s, running: false, progress: null, error: err instanceof Error ? err.message : 'run failed' }));
       return null;
     }
   }, [refresh]);
 
   const runResearch = useCallback(async (kind: ResearchKind, body: ResearchRequest) => {
-    setState((s) => ({ ...s, running: true, error: null, research: null }));
+    setState((s) => ({ ...s, running: true, error: null, research: null, progress: null }));
     const call = {
       optimize: backtestClient.optimize,
       walkForward: backtestClient.walkForward,
@@ -113,12 +140,15 @@ export function useBacktestScreen() {
       robustness: backtestClient.robustness,
     }[kind];
     try {
-      const research = await call(body);
-      setState((s) => ({ ...s, running: false, research }));
+      const raw = (await call(body)) as unknown as ResearchResult | { runId: string };
+      const research = 'runId' in raw
+        ? await pollRun<ResearchResult>(raw.runId, (p) => setState((s) => ({ ...s, progress: p })))
+        : raw;
+      setState((s) => ({ ...s, running: false, research, progress: null }));
       void refresh();
       return research;
     } catch (err) {
-      setState((s) => ({ ...s, running: false, error: err instanceof Error ? err.message : 'research failed' }));
+      setState((s) => ({ ...s, running: false, progress: null, error: err instanceof Error ? err.message : 'research failed' }));
       return null;
     }
   }, [refresh]);

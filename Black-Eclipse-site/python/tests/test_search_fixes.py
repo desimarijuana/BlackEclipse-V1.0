@@ -107,3 +107,34 @@ async def test_ingest_uses_embedding_semantic_chunking():
         title="Mixed", source_type="filing", source_id="mix", namespace="filing",
     )
     assert result.chunks >= 1
+
+
+class _FakeMemoryStore:
+    def __init__(self, db):
+        self._db = db
+
+
+@pytest.mark.asyncio
+async def test_boot_warm_index_populates_and_is_incremental():
+    import sqlite3
+
+    service, _ = make_service(rerank_enabled=False)
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute(
+        "CREATE TABLE MemoryRecord (id TEXT, memoryType TEXT, scope TEXT, scopeId TEXT, subject TEXT, "
+        "content TEXT, confidence REAL, importance REAL, source TEXT, status TEXT, createdAt TEXT, updatedAt TEXT)"
+    )
+    db.execute(
+        "INSERT INTO MemoryRecord VALUES ('m1','semantic','general',NULL,'NVDA',"
+        "'Nvidia data center demand is strong','0.9',0.8,'run','active','t','t')"
+    )
+    db.commit()
+    service.memory_store = _FakeMemoryStore(db)
+
+    first = await service.warm_index()
+    assert first["indexed"] >= 1
+    assert (await service.keyword("nvidia demand")).hits
+
+    second = await service.warm_index()
+    assert second["unchanged"] >= 1  # idempotent keyword-only warm-up

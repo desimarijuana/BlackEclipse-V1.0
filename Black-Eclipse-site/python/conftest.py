@@ -22,6 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The tests directory is not a package; make the sibling helper importable.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests"))
 
+# Tests must never race a background search warm-index against their temp
+# databases. The real runtime leaves this unset (warm-up on); tests turn it off.
+os.environ.setdefault("HARNESS_SEARCH_WARM_INDEX", "0")
+
 import pytest  # noqa: E402
 
 

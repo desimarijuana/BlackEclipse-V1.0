@@ -87,6 +87,13 @@ const launcher = [
   "ccg = check_code_gate(cc)",
   "print('  code gate:', 'PASS' if ccg['passed'] else 'FAIL', ccg['failures'] if not ccg['passed'] else '')",
   "failed += [] if ccg['passed'] else ['code']",
+  // Unified search: the offline retrieval-quality floor (keyword path).
+  "from harness.search.eval_gate import run_search_eval, check_search_thresholds, format_search_report",
+  "srep = run_search_eval()",
+  "print('  ' + format_search_report(srep))",
+  "sg = check_search_thresholds(srep)",
+  "print('  search gate:', 'PASS' if sg['passed'] else 'FAIL', sg['failures'] if not sg['passed'] else '')",
+  "failed += [] if sg['passed'] else ['search']",
   // Harness closeout Phase 8: the capability-matrix gate is TS (invoked by
   // run_gates via npx tsx); route_health/workflow/resume are Python. All offline.
   "from harness.eval_gates import run_gates",

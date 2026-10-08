@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Quant Engine — production hardening: live data path + background runs +
+  performance guard.** (1) Live market-data path fixed in
+  `python/harness/market/gateway.py`: `_fetch_provider` now forwards each
+  provider's OWN ticker via `providerSymbols` (so `BTC-USD` → `BTCUSDT` for
+  Binance instead of requesting a nonexistent `BTCUSD` spot pair), and intraday
+  crypto (`1m`–`4h`) routes to Binance first — the yfinance/stooq adapters
+  collapse intraday bars to a calendar date, so the previous order returned
+  unusable intraday crypto. New `_dispatch(prefer=…)` reorders candidates; tests
+  `python/tests/test_market_intraday_routing.py`. (2) Heavy runs no longer block
+  the request: new `python/harness/quant/runner.py` (in-process asyncio runner
+  behind a concurrency semaphore, status + stage/percent progress + cancel, 1h
+  in-memory retention) with routes `POST …?background=true` and
+  `GET /quant/runs`, `GET /quant/runs/{id}`, `POST /quant/runs/{id}/cancel`;
+  engines gained progress hooks; UI "Run in background" toggle that polls.
+  (3) `python/tests/test_quant_performance.py` guards a 5000-bar/eight-indicator
+  backtest against accidental quadratic behaviour (runs in <1s, asserted <20s).
+  Tests: `test_quant_runner.py` + the intraday-routing file. docs updated:
+  `docs/quant-engine.md` (Production notes), `docs/NAVIGATION.md`, this file.
+
 - **Portfolio engine — the remaining capability gaps closed.** (1) **Cost basis**:
   added `HIFO` and `SPECIFIC_ID` (exact-lot selection via a transaction's
   `lot_selection`). (2) **Corporate actions**: added `RIGHTS_ISSUE`,
@@ -324,6 +343,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_search_ann.py`, `test_search_fixes.py` (+ updated
   `test_search_*`). docs updated: `docs/harness/search-retrieval.md`,
   `docs/harness/decisions.md` (ADR-H151), `docs/CHANGELOG.md`.
+
+- **Unified search — production readiness: boot auto-index, live smoke, release gate, UI guard.**
+  (1) **Automatic boot indexing**: `SearchService.schedule_warm_index` (called
+  from `harness/boot.py`) builds the index from existing sources in a
+  non-blocking background task; `HARNESS_SEARCH_WARM_INDEX=0` disables it; the
+  test suite disables it via `python/conftest.py` so it never races temp DBs.
+  Warm-up is incremental (keyword-only re-runs are cheap and idempotent).
+  (2) **Opt-in live verification**: `harness/search/live_smoke.py` +
+  `python/tests/test_search_live.py` (`BLACK_ECLIPSE_SEARCH_LIVE=1`) contact a
+  real provider and assert non-degenerate embeddings + relevant-above-distractor
+  similarity — the only networked search test, never in the offline suite.
+  (3) **Release gate**: `harness/search/eval_gate.py` wired into
+  `scripts/test-evals.js` as the `search` gate (Recall@k/MRR/NDCG floors over the
+  golden corpus, offline). (4) **UI reachability guard**:
+  `src/components/screens/search/search-screen.test.ts` asserts the screen is
+  real + mounted + plain-language. docs updated:
+  `docs/harness/search-retrieval.md`, `docs/CHANGELOG.md`.
 
 - **Fix: `research/web_coverage.py` semantic coverage.** The optional
   embedding-based coverage layer imported `model_runtime.embeddings.embed_texts`,

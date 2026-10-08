@@ -161,6 +161,27 @@ measured failure.
   embedding similarity; otherwise the deterministic lexical-cohesion fallback
   applies.
 
+## Operations
+
+- **Automatic boot indexing.** On runtime boot the layer builds the index from
+  existing sources in a **background task** (`SearchService.schedule_warm_index`,
+  called from `harness/boot.py`). Boot is never blocked and a failure is recorded
+  as an event. Disable with `HARNESS_SEARCH_WARM_INDEX=0`. Warm-up is
+  incremental (unchanged documents are skipped), and a keyword-only index is
+  re-run cheaply because no vectors are produced.
+- **Configuration.** `HARNESS_SEARCH_EMBEDDING_PROVIDER` /
+  `_MODEL` / `_DIMENSIONS` (or the provider's own key env var, or the run's
+  `ModelSettings`). With none set the layer is honestly keyword-only.
+- **Live verification (opt-in).** `python -m harness.search.live_smoke`
+  (or `BLACK_ECLIPSE_SEARCH_LIVE=1` + `pytest python/tests/test_search_live.py`)
+  contacts a real provider and asserts embeddings are non-degenerate and score a
+  relevant passage above a distractor. It is the only search test that uses the
+  network and is never part of the offline suite.
+- **Release gate.** `scripts/test-evals.js` runs the **`search`** gate
+  (`harness/search/eval_gate.py`): it seeds the golden corpus and fails if
+  Recall@k, MRR or NDCG fall below the recorded floors. Offline and
+  deterministic.
+
 ## Known limitations (explicit)
 
 - **ANN is exact for small corpora.** `sqlite-vec` `vec0` is a flat index by

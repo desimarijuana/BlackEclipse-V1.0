@@ -104,6 +104,23 @@ export interface RunBacktestInput {
   riskFreeRate?: number;
   randomSeed?: number;
   save?: boolean;
+  background?: boolean;
+}
+
+export interface QuantRun {
+  runId: string;
+  kind: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  stage: string;
+  done: number;
+  total: number;
+  percent: number;
+  message: string;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  error?: { type: string; message: string } | null;
+  result?: Record<string, unknown>;
 }
 
 export interface CapabilityMap {
@@ -184,6 +201,7 @@ export interface ResearchRequest {
   riskFreeRate?: number;
   seed?: number;
   save?: boolean;
+  background?: boolean;
   // optimization / walk-forward
   method?: string;
   objective?: string;
@@ -285,6 +303,13 @@ export const backtestClient = {
     jsonFetch<ResearchResult>("/sensitivity", { method: "POST", body: JSON.stringify(body) }),
   robustness: (body: ResearchRequest) =>
     jsonFetch<ResearchResult>("/robustness", { method: "POST", body: JSON.stringify(body) }),
+
+  listRuns: () => jsonFetch<{ runs: QuantRun[] }>("/runs").then((r) => r.runs),
+  getRun: (runId: string, result = false) =>
+    jsonFetch<QuantRun>(`/runs/${encodeURIComponent(runId)}${result ? "?result=true" : ""}`),
+  cancelRun: (runId: string) =>
+    jsonFetch<{ cancelled: boolean; runId: string }>(
+      `/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
 };
 
 /** A metric's display value (formatted, with a unit-aware suffix). */

@@ -69,6 +69,19 @@ from .ratelimit import MarketRateLimiter
 # Capability id → the bridge capability the TS adapter router serves it under.
 _BRIDGE_CAPABILITY = "market_data"
 
+# Intervals finer than a day. Only Binance preserves intraday timestamps for
+# crypto (the yfinance/stooq adapters collapse intraday bars to a calendar
+# date), so intraday crypto must be sourced from Binance first.
+_INTRADAY_INTERVALS = frozenset({"1m", "5m", "15m", "30m", "1h", "4h"})
+
+
+def _prefer_providers(
+    instrument: CanonicalInstrument, interval: Optional[str]
+) -> tuple[str, ...]:
+    if instrument.asset_type == "crypto" and (interval or "") in _INTRADAY_INTERVALS:
+        return ("binance",)
+    return ()
+
 
 def _iso_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
@@ -228,6 +241,13 @@ class MarketDataGateway:
             bridge_params["market"] = instrument.market
         if provider:
             bridge_params["provider"] = provider
+            # Forward THIS provider's ticker for the instrument (e.g. BTC-USD →
+            # BTCUSDT for Binance). Without it a provider is asked for a symbol it
+            # does not trade (Binance has no "BTCUSD" spot pair), so a fallback
+            # silently returned nothing.
+            psym = instrument.provider_symbol(provider)
+            if psym:
+                bridge_params["providerSymbols"] = {provider: psym}
         bridge_params.update(params)
         self.metrics["providerCalls"] += 1
         try:
@@ -249,8 +269,14 @@ class MarketDataGateway:
         *,
         freshness: str,
         normalize: Any,
+        prefer: tuple[str, ...] = (),
     ) -> Any:
-        """Route → fetch → normalize → quality, with cache + fallback."""
+        """Route → fetch → normalize → quality, with cache + fallback.
+
+        `prefer` reorders candidate providers (only among those already valid for
+        the capability + asset class) so an interval-specific source — e.g.
+        Binance for intraday crypto — is tried first.
+        """
         self.metrics["requests"] += 1
         cache_params = {
             "capability": capability,
@@ -266,6 +292,10 @@ class MarketDataGateway:
 
         router = self._router_ref()
         order = router.provider_order(capability, instrument) if router else ()
+        if prefer and order:
+            order = tuple(p for p in prefer if p in order) + tuple(
+                p for p in order if p not in prefer
+            )
         if not order:
             return MarketError(
                 UNSUPPORTED_CAPABILITY,
@@ -412,7 +442,7 @@ class MarketDataGateway:
                   "adjusted": adjusted, "currency": currency}
         return await self._dispatch(
             "historical", instrument, params, freshness=freshness,
-            normalize=_normalize_series,
+            normalize=_normalize_series, prefer=_prefer_providers(instrument, interval),
         )
 
     async def get_ohlcv(

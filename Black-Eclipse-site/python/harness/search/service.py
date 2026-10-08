@@ -74,6 +74,48 @@ class SearchService:
         self._configured_settings = settings or self._configured_settings
         self.embedder.configure(self._configured_settings, overrides)
 
+    async def warm_index(self, *, namespaces: Optional[list[str]] = None) -> dict[str, Any]:
+        """Resolve the embedding provider from the environment and index sources.
+
+        Used by the boot warm-up; safe to call repeatedly (incremental).
+        """
+        self.configure(None)
+        return await self.bulk_index(namespaces=namespaces)
+
+    def schedule_warm_index(self, *, namespaces: Optional[list[str]] = None) -> Any:
+        """Schedule a best-effort background index build at boot.
+
+        Non-blocking: the task runs on the caller's event loop and failures are
+        recorded as an event, never raised. Disable with
+        `HARNESS_SEARCH_WARM_INDEX=0` (tests set this so warm-up never races the
+        suite).
+        """
+        import asyncio
+        import os
+
+        if not self.config.enabled:
+            return None
+        if os.environ.get("HARNESS_SEARCH_WARM_INDEX", "1").strip().lower() in ("0", "false", "no", "off"):
+            return None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        previously = getattr(self, "_warm_task", None)
+        if previously is not None and not previously.done():
+            return previously
+
+        async def _run() -> None:
+            try:
+                summary = await self.warm_index(namespaces=namespaces)
+                self._emit("search.index.warmup", {"detail": summary})
+            except Exception as exc:  # noqa: BLE001 - warm-up must never break boot
+                self._emit("search.index.warmup_failed", {"detail": {"error": str(exc)}})
+
+        self._warm_task = loop.create_task(_run())
+        return self._warm_task
+
     def _emit(self, event: str, data: dict[str, Any]) -> None:
         try:
             self.store.record_event(event, data)
@@ -434,6 +476,12 @@ class SearchService:
         }
 
     def close(self) -> None:
+        task = getattr(self, "_warm_task", None)
+        if task is not None and not task.done():
+            try:
+                task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
         self.store.close()
 
 

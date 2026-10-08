@@ -76,6 +76,15 @@ async def _boot() -> None:
     # Harness-owned jobs (Phase 6): one durable scheduler task beside the three TS
     # refresh loops, which stay exactly as they are.
     await service.start_jobs()
+    # Unified search: build the vector/FTS index from existing sources in the
+    # background (non-blocking). With no embedding provider this is an honest
+    # keyword-only index; disabled by HARNESS_SEARCH_WARM_INDEX=0.
+    search_layer = getattr(service, "search", None)
+    if search_layer is not None:
+        try:
+            search_layer.schedule_warm_index()
+        except Exception:  # noqa: BLE001 - warm-up must never block boot
+            log.warning("[harness-py] search warm index skipped", exc_info=True)
 
 
 async def _shutdown() -> None:

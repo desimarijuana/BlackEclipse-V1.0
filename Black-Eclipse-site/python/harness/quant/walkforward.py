@@ -61,10 +61,12 @@ def _aggregate(metrics_list: list[dict[str, Any]]) -> dict[str, Any]:
 
 class WalkForwardEngine:
     def __init__(self, strategy: StrategySpec, dataset: MarketDataset,
-                 config: Optional[WalkForwardConfig] = None) -> None:
+                 config: Optional[WalkForwardConfig] = None,
+                 *, progress: Optional[Any] = None) -> None:
         self.strategy = strategy
         self.dataset = dataset
         self.config = config or WalkForwardConfig()
+        self._progress = progress
         self.space = ParamSpace.from_dict(self.config.param_space)
         if self.space.is_empty():
             raise WalkForwardError("walk-forward needs a non-empty parameter space")
@@ -114,7 +116,12 @@ class WalkForwardEngine:
         oos_metrics_all: list[dict[str, Any]] = []
         is_metrics_all: list[dict[str, Any]] = []
 
-        for (tr_s, tr_e, te_s, te_e) in windows:
+        for window_index, (tr_s, tr_e, te_s, te_e) in enumerate(windows):
+            if self._progress is not None:
+                try:
+                    self._progress("window", window_index + 1, len(windows))
+                except Exception:  # noqa: BLE001 - progress must never break a run
+                    pass
             train_ds = self._slice(tr_s, tr_e)
             test_ds = self._slice(te_s, te_e)
             opt = OptimizationEngine(
