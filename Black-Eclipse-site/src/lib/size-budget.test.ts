@@ -55,9 +55,10 @@ const RATCHET: Record<string, number> = {
   // line when the Agent Workspace became a docked right sidebar in the shell
   // row (it moved out of the root layout to reserve real column space). Grew
   // again by one dynamic import + one keep-alive block each for the Portfolio
-  // and Unified Search tabs. May only shrink from here; the shell's per-tab
-  // keep-alive blocks are the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1296,
+  // and Unified Search tabs, then the Task / Plan runtime's mount (a dynamic
+  // import + one keep-alive block). May only shrink from here; the shell's
+  // per-tab keep-alive blocks are the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1308,
 };
 
 export interface SizeEntry {

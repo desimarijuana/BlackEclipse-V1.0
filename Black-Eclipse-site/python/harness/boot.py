@@ -73,9 +73,20 @@ async def _boot() -> None:
     # The bounded learning-review queue: reviews completed runs in the background.
     # It only creates inert records/suggestions and never enables a skill.
     await service.start_learning_review()
-    # Harness-owned jobs (Phase 6): one durable scheduler task beside the three TS
-    # refresh loops, which stay exactly as they are.
-    await service.start_jobs()
+    # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
+    # beside the three TS refresh loops, which stay exactly as they are.
+    await service.start_automation()
+    # The Task / Plan runtime: one durable scheduler task that claims runnable
+    # tasks and dispatches each through the ordinary run path. Started after jobs
+    # so a task-triggering job sees a live scheduler.
+    await service.start_tasks()
+    # Parallel execution & DAG orchestration: register the tools and recover any
+    # execution left mid-flight by a previous process. Best-effort, never a boot
+    # blocker.
+    from .orchestration.bootstrap import install_orchestration_layer, recover_orchestration
+
+    install_orchestration_layer(service)
+    await recover_orchestration(service)
     # Unified search: build the vector/FTS index from existing sources in the
     # background (non-blocking). With no embedding provider this is an honest
     # keyword-only index; disabled by HARNESS_SEARCH_WARM_INDEX=0.
@@ -90,7 +101,11 @@ async def _boot() -> None:
 async def _shutdown() -> None:
     """Stop every subsystem on the last exit. Cancel queued work and terminate
     subprocesses cleanly so none leak across restarts. Never raises."""
-    await service.stop_jobs()
+    await service.stop_tasks()
+    await service.stop_automation()
+    orchestration = getattr(service, "orchestration", None)
+    if orchestration is not None:
+        await orchestration.primary.shutdown()
     await service.stop_learning_review()
     await service.stop_code_intel()
     await service.stop_browser()

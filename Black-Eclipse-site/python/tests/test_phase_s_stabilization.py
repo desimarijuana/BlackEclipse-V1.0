@@ -38,9 +38,10 @@ def test_boot_module_owns_the_lifespan():
 def test_prompt_ceiling_was_lowered_not_raised():
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT
 
-    # HEAD's ceiling was 23300 (raised repeatedly by concurrent work); Phase S.2
-    # lowered it to the measured size.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 23025
+    # HEAD's ceiling was 23300; Phase S.2 lowered it to 23025. The Task / Plan
+    # runtime raised it to 23725 for its one guidance paragraph (a genuine new
+    # capability); it is re-pinned there and may only shrink from here.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 23725
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

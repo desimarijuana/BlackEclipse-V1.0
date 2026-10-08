@@ -59,23 +59,20 @@ def test_identity_boundary_is_unchanged_by_phase_11():
 
 
 def test_jobs_are_filtered_by_scope(client):
-    from harness.jobs.model import JobDefinition, JobTarget
-    from harness.persistence import now_iso
-
-    store = _main().service.jobs_store()
-    now = now_iso()
-    job = JobDefinition(
-        id="job_scope_alpha", name="Alpha brief", kind="manual",
-        target=JobTarget(kind="objective", objective="x"),
-        scope_id="alpha", created_at=now, updated_at=now,
-    )
-    store.save_job(job)
+    # The `/jobs` surface is now backed by the Native Automation Engine (one
+    # scheduler/ledger), so the job is created through the real HTTP contract and
+    # the scope FILTER is asserted on the returned ids.
+    created = client.post("/jobs", json={
+        "name": "Alpha brief", "kind": "manual",
+        "target": {"kind": "objective", "objective": "x"}, "scopeId": "alpha",
+    }).json()["job"]
+    job_id = created["id"]
 
     alpha = client.get("/jobs", params={"scopeId": "alpha"}).json()["jobs"]
     beta = client.get("/jobs", params={"scopeId": "beta"}).json()["jobs"]
-    assert any(j["id"] == "job_scope_alpha" for j in alpha)
-    assert not any(j["id"] == "job_scope_alpha" for j in beta)
-    store.delete_job("job_scope_alpha")
+    assert any(j["id"] == job_id for j in alpha)
+    assert not any(j["id"] == job_id for j in beta)
+    client.delete(f"/jobs/{job_id}")
 
 
 def test_body_scope_id_does_not_authorize_a_job_mutation(monkeypatch):
@@ -129,38 +126,39 @@ def test_code_workspaces_are_not_enumerable_across_scopes(client):
 
 
 def test_artifacts_are_refused_across_scopes(client, tmp_path, monkeypatch):
-    from harness.jobs.delivery import ArtifactAdapter, DeliverySummary
-
-    monkeypatch.setenv("BLACK_ECLIPSE_CODE_ROOT", str(tmp_path))
-    from harness.jobs.model import JobDefinition, JobTarget
+    from harness.jobs.delivery import artifact_dir_for
     from harness.persistence import now_iso
 
-    service = _main().service
-    store = service.jobs_store()
-    now = now_iso()
-    job = JobDefinition(
-        id="job_art", name="Alpha report", kind="manual",
-        target=JobTarget(kind="objective", objective="x"),
-        scope_id="alpha", created_at=now, updated_at=now,
+    monkeypatch.setenv("BLACK_ECLIPSE_CODE_ROOT", str(tmp_path))
+    created = client.post("/jobs", json={
+        "name": "Alpha report", "kind": "manual",
+        "target": {"kind": "objective", "objective": "x"}, "scopeId": "alpha",
+    }).json()["job"]
+    job_id = created["id"]
+
+    # A run in the automation ledger, with the scoped id, and a written report.
+    svc = _main().service.automation_service()
+    definition = svc.get(job_id)
+    execution = svc._store.start_execution(  # noqa: SLF001 - white-box integration
+        definition, trigger_type="manual", trigger_ref=None, scheduled_for=now_iso(),
+        snapshot={}, run_id="run_art_alpha", state="running",
     )
-    store.save_job(job)
-    run = store.start_run("job_art", triggered_by="manual", scheduled_for=now,
-                          run_id="run_art_alpha", scope_id="alpha")
-    store.finish_run(run["id"], status="ok", run_id="run_art_alpha")
+    directory = artifact_dir_for("run_art_alpha")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "report.md").write_text("hi", encoding="utf-8")
 
-    summary = DeliverySummary(title="Alpha report", answer="hi", outcome_line="Ran",
-                              status="ok", run_id="run_art_alpha")
-    import asyncio
-    asyncio.run(ArtifactAdapter(None).deliver(job, "run_art_alpha", summary))
-
-    ok = client.get(f"/jobs/job_art/runs/{run['id']}/artifact", params={"scopeId": "alpha"})
+    ok = client.get(
+        f"/jobs/{job_id}/runs/{execution['id']}/artifact", params={"scopeId": "alpha"}
+    )
     assert ok.status_code == 200
     assert ok.json()["artifact"]["report.md"]
 
-    refused = client.get(f"/jobs/job_art/runs/{run['id']}/artifact", params={"scopeId": "beta"})
+    refused = client.get(
+        f"/jobs/{job_id}/runs/{execution['id']}/artifact", params={"scopeId": "beta"}
+    )
     assert refused.status_code == 404
 
-    store.delete_job("job_art")
+    client.delete(f"/jobs/{job_id}")
 
 
 # ── A remote read is refused regardless of scope ─────────────────────────────

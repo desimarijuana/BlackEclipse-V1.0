@@ -42,11 +42,11 @@ RATCHET_PY: dict[str, int] = {
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
-    # Portfolio + Quant + Search layers (each a one-line `install_*` call plus the
-    # per-run bundle pass; the subsystem wiring itself lives in its own
-    # `bootstrap.py`). May only shrink from here; the subsystem-construction block
-    # is the split candidate.
-    "service.py": 1283,
+    # Portfolio + Quant + Search layers, then the Task/Plan runtime (each a one-line
+    # `install_*` call plus start/stop hooks; the subsystem wiring itself lives in
+    # its own `bootstrap.py`). May only shrink from here; the subsystem-construction
+    # block is the split candidate.
+    "service.py": 1347,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

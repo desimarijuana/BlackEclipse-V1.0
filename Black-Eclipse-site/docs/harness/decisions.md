@@ -4898,3 +4898,48 @@ limitations, not silent gaps. Tests: python/tests/test_search_*.py. Docs
 docs/harness/search-retrieval.md. Front door: `src/lib/harness/search-{client,types}.ts`,
 `src/app/api/harness/search/[[...path]]/route.ts`, and the mounted Search
 Intelligence tab.
+
+## ADR-H152 - Automation is a first-class domain object; one scheduler decides WHEN, the runtime decides WHAT
+
+**Decision.** The earlier `harness.jobs` scheduler (ADR-H108) is upgraded into the
+Native Automation Engine (`python/harness/automation/`). An automation is a durable
+domain object with a trigger (cron / interval / one-time / event / condition /
+manual), an optional gate condition, an action, and execution / retry / concurrency
+/ resource / permission / delivery policy — not a cron string. Two state machines
+are kept strictly separate: the automation's LIFECYCLE (`draft/validating/active/
+paused/disabled/archived`) and an EXECUTION's state (`triggered/queued/running/
+waiting/retrying/completed/failed/cancelled/timed_out/blocked/skipped`); an invalid
+transition is rejected with a code. Conditions are a small, safe expression language
+evaluated THREE-VALUED (a missing operand is `UNAVAILABLE`, never silently false)
+with persisted edge state, so `BTC.price < 90000` fires on FALSE→TRUE only and is
+restart-safe. The engine is the ONE scheduler: due lookup is an indexed
+`nextRunAt` query, event routing is an indexed `AutomationEventSubscription` join
+(never a full scan), event delivery is deduplicated durably, work is protected by a
+lease-based lock (expiry reclaims a crashed worker's execution), retries use
+backoff + jitter and NEVER retry a non-retryable error class, and concurrency is
+bounded by policy. Actions dispatch through the EXISTING runtime — `service.run` /
+`run_skill` / `run_workflow`, the Task System (`service.tasks`) and the
+Orchestration layer — so there is no second agent loop, tool registry or adapter.
+
+**Why.** Automation had a scheduler but not a domain: it could not express a
+condition, an event, a retry policy, a concurrency policy or a resource limit, and
+its timezone field was stored but ignored. The risk of adding those as a SECOND
+system was real — two schedulers, two ledgers, two execution paths. This ADR makes
+the opposite choice: one definition model, one durable ledger, one scheduler, and
+the legacy `/jobs` API becomes a thin ADAPTER (`automation/legacy.py`,
+`routers/jobs.py`) over the same service, so existing clients and their tests keep
+working while the implementation underneath is single.
+
+**Consequences.** `Automation*` tables live on the ONE `agent-memory.db`;
+`migrate_legacy_jobs()` imports existing `HarnessJob` rows and their run history
+preserving ids and never deleting data. Every automation stores only a credential
+REFERENCE (never a value) and validation refuses embedded secret-like keys; the
+effective permission policy is deny-wins and approval is a single-use, digest-bound
+`ApprovalStore` claim. Execution snapshots capture the effective configuration
+(trigger/condition/action/policies) but NEVER credentials, so "why did it behave
+this way" is answerable. Known honest limitations: token/cost limits are detected
+at run end (providers bill per call, so they cannot be prevented mid-run); the
+runtime is single-process (the lease makes that explicit and crash-safe rather than
+promising multi-process throughput). Tests: `python/tests/test_automation_*.py`.
+Docs: `docs/harness/automation-engine.md`. Front door:
+`src/lib/harness/automation-{client,browser}.ts`, `src/app/api/automations/**`.

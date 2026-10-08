@@ -24,8 +24,9 @@ export const en = {
   'nav.skills': 'Skills',
   'nav.memory': 'Eclipse Memory',
   'nav.code': 'Code Tasks',
-  'nav.jobs': 'Scheduled Jobs',
-  'nav.research': 'Research',
+'nav.jobs': 'Scheduled Jobs',
+'nav.tasks': 'Tasks',
+'nav.research': 'Research',
 'nav.backtest': 'Backtest',
   'nav.editor': 'Editor',
   'nav.modelRuntime': 'Model Control Center',
@@ -477,6 +478,17 @@ export const en = {
   'jobs.delivery.message.trouble': 'I finished {jobName} but could not reach your phone. It is saved in the app — open it there, or try sending again.',
   'jobs.run.saveReport': 'Save it as a report',
   'jobs.run.sendToPhone': 'Send it to my phone',
+  // Preview/check affordances (backed by the Native Automation Engine). Plain
+  // words only: no mechanism vocabulary reaches the surface.
+  'jobs.detail.preview': 'Preview what it will do',
+  'jobs.detail.check': 'Check this job',
+  'jobs.detail.previewTitle': 'What it will do',
+  'jobs.detail.allGood': 'This job looks good.',
+  'jobs.detail.issue': 'Needs attention',
+  // The automation engine's own message bodies (rendered by any surface that
+  // consumes `automation.delivered`).
+  'automations.delivery.message.done': 'Your {automationName} is ready.',
+  'automations.delivery.message.trouble': 'I couldn’t finish {automationName}. It is saved in the app — open it there.',
 
   // ── Analysis / computed results (Phase 8) ────────────────────────────────
   // A computed number says so, in words. It names the finance job, never the

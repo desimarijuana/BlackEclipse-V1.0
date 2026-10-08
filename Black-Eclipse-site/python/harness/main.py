@@ -47,6 +47,7 @@ from .research.mandate import parse_mandate
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
 from .routers.application import router as application_router
+from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
 from .routers.computer import router as computer_router
 from .routers.evolution import router as evolution_router
@@ -58,12 +59,14 @@ from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.market import router as market_router
 from .routers.memory import router as memory_router
+from .routers.orchestration import router as orchestration_router
 from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.research import router as research_router
 from .routers.search import router as search_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
+from .routers.tasks import router as tasks_router
 from .routers.terminal import router as terminal_router
 from .routers.workspace import router as workspace_router
 from .schemas import ModelSettings, RunRequest, RunResult
@@ -86,6 +89,7 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=li
 # Route groups extracted into `harness/routers/`; registered here so the public
 # surface stays `harness.main:app` and paths are unchanged.
 app.include_router(application_router)
+app.include_router(automation_router)
 app.include_router(code_router)
 app.include_router(code_intel_router)
 app.include_router(browser_router)
@@ -99,12 +103,14 @@ app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(market_router)
 app.include_router(memory_router)
+app.include_router(orchestration_router)
 app.include_router(portfolio_router)
 app.include_router(quant_router)
 app.include_router(research_router)
 app.include_router(search_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
+app.include_router(tasks_router)
 app.include_router(terminal_router)
 app.include_router(workspace_router)
 

@@ -358,6 +358,15 @@ class AgenticService:
             self.model_runtime_store = None
             log.warning("model runtime persistence wiring skipped", exc_info=True)
 
+        # The Task / Plan runtime: the durable execution backbone. Boot wiring
+        # lives in `tasks/bootstrap.py`; it reuses the ONE agent-memory connection
+        # for its tables, the process-wide bus for live events, and dispatches each
+        # claimed task through THIS service's `run` (never a second agent loop). A
+        # failure only leaves `self.tasks` None, so it never blocks boot.
+        from .tasks.bootstrap import install_task_layer  # noqa: PLC0415
+
+        install_task_layer(self)
+
     def _observe_model_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Forward model-runtime observability events onto the harness bus.
 
@@ -1108,29 +1117,84 @@ class AgenticService:
             self._jobs_store = JobStore(self.store)
         return self._jobs_store
 
-    async def start_jobs(self) -> None:
-        """Start the harness job scheduler (Phase 6). Idempotent.
+    def automation_store(self) -> Any:
+        """The process-wide automation store over the ONE agent-memory connection.
 
-        A failure is a diagnostic, never a boot blocker — exactly like
-        `start_mcp()`. With no Python runtime, jobs simply do not tick.
+        On first construction it MIGRATES legacy `HarnessJob` rows into
+        `Automation` (preserving ids + run history), so upgrading is non-destructive.
         """
-        from .jobs.scheduler import JobScheduler  # noqa: PLC0415
+        from .automation.store import AutomationStore  # noqa: PLC0415
 
+        if getattr(self, "_automation_store", None) is None:
+            store = AutomationStore(self.store)
+            try:
+                result = store.migrate_legacy_jobs()
+                if result.get("migrated"):
+                    log.info("automation: migrated %d legacy jobs", result["migrated"])
+            except Exception:  # noqa: BLE001 - migration must never block first use
+                log.warning("legacy job migration failed", exc_info=True)
+            self._automation_store = store
+        return self._automation_store
+
+    def automation_service(self) -> Any:
+        """The process-wide automation service (CRUD + lifecycle + history)."""
+        from .automation.service import AutomationService  # noqa: PLC0415
+
+        if getattr(self, "_automation_service", None) is None:
+            self._automation_service = AutomationService(
+                self, self.automation_store(), self.automation_engine()
+            )
+        return self._automation_service
+
+    def automation_engine(self) -> Any:
+        """The process-wide automation engine (one durable scheduler)."""
+        from .automation.engine import AutomationEngine  # noqa: PLC0415
+
+        if getattr(self, "automation", None) is None:
+            self.automation = AutomationEngine(self, self.automation_store())
+        return self.automation
+
+    async def start_automation(self) -> None:
+        """Start the Native Automation Engine. Idempotent; never a boot blocker."""
         try:
-            if getattr(self, "jobs", None) is None:
-                self.jobs = JobScheduler(self, self.jobs_store())
-            await self.jobs.start()
-        except Exception:  # noqa: BLE001 - the scheduler must never block boot
-            log.warning("job scheduler failed to start", exc_info=True)
+            await self.automation_engine().start()
+        except Exception:  # noqa: BLE001 - the engine must never block boot
+            log.warning("automation engine failed to start", exc_info=True)
+
+    async def stop_automation(self) -> None:
+        engine = getattr(self, "automation", None)
+        if engine is None:
+            return
+        try:
+            await engine.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("automation engine shutdown failed", exc_info=True)
+
+    async def start_jobs(self) -> None:
+        """Deprecated alias — jobs are now automations (ADR-H114). Starts the engine."""
+        await self.start_automation()
 
     async def stop_jobs(self) -> None:
-        scheduler = getattr(self, "jobs", None)
+        await self.stop_automation()
+
+    async def start_tasks(self) -> None:
+        """Start the task scheduler. Idempotent; a failure is a diagnostic."""
+        scheduler = getattr(self, "task_scheduler", None)
+        if scheduler is None:
+            return
+        try:
+            await scheduler.start()
+        except Exception:  # noqa: BLE001 - the scheduler must never block boot
+            log.warning("task scheduler failed to start", exc_info=True)
+
+    async def stop_tasks(self) -> None:
+        scheduler = getattr(self, "task_scheduler", None)
         if scheduler is None:
             return
         try:
             await scheduler.stop()
         except Exception:  # noqa: BLE001
-            log.warning("job scheduler shutdown failed", exc_info=True)
+            log.warning("task scheduler shutdown failed", exc_info=True)
 
     async def run_workflow(self, request: RunRequest) -> Any:
         """Execute a saved workflow by id over the existing graph (Phase 5).

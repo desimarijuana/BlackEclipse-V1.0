@@ -116,6 +116,10 @@ const SearchScreen = dynamic(
   () => import('@/components/screens/search/search-screen').then((m) => m.SearchScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const TasksScreen = dynamic(
+  () => import('@/components/screens/tasks/tasks-screen').then((m) => m.TasksScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -1207,6 +1211,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'search' ? '' : 'hidden')}>
               <div className="flex-1 overflow-y-auto">
                 <SearchScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('tasks') && (
+            <div className={cn('w-full h-full', activeTab === 'tasks' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto">
+                <TasksScreen />
               </div>
             </div>
           )}

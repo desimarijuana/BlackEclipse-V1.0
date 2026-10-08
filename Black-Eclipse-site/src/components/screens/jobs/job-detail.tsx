@@ -14,6 +14,11 @@ import {
   type JobDefinitionView,
   type JobRunView,
 } from '@/lib/harness/jobs-browser';
+import {
+  dryRunAutomation,
+  testAutomation,
+  type ValidationIssueView,
+} from '@/lib/harness/automation-browser';
 
 export interface JobDetailProps {
   job: JobDefinitionView;
@@ -28,7 +33,37 @@ export interface JobDetailProps {
 export function JobDetail({ job, runs, onEnable, onDisable, onRunNow, onReset, onDelete }: JobDetailProps) {
   const t = useT();
   const [showDetails, setShowDetails] = useState(false);
+  const [preview, setPreview] = useState<string[] | null>(null);
+  const [issues, setIssues] = useState<ValidationIssueView[] | null>(null);
+  const [busy, setBusy] = useState(false);
   const paused = job.breaker !== 'closed';
+
+  async function onPreview() {
+    setBusy(true);
+    setIssues(null);
+    try {
+      const result = await dryRunAutomation(job.id);
+      const actions = (result.plannedActions as string[] | undefined) ?? [];
+      setPreview(actions);
+    } catch (err) {
+      setPreview([err instanceof Error ? err.message : 'preview failed']);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCheck() {
+    setBusy(true);
+    setPreview(null);
+    try {
+      const result = await testAutomation(job.id);
+      setIssues(result.issues);
+    } catch (err) {
+      setIssues([{ severity: 'error', code: 'ERROR', field: '', message: err instanceof Error ? err.message : 'check failed' }]);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="glass-card rounded-2xl p-3.5">
@@ -52,8 +87,41 @@ export function JobDetail({ job, runs, onEnable, onDisable, onRunNow, onReset, o
           <button type="button" onClick={onRunNow} className="glass-button rounded-lg px-2 py-1 text-[11px]">
             {t('jobs.list.runNow')}
           </button>
+          <button type="button" onClick={onPreview} disabled={busy} className="glass-button rounded-lg px-2 py-1 text-[11px] disabled:opacity-50">
+            {t('jobs.detail.preview')}
+          </button>
+          <button type="button" onClick={onCheck} disabled={busy} className="glass-button rounded-lg px-2 py-1 text-[11px] disabled:opacity-50">
+            {t('jobs.detail.check')}
+          </button>
         </div>
       </div>
+
+      {preview && (
+        <div className="glass-card-subtle mt-2.5 rounded-xl p-2.5 text-[12px]">
+          <p className="text-muted-foreground">{t('jobs.detail.previewTitle')}</p>
+          <ul className="mt-1 space-y-0.5 text-foreground">
+            {preview.map((step, index) => (
+              <li key={index}>{step}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {issues && (
+        <div className="glass-card-subtle mt-2.5 rounded-xl p-2.5 text-[12px]">
+          {issues.length === 0 ? (
+            <p className="text-foreground">{t('jobs.detail.allGood')}</p>
+          ) : (
+            <ul className="mt-0.5 space-y-0.5 text-amber-200/90">
+              {issues.map((issue, index) => (
+                <li key={index}>
+                  {t('jobs.detail.issue')}: {issue.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {paused && (
         <div className="glass-card-subtle mt-2.5 rounded-xl border border-amber-500/30 p-2.5 text-[12px] text-amber-200/90">

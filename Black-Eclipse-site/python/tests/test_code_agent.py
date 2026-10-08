@@ -64,9 +64,10 @@ def test_code_agent_has_no_finance_tool():
     # retrieval tools but are a READ-ONLY, provider-agnostic research capability
     # (no finance data permission of their own), so they are exempt here.
     from harness.agents import WEB_RESEARCH_TOOLS
+    from harness.tasks.tools import TASK_TOOLS
 
     for name in CODE_AGENT.tools:
-        if name in WEB_RESEARCH_TOOLS:
+        if name in WEB_RESEARCH_TOOLS or name in TASK_TOOLS:
             continue
         assert not name.startswith(FINANCE_TOOL_PREFIXES), name
     # `delegate` (Phase 7) and `analysis_run` (Phase 8) are shared ORCHESTRATION /
@@ -97,7 +98,8 @@ def test_code_agent_has_no_finance_tool():
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
     } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(VISION_TOOLS)
-        - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS) - set(SEARCH_TOOLS))
+        - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS) - set(SEARCH_TOOLS)
+        - set(TASK_TOOLS))
 
 
 def test_code_agent_does_not_allow_mcp():

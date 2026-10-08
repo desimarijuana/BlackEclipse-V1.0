@@ -8,6 +8,56 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Task / Plan System — a durable, production-grade execution backbone.** New
+  `python/harness/tasks/`: a `Plan` containing an arbitrary hierarchy of `Task`s
+  with first-class dependencies (DAG + cycle rejection before persist), acceptance
+  criteria with VERIFIED completion, priorities, priorities-aware runnable
+  discovery, a closed seven-state machine (`TODO/IN_PROGRESS/BLOCKED/WAITING/FAILED/
+  COMPLETED/CANCELLED`, explicit `retry`/`reopen`/`recover` operations), atomic
+  claim (`HarnessTask` conditional `UPDATE`) with leases + heartbeats, exponential
+  backoff retry for retryable errors only, lease-expiry recovery (a crashed worker
+  never leaves a task stuck), cancellation with child cascade, deterministic
+  parent-state/weighted-progress roll-up, and durable events/executions/
+  checkpoints/artifacts on the ONE `agent-memory.db`. The scheduler dispatches each
+  claimed task through the EXISTING `service.run` (no second agent loop/registry/
+  adapter). 22 LLM-facing tools (`create_plan`/`create_task`/…, permission `read`
+  like memory) + operator-gated `/tasks` and `/plans` routes; boot wired in
+  `service.py`/`boot.py`, allowlists in `agents.py`, guidance in `prompts.py`.
+  Tests `python/tests/test_tasks_{state,dag,manager,scheduler,tools,api}.py`
+  (unit, concurrency 100-way claim race, retry/backoff, lease recovery, cancellation,
+  API, and an E2E DAG through the production executor). Front door + mounted UI:
+  `src/lib/harness/tasks-{browser,client}.ts`, `src/app/api/{tasks,plans}/[[...path]]/route.ts`,
+  and the live `src/components/screens/tasks/tasks-screen.tsx` (AppTab `tasks`,
+  sidebar + `nav.tasks` i18n). The prompt ceiling was re-pinned 23025→23725 for the
+  one new guidance paragraph; the Phase-11 tenancy tests were aligned to the
+  automation-backed `/jobs` contract. docs updated: `docs/harness/task-plan-system.md`
+  (new), `docs/NAVIGATION.md`, this file.
+
+- **Parallel Execution & DAG Orchestration — a real execution subsystem.** New
+  `python/harness/orchestration/`: a validated DAG of agent/tool/function/
+  aggregate-join nodes with a strict state machine (`state.py`), DAG validation and
+  critical-path/wave analysis (`graph.py`), a dependency-aware scheduler that runs
+  independent nodes concurrently (`engine.py`), a worker pool over the EXISTING
+  `execute_run` / `ToolRegistry.execute` seams (`runner.py`), resource-aware
+  admission (`resources.py`), bounded retries with backoff/jitter (`retry.py`),
+  join policies (ALL/ANY/FIRST_SUCCESS/QUORUM/THRESHOLD), failure policies, task
+  deduplication + TTL caching (authorization-scoped; opt-in engine-wide sharing via
+  `dedupScope`), rate-limit-aware execution (`rateKey` buckets feed retry),
+  scheduler-level batching (`batching.py`: compatible ready nodes coalesce into one
+  call) plus `task_map(batchSize)`/`task_batch`, timeouts, cancellation/pause/resume,
+  dynamic node insertion, durable `Orchestration*` tables on `agent-memory.db` and
+  crash recovery (`recovery.py`) that PARKS credential-requiring agent executions
+  (`awaitingRuntime`) and resumes them when the front door supplies `modelSettings`
+  (`/resume`, `/recover`). Primitives + tools `parallel_execute`, `task_fork`,
+  `task_join`, `task_race`, `task_quorum`, `task_map`, `task_batch`, `task_reduce`,
+  `dependency_graph`, `execution_status`, `execution_cancel`; operator-gated routes
+  `/orchestration/*`; env `HARNESS_ORCH_*`. Tests
+  `python/tests/test_orchestration_{graph,engine,tools,concurrency,integration,api,production}.py`
+  (unit, concurrency/race, failure/recovery [incl. credentialed parking + resume],
+  scheduler batching, engine-scope dedup, end-to-end agent runs,
+  sequential-vs-parallel). docs updated: `docs/harness/parallel-orchestration.md`
+  (new), `docs/NAVIGATION.md`, this file.
+
 - **Quant Engine — production hardening: live data path + background runs +
   performance guard.** (1) Live market-data path fixed in
   `python/harness/market/gateway.py`: `_fetch_provider` now forwards each
@@ -368,6 +418,37 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   search layer's `EmbeddingService`) so the semantic path works when a provider
   is configured and still degrades honestly when none is. docs updated:
   `docs/CHANGELOG.md`.
+
+- **Native Automation Engine — automation as a first-class domain object.** New
+  `python/harness/automation/`: a durable `AutomationDefinition` (trigger +
+  condition + action + execution/retry/concurrency/limit/permission/delivery
+  policy) with two separate state machines (lifecycle vs execution, invalid
+  transitions rejected), timezone-aware cron/interval/one-time scheduling
+  (`timeutil.py`), a deterministic three-valued condition engine with
+  edge-triggering and domain helpers (`conditions.py`), and a durable store
+  (`store.py`: `Automation`, `AutomationVersion`, `AutomationExecution`,
+  `AutomationExecutionEvent`, `AutomationLock`, `AutomationDelivery`,
+  `AutomationEventSubscription`, `AutomationConditionState`, `AutomationEventDedup`)
+  on the ONE `agent-memory.db`, with `migrate_legacy_jobs()` importing existing
+  `HarnessJob` rows + run history without destroying data. The `AutomationEngine`
+  (`engine.py`) is the ONE scheduler: due lookup by indexed `nextRunAt`, indexed
+  event routing (no full scan), event dedup, persisted edge state, lease-based
+  distributed locking, retry with backoff+jitter and non-retryable classification,
+  concurrency policies (queue/skip/cancel), resource-limit enforcement, restart
+  recovery (expired leases reclaimed, interrupted executions reconciled, misfire
+  skip/run_once/catch_up), and execution snapshots. Actions dispatch through the
+  EXISTING runtime (`service.run`/`run_skill`/`run_workflow`, the Task System via
+  `service.tasks`, and the Orchestration layer) — never a second execution path.
+  Delivery reuses the in-app bus / artifact dir / messaging vocabulary. New
+  operator-gated `/automations` routes + `service.automation_*` wiring; the legacy
+  `/jobs` router is now a thin ADAPTER over the same service (routes + shapes
+  unchanged). TS front door `src/lib/harness/automation-{client,browser}.ts` +
+  `/api/automations/**`; job detail gains Preview/Check backed by dry-run/test.
+  Tests `python/tests/test_automation_{core,engine,api}.py` (conditions/timezones/
+  lifecycle/validation, scheduler/trigger/retry/concurrency/recovery with an
+  injected clock, operator gating + CRUD cycle + legacy-adapter equivalence).
+  docs updated: `docs/harness/automation-engine.md` (new),
+  `docs/harness/decisions.md` (ADR-H114), `docs/NAVIGATION.md`, this file.
 
 ## 2026-10-07
 

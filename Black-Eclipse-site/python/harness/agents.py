@@ -14,6 +14,10 @@ from .prompts import (
     ECLIPSE_AGENT_SYSTEM_PROMPT,
 )
 from .schemas import AgentConfig
+# The durable Task / Plan tools. Imported as the ONE canonical list (the registry
+# registers the same names in `tasks/bootstrap.py`), so the allowlist and the
+# registration can never drift.
+from .tasks.tools import TASK_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -281,6 +285,11 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
         # these five companies"). A research capability, not only a code one.
         "delegate",
+        # Durable Task / Plan runtime: create and steer a tracked, hierarchical
+        # plan (tasks, subtasks, dependencies, acceptance criteria, priorities,
+        # retries). The scheduler dispatches runnable tasks through the normal run
+        # path; the tools only create/steer, never execute.
+        *TASK_TOOLS,
         # Evidence-Driven Web Research Engine: search, extract, evidence,
         # conflicts, claim verification, calculations, citations, coverage. All
         # read-only; fetched content is wrapped as untrusted data.
@@ -496,6 +505,9 @@ CODE_AGENT_TOOLS = [
     "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
     # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
     "delegate",
+    # Durable Task / Plan runtime: track a multi-step build as a hierarchical plan
+    # whose tasks are dispatched through the normal run path. Create/steer only.
+    *TASK_TOOLS,
     # Evidence-Driven Web Research Engine — research a technical question,
     # compare sources, verify a claim. Read-only; untrusted content is data.
     *WEB_RESEARCH_TOOLS,

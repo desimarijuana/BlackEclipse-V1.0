@@ -30,4 +30,5 @@ export type AppTab =
   | 'backtest'
   | 'editor'
   | 'model-runtime'
-  | 'search';
+  | 'search'
+  | 'tasks';
