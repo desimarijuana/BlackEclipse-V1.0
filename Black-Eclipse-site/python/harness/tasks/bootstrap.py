@@ -47,13 +47,23 @@ def _default_model_settings() -> ModelSettings:
     )
 
 
-def _task_model_settings(service: Any, task: Task) -> ModelSettings:
+def _task_model_settings(manager: TaskManager, task: Task) -> ModelSettings:
+    """Resolve model settings for one task run.
+
+    Precedence: the task's own `metadata.modelSettings`, then its PLAN's
+    `metadata.modelSettings` (so a whole plan can pin a provider), then the
+    env-configured default. A headless run still needs SOME provider; with none
+    configured the run fails honestly rather than fabricating an answer.
+    """
     override = (task.metadata or {}).get("modelSettings")
+    if not (isinstance(override, dict) and override.get("provider") and override.get("model")):
+        plan = manager._store.get_plan(task.plan_id) if task.plan_id else None  # noqa: SLF001
+        override = (plan.metadata or {}).get("modelSettings") if plan is not None else None
     if isinstance(override, dict) and override.get("provider") and override.get("model"):
         try:
             return ModelSettings(**override)
         except Exception:  # noqa: BLE001 - a bad override falls back to defaults
-            log.warning("invalid task modelSettings override", exc_info=True)
+            log.warning("invalid modelSettings override", exc_info=True)
     return _default_model_settings()
 
 
@@ -89,7 +99,7 @@ def build_task_executor(service: Any, manager: TaskManager):
     """The production executor: dispatch one task through `service.run`."""
 
     async def executor(task: Task, context: TaskContext, run_id: str) -> TaskRunOutcome:
-        settings = _task_model_settings(service, task)
+        settings = _task_model_settings(manager, task)
         agent_id = task.assigned_agent_id or _plan_agent(manager, task)
         request = RunRequest(
             runId=run_id,
@@ -127,18 +137,67 @@ def build_task_executor(service: Any, manager: TaskManager):
     return executor
 
 
+# The task vocabulary maps onto the canonical Event System names (`task.created`,
+# `workflow.completed`, …), so the Event Registry and the event console see one
+# coherent model rather than `task.task_created`.
+_CANONICAL_TASK_EVENTS: dict[str, str] = {
+    "TASK_CREATED": "task.created",
+    "TASK_UPDATED": "task.updated",
+    "TASK_STARTED": "task.started",
+    "TASK_WAITING": "task.waiting",
+    "TASK_BLOCKED": "task.blocked",
+    "TASK_UNBLOCKED": "task.unblocked",
+    "TASK_ASSIGNED": "task.assigned",
+    "TASK_DELEGATED": "task.delegated",
+    "TASK_RETRIED": "task.retried",
+    "TASK_FAILED": "task.failed",
+    "TASK_COMPLETED": "task.completed",
+    "TASK_CANCEL_REQUESTED": "task.cancelling",
+    "TASK_CANCELLED": "task.cancelled",
+    "TASK_DECOMPOSED": "task.decomposed",
+    "TASK_DEPENDENCY_ADDED": "task.dependency.added",
+    "TASK_DEPENDENCY_REMOVED": "task.dependency.removed",
+    "TASK_DEPENDENCY_COMPLETED": "task.dependency.completed",
+    "TASK_CHECKPOINT_CREATED": "task.checkpoint.created",
+    "TASK_CRITERION_UPDATED": "task.criterion.updated",
+    "TASK_PROGRESS_UPDATED": "task.progress.updated",
+    "TASK_RECOVERED": "task.recovered",
+    "TASK_ARTIFACT_ADDED": "task.artifact.added",
+    "TASK_COMPLETION_REJECTED": "task.completion.rejected",
+    "TASK_COMPLETION_OVERRIDDEN": "task.completion.overridden",
+    "PLAN_CREATED": "workflow.created",
+    "PLAN_STATUS_CHANGED": "workflow.status.changed",
+}
+
+
+def canonical_task_event(event_type: str) -> str:
+    """Map a `TaskEventType` value to its canonical Event System name."""
+    return _CANONICAL_TASK_EVENTS.get(event_type, f"task.{event_type.lower()}")
+
+
 def _bus_publisher(service: Any):
     """Publish a task event on the process bus for live subscribers.
 
     The persisted `HarnessTaskEvent` row is the durable record; this is the live
-    fan-out to SSE consumers, exactly like every other subsystem's events.
+    fan-out to SSE consumers, exactly like every other subsystem's events. The
+    type is normalized to the canonical Event System vocabulary and the ids are
+    attached so the Event System can correlate it with the task/plan.
     """
     bus = getattr(service, "bus", None)
     if bus is None:
         return None
 
     def publish(event_type: str, data: dict[str, Any]) -> None:
-        bus.publish({"type": f"task.{event_type.lower()}", "at": now_iso(), "data": data})
+        raw = dict(data or {})
+        event = raw.get("event") if isinstance(raw.get("event"), dict) else {}
+        inner = event.get("data") if isinstance(event.get("data"), dict) else {}
+        bus.publish({
+            "type": canonical_task_event(event_type),
+            "at": now_iso(),
+            "data": raw,
+            "taskId": event.get("taskId") or inner.get("taskId") or event.get("task_id"),
+            "workflowId": event.get("planId") or inner.get("planId") or event.get("plan_id"),
+        })
 
     return publish
 

@@ -8,6 +8,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Task / Plan production hardening: plan roll-up, plan-level model settings, and
+  a real-runtime E2E.** (1) `TaskManager.recompute_plan` now derives a plan's
+  terminal status from its tasks — a plan reaches `COMPLETED` on its own when its
+  last task completes (`FAILED`/`CANCELLED`/`BLOCKED`/`RUNNING` otherwise), only
+  via a legal transition. (2) A task run resolves model settings with precedence
+  task `metadata.modelSettings` → plan `metadata.modelSettings` → env default, so a
+  whole plan can pin a provider. (3) New `python/tests/test_tasks_e2e.py` drives a
+  plan through a REAL `AgenticService` + the real `service.run`/`execute_run` graph
+  with only the LLM scripted, asserting plan completion, real `HarnessRun` rows,
+  the failed-task→failed-plan path, and settings precedence — no network.
+  docs updated: `docs/harness/task-plan-system.md`, this file.
+
 - **Tasks screen reachability test.** Added `src/components/screens/tasks/tasks-screen.test.ts`
   (mirrors the search-screen guard): the mounted Tasks screen imports the
   browser-safe client, reads the real `/api/plans` + `/api/tasks` endpoints,

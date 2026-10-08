@@ -47,6 +47,7 @@ from .state import (
     InvalidPlanTransition,
     InvalidTaskTransition,
     TaskOperation,
+    can_transition_plan,
     can_transition_task,
     require_plan_transition,
 )
@@ -654,6 +655,47 @@ class TaskManager:
                 break
             self.recompute_container(parent)
             current = self._store.get_task(parent_id)
+        origin = self._store.get_task(task_id)
+        if origin is not None and origin.plan_id:
+            self.recompute_plan(origin.plan_id)
+
+    def recompute_plan(self, plan_id: str) -> Optional[Plan]:
+        """Derive a plan's terminal status from its tasks (§9).
+
+        A plan is COMPLETED only when every task is COMPLETED, FAILED when any
+        task failed, CANCELLED when every task was cancelled, BLOCKED when all
+        remaining work is blocked, otherwise RUNNING. Only a legal transition is
+        applied (a PLANNING plan stays PLANNING until `start_plan`).
+        """
+        plan = self._store.get_plan(plan_id)
+        if plan is None:
+            return None
+        tasks = self._store.list_tasks(plan_id=plan_id, limit=2000)
+        if not tasks:
+            return plan
+        statuses = [t.status for t in tasks]
+
+        def _all(state: TaskStatus) -> bool:
+            return all(s == state for s in statuses)
+
+        if _all(TaskStatus.COMPLETED):
+            target = PlanStatus.COMPLETED
+        elif any(s == TaskStatus.FAILED for s in statuses):
+            target = PlanStatus.FAILED
+        elif _all(TaskStatus.CANCELLED):
+            target = PlanStatus.CANCELLED
+        elif any(s in (TaskStatus.IN_PROGRESS, TaskStatus.WAITING) for s in statuses):
+            target = PlanStatus.RUNNING
+        elif any(s == TaskStatus.BLOCKED for s in statuses):
+            target = PlanStatus.BLOCKED
+        else:
+            target = PlanStatus.RUNNING
+        if target == plan.status or not can_transition_plan(plan.status, target):
+            return plan
+        updated = self._store.update_plan_fields(plan_id, {"status": target.value})
+        self._emit(TaskEventType.PLAN_STATUS_CHANGED.value, plan_id=plan_id,
+                   data={"status": target.value, "from": plan.status.value})
+        return updated
 
     def recompute_container(self, parent: Task) -> Task:
         """Derive a container's status + progress from its children (deterministic)."""

@@ -98,6 +98,15 @@ DERIVED from its children (`dag.derive_parent_status` / `derive_parent_progress`
 
 A child marked `required=False` never fails or blocks its parent.
 
+### Plan status roll-up
+
+A plan's status is derived the same way: once a task reaches a terminal state,
+`TaskManager.recompute_plan` sets the plan to `COMPLETED` when every task is
+`COMPLETED`, `FAILED` when any task failed, `CANCELLED` when every task was
+cancelled, `BLOCKED` when all remaining work is blocked, otherwise `RUNNING`.
+Only a legal transition is applied, so a plan stays `PLANNING` until `start_plan`.
+This is why a plan finishes on its own when its last task completes.
+
 ## Dependencies (DAG)
 
 `HarnessTaskDependency` is a directed edge `(taskId, dependsOnTaskId)` with kind
@@ -242,9 +251,23 @@ backoff, lease-expiry recovery, cancellation mid-run), the tool surface, the API
 surface, and an end-to-end DAG dispatch through the PRODUCTION executor
 (`build_task_executor`) — only the model backend is a test double.
 
+`python/tests/test_tasks_e2e.py` runs the SAME path through the REAL runtime: a
+real `AgenticService`, the real scheduler, and the real `service.run` →
+`execute_run` graph, with only the LLM scripted at the ONE `build_chat_model`
+seam. It proves a plan reaches `COMPLETED` on its own, that each task produced a
+real `HarnessRun` row, that a rejected completion fails the task and the plan,
+and that model-settings precedence (task → plan → env) holds — deterministically,
+with no network.
+
 ## Configuration
 
 Environment overrides: `HARNESS_TASK_MAX_IN_FLIGHT`, `HARNESS_TASK_TICK_SECONDS`,
 `HARNESS_TASK_LEASE_SECONDS`, and the model defaults
 `HARNESS_TASK_PROVIDER/MODEL/BASE_URL/API_KEY` (falling back to the jobs'
 `HARNESS_JOB_*`).
+
+**Model settings precedence** for a task run: the task's own
+`metadata.modelSettings`, then its PLAN's `metadata.modelSettings` (so a whole
+plan can pin a provider), then the env default. A headless run still needs SOME
+provider; with none configured the run fails honestly (`RUNTIME_UNAVAILABLE`),
+never with a fabricated answer.
