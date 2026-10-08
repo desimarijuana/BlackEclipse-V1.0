@@ -125,6 +125,15 @@ vision-specific question ("can this model accept an image?") and records a
 success as SUPPORTED / a specific failure as DEGRADED. Undeclared is UNKNOWN and
 treated as "no" for native routing.
 
+Vision is decided **per model family, not per SDK kind**: the `openai` kind is
+shared by OpenAI, Ollama, LM Studio, DeepSeek, xAI, Groq and every
+OpenAI-compatible endpoint, so it must not blanket-claim vision. The static
+`MODEL_CAPABILITY_OVERRIDES` declares the vision-capable families (gpt-4o/4.1/
+o-series/5, Claude, Gemini, grok-2-vision, and open-weight VLMs such as llava,
+qwen2.5-vl, minicpm-v, moondream, pixtral, llama-3.2-vision, internvl, …) and the
+text-only families, with longest-substring precedence (ADR-H148). `capabilities_for_model`
+reads the RUN'S OWN model directly so a routed substitute is never misattributed.
+
 ## Providers
 
 No new provider stack. Every model call goes through `harness.model_runtime`
@@ -132,6 +141,14 @@ No new provider stack. Every model call goes through `harness.model_runtime`
 OpenRouter, Ollama/LM Studio and OpenAI-compatible endpoints all work with the
 routing, retry, fallback, health, usage and cost accounting the runtime already
 provides.
+
+When the run's own model cannot see images, the auxiliary vision model may live
+on a DIFFERENT provider — but only when the process can actually reach it: a
+keyless local server, or a hosted provider whose declared env-var credential is
+present (`models.provider_has_credentials`). A remote provider the run holds no
+key for is never selected. Common open-weight VLMs (llava, qwen2.5-vl, minicpm-v,
+moondream, gemma-3) are declared for Ollama/LM Studio so a local VLM is found
+without a discovery round-trip.
 
 ## Configuration
 

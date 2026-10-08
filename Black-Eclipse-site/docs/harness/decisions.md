@@ -4733,7 +4733,57 @@ fixture builder `document_intelligence_helpers.py` and
 No new third-party dependency is added.
 
 
-## ADR-H148 - Market data is one gateway over declarative providers; the adapters stay on the TS bridge
+## ADR-H148 - Vision capability is detected per MODEL FAMILY, not per SDK kind; a text-only run model falls back to any available vision model
+
+**Context.** The Vision subsystem reported "needs a vision-capable model
+configured" even when the operator had vision-capable models. Two defects caused
+it. (1) The `openai` capability-kind default declared `vision: SUPPORTED` for
+EVERY model of that kind — but the `openai` SDK kind is shared by OpenAI, Ollama,
+LM Studio, DeepSeek, xAI, Groq, Together and any OpenAI-compatible endpoint, most
+of which serve text-only models. So a run model that could not see images was
+nonetheless routed as native and received the image (a failed round-trip), while
+genuine VLMs whose names were not catalogued stayed unrecognized. (2)
+`plan_route`'s registry search called `findByCapability(VISION_SUPPORT)` with a
+bare STRING, so the runtime iterated it character-by-character and matched no
+model; and cross-provider fallback was refused even when a credential existed.
+
+**Decision.**
+1. **Per-family vision priors.** The `openai` kind default no longer claims
+   vision. `MODEL_CAPABILITY_OVERRIDES` now declares the vision-capable families
+   (gpt-4o/4.1/4-turbo/4-vision/4.5/5, o1/o3/o4, the whole Claude and Gemini
+   families, grok-2-vision/grok-vision/grok-4, and open-weight VLMs: llava,
+   qwen2-vl/qwen2.5-vl/qwen3-vl, minicpm-v, moondream, pixtral, llama-3.2-vision,
+   llama-4, internvl, phi-3-vision/phi-4-multimodal, granite-vision, deepseek-vl,
+   gemma-3, and a `vision`-in-name catch-all) AND the text-only families
+   (gpt-3.5/gpt-4, o1-mini, deepseek-chat/reasoner, llama-3.x, qwen2.5/qwen3 text,
+   mixtral, mistral, codestral, groq hosts, grok-2/3, …). Longest-substring
+   matching keeps a specific entry ahead of a generic one.
+2. **Native-first asks about the RUN'S OWN model.** `plan_route` reads the run
+   model's capabilities DIRECTLY (`capabilities_for_model`), never a routed
+   substitute, so a routed VLM's capability is never attributed to a text-only run
+   model.
+3. **The registry search is fixed** (pass a list, not a string) and runtime
+   discovery is the default, so declared/discovered VLMs are always considered.
+4. **Credentialed cross-provider fallback.** A different provider is usable as the
+   auxiliary vision model when it is keyless-local OR its declared env credential
+   is present (`models.provider_has_credentials`); a remote provider the process
+   holds no key for is still never selected (ADR-H146 §31/§45). The local VLM
+   family is also added to the Ollama/LM Studio/OpenRouter declaration lists.
+5. **Document Intelligence routes through the vision orchestrator**, so an
+   embedded-image analysis on a text-only run model gets a real vision model too.
+
+**Consequences.** `model_runtime/catalog.py` (per-family vision priors),
+`harness/models.py` (`provider_has_credentials` + local VLM declarations),
+`vision/capabilities.py` (`capabilities_for_model`), `vision/routing.py`
+(direct run-model caps, default runtime, list `findByCapability`,
+credentialed cross-provider fallback), `document_intelligence/orchestrator.py` +
+`ocr.py` (route image analysis/OCR-fallback through the vision orchestrator).
+Tests `python/tests/test_model_vision_capability.py` (recognition matrix +
+routing); the local-only vision test now asserts the invariant "never cloud"
+rather than "no candidate". No new dependency.
+
+
+## ADR-H149 - Market data is one gateway over declarative providers; the adapters stay on the TS bridge
 
 **Status:** Accepted (2026-10-07). The Market Data Layer is the one market-data
 surface for agents: fourteen capability tools (get_quote … stream_market_data)
