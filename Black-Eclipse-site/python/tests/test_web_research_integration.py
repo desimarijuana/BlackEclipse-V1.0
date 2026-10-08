@@ -209,6 +209,42 @@ async def test_cancellation_persists_state(store):
     assert row and row["state"] == "CANCELLED"
 
 
+# ── TEST 11: background research ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_background_research_runs_and_persists(store):
+    import asyncio
+
+    from harness.research.web_engine import (
+        background_research_active,
+        run_status,
+        schedule_background_research,
+    )
+
+    bridge = FakeBridge(
+        pages={"https://en.wikipedia.org/wiki/Paris": {"url": "https://en.wikipedia.org/wiki/Paris", "title": "Paris", "text": "Paris is the capital of France and a major European city with a long and detailed history. " * 6}},
+        search=[{"title": "Paris", "url": "https://en.wikipedia.org/wiki/Paris", "snippet": "capital of France"}],
+    )
+    research_id = schedule_background_research(
+        ResearchRequest(question="What is the capital of France?", minSources=1),
+        bridge=bridge,
+        store=store,
+    )
+    # The mandate is persisted immediately, so the id is observable at once.
+    row = store.get_run(research_id)
+    assert row is not None
+    # Let the background task complete.
+    for _ in range(100):
+        if not background_research_active(research_id):
+            break
+        await asyncio.sleep(0.02)
+    final = store.get_run(research_id)
+    assert final["state"] in ("COMPLETED", "PARTIAL", "FAILED")
+    status = run_status(research_id)
+    assert status is None or status.state in ("COMPLETED", "PARTIAL", "FAILED")
+
+
 # ── snapshots + incremental ───────────────────────────────────────────────────────────
 
 

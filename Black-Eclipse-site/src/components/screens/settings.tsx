@@ -34,6 +34,7 @@ import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
 import { NewsFeedsPanel } from "./news-feeds-panel";
+import { SearchRetrievalSettings } from "./search-retrieval-settings";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
@@ -812,6 +813,8 @@ export function Settings({
                       </p>
                     </Panel>
                   </SubSection>
+
+                  <SearchRetrievalSettings />
 
                   <SubSection icon={Database} title="Custom data sources">
                     <DataSourcesPanel />

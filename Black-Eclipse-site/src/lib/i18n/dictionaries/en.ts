@@ -25,6 +25,7 @@ export const en = {
   'nav.memory': 'Eclipse Memory',
   'nav.code': 'Code Tasks',
   'nav.jobs': 'Scheduled Jobs',
+  'nav.research': 'Research',
   'nav.editor': 'Editor',
   'nav.modelRuntime': 'Model Control Center',
 

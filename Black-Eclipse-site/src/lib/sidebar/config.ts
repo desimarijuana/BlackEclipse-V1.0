@@ -11,7 +11,7 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain,
-  SquareCode, CalendarClock, FileCode2, Cpu, type LucideIcon,
+  SquareCode, CalendarClock, FileCode2, Cpu, FlaskConical, type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
 
@@ -50,6 +50,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'editor', label: 'Editor', icon: FileCode2, group: 'agentic' },
   { id: 'jobs', label: 'Scheduled Jobs', icon: CalendarClock, group: 'agentic' },
   { id: 'model-runtime', label: 'Model Control Center', icon: Cpu, group: 'agentic' },
+  { id: 'research', label: 'Research', icon: FlaskConical, group: 'agentic' },
 ];
 
 /** The modes a section is listed under. */

@@ -95,6 +95,19 @@ async def run_web_research(body: ResearchRunBody, _: bool = Depends(require_oper
     return {"success": True, "result": result.to_dict()}
 
 
+@router.post("/research/web/start")
+async def start_web_research(body: ResearchRunBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Start a research run in the background; returns its id immediately."""
+    from ..research.web_engine import schedule_background_research
+
+    research_id = schedule_background_research(
+        _request(body),
+        bridge=_bridge(),
+        store=_store(),
+    )
+    return {"success": True, "researchId": research_id, "mode": "background"}
+
+
 @router.post("/research/web/plan")
 async def plan_web_research(body: ResearchRunBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     engine = _new_engine()
@@ -121,6 +134,8 @@ def get_web_research(research_id: str, _: bool = Depends(require_operator)) -> d
         "claims": store.list_claims(research_id),
         "citations": store.list_citations(research_id),
         "conflicts": store.list_conflicts(research_id),
+        "entities": store.list_entities(research_id),
+        "relations": store.list_relations(research_id),
         "snapshots": _bound_snapshots(store.list_snapshots(research_id)),
     }
 

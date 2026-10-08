@@ -13,11 +13,10 @@ import { fetchYahooBatchRaw } from "@/lib/scraper/fetchers/yfinance";
 import { normalizeEconomicSeries, sortByDate } from "@/lib/economics/fetch";
 import { getSource } from "@/lib/economics/sources";
 import { searchWeb, fetchWebPageDetailed } from "@/lib/web-research";
+import { runConnectors, type ConnectorKind } from "@/lib/web-connectors";
+import { resolveCustomSearchProvider, describeDiagnostics } from "@/lib/harness/web-provider-resolve";
 import {
-  CustomJsonSearchProvider,
   resolveSearchProviders,
-  resolveSearchApiConfig,
-  type SearchProvider,
 } from "@/lib/web-search";
 import type { RetrievalDiagnostic } from "@/lib/retrieval-diagnostics";
 import { resolveProviderKey } from "@/lib/provider-keys";
@@ -432,6 +431,14 @@ async function dispatchCapability(
       return webSearchCapability(params);
     case "web_fetch":
       return webFetchCapability(params);
+    case "academic_search":
+      return structuredConnectorCapability("academic", params);
+    case "news_search":
+      return structuredConnectorCapability("news", params);
+    case "image_search":
+      return structuredConnectorCapability("image", params);
+    case "video_search":
+      return structuredConnectorCapability("video", params);
     case "mcp_secret_resolve":
       return mcpSecretResolve(params);
     case "mcp_oauth_token_get":
@@ -1264,36 +1271,6 @@ function macroResolve(params: Record<string, unknown>): DataBridgeResult {
 
 // ── Web research (shared transport; no second search system) ────────────────
 
-/** Resolve the operator-configured search provider from the settings vault. */
-async function resolveCustomSearchProvider(): Promise<SearchProvider | null> {
-  let raw: string | null = null;
-  try {
-    raw = await resolveProviderKey("SEARCH_API_CONFIG");
-  } catch {
-    return null;
-  }
-  if (!raw || !raw.trim()) return null;
-  // Accepts a preset name ("tavily") OR a full JSON config object, so an operator
-  // never has to hand-write JSON. The endpoint + field paths are validated in one
-  // place (`resolveSearchApiConfig`), which never invents a URL.
-  const config = resolveSearchApiConfig(raw);
-  if (!config || !config.url) return null;
-  let apiKey: string | null = null;
-  try {
-    apiKey = await resolveProviderKey("SEARCH_API_KEY");
-  } catch {
-    apiKey = null;
-  }
-  return new CustomJsonSearchProvider({ ...config, apiKey });
-}
-
-/** A concise, user-safe summary of a set of diagnostics. */
-function describeDiagnostics(diagnostics: RetrievalDiagnostic[]): string {
-  return diagnostics
-    .map((d) => `${d.provider}: ${d.category}${d.detail ? ` (${d.detail})` : ""}`)
-    .join("; ");
-}
-
 async function webSearchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const query = String(params.query ?? "").trim();
   if (!query) return unavailableClass("invalid_request", "query is required");
@@ -1355,6 +1332,43 @@ async function webFetchCapability(params: Record<string, unknown>): Promise<Data
     extraction: outcome.page.extraction ?? null,
     language: outcome.page.language ?? null,
     diagnostics: [outcome.diagnostic],
+  };
+}
+
+/**
+ * A structured connector capability (academic/news/image/video). Runs the
+ * keyless connector chain for the kind (OpenAlex/Crossref, GDELT, Openverse/
+ * Commons) and reports honestly: a genuine empty answer is `no_data`, a
+ * connector failure is `source_failure` with per-connector diagnostics. The
+ * Python registry falls back to web search when this reports UNAVAILABLE.
+ */
+async function structuredConnectorCapability(
+  kind: ConnectorKind,
+  params: Record<string, unknown>
+): Promise<DataBridgeResult> {
+  const query = String(params.query ?? "").trim();
+  if (!query) return unavailableClass("invalid_request", "query is required");
+  const rawLimit = Number(params.limit ?? 8);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 25) : 8;
+  const outcome = await runConnectors(kind, query, limit);
+  if (outcome.results.length === 0) {
+    const allFailed = outcome.diagnostics.every((d) => d.normalizedStatus === "failed");
+    return {
+      status: "UNAVAILABLE",
+      failureClass: allFailed ? "source_failure" : "no_data",
+      error: allFailed
+        ? `${kind} connectors failed: ${describeDiagnostics(outcome.diagnostics)}`
+        : `the ${kind} connectors returned no results`,
+      diagnostics: outcome.diagnostics,
+    };
+  }
+  return {
+    status: "OK",
+    query,
+    kind,
+    provider: outcome.provider,
+    results: outcome.results,
+    diagnostics: outcome.diagnostics,
   };
 }
 

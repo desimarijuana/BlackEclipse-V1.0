@@ -41,12 +41,16 @@ from .web_contracts import (
     evidence_id,
     source_id,
 )
-from .web_extract import enrich_structured, fetch, fetch_to_evidence, structured_extract
+from .web_extract import FetchResult, enrich_structured, fetch, fetch_to_evidence, structured_extract
+from .web_browser import browser_extract
 from .web_freshness import filter_admissible
 from .web_intent import classify_intent
 from .web_planner import PlanInput, plan_research
 from .web_providers import SearchProviderRegistry, build_default_registry
 from .web_quality import compute_quality
+from .web_pricing import CostLedger
+from .web_graph import build_graph
+from .web_coverage import answered_questions as _answered_questions
 from .web_sources import (
     SourceFamily,
     dedupe_news,
@@ -73,6 +77,78 @@ TOP_SOURCES_PER_QUERY = 3
 _RUN_CANCELS: dict[str, asyncio.Event] = {}
 _RUN_STATUS: dict[str, ResearchStatus] = {}
 _MAX_TRACKED_RUNS = 256
+
+# In-flight background research tasks, keyed by research id, so a run started in
+# one turn can be polled/cancelled from another without blocking the tool call.
+_RUN_TASKS: dict[str, asyncio.Task[Any]] = {}
+
+
+def schedule_background_research(
+    request: ResearchRequest,
+    *,
+    bridge: Any = None,
+    store: Any = None,
+    registry: Optional[SearchProviderRegistry] = None,
+    emitter: Any = None,
+) -> str:
+    """Create+persist a research mandate on the running loop, then execute it in
+    the BACKGROUND. Returns the stable research id immediately.
+
+    The mandate is persisted BEFORE the task starts, so `research_status` can see
+    the run at once; the state is re-persisted on every transition. A finished
+    task removes itself from the map (its result lives in the store). This is how
+    a long research run stops blocking a single chat turn — poll it with
+    `research_status`, resume with `research_continue`.
+    """
+    engine = ResearchEngine(bridge=bridge, store=store, registry=registry, emitter=emitter)
+    # Persist + plan synchronously BEFORE scheduling, so the id is observable at
+    # once and a cancel issued before the task starts is honoured.
+    mandate, plan = engine.create_research_sync(request)
+    research_id = mandate.researchId
+
+    async def _prepare_then_run() -> None:
+        try:
+            await engine.execute_research(mandate, plan)
+        except asyncio.CancelledError:  # pragma: no cover - cooperative cancel
+            raise
+        except Exception:  # noqa: BLE001 - a background failure is state, never a crash
+            pass
+        finally:
+            _RUN_TASKS.pop(research_id, None)
+
+    task = asyncio.create_task(_prepare_then_run())
+    _RUN_TASKS[research_id] = task
+    _prune_runs()
+    return research_id
+
+
+def background_research_active(research_id: str) -> bool:
+    task = _RUN_TASKS.get(research_id)
+    return task is not None and not task.done()
+
+
+def _diagnostic_category(result: FetchResult) -> Optional[str]:
+    """The transport's failure category for a fetch, when one was reported.
+
+    The bridge returns a structured diagnostic whose `category` names WHY a page
+    could not be read. Falls back to keyword-matching the error string so an older
+    bridge payload still routes to the right escalation decision.
+    """
+    for diagnostic in getattr(result, "diagnostics", None) or []:
+        if isinstance(diagnostic, dict):
+            category = str(diagnostic.get("category") or "").strip()
+            if category:
+                return category
+    error = (getattr(result, "error", None) or "").lower()
+    if "javascript" in error or "js-only" in error or "js_only" in error:
+        return "javascript_only"
+    if "paywall" in error or "subscription" in error or "login" in error or "denied access" in error:
+        return "paywalled"
+    if "unsupported" in error:
+        return "unsupported_document"
+    if "parse" in error:
+        return "parse_failure"
+    return None
 
 
 def _prune_runs() -> None:
@@ -122,6 +198,9 @@ class EngineResult:
     calculations: list[Any] = field(default_factory=list)
     answer: str = ""
     snapshotId: Optional[str] = None
+    # General entity/knowledge graph extracted from the evidence (evidence-anchored).
+    entities: list[dict[str, Any]] = field(default_factory=list)
+    relations: list[dict[str, Any]] = field(default_factory=list)
     # Incremental research: what changed relative to the previous snapshot.
     delta: Optional[dict[str, Any]] = None
 
@@ -142,6 +221,8 @@ class EngineResult:
             "calculations": [c.to_dict() if hasattr(c, "to_dict") else c for c in self.calculations],
             "answer": self.answer,
             "snapshotId": self.snapshotId,
+            "entities": self.entities,
+            "relations": self.relations,
             "delta": self.delta,
         }
 
@@ -192,6 +273,12 @@ class ResearchEngine:
 
     async def create_research(self, request: ResearchRequest) -> tuple[WebResearchMandate, ResearchPlan]:
         """Classify + plan + persist a research mandate (no retrieval yet)."""
+        return self.create_research_sync(request)
+
+    def create_research_sync(self, request: ResearchRequest) -> tuple[WebResearchMandate, ResearchPlan]:
+        """Synchronous classify + plan + persist. No await points, so a background
+        caller can persist the mandate BEFORE scheduling the run — guaranteeing the
+        research id is observable (via `research_status`) the moment it is returned."""
         research_id = _research_id(request.question)
         intent = classify_intent(
             request.question,
@@ -277,6 +364,8 @@ class ResearchEngine:
         seen_urls: set[str] = set()
         queries = plan.queries[: max(1, mandate.budget.get("maxQueries", 12))]
         search_sem = asyncio.Semaphore(MAX_CONCURRENT_SEARCHES)
+        cost = CostLedger()
+        max_cost = float(mandate.budget.get("maxCost", 1.0) or 0.0)
 
         async def _search_one(query: str) -> list[dict[str, Any]]:
             if cancel.is_set() or time.monotonic() - started > mandate.budget.get("maxSeconds", 120.0):
@@ -292,6 +381,8 @@ class ResearchEngine:
                 except Exception as exc:  # noqa: BLE001 - a provider failure is data
                     errors.append(f"search {query!r} failed: {exc}")
                     return []
+                # Record an HONEST estimated cost per provider (unknown ≠ 0).
+                cost.record(response.provider or "", kind="query")
                 search_diagnostics.extend(response.diagnostics or [])
                 await self._emit("webresearch.web_search", {"query": query, "results": len(response.results), "provider": response.provider, "status": response.status})
                 return [r.model_dump() for r in response.results]
@@ -318,7 +409,16 @@ class ResearchEngine:
         await self._set_state(status, "EXTRACTING")
         evidence: list[Evidence] = []
         fetch_budget = mandate.budget.get("maxFetches", 12)
-        candidates = raw_results[: max(0, min(fetch_budget, mandate.maxSources * 2))]
+        # Enforce the cost budget: stop before extraction when the estimated spend
+        # (only when EVERY used provider was priced) has reached maxCost. An
+        # unpriced provider cannot be enforced — we disclose it, never block on a
+        # number we do not actually know.
+        if max_cost > 0 and cost.exact and cost.total >= max_cost:
+            await self._emit("webresearch.budget_stop", {"reason": "maxCost", "estimatedCost": cost.total})
+            errors.append(f"stopped: estimated cost {cost.total:.4f} reached budget {max_cost:.4f}")
+            candidates: list[dict[str, Any]] = []
+        else:
+            candidates = raw_results[: max(0, min(fetch_budget, mandate.maxSources * 2))]
         fetches = 0
         sem = asyncio.Semaphore(MAX_CONCURRENT_FETCHES)
 
@@ -329,6 +429,27 @@ class ResearchEngine:
                     return None
                 fetches += 1
                 result = await fetch(item["url"], bridge=self._bridge)
+                # A JavaScript-only shell, a parse/unsupported document or a
+                # paywall/login wall is not a dead end: escalate to the existing
+                # browser runtime (credentialed when configured) and re-extract.
+                # A missing browser/credentials is an honest failure, never a
+                # fabrication.
+                category = _diagnostic_category(result)
+                if not result.ok and category in {"javascript_only", "parse_failure", "unsupported_document", "paywalled"}:
+                    outcome = await browser_extract(item["url"])
+                    await self._emit(
+                        "webresearch.escalation",
+                        {"url": item["url"], "category": category, "ok": outcome.ok, "reason": outcome.reason},
+                    )
+                    if outcome.ok and outcome.text.strip():
+                        result = FetchResult(
+                            ok=True,
+                            url=outcome.url or item["url"],
+                            text=outcome.text,
+                            title=outcome.title,
+                            status="OK",
+                            extraction="browser",
+                        )
                 if not result.ok:
                     await self._emit("webresearch.page_fetch_failed", {"url": item["url"], "error": result.error})
                     return None
@@ -479,6 +600,8 @@ class ResearchEngine:
             freshness=mandate.freshness,
         )
         coverage["quality"] = quality
+        # Honest cost accounting for this run (unknown prices ⇒ a floor, flagged).
+        coverage["cost"] = cost.snapshot()
 
         # ── Synthesis (deterministic; model optional at the tool layer) ─────────────────
         await self._set_state(status, "SYNTHESIZING")
@@ -492,6 +615,11 @@ class ResearchEngine:
         status.errors = errors
         status.questionsAnswered = coverage.get("answeredQuestions", 0)
 
+        # ── Entity / knowledge graph (deterministic, evidence-anchored) ─────────────
+        graph_entities, graph_relations = build_graph(admissible)
+        entity_dicts = [e.to_dict() for e in graph_entities]
+        relation_dicts = [r.to_dict() for r in graph_relations]
+
         snapshot_id = None
         if self._store is not None:
             self._store.save_run(
@@ -504,6 +632,10 @@ class ResearchEngine:
                     "plan": plan.model_dump(),
                 }
             )
+            for ent in entity_dicts:
+                self._store.save_entity(ent, research_id=research_id)
+            for rel in relation_dicts:
+                self._store.save_relation(rel, research_id=research_id)
             snapshot_id = self._store.create_snapshot(
                 research_id,
                 {
@@ -516,6 +648,8 @@ class ResearchEngine:
                     "conflicts": [c.model_dump() for c in conflicts],
                     "coverage": coverage,
                     "rejections": rejections,
+                    "entities": entity_dicts,
+                    "relations": relation_dicts,
                 },
             )
         await self._emit("webresearch.completed", {"researchId": research_id, "state": final_state, "coverage": coverage["status"]})
@@ -536,6 +670,8 @@ class ResearchEngine:
             calculations=calculations,
             answer=answer,
             snapshotId=snapshot_id,
+            entities=entity_dicts,
+            relations=relation_dicts,
         )
 
     async def run(self, request: ResearchRequest) -> EngineResult:
@@ -634,6 +770,15 @@ class ResearchEngine:
 
     async def _set_state(self, status: ResearchStatus, state: ResearchState) -> None:
         status.state = state
+        if self._store is not None:
+            # Persist the observable state on every transition so a background run
+            # started in one turn can be polled (research_status) from another.
+            try:
+                row = self._store.get_run(status.researchId)
+                if row is not None:
+                    self._store.save_run({**row, "state": state})
+            except Exception:  # noqa: BLE001 - persistence must not break research
+                pass
         await self._emit("webresearch.state", {"researchId": status.researchId, "state": state})
 
     async def _emit(self, event_type: str, data: dict[str, Any]) -> None:
@@ -869,7 +1014,7 @@ def _build_coverage(
         )
     )
     material_conflicts = [c for c in conflicts if c.material and c.status == "UNRESOLVED"]
-    answered = _answered_questions(mandate, evidence)
+    answered, coverage_method, question_scores = _answered_questions(mandate, evidence)
     unmet: list[str] = []
     if independent_sources < mandate.minSources:
         unmet.append(f"only {independent_sources} independent sources (need {mandate.minSources})")
@@ -895,6 +1040,8 @@ def _build_coverage(
         "evidenceCount": len(evidence),
         "answeredQuestions": answered,
         "questionsTotal": len(mandate.subQuestions),
+        "coverageMethod": coverage_method,
+        "questionScores": question_scores,
         "coverage": round(coverage_ratio, 4),
         "sourceCoverage": round(coverage_ratio, 4),
         "unmet": unmet,
@@ -905,44 +1052,11 @@ def _build_coverage(
     }
 
 
-# Keyword sets used to decide whether a sub-question has ANY corroborating
-# evidence. Deliberately conservative: an unanswered question is never reported
-# as answered just because enough sources were retrieved.
-_STOP_TOKENS = frozenset(
-    {"the", "and", "for", "with", "that", "this", "from", "what", "when", "where",
-     "how", "who", "why", "does", "did", "are", "was", "were", "will", "latest",
-     "current", "about", "into", "over", "news", "research", "analyze", "analysis"}
-)
+# ── Coverage: which sub-questions have corroborating evidence ────────────────
+# The layered scorer (semantic → idf → keyword) lives in `web_coverage`; it is a
+# COVERAGE signal, never a correctness claim. `coverageMethod` discloses the layer.
 
 
-def _answered_questions(mandate: WebResearchMandate, evidence: list[Evidence]) -> int:
-    """Count sub-questions with at least one corroborating evidence item.
-
-    A question is "answered" when any significant keyword of the question appears
-    in an admissible evidence item's text, title or structured metric. This is a
-    conservative, deterministic signal — NOT a claim that the answer is correct.
-    """
-    if not mandate.subQuestions:
-        return 0
-    haystacks: list[str] = []
-    for ev in evidence:
-        haystacks.append(ev.rawText.lower())
-        if isinstance(ev.provenance, dict):
-            haystacks.append(str(ev.provenance.get("title") or "").lower())
-            haystacks.append(str(ev.provenance.get("metric") or "").lower())
-        haystacks.append((ev.claimText or "").lower())
-    blob = " ".join(haystacks)
-    if not blob.strip():
-        return 0
-    answered = 0
-    for sq in mandate.subQuestions:
-        tokens = {
-            t for t in re.findall(r"[a-z0-9]{4,}", sq.question.lower())
-            if t not in _STOP_TOKENS
-        }
-        if tokens and any(token in blob for token in tokens):
-            answered += 1
-    return answered
 
 
 def _stop_reason(coverage: dict[str, Any], mandate: WebResearchMandate) -> str:

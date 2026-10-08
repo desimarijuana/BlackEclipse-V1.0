@@ -44,6 +44,8 @@ def needs_escalation(*, text: str, fetch_status: str = "OK", fetch_error: Option
         err = (fetch_error or "").lower()
         if "javascript" in err or "js_only" in err or "empty" in err:
             return True, "fetch reported a javascript-only / empty document"
+        if "paywall" in err or "subscription" in err or "login" in err or "sign in" in err or "denied access" in err or "access denied" in err:
+            return True, "fetch reported a paywall/login wall; a credentialed browser session may reach it"
         if "parse" in err or "unsupported" in err:
             return True, "fetch reported a parse/unsupported-document failure"
         return True, f"fetch did not succeed ({fetch_status})"

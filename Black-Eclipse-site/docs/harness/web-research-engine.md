@@ -44,6 +44,9 @@ python/harness/research/
   web_security.py    — UntrustedContentBoundary + SSRF/URL guard
   web_store.py       — EvidenceStore on the ONE agent-memory connection
   web_engine.py      — ResearchEngine orchestration + status/cancel/continue
+  web_coverage.py    — layered sub-question coverage (semantic → idf → keyword)
+  web_pricing.py     — honest provider cost ledger (unknown ≠ 0)
+  web_graph.py       — evidence-anchored entity/relation extraction
   web_tools.py       — the read-only tools on the ONE ToolRegistry
   web_finance.py     — deterministic financial metrics (adapter over finance_facts)
   web_quality.py     — the internal research-quality score
@@ -154,7 +157,9 @@ The finance tools give the model deterministic financial math with full provenan
   P/E, forward P/E, PEG, P/B, P/S, EV/EBITDA, FCF yield, dividend yield, ROE, ROA,
   **ROIC**, gross/operating/net margin, debt/EBITDA, D/E. Each records formula +
   inputs + sources. A metric whose required input is missing is **refused**, never
-  defaulted (e.g. ROIC requires a stated tax rate).
+  defaulted (e.g. ROIC requires a stated tax rate). The refusal names the exact
+  missing input and its remedy (retrieve it via `web_extract`, or pick a metric
+  whose inputs exist) — this is a by-design invariant, not a limitation to fix.
 - **Risk / return time-series** — `finance_series` → `research.calculations`.
   Sharpe, **Sortino**, **historical VaR**, **beta**, CAGR, volatility, max
   drawdown, period change.
@@ -266,15 +271,73 @@ resume after a cancel is not instantly cancelled again.
   (`source_collector.add_web_source`/`add_web_conflict`), so web provenance renders
   in the SAME chat Sources area the retrieval layer uses — one surface, no new wire
   contract. A failed fetch is a failed route, never a citation.
+- **Dedicated Research screen.** The `research` AppTab renders
+  `components/screens/research/research-screen.tsx`, a `CustomizableWorkspace`
+  over the research widget catalog (`lib/research/research-widgets.tsx`). It lists
+  runs, starts background runs, shows live progress, evidence, claims/citations
+  and conflicts, and enables a recurring brief in one click (over the existing
+  `/jobs` templates). All state flows through the ONE `useResearchScreen` hook →
+  `/api/research/*` → Python `/research/web/*`; the widgets never re-implement
+  research or fabricate a value.
 - **Schedulable research.** Research runs in the background through the existing
   job scheduler via three inert templates: `deep-research-brief` (cron),
   `competitor-watch` (cron) and `research-topic-digest` (interval). Each is an
   ordinary `objective` job on the `eclipse-agent` and passes the same save-time
   guardrails; nothing switches on by itself.
+- **Background runs (no blocking turn).** `research_query` runs synchronously
+  inside its tool call; `research_start` (and `POST /research/web/start`) plans +
+  persists the mandate via `create_research_sync` FIRST, then executes it as a
+  background task (`schedule_background_research`). The research id is observable
+  immediately and the state is re-persisted on every transition, so
+  `research_status`/`research_cancel`/`research_continue` work from any later
+  tool call. A finished task leaves its result in the store.
 - **Search providers.** `SEARCH_PROVIDER_PRESETS` (Tavily, Brave, Exa, Serper,
-  SearXNG) fills the `SEARCH_API_CONFIG` shape so an operator adds an independent
-  second search route by name + key (`SEARCH_API_KEY`) instead of hand-writing JSON.
-  When the keyless default is challenged, the diagnostic names this fix.
+  SerpApi, Bing/Azure, Google CSE, SearXNG) each carry a unique `keyEnv`, so a user
+  adds a dependable engine by pasting ONE key in the Settings modal — no
+  `SEARCH_API_CONFIG` JSON required (`SearchRetrievalSettings` renders a
+  vault-backed `ProviderKeyEditor` per provider; keys are encrypted and never
+  echoed). `lib/harness/web-provider-resolve.ts` is the ONE resolution rule:
+  advanced `SEARCH_API_CONFIG` + `SEARCH_API_KEY` wins; else the first configured
+  named provider; else the KEYLESS FALLBACK CHAIN — DuckDuckGo HTML, DuckDuckGo
+  Lite, Mojeek, Bing HTML — tried in order, so a single challenged engine no
+  longer blanks the search. A live connectivity test is available
+  (`/api/search-provider`).
+- **JS rendering & paywalls.** A page that is a JavaScript-only shell
+  (`javascript_only`), a parse failure, or a subscription/login wall
+  (`paywalled`; new diagnostic category in `lib/retrieval-diagnostics.ts`)
+  escalates to the existing browser runtime with credentials when available; a
+  bare 403 stays `http_error` (bot/geo block) rather than being mislabelled a
+  paywall. One-click enablement: `POST /browser/install` installs Playwright +
+  Chromium idempotently and reports the binary's true presence; the Settings panel
+  and the `/api/search-provider/install` proxy surface it.
+- **Structured connectors.** Academic/news/image/video are first-class keyless
+  connectors, not keyword hacks. `lib/web-connectors.ts` reaches OpenAlex,
+  Crossref, GDELT, Openverse and Wikimedia Commons through the shared SSRF
+  transport and normalizes each to `WebSearchResult`. The bridge exposes them as
+  `academic_search`/`news_search`/`image_search`/`video_search` capabilities
+  (`data-bridge.ts` + the `/api/harness/data` allowlist). The Python
+  `web_providers.py` `ConnectorSearchProvider` registers `eclipse_academic`,
+  `eclipse_image` and `eclipse_video`; the corresponding tools use their kind and
+  fall back to plain web search only when the connector chain is unavailable.
+- **Coverage method.** `_answered_questions` is layered and reports which layer
+  ran (`coverageMethod`): `semantic` (embedding similarity, when an embedding
+  runtime is available), `idf` (IDF-weighted term overlap — answers a
+  sub-question only when its DISTINCTIVE terms are corroborated), or `keyword`
+  (the conservative any-token fallback). Per-question scores land in
+  `questionScores`. It is a coverage signal, never a correctness claim.
+- **Cost accounting.** `research/web_pricing.py` gives an honest estimated spend.
+  Keyless providers are FREE (known 0.0); a paid provider with no configured
+  price is UNKNOWN (None — never 0), so a run total is `exact` only when every
+  used provider was priced. Set `HARNESS_WEB_PRICE_<PROVIDER>_QUERY` (and
+  `_FETCH`) to enable estimates; `maxCost` is enforced before extraction only
+  when the total is exact, otherwise it is disclosed in `coverage["cost"]`.
+- **Entity/knowledge graph.** Beyond claim→evidence, `research/web_graph.py`
+  extracts an evidence-anchored graph into `WebResearchEntity`/
+  `WebResearchRelation`: companies (via `resolve_entity`), proper-noun terms, and
+  `metric → value`/co-occurrence edges. Every node/edge carries the evidence it
+  came from — `build_graph` emits nothing ungrounded. Surfaced on `EngineResult`
+  (`entities`/`relations`), via the `research_graph` tool, the run API, and a
+  Knowledge Graph widget on the Research screen.
 
 ## Tests
 

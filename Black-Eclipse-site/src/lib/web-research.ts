@@ -23,10 +23,11 @@ import {
   type RetrievalFailureCategory,
 } from "@/lib/retrieval-diagnostics";
 import {
-  DuckDuckGoHtmlProvider,
+  keylessSearchProviders,
   type SearchProvider,
   type WebSearchResult,
 } from "@/lib/web-search";
+import { detectPaywall } from "@/lib/web-paywall";
 
 export type { WebSearchResult } from "@/lib/web-search";
 
@@ -86,7 +87,7 @@ export async function searchWeb(
   limit = 8,
   providers?: SearchProvider[]
 ): Promise<SearchOutcome> {
-  const list = providers && providers.length > 0 ? providers : [new DuckDuckGoHtmlProvider()];
+  const list = providers && providers.length > 0 ? providers : keylessSearchProviders();
   const diagnostics: RetrievalDiagnostic[] = [];
   for (const provider of list) {
     try {
@@ -196,13 +197,24 @@ export async function fetchWebPageDetailed(
   const httpStatus = res.status;
   const bytes = res.bytes;
   if (httpStatus < 200 || httpStatus >= 300) {
+    // A 401/402/403 is an access gate, not a plain HTTP fault: classify it as a
+    // paywall/login wall so the caller can escalate to a credentialed browser
+    // route rather than reporting a generic failure.
+    const gate = detectPaywall({ text: res.text, httpStatus });
     return {
       page: null,
-      diagnostic: failedDiagnostic(base, "http_error", `the source returned HTTP ${httpStatus}`, {
-        latencyMs,
-        httpStatus,
-        bytes,
-      }),
+      diagnostic: gate.paywalled
+        ? failedDiagnostic(base, "paywalled", gate.reason, {
+            latencyMs,
+            httpStatus,
+            bytes,
+            retryable: false,
+          })
+        : failedDiagnostic(base, "http_error", `the source returned HTTP ${httpStatus}`, {
+            latencyMs,
+            httpStatus,
+            bytes,
+          }),
     };
   }
 
@@ -320,7 +332,22 @@ export async function fetchWebPageDetailed(
   if (!text) {
     // A page with no body text is usually a JavaScript-only shell that must be
     // rendered in a browser; report that distinctly so the caller can escalate
-    // to a JS-capable route rather than calling it "not found".
+    // to a JS-capable route rather than calling it "not found". Before that,
+    // check for a login/subscription wall — a gated shell is a different remedy
+    // (credentials) than a JS shell (rendering).
+    const gate = detectPaywall({ html: res.text, httpStatus });
+    if (gate.paywalled) {
+      return {
+        page: null,
+        diagnostic: failedDiagnostic(base, "paywalled", gate.reason, {
+          latencyMs,
+          httpStatus,
+          bytes,
+          parseOutcome: "empty",
+          retryable: false,
+        }),
+      };
+    }
     const jsShell = /<script\b/i.test(res.text) && !/<\/body>/i.test(res.text.slice(0, 4000));
     return {
       page: null,

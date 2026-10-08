@@ -185,6 +185,36 @@ def test_coverage_answered_questions_is_conservative():
     # Only the question with a matching keyword counts as answered.
     assert coverage["answeredQuestions"] == 1
     assert coverage["questionsTotal"] == 2
+    # The method is disclosed (idf offline; semantic only when embeddings exist).
+    assert coverage["coverageMethod"] in ("idf", "semantic", "keyword")
+
+
+def test_coverage_idf_distinguishes_distinctive_terms():
+    """IDF weighting answers a question only when its distinctive terms appear."""
+    from harness.research.web_contracts import ResearchDepth, ResearchIntent, SubQuestion, WebResearchMandate
+    from harness.research.web_coverage import _idf_answered
+
+    mandate = WebResearchMandate(
+        researchId="r", question="q", objective="q",
+        intent=ResearchIntent.FACT_LOOKUP, depth=ResearchDepth.STANDARD,
+        subQuestions=[
+            SubQuestion(id="a", question="nvidia data center revenue"),
+            SubQuestion(id="b", question="penguin migration patterns arctic"),
+        ],
+        minSources=1,
+    )
+    ev = Evidence(
+        evidenceId="e", sourceId="s", sourceUrl="https://sec.gov/x",
+        sourceType=SourceType.OFFICIAL_FILING,
+        rawText="NVIDIA data center revenue grew sharply this year.",
+        claimText="revenue",
+    )
+    result = _idf_answered(mandate, [ev])
+    assert result is not None
+    answered, scores = result
+    assert answered == 1
+    assert len(scores) == 2
+    assert scores[0] > scores[1]
 
 
 # ── concurrent search ──────────────────────────────────────────────────────────────

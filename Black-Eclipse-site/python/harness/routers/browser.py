@@ -82,6 +82,101 @@ def browser_capabilities(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, "available": True, **manager.capabilities()}
 
 
+def _chromium_installed() -> tuple[bool, Optional[str]]:
+    """Whether a Playwright Chromium binary is present. Never raises."""
+    try:
+        from ..browser.providers.local_chromium import _playwright_available, _browser_installed  # noqa: PLC0415
+        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Python Playwright is not installed ({type(exc).__name__})"
+    ok, reason = _playwright_available()
+    if not ok:
+        return False, reason
+    try:
+        with sync_playwright() as p:
+            return _browser_installed(p, "chromium"), None
+    except Exception as exc:  # noqa: BLE001
+        return False, f"could not probe the browser binary: {exc}"
+
+
+@router.get("/browser/install")
+def browser_install_status(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Honest status of the one-click JS-rendering enablement. Read-only."""
+    installed, reason = _chromium_installed()
+    return {
+        "success": True,
+        "installed": installed,
+        "reason": reason,
+        "command": "python -m playwright install chromium",
+    }
+
+
+class InstallBrowserRequest(BaseModel):
+    with_deps: bool = True
+
+
+@router.post("/browser/install")
+async def install_browser(
+    body: InstallBrowserRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """One-click enablement of JS rendering: install Playwright + Chromium.
+
+    Idempotent and honest: if the browser is already present it does nothing. The
+    Chromium download is a one-time, ~150 MB fetch run in a bounded subprocess; a
+    failure returns the captured stderr, never a silent success. Nothing here
+    fabricates a browser — the local runtime reports the binary's true presence.
+    """
+    import asyncio  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    installed, _reason = _chromium_installed()
+    if installed:
+        return {"success": True, "installed": True, "alreadyInstalled": True, "output": ""}
+
+    output: list[str] = []
+
+    async def _run(args: list[str], timeout: float) -> int:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, *args,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            output.append(f"timed out: {' '.join(args)}")
+            return -1
+        if stdout:
+            output.append(stdout.decode("utf-8", "replace")[-4000:])
+        return proc.returncode or 0
+
+    if body.with_deps:
+        # Ensure the Playwright Python package is present before the browser fetch.
+        rc = await _run(["-m", "pip", "install", "playwright>=1.62,<1.63"], timeout=420)
+        if rc != 0:
+            return {
+                "success": False, "installed": False,
+                "error": "could not install the Playwright package",
+                "output": "\n".join(output),
+            }
+
+    rc = await _run(["-m", "playwright", "install", "chromium"], timeout=900)
+    if rc != 0:
+        return {
+            "success": False, "installed": False,
+            "error": "the Chromium download failed",
+            "output": "\n".join(output),
+        }
+
+    now_installed, reason = _chromium_installed()
+    return {
+        "success": now_installed,
+        "installed": now_installed,
+        "reason": reason,
+        "output": "\n".join(output),
+    }
+
+
 @router.get("/browser/sessions")
 def list_browser_sessions(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, "sessions": _manager().list_sessions()}

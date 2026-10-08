@@ -76,5 +76,22 @@ def test_plan_route(client):
     assert body["plan"]["queries"]
 
 
+def test_background_start_route(client, tmp_workspace):
+    response = client.post("/research/web/start", json={"question": "What is the capital of France?", "minSources": 1})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True and body["mode"] == "background"
+    research_id = body["researchId"]
+
+    # The mandate is persisted synchronously before the task is scheduled, so the
+    # run is observable IMMEDIATELY — even though the background task itself is
+    # driven by the server event loop (not by this per-request test client).
+    got = client.get(f"/research/web/{research_id}")
+    assert got.status_code == 200
+    assert got.json()["run"]["state"] in ("PLANNING", "SEARCHING", "EXTRACTING", "NORMALIZING",
+                                          "VALIDATING", "COMPARING", "VERIFYING", "SYNTHESIZING",
+                                          "COMPLETED", "PARTIAL", "FAILED")
+
+
 def test_unknown_run_is_404(client):
     assert client.get("/research/web/nope").status_code == 404

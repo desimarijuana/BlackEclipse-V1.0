@@ -95,6 +95,10 @@ const JobsScreen = dynamic(
   () => import('@/components/screens/jobs/jobs-screen').then((m) => m.JobsScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const ResearchScreen = dynamic(
+  () => import('@/components/screens/research/research-screen').then((m) => m.ResearchScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 const EditorScreen = dynamic(
   () => import('@/components/screens/editor/editor-screen').then((m) => m.EditorScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -1156,6 +1160,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'jobs' ? '' : 'hidden')}>
               <div className="flex-1 overflow-y-auto">
                 <JobsScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('research') && (
+            <div className={cn('w-full h-full', activeTab === 'research' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto w-full px-4 md:px-8 py-6">
+                <ResearchScreen />
               </div>
             </div>
           )}

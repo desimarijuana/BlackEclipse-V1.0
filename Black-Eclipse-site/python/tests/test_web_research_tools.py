@@ -19,6 +19,43 @@ def test_needs_escalation_decisions():
     assert needs_escalation(text="short")[0] is True
     assert needs_escalation(text="", fetch_status="UNAVAILABLE", fetch_error="javascript_only document")[0] is True
     assert needs_escalation(text="", fetch_status="UNAVAILABLE", fetch_error="unsupported_document")[0] is True
+    # A paywall/login wall escalates to a credentialed browser session.
+    assert needs_escalation(text="", fetch_status="UNAVAILABLE", fetch_error="the page returned a subscription wall")[0] is True
+    assert needs_escalation(text="", fetch_status="UNAVAILABLE", fetch_error="sign in to continue")[0] is True
+
+
+@pytest.mark.asyncio
+async def test_research_start_returns_id_and_persists(tmp_workspace):
+    """research_start dispatches a background run and returns its id at once."""
+    import asyncio
+    import os
+
+    from harness.research import web_tools
+    from harness.research.web_engine import background_research_active
+    from harness.persistence import AgentMemoryStore
+    from harness.research.web_store import EvidenceStore
+
+    class Bridge:
+        async def fetch(self, capability: str, params: dict[str, Any]) -> dict[str, Any]:
+            if capability == "web_search":
+                return {"status": "OK", "provider": "fake", "results": [{"title": "T", "url": "https://x.com/a", "snippet": "s"}]}
+            if capability == "web_fetch":
+                return {"status": "OK", "url": params["url"], "title": "T", "text": "A sufficiently long body of text for evidence extraction and claim building. " * 8}
+            return {"status": "UNAVAILABLE"}
+
+    memory = AgentMemoryStore(os.path.join(tmp_workspace, "agent-memory.db"))
+    store = EvidenceStore(memory)
+    ctx = ToolContext(run_id="r", log=lambda m, d=None: None, data_bridge=Bridge(), evidence_store=store)
+    text, payload = await web_tools.research_start({"question": "What is the capital of France?"}, ctx)
+    assert payload["status"] == "OK" and payload["mode"] == "background"
+    assert payload["researchId"]
+    # Persisted synchronously before scheduling, so it is observable now.
+    assert store.get_run(payload["researchId"]) is not None
+    # Let the task finish so it releases the DB before the fixture tears down.
+    for _ in range(200):
+        if not background_research_active(payload["researchId"]):
+            break
+        await asyncio.sleep(0.02)
 
 
 @pytest.mark.asyncio

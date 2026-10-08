@@ -24,7 +24,7 @@ from typing import Any, Optional
 from ..tools import ToolContext, ToolDefinition, ToolRegistry, dumps
 from .web_browser import browser_extract, needs_escalation
 from .web_contracts import ResearchDepth, ResearchRequest, SourceType
-from .web_engine import ResearchEngine, request_cancel, run_status
+from .web_engine import ResearchEngine, request_cancel, run_status, schedule_background_research
 from .web_extract import FetchResult, fetch, fetch_to_evidence, structured_extract as _structured
 from .web_security import get_boundary
 from .web_sources import classify_source_type, dedupe_news, make_source, rank_source, resolve_entity
@@ -201,8 +201,16 @@ async def academic_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
     if not query:
         return "A query is required.", {"status": "ERROR", "error": "query is required"}
     engine = _engine(ctx)
-    # Prefer academic sources by appending site hints deterministically.
-    response = await engine._registry.search(f"{query} site:arxiv.org OR site:doi.org OR research paper", kind="web", limit=int(args.get("limit") or 8))
+    limit = int(args.get("limit") or 8)
+    # First-class scholarly connectors (OpenAlex/Crossref) via the bridge. When
+    # they are unavailable, fall back to a web search scoped to scholarly hosts.
+    response = await engine._registry.search(query, kind="academic", limit=limit)
+    if response.status != "OK" or not response.results:
+        fallback = await engine._registry.search(
+            f"{query} site:arxiv.org OR site:doi.org OR research paper", kind="web", limit=limit
+        )
+        if fallback.status == "OK" and fallback.results:
+            response = fallback
     payload = {"query": query, "status": response.status, "results": [r.model_dump() for r in response.results], "diagnostics": response.diagnostics}
     if response.status != "OK":
         return f"No academic results for {query!r}.", payload
@@ -216,7 +224,10 @@ async def image_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
     if not query:
         return "A query is required.", {"status": "ERROR", "error": "query is required"}
     engine = _engine(ctx)
-    response = await engine._registry.search(f"{query} image", kind="web", limit=int(args.get("limit") or 8))
+    limit = int(args.get("limit") or 8)
+    response = await engine._registry.search(query, kind="image", limit=limit)
+    if response.status != "OK" or not response.results:
+        response = await engine._registry.search(f"{query} image", kind="web", limit=limit)
     # We return image-looking results; we never download arbitrary images.
     images = [
         {"sourcePage": r.url, "title": r.title, "domain": r.domain, "provider": r.provider, "retrievedAt": r.retrievedAt}
@@ -231,7 +242,10 @@ async def video_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
     if not query:
         return "A query is required.", {"status": "ERROR", "error": "query is required"}
     engine = _engine(ctx)
-    response = await engine._registry.search(f"{query} video", kind="web", limit=int(args.get("limit") or 8))
+    limit = int(args.get("limit") or 8)
+    response = await engine._registry.search(query, kind="video", limit=limit)
+    if response.status != "OK" or not response.results:
+        response = await engine._registry.search(f"{query} video", kind="web", limit=limit)
     videos = [
         {"title": r.title, "url": r.url, "platform": r.domain, "publisher": r.domain, "publishedAt": r.publishedAt, "description": r.snippet}
         for r in response.results
@@ -412,6 +426,32 @@ async def research_query(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     return result.answer, payload
 
 
+async def research_start(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Start a research run in the BACKGROUND and return its id immediately.
+
+    A long `research_query` blocks the turn; this creates+persists the mandate
+    and executes it in the background, so the caller can poll `research_status`,
+    resume with `research_continue`, or cancel. The run's state is persisted on
+    every transition and is visible from any later tool call.
+    """
+    question = str(args.get("question") or args.get("query") or "").strip()
+    if not question:
+        return "A research question is required.", {"status": "ERROR", "error": "question is required"}
+    request = _request_from_args(args, question, ctx=ctx)
+    research_id = schedule_background_research(
+        request,
+        bridge=getattr(ctx, "data_bridge", None),
+        store=_store(ctx),
+        emitter=getattr(ctx, "emitter", None),
+    )
+    payload = {"status": "OK", "researchId": research_id, "mode": "background"}
+    return (
+        f"Research {research_id} started in the background. "
+        "Poll it with research_status, resume with research_continue, or stop it with research_cancel.",
+        payload,
+    )
+
+
 async def source_rank(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     url = str(args.get("url") or "").strip()
     if not url:
@@ -502,6 +542,23 @@ async def research_status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
         f"Research {research_id}: {status.state}; {status.questionsAnswered}/{status.questionsTotal} questions; "
         f"{status.sourceCount} sources; {status.evidenceCount} evidence; {status.conflictCount} conflicts.",
         {"status": "OK", "status": status.model_dump()},
+    )
+
+
+async def research_graph(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Report the evidence-anchored entity/knowledge graph for a run."""
+    store = _store(ctx)
+    research_id = str(args.get("research_id") or "")
+    if store is None:
+        return "No evidence store is attached to this run.", {"status": "UNAVAILABLE"}
+    entities = store.list_entities(research_id)
+    relations = store.list_relations(research_id)
+    if not entities and not relations:
+        return f"No entity graph recorded for {research_id!r}.", {"status": "OK", "entities": [], "relations": []}
+    return (
+        f"{len(entities)} entit(ies) and {len(relations)} relation(s) for {research_id}; "
+        "every node/edge is anchored to evidence.",
+        {"status": "OK", "entities": entities, "relations": relations},
     )
 
 
@@ -601,9 +658,14 @@ async def finance_metrics(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
     try:
         result = web_finance.compute_ratio(metric, inputs, extra=extra, currency=args.get("currency"))
     except Exception as exc:  # noqa: BLE001 - a refused metric is an honest answer
+        # Name the missing input AND how to obtain it. Never default or approximate
+        # — an absent input is a real gap, so the answer points at the remedy.
         return (
-            f"Could not compute {metric} honestly: {exc}. I will not approximate it.",
-            {"status": "UNAVAILABLE", "metric": metric, "error": str(exc)},
+            f"Could not compute {metric} honestly: {exc}. "
+            "I will not substitute a default or approximate it. Supply the named input "
+            "(retrieve it from a filing/source via web_extract), or compute a metric whose "
+            "inputs you already have. Use finance_metric_catalog to see each metric's required inputs.",
+            {"status": "UNAVAILABLE", "metric": metric, "error": str(exc), "missingInput": str(exc)},
         )
     value = result.get("value")
     unit = result.get("unit") or ""
@@ -765,12 +827,21 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
         "citations_required": _BOOL, "cross_validation_required": _BOOL,
         "primary_sources_required": _BOOL,
     }, ["question"]),
+    "research_start": _obj({
+        "question": _STR, "depth": _STR, "freshness": _STR,
+        "point_in_time": _STR, "source_types": _STR_LIST,
+        "min_sources": _INT, "max_sources": _INT, "max_queries": _INT,
+        "max_time_seconds": _NUM,
+        "citations_required": _BOOL, "cross_validation_required": _BOOL,
+        "primary_sources_required": _BOOL,
+    }, ["question"]),
     "source_rank": _obj({"url": _STR, "research_type": _STR, "relevance": _NUM, "published_at": _STR}, ["url"]),
     "source_compare": _obj({"evidence_ids": _STR_LIST, "research_id": _STR}, ["evidence_ids"]),
     "claim_verify": _obj({"claim": _STR, "evidence_ids": _STR_LIST, "research_id": _STR}, ["claim", "evidence_ids"]),
     "citation_extract": _obj({"research_id": _STR}, ["research_id"]),
     "citation_validate": _obj({"research_id": _STR}, ["research_id"]),
     "research_status": _obj({"research_id": _STR}, ["research_id"]),
+    "research_graph": _obj({"research_id": _STR}, ["research_id"]),
     "research_cancel": _obj({"research_id": _STR}, ["research_id"]),
     "research_continue": _obj({"research_id": _STR}, ["research_id"]),
     "research_update": _obj({"research_id": _STR, "refresh": _BOOL}, ["research_id"]),
@@ -807,12 +878,14 @@ _TOOLS: list[tuple[str, str, Any, int]] = [
     ("structured_extract", "Extract a caller-specified schema from text/URL. A field that cannot be reliably extracted is NOT_FOUND or AMBIGUOUS — never a fabricated value.", structured_extract, 60_000),
     ("research_plan", "Classify a research question and produce a bounded evidence-gathering plan + mandate.", research_plan, 20_000),
     ("research_query", "Execute a full evidence-driven research run: search, extract, evidence, conflicts, claim verification, calculations, citations, coverage.", research_query, 180_000),
+    ("research_start", "Start a research run in the BACKGROUND and return its id immediately; poll with research_status and resume with research_continue. Use for long runs that should not block the turn.", research_start, 20_000),
     ("source_rank", "Score a source for a research type (authority/relevance/freshness/completeness), explainably.", source_rank, 10_000),
     ("source_compare", "Compare two evidence items over values/period/currency/basis/authority and detect conflicts.", source_compare, 10_000),
     ("claim_verify", "Deterministically verify a claim against cited evidence; returns SUPPORTED/CONTRADICTED/UNSUPPORTED/OUTDATED/…", claim_verify, 10_000),
     ("citation_extract", "List the citations recorded for a research run (claim → evidence → source → location).", citation_extract, 10_000),
     ("citation_validate", "Validate that every material claim is traceable and citations are honest.", citation_validate, 10_000),
     ("research_status", "Report a research run's observable state, progress and counts.", research_status, 10_000),
+    ("research_graph", "Report the evidence-anchored entity/knowledge graph (entities + relations) a run extracted.", research_graph, 10_000),
     ("research_cancel", "Request cancellation of a running research task; it stops at the next safe checkpoint and persists state.", research_cancel, 10_000),
     ("research_continue", "Resume a partial/cancelled research run from its persisted state.", research_continue, 180_000),
     ("research_update", "Incrementally update a prior research run; changed sources are superseded and a new snapshot is written.", research_update, 180_000),

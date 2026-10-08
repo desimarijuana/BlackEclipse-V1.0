@@ -153,6 +153,62 @@ def _normalize_results(raw: list[dict[str, Any]], *, provider: str, query: str) 
     return out
 
 
+# ── Structured connector provider (academic / news / image / video) ────────────
+
+
+class ConnectorSearchProvider:
+    """A first-class academic/news/image/video connector reached via the bridge.
+
+    The front door owns the real keyless connectors (OpenAlex, Crossref, arXiv,
+    GDELT, Openverse, Wikimedia Commons) and the SSRF transport; this adapter
+    only normalizes. `kind` is one of academic|news|image|video; the bridge
+    capability is `<kind>_search`. A missing bridge is an honest unavailability.
+    """
+
+    def __init__(self, bridge: Any, *, kind: str, name: Optional[str] = None) -> None:
+        self._bridge = bridge
+        self.kind = kind
+        self.name = name or f"eclipse_{kind}"
+        self.capabilities = (kind,)
+
+    def available(self) -> bool:
+        return self._bridge is not None
+
+    async def search(self, query: str, *, limit: int = 8, **kwargs: Any) -> SearchResponse:
+        if self._bridge is None:
+            return SearchResponse(query=query, status="UNAVAILABLE", error="data bridge not configured", provider=self.name)
+        import time
+
+        started = time.monotonic()
+        try:
+            payload = await self._bridge.fetch(
+                f"{self.kind}_search",
+                {"query": query, "limit": max(1, min(int(limit), 25))},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return SearchResponse(query=query, status="ERROR", error=str(exc), provider=self.name)
+        latency = int((time.monotonic() - started) * 1000)
+        if payload.get("status") != "OK":
+            return SearchResponse(
+                query=query,
+                status="UNAVAILABLE",
+                provider=self.name,
+                failureClass=payload.get("failureClass"),
+                error=payload.get("error") or f"{self.kind} search returned no results",
+                diagnostics=list(payload.get("diagnostics") or []),
+                latencyMs=latency,
+            )
+        results = _normalize_results(payload.get("results") or [], provider=self.name, query=query)
+        return SearchResponse(
+            query=query,
+            status="OK",
+            provider=payload.get("provider") or self.name,
+            results=results,
+            diagnostics=list(payload.get("diagnostics") or []),
+            latencyMs=latency,
+        )
+
+
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 
@@ -274,6 +330,12 @@ def build_default_registry(bridge: Any = None) -> SearchProviderRegistry:
     if bridge is not None:
         registry.register(BridgeSearchProvider(bridge), kind="web", priority=10)
         registry.register(BridgeSearchProvider(bridge, name="eclipse_bridge_news"), kind="news", priority=10)
+        # First-class keyless structured connectors, ahead of web fallback for
+        # their kind. A connector failure falls through to the next provider for
+        # the same kind (the caller registers a web fallback as needed).
+        registry.register(ConnectorSearchProvider(bridge, kind="academic"), kind="academic", priority=20, requiresCredentials=False)
+        registry.register(ConnectorSearchProvider(bridge, kind="image"), kind="image", priority=20, requiresCredentials=False)
+        registry.register(ConnectorSearchProvider(bridge, kind="video"), kind="video", priority=20, requiresCredentials=False)
     return registry
 
 

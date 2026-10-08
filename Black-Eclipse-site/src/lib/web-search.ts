@@ -47,19 +47,34 @@ export interface SearchProvider {
 // SEC / regulator / company-IR hosts (which require an email-shaped contact).
 const UA = "BlackEclipse/1.0 (open-source financial research; contact@blackeclipse.local)";
 
-// ── DuckDuckGo HTML (keyless default) ───────────────────────────────────────
+// ── Keyless HTML search providers (the zero-config fallback chain) ──────────
+// A single keyless endpoint is a single point of failure: DuckDuckGo's HTML
+// endpoint now frequently answers with HTTP 202 / an anti-bot page. So the
+// keyless default is a CHAIN of independent HTML endpoints, tried in order by
+// the transport until one returns results. Each is a plain, declared-identity
+// GET to a fixed https host — no key, no configuration. A block is diagnosed as
+// `blocked`, never confused with `zero_results`.
 
-const DDG_SEARCH_TIMEOUT_MS = 10_000;
+const KEYLESS_SEARCH_TIMEOUT_MS = 10_000;
+
+/** Anti-bot / challenge detection shared by every keyless HTML provider. */
+function looksBlocked(html: string, status: number): boolean {
+  if (status === 202 || status === 429) return true;
+  return /anomaly|unusual traffic|are you a robot|not a robot|enable javascript and cookies|verify you are human|captcha|access denied|too many requests/i.test(
+    html
+  );
+}
 
 /**
- * The keyless fallback. DuckDuckGo's HTML endpoint now frequently answers with
- * HTTP 202 and an anti-bot page; previously that parsed to zero results and was
- * reported identically to "no results". It is now diagnosed explicitly so the
- * caller knows the transport was blocked, not that the web was empty.
+ * Shared machinery for a keyless HTML endpoint: fixed timeout, declared UA,
+ * block/zero-result distinction. Subclasses supply the endpoint and the parser.
  */
-export class DuckDuckGoHtmlProvider implements SearchProvider {
-  readonly id = "duckduckgo-html";
+abstract class KeylessHtmlSearchProvider implements SearchProvider {
   readonly tier = "secondary" as const;
+  abstract readonly id: string;
+
+  protected abstract endpoint(query: string): string;
+  protected abstract parse(html: string, limit: number): WebSearchResult[];
 
   configured(): boolean {
     return true;
@@ -67,7 +82,7 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
 
   async search(query: string, limit: number): Promise<SearchAttempt> {
     const base = { capability: "web_search" as const, provider: this.id, tier: this.tier };
-    const q = query.trim();
+    const q = (query ?? "").trim();
     if (!q) {
       return {
         provider: this.id,
@@ -77,11 +92,11 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
       };
     }
     const started = Date.now();
-    let res;
+    let res: Response;
     try {
-      res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
+      res = await fetch(this.endpoint(q), {
         headers: { "User-Agent": UA },
-        signal: AbortSignal.timeout(DDG_SEARCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(KEYLESS_SEARCH_TIMEOUT_MS),
       });
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
@@ -93,7 +108,9 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
         diagnostic: failedDiagnostic(
           base,
           timedOut ? "timeout" : "transport_error",
-          timedOut ? `search request timed out after ${DDG_SEARCH_TIMEOUT_MS} ms` : "search request failed",
+          timedOut
+            ? `search request timed out after ${KEYLESS_SEARCH_TIMEOUT_MS} ms`
+            : "search request failed",
           { latencyMs: Date.now() - started, timedOut }
         ),
       };
@@ -133,9 +150,9 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
 
     const results = this.parse(html, limit);
     if (results.length === 0) {
-      // HTTP 202 is DuckDuckGo's anti-bot/challenge response. It is a BLOCK, not
-      // an empty result set — the caller must be able to tell these apart.
-      const blocked = httpStatus === 202 || /anomaly|unusual traffic|are you a robot/i.test(html);
+      // A challenge/anti-bot page is a BLOCK, not an empty result set — the
+      // caller must be able to tell these apart.
+      const blocked = looksBlocked(html, httpStatus);
       return {
         provider: this.id,
         tier: this.tier,
@@ -146,7 +163,7 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
               "blocked",
               `the keyless search provider challenged the request (HTTP ${httpStatus}); ` +
                 "no results were served. Configure a search provider in Settings for reliable coverage " +
-                "(a key from Tavily, Brave, Exa or Serper, or a self-hosted SearXNG).",
+                "(a key from Tavily, Brave, Exa, Serper or SerpApi, a Bing key, or a self-hosted SearXNG).",
               { latencyMs, httpStatus, bytes, parseOutcome: "empty", retryable: false }
             )
           : zeroResultDiagnostic(base, "the search provider answered but returned no matches", {
@@ -164,8 +181,17 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
       diagnostic: okDiagnostic(base, { latencyMs, httpStatus, bytes, resultCount: results.length }),
     };
   }
+}
 
-  private parse(html: string, limit: number): WebSearchResult[] {
+/** DuckDuckGo HTML — the original keyless default. */
+export class DuckDuckGoHtmlProvider extends KeylessHtmlSearchProvider {
+  readonly id = "duckduckgo-html";
+
+  protected endpoint(query: string): string {
+    return `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  }
+
+  protected parse(html: string, limit: number): WebSearchResult[] {
     const $ = cheerio.load(html);
     const out: WebSearchResult[] = [];
     $("a.result__a").each((_i, el) => {
@@ -175,6 +201,109 @@ export class DuckDuckGoHtmlProvider implements SearchProvider {
       const snippet = $(el).closest(".result").find(".result__snippet").text().replace(/\s+/g, " ").trim();
       const url = unwrapDuckDuckGo(href);
       if (!url || !title) return;
+      out.push({ title, url, snippet, publishedAt: null });
+    });
+    return out;
+  }
+}
+
+/** DuckDuckGo Lite — a second, simpler HTML surface of the same engine. */
+export class DuckDuckGoLiteProvider extends KeylessHtmlSearchProvider {
+  readonly id = "duckduckgo-lite";
+
+  protected endpoint(query: string): string {
+    return `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
+  }
+
+  protected parse(html: string, limit: number): WebSearchResult[] {
+    const $ = cheerio.load(html);
+    const out: WebSearchResult[] = [];
+    $("a.result-link").each((_i, el) => {
+      if (out.length >= limit) return;
+      const href = $(el).attr("href") || "";
+      const title = $(el).text().replace(/\s+/g, " ").trim();
+      const snippet = $(el)
+        .closest("tr")
+        .next("tr")
+        .find(".result-snippet")
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
+      const url = unwrapDuckDuckGo(href);
+      if (!url || !title || !/^https?:/i.test(url)) return;
+      out.push({ title, url, snippet, publishedAt: null });
+    });
+    return out;
+  }
+}
+
+/** Recover the real URL from Bing's `bing.com/ck/a` click tracker. */
+export function unwrapBing(href: string): string {
+  if (!href) return "";
+  try {
+    const u = new URL(href, "https://www.bing.com");
+    if (!/(^|\.)bing\.com$/i.test(u.hostname)) return href;
+    const encoded = u.searchParams.get("u");
+    if (!encoded) return href;
+    let s = encoded.startsWith("a1") ? encoded.slice(2) : encoded;
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = s.length % 4 ? "=".repeat(4 - (s.length % 4)) : "";
+    const decoded = Buffer.from(s + pad, "base64").toString("utf8");
+    return /^https?:\/\//i.test(decoded) ? decoded : href;
+  } catch {
+    return href;
+  }
+}
+
+/** Bing — keyless HTML results from a distinct index. */
+export class BingHtmlProvider extends KeylessHtmlSearchProvider {
+  readonly id = "bing-html";
+
+  protected endpoint(query: string): string {
+    return `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=20`;
+  }
+
+  protected parse(html: string, limit: number): WebSearchResult[] {
+    const $ = cheerio.load(html);
+    const out: WebSearchResult[] = [];
+    $("li.b_algo").each((_i, el) => {
+      if (out.length >= limit) return;
+      const anchor = $(el).find("h2 a").first();
+      const href = anchor.attr("href") || "";
+      const title = anchor.text().replace(/\s+/g, " ").trim();
+      const snippet = $(el)
+        .find(".b_caption p, .b_lineclamp2, p")
+        .first()
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
+      const url = unwrapBing(href);
+      if (!url || !title || !/^https?:\/\//i.test(url)) return;
+      out.push({ title, url, snippet, publishedAt: null });
+    });
+    return out;
+  }
+}
+
+/** Mojeek — an independent keyless index (no DuckDuckGo/Bing upstream). */
+export class MojeekProvider extends KeylessHtmlSearchProvider {
+  readonly id = "mojeek";
+
+  protected endpoint(query: string): string {
+    return `https://www.mojeek.com/search?q=${encodeURIComponent(query)}`;
+  }
+
+  protected parse(html: string, limit: number): WebSearchResult[] {
+    const $ = cheerio.load(html);
+    const out: WebSearchResult[] = [];
+    $("ul.results-standard > li").each((_i, el) => {
+      if (out.length >= limit) return;
+      const anchor = $(el).find("a.title, h2 a").first();
+      const href = anchor.attr("href") || "";
+      const title = anchor.text().replace(/\s+/g, " ").trim();
+      const snippet = $(el).find("p.s, .s").first().text().replace(/\s+/g, " ").trim();
+      if (!href || !title) return;
+      const url = href.startsWith("http") ? href : `https://www.mojeek.com${href}`;
       out.push({ title, url, snippet, publishedAt: null });
     });
     return out;
@@ -232,6 +361,16 @@ export interface SearchProviderPreset {
   name: string;
   /** Where to get a key (operator-facing, shown in Settings). */
   keyUrl: string;
+  /**
+   * The env var / vault key that holds THIS provider's credential. Each named
+   * provider has its own key so a user can add one in Settings without editing
+   * `SEARCH_API_CONFIG` JSON; `resolveNamedSearchProvider` auto-selects the first
+   * preset whose key is configured. `searxng` is keyless and instead needs a base
+   * URL (a public value).
+   */
+  keyEnv: string;
+  /** True when the stored value is not secret (a base URL, e.g. SearXNG). */
+  publicValue?: boolean;
   config: Omit<CustomSearchConfig, "apiKey">;
 }
 
@@ -240,6 +379,7 @@ export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
     id: "tavily",
     name: "Tavily",
     keyUrl: "https://tavily.com",
+    keyEnv: "TAVILY_API_KEY",
     config: {
       url: "https://api.tavily.com/search?query={query}&max_results={limit}",
       authKind: "query",
@@ -254,6 +394,7 @@ export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
     id: "brave",
     name: "Brave Search",
     keyUrl: "https://brave.com/search/api/",
+    keyEnv: "BRAVE_API_KEY",
     config: {
       url: "https://api.search.brave.com/res/v1/web/search?q={query}&count={limit}",
       authKind: "header",
@@ -268,6 +409,7 @@ export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
     id: "exa",
     name: "Exa",
     keyUrl: "https://exa.ai",
+    keyEnv: "EXA_API_KEY",
     config: {
       url: "https://api.exa.ai/search?query={query}&numResults={limit}",
       authKind: "header",
@@ -282,6 +424,7 @@ export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
     id: "serper",
     name: "Serper (Google)",
     keyUrl: "https://serper.dev",
+    keyEnv: "SERPER_API_KEY",
     config: {
       url: "https://google.serper.dev/search?q={query}&num={limit}",
       authKind: "header",
@@ -293,9 +436,58 @@ export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
     },
   },
   {
+    id: "serpapi",
+    name: "SerpApi (multi-engine)",
+    keyUrl: "https://serpapi.com",
+    keyEnv: "SERPAPI_API_KEY",
+    config: {
+      url: "https://serpapi.com/search.json?q={query}&num={limit}&engine=google",
+      authKind: "query",
+      authParam: "api_key",
+      resultsPath: "organic_results",
+      titlePath: "title",
+      urlPath: "link",
+      snippetPath: "snippet",
+    },
+  },
+  {
+    id: "bing",
+    name: "Bing Web Search (Azure)",
+    keyUrl: "https://www.microsoft.com/en-us/bing/apis/bing-web-search-api",
+    keyEnv: "BING_SEARCH_API_KEY",
+    config: {
+      url: "https://api.bing.microsoft.com/v7.0/search?q={query}&count={limit}",
+      authKind: "header",
+      authParam: "Ocp-Apim-Subscription-Key",
+      resultsPath: "webPages.value",
+      titlePath: "name",
+      urlPath: "url",
+      snippetPath: "snippet",
+    },
+  },
+  {
+    id: "google-cse",
+    name: "Google Custom Search JSON API",
+    keyUrl: "https://developers.google.com/custom-search/v1/overview",
+    keyEnv: "GOOGLE_CSE_API_KEY",
+    config: {
+      // The engine id (`cx`) is supplied as an override together with the key;
+      // the API key is the query credential.
+      url: "https://www.googleapis.com/customsearch/v1?q={query}&num={limit}",
+      authKind: "query",
+      authParam: "key",
+      resultsPath: "items",
+      titlePath: "title",
+      urlPath: "link",
+      snippetPath: "snippet",
+    },
+  },
+  {
     id: "searxng",
     name: "SearXNG (self-hosted, keyless)",
     keyUrl: "https://docs.searxng.org",
+    keyEnv: "SEARXNG_URL",
+    publicValue: true,
     config: {
       url: "{url}/search?q={query}&format=json",
       authKind: "query",
@@ -310,6 +502,42 @@ export const SEARCH_PROVIDER_PRESETS: SearchProviderPreset[] = [
 
 export function searchProviderPreset(id: string): SearchProviderPreset | null {
   return SEARCH_PROVIDER_PRESETS.find((p) => p.id === id) ?? null;
+}
+
+/**
+ * Build a `CustomJsonSearchProvider` for a named preset, substituting its
+ * credential and (for SearXNG) its self-hosted base URL. Used when a user adds a
+ * provider key directly in Settings — no `SEARCH_API_CONFIG` JSON required.
+ */
+export function buildPresetSearchProvider(
+  preset: SearchProviderPreset,
+  value: string | null
+): CustomJsonSearchProvider | null {
+  if (!value || !value.trim()) return null;
+  let config = preset.config;
+  if (preset.id === "searxng") {
+    // SearXNG is keyless: the stored value is the base URL. Fill `{url}`.
+    const base = value.trim().replace(/\/+$/, "");
+    config = { ...config, url: config.url.replace("{url}", base) };
+    return new CustomJsonSearchProvider({ ...config, apiKey: null });
+  }
+  return new CustomJsonSearchProvider({ ...config, apiKey: value.trim() });
+}
+
+/**
+ * The first named provider whose key/URL is configured, in catalogue order.
+ * `lookup` returns the stored value for an env var (or null). The custom
+ * `SEARCH_API_CONFIG` JSON, when present, still wins at the caller — this is the
+ * no-JSON path a user gets by adding one provider key in Settings.
+ */
+export function firstConfiguredPreset(
+  lookup: (envVar: string) => string | null
+): { preset: SearchProviderPreset; value: string } | null {
+  for (const preset of SEARCH_PROVIDER_PRESETS) {
+    const value = lookup(preset.keyEnv);
+    if (value && value.trim()) return { preset, value };
+  }
+  return null;
 }
 
 /**
@@ -564,12 +792,24 @@ export { OutboundError };
 // ── Provider registry ───────────────────────────────────────────────────────
 
 /**
- * The ordered, independent search providers to try. DuckDuckGo is always
- * present; the operator-configured provider is tried first when configured so a
- * working paid/keyed API is preferred over the scrape-prone default.
+ * The ordered, independent search providers to try. The operator-configured
+ * provider is tried first when configured so a working paid/keyed API is
+ * preferred over the scrape-prone defaults. The keyless default is a CHAIN of
+ * independent HTML endpoints — one keyless engine being blocked no longer blanks
+ * the search.
  */
 export interface SearchProviderSet {
   providers: SearchProvider[];
+}
+
+/** The keyless fallback chain, in preference order (best-parsed first). */
+export function keylessSearchProviders(): SearchProvider[] {
+  return [
+    new DuckDuckGoHtmlProvider(),
+    new DuckDuckGoLiteProvider(),
+    new MojeekProvider(),
+    new BingHtmlProvider(),
+  ];
 }
 
 export async function resolveSearchProviders(
@@ -577,6 +817,6 @@ export async function resolveSearchProviders(
 ): Promise<SearchProvider[]> {
   const list: SearchProvider[] = [];
   if (custom && (await Promise.resolve(custom.configured()))) list.push(custom);
-  list.push(new DuckDuckGoHtmlProvider());
+  list.push(...keylessSearchProviders());
   return list;
 }

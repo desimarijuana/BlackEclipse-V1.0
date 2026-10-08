@@ -45,6 +45,7 @@ _DIAGNOSTIC_TO_ROUTE = {
     "content_type_rejected": "invalid_document",
     "unsupported_document": "invalid_document",
     "javascript_only": "invalid_document",
+    "paywalled": "ineligible",
     "parse_failure": "invalid_document",
     "not_configured": "unconfigured",
     "invalid_request": "no_instrument",

@@ -36,6 +36,7 @@ from harness.research.web_intent import classify_intent
 from harness.research.web_planner import PlanInput, plan_research
 from harness.research.web_providers import (
     BridgeSearchProvider,
+    ConnectorSearchProvider,
     SearchProviderRegistry,
     build_default_registry,
 )
@@ -169,6 +170,29 @@ async def test_bridge_provider_normalizes_results():
     assert response.status == "OK"
     assert response.results[0].domain == "sec.gov"
     assert response.results[0].sourceType in (SourceType.GOVERNMENT, SourceType.REGULATOR)
+
+
+@pytest.mark.asyncio
+async def test_default_registry_registers_structured_connectors():
+    bridge = FakeBridge()
+    reg = build_default_registry(bridge)
+    kinds = {m.kind for m in reg.list()}
+    assert {"web", "news", "academic", "image", "video"} <= kinds
+    # The academic connector is reached through the `<kind>_search` capability.
+    provider = reg.get("eclipse_academic")
+    assert provider is not None
+    response = await provider.search("markets")
+    assert response.provider == "eclipse_academic"
+
+
+@pytest.mark.asyncio
+async def test_connector_provider_uses_kind_capability():
+    bridge = FakeBridge({"academic_search": {"status": "OK", "provider": "openalex", "results": [{"title": "P", "url": "https://doi.org/10.1/x", "snippet": "a"}]}})
+    provider = ConnectorSearchProvider(bridge, kind="academic")
+    response = await provider.search("q")
+    assert response.status == "OK"
+    assert bridge.calls[0][0] == "academic_search"
+    assert response.results[0].url == "https://doi.org/10.1/x"
 
 
 # ── source classification + entity resolution + ranking ─────────────────────────

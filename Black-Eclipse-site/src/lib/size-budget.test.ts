@@ -49,9 +49,10 @@ const RATCHET: Record<string, number> = {
   // Center added one dynamic import + one keep-alive block; pinned at its new
   // height until the shell is split. Grew again with the terminal dock plumbing
   // and the focus-mode "tuck the terminal" effect. Grew once more with the
-  // approval-card wiring (composer anchor + the portaled ApprovalCard). May only
-  // shrink from here.
-  "src/components/screens/stock-chat.tsx": 1258,
+  // approval-card wiring (composer anchor + the portaled ApprovalCard). Grew yet
+  // again by one dynamic import + one keep-alive block for the dedicated
+  // Research tab. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1270,
 };
 
 export interface SizeEntry {

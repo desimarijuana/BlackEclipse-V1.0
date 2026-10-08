@@ -110,7 +110,28 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     description:
       'JSON config for an additional web-search provider used by research. Shape: {"url":"https://api.example.com/search?q={query}&count={limit}","authKind":"query|bearer|header","authParam":"key","resultsPath":"results","titlePath":"title","urlPath":"link","snippetPath":"snippet"}. Absent → only the keyless default search is used.' },
   { envVar: 'SEARCH_API_KEY', label: 'Custom search API key', provider: 'Web Search', category: 'market', docsUrl: 'https://duckduckgo.com/',
-    description: 'Secret for the custom search API above. Sent per its authKind (query/bearer/header). Not needed for keyless endpoints.' },
+    description: 'Secret for the advanced search-API config above. Sent per its authKind (query/bearer/header). Not needed for keyless endpoints.' },
+
+  // ── Research search providers (add ONE key to enable a dependable engine) ──
+  // Each named provider has its own vault key, so a user can add/remove it in
+  // Settings with no JSON. The first configured one is preferred over the keyless
+  // HTML chain; `SEARCH_API_CONFIG` (advanced) still overrides when set.
+  { envVar: 'TAVILY_API_KEY', label: 'Tavily', provider: 'Web Search', category: 'market', docsUrl: 'https://tavily.com',
+    description: 'Dependable search API for research. Add this key to prefer Tavily over the keyless chain.' },
+  { envVar: 'BRAVE_API_KEY', label: 'Brave Search', provider: 'Web Search', category: 'market', docsUrl: 'https://brave.com/search/api/',
+    description: 'Independent web index. Add this key to prefer Brave over the keyless chain.' },
+  { envVar: 'EXA_API_KEY', label: 'Exa', provider: 'Web Search', category: 'market', docsUrl: 'https://exa.ai',
+    description: 'Semantic/embeddings web search. Add this key to prefer Exa over the keyless chain.' },
+  { envVar: 'SERPER_API_KEY', label: 'Serper (Google)', provider: 'Web Search', category: 'market', docsUrl: 'https://serper.dev',
+    description: 'Google-shaped results via serper.dev. Add this key to prefer Serper over the keyless chain.' },
+  { envVar: 'SERPAPI_API_KEY', label: 'SerpApi', provider: 'Web Search', category: 'market', docsUrl: 'https://serpapi.com',
+    description: 'Multi-engine search API. Add this key to prefer SerpApi over the keyless chain.' },
+  { envVar: 'BING_SEARCH_API_KEY', label: 'Bing Web Search (Azure)', provider: 'Web Search', category: 'market', docsUrl: 'https://www.microsoft.com/en-us/bing/apis/bing-web-search-api',
+    description: 'Azure Bing Web Search. Add this key to prefer Bing over the keyless chain.' },
+  { envVar: 'GOOGLE_CSE_API_KEY', label: 'Google Custom Search', provider: 'Web Search', category: 'market', docsUrl: 'https://developers.google.com/custom-search/v1/overview',
+    description: 'Google Custom Search JSON API key (pair with a `cx` via the advanced config).' },
+  { envVar: 'SEARXNG_URL', label: 'SearXNG base URL', provider: 'Web Search', category: 'market', publicValue: true, docsUrl: 'https://docs.searxng.org',
+    description: 'Base URL of a self-hosted SearXNG instance, e.g. https://searx.example. Keyless.' },
 
   // ── Crypto ────────────────────────────────────────────────────────────────
   { envVar: 'COINGECKO_API_KEY', label: 'CoinGecko', provider: 'CoinGecko', category: 'crypto', description: 'Higher rate limits for crypto market data.', docsUrl: 'https://www.coingecko.com/en/developers/dashboard',

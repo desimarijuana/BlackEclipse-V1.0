@@ -17,6 +17,7 @@ export type RetrievalFailureCategory =
   | "content_type_rejected" // fetched, but the body type is not usable
   | "unsupported_document"  // e.g. a scanned/image PDF with no text layer (no OCR)
   | "javascript_only"       // a JS-rendered shell with no server-rendered text
+  | "paywalled"             // a login/subscription wall with no freely-readable body
   | "parse_failure"         // fetched, but nothing parseable was extracted
   | "too_large"             // the document exceeded the bounded size cap
   | "empty_response"        // the remote returned a 2xx with an empty body

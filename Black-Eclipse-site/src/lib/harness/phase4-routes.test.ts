@@ -35,6 +35,10 @@ vi.mock("@/lib/web-research", () => ({
 vi.mock("@/lib/web-search", () => ({
   resolveSearchProviders: () => [],
   CustomJsonSearchProvider: class {},
+  resolveSearchApiConfig: () => null,
+  buildPresetSearchProvider: () => null,
+  firstConfiguredPreset: () => null,
+  SEARCH_PROVIDER_PRESETS: [],
 }));
 vi.mock("@/lib/provider-keys", () => ({ resolveProviderKey: () => Promise.resolve(null) }));
 

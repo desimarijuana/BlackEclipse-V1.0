@@ -32,6 +32,51 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   prior no-auth, no-tenancy reality still holds and belongs on a trusted local
   machine only.
 
+- **Search providers — per-provider keys in the Settings modal.** A user can now
+  add any named search provider (Tavily/Brave/Exa/Serper/SerpApi/Bing/Google CSE/
+  SearXNG) by pasting ONE key in Settings — no `SEARCH_API_CONFIG` JSON. Each
+  `SEARCH_PROVIDER_PRESETS` entry gained a unique `keyEnv` (registered in
+  `provider-keys.ts`); `buildPresetSearchProvider`/`firstConfiguredPreset` build
+  the chosen provider from the vault. `data-bridge.ts` resolution moved to a new
+  `lib/harness/web-provider-resolve.ts` (advanced JSON config still wins; else the
+  first configured named provider; else the keyless chain). `SearchRetrievalSettings`
+  now renders one `ProviderKeyEditor` per provider (vault-backed, encrypted,
+  never echoed) and the `/api/search-provider` status/test use the same resolution.
+  Docs updated: `docs/harness/web-research-engine.md`.
+
+
+
+
+- **Housekeeping — commit `73be050` scope correction (no history rewrite).**
+  Commit `73be050` ("Document parallel sub-question search in the research
+  engine") has a message that claims a docs-only change but actually bundles a
+  ~2,841-line, 43-file Computer-Use/Browser-Runtime hardening drop; the parallel
+  sub-question search it names landed in its parent `aaed4c2`. It is already
+  published on `origin/main`, so history is intentionally NOT rewritten (per the
+  repo rule against force-push without explicit authorization). This note records
+  the true scope so the change is findable/reviewable by intent. No code change.
+
+- **Research retrieval — Phase 7: honest missing-input refusal messaging.** The
+  `finance_metrics` tool's refusal now names the exact missing input, states that
+  no default/approximation will be substituted, and points at the remedy
+  (`web_extract` the source, or `finance_metric_catalog` for a metric whose
+  inputs exist). This is a by-design invariant (never fabricate financial data),
+  not a defect. Docs updated: `docs/harness/web-research-engine.md`.
+
+- **Research retrieval — Phase 6: evidence-anchored entity/knowledge graph.**
+  Added a general graph beyond claim→evidence. `web_store.py` gains
+  `WebResearchEntity` + `WebResearchRelation` tables (every node/edge records the
+  `evidenceId`/`sourceUrl` it came from; no ungrounded node) with
+  `save_entity`/`save_relation`/`list_entities`/`list_relations`/`find_entity`.
+  New deterministic extractor `research/web_graph.py` (`build_graph`) resolves
+  companies via the existing `resolve_entity`, extracts proper-noun terms, and
+  derives `metric → value` and co-occurrence edges from the structured
+  enrichment. The engine persists the graph and returns `entities`/`relations` on
+  `EngineResult`; a new `research_graph` tool exposes it; the run API returns it;
+  the Research screen gains a Knowledge Graph widget. Docs updated:
+  `docs/harness/web-research-engine.md`.
+
+
 - **Phase S — stabilization (ratchet hygiene, docs drift, process).**
   (S.2) **Ratchet hygiene** — `main.py`'s FastAPI lifespan boot/shutdown wiring
   extracted to `harness/boot.py`; `main.py` dropped from ~1018 to ~955 lines (under
@@ -52,6 +97,80 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (ADR-H141), `docs/NAVIGATION.md`,
   `docs/harness/{browser-runtime,web-research-engine,computer-use,research-surfaces}.md`.
 
+- **Research retrieval — Phase 5: semantic coverage + honest provider cost.**
+  (a) `web_engine.py` coverage is now layered and discloses its method
+  (`coverageMethod`): embedding similarity when an embedding runtime exists
+  (`_semantic_answered`), else an IDF-weighted term-overlap score
+  (`_idf_answered`) that answers a sub-question only when its distinctive terms
+  are corroborated, else the conservative keyword fallback. Per-question scores
+  are returned in `questionScores`; still a coverage signal, never a correctness
+  claim. (b) New `research/web_pricing.py` (`CostLedger`, `price_for`) gives an
+  HONEST cost estimate: keyless providers are FREE known-0.0, a paid provider
+  with no `HARNESS_WEB_PRICE_<PROVIDER>_QUERY` is UNKNOWN (None, never 0), and a
+  total is `exact` only when every used provider was priced. `maxCost` is now
+  ENFORCED before extraction when prices are exact; `coverage["cost"]` is
+  recorded on the run. Docs updated: `docs/harness/web-research-engine.md`.
+
+- **Research retrieval — Phase 4: dedicated Research screen.** Added a
+  first-class `research` AppTab (not just the chat Sources panel), wired into
+  `app-tabs.ts`, `sidebar/config.ts`, `i18n/nav.ts` + `dictionaries/en.ts`,
+  `search/deep-link.ts` and the SPA shell (`stock-chat.tsx`). The screen
+  (`src/components/screens/research/research-screen.tsx`) reuses the shared
+  `CustomizableWorkspace` with a research widget catalog
+  (`src/lib/research/research-widgets.tsx`): run list, new-run form (background),
+  live run status, evidence, claims/citations, conflicts, and a one-click
+  scheduled-research enabler over the existing `/jobs` engine. State comes from
+  the ONE `useResearchScreen` hook polling `/api/research/*` (new front-door
+  proxy). Docs updated: `docs/harness/web-research-engine.md`.
+
+- **Research retrieval — Phase 3: background research runs.** A long research run
+  no longer blocks a single turn. `web_engine.py` gains
+  `schedule_background_research(request, bridge, store, emitter)` and
+  `background_research_active`; the mandate is planned+persisted SYNCHRONOUSLY
+  (`create_research_sync`) before the task is scheduled, so the research id is
+  observable at once and a cancel issued before start is honoured. The engine
+  re-persists observable state on every transition (`_set_state`), so
+  `research_status`/`research_cancel`/`research_continue` work from any later tool
+  call. New tool `research_start` (registered in `WEB_RESEARCH_TOOLS`) and route
+  `POST /research/web/start` return the id immediately. No schema change. Docs
+  updated: `docs/harness/web-research-engine.md`. (Frictionless enabling of the
+  existing disabled templates is delivered with the research screen in Phase 4,
+  reusing `/jobs`.)
+
+- **Research retrieval — Phase 2: first-class academic/news/image/video
+  connectors.** Replaced the keyword-augmented `academic_search`/`image_search`/
+  `video_search` hacks. New keyless connectors in `src/lib/web-connectors.ts`
+  (OpenAlex, Crossref, GDELT, Openverse, Wikimedia Commons) return the same
+  normalized `WebSearchResult`/`RetrievalDiagnostic` shape over the SSRF-hardened
+  transport. New bridge capabilities `academic_search`/`news_search`/
+  `image_search`/`video_search` (`data-bridge.ts`, `DataCapability`, data route
+  allowlist). Python `web_providers.py` adds `ConnectorSearchProvider` and
+  registers `eclipse_academic`/`eclipse_image`/`eclipse_video`; `web_tools.py`
+  routes each tool to its kind and falls back to web search only when the
+  connector chain is unavailable. Docs updated: `docs/harness/web-research-engine.md`.
+
+- **Research retrieval — Phase 1: dependable coverage, keyless chain, paywall/JS
+  escalation, one-click JS rendering.** Addressed the top retrieval limitation
+  ("DuckDuckGo default is frequently bot-blocked"). (1) `web-search.ts` now
+  exposes a KEYLESS FALLBACK CHAIN — `DuckDuckGoHtmlProvider`,
+  `DuckDuckGoLiteProvider`, `MojeekProvider`, `BingHtmlProvider` — tried in order
+  by `resolveSearchProviders`/`searchWeb`, so one blocked engine no longer blanks
+  a search; the operator-configured provider still runs first. (2) Presets
+  expanded to AllProviders (`serpapi`, `bing`/Azure, `google-cse` alongside
+  tavily/brave/exa/serper/searxng). (3) New `src/lib/web-paywall.ts` detects
+  subscription/login walls (and HTTP 402) as the new `paywalled` diagnostic
+  category (`retrieval-diagnostics.ts`), routed to `ineligible`
+  (`retrieval/routing.py`); a bare 403 stays `http_error` (bot/geo block).
+  (4) `web_engine.py` fetch loop escalates `javascript_only`/`parse_failure`/
+  `unsupported_document`/`paywalled` to the existing browser runtime
+  (`web_browser.py`); `needs_escalation` recognizes paywall errors.
+  (5) One-click JS rendering: `POST /browser/install` (Python) installs
+  Playwright + Chromium idempotently and reports the binary's true presence;
+  proxied at `src/app/api/search-provider/install`; Settings gains a
+  `SearchRetrievalSettings` panel (search provider + connectivity test + Enable
+  JS rendering). No architecture/contract change beyond the added diagnostic
+  category. Docs updated: `docs/harness/web-research-engine.md`.
+
 - **Computer Use Engine — hardening pass: enforce advertised limits, real
   backends, challenge stops.** Closed the gap between what the subsystem advertises
   and what it enforces. (1) `max_actions` and `action_timeout_seconds` are now
@@ -71,6 +190,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   button press/release; foreground focus is restored after escalation. Config
   reference committed at `computer.example.json`. Docs updated: `docs/harness/
   computer-use.md`, `docs/harness/decisions.md` (ADR-H140).
+
 
 - **Browser Automation Runtime — Phase 10 (progress, financial workflow,
   cross-engine coordination, browser→claim).** (1) **Progress → planner** —

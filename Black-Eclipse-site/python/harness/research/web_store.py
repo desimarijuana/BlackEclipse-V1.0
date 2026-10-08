@@ -190,6 +190,43 @@ CREATE TABLE IF NOT EXISTS WebResearchMeta (
   key    TEXT PRIMARY KEY,
   value  TEXT
 );
+
+-- The general entity/knowledge graph (beyond claim→evidence). Every node and
+-- edge is ANCHORED to evidence: an entity records the evidence it was mentioned
+-- in (`evidenceId`), and a relation records the evidence that supports the edge.
+-- No ungrounded node is ever written.
+CREATE TABLE IF NOT EXISTS WebResearchEntity (
+  entityId     TEXT PRIMARY KEY,
+  researchId   TEXT,
+  name         TEXT NOT NULL,
+  kind         TEXT,
+  aliases      TEXT,
+  evidenceId   TEXT,
+  sourceUrl    TEXT,
+  confidence   REAL,
+  createdAt    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wre2_research ON WebResearchEntity(researchId);
+CREATE INDEX IF NOT EXISTS idx_wre2_name ON WebResearchEntity(name);
+CREATE INDEX IF NOT EXISTS idx_wre2_kind ON WebResearchEntity(kind);
+
+CREATE TABLE IF NOT EXISTS WebResearchRelation (
+  id           TEXT PRIMARY KEY,
+  researchId   TEXT,
+  subjectId    TEXT NOT NULL,
+  predicate    TEXT NOT NULL,
+  objectId     TEXT,
+  objectValue  TEXT,
+  unit         TEXT,
+  period       TEXT,
+  evidenceId   TEXT,
+  sourceUrl    TEXT,
+  confidence   REAL,
+  createdAt    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wrrr_research ON WebResearchRelation(researchId);
+CREATE INDEX IF NOT EXISTS idx_wrrr_subject ON WebResearchRelation(subjectId);
+CREATE INDEX IF NOT EXISTS idx_wrrr_predicate ON WebResearchRelation(predicate);
 """
 
 
@@ -553,6 +590,72 @@ class EvidenceStore:
         data = _row(row)
         data["payload"] = _loads(data.get("payload"))
         return data
+
+    # ── Entity / knowledge graph ─────────────────────────────────────────────────
+    def save_entity(self, entity: dict[str, Any], research_id: Optional[str] = None) -> None:
+        """Upsert an evidence-anchored entity. `evidenceId` is required so no
+        ungrounded node is written."""
+        self._db.execute(
+            """INSERT INTO WebResearchEntity
+                 (entityId, researchId, name, kind, aliases, evidenceId, sourceUrl, confidence, createdAt)
+               VALUES (?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(entityId) DO UPDATE SET
+                 researchId=excluded.researchId, name=excluded.name, kind=excluded.kind,
+                 aliases=excluded.aliases, evidenceId=excluded.evidenceId,
+                 sourceUrl=excluded.sourceUrl, confidence=excluded.confidence""",
+            (
+                entity["entityId"], research_id, entity.get("name", ""), entity.get("kind"),
+                _json(entity.get("aliases")), entity.get("evidenceId"), entity.get("sourceUrl"),
+                entity.get("confidence"), now_iso(),
+            ),
+        )
+        self._db.commit()
+
+    def save_relation(self, relation: dict[str, Any], research_id: Optional[str] = None) -> None:
+        """Upsert an evidence-anchored relation edge. `evidenceId` records the
+        evidence that supports the edge."""
+        self._db.execute(
+            """INSERT OR REPLACE INTO WebResearchRelation
+                 (id, researchId, subjectId, predicate, objectId, objectValue, unit, period,
+                  evidenceId, sourceUrl, confidence, createdAt)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                relation["id"], research_id, relation.get("subjectId"), relation.get("predicate"),
+                relation.get("objectId"), relation.get("objectValue"), relation.get("unit"),
+                relation.get("period"), relation.get("evidenceId"), relation.get("sourceUrl"),
+                relation.get("confidence"), now_iso(),
+            ),
+        )
+        self._db.commit()
+
+    def list_entities(self, research_id: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM WebResearchEntity WHERE researchId = ?", (research_id,)
+        ).fetchall()
+        out = []
+        for r in rows:
+            data = _row(r)
+            data["aliases"] = _loads(data.get("aliases"))
+            out.append(data)
+        return out
+
+    def list_relations(self, research_id: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM WebResearchRelation WHERE researchId = ?", (research_id,)
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+    def find_entity(self, name: str) -> list[dict[str, Any]]:
+        """Entities across runs matching a name (exact, case-insensitive)."""
+        rows = self._db.execute(
+            "SELECT * FROM WebResearchEntity WHERE lower(name) = lower(?)", (name,)
+        ).fetchall()
+        out = []
+        for r in rows:
+            data = _row(r)
+            data["aliases"] = _loads(data.get("aliases"))
+            out.append(data)
+        return out
 
 
 def _json(value: Any) -> Optional[str]:
