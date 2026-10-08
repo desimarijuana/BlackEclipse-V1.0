@@ -14,10 +14,14 @@ import { coingeckoProvider } from "./providers/coingecko";
 import { stooqProvider } from "./providers/stooq";
 import { treasuryProvider } from "./providers/treasury";
 import { ecbFxProvider } from "./providers/ecb-fx";
+import { polygonProvider } from "./providers/polygon";
+import { finnhubProvider } from "./providers/finnhub";
 
 const PROVIDERS: MarketProvider[] = [
   yahooProvider,
   binanceProvider,
+  polygonProvider,
+  finnhubProvider,
   coingeckoProvider,
   stooqProvider,
   treasuryProvider,

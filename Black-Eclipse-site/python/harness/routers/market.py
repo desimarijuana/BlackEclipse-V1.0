@@ -65,10 +65,15 @@ async def market_quality(limit: int = 50, _: bool = Depends(require_operator)) -
 
 @router.get("/market/stream")
 async def market_stream_status(_: bool = Depends(require_operator)) -> dict[str, Any]:
-    manager = getattr(service, "market_stream", None)
-    if manager is None:
+    from ..market.streaming import all_stream_managers, default_stream_manager
+
+    managers = all_stream_managers() or {"binance": default_stream_manager()}
+    snapshot = {name: mgr.snapshot() for name, mgr in managers.items()}
+    if not snapshot:
         return {"available": False, "reason": "streaming is not available"}
-    return {"available": True, **manager.snapshot()}
+    # The first manager's fields remain top-level for backward compatibility.
+    primary = next(iter(snapshot.values()))
+    return {"available": True, **primary, "managers": snapshot}
 
 
 class StreamSubscribeBody(BaseModel):

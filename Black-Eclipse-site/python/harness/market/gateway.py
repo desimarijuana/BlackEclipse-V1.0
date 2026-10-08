@@ -444,12 +444,6 @@ class MarketDataGateway:
         instrument, err = await self.resolve_instrument(symbol, market)
         if err:
             return err
-        if instrument.asset_type not in ("crypto", "fx", "derivative", "future"):
-            return MarketError(
-                UNSUPPORTED_CAPABILITY,
-                f"order books are available for crypto/fx/derivatives, not {instrument.asset_type}",
-                capability="orderbook",
-            )
         return await self._dispatch(
             "orderbook", instrument, {"depth": depth}, freshness=freshness,
             normalize=_normalize_orderbook,
@@ -524,10 +518,17 @@ class MarketDataGateway:
         instrument, err = await self.resolve_instrument(symbol, market)
         if err:
             return err
-        return await self._dispatch(
+        result = await self._dispatch(
             "options", instrument, {"expiration": expiration, "greeks": greeks},
             freshness=freshness, normalize=_normalize_options,
         )
+        # Provider Greeks win; otherwise CALCULATE them (Black-Scholes) so a Greek
+        # is never presented as zero. Labelled `greeks_source="calculated"`.
+        if not isinstance(result, MarketError) and greeks:
+            from .greeks import enrich_options_greeks
+
+            enrich_options_greeks(result, risk_free=self.config.risk_free_rate)
+        return result
 
     async def get_fx_rate(
         self, base: Optional[str] = None, quote: Optional[str] = None, *,
@@ -567,10 +568,17 @@ class MarketDataGateway:
             import dataclasses
 
             instrument = dataclasses.replace(instrument, asset_type="bond")
-        return await self._dispatch(
+        result = await self._dispatch(
             "bonds", instrument, {"seriesType": series_type},
             freshness=freshness, normalize=_normalize_bond,
         )
+        # Compute duration/convexity when the provider supplied the inputs; a
+        # provider figure always wins. Labelled derived (never fabricated).
+        if not isinstance(result, MarketError):
+            from .bondmath import enrich_bond
+
+            enrich_bond(result)
+        return result
 
 
 # ── Normalizers (bridge payload → canonical record) ──────────────────────────

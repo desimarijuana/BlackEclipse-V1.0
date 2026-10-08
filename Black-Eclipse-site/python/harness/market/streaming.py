@@ -149,6 +149,75 @@ def _event_id(event: MarketDataEvent) -> str:
     return f"{meta.provider}:{meta.symbol}:{event.event_type}:{event.sequence or meta.event_time}:{hash(body) & 0xFFFFFFFF}"
 
 
+def _trade_event(symbol: str, provider: str, *, price: Any, quantity: Any, timestamp: Any,
+                 side: Optional[str] = None, sequence: Any = None) -> MarketDataEvent:
+    ts = _iso(timestamp) if isinstance(timestamp, (int, float)) else _iso()
+    meta = MarketMeta(
+        instrument_id=f"{'CRYPTO' if provider == 'binance' else 'US'}:{symbol}",
+        symbol=symbol, asset_type="crypto" if provider == "binance" else "equity",
+        venue=provider.upper(), exchange=provider.upper(),
+        event_time=ts, retrieved_at=_iso(), observation_source="provider_asof",
+        provider=provider, source=f"{provider}-ws", data_type="trade",
+        freshness="realtime", quality="valid",
+    )
+    event = MarketDataEvent(
+        event_type="market.trade", meta=meta,
+        payload={"price": _float(price), "quantity": _float(quantity), "side": side,
+                 "side_inferred": False},
+        sequence=int(sequence) if isinstance(sequence, (int, float)) else None,
+    )
+    event.event_id = _event_id(event)
+    return event
+
+
+def normalize_finnhub_frames(frame: dict[str, Any]) -> list[MarketDataEvent]:
+    """Normalize Finnhub trade frames → events (one frame may carry many)."""
+    if not isinstance(frame, dict) or frame.get("type") != "trade":
+        return []
+    out: list[MarketDataEvent] = []
+    for item in frame.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("s") or "").upper()
+        if not symbol:
+            continue
+        out.append(_trade_event(
+            symbol, "finnhub", price=item.get("p"), quantity=item.get("v"),
+            timestamp=item.get("t"), sequence=item.get("t"),
+        ))
+    return out
+
+
+def normalize_polygon_frames(frame: dict[str, Any]) -> list[MarketDataEvent]:
+    """Normalize Polygon stock-trade frames → events."""
+    if not isinstance(frame, dict) or not isinstance(frame.get("ev"), str):
+        return []
+    if frame.get("ev") != "T":  # "T" = trade
+        return []
+    symbol = str(frame.get("sym") or "").upper()
+    if not symbol:
+        return []
+    # Polygon timestamps are nanoseconds since epoch.
+    ts_ns = frame.get("t")
+    ts_ms = int(ts_ns / 1_000_000) if isinstance(ts_ns, (int, float)) else None
+    return [_trade_event(
+        symbol, "polygon", price=frame.get("p"), quantity=frame.get("s"),
+        timestamp=ts_ms, sequence=ts_ns,
+    )]
+
+
+async def _send(socket: Any, message: str) -> None:
+    send = getattr(socket, "send", None)
+    if send is None:
+        return
+    try:
+        result = send(message)
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:  # noqa: BLE001 - a failed subscribe triggers a reconnect
+        pass
+
+
 @dataclass
 class _Subscription:
     id: str
@@ -172,10 +241,14 @@ class MarketStreamManager:
         provider: str = "binance",
         connect: Optional[Callable[[str], Awaitable[Any]]] = None,
         on_event: Optional[Callable[[MarketDataEvent], Awaitable[None]]] = None,
+        bridge: Any = None,
     ) -> None:
         self.provider = provider
         self._connect_override = connect
         self._on_event = on_event
+        # Read-only TS bridge, used ONLY to resolve a keyed provider's socket
+        # config (URL/token). Bound per run by the service, like the gateway.
+        self._bridge = bridge
         self._subscriptions: dict[str, _Subscription] = {}
         self._task: Optional[asyncio.Task[Any]] = None
         self._stop = asyncio.Event()
@@ -283,7 +356,7 @@ class MarketStreamManager:
                 self.state = "backoff"
                 await asyncio.sleep(1.0)
                 continue
-            url = binance_stream_url(symbols, events)
+            url = await self._stream_url(symbols, events)
             self.state = "connecting"
             try:
                 socket = await self._connect(url)
@@ -300,6 +373,7 @@ class MarketStreamManager:
             self.state = "connected"
             backoff = cfg.stream_backoff_base_s
             try:
+                await self._after_connect(socket, symbols)
                 await self._consume(socket)
             except asyncio.CancelledError:
                 raise
@@ -315,6 +389,47 @@ class MarketStreamManager:
             await asyncio.sleep(_jittered(min(cfg.stream_reconnect_max_s, backoff), cfg.stream_backoff_jitter))
             backoff = min(cfg.stream_reconnect_max_s, backoff * 2)
         self.state = "closed"
+
+    async def _stream_url(self, symbols: list[str], events: tuple[str, ...]) -> str:
+        """Socket URL for this provider. Binance is keyless; a keyed provider's
+        URL/token is resolved through the bridge (no secret is stored here)."""
+        if self.provider == "binance":
+            return binance_stream_url(symbols, events)
+        if self._bridge is None:
+            raise StreamingUnavailable(f"no bridge to resolve the {self.provider} stream config")
+        try:
+            payload = await self._bridge.fetch(
+                "market_stream_config", {"provider": self.provider, "symbols": symbols, "eventTypes": list(events)}
+            )
+        except Exception as exc:  # noqa: BLE001 - a bridge failure is unavailable
+            raise StreamingUnavailable(f"{self.provider} stream config failed: {exc}") from exc
+        if payload.get("status") != "OK" or not payload.get("url"):
+            raise StreamingUnavailable(payload.get("error") or f"{self.provider} streaming is unavailable")
+        base = str(payload["url"])
+        token = payload.get("token")
+        if token:
+            self._polygon_token = str(token)
+            sep = "&" if "?" in base else "?"
+            return f"{base}{sep}token={token}"
+        return base
+
+    async def _after_connect(self, socket: Any, symbols: list[str]) -> None:
+        """Provider-specific post-connect handshake (e.g. Finnhub subscribe)."""
+        if self.provider == "finnhub":
+            for symbol in symbols:
+                await _send(socket, json.dumps({"type": "subscribe", "symbol": symbol}))
+        elif self.provider == "polygon":
+            await _send(socket, json.dumps({"action": "auth", "params": getattr(self, "_polygon_token", "")}))
+
+    def _normalize_frames(self, frame: Any, event_type: str) -> list[MarketDataEvent]:
+        if self.provider == "binance":
+            event = normalize_binance_frame(frame, event_type)
+            return [event] if event is not None else []
+        if self.provider == "finnhub":
+            return normalize_finnhub_frames(frame)
+        if self.provider == "polygon":
+            return normalize_polygon_frames(frame)
+        return []
 
     async def _consume(self, socket: Any) -> None:
         """Read frames with a silence watchdog.
@@ -346,11 +461,10 @@ class MarketStreamManager:
                     event_type = "quote"
                 else:
                     event_type = "trade"
-            event = normalize_binance_frame(frame, event_type)
-            if event is None:
-                continue
-            if await self._validate(event):
-                await self._publish(event)
+            event = self._normalize_frames(frame, event_type)
+            for ev in event:
+                if await self._validate(ev):
+                    await self._publish(ev)
 
     async def _validate(self, event: MarketDataEvent) -> bool:
         """Deduplicate + detect sequence gaps. Returns whether to publish."""
@@ -447,25 +561,45 @@ async def _safe_close(socket: Any) -> None:
 
 
 _manager: Optional[MarketStreamManager] = None
+_managers: dict[str, MarketStreamManager] = {}
 
 
 def default_stream_manager() -> MarketStreamManager:
-    global _manager
-    if _manager is None:
-        _manager = MarketStreamManager()
-    return _manager
+    """The keyless Binance manager (crypto streaming)."""
+    return manager_for("binance")
+
+
+def manager_for(provider: str, *, bridge: Any = None) -> MarketStreamManager:
+    """A process-wide manager per provider (one socket per provider)."""
+    name = (provider or "binance").lower()
+    mgr = _managers.get(name)
+    if mgr is None:
+        mgr = MarketStreamManager(provider=name, bridge=bridge)
+        _managers[name] = mgr
+    elif bridge is not None:
+        mgr._bridge = bridge  # noqa: SLF001 - per-run rebind for keyed providers
+    return mgr
+
+
+def all_stream_managers() -> dict[str, MarketStreamManager]:
+    return dict(_managers)
 
 
 def reset_stream_manager() -> None:
     global _manager
     _manager = None
+    _managers.clear()
 
 
 __all__ = [
     "MarketStreamManager",
     "StreamingUnavailable",
+    "all_stream_managers",
     "binance_stream_url",
     "default_stream_manager",
+    "manager_for",
     "normalize_binance_frame",
+    "normalize_finnhub_frames",
+    "normalize_polygon_frames",
     "reset_stream_manager",
 ]

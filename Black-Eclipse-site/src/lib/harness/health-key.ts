@@ -99,6 +99,7 @@ export const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
   // MarketStore (the ProviderRouter + circuit breaker own it), so it must not
   // also write the TS SourceHealth ledger with a different route vocabulary.
   "market_data",
+  "market_stream_config",
 ]);
 
 // Bridge capability → the health capability name the registry declares. Mostly

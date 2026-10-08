@@ -58,13 +58,13 @@ DEFAULT_PRIORITY: dict[str, tuple[str, ...]] = {
     "historical": ("yahoo", "stooq"),
     "ohlcv": ("yahoo", "binance"),
     "volume": ("yahoo", "binance"),
-    "orderbook": ("binance",),
-    "trades": ("binance",),
+    "orderbook": ("binance", "polygon", "finnhub", "yahoo"),
+    "trades": ("binance", "polygon", "finnhub", "yahoo"),
     "market_cap": ("yahoo", "coingecko"),
     "supply": ("coingecko",),
     "funding": ("binance",),
     "open_interest": ("binance",),
-    "options": ("yahoo",),
+    "options": ("yahoo", "polygon", "finnhub"),
     "fx": ("yahoo",),
     "bonds": ("treasury",),
 }
@@ -112,6 +112,9 @@ class MarketConfig:
     conflict_rel_tolerance: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_CONFLICT_TOLERANCE", 0.015))
     # Max age (seconds) before a value is flagged stale for a realtime ask.
     realtime_max_age_s: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_REALTIME_MAX_AGE_S", 60.0))
+    # Risk-free rate used to CALCULATE option Greeks when the provider does not
+    # supply them (annual, decimal). Overridable per operator.
+    risk_free_rate: float = field(default_factory=lambda: _env_float("HARNESS_MARKET_RISK_FREE", 0.04))
     # ── Streaming ───────────────────────────────────────────────────────────
     stream_enabled: bool = field(default_factory=lambda: _env_bool("HARNESS_MARKET_STREAMING", True))
     stream_max_subscriptions: int = field(default_factory=lambda: _env_int("HARNESS_MARKET_STREAM_MAX_SUBS", 64))

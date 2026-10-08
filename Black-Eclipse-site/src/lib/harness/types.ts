@@ -521,4 +521,5 @@ export type DataCapability =
   | "mcp_oauth_token_get"
   | "mcp_oauth_token_set"
   | "mcp_oauth_token_clear"
-  | "market_data";
+  | "market_data"
+  | "market_stream_config";

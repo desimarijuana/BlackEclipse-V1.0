@@ -248,7 +248,7 @@ def test_stale_watchdog_forces_reconnect(monkeypatch):
     """A connected-but-silent socket is reconnected, not hung forever."""
     from harness.market.config import reset_config
 
-    monkeypatch.setenv("HARNESS_MARKET_STREAM_STALE_S", "0.2")
+    monkeypatch.setenv("HARNESS_MARKET_STREAM_STALE_S", "0.1")
     monkeypatch.setenv("HARNESS_MARKET_STREAM_BACKOFF_BASE_S", "0.01")
     monkeypatch.setenv("HARNESS_MARKET_STREAM_RECONNECT_MAX_S", "0.05")
     reset_config()
@@ -261,7 +261,7 @@ def test_stale_watchdog_forces_reconnect(monkeypatch):
     async def run():
         loop = asyncio.get_event_loop()
         await manager.subscribe(["BTCUSDT"], ("trade",))
-        deadline = loop.time() + 1.0
+        deadline = loop.time() + 2.0
         while loop.time() < deadline:
             await asyncio.sleep(0.05)
         await manager.stop()

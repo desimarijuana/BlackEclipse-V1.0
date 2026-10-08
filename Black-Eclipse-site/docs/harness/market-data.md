@@ -80,14 +80,23 @@ an adapter exists; catalogued-only providers are recorded honestly.
 |---|---|---|---|
 | `yahoo` | `providers/yahoo.ts` | quote, historical, ohlcv, volume, market_cap, options, fx | keyless |
 | `binance` | `providers/binance.ts` | quote, ohlcv, historical, orderbook, trades, funding, open_interest | keyless |
+| `polygon` | `providers/polygon.ts` | quote, orderbook (NBBO), trades, historical, ohlcv | `POLYGON_API_KEY` |
+| `finnhub` | `providers/finnhub.ts` | quote, historical, ohlcv (+ real-time trades over WS) | `FINNHUB_API_KEY` |
 | `coingecko` | `providers/coingecko.ts` | quote, market_cap, supply | `COINGECKO_API_KEY` (optional) |
 | `stooq` | `providers/stooq.ts` | historical, ohlcv, quote | keyless |
-| `treasury` | `providers/treasury.ts` | bonds | `FRED_API_KEY` (optional) |
+| `treasury` | `providers/treasury.ts` | bonds (Treasury tenors + ICE BofA corporate indices) | `FRED_API_KEY` (optional) |
 | `fx` (ECB) | `providers/ecb-fx.ts` | fx | keyless |
-| `polygon`, `finnhub` | — | declared, not implemented | vault entries exist |
+
+Equity **order books** (top-of-book NBBO) and **trades** are served by the keyed
+Polygon/Finnhub adapters; **equity streaming** is served by the keyed Finnhub
+WebSocket. Without the relevant key those routes report `AUTHENTICATION_FAILED`
+honestly (never fake data) and the gateway falls through the provider order.
 
 Provider credentials come from `resolveProviderKey` (env → encrypted vault).
-The Python runtime never holds a key; it receives only normalized payloads.
+The Python runtime never holds a key for REST (the TS adapter does). For a KEYED
+*stream*, the socket URL/token is resolved by the `market_stream_config` bridge
+capability and handed to the authenticated runtime — the same trust boundary as
+`mcp_secret_resolve`; the token is never persisted or logged by Python.
 
 ## Routing, fallback, health
 
@@ -157,9 +166,10 @@ UI: `src/components/screens/market-data-console.tsx`.
 
 ## Streaming
 
-`streaming.py` is a real WebSocket architecture (Binance combined stream):
-connection manager (one socket per provider, subscriptions multiplexed) →
-normalizer → sequence validation + dedup → bounded event bus → subscribers.
+`streaming.py` is a real WebSocket architecture: one connection manager per
+provider (Binance crypto, keyless; Finnhub equities, keyed), subscriptions
+multiplexed → normalizer → sequence validation + dedup → bounded event bus →
+subscribers.
 Durability is explicit: subscribe/unsubscribe, multiple symbols/event types,
 heartbeat, **jittered** exponential-backoff reconnect, ordered resubscription,
 sequence-gap detection (`book_state="resync_required"`), deduplication (bounded
@@ -191,13 +201,17 @@ drawdown/volume-profile/orderbook-imbalance/funding-zscore/OI-change above
 normalized data, delegating to `research/calculations.py` where a formula already
 exists. Every result is marked `derived=True`.
 
-## Observability & admin
+**Option Greeks** (`greeks.py`): Yahoo supplies implied volatility but no Greeks.
+When `get_options_chain(greeks=True)` is called, Eclipse CALCULATES delta, gamma,
+theta, vega and rho with Black-Scholes from the provider IV and the chain's
+underlying price, labelled `greeks_source="calculated(black-scholes, no-dividend)"`.
+A provider-supplied Greek always wins; a missing input keeps `None` (reported as
+unavailable, never zero). Assumptions are documented (European, no dividends,
+constant `r`; `HARNESS_MARKET_RISK_FREE`, default 4%).
 
-Gateway metrics (`requests`, `cacheHits`, `providerCalls`, `failures`,
-`conflicts`, `fallbacks`), router health and cache stats are exposed at
-operator-gated routes: `GET /market/providers`, `GET /market/health`,
-`GET /market/quality`, `GET /market/stream`, `POST /market/stream/subscribe`,
-`POST /market/stream/unsubscribe` (`python/harness/routers/market.py`).
+**Bond analytics** (`bondmath.py`): Macaulay/modified duration and convexity are
+computed from coupon, yield and time-to-maturity when a provider supplies them;
+a provider figure always wins and a missing input stays `None`.
 
 ## Configuration
 
@@ -207,6 +221,7 @@ Env vars (safe defaults; no source edit required):
 `HARNESS_MARKET_BACKOFF_MAX_S`, `HARNESS_MARKET_BREAKER_THRESHOLD`,
 `HARNESS_MARKET_BREAKER_RESET_S`, `HARNESS_MARKET_CACHE`,
 `HARNESS_MARKET_CONFLICT_TOLERANCE`, `HARNESS_MARKET_REALTIME_MAX_AGE_S`,
+`HARNESS_MARKET_RISK_FREE`,
 `HARNESS_MARKET_STREAMING`, `HARNESS_MARKET_STREAM_MAX_SUBS`,
 `HARNESS_MARKET_STREAM_QUEUE`, `HARNESS_MARKET_STREAM_RECONNECT_MAX_S`,
 `HARNESS_MARKET_STREAM_BACKOFF_BASE_S`, `HARNESS_MARKET_STREAM_JITTER`,
@@ -216,22 +231,27 @@ Env vars (safe defaults; no source edit required):
 ## Testing
 
 `python/tests/test_market_unit.py`, `test_market_gateway.py`,
-`test_market_streaming.py`, `test_market_ratelimit.py` cover contracts,
-instruments, quality, cache, routing, pacing (declared + observed quota),
-failure handling, streaming lifecycle **and durability/soak** (many reconnect
-cycles, bounded dedup memory, silence watchdog), and full tool invocation through
-the real registry. `test_market_live.py` is an opt-in live REST/WS soak
-(`BLACK_ECLIPSE_MARKET_LIVE=1`). `src/lib/harness/market/bridge.test.ts` and
-`rate-limit.test.ts` cover the TS adapter dispatcher and header parsing. All
-offline tests fake provider calls; no network.
+`test_market_streaming.py`, `test_market_ratelimit.py`,
+`test_market_derivatives.py` cover contracts, instruments, quality, cache,
+routing, pacing (declared + observed quota), failure handling, streaming
+lifecycle **and durability/soak**, Black-Scholes Greeks, bond analytics, the
+keyed streaming normalizers, and full tool invocation through the real registry.
+`test_market_live.py` is an opt-in live REST/WS soak
+(`BLACK_ECLIPSE_MARKET_LIVE=1`). TS: `src/lib/harness/market/{bridge,rate-limit,keyed-providers}.test.ts`.
+All offline tests fake provider calls; no network.
 
 ## Known limitations (honest)
 
-- **Equity order books / trades** are unavailable: Yahoo does not supply them and
-  no equity venue adapter is implemented. The gateway returns
-  `UNSUPPORTED_CAPABILITY` for an equity order book rather than a fake one.
-- **Equity options Greeks** depend on the provider's `greeks=true` support; a
-  missing Greek is `null`, never `0` — Eclipse does not yet compute them.
-- **Streaming** implements Binance public streams; other streaming providers are
-  declared but not implemented. Reconnect/durability is covered by deterministic
-  soak tests; a live soak is opt-in (`BLACK_ECLIPSE_MARKET_LIVE=1`).
+- **Equity order books are top-of-book only** (Polygon NBBO) and require a keyed
+  provider; there is no free depth-of-book for US equities. Without a key the
+  route reports `AUTHENTICATION_FAILED`, not fake depth.
+- **Option Greeks are model-derived** (Black-Scholes, no dividends) unless the
+  provider supplies them; labelled `calculated`, never presented as provider data.
+- **Streaming**: Binance (crypto, keyless) and Finnhub (equities, keyed) are
+  implemented; reconnect/durability is covered by deterministic soak tests and an
+  opt-in live soak.
+- **Corporate bonds**: keyless *index* yields/spreads (ICE BofA via FRED) are
+  supported; a per-ISSUE corporate bond (CUSIP) requires a premium vendor and is
+  reported honestly as unavailable when no keyed provider supplies it.
+- **Polygon/Finnhub are keyed**: absent a credential their routes report
+  `AUTHENTICATION_FAILED` (never fake data).

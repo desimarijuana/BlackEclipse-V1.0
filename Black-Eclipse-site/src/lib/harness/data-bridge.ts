@@ -453,9 +453,10 @@ async function dispatchCapability(
     case "mcp_oauth_token_clear":
       return mcpOauthTokenClear(params);
     case "market_data":
-      // The Market Data Layer's provider adapters (routing/fallback/health live
-      // in Python); reuses the SSRF-hardened safeGet + existing scraper helpers.
+      // Market Data Layer provider adapters (routing/fallback/health live in Python).
       return (await import("./market/bridge")).fetchMarketData(params);
+    case "market_stream_config":
+      return (await import("./market/stream-config")).marketStreamConfig(params);
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }

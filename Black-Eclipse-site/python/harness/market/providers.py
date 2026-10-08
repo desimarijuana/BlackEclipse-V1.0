@@ -141,18 +141,26 @@ def default_providers() -> list[ProviderDescriptor]:
             rate_limit=RateLimit(concurrency=2, cost_tier="free"),
             notes="Keyless daily reference rates; a cross fallback for FX.",
         ),
-        # Catalogued credential-ready providers with NO runnable adapter yet.
+        # Keyed providers — runnable when their credential is configured. If the
+        # key is absent the adapter reports AUTHENTICATION_FAILED (honest), never
+        # fake data, and the gateway falls through to the next provider.
         ProviderDescriptor(
             id="polygon", label="Polygon.io",
-            capabilities=("quote", "historical", "ohlcv", "trades", "options"),
-            credential_ref="POLYGON_API_KEY", implemented=False,
-            notes="Vault + catalog entry exist; no adapter yet.",
+            capabilities=("quote", "historical", "ohlcv", "orderbook", "trades", "options"),
+            asset_types=("equity", "etf", "fund", "index"),
+            realtime=True, historical=True, streaming=True,
+            credential_ref="POLYGON_API_KEY",
+            rate_limit=RateLimit(concurrency=4, cost_tier="paid"),
+            notes="Keyed US equities: aggregates, snapshot/NBBO (top-of-book), trades.",
         ),
         ProviderDescriptor(
             id="finnhub", label="Finnhub",
-            capabilities=("quote", "historical", "options"),
-            credential_ref="FINNHUB_API_KEY", implemented=False,
-            notes="Vault + catalog entry exist; no adapter yet.",
+            capabilities=("quote", "historical", "ohlcv", "trades", "options"),
+            asset_types=("equity", "etf", "fund", "index"),
+            realtime=True, historical=True, streaming=True,
+            credential_ref="FINNHUB_API_KEY",
+            rate_limit=RateLimit(requests_per_minute=60, concurrency=2, cost_tier="freemium"),
+            notes="Keyed equities + real-time trades over WebSocket.",
         ),
     ]
 

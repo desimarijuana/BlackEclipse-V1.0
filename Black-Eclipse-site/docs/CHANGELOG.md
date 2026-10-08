@@ -8,6 +8,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Market Data Layer: remaining gaps closed — equity book/trades + streaming,
+  computed option Greeks, corporate-bond data.** (1) *Keyed providers*: new
+  `src/lib/harness/market/providers/{polygon,finnhub}.ts` (real adapters over the
+  SSRF-hardened `safeGet` + encrypted vault) serve US-equity quotes, history, and
+  — via Polygon NBBO — **top-of-book order books and trade tapes**; absent a key
+  they report `AUTHENTICATION_FAILED`, and the gateway falls through. Their Python
+  descriptors are now `implemented=True` with routing priority for equity
+  orderbook/trades. (2) *Equity streaming*: a new bridge capability
+  `market_stream_config` hands the Python stream manager a keyed provider's socket
+  URL/token (same trust boundary as `mcp_secret_resolve`); `streaming.py` is now
+  multi-provider (Binance + Finnhub) with Finnhub/Polygon frame normalizers and a
+  `provider` argument on `stream_market_data`. (3) *Option Greeks*: new
+  `python/harness/market/greeks.py` CALCULATES delta/gamma/theta/vega/rho with
+  Black-Scholes from provider IV when `greeks=True` (provider values win; missing
+  inputs stay `None`, never zero), labelled `calculated`. (4) *Corporate bonds*:
+  the FRED adapter now serves ICE BofA corporate-index yields/spreads (IG/HY/
+  AAA/BBB, OAS) with `seriesType=corporate`/rating; new
+  `python/harness/market/bondmath.py` computes duration/modified duration/
+  convexity (provider values win). Config `HARNESS_MARKET_RISK_FREE`. Tests:
+  `python/tests/test_market_derivatives.py`,
+  `src/lib/harness/market/keyed-providers.test.ts`; updated market gateway
+  tests. Docs updated: `docs/harness/market-data.md`, `docs/CHANGELOG.md`.
+
 - Test-only: the data-bridge identity news case now gets a 20s timeout (it
   exercises the real news/web transport with no provider mock, so the 5s default
   made the release gate load-sensitive). No production code change — no doc change.

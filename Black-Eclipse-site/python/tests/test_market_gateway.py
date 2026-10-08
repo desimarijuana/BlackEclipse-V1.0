@@ -120,11 +120,25 @@ def test_historical_series_normalized():
     assert result.meta.quality in ("valid", "warning")
 
 
-def test_orderbook_unsupported_for_equity():
+def test_orderbook_routes_to_keyed_provider_for_equity():
+    # Equity order books are served by keyed providers (Polygon/Finnhub). With no
+    # provider data the result is an honest no-data error, NOT a blanket refusal.
     gw, _ = gateway({})
     result = asyncio.run(gw.get_orderbook("AAPL", "US"))
     assert result.__class__.__name__ == "MarketError"
-    assert result.code == "UNSUPPORTED_CAPABILITY"
+    assert result.code == "DATA_NOT_AVAILABLE"
+
+    # With a top-of-book (NBBO) payload it succeeds and names the provider.
+    payload = {
+        "status": "OK", "provider": "polygon", "symbol": "AAPL",
+        "bids": [[189.5, 100]], "asks": [[189.55, 80]],
+        "bestBid": 189.5, "bestAsk": 189.55,
+        "observationTime": "2026-10-07T00:00:00Z", "observationSource": "provider_asof",
+    }
+    gw2, _ = gateway({"orderbook": payload})
+    result2 = asyncio.run(gw2.get_orderbook("AAPL", "US"))
+    assert result2.meta.provider == "polygon"
+    assert result2.best_bid == 189.5
 
 
 def test_supply_unsupported_for_equity():

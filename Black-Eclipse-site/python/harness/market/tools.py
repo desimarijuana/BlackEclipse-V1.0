@@ -351,14 +351,26 @@ async def stream_market_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
       * `unsubscribe` — remove a subscription by id.
       * `snapshot` — list live subscriptions + stream metrics.
     """
-    from .streaming import StreamingUnavailable, default_stream_manager
+    from .streaming import (
+        StreamingUnavailable,
+        all_stream_managers,
+        default_stream_manager,
+        manager_for,
+    )
 
     action = str(args.get("action") or "sample").strip().lower()
-    manager = getattr(ctx, "market_stream", None) or default_stream_manager()
+    symbols = args.get("symbols") or ([args["symbol"]] if args.get("symbol") else [])
+    symbols = [str(s).upper() for s in symbols]
 
     if action == "snapshot":
-        return _render_stream(manager.snapshot()), {"status": "OK", **manager.snapshot()}
+        managers = all_stream_managers() or {"binance": default_stream_manager()}
+        snapshot = {name: mgr.snapshot() for name, mgr in managers.items()}
+        return _render_stream(snapshot), {"status": "OK", "managers": snapshot}
 
+    # Resolve the provider: explicit, else auto (crypto-looking → binance, else
+    # finnhub for equities when keyed).
+    provider = str(args.get("provider") or "").strip().lower() or _default_stream_provider(symbols)
+    manager = manager_for(provider, bridge=getattr(ctx, "data_bridge", None))
     if action == "unsubscribe":
         sub_id = str(args.get("subscription_id") or "")
         removed = await manager.unsubscribe(sub_id)
@@ -367,8 +379,6 @@ async def stream_market_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             {"status": "OK" if removed else "UNAVAILABLE", "subscriptionId": sub_id, "removed": removed},
         )
 
-    symbols = args.get("symbols") or ([args["symbol"]] if args.get("symbol") else [])
-    symbols = [str(s).upper() for s in symbols]
     if not symbols:
         return ("UNAVAILABLE — at least one symbol is required.",
                 {"status": "UNAVAILABLE", "error": MarketError("INVALID_REQUEST", "symbols required").to_dict()})
@@ -379,16 +389,16 @@ async def stream_market_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         sub_id = await manager.subscribe(symbols, event_types, subscription_id=args.get("subscription_id"))
     except StreamingUnavailable as exc:
         return (
-            f"UNAVAILABLE — streaming is not available: {exc}",
+            f"UNAVAILABLE — streaming is not available for {provider}: {exc}",
             {"status": "UNAVAILABLE",
              "error": MarketError("STREAM_DISCONNECTED", str(exc)).to_dict()},
         )
 
     if action == "subscribe":
         return (
-            f"Subscribed {symbols} to {', '.join(event_types)}. Subscription id: {sub_id}.",
+            f"Subscribed {symbols} to {', '.join(event_types)} on {provider}. Subscription id: {sub_id}.",
             {"status": "OK", "subscriptionId": sub_id, "symbols": symbols,
-             "eventTypes": list(event_types)},
+             "eventTypes": list(event_types), "provider": provider},
         )
 
     # sample
@@ -408,11 +418,12 @@ async def stream_market_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     status = "OK" if events else "UNAVAILABLE"
     text = (
         f"Sampled {len(events)} stream event(s) for {', '.join(symbols)} "
-        f"({', '.join(event_types)}) in {duration:.0f}s."
-        + ("" if events else " No events arrived — the market may be closed or the stream rejected the subscription.")
+        f"({', '.join(event_types)}) on {provider} in {duration:.0f}s."
+        + ("" if events else " No events arrived — the market may be closed, the stream rejected the subscription, or a key is missing.")
     )
     return text, {
         "status": status,
+        "provider": provider,
         "subscriptionId": sub_id,
         "eventCount": len(events),
         "events": events,
@@ -420,7 +431,23 @@ async def stream_market_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     }
 
 
-def _render_stream(snapshot: dict[str, Any]) -> str:
+def _default_stream_provider(symbols: list[str]) -> str:
+    """Crypto-looking symbols → Binance; everything else → Finnhub (keyed)."""
+    from .instruments import classify_identifier
+
+    if symbols and all(classify_identifier(s)["kind"] == "crypto" for s in symbols):
+        return "binance"
+    return "finnhub"
+
+
+def _render_stream(snapshot: Any) -> str:
+    if isinstance(snapshot, dict) and "managers" in snapshot:
+        snapshot = snapshot["managers"]
+    if isinstance(snapshot, dict) and "metrics" not in snapshot and "state" not in snapshot:
+        lines = [f"Stream providers: {', '.join(snapshot.keys()) or 'none'}"]
+        for name, snap in snapshot.items():
+            lines.append(f"  [{name}] state={snap.get('state')} subs={len(snap.get('subscriptions') or [])}")
+        return "\n".join(lines)
     lines = [
         f"Stream state: {snapshot.get('state')} (provider {snapshot.get('provider')})",
         f"Subscriptions: {len(snapshot.get('subscriptions') or [])}",
@@ -616,6 +643,8 @@ def register_market_tools(registry: Any) -> None:
             "symbols": {"type": "array", "items": {"type": "string"}, "description": "Multiple instruments."},
             "event_types": {"type": "array", "items": {"type": "string"},
                             "description": "trade, quote, orderbook, ohlcv."},
+            "provider": {"type": "string",
+                         "description": "Streaming provider: binance (crypto, keyless) or finnhub (equities, keyed). Auto-selected when omitted."},
             "count": {"type": "integer", "description": "Events to sample (default 5)."},
             "duration_seconds": {"type": "number", "description": "Sampling window (default 8s, max 20)."},
             "subscription_id": {"type": "string", "description": "For unsubscribe / reuse."},
