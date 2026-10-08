@@ -226,6 +226,30 @@ class ToolContext:
     # agent-memory connection). Set by the graph from the service; None = the
     # research tools run without persistence (still honest, just not stored).
     evidence_store: Any = None
+    # The process-wide Financial Data Gateway provider registry (capabilities,
+    # credential refs, rate limits, usage policy). Set by the graph from the
+    # service; None = the `financial_providers` tool builds a default registry.
+    provider_registry: Any = None
+    # The per-run Market Data Gateway (market models + routing + quality). Set by
+    # the graph from the service; None = a market tool lazily builds one from the
+    # bridge. It never calls a provider directly — only the read-only bridge.
+    market_gateway: Any = None
+    # The process-wide market persistence (instruments/snapshots/quality events)
+    # on the ONE agent-memory connection. Set by the graph; None = no persistence.
+    market_store: Any = None
+    # The process-wide real-time market stream manager. Set by the graph; None =
+    # a stream tool resolves the process-wide singleton.
+    market_stream: Any = None
+    # The per-run vision-result collector. Set by the graph; a vision tool calls
+    # `vision_sink(result.to_dict())` after each analysis so the run carries a
+    # bounded, structured vision blob (asset ids, regions, OCR, confidence,
+    # provenance) for the right sidebar. None = no collection attached.
+    vision_sink: Any = None
+    # The per-run document-intelligence collector. Set by the graph; a document
+    # tool calls `document_sink(result.to_dict())` so the run carries a bounded,
+    # structured document blob (type, pages, status, capabilities, entities,
+    # evidence counts) for the right sidebar. None = no collection attached.
+    document_sink: Any = None
     # The ACTUAL per-call ceiling the registry will enforce for the tool call in
     # flight (set immediately before `execute`). A long-running tool reads this to
     # size its OWN internal budget so it can return a bounded partial result

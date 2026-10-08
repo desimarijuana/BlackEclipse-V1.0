@@ -115,6 +115,15 @@ MODEL_CAPABILITY_OVERRIDES: dict[str, dict[str, CapabilityState]] = {
     "embed": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED},
     "bge": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED},
     "nomic-embed": {"text": _UNSUPPORTED, "embeddings": _SUPPORTED, "tool_calling": _UNSUPPORTED},
+    # Image-generation models. Declared so the vision subsystem's
+    # `image_generate` tool can route to a genuinely capable model; an
+    # undeclared model is never assumed to generate images.
+    "dall-e": {"image_generation": _SUPPORTED},
+    "gpt-image": {"image_generation": _SUPPORTED},
+    "imagen": {"image_generation": _SUPPORTED},
+    "stable-diffusion": {"image_generation": _SUPPORTED},
+    "sdxl": {"image_generation": _SUPPORTED},
+    "flux": {"image_generation": _SUPPORTED},
 }
 
 # Model families that are genuinely long-context even without a per-model

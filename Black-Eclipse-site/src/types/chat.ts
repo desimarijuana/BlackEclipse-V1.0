@@ -44,6 +44,18 @@ export interface Message {
   /** Phase 14 §6.4: the runtime-derived chat capability view, when any. */
   capability?: unknown;
   /**
+   * Vision/Multimodal: the run's collected vision results (asset ids, regions,
+   * OCR, confidence, provenance). Absent on user turns, non-vision runs, and
+   * legacy rows. Narrowed by the chat surface via `coerceVisionRun`.
+   */
+  vision?: unknown;
+  /**
+   * Document Intelligence: the run's collected document results. Absent on user
+   * turns, non-document runs, and legacy rows. Narrowed by the chat surface via
+   * `coerceDocumentRun`.
+   */
+  documents?: unknown;
+  /**
    * The action the agent is blocked on pending an operator decision. Present
    * only while a run is paused on an approval card; set from the
    * `approval.requested` event and cleared when it resolves.

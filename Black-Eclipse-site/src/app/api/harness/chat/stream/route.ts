@@ -130,6 +130,8 @@ export async function POST(request: Request) {
             autonomy: run.autonomy ?? null,
             workspaceId: run.workspaceId ?? null,
             capability: run.capability ?? null,
+            vision: run.vision ?? null,
+            documents: run.documents ?? null,
           });
           if (chatId && run.output && run.status === "completed") {
             const stamp = new Date().toISOString().replace(/[:.]/g, "-");

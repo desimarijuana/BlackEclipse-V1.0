@@ -51,10 +51,12 @@ from .routers.code_intel import router as code_intel_router
 from .routers.computer import router as computer_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
+from .routers.financial import router as financial_router
 from .routers.git import router as git_router
 from .routers.grants import router as grants_router
 from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
+from .routers.market import router as market_router
 from .routers.memory import router as memory_router
 from .routers.research import router as research_router
 from .routers.sessions import router as sessions_router
@@ -87,10 +89,12 @@ app.include_router(browser_router)
 app.include_router(computer_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
+app.include_router(financial_router)
 app.include_router(git_router)
 app.include_router(grants_router)
 app.include_router(jobs_router)
 app.include_router(mcp_router)
+app.include_router(market_router)
 app.include_router(memory_router)
 app.include_router(research_router)
 app.include_router(sessions_router)

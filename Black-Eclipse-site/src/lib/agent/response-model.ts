@@ -128,6 +128,20 @@ export interface AssistantTurn {
   /** Phase 14 §6.4: the runtime-derived chat capability view. */
   capability?: unknown;
   /**
+   * Vision/Multimodal: the run's collected vision results (asset ids, regions,
+   * OCR, confidence, provenance) for the right sidebar. `undefined` when the
+   * turn used no vision tool. Typed loosely to avoid a harness-runtime
+   * dependency in this client model; the chat surface narrows it via
+   * `coerceVisionRun`.
+   */
+  vision?: unknown;
+  /**
+   * Document Intelligence: the run's collected document results (type, pages,
+   * status, capabilities, entities, evidence counts). `undefined` when the turn
+   * used no document tool; narrowed by the chat surface via `coerceDocumentRun`.
+   */
+  documents?: unknown;
+  /**
    * The action the agent is currently blocked on pending an operator decision,
    * or undefined when it is not waiting. Set from `approval.requested`, cleared
    * by `approval.resolved` or the decision POST.
@@ -218,6 +232,36 @@ const TOOL_LABELS: Record<string, string> = {
   code_index_workspace: 'Indexing the project',
   code_intel_status: 'Checking code understanding',
   code_find_related_tests: 'Finding related tests',
+  // Vision/Multimodal — plain job names. The mechanism (which model / backend)
+  // never reaches the user; only the job does.
+  vision_analyze: 'Looking at the image',
+  image_understand: 'Reading the image',
+  vision_answer: 'Looking at the image',
+  screenshot_analyze: 'Looking at the screen',
+  clipboard_analyze: 'Looking at the clipboard image',
+  ocr_extract: 'Reading the text in the image',
+  visual_ground: 'Locating an element',
+  visual_localize: 'Locating an element',
+  chart_analyze: 'Reading the chart',
+  document_vision: 'Reading the document',
+  visual_compare: 'Comparing the images',
+  image_diff: 'Comparing the images',
+  screen_compare: 'Comparing the screen',
+  image_metadata: 'Inspecting the image',
+  vision_capabilities: 'Checking vision support',
+  vision_asset_list: 'Listing images',
+  vision_remember: 'Remembering a visual observation',
+  image_generate: 'Generating an image',
+  // Document Intelligence — plain job names.
+  document_open: 'Opening the document',
+  document_inspect: 'Inspecting the document',
+  document_search: 'Searching the document',
+  document_extract: 'Reading the document',
+  document_analyze: 'Analyzing the document',
+  document_query: 'Querying the document data',
+  document_compare: 'Comparing the documents',
+  document_render: 'Rendering the document',
+  document_capabilities: 'Checking document support',
 };
 
 /** Turn a raw tool name into a short, human label (fallback prettifies it). */

@@ -386,6 +386,7 @@ export function ChatDock({
               activities: turn.activities,
               error: turn.error,
               research: turn.research,
+              vision: turn.vision,
               pendingApproval: turn.pendingApproval,
             }
           : m,

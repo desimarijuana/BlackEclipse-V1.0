@@ -35,6 +35,7 @@ STRUCTURED_VAULT = "JDDS"
 STRUCTURED_LIVE = "LIVE_STRUCTURED"
 SEC_FILINGS = "SEC"
 WEB = "WEB"
+CRYPTO = "CRYPTO"
 
 SourcePolicy = Literal["single_best", "arbitrated"]
 
@@ -123,6 +124,36 @@ _DEFAULT = DataTypeAuthority(
 def authority_for(data_type: str) -> DataTypeAuthority:
     """The authority row for a data type, or the web-research default."""
     return AUTHORITY.get(data_type, _DEFAULT)
+
+
+def effective_authority(
+    authority: DataTypeAuthority, request: FinancialRetrievalRequest
+) -> DataTypeAuthority:
+    """The authority actually used for a request, crypto-aware.
+
+    A crypto request is owned by the dedicated CRYPTO source; the vault/live
+    provider cannot price a crypto pair. Prepending CRYPTO here (for a crypto
+    request only) keeps the static ``AUTHORITY`` table stable for every other
+    instrument while letting ``decide_source`` consider the crypto candidate.
+    """
+    if authority.data_type not in ("current_quote", "historical_prices"):
+        return authority
+    # Import locally: `structured` reaches `..tools`, which must not be imported
+    # at `authority` module load time.
+    from .structured import is_crypto  # noqa: PLC0415
+
+    if not is_crypto(request):
+        return authority
+    if CRYPTO in authority.candidates:
+        return authority
+    return DataTypeAuthority(
+        authority.data_type,
+        (CRYPTO, *authority.candidates),
+        authority.policy,
+        authority.require_precise,
+        authority.web_allowed,
+        authority.request_window_s,
+    )
 
 
 @dataclass(frozen=True)
@@ -301,6 +332,8 @@ __all__ = [
     "STRUCTURED_LIVE",
     "SEC_FILINGS",
     "WEB",
+    "CRYPTO",
     "authority_for",
+    "effective_authority",
     "decide_source",
 ]

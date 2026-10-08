@@ -40,6 +40,10 @@ _TOOL_NAMES = {
     "research.retrieve_source": "research_retrieve_source",
     "research.search_news": "research_search_news",
     "macro.get_series": "macro_get_series",
+    # Financial Data Gateway surface (provider introspection + crypto).
+    "financial.providers": "financial_providers",
+    "financial.resolve_entity": "financial_resolve_entity",
+    "market.get_crypto": "market_get_crypto",
 }
 
 
@@ -63,11 +67,26 @@ def _layer(ctx: ToolContext) -> FinancialRetrievalLayer:
                 mcp_sources = []
         layer = FinancialRetrievalLayer(
             ctx.data_bridge, cache=cache, on_event=_event_logger(ctx), store=store,
-            mcp_sources=mcp_sources,
+            mcp_sources=mcp_sources, registry=_provider_registry(ctx),
         )
         ctx.retrieval = layer  # type: ignore[attr-defined]
         ctx.retrieval_cache = layer.cache  # type: ignore[attr-defined]
     return layer
+
+
+def _provider_registry(ctx: ToolContext):
+    """The process-wide provider registry, or a fresh default one.
+
+    The service installs ONE registry at boot so the agent tools and the layer
+    describe the same providers. A unit test with no service gets a default
+    registry (still deterministic, still one row per provider).
+    """
+    registry = getattr(ctx, "provider_registry", None)
+    if registry is not None:
+        return registry
+    from .retrieval.registry import build_default_registry
+
+    return build_default_registry()
 
 
 def _event_logger(ctx: ToolContext):
@@ -459,8 +478,146 @@ async def _resolve_macro_via_bridge(
     return None
 
 
-# ── Registration ────────────────────────────────────────────────────────────
+# ── Financial Data Gateway: provider introspection + crypto ─────────────────
 
+
+async def financial_providers(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Describe the configured financial providers and their capabilities.
+
+    Reads the ONE provider registry: each provider's capabilities, credential
+    reference (never a value), implemented/degraded state, rate-limit shape and
+    recorded data-usage policy. An option filters to one capability.
+    """
+    registry = _provider_registry(ctx)
+    capability = str(args.get("capability", "") or "").strip() or None
+    providers = registry.by_capability(capability) if capability else registry.all()
+
+    # Resolve live configuration for credentialed providers without ever returning
+    # the secret — only whether the credential is present (env or vault).
+    rows: list[dict[str, Any]] = []
+    for descriptor in providers:
+        entry = descriptor.to_dict()
+        if descriptor.credential_ref and descriptor.configured is None:
+            entry["configured"] = await _credential_present(ctx, descriptor.credential_ref)
+        rows.append(entry)
+
+    lines = [f"Financial data providers ({len(rows)}"
+             + (f" supporting '{capability}'" if capability else "") + "):"]
+    for entry in rows:
+        state = "implemented" if entry.get("implemented") else "declared (not implemented)"
+        if entry.get("configured") is True:
+            state += ", credential configured"
+        elif entry.get("configured") is False:
+            state += ", credential missing"
+        lines.append(
+            f"  - {entry['id']} ({entry['label']}) [{entry.get('tier')}] — {state}"
+        )
+        lines.append(f"      capabilities: {', '.join(entry.get('capabilities') or []) or 'none'}")
+        if entry.get("notes"):
+            lines.append(f"      note: {entry['notes']}")
+    lines.append("")
+    lines.append(
+        "A provider listed as 'declared (not implemented)' has no runnable adapter yet — "
+        "its dependency is named, not faked. Credentials are never shown; only their presence."
+    )
+    return "\n".join(lines), {"providers": rows, "capability": capability}
+
+
+async def _credential_present(ctx: ToolContext, env_var: str) -> bool:
+    """Whether a provider credential is satisfied, checked via the bridge.
+
+    The vault lives on the TS side; the bridge answers presence (never the value).
+    Falls back to the process environment when no bridge is attached or the bridge
+    cannot answer.
+    """
+    bridge = getattr(ctx, "data_bridge", None)
+    if bridge is not None:
+        try:
+            payload = await bridge.fetch("provider_key_status", {"envVar": env_var})
+        except Exception:  # noqa: BLE001 - a probe failure falls back to env
+            payload = None
+        if isinstance(payload, dict) and "configured" in payload:
+            return bool(payload["configured"])
+    import os
+
+    return bool(os.environ.get(env_var))
+
+
+async def financial_resolve_entity(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Resolve a financial identifier to a canonical instrument identity.
+
+    Accepts a ticker, an exchange-qualified symbol (`NASDAQ:AAPL`), or an ISIN,
+    and asks the bridge's shared instrument resolver. Never guesses: an
+    unresolved identifier returns UNAVAILABLE, an ambiguous one returns AMBIGUOUS.
+    """
+    identifier = str(args.get("identifier", "") or "").strip()
+    if not identifier:
+        return "UNAVAILABLE — an identifier is required.", {"status": "UNAVAILABLE"}
+    if ctx.data_bridge is None:
+        return "UNAVAILABLE — data bridge not configured.", {"status": "UNAVAILABLE"}
+    params: dict[str, Any] = {"symbol": identifier}
+    if args.get("market"):
+        params["market"] = str(args["market"]).strip().upper()
+    try:
+        payload = await ctx.data_bridge.fetch("market_snapshot", params)
+    except Exception as exc:  # noqa: BLE001
+        return f"UNAVAILABLE — identity resolution failed ({exc}).", {"status": "UNAVAILABLE"}
+    status = payload.get("status")
+    if status == "OK":
+        identity = {
+            "symbol": payload.get("symbol"),
+            "market": payload.get("market"),
+            "exchange": payload.get("exchange"),
+            "currency": payload.get("currency"),
+            "securityType": payload.get("securityType"),
+            "assetClass": payload.get("assetClass"),
+            "instrumentId": payload.get("instrumentId"),
+            "name": payload.get("name"),
+        }
+        text = (
+            f"Resolved {identifier} → {identity['symbol']} on {identity['market']}"
+            + (f" ({identity['exchange']})" if identity.get("exchange") else "")
+            + (f" [{identity['securityType']}]" if identity.get("securityType") else "")
+            + (f", currency {identity['currency']}" if identity.get("currency") else "")
+        )
+        return text, {"status": "OK", "identity": identity}
+    if payload.get("failureClass") == "ambiguous":
+        candidates = payload.get("candidates")
+        msg = f"AMBIGUOUS — {identifier} matches more than one instrument; ask which venue."
+        if candidates:
+            msg += f" Candidates: {', '.join(map(str, candidates))}."
+        return msg, {"status": "AMBIGUOUS", "candidates": candidates}
+    return (
+        f"UNAVAILABLE — {identifier} could not be resolved "
+        f"({payload.get('error') or 'not found'}).",
+        {"status": "UNAVAILABLE", "error": payload.get("error")},
+    )
+
+
+async def market_get_crypto(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Get a crypto asset's market data through the retrieval layer.
+
+    A crypto pair is resolved (base/quote) and routed to the dedicated crypto
+    source. Never confuses a crypto ticker with an equity or an FX pair.
+    """
+    symbol = str(args.get("symbol", "") or "").strip().upper()
+    metadata: dict[str, Any] = {}
+    if args.get("quote_currency"):
+        metadata["quoteCurrency"] = str(args["quote_currency"]).strip().upper()
+    request = FinancialRetrievalRequest(
+        objective=str(args.get("objective") or f"crypto market data for {symbol}"),
+        dataType="current_quote",
+        instrument=symbol,
+        market="CRYPTO",
+        freshnessRequirement="realtime",
+        allowWeb=False,
+        metadata=metadata or None,
+    )
+    result = await _layer(ctx).retrieve(request)
+    return _finish(ctx, result)
+
+
+# ── Registration ────────────────────────────────────────────────────────────
 
 def register_retrieval_tools(registry: ToolRegistry) -> None:
     registry.register(
@@ -642,6 +799,73 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
             permission="read",
             risk="low",
             timeout_ms=30_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name=_TOOL_NAMES["financial.providers"],
+            description=(
+                "List the configured financial data providers through the gateway: each provider's "
+                "capabilities, whether it is implemented, its credential presence (never the secret), "
+                "rate-limit shape and recorded data-usage policy. Optionally filter by capability."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "capability": {
+                        "type": "string",
+                        "description": "Optional capability filter, e.g. current_quote, financial_statements, crypto_market_data.",
+                    },
+                },
+            },
+            handler=financial_providers,
+            permission="read",
+            risk="low",
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name=_TOOL_NAMES["financial.resolve_entity"],
+            description=(
+                "Resolve a financial identifier (ticker, exchange-qualified symbol, or ISIN) to a "
+                "canonical instrument identity. Never guesses: an ambiguous identifier returns "
+                "AMBIGUOUS and an unknown one returns UNAVAILABLE."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "description": "Ticker, NASDAQ:AAPL, or an ISIN."},
+                    "market": {"type": "string", "description": "Optional market code to disambiguate."},
+                },
+                "required": ["identifier"],
+            },
+            handler=financial_resolve_entity,
+            permission="read",
+            risk="low",
+            timeout_ms=15_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name=_TOOL_NAMES["market.get_crypto"],
+            description=(
+                "Get a crypto asset's market data through the retrieval layer. Resolves the "
+                "base/quote pair and routes to the dedicated crypto source; never confuses a crypto "
+                "ticker with an equity or an FX pair."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "Crypto base asset or pair, e.g. BTC or BTC-USD."},
+                    "quote_currency": {"type": "string", "description": "Optional quote currency (USD, USDT, EUR)."},
+                    "objective": {"type": "string", "description": "Why this data is needed (optional)."},
+                },
+                "required": ["symbol"],
+            },
+            handler=market_get_crypto,
+            permission="read",
+            risk="low",
+            timeout_ms=15_000,
         )
     )
 

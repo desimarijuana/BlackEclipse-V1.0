@@ -88,3 +88,19 @@ playwright>=1.62,<1.63
 Pillow>=10.0
 uiautomation>=2.0; sys_platform == "win32"
 winsdk>=1.0.0b10; sys_platform == "win32"
+
+# Vision / Multimodal subsystem.
+# * pypdfium2: self-contained PDFium binding (no system binary) used to render
+#   PDF pages to images for document/PDF vision. Imported lazily; when absent,
+#   PDF rendering reports an honest UNSUPPORTED_FORMAT rather than faking a page.
+pypdfium2>=4
+
+# Market Data Layer — real-time streaming over provider WebSockets (Binance
+# combined stream). OPTIONAL in effect: when absent, `stream_market_data`
+# reports an honest STREAM_DISCONNECTED (never a fake poller); the REST market
+# tools are unaffected. `httpx` (the bridge transport) is already pulled in
+# transitively by the model providers / MCP SDK, but is pinned here explicitly
+# because `service._HttpDataBridge` and the market gateway depend on it directly.
+websockets>=13,<16
+httpx>=0.27,<0.29
+

@@ -238,7 +238,7 @@ function extractPlainText(bytes: Uint8Array): ExtractResult {
   // A NUL byte in the first 8 KB is the standard "this is binary" signal.
   const probe = buf.subarray(0, Math.min(buf.length, 8192));
   if (probe.includes(0)) return extractReadableStrings(buf);
-  let text = buf.toString("utf8").replace(/^\uFEFF/, "");
+  const text = buf.toString("utf8").replace(/^\uFEFF/, "");
   // If decoding produced a lot of replacement chars, treat as binary.
   const bad = (text.match(/\uFFFD/g) || []).length;
   if (text.length > 0 && bad / text.length > 0.1) return extractReadableStrings(buf);
@@ -386,9 +386,16 @@ async function extractPdfWithLib(bytes: Uint8Array): Promise<ExtractResult | nul
     // "fake worker" on the main thread, but it still needs the worker MODULE
     // path to import. The package is externalized from the Next bundle
     // (next.config serverExternalPackages), so the file resolves on disk.
+    type PdfTextItem = { str?: string; hasEOL?: boolean };
+    type PdfPage = { getTextContent: () => Promise<{ items: PdfTextItem[] }> };
+    type PdfDocument = {
+      numPages: number;
+      getPage: (n: number) => Promise<PdfPage>;
+      destroy: () => Promise<void>;
+    };
     type PdfjsModule = {
       GlobalWorkerOptions: { workerSrc: string };
-      getDocument: (opts: Record<string, unknown>) => { promise: Promise<any> };
+      getDocument: (opts: Record<string, unknown>) => { promise: Promise<PdfDocument> };
     };
     const mod = pdfjs as unknown as PdfjsModule;
     try {

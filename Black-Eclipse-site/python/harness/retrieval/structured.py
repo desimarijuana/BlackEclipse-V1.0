@@ -173,6 +173,10 @@ class LiveStructuredSource:
         self._bridge = bridge
 
     def available(self, request: FinancialRetrievalRequest) -> bool:
+        # Crypto is owned by the dedicated CRYPTO source (its own bridge
+        # capability + pair resolution). This provider handles equities/FX.
+        if is_crypto(request):
+            return False
         return self._bridge is not None and request.dataType in _LIVE_CAPABILITY
 
     async def retrieve(self, request: FinancialRetrievalRequest) -> SourceOutcome:
@@ -262,6 +266,39 @@ def is_fx_or_crypto(request: FinancialRetrievalRequest) -> bool:
     # Crypto is usually quoted against a fiat/stablecoin suffix.
     if symbol.endswith("-USD") or symbol.endswith("USDT"):
         return True
+    return False
+
+
+# Fiat currencies that commonly quote a crypto asset. Kept small and explicit;
+# an unknown quote suffix stays eligible for the general classifier.
+_CRYPTO_QUOTES = ("USD", "USDT", "USDC", "EUR", "GBP", "BTC", "ETH", "BNB")
+
+
+def is_crypto(request: FinancialRetrievalRequest) -> bool:
+    """True when the request is a CRYPTO asset specifically (not an FX pair).
+
+    The dedicated crypto source owns crypto; the live structured provider owns FX.
+    This classifier is the ONE place the split is decided, so the two sources can
+    never both claim (or both refuse) the same request. Never guesses: an
+    identifier that is not recognisably crypto is not crypto.
+    """
+    market = (request.market or "").strip().upper()
+    if market == "CRYPTO":
+        return True
+    if market == "FX":
+        return False
+    symbol = (request.instrument or "").strip().upper()
+    if not symbol:
+        return False
+    # An explicit FX shape is never crypto.
+    if symbol.endswith(_FX_SUFFIX) or "/" in symbol:
+        return False
+    # A crypto pair quoted against a fiat/stablecoin: `BTC-USD`, `ETHUSDT`.
+    for quote in _CRYPTO_QUOTES:
+        if symbol.endswith(f"-{quote}") or symbol.endswith(quote) and symbol[: -len(quote)] in (
+            "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", "MATIC",
+        ):
+            return True
     return False
 
 

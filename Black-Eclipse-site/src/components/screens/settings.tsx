@@ -26,6 +26,7 @@ import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { AnalyticsSettingsPanel } from "./analytics-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { FinancialDataConsole } from "./financial-data-console";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
@@ -802,6 +803,14 @@ export function Settings({
                     description="Price, fundamentals and crypto sources. Add a key to widen coverage and rate limits."
                   >
                     <ProviderRegistry home="market" title="Market Discover providers" />
+                  </SubSection>
+
+                  <SubSection
+                    icon={ShieldCheck}
+                    title="Financial Data Gateway"
+                    description="Provider capabilities, routing, rate limits and recorded data-usage terms. One registry the agents and this console both read."
+                  >
+                    <FinancialDataConsole />
                   </SubSection>
 
                   <SubSection icon={Activity} title="Price-source priority & fallback">

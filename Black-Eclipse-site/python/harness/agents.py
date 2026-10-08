@@ -71,10 +71,36 @@ COMPUTER_TOOLS = [
     "computer_finance_read", "computer_finance_prepare",
 ]
 
-# The Evidence-Driven Web Research Engine toolset. Declared here so the finance
-# agent (and, when a task needs it, the code agent) advertise the same surface.
-# All read-only: search results are pointers, fetched pages are wrapped as
-# untrusted data, and the engine never treats the model as the source of truth.
+# The vision/multimodal toolset (`vision_*`, `ocr_*`, `image_*`, `visual_*`,
+# `screenshot_*`, `chart_analyze`, `document_vision`). Declared here so the
+# finance agent and the code agent advertise the SAME multimodal surface. All
+# read-only: a vision tool observes existing content (including the screen) and
+# never mutates state. Native-first: the run's own model is used when it can see
+# images, else the orchestrator falls back to an auxiliary vision model. Used for
+# computer-use targeting (`visual_ground` → coordinates) and browser screenshot
+# analysis (pass the screenshot path as the source).
+VISION_TOOLS = [
+    "vision_analyze", "image_understand", "vision_answer",
+    "screenshot_analyze", "clipboard_analyze", "ocr_extract",
+    "visual_ground", "visual_localize",
+    "chart_analyze", "document_vision",
+    "visual_compare", "image_diff", "screen_compare",
+    "image_metadata", "vision_capabilities", "vision_asset_list",
+    # Persistent visual memory (via the memory decision gate; sensitive results
+    # get a TTL) and image generation (external_action: approval-gated, paid).
+    "vision_remember", "image_generate",
+]
+
+#: The Document Intelligence toolset (spec §27): open/inspect/search/extract/
+#: analyze/query/compare/render documents. All READ-ONLY; they reuse the vision
+#: subsystem for OCR/rendering and the EvidenceStore for provenance.
+DOCUMENT_TOOLS = [
+    "document_open", "document_inspect", "document_search", "document_extract",
+    "document_analyze", "document_query", "document_compare", "document_render",
+    "document_capabilities",
+]
+
+
 WEB_RESEARCH_TOOLS = [
     "web_search",
     "news_search",
@@ -180,6 +206,29 @@ ECLIPSE_AGENT = AgentConfig(
         "research_retrieve_source",
         "research_search_news",
         "macro_get_series",
+        # Financial Data Gateway surface: provider introspection, entity
+        # resolution, and crypto market data.
+        "financial_providers",
+        "financial_resolve_entity",
+        "market_get_crypto",
+        # Market Data Layer: first-class provider-agnostic market data (quotes,
+        # OHLCV, order books, trades, funding, open interest, options, FX, bonds)
+        # plus real-time streaming. These call the Market Data Gateway, never a
+        # provider directly.
+        "get_quote",
+        "get_historical_prices",
+        "get_ohlcv",
+        "get_volume",
+        "get_orderbook",
+        "get_trades",
+        "get_market_cap",
+        "get_supply",
+        "get_funding_rate",
+        "get_open_interest",
+        "get_options_chain",
+        "get_fx_rate",
+        "get_bond_data",
+        "stream_market_data",
         # Phase-1 JDdS tools (still available)
         "get_market_snapshot",
         "get_fundamentals",
@@ -245,6 +294,13 @@ ECLIPSE_AGENT = AgentConfig(
         # OS chrome, dialogs) and read financial state off the screen. Background
         # delivery by default; financial mutations are routed through the firewall.
         *COMPUTER_TOOLS,
+        # Vision/Multimodal: analyze images, screenshots, charts and documents;
+        # extract OCR text; ground UI elements to coordinates for computer-use
+        # targeting. Native-first with an auxiliary vision-model fallback.
+        *VISION_TOOLS,
+        # Document intelligence: open/understand/search/query/compare/render
+        # documents (PDF/DOCX/PPTX/XLSX/CSV/JSON/HTML/...). Read-only.
+        *DOCUMENT_TOOLS,
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -428,6 +484,10 @@ CODE_AGENT_TOOLS = [
     # emulator, a PDF reader) when the UI is genuinely required. Prefer the
     # filesystem/code/terminal tools for their native work; CUA is the UI fallback.
     *COMPUTER_TOOLS,
+    # Vision/Multimodal — analyze screenshots, UI mockups, charts, diagrams and
+    # documents; OCR text; ground a UI element to coordinates before an action.
+    *VISION_TOOLS,
+    *DOCUMENT_TOOLS,
 ]
 
 CODE_AGENT = AgentConfig(

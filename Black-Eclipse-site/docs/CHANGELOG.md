@@ -6,7 +6,171 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-08
+
+- Agent Workspace sidebar chrome polish: removed the hard `border-b` separators
+  under the header and the panel tabs (the frosted-glass edge is the separation),
+  and replaced the header `Sparkles` glyph with the `Bot` agent icon. Cosmetic
+  only — no doc change — no contract/architecture impact.
+
 ## 2026-10-07
+
+- **Financial Data Gateway — provider registry, centralized rate limits, crypto
+  source, provider-introspection tool + console.** Extends the existing Financial
+  Retrieval Layer (not a second data plane). New
+  `python/harness/retrieval/registry.py` (`ProviderDescriptor`/`ProviderRegistry`:
+  capabilities, credential REFERENCE only, rate-limit shape, recorded
+  license/attribution/redistribution/storage policy; `implemented=False` rows name
+  their missing dependency rather than faking an adapter),
+  `python/harness/retrieval/ratelimit.py` (`RateLimitManager`: per-provider
+  sliding-window + concurrency + 429/`Retry-After` cooldown; a denied acquire
+  never calls the provider and yields an honest `rate_limited` outcome), and
+  `python/harness/retrieval/crypto.py` (`CryptoSource`; crypto is not an equity —
+  `is_crypto()` is the ONE classifier and the vault/live provider refuses crypto).
+  Layer wiring in `retrieval/layer.py` (`_retrieve_one` acquires/releases; `CRYPTO`
+  source registered; `effective_authority` is crypto-aware) + `retrieval/routing.py`
+  (`rate_limited` route category). New TS capability `crypto_market_data`
+  (`data-bridge.ts`/`types.ts`/`api/harness/data/route.ts`/`health-key.ts`) reusing
+  the existing crypto connector + `classifyIdentifier`; new `provider_key_status`
+  capability (presence only, never a value). New agent tools
+  `financial_providers`/`financial_resolve_entity`/`market_get_crypto`
+  (`retrieval_tools.py`, added to `eclipse-agent`). Operator-gated route
+  `GET /financial/providers` (`routers/financial.py` + front door
+  `api/harness/financial/providers/route.ts`, which merges vault credential
+  presence). UI `src/components/screens/financial-data-console.tsx` (frosted-glass
+  provider console in Settings › Data). Tests: `python/tests/test_provider_gateway.py`
+  (20) + `src/lib/harness/data-bridge-gateway.test.ts` (4). Docs updated:
+  `docs/harness/financial-data-gateway.md` (new), `docs/NAVIGATION.md`. Fixed an
+  incomplete `build_graph(market=…)` keyword left by the in-flight Market Data
+  Layer work so the graph tests pass.
+
+- **Market Data Layer — first-class, provider-agnostic market data + real-time
+  streaming.** New `python/harness/market/`: canonical records (`models.py`),
+  closed error vocabulary (`errors.py`), env-driven config (`config.py`),
+  canonical instruments + provider symbol mapping (`instruments.py`), declarative
+  provider capabilities (`providers.py`), capability-aware routing with circuit
+  breaking (`router.py`), the `MarketDataGateway` (route → fetch → normalize →
+  quality → provenance, `gateway.py`), a mandatory data-quality engine
+  (`quality.py`), a freshness-aware cache (`cache.py`), Evidence-Engine provenance
+  + point-in-time (`provenance.py`), derived analytics (`analytics.py`), durable
+  snapshot/instrument/quality persistence on the ONE `agent-memory.db`
+  (`store.py`), real WebSocket streaming (`streaming.py`: connection manager,
+  normalizer, sequence validation, dedup, reconnect, backpressure), the fourteen
+  agent tools (`tools.py`), and boot wiring (`bootstrap.py`). New TS provider
+  adapters under `src/lib/harness/market/` (yahoo, binance, coingecko, stooq,
+  treasury/FRED, ECB-FX) reached through ONE new bridge capability `market_data`
+  (`data-bridge.ts`, `api/harness/data/route.ts`, `harness/types.ts`); all reuse
+  the SSRF-hardened `safeGet` and existing scraper helpers. 14 tools
+  (`get_quote`, `get_historical_prices`, `get_ohlcv`, `get_volume`,
+  `get_orderbook`, `get_trades`, `get_market_cap`, `get_supply`,
+  `get_funding_rate`, `get_open_interest`, `get_options_chain`, `get_fx_rate`,
+  `get_bond_data`, `stream_market_data`) registered and added to the
+  `eclipse-agent` allowlist; operator-gated routes `routers/market.py`. Tests:
+  `python/tests/test_market_{unit,gateway,streaming}.py` +
+  `src/lib/harness/market/bridge.test.ts`. Requirements: `websockets` + `httpx`
+  pinned. Docs updated: `docs/harness/market-data.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+
+- **Document Intelligence subsystem — production vision + document understanding.**
+  New `python/harness/document_intelligence/`: one `process_document` pipeline
+  (validate → cache → detect → adapter parse → OCR/vision → structure → entities →
+  chunk → index → evidence → assess) over a unified `DocumentIR`, with one adapter
+  per format (PDF, DOCX, PPTX, XLSX, ODS/ODT/ODP, CSV/TSV, JSON/JSONL/XML/YAML/TOML,
+  HTML, Markdown/TXT, image, EPUB, RTF, archive, legacy OLE). OOXML is parsed with
+  stdlib `zipfile`+`ElementTree` (lxml recovery) — no `openpyxl`/`python-docx`/
+  `python-pptx` dependency. Deterministic-first OCR routing (`ocr.py`) escalates to
+  a vision model only when there is no usable text or confidence is low; all model
+  calls, OCR engines and PDF rendering reuse `harness.vision`; extracted text
+  becomes the SAME `research.web_contracts.Evidence` via `EvidenceStore`
+  (`contentTrust=UNTRUSTED`); tabular questions are computed with read-only
+  DuckDB/pandas SQL (`query.py`), never model arithmetic. Security: size/magic/macro
+  validation, archive/zip-bomb guards before extraction, `mcp.ssrf` on document URLs,
+  HTML sanitization, and the shared injection boundary (document text is DATA).
+  States (`READY`/`PARTIALLY_READY`/`FAILED`), bounded retry, per-document timeout,
+  content-hash caching, and hybrid lexical+structured retrieval with full
+  document/version/page/section/table/cell provenance. The `Di*` tables live on the
+  ONE `agent-memory.db`. New `DOCUMENT_TOOLS` (`document_open|inspect|search|extract|
+  analyze|query|compare|render|capabilities`, all read-only) on the finance and code
+  agents; boot wiring in `service.py`; `documents` run blob on `HarnessRun`/
+  `RunResult`/`client.final`; TS `document-view.ts` + `document-panel.tsx`; tests
+  `python/tests/test_document_intelligence_{unit,tools,security,graph}.py` +
+  `document_intelligence_helpers.py` + `src/lib/harness/document-view.test.ts`.
+  No new dependency. Docs updated: `docs/harness/document-intelligence.md`,
+  `docs/harness/decisions.md` (ADR-H147), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Vision operational hardening — sensitive decided pre-flight; the asset TTL is
+  real.** Two problems a surface "limitation" could otherwise cause were closed.
+  (1) The orchestrator now runs `security.preflight_scan` (deterministic OCR over
+  the frame) BEFORE routing/storage and merges the verdict into the privacy
+  decision, so a frame containing a key/PII-shaped string or an injection attempt
+  is marked sensitive — under `local_only` it never reaches a cloud provider, and
+  `_store_asset` gives it a TTL. Only STRONG signals auto-flag (a crypto chart's
+  bare "token" does not over-refuse cloud); without an OCR engine the pre-scan is
+  skipped and reported, never silently "clean". (2)
+  `AgenticService.run_startup_maintenance` now calls
+  `VisionAssetStore.sweep_expired()`, deleting expired asset rows and their files
+  on boot, so a sensitive screenshot does not outlive its purpose and disk stays
+  bounded. Added `security.preflight_scan`, a `vision.security` telemetry event,
+  and tests in `python/tests/test_vision_capabilities.py`. Docs updated:
+  `docs/harness/vision.md`, `docs/CHANGELOG.md`.
+
+- **Vision live provider smoke test (opt-in).** New
+  `python/tests/test_vision_live.py` exercises a REAL multimodal model —
+  native-vision image reading, deterministic OCR, and the auxiliary-fallback path
+  (a text-only run model delegating to a configured vision model). It is skipped
+  by default with an explicit `NOT RUN — ...` reason, gated by
+  `BLACK_ECLIPSE_VISION_IT=1` + `BLACK_ECLIPSE_VISION_MODEL`. Verified against a
+  live provider (native read + OCR + fallback all pass). Docs:
+  `docs/harness/vision.md`.
+
+- **Vision capability closers — stdlib PDF, persistent visual memory, image
+  generation.** Closed three items that were implementable rather than genuine
+  external limits. (1) `vision/documents.py` gains a dependency-free `_StdlibPdf`
+  backend: text extraction from PDF content streams always works without
+  `pypdfium2`, and Pillow rasterizes standard-font pages; each `DocumentPage`
+  records `textMethod`/`rasterMethod` and `pdf_capabilities()` reports availability
+  (never a faked page). (2) New `vision/memory.py` + `vision_remember` tool persist
+  a visual observation through the SAME Eclipse-Memory decision gate
+  (`authorize_proposal`+`commit_decision`) — a text summary only, the
+  content-addressed `assetId`/regions/model/confidence in `structuredData`, and a
+  1-day TTL for sensitive/ephemeral results. (3) New `vision/generate.py` +
+  `image_generate` tool speak the OpenAI-compatible `/images/generations` protocol,
+  gated by a declared `image_generation` capability; the tool is registered
+  `external_action` (approval-gated) and removed at `plan_only` via
+  `policy.VISION_EXTERNAL_TOOLS`. Image-generation model families declared in
+  `model_runtime/catalog.py`. `VISION_TOOLS` now 18; tests
+  `python/tests/test_vision_capabilities.py`. Docs updated: `docs/harness/vision.md`,
+  `docs/harness/decisions.md` (ADR-H146 addendum), `docs/CHANGELOG.md`.
+
+- **Vision / Multimodal subsystem — one orchestrator, native-first, integrated
+  end to end.** New `python/harness/vision/` gives the agent a production image
+  capability (analyze/describe/VQA, screenshot + clipboard, OCR, visual grounding
+  for computer-use coordinates, chart analysis with deterministic market-data
+  verification, document/PDF/table vision, visual comparison) behind the ONE
+  `VisionOrchestrator.orchestrate` pipeline (resolve→preprocess→content-addressed
+  store→route→capability detect→cache→dispatch→fallback→telemetry). Every model
+  call routes through the existing `model_runtime` (no second provider stack);
+  native vision is used first and an auxiliary vision model is the fallback.
+  Deterministic-first: OCR before a model, PDF text layer before a model, pixel
+  diff before a model describes it. Untrusted input: SSRF-guarded URL fetch on
+  every hop (`mcp.ssrf`), bomb/size ceilings, and in-image text scanned + wrapped
+  as DATA (`research.web_security`); no visual instruction can override the system
+  prompt. Images are SHA-256 content-addressed on the gitignored filesystem tier
+  with a `VisionAsset` metadata table on `agent-memory.db`; the cache is a bounded
+  in-process TTL keyed over image hash + model + provider + prompt + mode +
+  preprocessing + schema version (no Redis — consistent with the repo). Visual
+  observations become the existing `research.web_contracts.Evidence` with full
+  provenance. `VISION_TOOLS` (all read-only) are declared on the finance and code
+  agents; boot wiring `AgenticService.vision_assets`; a bounded `vision` run blob
+  persisted on `HarnessRun.vision` and carried on `RunResult`/`client.final`;
+  TS `src/lib/harness/vision-view.ts` + `src/components/chat/vision-panel.tsx`
+  render it inline in the chat transcript; vision tool labels in
+  `response-model.ts` and activity detail/summary in `code/activity.py`;
+  `pypdfium2` added to `requirements.txt`. Tests
+  `python/tests/test_vision_{unit,orchestrator,tools,graph}.py` +
+  `src/lib/harness/vision-view.test.ts`. Docs updated:
+  `docs/harness/vision.md`, `docs/harness/decisions.md` (ADR-H146),
+  `docs/NAVIGATION.md`.
 
 - **Agent Workspace is now a real docked right sidebar.** Replaced the floating,
   13-tab telemetry overlay with a proper full-height glass column in the shell's
@@ -36,6 +200,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   row when any is expanded. New i18n key `workspace.collapseAll`. Docs updated:
   `docs/agent-workspace.md`.
 
+- **Computer Use Engine — isolated + remote desktops (Xvfb / RDP / Windows Sandbox
+  / Wayland).** `desktop.py` becomes a provisioner lifecycle
+  (`DesktopProvisioner`/`DesktopInstance`/`build_provisioner`): the real
+  `X11HeadlessProvisioner` (a private `Xvfb` display per session),
+  `WindowsSandboxProvisioner` (launches `WindowsSandbox.exe`, attaches a
+  `WindowDriver` to the client window), `RdpDesktopProvisioner` (`mstsc` against
+  `isolation.rdp_host`/`rdp_file`) and `WaylandHeadlessProvisioner` (a nested
+  headless `wlheadless-run`/`sway`/`weston` on a private socket). New
+  `drivers/window.py` scopes capture/input to one contained desktop window
+  (background-first, then foreground) and derives a real element tree from OCR of
+  the window (`source=ocr`; `accessibility:false` honestly without OCR). New
+  `drivers/wayland.py` (grim + ydotool); real `drivers/linux.py` (+AT-SPI) and
+  `drivers/macos.py` (+AX). `manager.py` provisions/tears down per session;
+  isolated sessions skip the machine-wide broker; `headless_desktop` is true only
+  for a genuinely provisioned desktop; absent backends fall back to local with a
+  reason. New `broker.py` (machine-wide lease); config `isolation.*`
+  (`HARNESS_COMPUTER_ISOLATION*`, `HARNESS_COMPUTER_RDP_*`). Tests
+  `test_computer_hardening.py` + opt-in `test_computer_apps_live.py` /
+  `test_computer_xvfb_live.py`. Docs updated: `docs/harness/computer-use.md`,
+  `computer.example.json`.
+
 - **Approvals — "Always allow" standing grants, a redesigned card, and an alert
   on request.** Made the repeated approval prompts stoppable. (1) New
   `python/harness/grants.py` (`GrantStore` on the ONE `agent-memory.db`, table
@@ -59,21 +244,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (Code › Approvals) lists and revokes grants. Docs: `docs/harness/decisions.md`
   (ADR-H144), `docs/harness/architecture.md`, `docs/NAVIGATION.md`; tests
   `python/tests/test_standing_grants.py`.
-
-- **Agent Workspace — execution-observability panel (Phase 1–8).** Added a global,
-  portaled **Agent Workspace** that shows what the agent is doing in real time
-  without flooding chat: a normalized event model (`src/lib/agent-workspace/`
-  `types`/`normalize`/`reducer`/`store`/`stream`/`history`/`ingest`/`format`), a
-  batched immer store, and 13 panels (Overview, Activity, Tasks, Changes, Context,
-  Terminal, Research, Browser, Computer, Artifacts, Approvals, Telemetry, History)
-  plus a virtualized large-output Viewer. It is fed by the **ONE existing** chat SSE
-  stream via a single new seam (`ingestHarnessFrame`) in `src/lib/agent/registry.ts`
-  — no second event bus. Mounted once in `src/app/layout.tsx` + a top-bar toggle, so
-  the existing left sidebar, shell and every screen are untouched. Large outputs are
-  `ArtifactRef` handles; approvals reuse the existing decide endpoint. Unit +
-  reachability tests (`agent-workspace.test.ts`, `agent-workspace-reachability.test.ts`).
-  Docs updated: `docs/agent-workspace.md` (new), `docs/NAVIGATION.md`,
-  `docs/DECISIONS.md` (ADR-042).
 
 - **Authentication & multi-user mode — opt-in, auto-engages off loopback.**
   BlackEclipse is now able to require a signed-in user, without breaking
@@ -596,6 +766,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   the finance prompt char ceiling were raised with justification for the browser
   boot wiring + guidance block. `test_code_agent.py`/`test_chat_code_profile.py`
   count the shared `BROWSER_TOOLS` set.
+
+- **Fix: client components imported server-only harness clients, breaking the
+  build (`Can't resolve 'child_process'`).** `research-widgets.tsx` dynamically
+  imported `@/lib/harness/jobs-client` and `standing-grants.tsx` statically
+  imported `@/lib/harness/grants-client`; both pull `child_process`/`fs` via
+  `python-runtime.ts`, so the browser bundle failed to compile. Switched both to
+  the client-safe `jobs-browser` module and a new `grants-browser.ts` (fetch-only
+  mirror of the `/api/harness/grants/**` front door, type-only re-export of
+  `StandingGrant`), matching the existing browser/server split. No doc change —
+  bug fix keeping the client/server contract intact.
 
 ## 2026-10-06
 

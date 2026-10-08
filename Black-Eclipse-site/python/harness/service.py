@@ -116,6 +116,15 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - the research engine must never block boot
             self.evidence_store = None
             log.warning("web research engine unavailable", exc_info=True)
+        # The Market Data Layer: canonical market-data tools, a provider-routing
+        # gateway, a mandatory data-quality engine, provenance into the Evidence &
+        # Research Engine, and real-time streaming. Boot wiring lives in
+        # `market/bootstrap.py` (keeping this module under its size ratchet); it
+        # reuses the ONE read-only bridge transport and the ONE agent-memory
+        # connection, and registers its tools on the SAME registry.
+        from .market.bootstrap import install_market_layer  # noqa: PLC0415
+
+        install_market_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.
@@ -256,6 +265,37 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - Computer Use is optional; never block boot
             self.computer = None
             log.warning("computer use subsystem unavailable", exc_info=True)
+        # Vision / Multimodal subsystem: ONE process-wide content-addressed asset
+        # store bound to the same agent-memory connection (binary lives on the
+        # gitignored filesystem tier; only metadata is relational). Its tools
+        # register on the SAME registry and route every model call through the
+        # existing model runtime — native-first, with an auxiliary vision-model
+        # fallback. A failure to construct only means the tools report honest
+        # capability states, so it never blocks boot.
+        try:
+            from .vision import build_asset_store  # noqa: PLC0415
+            from .vision.tools import register_vision_tools  # noqa: PLC0415
+
+            self.vision_assets = build_asset_store(self.store)
+            register_vision_tools(self.registry)
+        except Exception:  # noqa: BLE001 - vision is optional; never block boot
+            self.vision_assets = None
+            log.warning("vision subsystem unavailable", exc_info=True)
+        # Document Intelligence: ONE process-wide document store bound to the same
+        # agent-memory connection (binaries live in the vision asset store; only
+        # metadata + text are relational). Its tools register on the SAME registry
+        # and reuse the vision subsystem for OCR/rendering/model calls and the
+        # EvidenceStore for provenance. A construction failure only makes the tools
+        # report honest capability states, so it never blocks boot.
+        try:
+            from .document_intelligence.store import DocumentStore  # noqa: PLC0415
+            from .document_intelligence.tools import register_document_tools  # noqa: PLC0415
+
+            self.document_store = DocumentStore(self.store)
+            register_document_tools(self.registry)
+        except Exception:  # noqa: BLE001 - documents are optional; never block boot
+            self.document_store = None
+            log.warning("document intelligence subsystem unavailable", exc_info=True)
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
@@ -732,6 +772,16 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - the sweep must never block boot
             log.warning("code workspace sweep failed", exc_info=True)
             result["codeWorkspaceSweep"] = {"ok": False, "error": "sweep failed"}
+        # Vision assets: a sensitive frame is stored with an expiry; the sweep
+        # deletes expired asset rows AND their files. Without this the TTL would
+        # be a claim rather than a behavior (and disk would grow unbounded).
+        try:
+            vision_assets = getattr(self, "vision_assets", None)
+            if vision_assets is not None:
+                result["visionAssetSweep"] = {"removed": vision_assets.sweep_expired()}
+        except Exception:  # noqa: BLE001 - the sweep must never block boot
+            log.warning("vision asset sweep failed", exc_info=True)
+            result["visionAssetSweep"] = {"ok": False, "error": "sweep failed"}
         return result
 
     def run_skill_maintenance(self) -> dict[str, Any]:
@@ -893,6 +943,11 @@ class AgenticService:
 
     async def run(self, request: RunRequest) -> RunResult:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
+        # Bind the process-wide market gateway to THIS run's bridge so market tools
+        # reach providers through the same per-run transport as every other tool.
+        market_gateway = getattr(self, "market_gateway", None)
+        if market_gateway is not None:
+            market_gateway._bridge = bridge  # noqa: SLF001 - deliberate per-run rebind
         # Bind server-initiated sampling to THIS run's model (still off by
         # default per server; a request is refused unless the operator enabled it).
         if self.mcp is not None:
@@ -913,9 +968,20 @@ class AgenticService:
             mcp_manager=self.mcp, code_store=self.code_store,
             code_intel_runtime=getattr(self, "code_intel", None),
             evidence_store=getattr(self, "evidence_store", None),
+            market=self._market_bundle(),
         )
         await self._schedule_review(request.runId, result.status)
         return result
+
+    def _market_bundle(self) -> Any:
+        """The market subsystem handed to each run (gateway/store/stream)."""
+        from .market.bootstrap import MarketBundle  # noqa: PLC0415
+
+        gateway = getattr(self, "market_gateway", None)
+        if gateway is None:
+            return None
+        return MarketBundle(gateway=gateway, store=getattr(self, "market_store", None),
+                            stream=getattr(self, "market_stream", None))
 
     def run_lineage(self) -> Any:
         """The process-wide lineage/checkpoint store (Phase 1)."""
@@ -1077,6 +1143,9 @@ class AgenticService:
 
     async def run_background(self, request: RunRequest) -> None:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
+        market_gateway = getattr(self, "market_gateway", None)
+        if market_gateway is not None:
+            market_gateway._bridge = bridge  # noqa: SLF001 - per-run rebind
 
         async def _task() -> None:
             try:
@@ -1088,6 +1157,7 @@ class AgenticService:
                     mcp_manager=self.mcp, code_store=self.code_store,
                     code_intel_runtime=getattr(self, "code_intel", None),
                     evidence_store=getattr(self, "evidence_store", None),
+                    market=self._market_bundle(),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

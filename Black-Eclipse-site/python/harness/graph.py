@@ -322,6 +322,11 @@ def build_graph(
     code_ledger: Optional[Any] = None,
     code_intel_runtime: Optional[Any] = None,
     evidence_store: Optional[Any] = None,
+    vision_sink: Optional[Any] = None,
+    # The run's document-intelligence result collector, so a `document_*` tool's
+    # structured result reaches the run blob the right sidebar renders.
+    document_sink: Optional[Any] = None,
+    market: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -445,6 +450,16 @@ def build_graph(
         # agent-memory connection). None = the research tools build their own from
         # the run's memory store (still persisted, just not the shared instance).
         evidence_store=evidence_store,
+        # The run's vision-result collector, so a `vision_*` tool's structured
+        # result reaches the run blob the right sidebar renders.
+        vision_sink=vision_sink,
+        # The run's document-intelligence collector (same idiom).
+        document_sink=document_sink,
+        # The Market Data Layer: gateway (routing + quality), durable snapshot/
+        # instrument store and stream manager, as one bundle. Shared process-wide.
+        market_gateway=getattr(market, "gateway", None),
+        market_store=getattr(market, "store", None),
+        market_stream=getattr(market, "stream", None),
     )
     registry.set_active_context(ctx)
 
@@ -902,6 +917,7 @@ async def execute_run(
     code_store: Optional[Any] = None,
     code_intel_runtime: Optional[Any] = None,
     evidence_store: Optional[Any] = None,
+    market: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -1107,6 +1123,20 @@ async def execute_run(
 
     source_collector = SourceCollector()
 
+    # Ordinary-run vision collection: a `vision_*` tool hands its structured
+    # result here so the run carries a bounded vision blob for the right sidebar
+    # (asset ids, regions, OCR, confidence, provenance). Additive and best-effort.
+    from .vision.collector import VisionCollector  # noqa: PLC0415
+
+    vision_collector = VisionCollector()
+
+    # Ordinary-run document collection: a `document_*` tool hands its structured
+    # result here so the run carries a bounded document blob for the right sidebar
+    # (type, pages, status, capabilities, entities, evidence counts). Best-effort.
+    from .document_intelligence.collector import DocumentCollector  # noqa: PLC0415
+
+    document_collector = DocumentCollector()
+
     # Bounded recovery (Milestone 4): if the run failed with a classified
     # CONTEXT_OVERFLOW, retry ONCE with a materially tighter history budget. The
     # terminal status is persisted once, below, after recovery resolves.
@@ -1164,6 +1194,9 @@ async def execute_run(
             code_ledger=code_ledger,
             code_intel_runtime=code_intel_runtime,
             evidence_store=evidence_store,
+            vision_sink=vision_collector.add,
+            document_sink=document_collector.add,
+            market=market,
         )
         return await app.ainvoke(initial_state)
 
@@ -1290,10 +1323,18 @@ async def execute_run(
     # run's collected blob carries status `collected`, distinct from a gated
     # research run's `accepted`/`partial`/`rejected`.
     research_blob = source_collector.to_research_blob()
+    # Vision results collected from this run's `vision_*` tool calls (None when no
+    # vision tool ran), shaped for the right sidebar.
+    vision_blob = vision_collector.to_blob()
+    # Document results collected from this run's `document_*` tool calls (None when
+    # no document tool ran), shaped for the right sidebar.
+    documents_blob = document_collector.to_blob()
     store.update_run(
         request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,
         **( {"research": research_blob} if research_blob else {} ),
+        **( {"vision": vision_blob} if vision_blob else {} ),
+        **( {"documents": documents_blob} if documents_blob else {} ),
     )
     # Durable terminal boundary: a resume of a completed run is a RESUME_CONFLICT.
     if lineage is not None:
@@ -1329,6 +1370,8 @@ async def execute_run(
     result.memory = memory_blob or None
     result.context = context_blob
     result.research = research_blob
+    result.vision = vision_blob
+    result.documents = documents_blob
     return result
 
 

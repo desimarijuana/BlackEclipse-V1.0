@@ -475,6 +475,12 @@ EXTERNAL_ACTION_TOOLS: tuple[str, ...] = (
     "code_commit", "code_push", "code_open_pr", "code_deploy",
 )
 
+# The Vision/Multimodal external action: image generation is a paid provider
+# call, so it is removed at `plan_only`, kept (but per-call approval-gated) at
+# `edit_verify`/`approve_external`, and absent from the read-only fail-closed
+# profile — exactly like every other external tool.
+VISION_EXTERNAL_TOOLS: tuple[str, ...] = ("image_generate",)
+
 # ── Browser subsystem ────────────────────────────────────────────────────────
 # The browser tools are registered by `register_browser_tools` when the
 # capability is enabled. Their READ half (observe/navigate) is always available;
@@ -611,7 +617,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS)
     elif autonomy == "edit_verify":
         # Local container/process mutations stay; CLUSTER/INFRA/CLOUD mutations
         # (kubectl apply/delete/scale/exec, helm install/uninstall, terraform
@@ -624,7 +630,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 
@@ -705,6 +711,7 @@ __all__ = [
     "DENIED_PROGRAMS",
     "EXECUTION_READ_TOOLS",
     "EXTERNAL_ACTION_TOOLS",
+    "VISION_EXTERNAL_TOOLS",
     "FS_READ_TOOLS",
     "FS_WRITE_TOOLS",
     "IGNORED_DIRS",

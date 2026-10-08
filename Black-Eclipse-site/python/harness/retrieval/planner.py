@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .authority import (
+    CRYPTO,
     SEC_FILINGS,
     STRUCTURED_LIVE,
     STRUCTURED_VAULT,
@@ -80,6 +81,15 @@ def plan_retrieval(
     authority = authority_for(request.dataType)
     order = list(authority.candidates)
     warnings: list[str] = []
+
+    # A crypto request is owned by the dedicated CRYPTO source and by nothing
+    # else (the vault and the live provider cannot price a crypto pair). Promote
+    # it to the front only for a crypto request, so the static table stays stable
+    # for every other instrument and the decision remains explainable.
+    from .structured import is_crypto
+
+    if is_crypto(request) and request.dataType in ("current_quote", "historical_prices"):
+        order = [CRYPTO, *[s for s in order if s != CRYPTO]]
 
     # A caller-supplied tier hint reorders preference (but never forces a source).
     if request.preferredSource:
@@ -140,4 +150,5 @@ __all__ = [
     "STRUCTURED_LIVE",
     "SEC_FILINGS",
     "WEB",
+    "CRYPTO",
 ]

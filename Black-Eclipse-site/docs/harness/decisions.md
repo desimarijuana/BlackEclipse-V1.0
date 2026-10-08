@@ -4285,6 +4285,7 @@ number can never bypass the engine's verification.
 /browser/tasks`; the bundled `system.sec-filing-research` skill; tests
 `test_phase10_coordination.py`. No new evidence store — the browser still feeds the
 engine's collector.
+
 ## ADR-H141 — The lifespan is its own module, the prompt ceiling narrows, and the three surfaces share one page (Phase S)
 
 **Decision.** Stabilization is three process commitments, each made structural:
@@ -4360,6 +4361,21 @@ a human hand-off.
    down/up now honour `background` (posted WM_* messages in the target's own child
    hierarchy) as well as `foreground`, and foreground focus is restored after an
    escalation.
+7. **Platform breadth is real-or-honest.** `drivers/linux.py` (ctypes X11/XTest)
+   and `drivers/macos.py` (ctypes Core Graphics/AX) are real drivers with matching
+   accessibility providers (`accessibility/linux.py` AT-SPI, `accessibility/macos.py`
+   AX). Wayland-only Linux and any OS without a backend fall to a genuine
+   `NullDriver`. macOS TCC permissions are probed, never fabricated.
+8. **Sessions are serialized on the one physical desktop.** `broker.py` holds a
+   machine-wide control lease for the duration of a single action, so concurrent
+   sessions queue rather than interleave input; the per-session human takeover
+   lease is unchanged.
+9. **Isolation is a declared seam, not a claim.** `desktop.py` exposes a
+   `DesktopProvider` (local today; Windows Sandbox / headless Xvfb declared), so
+   `headless_desktop` stays False until a genuine provisioner exists.
+10. **Adapter knowledge is honest about verification.** Adapters carry
+    `verified`/`verified_note` (False = a knowledge record) and `looks_busy`/
+    `looks_ready`; only the opt-in live rig marks one verified.
 
 **Why.** "Ready on Windows" is only true if the limits are real, the common backends
 exist without extra setup, and money/security still stop for a person. Honesty is
@@ -4368,9 +4384,105 @@ the invariant: an absent backend degrades to a reason, never a fake desktop.
 **Consequences.** New `ocr/windows.py` (`WindowsOCREngine`); `errors.BudgetExceeded`;
 `security.detect_challenge` / `scan_injection`; the `computer_request_human` tool
 (and `EFFECTFUL_TOOLS`/`COMPUTER_EFFECTFUL_TOOLS`); driver background mouse paths;
-`requirements.txt` extras + `setup-python.js`/`doctor.js` repairs. Tests:
-`test_computer_hardening.py`. macOS/Linux drivers, VM/headless desktops and an
-app-verification rig remain open (tracked in the Computer Use roadmap).
+`requirements.txt` extras + `setup-python.js`/`doctor.js` repairs. New
+`drivers/linux.py`, `drivers/macos.py`, `accessibility/linux.py`,
+`accessibility/macos.py`, `broker.py`, `desktop.py`; adapter verification status.
+Tests: `test_computer_hardening.py`; the opt-in `test_computer_apps_live.py`.
+VM/headless desktop provisioning remains the one open item.
+
+## ADR-H142 — Isolated desktops are a provisioner seam: real Xvfb, declared Sandbox, honest fallback
+
+**Context.** Computer Use ran every session against the operator's one physical
+desktop, so `broker.py` could only *serialize* agents (preventing corruption, not
+giving isolation). True multi-agent control needs a separate desktop per session,
+and the earlier `DesktopProvider` seam was a capability descriptor with no
+lifecycle.
+
+**Decision.**
+
+1. **A provisioner owns a session's desktop lifecycle.** `desktop.py` now defines
+   `DesktopProvisioner.create/destroy` returning a `DesktopInstance` (its own
+   driver, display, process). `ComputerManager` provisions per session: the local
+   provisioner wraps the process driver; an isolated provisioner gives the session
+   its own.
+2. **Xvfb is real.** `X11HeadlessProvisioner` allocates a free display, spawns
+   `Xvfb :N`, waits for the socket, and starts a `LinuxX11Driver` bound to that
+   `DISPLAY`. The spawn/socket probes are injectable, so create→attach→teardown is
+   fully tested without Xvfb installed; on a Linux host it runs for real.
+3. **Windows Sandbox stays honestly unavailable.** `WindowsSandboxProvisioner`
+   reports `available:false` because a host Win32 driver cannot attach to a
+   sandbox session; it needs an owned RDP/VM display first.
+4. **Isolation is opt-in and cannot break zero-config.** `isolation.mode`
+   (`off|auto|on`, default `off`) picks the backend; absence of the backend falls
+   back to the local desktop with a reason. `headless_desktop` is true only for a
+   genuinely provisioned isolated desktop.
+5. **Isolated sessions skip the machine broker.** A session with its own display
+   neither waits on nor blocks the shared-desktop lease, so N agents run
+   concurrently on N desktops; shared-desktop sessions still serialize.
+
+**Why.** The one honest line is unchanged: isolation is real or it is not claimed.
+The injectable lifecycle makes a platform-specific backend verifiable in CI, and
+the opt-in default preserves `npm install && npm run dev`.
+
+**Consequences.** `desktop.py` gains `DesktopProvisioner`/`DesktopInstance`/
+`build_provisioner` and the Xvfb/Sandbox provisioners; `config.py` gains
+`isolation*`; `manager.py` provisions/tears down per session and reports the
+provisioner + broker in `capabilities()`; `session.py` marks `isolated`;
+`LinuxX11Driver` takes an explicit `display`. Tests: `test_computer_hardening.py`.
+Still open: Windows Sandbox attach and Wayland (portal) isolation.
+
+## ADR-H143 — Remote/isolated desktops attach through a contained window; Wayland goes through grim/ydotool
+
+**Context.** ADR-H142 built the provisioner lifecycle with a real Xvfb backend and
+declared Windows Sandbox, RDP and Wayland unavailable. Those three share one
+problem — the guest desktop is not addressable by the host's own SendInput/BitBlt —
+and Wayland has no global input/capture API at all.
+
+**Decision.**
+
+1. **One attach mechanism: `WindowDriver`.** `drivers/window.py` wraps a base
+   platform driver and scopes every operation to ONE contained desktop window
+   (capture the window rectangle; translate window-local coordinates to absolute
+   foreground events). It is the honest bridge for any desktop that renders inside
+   a host window — Windows Sandbox, RDP, a VM console.
+2. **The guest gets a real (OCR-derived) element tree.** The guest's native
+   accessibility tree is not host-visible, so `WindowDriver.accessibility_tree`
+   reads the contained window's pixels and turns OCR words into an `AXNode` tree
+   (roles/text/absolute bounds), cached briefly. It is labelled `source=ocr` and
+   returns None (accessibility False) when no OCR backend exists — never invented.
+3. **Input is background-first, then foreground.** `WindowDriver` posts background
+   input when the base driver supports it and escalates to foreground (verified by
+   the core) otherwise, so a contained desktop gets the same safe delivery ladder.
+4. **Windows Sandbox is real-or-honest.** `WindowsSandboxProvisioner` launches
+   `WindowsSandbox.exe`, waits for the client window, and attaches a
+   `WindowDriver`; absence (non-Pro/Enterprise, virtualization off) falls back to
+   local with a reason. Launch/probe are injectable so the lifecycle is tested
+   without the feature enabled.
+5. **RDP is real-or-honest.** `RdpDesktopProvisioner` spawns `mstsc` against
+   `rdp.host`/`rdp.file` and attaches to the session window. Eclipse never handles
+   the credential — it relies on the operator's CMDKEY/`.rdp`.
+6. **Wayland gets its own (headless) compositor + tools.** `WaylandDriver` captures
+   via `grim` and inputs via `ydotool`, reporting each capability per-tool.
+   `WaylandHeadlessProvisioner` spawns a **nested headless compositor**
+   (`wlheadless-run` wrapping `sway`/`weston`, or their own `--headless` backend)
+   on a private `XDG_RUNTIME_DIR` socket and attaches the driver — a genuinely
+   isolated desktop, not just the shared session.
+7. **Zero-config and isolation semantics are unchanged.** All backends are opt-in
+   (`isolation.mode`), fall back to local with a reason, and an isolated session
+   still skips the machine-wide broker.
+
+**Why.** The blocker was never "no code" — it was "no addressable surface". A
+contained-window driver turns an unattachable guest into a scoped, honest one, and
+naming the limits (best-effort input, no guest AX) keeps the honesty invariant
+intact.
+
+**Consequences.** New `drivers/window.py`, `drivers/wayland.py`;
+`WindowsSandboxProvisioner`/`RdpDesktopProvisioner`/`WaylandHeadlessProvisioner`
++ `_construct` in `desktop.py`; `config.py` `rdp_host`/`rdp_file`
+(`HARNESS_COMPUTER_RDP_*`); driver factory `wayland`/`window`; opt-in live test
+`test_computer_xvfb_live.py`. Still open: a *native* guest accessibility bridge
+(the OCR tree is a real but weaker substitute), and full-unicode typing on
+Wayland/X11.
 
 ## ADR-H144 — An "Always allow" permission is a separate, revocable standing grant, not a repeatable approval
 
@@ -4469,3 +4581,189 @@ token, and this protects the surface an external caller can actually reach.
 `python/tests/test_identity_tenancy_boundary.py` updated and extended; docs
 `docs/harness/authentication.md`. With `HARNESS_AUTH=off`, the old no-auth,
 no-tenancy reality still holds and must stay on a trusted local machine.
+
+## ADR-H146 � Vision is one orchestrator, native-first, with deterministic-first and an untrusted-input boundary
+
+**Context.** Eclipse needed a production multimodal capability. The Computer Use
+and Browser subsystems already had narrow, per-subsystem vision helpers
+(`computer/vision/`, `browser/vision_model.py`) that re-used the model runtime,
+and the model-capability registry already declared a `vision` capability. A new,
+independent "vision stack" would have duplicated provider selection, OCR,
+screenshots and the model construction path.
+
+**Decision.**
+1. **One orchestrator, one seam.** `vision/orchestrator.py` owns
+   resolve?preprocess?store?route?capability?cache?dispatch?fallback?telemetry.
+   Tools are thin adapters; no handler picks a provider or calls a model directly.
+2. **Native-first.** If the run's own model accepts images, the image goes to it.
+   The auxiliary vision model is a fallback, selected through the existing model
+   registry with the runtime's same-provider/keyless-local rule. Routing is pure
+   data and testable without a model.
+3. **Deterministic-first.** OCR before a model; OCR-then-model grounding; PDF text
+   layer before the model; a pixel diff before a model describes it; chart numbers
+   are verified against deterministic market data through the existing bridge, and
+   a visual/numeric disagreement is reported with market data authoritative.
+4. **Untrusted input.** URL fetching re-uses `mcp.ssrf` on every hop; byte/pixel
+   ceilings plus Pillow's bomb guard; recognized in-image text is scanned and
+   DELIMITED as untrusted data (re-using `research.web_security`), so text inside
+   an image is data, never an instruction.
+5. **Binary outside relational data.** Images are content-addressed on the
+   gitignored filesystem tier; only metadata is a `VisionAsset` row on the ONE
+   `agent-memory.db` connection.
+6. **No Redis.** The cache is a bounded in-process TTL store keyed over image
+   hash + model + provider + prompt + mode + preprocessing + schema version,
+   consistent with the existing retrieval/investor-eye caches.
+7. **Evidence without a new contract.** Observations become the existing
+   `research.web_contracts.Evidence` and persist through `EvidenceStore`, with
+   `contentTrust=UNTRUSTED`.
+
+**Consequences.** New `python/harness/vision/` (contracts, config, errors, image,
+fetch, load, storage, cache, capabilities, providers, routing, analyze, ocr,
+grounding, documents, charts, compare, security, telemetry, tiling, evidence,
+collector, orchestrator, tools); the `VISION_TOOLS` constant in `agents.py` on the
+finance and code agents (all read-only); boot wiring in `service.py`
+(`AgenticService.vision_assets`); the `vision` run-blob column on `HarnessRun`;
+`vision` on `RunResult`/`client.final`; TS `vision-view.ts` +
+`src/components/chat/vision-panel.tsx`; tool labels in `response-model.ts`;
+activity detail/summary for vision tools in `code/activity.py`; `pypdfium2` added
+to `requirements.txt`. The Computer Use and Browser vision helpers are unchanged
+(the orchestrator complements, not replaces, their narrow per-subsystem needs).
+Tests `python/tests/test_vision_{unit,orchestrator,tools,graph}.py` and
+`src/lib/harness/vision-view.test.ts`. Docs `docs/harness/vision.md`.
+
+
+### ADR-H146 (addendum) - capability closers: stdlib PDF, persistent visual memory, image generation
+
+Three areas that were initially only "honest limitations" were implemented:
+
+1. **PDF without pypdfium2.** `vision/documents.py` adds a dependency-free
+   `_StdlibPdf` backend (text from content streams always; Pillow rasterization for
+   standard-font pages). Each `DocumentPage` records `textMethod`/`rasterMethod`, so
+   the method is never hidden; `pypdfium2` remains preferred. `pdf_capabilities()`
+   reports availability. No page is ever faked.
+2. **Persistent visual memory.** `vision/memory.py` (`vision_remember` tool) persists
+   a vision result through the SAME memory decision gate (`authorize_proposal` +
+   `commit_decision`) - never bypassing it. Only a text summary is stored (never the
+   bytes); the content-addressed `assetId` and regions/model/provider/confidence ride
+   in `structuredData`; a sensitive/ephemeral result is low-importance with a 1-day TTL.
+3. **Image generation.** `vision/generate.py` (`image_generate` tool) speaks the
+   OpenAI-compatible `/images/generations` protocol, gated by the model's declared
+   `image_generation` capability. It is registered `external_action` (effect
+   `external_action`), approval-gated by the run's effect authorizer, and removed at
+   `plan_only` via `code/policy.py` `VISION_EXTERNAL_TOOLS` - the same boundary every
+   other external/paid tool uses. Failures are classified (`NO_VISION_MODEL`,
+   `AUTH_ERROR`, `RATE_LIMIT`, `MALFORMED_RESPONSE`), never a placeholder image.
+
+`VISION_TOOLS` gains `vision_remember` and `image_generate`; the `image_generation`
+task profile (already present) routes generation; image-generation model families
+(dall-e/gpt-image/imagen/stable-diffusion/sdxl/flux) are declared in
+`model_runtime/catalog.py`. Tests `python/tests/test_vision_capabilities.py`.
+
+
+## ADR-H147 - Document Intelligence is one adapter/orchestrator pipeline over the shared DocumentIR, reusing vision, the model runtime, the evidence store and the query engine
+
+**Context.** Eclipse could see an image and read a PDF page, but had no
+first-class document-understanding capability: no format adapters, no unified
+intermediate representation, no OCR routing, no structured table/spreadsheet
+extraction, no hybrid document retrieval, no document comparison, and no
+document-aware provenance for the Evidence & Research Engine. The Vision
+subsystem (ADR-H146) already owned OCR engines, PDF rendering, the model-call
+path and the untrusted-input boundary; the Evidence Engine already owned the
+`Evidence` contract and `EvidenceStore`; DuckDB and pandas were already present
+for the SQL runtime; `agent-memory.db` was already the ONE runtime database. A
+parallel "documents" stack would have duplicated all of them.
+
+**Decision.**
+1. **One subsystem, one pipeline.** A new `python/harness/document_intelligence/`
+   package owns `validate → cache → detect → parse → OCR/vision → structure →
+   entities → chunk → index → evidence → assess`. Tools are thin adapters; no
+   handler decodes a file, picks a parser or calls a model directly.
+2. **A unified DocumentIR.** `ir.py` defines the vocabulary every adapter emits
+   (`DocumentIR`/`Page`/`Sheet`/`Block`/`Table`/`TableCell`/`DocumentImage`/`Section`
+   /`BBox`/`Provenance`/`DateFacts`). Coordinates are never lost, each block
+   carries its extraction method + confidence, and observed/extracted/inferred is
+   explicit. Downstream stages read the IR, never raw bytes.
+3. **Adapter per format, honest capabilities.** `adapters/` has one adapter per
+   kind (PDF, DOCX, PPTX, XLSX, ODS/ODT/ODP, CSV/TSV, JSON/JSONL/XML/YAML/TOML,
+   HTML, Markdown/TXT, image, EPUB, RTF, archive, legacy OLE). Each declares a
+   `Capabilities` map, so a CSV is not asked to render a page and a PPTX is not
+   asked for worksheets. OOXML is parsed with stdlib `zipfile`+`ElementTree`
+   (lxml recovery when available), so no `openpyxl`/`python-docx`/`python-pptx`
+   dependency is added.
+4. **Deterministic OCR routing.** `ocr.py` runs the existing OS OCR engine first
+   and only escalates to a vision-model transcription when there is no usable
+   text or confidence is below `OCR_CONFIDENCE_THRESHOLD`. Method + confidence are
+   recorded per page; a page with no text and no engine is reported, never faked.
+5. **Reuse, never fork.** OCR engines, PDF rendering and every model call come
+   from `harness.vision`; the model runtime is the only provider path; extraction
+   results become the SAME `research.web_contracts.Evidence` through
+   `EvidenceStore` with `contentTrust=UNTRUSTED`; tabular questions are computed
+   with read-only SQL over DuckDB/pandas (`query.py`), never model arithmetic;
+   tables live on the ONE `agent-memory.db` connection (`store.py`), binaries in
+   the vision asset store, and the IR blob is metadata-only on the gitignored
+   filesystem tier.
+6. **Untrusted input.** `security.py` validates extension/MIME/magic and byte
+   ceilings before any parser runs, refuses macro-enabled Office documents,
+   detects archive/compression bombs (declared size, ratio, entry count, nesting)
+   BEFORE extraction, SSRF-guards document URLs through `mcp.ssrf`, sanitizes HTML
+   of active content, and re-uses the shared injection boundary so document text
+   is DATA, never an instruction.
+7. **Truthful states.** `processing.py` models
+   `DISCOVERED→…→READY|PARTIALLY_READY|FAILED|CANCELLED`; a stage that cannot run
+   is `UNAVAILABLE`/`SKIPPED` and the document is `PARTIALLY_READY`, never `READY`.
+   Bounded retry (transient only) and a per-document timeout guard parsing.
+8. **Hybrid retrieval, point-in-time, provenance.** `retrieval.py` fuses lexical
+   scoring (deterministic, no embeddings — consistent with the harness's
+   documented lexical stance) with structured filters over document/version/page/
+   sheet/table/cell and the entity table. `compare.py` diffs two DocumentIRs
+   structurally before any model prose. `DateFacts` preserves publication/filing/
+   effective/period/retrieval dates.
+
+**Consequences.** New `python/harness/document_intelligence/` (config, errors, ir,
+contracts, security, base, adapters/*, ocr, render, entities, chunking, store,
+retrieval, query, compare, evidence, processing, telemetry, collector,
+orchestrator, tools); `DOCUMENT_TOOLS` in `agents.py` on the finance and code
+agents (all read-only); boot wiring in `service.py`
+(`AgenticService.document_store`); the `documents` run-blob column on `HarnessRun`;
+`documents` on `RunResult`/`client.final`; TS `document-view.ts` +
+`src/components/chat/document-panel.tsx`; tool labels in `response-model.ts`.
+Tests `python/tests/test_document_intelligence_{unit,tools,security,graph}.py` +
+fixture builder `document_intelligence_helpers.py` and
+`src/lib/harness/document-view.test.ts`. Docs `docs/harness/document-intelligence.md`.
+No new third-party dependency is added.
+
+
+## ADR-H148 - Market data is one gateway over declarative providers; the adapters stay on the TS bridge
+
+**Status:** Accepted (2026-10-07). The Market Data Layer is the one market-data
+surface for agents: fourteen capability tools (get_quote … stream_market_data)
+call a single MarketDataGateway, which resolves the instrument, selects a
+provider via a declarative ProviderRouter, fetches through the ONE read-only TS
+bridge capability (market_data), normalizes to a canonical record, runs the
+mandatory data-quality engine, and preserves provenance into the Evidence &
+Research Engine. Agents never name a provider.
+
+**Context.** The retrieval layer (etrieval/) is provider-agnostic but shallow —
+it serves quote/statements/news/profile, not order books, trades, funding, open
+interest, options, FX or bonds. The market-data engine (scraper chain, yfinance
+bridge, Yahoo chart, crypto connector, SEC, economics) already lives in Next.js,
+which also owns the ONE secret store (provider-keys.ts) and the ONE hardened
+outbound layer (connectors/security.ts#safeGet). Rebuilding an HTTP client or a
+second secret store in Python would duplicate both.
+
+**Decision.** Keep the *adapters* in TypeScript (one file per provider under
+src/lib/harness/market/providers/) and keep *routing, normalization, quality,
+caching, provenance, storage and streaming* in Python (python/harness/market/).
+The Python runtime calls providers only through a single bridge capability,
+market_data; it holds no provider key. Instrument identity is the bridge's
+instrument master (the same one the retrieval layer uses), cached briefly and
+never invented when the bridge is silent.
+
+**Consequences.** ONE transport, ONE secret store, ONE instrument master; the
+adapter registry is additive (a new provider is one TS file + one Python
+descriptor row). Order books/streaming are real (Binance public REST/WebSocket),
+not pollers. Known gaps are returned honestly (UNSUPPORTED_CAPABILITY for an
+equity order book) rather than faked. websockets/httpx are pinned; when
+websockets is absent, streaming reports STREAM_DISCONNECTED and REST is
+unaffected. Tests: python/tests/test_market_{unit,gateway,streaming}.py +
+src/lib/harness/market/bridge.test.ts. Docs docs/harness/market-data.md.

@@ -82,6 +82,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 python/**/*.egg-info/
+# Agent session trajectories written under python/ (runtime-only, never source)
+python/csess_*/
 
 # rolling DB backups created by scripts/db-guard.js
 /backups/

@@ -22,12 +22,16 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .planner import SEC_FILINGS, STRUCTURED_LIVE, STRUCTURED_VAULT, WEB
+from .planner import CRYPTO, SEC_FILINGS, STRUCTURED_LIVE, STRUCTURED_VAULT, WEB
 
 # Data type → {planner source name: the bridge capability its health is recorded
 # under}. A source absent here is not health-ranked for that data type.
 _CAPABILITY_BY_DATATYPE: dict[str, dict[str, str]] = {
-    "current_quote": {STRUCTURED_VAULT: "live_quote", STRUCTURED_LIVE: "live_quote"},
+    "current_quote": {
+        CRYPTO: "crypto_market_data",
+        STRUCTURED_VAULT: "live_quote",
+        STRUCTURED_LIVE: "live_quote",
+    },
     "historical_prices": {STRUCTURED_VAULT: "price_history", STRUCTURED_LIVE: "price_history"},
     "company_profile": {STRUCTURED_VAULT: "fundamentals", STRUCTURED_LIVE: "fundamentals"},
     "financial_statements": {

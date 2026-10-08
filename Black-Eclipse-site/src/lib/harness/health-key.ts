@@ -89,11 +89,16 @@ export const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
   "route_probe",
   "coverage",
   "capability_matrix",
+  "provider_key_status",
   "macro_resolve",
   "mcp_secret_resolve",
-  "mcp_oauth_token_get",
   "mcp_oauth_token_set",
+  "mcp_oauth_token_get",
   "mcp_oauth_token_clear",
+  // The Market Data Layer records its own provider health in the Python
+  // MarketStore (the ProviderRouter + circuit breaker own it), so it must not
+  // also write the TS SourceHealth ledger with a different route vocabulary.
+  "market_data",
 ]);
 
 // Bridge capability → the health capability name the registry declares. Mostly
@@ -102,6 +107,7 @@ export const HEALTH_CAPABILITY: Readonly<Record<string, string>> = {
   market_snapshot: "live_quote",
   live_quote: "live_quote",
   price_history: "price_history",
+  crypto_market_data: "crypto_market_data",
   fundamentals: "fundamentals",
   financial_statements: "financial_statements",
   sec_filings: "sec_filings",
@@ -116,6 +122,7 @@ export const DEFAULT_HEALTH_SOURCE: Readonly<Record<string, string>> = {
   market_snapshot: "JDDS",
   live_quote: "LIVE_STRUCTURED",
   price_history: "LIVE_STRUCTURED",
+  crypto_market_data: "CRYPTO",
   fundamentals: "JDDS",
   financial_statements: "JDDS",
   sec_filings: "SEC",

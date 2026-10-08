@@ -55,6 +55,37 @@ _PATH_TOOLS = {
 }
 _COMMAND_TOOLS = {"command_run", "terminal_run"}
 
+# Vision tools whose QUESTION/TARGET is safe, useful display metadata.
+_VISION_QUESTION_TOOLS = {
+    "vision_analyze", "image_understand", "vision_answer",
+    "screenshot_analyze", "clipboard_analyze", "chart_analyze",
+    "document_vision", "visual_ground", "visual_localize",
+    "visual_compare", "screen_compare",
+}
+# Vision tools whose SOURCE KIND is the safe detail (never the payload).
+_VISION_SOURCE_TOOLS = {
+    "vision_analyze", "image_understand", "ocr_extract", "image_metadata", "vision_answer",
+}
+# Vision-prefixed tools whose structured `data` follows the vision-result shape.
+_VISION_RESULT_TOOLS = {
+    "chart_analyze", "document_vision", "ocr_extract",
+}
+
+
+def _source_kind_hint(source: Any) -> Optional[str]:
+    """A short, content-free source descriptor (never the base64 payload)."""
+    text = str(source or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered.startswith("data:"):
+        return "data-uri"
+    if lowered.startswith(("http://", "https://")):
+        return "url"
+    if len(text) >= 64 and " " not in text and "\\" not in text and "/" not in text:
+        return "image-bytes"
+    return "path"
+
 
 def _clip(text: Any, limit: int = MAX_DETAIL_CHARS) -> str:
     value = str(text or "").strip()
@@ -106,6 +137,14 @@ def tool_detail(tool_name: str, args: dict[str, Any]) -> Optional[str]:
         field = _PATH_TOOLS[name]
         value = args.get(field)
         return _clip(value) if value not in (None, "") else None
+    if name in _VISION_QUESTION_TOOLS:
+        # Show the question/target, never the image bytes or a path dump.
+        value = args.get("question") or args.get("target")
+        return _clip(value) if value not in (None, "") else None
+    if name in _VISION_SOURCE_TOOLS:
+        # A short, safe descriptor of the source kind — never the payload.
+        kind = args.get("source_kind") or _source_kind_hint(args.get("source"))
+        return _clip(kind) if kind else None
     return None
 
 
@@ -157,6 +196,18 @@ def tool_result_summary(tool_name: str, data: Any) -> Optional[str]:
             suffix = f" ({engine})" if engine else ""
             return f"{count} result(s){suffix}"
         return None
+    if name.startswith("vision_") or name in _VISION_RESULT_TOOLS:
+        # A vision tool returns `{ok, mode, ...}`; summarize honestly.
+        if data.get("ok") is False:
+            error = data.get("error") or {}
+            return f"unavailable ({error.get('errorClass', 'ERROR')})"
+        mode = data.get("mode") or "vision"
+        count = 0
+        for key in ("observations", "text", "regions"):
+            value = data.get(key)
+            if isinstance(value, list):
+                count += len(value)
+        return f"{mode} · {count} item(s)" if count else mode
     return None
 
 

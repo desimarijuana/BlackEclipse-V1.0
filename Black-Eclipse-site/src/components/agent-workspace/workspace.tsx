@@ -13,7 +13,7 @@
 // persisted trace.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PanelRight, Sparkles, X } from '@/lib/icons';
+import { Bot, PanelRight, Sparkles, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import type { TranslationKey } from '@/lib/i18n/types';
@@ -187,8 +187,8 @@ export function AgentWorkspace() {
         'w-full md:h-full md:w-auto',
       )}
     >
-      <header className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-        <Sparkles size={14} className="shrink-0 text-primary" />
+      <header className="flex items-center gap-2 px-3 py-2">
+        <Bot size={15} className="shrink-0 text-primary" />
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-foreground">
           {t('workspace.title')}
         </span>
@@ -206,7 +206,7 @@ export function AgentWorkspace() {
         </button>
       </header>
 
-      <nav aria-label={t('workspace.title')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-white/10 px-2 py-1.5 scrollbar-hide">
+      <nav aria-label={t('workspace.title')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto px-2 py-1.5 scrollbar-hide">
         {SIDEBAR_PANELS.map((panel) => {
           const attention = panelAttention(panel, effective);
           return (

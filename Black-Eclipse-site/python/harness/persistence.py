@@ -267,6 +267,7 @@ def default_db_path() -> str:
 # idempotent ADD COLUMN — otherwise upgrades would silently lose token data.
 _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "HarnessRun": [
+        ("documents", "TEXT"),
         ("promptTokens", "INTEGER NOT NULL DEFAULT 0"),
         ("completionTokens", "INTEGER NOT NULL DEFAULT 0"),
         ("totalTokens", "INTEGER NOT NULL DEFAULT 0"),
@@ -278,9 +279,8 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # memory intent for this run (saved/forgotten/corrected/refused) plus
         # learning eligibility. Additive and NULL for older rows.
         ("memory", "TEXT"),
-        # Context budgeting: how the resolved model's window bounded this run's
-        # history (counts + estimates only). Additive and NULL for older rows.
-        ("context", "TEXT"),
+        # Context budgeting (how the model window bounded history) + vision results.
+        ("context", "TEXT"), ("vision", "TEXT"),
         # M3/M4: a run belongs to a session, profile and project. Additive and
         # NULL for older rows, so existing clients stay compatible.
         ("sessionId", "TEXT"),
@@ -366,7 +366,7 @@ class AgentMemoryStore:
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
             "provider", "model", "startedAt", "finishedAt", "research", "memory",
-            "context", "codeVerification",
+            "context", "codeVerification", "vision", "documents",
             "sessionId", "profileId", "projectId",
         }
         sets, params = [], []
@@ -375,7 +375,7 @@ class AgentMemoryStore:
                 continue
             value = patch[key]
             sets.append(f"{key} = ?")
-            if key in ("error", "research", "memory", "context", "codeVerification") and value is not None:
+            if key in ("error", "research", "memory", "context", "codeVerification", "vision", "documents") and value is not None:
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -1332,6 +1332,8 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "memory": json.loads(row["memory"]) if _has_column(row, "memory") and row["memory"] else None,
         "context": json.loads(row["context"]) if _has_column(row, "context") and row["context"] else None,
         "codeVerification": json.loads(row["codeVerification"]) if _has_column(row, "codeVerification") and row["codeVerification"] else None,
+        "vision": json.loads(row["vision"]) if _has_column(row, "vision") and row["vision"] else None,
+        "documents": json.loads(row["documents"]) if _has_column(row, "documents") and row["documents"] else None,
         "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
         "profileId": row["profileId"] if _has_column(row, "profileId") else None,
         "projectId": row["projectId"] if _has_column(row, "projectId") else None,

@@ -322,7 +322,7 @@ function ScheduleWidget() {
   const [loaded, setLoaded] = React.useState(false);
 
   React.useEffect(() => {
-    void import('@/lib/harness/jobs-client')
+    void import('@/lib/harness/jobs-browser')
       .then((m) => m.listJobTemplates())
       .then((all) => {
         const research = all.filter((t) => ['deep-research-brief', 'competitor-watch', 'research-topic-digest'].includes(t.id));
@@ -338,7 +338,7 @@ function ScheduleWidget() {
     setBusy(true);
     setMessage(null);
     try {
-      const m = await import('@/lib/harness/jobs-client');
+      const m = await import('@/lib/harness/jobs-browser');
       const key = template.parameters[0]?.key ?? 'topic';
       const { job } = await m.createJob({ templateId: template.id, params: { [key]: value } });
       await m.setJobEnabled(job.id, true);

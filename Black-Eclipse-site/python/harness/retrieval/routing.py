@@ -28,6 +28,7 @@ _CATEGORIES = (
     "not_implemented",   # no code path exists for this data type here
     "unconfigured",      # a code path exists but its credential/base is absent
     "provider_failure",  # the provider was reached and failed (timeout/http/transport)
+    "rate_limited",      # the provider is throttled (429 / cooldown / quota)
     "no_instrument",     # the issuer/ticker is not resolvable at all
     "no_data",           # the provider answered, genuinely no data for the request
     "no_matching_period",  # evidence exists but not for the requested period
@@ -49,6 +50,7 @@ _DIAGNOSTIC_TO_ROUTE = {
     "parse_failure": "invalid_document",
     "not_configured": "unconfigured",
     "invalid_request": "no_instrument",
+    "rate_limited": "rate_limited",
     "zero_results": "no_data",
 }
 
@@ -110,6 +112,8 @@ def classify_outcome(outcome: SourceOutcome) -> str:
     error = str(outcome.error or "").lower()
     if not error:
         return "provider_failure" if outcome.status == "ERROR" else "no_data"
+    if "rate limited" in error or "429" in error:
+        return "rate_limited"
     if "not in the" in error and "universe" in error:
         return "no_instrument"
     if "not_covered" in error or "not covered" in error:

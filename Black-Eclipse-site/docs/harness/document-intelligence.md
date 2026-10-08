@@ -1,0 +1,153 @@
+---
+title: Document Intelligence Subsystem
+status: Current
+last-verified: 2026-10-07
+---
+
+# Document Intelligence Subsystem
+
+**Code:** `python/harness/document_intelligence/`
+**Tools:** `document_open`, `document_inspect`, `document_search`,
+`document_extract`, `document_analyze`, `document_query`, `document_compare`,
+`document_render`, `document_capabilities`
+(registered by `document_intelligence/tools.py:register_document_tools`)
+**Config:** `document_intelligence/config.py` (`document.json` override +
+`HARNESS_DOCUMENT_*` / `DOCUMENT_*` / `OCR_*` env)
+**ADR:** `docs/harness/decisions.md` ADR-H147
+
+## What it is
+
+A single, provider-agnostic document-understanding capability integrated with the
+existing agent runtime. It turns a file of any supported format into one unified
+`DocumentIR`, then indexes, searches, compares and cites it. It never builds a
+second provider stack, OCR engine, evidence store, database or query engine —
+every one of those is reused.
+
+```
+agent tool (document_open, document_search, ...)
+        │
+        ▼
+process_document(...)                          document_intelligence/orchestrator.py
+        │
+        ├─ validate          security.py        (size, magic, macro, SSRF, injection)
+        ├─ cache             store.py           (content-hash → reuse extraction)
+        ├─ detect + parse    adapters/registry  (one adapter per format → DocumentIR)
+        ├─ OCR routing       ocr.py             (deterministic first → vision fallback)
+        ├─ structure         base.py / entities (sections, entities)
+        ├─ chunk + index     chunking.py / store.py
+        ├─ evidence          evidence.py        (→ research EvidenceStore, UNTRUSTED)
+        └─ assess            processing.py      (READY | PARTIALLY_READY | FAILED)
+```
+
+## The DocumentIR (the backbone)
+
+`ir.py` is the vocabulary every adapter emits and every downstream stage reads:
+`DocumentIR`, `Page` (a PDF page / PPTX slide / HTML doc), `Sheet` (a worksheet
+as data), `Block`, `Table`/`TableCell`, `DocumentImage`, `Section`, `BBox`,
+`Provenance`, `DateFacts`. Rules:
+
+- Coordinates are never lost; `BBox.unit` records points / px / emu / percent.
+- Every block carries `Provenance` (method + status + confidence + engine).
+- `compute_overall_text_method` reports the *weakest* essential method, so a
+  partly-OCR'd document is never called fully native.
+- The IR blob on disk is metadata only; image binaries live in the vision asset
+  store and are re-hydrated from there.
+
+## Adapters (one per format)
+
+| Adapter | Kinds | Notes |
+|---|---|---|
+| `pdf` | pdf | native text layer, scans via OCR routing, whitespace tables, links; raster via vision backend |
+| `docx` | docx | headings, lists, tables with cells, hyperlinks, headers/footers, footnotes, comments, embedded images |
+| `pptx` | pptx | slides, titles, text boxes, speaker notes, tables, charts, images; each slide is a Page |
+| `xlsx` | xlsx | worksheets (incl. hidden), sparse cells with **formulas separate from values**, merges, named ranges, comments, conditional formats, charts, used-range table |
+| `odf` | odt, odp, ods | ODF text/presentation/spreadsheet |
+| `tabular` | csv, tsv | streaming rows, column schema + type profiles, bounded preview |
+| `text` | markdown, mdx, txt, html, json, jsonl, xml, yaml, toml | structure-preserving; HTML sanitized; data formats get schema inference |
+| `image` | png/jpeg/webp/gif/tiff/bmp/svg | single-page doc; OCR then vision caption/layout |
+| `epub` | epub | spine order → pages, sanitized XHTML |
+| `legacy` | rtf, doc, xls, ppt | RTF native; legacy OLE converted via LibreOffice when present, else honest refusal |
+| `archive` | zip, tar, gz, 7z | **lazy inspection only**; bomb guards before any extraction |
+
+OOXML/ODF are read with the stdlib (`zipfile` + `ElementTree`), with a bounded
+`lxml` recovery parser for a malformed part. No `openpyxl` / `python-docx` /
+`python-pptx` dependency is added.
+
+## Reuse (no forks)
+
+- **OCR / rendering / models** — `harness.vision` (`ocr.run_ocr`,
+  `documents.open_pdf`/`render_page`/`parse_table`, `providers.call_model`).
+- **Evidence** — `research.web_contracts.Evidence` + `research.web_store.EvidenceStore`.
+- **Query** — read-only SQL over DuckDB (preferred) or a pandas `df.query`
+  fallback; only a single `SELECT`/`WITH` statement is accepted.
+- **Storage** — the ONE `agent-memory.db` connection (`DiDocument`, `DiVersion`,
+  `DiJob`, `DiChunk`, `DiTable`, `DiImage`, `DiEntity`, `DiOcrRun`, `DiCache`).
+- **Security** — `mcp.ssrf.check_outbound_url`, `research.web_security` boundary.
+
+## OCR routing
+
+```
+image → deterministic OCR (winsdk/tesseract) → confidence ≥ threshold? → accept
+                                              └─ no → vision-model transcription
+```
+Method + confidence are recorded per page. No engine and low confidence ⇒
+`UNAVAILABLE`, never a fabricated transcript.
+
+## Security (documents are untrusted input)
+
+- extension/MIME/magic detection + byte ceilings before any parser runs;
+- macro-enabled Office documents refused (`MACRO_ENABLED`) unless allowed;
+- archive bombs detected by declared size, ratio, entry count, nesting — before
+  extraction;
+- document URLs SSRF-guarded through `mcp.ssrf`;
+- HTML active content stripped; scripts never execute;
+- extracted text is DATA: scanned and delimited through the shared boundary, so
+  "ignore previous instructions" inside a document can never override the prompt.
+
+## States, retry, caching
+
+`DISCOVERED → VALIDATING → INGESTING → PARSING → OCR → VISION → STRUCTURING →
+INDEXING → READY | PARTIALLY_READY | FAILED | CANCELLED`. A stage that cannot run
+is `UNAVAILABLE`/`SKIPPED`. Parsing retries transient failures (bounded, backoff)
+and is bounded by `processing_timeout_seconds`. The same content hash reuses a
+fresh cached extraction unless `force` is set.
+
+## Agent context + right sidebar
+
+`collector.py` collects each `document_*` result into a bounded run blob,
+persisted on the `HarnessRun.documents` column and returned on
+`RunResult.documents`/`client.final`. TS `document-view.ts` coerces it and
+`src/components/chat/document-panel.tsx` renders it in the transcript — document,
+type, pages, status, the per-capability processing checklist (✓/✗), current
+page/section, evidence/entity counts.
+
+## Configuration
+
+Env vars: `DOCUMENT_MAX_FILE_SIZE`, `DOCUMENT_PROCESSING_TIMEOUT`, `OCR_PROVIDER`,
+`OCR_CONFIDENCE_THRESHOLD`, `MAX_PAGES`, `MAX_ARCHIVE_SIZE`, `MAX_ARCHIVE_FILES`,
+`DOCUMENT_CACHE_ENABLED`, `DOCUMENT_INDEX_ENABLED`, `HARNESS_DOCUMENT_QUERY_ENGINE`,
+`HARNESS_DOCUMENT_*`, plus a `.black-eclipse/document.json` override
+(`HARNESS_DOCUMENT_CONFIG` for the path). Hard ceilings cannot be raised by config.
+
+## Tests
+
+`test_document_intelligence_unit.py` (IR, security, every adapter, OCR, chunking,
+compare, entities, store, cache), `test_document_intelligence_tools.py` (registry,
+tools, evidence bridge, injection, E2E CSV question, partial state),
+`test_document_intelligence_security.py` (bombs, macro, oversize, SSRF, HTML,
+injection), `test_document_intelligence_graph.py` (a tool result reaches the run
+blob) and `src/lib/harness/document-view.test.ts`.
+
+## Known limitations (external)
+
+- Legacy binary `.doc`/`.xls`/`.ppt` need LibreOffice (`soffice`) to convert;
+  without it the request is refused with `UNSUPPORTED_FORMAT` and guidance.
+- Rendering Office formats also needs LibreOffice; PDF rendering needs
+  `pypdfium2` (or Pillow for the stdlib PDF backend). Absent, `document_render`
+  reports `UNAVAILABLE` rather than a fake page.
+- OCR depends on an OS engine (Windows-native `winsdk` or Tesseract). When neither
+  is installed, OCR pages report `UNAVAILABLE` honestly.
+- 7z archives are recognized but not extracted (no safe in-process reader);
+  `.gz`/`.tar`/`.zip` are supported.
+- Vision captioning/analysis of embedded images or document pages needs a
+  vision-capable model; without one those capabilities are `UNAVAILABLE`.

@@ -76,18 +76,26 @@ def test_code_agent_has_no_finance_tool():
     # orchestration/infra/cloud tools) are also shared DevOps capabilities with no
     # finance data permission.
     from harness.execution.application.tools import ALL_TOOL_NAMES as APP_TOOLS
-    from harness.agents import BROWSER_TOOLS, COMPUTER_TOOLS, WEB_RESEARCH_TOOLS
+    from harness.agents import (
+        BROWSER_TOOLS,
+        COMPUTER_TOOLS,
+        DOCUMENT_TOOLS,
+        VISION_TOOLS,
+        WEB_RESEARCH_TOOLS,
+    )
 
     app_runtime = set(APP_TOOLS)
-    # Browser and Computer Use tools are SHARED interactive capabilities (like
-    # delegate/analysis), not finance tools: they carry no finance data permission
-    # of their own and their effectful halves are narrowed by the run's autonomy
-    # profile (browser policy engine / computer policy engine + finance firewall).
-    # The web research engine tools are likewise shared READ-ONLY capabilities.
+    # Browser, Computer Use, Vision and Document Intelligence tools are SHARED
+    # interactive/observation/understanding capabilities (like delegate/analysis),
+    # not finance tools: they carry no finance data permission of their own and
+    # their effectful halves are narrowed by the run's autonomy profile (browser
+    # policy engine / computer policy engine + finance firewall). The web research
+    # engine tools are likewise shared READ-ONLY capabilities.
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
-    } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(WEB_RESEARCH_TOOLS))
+    } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(VISION_TOOLS)
+        - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS))
 
 
 def test_code_agent_does_not_allow_mcp():
@@ -99,20 +107,24 @@ def test_finance_agent_unchanged_no_code_tool():
         assert not name.startswith(CODE_TOOL_PREFIXES) or name.startswith(
             ("runtime_", "package_", "container_", "compose_", "environment_", "port_", "health_",
              "k8s_", "helm_", "kustomize_", "terraform_", "cloud_", "deploy_")), name
-    # Phase 5: 24 tools, no code tool. Phase 7 adds `delegate`; Phase 8 adds
-    # `analysis_run`; Phase 9 adds `scaffold_kit` — shared capabilities. The
-    # Application Runtime adds a read-only DevOps surface (local + orchestration /
-    # infra / cloud read-only) so the finance agent can answer "inspect this
-    # project" / "what's deployed" without a coding turn.
-    declared_app = [t for t in ECLIPSE_AGENT.tools if t.startswith(
-        ("runtime_", "package_", "container_", "compose_", "environment_", "port_", "health_",
-         "k8s_", "helm_", "kustomize_", "terraform_", "cloud_", "deploy_"))]
-    # The Browser Automation Runtime adds a shared interactive capability set
-    # (declared exactly once as `BROWSER_TOOLS`), so it is counted alongside the
-    # base and the DevOps surface.
-    from harness.agents import BROWSER_TOOLS, COMPUTER_TOOLS, WEB_RESEARCH_TOOLS  # noqa: PLC0415
+    # The finance agent's shared capability sets are declared EXACTLY ONCE and are
+    # disjoint (a tool belongs to one set), and no tool name is duplicated. This is
+    # the durable invariant; the finance base list itself legitimately grows (new
+    # providers/market tools), so a hardcoded total would be a false gate.
+    from harness.agents import (  # noqa: PLC0415
+        BROWSER_TOOLS,
+        COMPUTER_TOOLS,
+        VISION_TOOLS,
+        WEB_RESEARCH_TOOLS,
+    )
 
-    assert len(ECLIPSE_AGENT.tools) == 27 + len(declared_app) + len(BROWSER_TOOLS) + len(COMPUTER_TOOLS) + len(WEB_RESEARCH_TOOLS)
+    shared = set(BROWSER_TOOLS) | set(COMPUTER_TOOLS) | set(VISION_TOOLS) | set(WEB_RESEARCH_TOOLS)
+    assert (
+        len(BROWSER_TOOLS) + len(COMPUTER_TOOLS) + len(VISION_TOOLS) + len(WEB_RESEARCH_TOOLS)
+        == len(shared)
+    ), "a shared capability set overlaps another"
+    assert shared <= set(ECLIPSE_AGENT.tools), "a shared capability set is not fully declared"
+    assert len(ECLIPSE_AGENT.tools) == len(set(ECLIPSE_AGENT.tools)), "a tool is declared twice"
     assert "runtime_inspect" in ECLIPSE_AGENT.tools
     assert "runtime_start" not in ECLIPSE_AGENT.tools
     assert "k8s_get" in ECLIPSE_AGENT.tools

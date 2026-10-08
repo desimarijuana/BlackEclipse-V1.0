@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-04
+last-verified: 2026-10-07
 ---
 
 # Harness Architecture
@@ -79,7 +79,7 @@ Two boundaries, both deliberate:
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
 | `deps.py` | the front door's shared state + authorization seam: the ONE process-wide `AgenticService`, the `require_operator`/`require_mcp_operator` transport/token dependencies, and the identity/tenancy boundary helpers (`identity_boundary`, `deployment_exposure`) |
-| `computer/` | the **Computer Use Engine**: observe and operate a real desktop (native apps, OS chrome, dialogs) with accessibility-first grounding, SOM snapshots + stale-element protection, background-first input, verification, recovery, a permission/risk policy engine, sensitive-region redaction and a **Finance Action Firewall**. Platform-independent `ComputerDriver` (Windows via `ctypes` Win32; honest `NullDriver` elsewhere). Registers the `computer_*` toolset on the ONE registry. Detail: `docs/harness/computer-use.md` |
+| `computer/` | the **Computer Use Engine**: observe and operate a real desktop (native apps, OS chrome, dialogs) with accessibility-first grounding, SOM snapshots + stale-element protection, background-first input, verification, recovery, a permission/risk policy engine, sensitive-region redaction and a **Finance Action Firewall**. Platform-independent `ComputerDriver` (Windows via `ctypes` Win32; Linux/X11 via `ctypes` X11/XTest; macOS via Core Graphics/AX; honest `NullDriver` where no backend exists). Registers the `computer_*` toolset on the ONE registry. Detail: `docs/harness/computer-use.md` |
 | `run_lineage.py` | **Phase 1**: run lineage + durable checkpoints + idempotency. Owns the two additive `HarnessRun` columns (`parentRunId`/`workflowId`) and the `RunCheckpoint`/`ToolExecutionIdempotency` tables, bound to the ONE store connection (so ratcheted `persistence.py` did not grow). `save_checkpoint`/`latest_checkpoint`/`mark_tool_executed`/`was_tool_executed`/`set_run_parent`/`list_child_runs` |
 | `graph_context.py` | **extraction**: the per-run context blocks (recalled memory, compact profile, skill manifest) and the memory/learning outcome helpers, pure-extracted from `graph.py` to keep it under its size ratchet; re-exported by `graph.py` so callers are unchanged |
 | `workflows/` | **Phase 5**: the composable workflow graph. `model.py` (Workflow/WorkflowStep contracts + closed step-kind set + bounds), `validate.py` (cycle / unbounded fan-out / out-of-scope tool / no terminal path — each with a NAMED reason), `store.py` (validated persistence), `compile.py` (compiles onto the EXISTING `execute_run`; a step's tool scope = agent allowlist ∩ step tools, enforced at the same `ToolRegistry.execute(allowed=...)` seam; approval steps reuse the single-use `ApprovalStore`; parallel branches share the run cancel event/cache). Flag-gated (`HARNESS_WORKFLOWS_ENABLED`, default OFF) |
@@ -1085,10 +1085,9 @@ code-action, code-write (`workspace_patch_apply`), shell and terminal `ask` path
 behave identically. The card UI is
 `src/components/chat/approval-card.tsx`, portaled to `<body>` and mounted above
 the composer in both chat surfaces, driven by `HarnessUiEvent.approval_request` /
-`approval_resolved` and the `awaiting_approval` status.
-
-An `approval_request` also plays the `notification` cue and raises the shared
-toast/OS notice (`ALERT_NOTIFY_EVENT`), so a paused run is never missed.
+`approval_resolved` and the `awaiting_approval` status. An `approval_request` also
+plays the `notification` cue and raises the shared toast/OS notice
+(`ALERT_NOTIFY_EVENT`), so a paused run is never missed.
 
 **Standing grants — "always allow" (ADR-H144).** Repeatedly re-asking for the same
 program is stopped by a separate, revocable permission, NOT by making an approval

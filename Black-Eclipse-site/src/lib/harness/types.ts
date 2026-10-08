@@ -182,6 +182,103 @@ export interface BlockedComparison {
   reason: string;
 }
 
+/** One rectangle in image pixel coordinates. */
+export interface VisionRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  bbox?: number[];
+  label?: string;
+}
+
+/** One thing seen in an image, with provenance and a confidence. */
+export interface VisionObservation {
+  text: string;
+  kind?: string;
+  method?: string;
+  confidence?: number;
+  region?: VisionRegion | null;
+}
+
+/** One recognized text span (OCR) with its box and confidence. */
+export interface VisionTextSpan {
+  text: string;
+  bounds?: VisionRegion;
+  confidence?: number;
+}
+
+/** One normalized vision result (mirrors the Python `VisionResult` dict). */
+export interface VisionResultInfo {
+  ok: boolean;
+  mode?: string;
+  description?: string;
+  assetId?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  backend?: string | null;
+  confidence?: number;
+  latencyMs?: number;
+  cached?: boolean;
+  usage?: Record<string, unknown> | null;
+  observations?: VisionObservation[];
+  text?: VisionTextSpan[];
+  tables?: unknown[];
+  chart?: Record<string, unknown> | null;
+  comparison?: Record<string, unknown> | null;
+  document?: Record<string, unknown> | null;
+  warnings?: string[];
+  provenance?: {
+    source?: string | null;
+    question?: string | null;
+    security?: Record<string, unknown> | null;
+    fallback?: boolean | null;
+  } | null;
+}
+
+/** The run-level vision blob (mirrors `VisionCollector.to_blob()`). */
+export interface VisionRunInfo {
+  type?: string;
+  status: string;
+  count: number;
+  results: VisionResultInfo[];
+  failures?: Array<{ mode?: string; error?: Record<string, unknown> | null }> | null;
+}
+
+/** One indexed document in the run's document blob. */
+export interface DocumentRunDocument {
+  documentId: string;
+  kind?: string;
+  version?: number;
+  title?: string | null;
+  fileName?: string | null;
+  state?: string;
+  /** Per-capability status map, e.g. `{ text: 'PASS', tables: 'PASS', ocr: 'UNAVAILABLE' }`. */
+  capabilities?: Record<string, string>;
+  pageCount?: number;
+  sheetCount?: number;
+  confidence?: number;
+  textMethod?: string;
+  chunkCount?: number;
+  tableCount?: number;
+  imageCount?: number;
+  entityCount?: number;
+  evidenceCount?: number;
+  currentContext?: { section?: string | null; page?: number | null; path?: string[] } | null;
+  pages?: Array<{ index?: number; label?: string; textMethod?: string }>;
+  entities?: Array<{ type?: string; value?: string; confidence?: number }>;
+  warnings?: string[];
+}
+
+/** The run-level document blob (mirrors `DocumentCollector.to_blob()`). */
+export interface DocumentRunInfo {
+  type?: string;
+  status: string;
+  count: number;
+  documents: DocumentRunDocument[];
+  failures?: Array<{ kind?: string; error?: unknown; warnings?: string[] }> | null;
+}
+
 export interface RunResult {
   runId: string;
   status: RunStatus;
@@ -221,6 +318,19 @@ export interface RunResult {
   workspaceId?: string | null;
   /** Phase 14 (additive): the chat capability view for a coding turn. */
   capability?: Record<string, unknown> | null;
+  /**
+   * Vision/Multimodal (additive, optional): the run's collected vision results
+   * (asset ids, regions, OCR, confidence, provenance). Absent when the run used
+   * no vision tool, so existing clients remain compatible.
+   */
+  vision?: VisionRunInfo | null;
+  /**
+   * Document Intelligence (additive, optional): the run's collected document
+   * results (type, pages, status, capabilities, entities, evidence counts).
+   * Absent when the run used no document tool, so existing clients remain
+   * compatible.
+   */
+  documents?: DocumentRunInfo | null;
 }
 
 export interface ContextBudgetInfo {
@@ -294,6 +404,10 @@ export interface RunRecord {
   workspaceId?: string | null;
   /** Phase 14: the chat capability view for a coding turn. */
   capability?: Record<string, unknown> | null;
+  /** Vision/Multimodal: the run's collected vision results (null otherwise). */
+  vision?: VisionRunInfo | null;
+  /** Document Intelligence: the run's collected document results (null otherwise). */
+  documents?: DocumentRunInfo | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -391,8 +505,10 @@ export type DataCapability =
   | "route_probe"
   | "coverage"
   | "capability_matrix"
+  | "provider_key_status"
   | "live_quote"
   | "price_history"
+  | "crypto_market_data"
   | "macro_series"
   | "macro_resolve"
   | "web_search"
@@ -404,4 +520,5 @@ export type DataCapability =
   | "mcp_secret_resolve"
   | "mcp_oauth_token_get"
   | "mcp_oauth_token_set"
-  | "mcp_oauth_token_clear";
+  | "mcp_oauth_token_clear"
+  | "market_data";

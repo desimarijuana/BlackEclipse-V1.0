@@ -244,6 +244,16 @@ class RunResult(BaseModel):
     # the profile, an i18n headline KEY, and the verification blob it composes.
     # Absent/None for ordinary chat and older rows.
     capability: Optional[dict[str, Any]] = None
+    # Vision/Multimodal (additive, optional): the run's collected vision results
+    # (asset ids, regions, OCR, confidence, provenance) for the right sidebar.
+    # Absent/None when a run used no vision tool, so existing clients remain
+    # compatible.
+    vision: Optional[dict[str, Any]] = None
+    # Document Intelligence (additive, optional): the run's collected document
+    # results (type, pages, status, capabilities, entities, evidence counts) for
+    # the right sidebar. Absent/None when a run used no document tool, so existing
+    # clients remain compatible.
+    documents: Optional[dict[str, Any]] = None
 
 
 EventLiteral = Literal[

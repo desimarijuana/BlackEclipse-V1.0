@@ -10,6 +10,7 @@
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
 import { fetchYahooBatchRaw } from "@/lib/scraper/fetchers/yfinance";
+import { fetchCryptoQuote } from "@/lib/scraper/fetchers/crypto";
 import { normalizeEconomicSeries, sortByDate } from "@/lib/economics/fetch";
 import { getSource } from "@/lib/economics/sources";
 import { searchWeb, fetchWebPageDetailed } from "@/lib/web-research";
@@ -419,10 +420,14 @@ async function dispatchCapability(
       return Promise.resolve(coverageCapability());
     case "capability_matrix":
       return capabilityMatrix();
+    case "provider_key_status":
+      return providerKeyStatus(params);
     case "live_quote":
       return liveQuote(params);
     case "price_history":
       return priceHistory(params);
+    case "crypto_market_data":
+      return cryptoMarketData(params);
     case "macro_series":
       return macroSeries(params);
     case "macro_resolve":
@@ -447,6 +452,10 @@ async function dispatchCapability(
       return mcpOauthTokenSet(params);
     case "mcp_oauth_token_clear":
       return mcpOauthTokenClear(params);
+    case "market_data":
+      // The Market Data Layer's provider adapters (routing/fallback/health live
+      // in Python); reuses the SSRF-hardened safeGet + existing scraper helpers.
+      return (await import("./market/bridge")).fetchMarketData(params);
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }
@@ -1002,6 +1011,32 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
   }
 }
 
+/**
+ * Credential PRESENCE for one provider (never the value).
+ *
+ * The Financial Data Gateway's provider registry needs to know whether a
+ * credentialed provider is usable, but a secret must never cross into the Python
+ * runtime. This capability answers only `configured` (env or vault) for one env
+ * var name — the same masked-status source the Settings UI uses.
+ */
+async function providerKeyStatus(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const envVar = String(params.envVar ?? "").trim();
+  if (!envVar) return unavailableClass("invalid_request", "envVar is required");
+  try {
+    const value = await resolveProviderKey(envVar);
+    return {
+      status: "OK",
+      envVar,
+      configured: Boolean(value && value.trim()),
+    };
+  } catch (err) {
+    return unavailableClass(
+      "source_failure",
+      err instanceof Error ? err.message : "provider key status failed",
+    );
+  }
+}
+
 // ── Live structured providers (Phase 2) ─────────────────────────────────────
 // Reuse the existing scraper fallback chain and Yahoo bridge — NOT a new
 // market-data system. The Python retrieval layer decides *when* to call these.
@@ -1134,6 +1169,78 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
     };
   } catch (err) {
     return unavailableClass("source_failure", err instanceof Error ? err.message : "live quote failed");
+  }
+}
+
+/**
+ * Crypto market data for a base/quote pair, keyless.
+ *
+ * Crypto is NOT an equity: a bare `BTC` is ambiguous across quote currencies, and
+ * a crypto ticker can collide with an equity. This capability resolves the crypto
+ * pair via the SHARED identifier classifier (`classifyIdentifier`) and fetches
+ * through the existing crypto connector transport — no second HTTP client. It
+ * returns the resolved base/quote so provenance can prove which pair a price is
+ * for, never a bare number.
+ */
+async function cryptoMarketData(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const raw = String(params.symbol ?? "").trim().toUpperCase();
+  if (!raw) return unavailableClass("invalid_request", "crypto symbol is required");
+
+  const classified = classifyIdentifier(raw);
+  if (classified.kind !== "crypto") {
+    // A non-crypto identifier reaching this capability is a caller error, not a
+    // data miss. An FX pair or equity must never be priced as crypto.
+    return unavailableClass("invalid_request", `${raw} is not a crypto asset`);
+  }
+  const { base } = classified;
+  const quote = params.quoteCurrency
+    ? String(params.quoteCurrency).trim().toUpperCase()
+    : classified.quote;
+
+  try {
+    const result = await fetchCryptoQuote(base);
+    if (result.status !== "ok" || !result.quote) {
+      const cls: FailureClass =
+        result.status === "timeout" || result.status === "network_error"
+          ? "source_failure"
+          : result.status === "blocked"
+            ? "source_failure"
+            : "no_data";
+      return {
+        ...unavailableClass(cls, result.error),
+        healthContext: { source: "crypto", market: "CRYPTO", assetClass: "crypto" },
+      } as DataBridgeResult;
+    }
+    const q = result.quote;
+    return {
+      status: "OK",
+      symbol: base,
+      base,
+      quote,
+      pair: `${base}-${quote}`,
+      market: "CRYPTO",
+      assetClass: "crypto",
+      securityType: "crypto",
+      currency: quote,
+      provider: result.source ?? "crypto",
+      contract: classified.contract,
+      price: q.price,
+      changePct: q.changePct,
+      volume: q.volume ?? null,
+      marketCap: null,
+      high24h: null,
+      low24h: null,
+      asOf: new Date().toISOString(),
+      observationTime: null,
+      observationSource: "unknown" as const,
+      cadenceSeconds: 60,
+      units: "quote currency per base unit",
+    };
+  } catch (err) {
+    return unavailableClass(
+      "source_failure",
+      err instanceof Error ? err.message : "crypto market data failed",
+    );
   }
 }
 

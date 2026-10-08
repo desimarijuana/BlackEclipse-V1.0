@@ -652,12 +652,12 @@ function StockChatContent() {
         status: turn.status,
         activities: turn.activities,
         research: turn.research,
+        vision: turn.vision,
         memory: turn.memory,
         runId: turn.runId,
         error: turn.error,
         pendingApproval: turn.pendingApproval,
-      }, turn.done);
-    };
+      }, turn.done);    };
 
     setAgentBusy(true);
     sound.tick();

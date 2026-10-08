@@ -41,8 +41,12 @@ export type HarnessUiEvent =
       codeVerification?: unknown;
       autonomy?: string | null;
       workspaceId?: string | null;
-      /** Phase 14 §6.4: the runtime-derived chat capability view. */
+      /** Phase 14 A6.4: the runtime-derived chat capability view. */
       capability?: unknown;
+      /** Vision/Multimodal: the run's collected vision results. */
+      vision?: unknown;
+      /** Document Intelligence: the run's collected document results. */
+      documents?: unknown;
     }
   | { kind: 'error'; message: string; code?: string }
   /** The run is blocked on an operator decision (approval card). */
@@ -295,6 +299,8 @@ export function normalizeHarnessEvent(
       autonomy: typeof payload.autonomy === 'string' ? payload.autonomy : payload.autonomy === null ? null : undefined,
       workspaceId: typeof payload.workspaceId === 'string' ? payload.workspaceId : payload.workspaceId === null ? null : undefined,
       capability: payload.capability ?? undefined,
+      vision: payload.vision ?? undefined,
+      documents: payload.documents ?? undefined,
     };
   }
 

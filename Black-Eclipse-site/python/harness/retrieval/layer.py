@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 from ..tools import DataBridge
 from .aggregate import aggregate, outcome_to_evidence
-from .authority import authority_for, decide_source
+from .authority import authority_for, decide_source, effective_authority
 from .cache import RetrievalCache
 from .conflicts import detect_conflicts
 from .contract import (
@@ -37,6 +37,7 @@ from .contract import (
     SourceReference,
     RetrievalStatus,
 )
+from .crypto import CryptoSource
 from .health import build_health_index, rank_sources
 from .parallel import run_parallel
 from .policies import cadence_for, max_age_seconds
@@ -47,12 +48,18 @@ from .planner import (
     WEB,
     plan_retrieval,
 )
+from .ratelimit import RateLimitManager
+from .registry import ProviderRegistry
 from .retry import retrieve_with_retry, DEFAULT_MAX_RETRIES
 from .routing import classify_outcome, classify_skip
 from .sources import RetrievalSource, SourceOutcome, outcome_diagnostics
 from .structured import JddsSource, LiveStructuredSource, SecFilingsSource
 from .validate import detect_incomplete, validate_objects, validate_observations
 from .web import WebResearchSource
+
+# The crypto source id. Kept beside the other source names so the layer and the
+# planner agree; `authority.CRYPTO` is the canonical name.
+from .authority import CRYPTO  # noqa: E402
 
 # Data types whose payload is a legitimate TIME SERIES: an old row inside it is
 # the point of history, not a defect, so the per-observation check is skipped.
@@ -68,12 +75,15 @@ class FinancialRetrievalLayer:
         store: Optional[Any] = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         mcp_sources: Optional[list[RetrievalSource]] = None,
+        rate_limits: Optional[RateLimitManager] = None,
+        registry: Optional[ProviderRegistry] = None,
     ) -> None:
         self._sources: dict[str, RetrievalSource] = {
             STRUCTURED_VAULT: JddsSource(bridge),
             STRUCTURED_LIVE: LiveStructuredSource(bridge),
             SEC_FILINGS: SecFilingsSource(bridge),
             WEB: WebResearchSource(bridge),
+            CRYPTO: CryptoSource(bridge),
         }
         # Operator-declared MCP data tools (Milestone 6) join the SAME source
         # registry, so the planner can select/compare them side-by-side. A
@@ -91,6 +101,11 @@ class FinancialRetrievalLayer:
         self.cache = cache or RetrievalCache()
         self._on_event = on_event
         self._max_retries = max(0, int(max_retries))
+        # Centralized provider pacing (Financial Data Gateway). A layer built
+        # without a manager keeps the previous behavior exactly — pacing is
+        # additive. The registry carries each provider's declared limit spec.
+        self.rate_limits = rate_limits or RateLimitManager()
+        self.registry = registry or ProviderRegistry()
         # D1: a durable retrieval store (agent-memory.db). A parsed result is
         # persisted and replayed for an identical request, so the same query
         # yields the same figures and citations instead of re-scraping.
@@ -270,11 +285,10 @@ class FinancialRetrievalLayer:
                 strategy=plan.sources,
             )
 
-        authority = authority_for(request.dataType)
+        authority = effective_authority(authority_for(request.dataType), request)
         if authority.policy == "arbitrated":
             return await self._execute_arbitrated(request, plan, authority)
         return await self._execute_single(request, plan, authority)
-
     async def _execute_single(self, request: FinancialRetrievalRequest, plan: Any, authority: Any = None) -> FinancialRetrievalResult:
         """Try planned sources in order; first OK result wins (then validate)."""
         attempts: list[SourceOutcome] = []
@@ -626,7 +640,7 @@ class FinancialRetrievalLayer:
 
     def _bind(self, source: RetrievalSource, request: FinancialRetrievalRequest):
         async def _call() -> SourceOutcome:
-            return await source.retrieve(request)
+            return await self._retrieve_one(source, request)
 
         return _call
 
@@ -637,10 +651,61 @@ class FinancialRetrievalLayer:
             except Exception as exc:  # noqa: BLE001 - isolate source failures
                 return SourceOutcome(source=source.name, status="ERROR", error=str(exc))
 
-        # A transient failure (timeout / 5xx / socket) gets a bounded retry with
-        # backoff before the layer moves on to the next independent provider. A
-        # permanent failure (blocked, unsupported content type) is never retried.
-        return await retrieve_with_retry(_attempt, max_retries=self._max_retries)
+        # Centralized pacing: never stampede a provider. A denied acquire does not
+        # call the provider at all — the outcome is an honest, categorized
+        # rate-limit result, not a fabricated failure.
+        spec = self._spec_for(source.name)
+        decision = await self.rate_limits.acquire(source.name, spec)
+        if not decision.allowed:
+            await self._emit(
+                "retrieval.rate_limited",
+                {"source": source.name, "reason": decision.reason, "retryAfterS": decision.retry_after_s},
+            )
+            return SourceOutcome(
+                source=source.name,
+                status="UNAVAILABLE",
+                error=f"rate limited: {decision.reason}",
+                diagnostics=[
+                    {
+                        "provider": source.name,
+                        "category": "rate_limited",
+                        "normalizedStatus": "rate_limited",
+                        "retryable": True,
+                        "retryAfterS": decision.retry_after_s,
+                        "detail": decision.reason,
+                    }
+                ],
+            )
+        try:
+            # A transient failure (timeout / 5xx / socket) gets a bounded retry with
+            # backoff before the layer moves on to the next independent provider. A
+            # permanent failure (blocked, unsupported content type) is never retried.
+            outcome = await retrieve_with_retry(_attempt, max_retries=self._max_retries)
+        finally:
+            await self.rate_limits.release(source.name)
+        self._note_throttle(source.name, outcome)
+        return outcome
+
+    def _spec_for(self, provider: str):
+        descriptor = self.registry.get(provider) if self.registry else None
+        if descriptor is not None:
+            return descriptor.rate_limit
+        return None
+
+    def _note_throttle(self, provider: str, outcome: SourceOutcome) -> None:
+        """Open a cooldown when a provider reported 429 / an explicit Retry-After."""
+        for diagnostic in outcome.diagnostics:
+            if str(diagnostic.get("category")) in ("rate_limited", "http_error") and (
+                diagnostic.get("httpStatus") == 429
+                or diagnostic.get("rateLimited")
+                or diagnostic.get("retryAfterS")
+            ):
+                hint = diagnostic.get("retryAfterS")
+                try:
+                    self.rate_limits.record_429(provider, float(hint) if hint else None)
+                except Exception:  # noqa: BLE001 - pacing is best-effort
+                    self.rate_limits.record_429(provider)
+                return
 
     async def _emit(self, event_type: str, data: dict[str, Any]) -> None:
         if self._on_event is None:

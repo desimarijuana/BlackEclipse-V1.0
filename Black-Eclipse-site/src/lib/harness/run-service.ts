@@ -69,6 +69,8 @@ export async function chatWithAgent(
   status: "completed" | "failed";
   error?: string;
   research?: import("./types").ResearchRunInfo;
+  vision?: import("./types").VisionRunInfo | null;
+  documents?: import("./types").DocumentRunInfo | null;
 }> {
   // Phase 14: the non-streaming chat path must resolve the code profile too —
   // otherwise a coding request typed into `/api/harness/chat` reached the model
@@ -104,6 +106,8 @@ export async function chatWithAgent(
       runId: runResult.runId,
       status: "completed",
       research: runResult.research,
+      vision: runResult.vision,
+      documents: runResult.documents,
     };
   }
   return {
@@ -112,6 +116,8 @@ export async function chatWithAgent(
     status: "failed",
     error: runResult.error?.message ?? "The agent run did not complete",
     research: runResult.research,
+    vision: runResult.vision,
+    documents: runResult.documents,
   };
 }
 

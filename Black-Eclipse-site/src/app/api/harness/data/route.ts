@@ -21,8 +21,10 @@ const CAPABILITIES: DataCapability[] = [
   "route_probe",
   "coverage",
   "capability_matrix",
+  "provider_key_status",
   "live_quote",
   "price_history",
+  "crypto_market_data",
   "macro_series",
   "macro_resolve",
   "web_search",
@@ -35,6 +37,7 @@ const CAPABILITIES: DataCapability[] = [
   "mcp_oauth_token_get",
   "mcp_oauth_token_set",
   "mcp_oauth_token_clear",
+  "market_data",
 ];
 
 export async function POST(request: Request) {

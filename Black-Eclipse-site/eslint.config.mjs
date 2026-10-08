@@ -37,6 +37,11 @@ const eslintConfig = [
       // One-off Node import/utility scripts (plain JS, not part of the app).
       "scripts/**",
       "bin/**",
+      // Disposable agent artifacts: isolated code workspaces, the code index and
+      // workspace index. These are machine-generated, may be mid-delete, and are
+      // never source. Linting them crashes on a partially-removed worktree.
+      ".black-eclipse/**",
+      ".tmp-tests/**",
     ],
   },
 ];

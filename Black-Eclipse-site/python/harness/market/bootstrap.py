@@ -1,0 +1,61 @@
+"""Market Data Layer boot wiring.
+
+Constructs and registers the market subsystem on the ONE service, so
+`service.py` stays under its size ratchet. Imported and called once from
+`AgenticService.__init__`. Every step is best-effort: a failure leaves the market
+capability unavailable rather than blocking boot.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Any, Optional
+
+log = logging.getLogger("harness.market")
+
+
+@dataclass
+class MarketBundle:
+    """The market subsystem handed to a run: gateway + store + stream."""
+
+    gateway: Any
+    store: Optional[Any] = None
+    stream: Optional[Any] = None
+
+
+def install_market_layer(service: Any) -> None:
+    """Build the market store/router/cache/gateway/stream and register tools.
+
+    Reuses the ONE read-only bridge (bound per run) and the ONE agent-memory
+    connection (MarketStore). Adds no second provider, HTTP client or database.
+    """
+    try:
+        from .cache import MarketCache
+        from .gateway import MarketDataGateway
+        from .router import default_router
+        from .store import MarketStore
+        from .tools import register_market_tools
+
+        service.market_store = MarketStore(service.store)
+        service.market_router = default_router()
+        service.market_cache = MarketCache()
+        # Built without a bridge; bound to the per-run bridge at run time (service.run).
+        service.market_gateway = MarketDataGateway(
+            None, cache=service.market_cache, router=service.market_router
+        )
+        try:
+            from .streaming import default_stream_manager
+
+            service.market_stream = default_stream_manager()
+        except Exception:  # noqa: BLE001 - streaming is optional
+            service.market_stream = None
+        register_market_tools(service.registry)
+    except Exception:  # noqa: BLE001 - market data must never block boot
+        service.market_store = None
+        service.market_gateway = None
+        service.market_stream = None
+        log.warning("market data layer unavailable", exc_info=True)
+
+
+__all__ = ["MarketBundle", "install_market_layer"]

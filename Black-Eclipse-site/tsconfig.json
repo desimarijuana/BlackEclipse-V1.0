@@ -39,6 +39,7 @@
     "node_modules",
     ".test-tmp",
     ".tmp-tests",
+    ".black-eclipse",
     "python/vendor",
     "scripts/vendor"
   ]

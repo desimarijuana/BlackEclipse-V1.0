@@ -9,6 +9,8 @@ import { Markdown } from './markdown';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
 import { ResearchEvidencePanel } from './research-evidence-panel';
+import { VisionPanel } from './vision-panel';
+import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { RunExplanationPanel } from './run-explanation-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
@@ -230,6 +232,12 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   />
                   {msg.research ? (
                     <ResearchEvidencePanel research={msg.research} compact={compact} />
+                  ) : null}
+                  {msg.vision ? (
+                    <VisionPanel vision={msg.vision} compact={compact} />
+                  ) : null}
+                  {msg.documents ? (
+                    <DocumentPanel documents={msg.documents} compact={compact} />
                   ) : null}
                   {msg.memory ? (
                     <MemoryActionPanel memory={msg.memory} runId={msg.runId} compact={compact} />

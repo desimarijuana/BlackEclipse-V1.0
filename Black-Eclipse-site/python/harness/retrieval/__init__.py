@@ -14,6 +14,9 @@ The agent requests *what it needs* (an objective + data type + instrument), not
     conflicts.py  explicit source-conflict preservation/resolution
     aggregate.py  EvidenceSet assembly
     layer.py      the orchestrator the tools call
+    registry.py   the declarative provider capability registry
+    ratelimit.py  centralized per-provider rate limits / quota
+    crypto.py     crypto market data as a first-class source
 
 Providers are never named anywhere above the `layer`. JDdS, yfinance, the TS
 web-research bridge and any future provider are implementation details.
@@ -35,6 +38,8 @@ from .contract import (
 )
 from .authority import AUTHORITY, DataTypeAuthority, SourceDecision, decide_source
 from .layer import FinancialRetrievalLayer
+from .registry import ProviderDescriptor, ProviderRegistry, build_default_registry
+from .ratelimit import RateLimitManager
 
 __all__ = [
     "DataType",
@@ -54,4 +59,8 @@ __all__ = [
     "DataTypeAuthority",
     "SourceDecision",
     "decide_source",
+    "ProviderDescriptor",
+    "ProviderRegistry",
+    "build_default_registry",
+    "RateLimitManager",
 ]
