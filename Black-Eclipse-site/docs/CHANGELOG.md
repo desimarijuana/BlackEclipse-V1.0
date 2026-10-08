@@ -8,6 +8,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Tasks screen reachability test.** Added `src/components/screens/tasks/tasks-screen.test.ts`
+  (mirrors the search-screen guard): the mounted Tasks screen imports the
+  browser-safe client, reads the real `/api/plans` + `/api/tasks` endpoints,
+  is imported/rendered by the shell, and has an AppTab + sidebar + `nav.tasks`
+  label. Test-only; no production behavior changed. no doc change — test-only.
+
 - **Task / Plan System — a durable, production-grade execution backbone.** New
   `python/harness/tasks/`: a `Plan` containing an arbitrary hierarchy of `Task`s
   with first-class dependencies (DAG + cycle rejection before persist), acceptance

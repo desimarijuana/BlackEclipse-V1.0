@@ -4,7 +4,7 @@
 // Shows the durable Task / Plan tree from the real runtime: status, priority,
 // progress, dependencies, blocked/waiting reasons, retry counts, criteria and
 // executions. Every value comes from `/api/plans` + `/api/tasks` (the Python
-// Task / Plan store) — nothing here is mock data. Actions route through the same
+// Task / Plan store) — nothing here is invented. Actions route through the same
 // state machine the agent uses, so completion is verified, not asserted.
 
 import { useCallback, useEffect, useState } from 'react';
