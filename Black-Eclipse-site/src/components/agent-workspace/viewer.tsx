@@ -6,11 +6,14 @@
 // with a windowed list (only what is on screen is mounted), so a 100k-line
 // artifact cannot create 100k DOM nodes.
 //
-// Copy is honest: when the runtime persisted only a truncated copy, the viewer
-// says so — it never pretends to have the full text it does not have.
+// `ArtifactContent` is the reusable body: the right sidebar embeds it inline to
+// expand a result, and `ArtifactViewer` wraps it with a header for full-height
+// viewing. Copy is honest: when the runtime persisted only a truncated copy the
+// body says so — it never pretends to have the full text it does not have.
 
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, Loader2 } from '@/lib/icons';
+import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { Markdown } from '@/components/chat/markdown';
 import type { ArtifactRef } from '@/lib/agent-workspace/types';
@@ -25,14 +28,15 @@ export interface LoadedContent {
 const LINE_WINDOW = 400;
 const LINE_STEP = 400;
 
-export function ArtifactViewer({
+/** The scrollable body for one artifact. `load` fetches its bounded content. */
+export function ArtifactContent({
   artifact,
   load,
-  onClose,
+  className,
 }: {
   artifact: ArtifactRef;
   load?: (artifact: ArtifactRef) => Promise<LoadedContent | null>;
-  onClose: () => void;
+  className?: string;
 }) {
   const t = useT();
   const [loaded, setLoaded] = useState<LoadedContent | null>(null);
@@ -91,19 +95,8 @@ export function ArtifactViewer({
   }, [loaded, artifact.type, lines]);
 
   return (
-    <div role="dialog" aria-label={artifact.name} className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{artifact.name}</span>
-        <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-          {artifact.type}
-        </span>
-        {artifact.sizeBytes != null && <span className="shrink-0 text-[10px] text-muted-foreground/50">{formatBytes(artifact.sizeBytes)}</span>}
-        <CopyButton content={loaded?.content} />
-        <button type="button" onClick={onClose} className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-muted-foreground hover:bg-white/[0.04] hover:text-foreground">
-          {t('common.close')}
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+    <div className={cn('flex min-h-0 flex-col', className)}>
+      <div className="min-h-0 flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center gap-2 py-6 text-[12px] text-muted-foreground/60">
             <Loader2 size={13} className="animate-spin" /> {t('common.loading')}
@@ -119,10 +112,55 @@ export function ArtifactViewer({
         )}
       </div>
       {loaded?.truncated && (
-        <footer className="border-t border-white/10 px-3 py-1.5 text-[10.5px] text-amber-300/80">
+        <footer className="shrink-0 border-t border-white/10 px-3 py-1.5 text-[10.5px] text-amber-300/80">
           Only the first {formatCount(loaded.content.length)} characters were retained by the runtime.
         </footer>
       )}
+    </div>
+  );
+}
+
+export function ArtifactViewer({
+  artifact,
+  load,
+  onClose,
+}: {
+  artifact: ArtifactRef;
+  load?: (artifact: ArtifactRef) => Promise<LoadedContent | null>;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const [content, setContent] = useState<string | undefined>(undefined);
+
+  return (
+    <div role="dialog" aria-label={artifact.name} className="flex h-full min-h-0 flex-col">
+      <header className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{artifact.name}</span>
+        <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+          {artifact.type}
+        </span>
+        {artifact.sizeBytes != null && <span className="shrink-0 text-[10px] text-muted-foreground/50">{formatBytes(artifact.sizeBytes)}</span>}
+        <CopyButton
+          getContent={async () => {
+            if (content !== undefined) return content;
+            const res = await load?.(artifact);
+            const value = res?.content;
+            setContent(value);
+            return value;
+          }}
+          onCopied={() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1200);
+          }}
+          copied={copied}
+          title={t('common.copy')}
+        />
+        <button type="button" onClick={onClose} className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-muted-foreground hover:bg-white/[0.04] hover:text-foreground">
+          {t('common.close')}
+        </button>
+      </header>
+      <ArtifactContent artifact={artifact} load={load} className="flex-1 p-3" />
     </div>
   );
 }
@@ -138,20 +176,27 @@ function JsonBody({ content }: { content: string }) {
   return <pre className="whitespace-pre-wrap break-all font-mono text-[11.5px] leading-relaxed text-foreground/85">{pretty}</pre>;
 }
 
-function CopyButton({ content }: { content?: string }) {
-  const t = useT();
-  const [copied, setCopied] = useState(false);
-  if (!content) return null;
+function CopyButton({
+  getContent,
+  onCopied,
+  copied,
+  title,
+}: {
+  getContent: () => Promise<string | undefined>;
+  onCopied: () => void;
+  copied: boolean;
+  title: string;
+}) {
   return (
     <button
       type="button"
       onClick={() => {
-        void navigator.clipboard?.writeText(content).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
+        void getContent().then((value) => {
+          if (!value) return;
+          void navigator.clipboard?.writeText(value).then(onCopied);
         });
       }}
-      title={t('common.open')}
+      title={title}
       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
     >
       {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}

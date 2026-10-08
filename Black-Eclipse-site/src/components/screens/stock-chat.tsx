@@ -5,6 +5,7 @@ import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-sh
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TerminalDock } from '@/components/terminal/terminal-dock';
+import { AgentWorkspace } from '@/components/agent-workspace/workspace';
 import { useTerminalShell } from '@/hooks/use-terminal-shell';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
@@ -1226,6 +1227,7 @@ function StockChatContent() {
         {/* Close the main column, then place the right dock as a SIBLING column
             in the row, so the main panel shrinks instead of being overlapped. */}
         </div>
+        <AgentWorkspace />
         <TerminalDock slot="right" />
       </div>
 

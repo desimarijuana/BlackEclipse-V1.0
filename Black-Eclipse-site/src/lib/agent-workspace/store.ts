@@ -20,33 +20,16 @@ import { immer } from 'zustand/middleware/immer';
 import { applyWorkspaceEvents, initialWorkspaceState } from './reducer';
 import type { AgentWorkspaceState, WorkspaceEvent } from './types';
 
-/** Panel ids. `changes` is pinned by default; others auto-focus on activity. */
-export type WorkspacePanel =
-  | 'overview'
-  | 'activity'
-  | 'tasks'
-  | 'changes'
-  | 'context'
-  | 'terminal'
-  | 'research'
-  | 'browser'
-  | 'computer'
-  | 'artifacts'
-  | 'permissions'
-  | 'telemetry'
-  | 'history';
+/** Panel ids for the right sidebar. `output` is the default results feed. */
+export type WorkspacePanel = 'output' | 'changes' | 'permissions' | 'history';
 
 const OPEN_KEY = 'black-eclipse:workspace-open';
 const PANEL_KEY = 'black-eclipse:workspace-panel';
-const PIN_KEY = 'black-eclipse:workspace-pinned';
 
 const FLUSH_MS = 150;
 const MAX_SEEN_FRAMES = 100_000;
 
-const ALL_PANELS: readonly WorkspacePanel[] = [
-  'overview', 'activity', 'tasks', 'changes', 'context', 'terminal',
-  'research', 'browser', 'computer', 'artifacts', 'permissions', 'telemetry', 'history',
-];
+const ALL_PANELS: readonly WorkspacePanel[] = ['output', 'changes', 'permissions', 'history'];
 
 function isPanel(value: unknown): value is WorkspacePanel {
   return typeof value === 'string' && (ALL_PANELS as readonly string[]).includes(value);
@@ -70,24 +53,12 @@ function writeBool(key: string, value: boolean): void {
   }
 }
 function readPanel(): WorkspacePanel {
-  if (typeof window === 'undefined') return 'overview';
+  if (typeof window === 'undefined') return 'output';
   try {
     const raw = window.localStorage.getItem(PANEL_KEY);
-    return isPanel(raw) ? raw : 'overview';
+    return isPanel(raw) ? raw : 'output';
   } catch {
-    return 'overview';
-  }
-}
-function readPinned(): WorkspacePanel[] {
-  if (typeof window === 'undefined') return ['changes'];
-  try {
-    const raw = window.localStorage.getItem(PIN_KEY);
-    if (!raw) return ['changes'];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return ['changes'];
-    return parsed.filter(isPanel);
-  } catch {
-    return ['changes'];
+    return 'output';
   }
 }
 
@@ -97,15 +68,10 @@ interface WorkspaceStoreState {
   runId: string | null;
   state: AgentWorkspaceState;
   activePanel: WorkspacePanel;
-  /** Panels the user pinned (auto-focus may not override these). */
-  pinned: WorkspacePanel[];
-  /** True once the user manually picked a panel — auto-focus then backs off. */
-  userChosen: boolean;
 
   setOpen: (open: boolean) => void;
   toggle: () => void;
   setActivePanel: (panel: WorkspacePanel) => void;
-  togglePinned: (panel: WorkspacePanel) => void;
   bindRun: (runId: string) => void;
   ingest: (events: WorkspaceEvent[], frame: { id?: string; seq?: number }) => void;
   clear: () => void;
@@ -131,24 +97,12 @@ function resetBatch(): void {
   }
 }
 
-/** The "auto-active" rule: a running subsystem claims the view, gently. */
-function pickAutoFocus(s: WorkspaceStoreState): WorkspacePanel | null {
-  const st = s.state;
-  if (st.permissions.some((p) => p.status === 'pending')) return 'permissions';
-  if (st.research?.active) return 'research';
-  if (st.browser?.active) return 'browser';
-  if (st.computer?.active) return 'computer';
-  return null;
-}
-
 export const useWorkspaceStore = create<WorkspaceStoreState>()(
   immer((set, get) => ({
     open: false,
     runId: null,
     state: initialWorkspaceState(),
-    activePanel: 'overview',
-    pinned: ['changes'],
-    userChosen: false,
+    activePanel: 'output',
 
     setOpen: (open) => {
       writeBool(OPEN_KEY, open);
@@ -173,22 +127,8 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
       }
       set((s) => {
         s.activePanel = panel;
-        s.userChosen = true;
       });
     },
-    togglePinned: (panel) =>
-      set((s) => {
-        const idx = s.pinned.indexOf(panel);
-        if (idx === -1) s.pinned.push(panel);
-        else s.pinned.splice(idx, 1);
-        if (typeof window !== 'undefined') {
-          try {
-            window.localStorage.setItem(PIN_KEY, JSON.stringify(s.pinned));
-          } catch {
-            /* ignore */
-          }
-        }
-      }),
 
     bindRun: (runId) => {
       if (get().runId === runId) return;
@@ -196,7 +136,6 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
       set((s) => {
         s.runId = runId;
         s.state = initialWorkspaceState(runId);
-        s.userChosen = false;
       });
     },
 
@@ -223,10 +162,6 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
               else s.state.lastSeq = f.seq;
             }
           }
-          const focus = pickAutoFocus(s);
-          if (focus && !s.userChosen && s.pinned.indexOf(focus) === -1) {
-            s.activePanel = focus;
-          }
         });
       }, FLUSH_MS);
     },
@@ -236,22 +171,19 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
       set((s) => {
         s.runId = null;
         s.state = initialWorkspaceState();
-        s.userChosen = false;
       });
     },
   })),
 );
 
-/** Hydrate the persisted open/panel/pinned preferences once on the client. */
+/** Hydrate the persisted open/panel preferences once on the client. */
 export function hydrateWorkspaceStore(): void {
   if (typeof window === 'undefined') return;
   const open = readBool(OPEN_KEY, false);
   const activePanel = readPanel();
-  const pinned = readPinned();
   useWorkspaceStore.setState((s) => {
     s.open = open;
     s.activePanel = activePanel;
-    s.pinned = pinned;
   });
 }
 

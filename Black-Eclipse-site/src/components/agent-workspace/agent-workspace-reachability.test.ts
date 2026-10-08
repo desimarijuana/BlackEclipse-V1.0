@@ -3,15 +3,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { en } from '@/lib/i18n/dictionaries/en';
 
-// The Agent Workspace is mounted GLOBALLY in the root layout (portaled to
-// <body>), so it coexists with every screen and the existing left sidebar. Like
-// the code surface, its reachability is not observable from a unit test that
-// imports the panel directly, so this asserts on the SHELL SOURCES: if someone
-// removes the layout mount or the top-bar toggle, the workspace goes dark and
-// this fails.
+// The Agent Workspace is a real docked RIGHT SIDEBAR, mounted in the app shell
+// (`stock-chat.tsx`) as a sibling column of the main panel — so the main panel
+// shrinks rather than being overlapped. Like the code surface, its reachability
+// is not observable from a unit test that imports the panel directly, so this
+// asserts on the SHELL SOURCES: if someone removes the shell mount or the
+// top-bar toggle, the sidebar goes dark and this fails.
 
-function readLayout(): string {
-  const here = fileURLToPath(new URL('../../app/layout.tsx', import.meta.url));
+function readShell(): string {
+  const here = fileURLToPath(new URL('../screens/stock-chat.tsx', import.meta.url));
   return readFileSync(here, 'utf8');
 }
 function readTopBar(): string {
@@ -20,10 +20,10 @@ function readTopBar(): string {
 }
 
 describe('Agent Workspace reachability', () => {
-  it('is mounted once in the root layout', () => {
-    const layout = readLayout();
-    expect(layout).toContain('components/agent-workspace/workspace');
-    expect(layout).toContain('<AgentWorkspace />');
+  it('is mounted once in the app shell row', () => {
+    const shell = readShell();
+    expect(shell).toContain('components/agent-workspace/workspace');
+    expect(shell).toContain('<AgentWorkspace />');
   });
 
   it('has a header toggle so it is reachable from every screen', () => {
@@ -41,10 +41,10 @@ describe('Agent Workspace copy', () => {
   const KEYS = [
     'workspace.title',
     'workspace.empty',
-    'workspace.panel.overview',
-    'workspace.panel.activity',
+    'workspace.panel.output',
     'workspace.panel.changes',
     'workspace.panel.permissions',
+    'workspace.panel.history',
     'workspace.permission.approve',
     'workspace.permission.deny',
     'workspace.notAvailable',

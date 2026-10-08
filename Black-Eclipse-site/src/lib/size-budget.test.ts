@@ -51,8 +51,10 @@ const RATCHET: Record<string, number> = {
   // and the focus-mode "tuck the terminal" effect. Grew once more with the
   // approval-card wiring (composer anchor + the portaled ApprovalCard). Grew yet
   // again by one dynamic import + one keep-alive block for the dedicated
-  // Research tab. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1270,
+  // Research tab. May only shrink from here. Grew by one import + one mount
+  // line when the Agent Workspace became a docked right sidebar in the shell
+  // row (it moved out of the root layout to reserve real column space).
+  "src/components/screens/stock-chat.tsx": 1272,
 };
 
 export interface SizeEntry {

@@ -9,23 +9,25 @@ last-verified: 2026-10-07
 **Who this is for:** anyone asking "where does Eclipse show what the agent is
 doing, and how do I extend it?"
 
-The Agent Workspace is the app's **execution-observability layer**. It answers
-"what is Eclipse doing right now" — current task, plan, tool activity, files
-inspected/changed, terminal, research, browser, computer-use, artifacts,
-approvals, context usage, telemetry — without flooding the chat transcript.
+The Agent Workspace is the app's **execution-observability layer**, docked as a
+**right sidebar**. It answers "what is Eclipse doing right now, and what did it
+produce" — a live output feed of tool activity (with large outputs expanded in
+place), file changes, approvals and run history — without flooding the chat
+transcript.
 
 ## The three-surface rule
 
 ```
 CHAT             = conversation (the answer, and a one-line activity summary)
-AGENT WORKSPACE  = execution visibility (what the agent is doing, in real time)
+AGENT WORKSPACE  = execution visibility (what the agent did/produced, in real time)
 VIEWER           = large artifacts/output (opened from the workspace)
 ```
 
-A tool's **output text never enters chat or the workspace**. Chat keeps a short
-summary ("Tests completed. 3 failed."); the workspace shows the structured step
-("npm test · exit 1 · 15,827 lines"); the Viewer renders the full output. This is
-what keeps a tool-heavy run readable.
+A tool's **output text never enters chat or the workspace collapsed view**. Chat
+keeps a short summary ("Tests completed. 3 failed."); the workspace's Output feed
+shows the structured row ("npm test · exit 1 · 15,827 lines") that expands to the
+bounded output; the Viewer renders it full-height when opened. This is what keeps
+a tool-heavy run readable.
 
 ## Where it lives
 
@@ -38,24 +40,31 @@ what keeps a tool-heavy run readable.
 | Stream client (live) / trace replay (history) | `src/lib/agent-workspace/stream.ts`, `history.ts` |
 | Existing-stream ingest seam | `src/lib/agent-workspace/ingest.ts` |
 | Display formatting (pure) | `src/lib/agent-workspace/format.ts` |
-| UI (dock + 13 panels + viewers) | `src/components/agent-workspace/**` |
-| Mount point | `src/app/layout.tsx` (`<AgentWorkspace />`, portaled) + top-bar toggle |
+| UI (docked sidebar + 4 panels + Viewer) | `src/components/agent-workspace/**` |
+| Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />`, a sibling of the main column) + top-bar toggle |
 
-## It is an extension, not a redesign
+## It is a docked right sidebar
 
-There is **no right sidebar** in this app: "sidebar" everywhere means the LEFT
-navigation rail (`src/components/layout/sidebar.tsx`). The only pre-existing right
-region is `TerminalDock slot="right"` in the shell's primary row. The Agent
-Workspace is therefore a **separate, global, portaled panel** that coexists with
-the sidebar and every screen — it does not modify, replace or move any of them.
+The Agent Workspace is a **real docked column** in the app shell's primary row —
+mounted as a sibling of the main panel in `stock-chat.tsx`, so the main panel
+**shrinks to make room** instead of being overlapped. This is the same pattern as
+`TerminalDock slot="right"`; the two can coexist (both are right-side columns).
 
-- Mounted once in `src/app/layout.tsx`, portaled to `<body>` (so its glass samples
-  the page and it sits above keep-alive screens).
+Previously it was a global, portaled, floating panel. That was replaced because a
+floating overlay "is not a sidebar" and its 13 tabs buried the useful output
+under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
+
+- **Minimal tabs:** **Output** (default), **Changes**, **Approvals**, **History**.
+  The overview/activity/tasks/context/telemetry/research/browser/computer/
+  artifacts panels were removed as noise — the Output feed carries the signal.
+- **Resizable:** drag the inner (left) edge on desktop; width persists under
+  `black-eclipse:workspace-width` (clamped 300–760 px). No hard border frame — the
+  frosted-glass edge is the separation.
+- On narrow screens it becomes a full-width strip below the content (never an
+  overlay).
 - Its store uses its own persistence keys
-  (`black-eclipse:workspace-{open,panel,pinned}`) — never the `be_sidebar_*` keys
+  (`black-eclipse:workspace-{open,panel,width}`) — never the `be_sidebar_*` keys
   or the `--sidebar-*` CSS tokens.
-- The shell (`stock-chat.tsx`) is untouched, so the size ratchet and every
-  existing tab/keep-alive behaviour are preserved.
 
 Reachability is asserted in
 `src/components/agent-workspace/agent-workspace-reachability.test.ts`.
@@ -82,7 +91,7 @@ python/harness RunEmitter ─▶ SSE ─▶ src/lib/agent/registry.ts (createSse
 
 `ingest.ts` is the ONLY glue: it binds the frame's run, normalizes it, and hands
 it to the store. It lives outside `useAgentRun` so **every** chat surface (the
-ChatBot tab, the floating dock, future surfaces) feeds the workspace with no
+ChatBot tab, the floating dock, future surfaces) feeds the sidebar with no
 per-surface wiring.
 
 The workspace has its own normalizer (`normalize.ts`) rather than extending the
@@ -112,20 +121,21 @@ are incremented from real events. Nothing is inferred.
   150 ms; 10k events produce a handful of React renders, not 10k.
 - **Selector subscriptions.** Panels read narrow slices, so only the visible
   panel re-renders on a change.
-- **Windowed lists.** Activity and artifact output render a slice (200 / 400
-  rows) with incremental "show more", so no virtualization dependency is needed.
+- **Windowed lists.** The Output feed and artifact content render a slice
+  (400 rows) with incremental "show more", so no virtualization dependency is
+  needed.
 - **Duplicate/out-of-order tolerant.** Duplicate event *envelopes* are dropped by
   id at ingest; out-of-order frames are still applied (each maps to its own row)
   and counted in `state.outOfOrder` — never lost, never duplicated.
-- **Lazy large output.** Artifact content is fetched only when the Viewer opens.
+- **Lazy large output.** Artifact content is fetched only when a result row is
+  expanded (or the Viewer opens).
 
-## Auto-active panels (gentle)
+## Selected panel + open/closed state
 
-`pickAutoFocus` switches the panel when a subsystem becomes active
-(permissions > research > browser > computer), but only when the user has not
-manually chosen a panel (`userChosen`) and the target is not pinned. Pin a panel
-from the header to keep it fixed. Pins, the selected panel, and open/closed state
-persist in `localStorage`.
+The selected tab and open/closed state persist in `localStorage`
+(`black-eclipse:workspace-{panel,open}`, plus `width`). There is no auto-focus or
+pinning: the Output feed is the default and stays put. A pending approval shows an
+attention dot on the Approvals tab; a running run shows one on Output.
 
 ## Honesty rules (this is a financial product)
 
@@ -138,13 +148,17 @@ persist in `localStorage`.
 
 ## Gaps (honest)
 
-- Browser and computer-use have **no dedicated live screenshot rendering** yet —
-  the panels show the session/URL/application, action count and any screenshot
-  *reference the runtime emitted*, but do not stream pixels. There is no
-  `/api/browser` or `/api/computer` front door; the workspace reflects the events
-  that reach the run's stream.
+- **Telemetry detail is not surfaced.** Runs, tokens, cost and context-window
+  figures are still normalized into state and remain available to any future
+  panel, but the removed Overview/Telemetry/Context tabs are gone — the sidebar
+  shows Output, Changes, Approvals and History only. Add a tab back if the need is
+  real.
+- **Browser / computer / research have no dedicated panels.** Their events still
+  appear as rows in the Output feed, but there is no session/URL/screenshot view
+  and no live screenshot pixels. There is no `/api/browser` or `/api/computer`
+  front door; the sidebar reflects only the events that reach the run's stream.
 - Subsystem (terminal/browser/computer) events emitted **without a run id** do
-  not reach a run's SSE stream, so the workspace shows the tool-scoped events it
+  not reach a run's SSE stream, so the sidebar shows the tool-scoped events it
   does receive. Scoping those emitters to the run is a runtime change, not a UI
   change.
 - Cost is shown only when the runtime reports one (`RunTelemetry.costUsd`); it is

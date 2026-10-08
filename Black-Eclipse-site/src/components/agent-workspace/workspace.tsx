@@ -1,49 +1,42 @@
 'use client';
 
-// ── Agent Workspace — the execution-observability dock ─────────────────────────
-// A floating, frosted-glass panel that reflects what the agent is doing. It is
-// mounted GLOBALLY (root layout, portaled to <body>) and coexists with the app's
-// left navigation rail and every screen — it modifies neither.
+// ── Agent Workspace — the right sidebar (execution observability) ─────────────
+// A REAL docked column in the app shell's primary row (not a floating overlay):
+// the main panel shrinks to make room, exactly like the terminal's right dock.
+// It reflects what the agent is doing and — its default view — what it produced,
+// with large outputs expanded inline, in the ChatGPT / Claude Code / Kimi idiom.
 //
-// It reads the live normalized state from `useWorkspaceStore`, which is fed by
-// the existing chat SSE stream. It owns no agent logic and never talks to the
-// runtime except to replay a finished run's persisted trace.
+// Mounted in `stock-chat.tsx` as a sibling of the main column, so it reserves
+// space and sits at full height. It reads the live normalized state from
+// `useWorkspaceStore`, which is fed by the existing chat SSE stream. It owns no
+// agent logic and never talks to the runtime except to replay a finished run's
+// persisted trace.
 
-import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Pin, PinOff, Sparkles, X } from '@/lib/icons';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { PanelRight, Sparkles, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import type { TranslationKey } from '@/lib/i18n/types';
-import { useWorkspaceStore, hydrateWorkspaceStore, ALL_PANELS, type WorkspacePanel } from '@/lib/agent-workspace/store';
+import { useWorkspaceStore, hydrateWorkspaceStore, type WorkspacePanel } from '@/lib/agent-workspace/store';
 import { fetchRunTrace, replayTrace } from '@/lib/agent-workspace/history';
 import type { AgentWorkspaceState, ArtifactRef } from '@/lib/agent-workspace/types';
-import { OverviewPanel } from './overview-panel';
-import { ActivityPanel } from './activity-panel';
-import { TasksPanel } from './tasks-panel';
+import { OutputPanel } from './output-panel';
 import { ChangesPanel } from './changes-panel';
-import { ContextPanel } from './context-panel';
-import { TelemetryPanel } from './telemetry-panel';
 import { PermissionsPanel } from './permissions-panel';
-import { ArtifactsPanel } from './artifacts-panel';
-import { ResearchPanel, BrowserPanel, ComputerPanel } from './tool-panels';
 import { HistoryPanel } from './history-panel';
 import { ArtifactViewer, type LoadedContent } from './viewer';
-import { PANEL_ICONS, statusIcon } from './ui';
+import { statusIcon } from './ui';
 
-const PANEL_KEY: Record<WorkspacePanel, TranslationKey> = {
-  overview: 'workspace.panel.overview',
-  activity: 'workspace.panel.activity',
-  tasks: 'workspace.panel.tasks',
+// The sidebar is deliberately minimal: what the agent did (Output), what it
+// changed (Changes), what it needs (Approvals) and past runs (History). The
+// telemetry/tasks/context/browser/computer detail views were removed — they read
+// as noise here; the Output feed carries the useful signal.
+const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['output', 'changes', 'permissions', 'history'];
+
+const PANEL_KEY: Record<(typeof SIDEBAR_PANELS)[number], TranslationKey> = {
+  output: 'workspace.panel.output',
   changes: 'workspace.panel.changes',
-  context: 'workspace.panel.context',
-  terminal: 'workspace.panel.terminal',
-  research: 'workspace.panel.research',
-  browser: 'workspace.panel.browser',
-  computer: 'workspace.panel.computer',
-  artifacts: 'workspace.panel.artifacts',
   permissions: 'workspace.panel.permissions',
-  telemetry: 'workspace.panel.telemetry',
   history: 'workspace.panel.history',
 };
 
@@ -58,13 +51,33 @@ const STATUS_KEY: Record<import('@/lib/agent-workspace/types').AgentStatus, Tran
   cancelled: 'workspace.status.cancelled',
 };
 
-/** Which panels show a live "attention" dot (a running subsystem owns them). */
+const MIN_W = 300;
+const MAX_W = 760;
+const DEFAULT_W = 400;
+
+function storeWidth(value: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem('black-eclipse:workspace-width', String(Math.round(value)));
+  } catch {
+    /* private mode */
+  }
+}
+function readWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_W;
+  try {
+    const raw = window.localStorage.getItem('black-eclipse:workspace-width');
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) ? Math.min(MAX_W, Math.max(MIN_W, n)) : DEFAULT_W;
+  } catch {
+    return DEFAULT_W;
+  }
+}
+
+/** Which panel shows a live "attention" dot (a pending decision owns it). */
 function panelAttention(panel: WorkspacePanel, state: AgentWorkspaceState): boolean {
   if (panel === 'permissions') return state.permissions.some((p) => p.status === 'pending');
-  if (panel === 'research') return Boolean(state.research?.active);
-  if (panel === 'browser') return Boolean(state.browser?.active);
-  if (panel === 'computer') return Boolean(state.computer?.active);
-  if (panel === 'activity') return state.execution.status === 'running' || state.execution.status === 'planning';
+  if (panel === 'output') return state.execution.status === 'running' || state.execution.status === 'planning';
   return false;
 }
 
@@ -72,31 +85,22 @@ export function AgentWorkspace() {
   const open = useWorkspaceStore((s) => s.open);
   const state = useWorkspaceStore((s) => s.state);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
-  const pinned = useWorkspaceStore((s) => s.pinned);
   const runId = useWorkspaceStore((s) => s.runId);
   const setActivePanel = useWorkspaceStore((s) => s.setActivePanel);
-  const togglePinned = useWorkspaceStore((s) => s.togglePinned);
   const setOpen = useWorkspaceStore((s) => s.setOpen);
   const t = useT();
 
   const [mounted, setMounted] = useState(false);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [viewing, setViewing] = useState<ArtifactRef | null>(null);
   const [replayState, setReplayState] = useState<AgentWorkspaceState | null>(null);
+  const [width, setWidth] = useState(DEFAULT_W);
+  const resizeRef = useRef<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
+    setWidth(readWidth());
     hydrateWorkspaceStore();
   }, []);
-
-  // Tick once a second ONLY while the run is live, so elapsed time advances
-  // without a perpetual re-render loop when idle.
-  const live = state.execution.status === 'running' || state.execution.status === 'planning' || state.execution.status === 'waiting';
-  useEffect(() => {
-    if (!open || !live) return;
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [open, live]);
 
   const effective = replayState ?? state;
 
@@ -149,37 +153,49 @@ export function AgentWorkspace() {
     [],
   );
 
+  const startResize = (e: React.PointerEvent) => {
+    resizeRef.current = e.clientX;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const moveResize = (e: React.PointerEvent) => {
+    if (resizeRef.current == null) return;
+    const next = Math.min(MAX_W, Math.max(MIN_W, width - (e.clientX - resizeRef.current)));
+    resizeRef.current = e.clientX;
+    setWidth(next);
+  };
+  const endResize = () => {
+    if (resizeRef.current != null) storeWidth(width);
+    resizeRef.current = null;
+  };
+
   if (!mounted || !open) return null;
 
   const statusKey = STATUS_KEY[effective.execution.status];
 
-  return createPortal(
+  return (
     <div
       role="complementary"
       aria-label={t('workspace.title')}
-      className="glass-card-strong fixed bottom-3 right-3 top-16 z-[80] flex w-[min(420px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-white/12 shadow-2xl"
+      style={{ width }}
+      className={cn(
+        // A real docked column beside the main panel: full height on desktop,
+        // a full-width strip below the content on narrow screens (never an
+        // overlay). Frosted glass per the Eclipse design system — no hard border
+        // frame; the glass edge is the separation.
+        'relative z-20 flex shrink-0 flex-col overflow-hidden',
+        'glass-card-strong',
+        'w-full md:h-full md:w-auto',
+      )}
     >
       <header className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
         <Sparkles size={14} className="shrink-0 text-primary" />
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-foreground">
           {t('workspace.title')}
         </span>
-        <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground/70">
+        <span className="flex shrink-0 items-center gap-1 text-[10.5px] text-muted-foreground/70">
           {statusIcon(effective.execution.status, 11)}
           {t(statusKey)}
         </span>
-        <button
-          type="button"
-          onClick={() => togglePinned(activePanel)}
-          aria-pressed={pinned.includes(activePanel)}
-          title={pinned.includes(activePanel) ? t('workspace.unpin') : t('workspace.pin')}
-          className={cn(
-            'flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors',
-            pinned.includes(activePanel) ? 'bg-white/10 text-primary' : 'text-muted-foreground hover:bg-white/[0.06] hover:text-foreground',
-          )}
-        >
-          {pinned.includes(activePanel) ? <Pin size={12} /> : <PinOff size={12} />}
-        </button>
         <button
           type="button"
           onClick={() => setOpen(false)}
@@ -191,8 +207,7 @@ export function AgentWorkspace() {
       </header>
 
       <nav aria-label={t('workspace.title')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-white/10 px-2 py-1.5 scrollbar-hide">
-        {ALL_PANELS.map((panel) => {
-          const Icon = PANEL_ICONS[panel];
+        {SIDEBAR_PANELS.map((panel) => {
           const attention = panelAttention(panel, effective);
           return (
             <button
@@ -200,15 +215,13 @@ export function AgentWorkspace() {
               type="button"
               onClick={() => setActivePanel(panel)}
               aria-pressed={activePanel === panel}
-              title={t(PANEL_KEY[panel])}
               className={cn(
-                'relative flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] transition-colors',
+                'relative shrink-0 rounded-lg px-2.5 py-1 text-[11px] transition-colors',
                 activePanel === panel ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/[0.05] hover:text-foreground',
               )}
             >
-              <Icon size={12} />
-              <span className="hidden xl:inline">{t(PANEL_KEY[panel])}</span>
-              {attention && <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />}
+              {t(PANEL_KEY[panel])}
+              {attention && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />}
             </button>
           );
         })}
@@ -224,9 +237,8 @@ export function AgentWorkspace() {
           <PanelBody
             panel={activePanel}
             state={effective}
-            nowMs={nowMs}
             runId={runId}
-            onOpenArtifact={setViewing}
+            load={loadArtifact}
             onOpenDiff={(change) => setViewing({ id: `diff:${change.path}`, name: change.path, type: 'diff', createdAt: Date.now(), storageRef: change.path })}
             onDecide={onDecide}
             onOpenRun={openRun}
@@ -239,55 +251,45 @@ export function AgentWorkspace() {
           </div>
         )}
       </div>
-    </div>,
-    document.body,
+
+      {/* Drag the left edge to resize the docked column (desktop only). */}
+      <div
+        onPointerDown={startResize}
+        onPointerMove={moveResize}
+        onPointerUp={endResize}
+        onPointerCancel={endResize}
+        aria-label={t('workspace.resize')}
+        title={t('workspace.resize')}
+        className="absolute inset-y-0 left-0 hidden w-1.5 cursor-ew-resize touch-none md:block"
+      />
+    </div>
   );
 }
 
 function PanelBody({
   panel,
   state,
-  nowMs,
   runId,
-  onOpenArtifact,
+  load,
   onOpenDiff,
   onDecide,
   onOpenRun,
 }: {
   panel: WorkspacePanel;
   state: AgentWorkspaceState;
-  nowMs: number;
   runId: string | null;
-  onOpenArtifact: (a: ArtifactRef) => void;
+  load?: (artifact: ArtifactRef) => Promise<LoadedContent | null>;
   onOpenDiff: (c: import('@/lib/agent-workspace/types').FileChange) => void;
   onDecide: (id: string, approve: boolean) => Promise<void>;
   onOpenRun: (id: string) => void;
 }) {
   switch (panel) {
-    case 'overview':
-      return <OverviewPanel state={state} nowMs={nowMs} />;
-    case 'activity':
-      return <ActivityPanel entries={state.activity} />;
-    case 'tasks':
-      return <TasksPanel tasks={state.tasks} />;
+    case 'output':
+      return <OutputPanel activity={state.activity} artifacts={state.artifacts} load={load} />;
     case 'changes':
       return <ChangesPanel changes={state.changes} onOpenDiff={onOpenDiff} />;
-    case 'context':
-      return <ContextPanel context={state.context} sources={state.contextSources} />;
-    case 'telemetry':
-      return <TelemetryPanel telemetry={state.telemetry} model={state.model} nowMs={nowMs} />;
     case 'permissions':
       return <PermissionsPanel permissions={state.permissions} onDecide={onDecide} />;
-    case 'artifacts':
-      return <ArtifactsPanel artifacts={state.artifacts} onOpen={onOpenArtifact} />;
-    case 'terminal':
-      return <ArtifactsPanel artifacts={state.artifacts.filter((a) => a.type === 'terminal')} onOpen={onOpenArtifact} />;
-    case 'research':
-      return <ResearchPanel research={state.research} />;
-    case 'browser':
-      return <BrowserPanel browser={state.browser} />;
-    case 'computer':
-      return <ComputerPanel computer={state.computer} />;
     case 'history':
       return <HistoryPanel onOpenRun={onOpenRun} activeRunId={runId} />;
     default:
@@ -295,7 +297,7 @@ function PanelBody({
   }
 }
 
-/** A small, accessible toggle used by the shell header. */
+/** The header control that opens/closes the right sidebar. */
 export function AgentWorkspaceToggle({ className }: { className?: string }) {
   const open = useWorkspaceStore((s) => s.open);
   const toggle = useWorkspaceStore((s) => s.toggle);
@@ -313,7 +315,7 @@ export function AgentWorkspaceToggle({ className }: { className?: string }) {
         className,
       )}
     >
-      <Sparkles size={18} />
+      <PanelRight size={18} />
     </button>
   );
 }

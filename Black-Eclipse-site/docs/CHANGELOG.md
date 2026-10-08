@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Agent Workspace is now a real docked right sidebar.** Replaced the floating,
+  13-tab telemetry overlay with a proper full-height glass column in the shell's
+  primary row (mount moved from `app/layout.tsx` to `stock-chat.tsx`, sibling of
+  the main panel, so the main panel shrinks instead of being overlapped; same
+  pattern as `TerminalDock slot="right"`). Minimal tabs only: **Output**
+  (default), **Changes**, **Approvals**, **History** — the removed
+  overview/activity/tasks/context/telemetry/research/browser/computer/artifacts
+  panels read as noise. New `output-panel.tsx` feed: chronological tool
+  calls/commands/file writes, each expandable IN PLACE to render its bounded
+  large output (ChatGPT / Claude Code / Kimi idiom); `viewer.tsx` split so
+  `ArtifactContent` is reusable inline and by the full viewer. Resizable by
+  dragging the inner edge (width persisted, `MIN_W=300`/`MAX_W=760`). No hard
+  border frame — the glass edge is the separation. Store panel vocabulary
+  reduced to the four ids; pin/auto-focus removed. Docs updated:
+  `docs/agent-workspace.md`, `docs/DECISIONS.md` (ADR-042 amended),
+  `NAVIGATION.md`.
+
 - **Approvals — "Always allow" standing grants, a redesigned card, and an alert
   on request.** Made the repeated approval prompts stoppable. (1) New
   `python/harness/grants.py` (`GrantStore` on the ONE `agent-memory.db`, table
