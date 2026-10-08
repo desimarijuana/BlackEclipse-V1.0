@@ -92,6 +92,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_model_vision_capability.py` (+ updated local-only vision
   invariant). ADR-H148. Docs: `docs/harness/vision.md`, `docs/harness/decisions.md`.
 
+- **Release-gate hardening (found while validating the Financial Data Gateway).**
+  (1) `eslint.config.mjs` now ignores `.black-eclipse/**` and `.tmp-tests/**` — the
+  code agent's disposable worktrees under `.black-eclipse/code-workspaces/` were
+  being linted and crashed `eslint .` with `ENOENT` on a partially-removed
+  worktree, failing the release gate. (2) `tsconfig.json` `exclude` gains
+  `.black-eclipse` for the same reason. (3) Rotated the oldest active CHANGELOG
+  section (`## 2026-10-01`) into the new monthly archive
+  `docs/changelog/2026-10.md` (8 active dated sections exceeded the 7-section
+  window), restoring `changelog-guard.test.ts`. (4) `financial-data-console.tsx`
+  used straight quotes in JSX text, tripping `react/no-unescaped-entities`
+  (`eslint .`); rephrased. (5) `retrieval_tools._credential_present` now awaits
+  the bridge's `provider_key_status` capability instead of a non-existent
+  `fetch_sync`, so keyed-provider presence resolves correctly. (6) The
+  network-dependent news case in `data-bridge-identity.test.ts` gets an explicit
+  20s budget (it exercises the real news/web transport, so the 5s default made the
+  gate load-sensitive). docs updated: `docs/CHANGELOG.md`; tests unchanged except
+  (6).
+
 ## 2026-10-07
 
 - **Financial Data Gateway — provider registry, centralized rate limits, crypto
