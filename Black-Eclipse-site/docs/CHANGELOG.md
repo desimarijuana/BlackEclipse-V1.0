@@ -8,6 +8,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- Test-only: the data-bridge identity news case now gets a 20s timeout (it
+  exercises the real news/web transport with no provider mock, so the 5s default
+  made the release gate load-sensitive). No production code change — no doc change.
+
 - Agent Workspace sidebar chrome polish: removed the hard `border-b` separators
   under the header and the panel tabs (the frosted-glass edge is the separation),
   and replaced the header `Sparkles` glyph with the `Bot` agent icon. Cosmetic

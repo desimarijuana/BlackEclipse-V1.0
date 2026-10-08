@@ -161,5 +161,8 @@ describe('news � no false negatives (C2)', () => {
       expect(result.failureClass === 'no_data' || Array.isArray(result.items)).toBe(true);
     }
     void webSearch;
-  });
+    // This case exercises the real news/web transport (no provider mock in this
+    // file), so it must be allowed a network budget larger than the 5s default —
+    // otherwise the release gate is load-sensitive.
+  }, 20_000);
 });
