@@ -8,6 +8,172 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Portfolio engine — the remaining capability gaps closed.** (1) **Cost basis**:
+  added `HIFO` and `SPECIFIC_ID` (exact-lot selection via a transaction's
+  `lot_selection`). (2) **Corporate actions**: added `RIGHTS_ISSUE`,
+  `WARRANT_EXERCISE` (warrant basis + strike carried to the underlying) and
+  `RETURN_OF_CAPITAL` (basis reduction, cash in, excess recognized as a taxable
+  gain via a new realized-only `REALIZED_ADJUSTMENT`). (3) **Crypto/derivatives**:
+  `SLASHING` (zero-proceeds write-off / loss) and `FUNDING` (signed funding cash).
+  (4) **Attribution**: Brinson single-period allocation/selection/interaction.
+  (5) **Optimizer**: projected-gradient `min_variance`/`mean_variance`/
+  `inverse_volatility` with exact bounded-simplex projection + turnover cap.
+  (6) **Factor exposure** and P&L rollups by asset class/sector/strategy.
+  (7) **Currency hedging** proposals. (8) **Reconciliation** engine
+  (`PortfolioReconciliation` table) → MATCHED/MISMATCH/MISSING/UNKNOWN.
+  (9) **Cross-portfolio aggregation**. 28 tools; new routes
+  (`.../slashing|funding|reconcile|reconciliations|optimize|attribution|
+  factor-exposure|hedge`, `POST /portfolio/aggregate`); UI Advanced-analytics
+  panel. Verification: **`npm run build` now succeeds** (an unrelated `/login`
+  `useSearchParams` Suspense blocker was fixed); additive-migration test on an
+  old-schema DB added. Tests: `test_portfolio_{advanced,migration}.py` + route
+  cases (114 portfolio tests passing). docs updated:
+  `docs/portfolio-accounting.md`, this file.
+
+- **Quant Engine — limitations fixed + research engines (optimization,
+  walk-forward, Monte-Carlo, sensitivity/robustness).** Two correctness
+  limitations are gone: (1) a portfolio backtest now builds one
+  `ExecutionSimulator` + `RiskEngine` **per strategy binding**, so each symbol's
+  fills and risk limits follow its own strategy's costs (a test asserts two
+  strategies with different commission each pay their own rate); (2)
+  `historical` spread is real — a new optional per-bar `spread` column on the
+  dataset is used by the simulator, and its absence produces an explicit
+  `HISTORICAL_SPREAD_UNAVAILABLE` warning (never a silent zero). Four
+  deterministic research engines added under `python/harness/quant/`:
+  `params.py` (dotted-path spaces), `optimize.py` (grid/random/evolutionary +
+  genuine GP-EI Bayesian; objectives oriented higher-is-better; multi-objective
+  Pareto; per-axis stability), `walkforward.py` (train→test with optimization on
+  the training slice only — a test proves a mutated test period cannot change the
+  chosen params; IS/OOS/combined + divergence), `montecarlo.py` (trade reshuffle,
+  return bootstrap, parameter and execution perturbation; percentiles, P(loss),
+  P(ruin), expected/worst drawdown; seeded), `robustness.py` (one-at-a-time
+  sensitivity + cost sensitivity + trade concentration + sample size + regime
+  dependence → deterministic verdict `robust`/`fragile`/`insufficient_evidence`
+  with evidence-backed conclusions). Wired end-to-end: 5 new agent tools
+  (`optimize_parameters`, `run_walk_forward`, `run_monte_carlo`,
+  `run_sensitivity_analysis`, `run_robustness_analysis`; 24 `quant_*` total),
+  operator-gated routes `/quant/{optimize,walk-forward,monte-carlo,sensitivity,
+  robustness}`, capability flags flipped to `available`, and a research panel in
+  the Backtest tab. Tests: `python/tests/test_quant_research.py` + additions to
+  `test_quant_engine.py`/`test_quant_tools.py` (74 quant tests passing).
+  Options (Phase 7) and backend job offload remain explicit capability states.
+  docs updated: `docs/quant-engine.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H150), this file.
+
+- Test-only: bumped the `stock-chat.tsx` size-budget ratchet 1272 → 1296 (the
+  SPA shell gained one dynamic import + one keep-alive block each for the
+  Portfolio and Unified Search tabs). No production code change — the shell's
+  per-tab keep-alive blocks remain the standing split candidate. Fixes the
+  `src/lib/size-budget.test.ts` gate; `vitest` (2322) and `tsc` are green — no doc
+  change.
+
+- **Portfolio engine — corporate actions, crypto, tenant isolation and
+  materialized positions.** Closed the four deferred gaps in the Portfolio
+  Accounting Engine. (1) **Corporate actions**: new transaction types
+  `SPIN_OFF`/`MERGER`/`SYMBOL_CHANGE`/`COST_BASIS_ADJUSTMENT` and
+  `PortfolioService.apply_corporate_action` — spin-offs reallocate parent basis to
+  the child by relative FMV (basis conserved), mergers carry basis and treat cash
+  consideration as a genuine lot-matched partial disposal, and symbol changes are
+  an in-kind transfer pair; unsupported actions are refused. (2) **Crypto**:
+  real `apply_swap` (taxable disposal + FMV acquisition), `apply_bridge`
+  (book-value carry, no gain), `record_reward` (staking reward/airdrop at FMV) and
+  `apply_staking` (custody-only `STAKE`/`UNSTAKE` passthrough). (3) **Tenant
+  authorization**: `ownerId` is stamped on create and every read/mutation now
+  authorizes the asserted actor (`X-Harness-User` header / `actorId`), refusing a
+  mismatch with `PORTFOLIO_FORBIDDEN` -> HTTP 403; unowned/local mode unchanged.
+  (4) **Materialized positions**: a derived `PortfolioPosition` cache rebuilt
+  incrementally per symbol on mutation, read without a full-ledger recompute,
+  self-healing when absent, plus `rebuild_all`. New transactions: 6 more
+  `portfolio_*` tools (19 total), routes `.../corporate-action|swap|bridge|reward|
+  staking|rebuild`, TS client functions, and an `X-Harness-User` forwarding proxy.
+  Tests: `python/tests/test_portfolio_{corporate_actions,crypto,tenancy,
+  materialization}.py` + new API/route cases (99 portfolio tests passing).
+  docs updated: `docs/portfolio-accounting.md` (new sections), this file.
+
+- **Quant Engine (Phases 1–2): deterministic trading & backtesting, end-to-end.**
+  New `python/harness/quant/` package implementing a modular, event-driven
+  backtester — no placeholders and no LLM-computed statistics. Strategy contract
+  with a structured rules DSL, validation and semver versioning
+  (`strategy.py`, `rules.py`); causal indicators (`indicators.py`); a
+  point-in-time market dataset over the ONE Market Data Gateway with quality
+  checks and higher-timeframe alignment (`data.py`, `datasets.py`); an order
+  state machine (`orders.py`); realistic execution (commission/slippage/spread/
+  market-impact/latency, all reported and only-zero when explicitly selected,
+  `execution.py`); position sizing (`sizing.py`); pre-trade risk limits
+  (`risk.py`); a long/short simulation portfolio (`portfolio.py`); the full
+  metric set with units/definitions (`metrics.py`); the event-driven engine and
+  `BacktestResult` (`engine.py`); strategy+experiment persistence with gzipped
+  result artifacts (`store.py`, metadata on the ONE `agent-memory.db`); synthetic
+  golden datasets (`fixtures.py`). 19 agent tools registered on the shared
+  registry (`quant_*`, read-only, run_backtest marked long-running); operator-
+  gated HTTP in `routers/quant.py`; boot wiring `quant/bootstrap.py` +
+  `ToolContext.quant_store`. Front door `src/lib/backtest/` +
+  `src/app/api/backtest/[...path]/route.ts` + the mounted Backtest tab
+  (`src/components/screens/backtest/backtest-screen.tsx`, ECharts). Capabilities
+  are reported honestly (`available`/`partial`/`unsupported`); options,
+  walk-forward, Monte-Carlo, optimization and robustness are advertised as
+  `unsupported` and are NOT registered as tools (later phases). The backtest
+  simulation portfolio is deliberately separate from the long-only tax-lot
+  Portfolio Accounting Engine; long-only realized P&L is reconciled against
+  `portfolio.accounting` in tests. Data-quality findings (gaps/duplicates/
+  out-of-order/incomplete) are surfaced as `DATA_*` result warnings. Tests:
+  `python/tests/test_quant_*.py` (59 passing) +
+  `src/lib/backtest/backtest-client.test.ts`. Verifiable via
+  `npm run test:py`. docs updated: `docs/quant-engine.md` (new),
+  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H150), this file.
+
+- **Portfolio Accounting Engine — full subsystem.** New `python/harness/portfolio/`
+  package: a Decimal-based transaction ledger with real FIFO/LIFO/weighted-average
+  tax-lot engines (`accounting.py`), tax-lot matching, valuation with provider-neutral
+  FX + mandatory price freshness/data-quality (`Mark`, `market_adapter.py`),
+  realized/unrealized P&L, exposure + allocation (`analytics.py`), deterministic risk
+  incl. seeded Monte-Carlo VaR (`risk.py`), TWR/MWR/IRR/CAGR + benchmark comparison
+  (`performance.py`), and a proposal-only rebalancing engine with estimated fees and
+  configurable tax impact (`rebalance.py`). Persistence is `PortfolioStore` on the ONE
+  `agent-memory.db` connection (own tables, idempotent DDL; partial-unique idempotency
+  on `(portfolioId, source, externalId)`); the ledger is the source of truth and lots
+  are derived. 13 tools registered on the shared registry
+  (`portfolio_get/add_position/remove_position/update_position/calculate_pnl/exposure/
+  allocation/risk/tax_lots/rebalance/…`) with read vs mutating
+  (`portfolio.write`) vs consequential (`portfolio.rebalance_proposal`) effects;
+  boot wiring in `portfolio/bootstrap.py`, run wiring through
+  `ToolContext.portfolio_service`; operator-gated HTTP in
+  `routers/portfolio.py`; front door `src/lib/harness/portfolio-client.ts` +
+  `src/app/api/portfolio/[[...path]]/route.ts` + the Ledger view in
+  `src/components/screens/portfolio/portfolio-ledger.tsx`. Shorts are refused, not
+  miscalculated; rebalancing never executes a trade. Tests:
+  `python/tests/test_portfolio_{accounting,store,service,risk_performance,tools,api}.py`
+  (golden case + invariants + edge cases; 60 passing).
+  docs updated: `docs/portfolio-accounting.md` (new), `docs/NAVIGATION.md` (trigger
+  table), this file. Persistence deliberately reuses `agent-memory.db`, not
+  `jdds.db`/Prisma — portfolio state is private runtime state, not market data.
+
+- **Financial Analysis Engine: deterministic metric surface expanded
+  end-to-end.** Extended the existing deterministic calculators — no parallel
+  engine, no duplicated formula. (1) `research/calculations.py` gained returns
+  (cumulative/annualized, simple/log), Jensen alpha, correlation
+  (pearson/spearman/kendall), covariance (sample/population), CVaR/expected
+  shortfall (historical/parametric/seeded Monte-Carlo), parametric VaR, seeded
+  Monte-Carlo VaR, full drawdown analysis (peak/trough/recovery/durations/series/
+  top-N), rolling volatility/correlation/beta, correlation & covariance matrices
+  and Euler risk contribution; the advanced metrics were split into
+  `research/calculations_ext.py` (re-exported) to stay within the size budget, and
+  `CalculationResult` now carries a structured `detail` payload. (2)
+  `finance_facts/metrics.py` gained FCF (OCF−CapEx), explicit enterprise value,
+  FCFF/FCFE, and an explicit-basis growth engine (yoy/qoq/mom/ttm/percent/cagr).
+  (3) `finance_facts/valuation.py` gained a per-period DCF schedule, a
+  WACC×terminal-growth sensitivity grid (invalid cells `None`, never a number) and
+  named bear/base/bull DCF scenarios; one `dcf_breakdown` implementation underlies
+  all of them. (4) `research/finance_analysis.py` composes a security / portfolio
+  analysis from caller-supplied inputs; a metric that cannot be computed is
+  reported `UNAVAILABLE` with its reason, never fabricated. (5) New agent tools:
+  `finance_growth`, `finance_fcf`, `finance_security_analysis`,
+  `finance_portfolio_analysis`; `finance_series`/`finance_valuation` extended
+  (sensitivity/scenarios). Tests: `python/tests/test_finance_analysis_engine.py`
+  (59 cases: known values, financial invariants, refusal paths, seed
+  reproducibility, tool surface). Docs updated: `docs/harness/financial-analysis-
+  engine.md` (new), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
 - **Market Data Layer: remaining gaps closed — equity book/trades + streaming,
   computed option Greeks, corporate-bond data.** (1) *Keyed providers*: new
   `src/lib/harness/market/providers/{polygon,finnhub}.ts` (real adapters over the
@@ -109,6 +275,63 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   20s budget (it exercises the real news/web transport, so the 5s default made the
   gate load-sensitive). docs updated: `docs/CHANGELOG.md`; tests unchanged except
   (6).
+
+- **Unified Retrieval / Search Intelligence Layer (semantic + keyword + hybrid search).**
+  New `python/harness/search/` package: a provider-agnostic embedding layer
+  (OpenAI/OpenAI-compatible, Google, Cohere, Voyage) with content caching,
+  batching, retry/backoff and a dimension/version model registry; a reusable
+  chunking engine (fixed/sliding/structural/semantic, tables kept intact); a
+  dedicated SQLite vector + FTS5 index (`.black-eclipse/search/search.db`,
+  `ECLIPSE_SEARCH_DB_PATH`) with documents/sections/chunks/vectors, jobs,
+  observability events and an embedding cache; an idempotent, content-hash
+  deduplicated indexing pipeline with explicit states; source adapters that
+  index existing memory/evidence/documents/skills rows; keyword/vector/hybrid
+  retrieval with metadata, entity and fail-closed temporal filters, ranking,
+  second-stage reranking (local deterministic + Cohere/Voyage), near-duplicate
+  dedup and parent/neighbour context; token-budgeted context assembly;
+  citations + an EvidenceStore bridge; a 60-query golden dataset with
+  Recall@K/Precision@K/MRR/NDCG. Exposed as 13 read-only agent tools
+  (`SEARCH_TOOLS`, added to the finance and code agents), an operator-gated
+  `/search/*` HTTP router, the front-door proxy
+  `src/app/api/harness/search/[[...path]]/route.ts` + `src/lib/harness/search-{client,types}.ts`,
+  and a mounted **Search Intelligence** tab. Chose a dedicated SQLite store over
+  PostgreSQL + pgvector to preserve zero-config (ADR-H151). Authorization is
+  compiled into the query SQL (never scan-then-filter); with no embedding
+  provider the layer is honestly keyword-only. tests:
+  `python/tests/test_search_*.py` (+ updated `test_size_budget.py`,
+  `test_code_agent.py`, `src/lib/sidebar/config.test.ts`, `src/lib/i18n/nav.ts`).
+  docs updated: `docs/harness/search-retrieval.md`, `docs/harness/decisions.md`
+  (ADR-H151), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Unified search — limitation fixes: real ANN, indexed filters, incremental reindex, embedding chunking.**
+  (1) **ANN vector search** via a real `sqlite-vec` `vec0` index per vector space
+  (cosine), with the KNN restricted to the caller's authorization buckets
+  (`aclKey IN (…)`, `store.acl_keys`/`scope_acl_keys`) *before* scoring and
+  candidate validation against the full metadata/temporal+scope SQL; brute-force
+  cosine remains the automatic fallback when the extension is absent
+  (`SearchIndexStore.rebuild_ann()`, dimension-mismatch refusal, `annBackend`
+  in stats). `sqlite-vec>=0.1.6` added to `python/requirements.txt` + a
+  best-effort `doctor.js` probe. (2) **Indexed metadata filtering**:
+  tickers/sectors/industries/scalar `meta` now project into a
+  `SearchDocumentMeta` table and compile into SQL (no Python post-filter); a
+  distinct `SearchDocument.documentType` column replaces the `sourceType`
+  conflation (additive column migration for existing DBs). (3) **Incremental
+  re-index**: an unchanged `INDEXED` document (same id + content hash) is skipped
+  (`IndexResult.unchanged`; `force` overrides), so `bulk_index` only pays for
+  what changed. (4) **Embedding-based semantic chunking**: the `semantic`
+  strategy now splits on real sentence-embedding similarity when a provider is
+  available (lexical-cohesion fallback retained). tests:
+  `python/tests/test_search_ann.py`, `test_search_fixes.py` (+ updated
+  `test_search_*`). docs updated: `docs/harness/search-retrieval.md`,
+  `docs/harness/decisions.md` (ADR-H151), `docs/CHANGELOG.md`.
+
+- **Fix: `research/web_coverage.py` semantic coverage.** The optional
+  embedding-based coverage layer imported `model_runtime.embeddings.embed_texts`,
+  which did not exist, so it silently always fell back to IDF/keyword. Added a
+  real `python/harness/model_runtime/embeddings.py` (a thin sync adapter over the
+  search layer's `EmbeddingService`) so the semantic path works when a provider
+  is configured and still degrades honestly when none is. docs updated:
+  `docs/CHANGELOG.md`.
 
 ## 2026-10-07
 

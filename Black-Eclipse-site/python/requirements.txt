@@ -104,3 +104,10 @@ pypdfium2>=4
 websockets>=13,<16
 httpx>=0.27,<0.29
 
+
+# Unified search - ANN vector index (sqlite-vec). OPTIONAL in effect: when absent
+# the search layer uses brute-force cosine (still correct, just slower at scale)
+# and reports `annBackend: false`; installed by default so semantic search
+# scales out of the box. A small, dependency-free SQLite extension that provides
+# the vec0 virtual table (cosine KNN with authorization-bucket filtering).
+sqlite-vec>=0.1.6

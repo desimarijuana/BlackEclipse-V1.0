@@ -13,6 +13,7 @@ records it, so "P/E = 15" can always be traced to its numerator and denominator.
 from __future__ import annotations
 
 import datetime as _dt
+import math
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -66,6 +67,16 @@ SPECS: dict[str, MetricSpec] = {
                        note="ROIC uses NOPAT (EBIT approximated by operating income); the tax basis must be supplied or is disclosed"),
     "net_debt_to_ebitda": MetricSpec("net_debt_to_ebitda", "net_debt / ebitda", ("net_debt", "ebitda")),
     "debt_to_equity": MetricSpec("debt_to_equity", "gross_debt / common_equity", ("gross_debt", "common_equity")),
+    "free_cash_flow": MetricSpec(
+        "free_cash_flow", "operating_cash_flow - capex", ("operating_cash_flow", "capex"),
+        note="CapEx is taken as a magnitude; a reported negative capex is handled without double-counting",
+    ),
+    "enterprise_value": MetricSpec(
+        "enterprise_value",
+        "market_cap + total_debt + preferred_equity + minority_interest - cash",
+        ("market_cap", "total_debt", "cash"),
+        note="preferred_equity and minority_interest are optional (supplied via `extra`); each component used is recorded",
+    ),
 }
 
 
@@ -244,6 +255,23 @@ def _compute_ratio(metric: str, v: dict[str, Optional[float]], scale: float) -> 
     if metric == "debt_to_equity":
         eq = g("common_equity")
         return (g("gross_debt") / eq) if eq else None
+    if metric == "free_cash_flow":
+        ocf = g("operating_cash_flow")
+        capex = g("capex")
+        if ocf is None or capex is None:
+            return None
+        return ocf - abs(capex)
+    if metric == "enterprise_value":
+        mc = g("market_cap")
+        if mc is None:
+            return None
+        return (
+            mc
+            + (g("total_debt") or 0.0)
+            + (g("preferred_equity") or 0.0)
+            + (g("minority_interest") or 0.0)
+            - (g("cash") or 0.0)
+        )
     return None
 
 
@@ -279,4 +307,223 @@ def growth_rate(current: FinancialFact, prior: FinancialFact) -> DerivedMetric:
     )
 
 
-__all__ = ["DerivationError", "SPECS", "MetricSpec", "derive", "growth_rate"]
+# Growth kinds this engine understands. `cagr` needs an explicit span in years;
+# the rest are period-over-period percentage changes whose ONLY difference is the
+# declared comparison basis (reflected in the metric name and assumptions).
+GROWTH_KINDS: tuple[str, ...] = ("yoy", "qoq", "mom", "ttm", "percent", "cagr")
+
+
+def growth(
+    current: FinancialFact,
+    prior: FinancialFact,
+    *,
+    kind: str = "yoy",
+    years: Optional[float] = None,
+) -> DerivedMetric:
+    """A growth figure with its comparison basis made explicit.
+
+    `kind="cagr"` compounds over an explicit `years` and requires positive start
+    and end values; every other kind is a percentage change over the stated basis
+    (yoy/qoq/mom/ttm). A negative or zero base is refused or warned on — a growth
+    percentage over a non-positive base is not silently presented as meaningful.
+    """
+    if kind not in GROWTH_KINDS:
+        raise DerivationError(f"unknown growth kind {kind!r}; expected {GROWTH_KINDS}")
+    if definitions_differ(current.definition, prior.definition):
+        raise DerivationError(
+            "cannot compute growth across different definitions: "
+            f"{current.definition} vs {prior.definition}"
+        )
+    if current.period is not None and prior.period is not None:
+        if current.period.period_type != prior.period.period_type:
+            raise DerivationError("cannot compute growth across different period types")
+    c, p = _numeric(current), _numeric(prior)
+    if c is None or p is None:
+        raise DerivationError("growth is undefined with a missing value")
+    base_inputs = (
+        {"definition": current.definition, "value": c, "period": current.period.key() if current.period else None, "source": current.source},
+        {"definition": prior.definition, "value": p, "period": prior.period.key() if prior.period else None, "source": prior.source},
+    )
+    periods = tuple(sorted(x for x in (current.period.key() if current.period else None,
+                                      prior.period.key() if prior.period else None) if x))
+    sources = tuple(sorted({s for s in (current.source, prior.source) if s}))
+    calculated_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if kind == "cagr":
+        if p <= 0 or c <= 0:
+            raise DerivationError("CAGR requires strictly positive start and end values")
+        if years is None or not math.isfinite(float(years)) or float(years) <= 0:
+            raise DerivationError("CAGR growth requires an explicit positive `years` span")
+        span = float(years)
+        value = ((c / p) ** (1.0 / span) - 1.0) * 100.0
+        return DerivedMetric(
+            metric="cagr",
+            value=value,
+            formula="((current / prior)^(1/years) - 1) * 100",
+            inputs=base_inputs,
+            input_fact_ids=(current.fact_id, prior.fact_id),
+            input_periods=periods,
+            input_sources=sources,
+            calculated_at=calculated_at,
+            unit="%",
+            warnings=(f"compounded over {span:.6g} years",),
+        )
+
+    if p == 0:
+        raise DerivationError("growth is undefined with a zero denominator")
+    value = (c - p) / abs(p) * 100.0
+    warnings: list[str] = []
+    if p < 0:
+        warnings.append(
+            "the prior-period base is negative; the percentage change over |base| "
+            "is not economically comparable to growth from a positive base"
+        )
+    return DerivedMetric(
+        metric=f"growth_{kind}" if kind != "percent" else "growth_rate",
+        value=value,
+        formula="(current - prior) / |prior| * 100",
+        inputs=base_inputs,
+        input_fact_ids=(current.fact_id, prior.fact_id),
+        input_periods=periods,
+        input_sources=sources,
+        calculated_at=calculated_at,
+        unit="%",
+        warnings=tuple(warnings),
+    )
+
+
+def enterprise_value(
+    market_cap: float,
+    *,
+    total_debt: float = 0.0,
+    preferred_equity: float = 0.0,
+    minority_interest: float = 0.0,
+    cash: float = 0.0,
+    currency: Optional[str] = None,
+) -> DerivedMetric:
+    """Enterprise value constructed from explicit, visible components.
+
+    EV = market cap + total debt + preferred equity + minority interest − cash.
+    Every component actually used is recorded so the bridge from equity value to
+    enterprise value is auditable and no assumption is hidden.
+    """
+    mc = _finite_component(market_cap, "market_cap")
+    debt = _finite_component(total_debt, "total_debt")
+    preferred = _finite_component(preferred_equity, "preferred_equity")
+    minority = _finite_component(minority_interest, "minority_interest")
+    cash_v = _finite_component(cash, "cash")
+    value = mc + debt + preferred + minority - cash_v
+    return DerivedMetric(
+        metric="enterprise_value",
+        value=value,
+        formula="market_cap + total_debt + preferred_equity + minority_interest - cash",
+        inputs=(
+            {"name": "market_cap", "value": mc},
+            {"name": "total_debt", "value": debt},
+            {"name": "preferred_equity", "value": preferred},
+            {"name": "minority_interest", "value": minority},
+            {"name": "cash", "value": cash_v},
+        ),
+        calculated_at=_dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        currency=currency,
+        warnings=("EV depends on which debt/cash definitions are supplied",),
+    )
+
+
+def free_cash_flow_to_firm(
+    *,
+    ebit: float,
+    tax_rate: float,
+    depreciation_amortization: float = 0.0,
+    capex: float = 0.0,
+    change_working_capital: float = 0.0,
+    currency: Optional[str] = None,
+) -> DerivedMetric:
+    """Unlevered free cash flow (FCFF) from an explicit EBIT build-up.
+
+    FCFF = EBIT·(1 − tax) + D&A − CapEx − ΔNWC. Capital expenditure is applied as
+    a magnitude, so a reported negative capex is not double-counted.
+    """
+    ebit_v = _finite_component(ebit, "ebit")
+    tax = _finite_component(tax_rate, "tax_rate")
+    if not (0.0 <= tax < 1.0):
+        raise DerivationError(f"tax_rate must be in [0, 1), got {tax!r}")
+    da = _finite_component(depreciation_amortization, "depreciation_amortization")
+    capex_v = _finite_component(capex, "capex")
+    nwc = _finite_component(change_working_capital, "change_working_capital")
+    value = ebit_v * (1.0 - tax) + da - abs(capex_v) - nwc
+    return DerivedMetric(
+        metric="fcff",
+        value=value,
+        formula="ebit*(1 - tax) + depreciation_amortization - |capex| - change_working_capital",
+        inputs=(
+            {"name": "ebit", "value": ebit_v},
+            {"name": "tax_rate", "value": tax},
+            {"name": "depreciation_amortization", "value": da},
+            {"name": "capex", "value": capex_v},
+            {"name": "change_working_capital", "value": nwc},
+        ),
+        calculated_at=_dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        currency=currency,
+        warnings=("FCFF uses EBIT as the operating-profit proxy and an explicit tax rate",),
+    )
+
+
+def free_cash_flow_to_equity(
+    *,
+    fcff: float,
+    interest_expense: float,
+    tax_rate: float,
+    net_borrowing: float = 0.0,
+    currency: Optional[str] = None,
+) -> DerivedMetric:
+    """Levered free cash flow (FCFE) from FCFF.
+
+    FCFE = FCFF − interest·(1 − tax) + net borrowing. The after-tax interest
+    shield is applied explicitly; `net_borrowing` is new debt less repayments.
+    """
+    firm = _finite_component(fcff, "fcff")
+    interest = _finite_component(interest_expense, "interest_expense")
+    tax = _finite_component(tax_rate, "tax_rate")
+    if not (0.0 <= tax < 1.0):
+        raise DerivationError(f"tax_rate must be in [0, 1), got {tax!r}")
+    borrow = _finite_component(net_borrowing, "net_borrowing")
+    value = firm - interest * (1.0 - tax) + borrow
+    return DerivedMetric(
+        metric="fcfe",
+        value=value,
+        formula="fcff - interest_expense*(1 - tax) + net_borrowing",
+        inputs=(
+            {"name": "fcff", "value": firm},
+            {"name": "interest_expense", "value": interest},
+            {"name": "tax_rate", "value": tax},
+            {"name": "net_borrowing", "value": borrow},
+        ),
+        calculated_at=_dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        currency=currency,
+        warnings=("FCFE is FCFF adjusted for the after-tax interest shield and net borrowing",),
+    )
+
+
+def _finite_component(value: object, label: str) -> float:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise DerivationError(f"{label} must be a number, got {value!r}") from None
+    if not math.isfinite(number):
+        raise DerivationError(f"{label} must be finite, got {value!r}")
+    return number
+
+
+__all__ = [
+    "DerivationError",
+    "SPECS",
+    "GROWTH_KINDS",
+    "MetricSpec",
+    "derive",
+    "growth",
+    "growth_rate",
+    "enterprise_value",
+    "free_cash_flow_to_firm",
+    "free_cash_flow_to_equity",
+]

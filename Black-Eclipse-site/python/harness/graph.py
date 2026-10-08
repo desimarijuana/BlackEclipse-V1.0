@@ -327,6 +327,15 @@ def build_graph(
     # structured result reaches the run blob the right sidebar renders.
     document_sink: Optional[Any] = None,
     market: Optional[Any] = None,
+    # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
+    # the ONE ledger/valuation service (reusing the per-run market gateway).
+    portfolio: Optional[Any] = None,
+    # The Quant Engine bundle (store), so the `quant_*` tools can persist
+    # strategies and experiments on the ONE agent-memory connection.
+    quant: Optional[Any] = None,
+    # The unified Retrieval / Search Intelligence service, so the `*_search`
+    # tools reach the ONE search layer (vector + FTS + rerank).
+    search: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -460,6 +469,16 @@ def build_graph(
         market_gateway=getattr(market, "gateway", None),
         market_store=getattr(market, "store", None),
         market_stream=getattr(market, "stream", None),
+        # Quant Engine store (strategies + experiments) on the ONE agent-memory
+        # connection, so `quant_*` tools persist and replay research.
+        quant_store=getattr(quant, "store", None),
+        # The Portfolio Accounting Engine service, so `portfolio_*` tools reach
+        # the ONE ledger/valuation engine and the per-run market gateway.
+        portfolio_service=getattr(portfolio, "service", None),
+        # The unified search service, so the retrieval/search tools reach the ONE
+        # index. The run's workspace/owner scope the agent's authorized results.
+        search=search,
+        workspace_id=request.workspaceId,
     )
     registry.set_active_context(ctx)
 
@@ -918,6 +937,9 @@ async def execute_run(
     code_intel_runtime: Optional[Any] = None,
     evidence_store: Optional[Any] = None,
     market: Optional[Any] = None,
+    portfolio: Optional[Any] = None,
+    quant: Optional[Any] = None,
+    search: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -1197,6 +1219,9 @@ async def execute_run(
             vision_sink=vision_collector.add,
             document_sink=document_collector.add,
             market=market,
+            portfolio=portfolio,
+            quant=quant,
+            search=search,
         )
         return await app.ainvoke(initial_state)
 

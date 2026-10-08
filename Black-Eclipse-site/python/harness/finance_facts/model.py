@@ -268,6 +268,10 @@ class DerivedMetric:
     currency: Optional[str] = None
     unit: Optional[str] = None
     warnings: tuple[str, ...] = ()
+    # Structured, machine-readable payload for a metric whose answer is more than
+    # one number (a DCF schedule, a sensitivity matrix, a scenario table). The
+    # calculation layer returns structured data; presentation formats it.
+    detail: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -282,6 +286,7 @@ class DerivedMetric:
             "currency": self.currency,
             "unit": self.unit,
             "warnings": list(self.warnings),
+            "detail": self.detail,
         }
 
 

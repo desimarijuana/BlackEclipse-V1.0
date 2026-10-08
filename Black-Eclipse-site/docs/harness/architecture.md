@@ -403,6 +403,21 @@ layer calls, and the legacy `search_web` agent tool delegates to them. There is
 no second page-fetch system and no second data plane; each search provider is a
 small isolated adapter that can be disabled independently.
 
+### Unified search is one shared retrieval layer
+
+`python/harness/search/` is the ONE semantic/keyword/hybrid retrieval layer the
+agent tools and the operator UI share. A process-wide `SearchService`
+(`search/bootstrap.py`) owns a dedicated SQLite vector + FTS5 index
+(`.black-eclipse/search/search.db`), a provider-agnostic `EmbeddingService`
+(OpenAI/OpenAI-compatible, Google, Cohere, Voyage) with batching, caching and
+retry, and reranking/context/citation stages. It reads its sources from the ONE
+`agent-memory.db` connection and bridges results into the research
+`EvidenceStore`; it never adds a second provider, index or agent loop. The
+embedding provider is resolved per run from the run's `ModelSettings`;
+with none configured the layer is honestly keyword-only. This is deliberately a
+dedicated SQLite store rather than PostgreSQL + pgvector, to keep zero-config
+(ADR-H151). See `docs/harness/search-retrieval.md`.
+
 ### Universal model coverage
 
 `models.py` covers "all models" through two mechanisms rather than a branch per

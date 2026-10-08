@@ -80,6 +80,7 @@ def test_code_agent_has_no_finance_tool():
         BROWSER_TOOLS,
         COMPUTER_TOOLS,
         DOCUMENT_TOOLS,
+        SEARCH_TOOLS,
         VISION_TOOLS,
         WEB_RESEARCH_TOOLS,
     )
@@ -90,12 +91,13 @@ def test_code_agent_has_no_finance_tool():
     # not finance tools: they carry no finance data permission of their own and
     # their effectful halves are narrowed by the run's autonomy profile (browser
     # policy engine / computer policy engine + finance firewall). The web research
-    # engine tools are likewise shared READ-ONLY capabilities.
+    # engine tools are likewise shared READ-ONLY capabilities, as are the unified
+    # search tools (read-only retrieval over the shared index).
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
     } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(VISION_TOOLS)
-        - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS))
+        - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS) - set(SEARCH_TOOLS))
 
 
 def test_code_agent_does_not_allow_mcp():

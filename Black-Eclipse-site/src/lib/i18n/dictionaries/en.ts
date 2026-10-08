@@ -26,8 +26,10 @@ export const en = {
   'nav.code': 'Code Tasks',
   'nav.jobs': 'Scheduled Jobs',
   'nav.research': 'Research',
+'nav.backtest': 'Backtest',
   'nav.editor': 'Editor',
   'nav.modelRuntime': 'Model Control Center',
+  'nav.search': 'Search Intelligence',
 
   // Common actions & nouns
   'common.settings': 'Settings',

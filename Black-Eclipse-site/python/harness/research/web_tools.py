@@ -708,38 +708,125 @@ async def finance_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
 
 
 async def finance_valuation(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    """Compute WACC or a DCF valuation from EXPLICIT, auditable inputs.
+    """Compute WACC, a DCF, a DCF sensitivity grid or named DCF scenarios.
 
     A DCF/WACC is an ESTIMATE, never a reported fact; every assumption is recorded
-    and no rate is defaulted.
+    and no rate is defaulted. A sensitivity cell with terminal growth >= WACC is
+    reported as invalid (null), never as a number.
     """
     from . import web_finance
 
     kind = str(args.get("kind") or args.get("metric") or "").strip().lower()
     inputs = args.get("inputs") or {}
     if not isinstance(inputs, dict) or not inputs:
-        return "`inputs` is required (kind: wacc | dcf).", {"status": "ERROR"}
+        return "`inputs` is required (kind: wacc | dcf | dcf_sensitivity | dcf_scenarios).", {"status": "ERROR"}
     try:
         if kind == "wacc":
             result = web_finance.compute_wacc(inputs)
         elif kind in ("dcf", "dcf_equity_value", "dcf_equity_value_per_share"):
             result = web_finance.compute_dcf(inputs)
-        else:
-            return (
-                "`kind` must be 'wacc' or 'dcf'.",
-                {"status": "ERROR", "error": "unknown kind"},
+        elif kind == "dcf_sensitivity":
+            result = web_finance.compute_dcf_sensitivity(
+                inputs,
+                discount_rates=args.get("discount_rates"),
+                terminal_growths=args.get("terminal_growths"),
             )
+        elif kind == "dcf_scenarios":
+            scenarios = args.get("scenarios")
+            if not isinstance(scenarios, dict) or not scenarios:
+                return "`scenarios` (name → overrides) is required for dcf_scenarios.", {"status": "ERROR"}
+            result = web_finance.compute_dcf_scenarios(inputs, scenarios)
+        else:
+            return "`kind` must be wacc, dcf, dcf_sensitivity or dcf_scenarios.", {"status": "ERROR", "error": "unknown kind"}
     except Exception as exc:  # noqa: BLE001
         return (
             f"Could not compute the {kind} honestly: {exc}. I will not fabricate a rate or a valuation.",
             {"status": "UNAVAILABLE", "kind": kind, "error": str(exc)},
         )
-    label = "WACC" if kind == "wacc" else "DCF"
+    label = {"wacc": "WACC", "dcf_sensitivity": "DCF sensitivity", "dcf_scenarios": "DCF scenarios"}.get(kind, "DCF")
     return (
-        f"{label} = {result.get('value')}{result.get('unit') or ''} (formula: {result['formula']}). "
-        f"This is an ESTIMATE — inputs and assumptions are recorded in the result.",
+        f"{label} computed (formula: {result['formula']}). "
+        f"This is an ESTIMATE — inputs, assumptions and (where present) the schedule are recorded in the result.",
         {"status": "OK", "result": result},
     )
+
+
+async def finance_growth(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Deterministic growth (yoy/qoq/mom/ttm/percent/cagr) from two values."""
+    from . import web_finance
+
+    if "current" not in args or "prior" not in args:
+        return "`current` and `prior` values are required.", {"status": "ERROR", "error": "current and prior required"}
+    try:
+        result = web_finance.compute_growth(
+            args.get("current"), args.get("prior"),
+            kind=str(args.get("kind") or "yoy"), years=args.get("years"), currency=args.get("currency"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return (f"Could not compute growth honestly: {exc}.", {"status": "UNAVAILABLE", "error": str(exc)})
+    return (
+        f"{result['metric']} = {result['value']}{result.get('unit') or ''} (formula: {result['formula']}). Deterministic.",
+        {"status": "OK", "result": result},
+    )
+
+
+async def finance_fcf(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Deterministic free cash flow: simple (OCF−CapEx), FCFF or FCFE."""
+    from . import web_finance
+
+    kind = str(args.get("kind") or "free_cash_flow").strip().lower()
+    inputs = args.get("inputs") or {}
+    if not isinstance(inputs, dict) or not inputs:
+        return "`inputs` is required (kind: free_cash_flow | fcff | fcfe).", {"status": "ERROR"}
+    try:
+        result = web_finance.compute_fcf(kind, inputs)
+    except Exception as exc:  # noqa: BLE001
+        return (f"Could not compute {kind} honestly: {exc}.", {"status": "UNAVAILABLE", "error": str(exc)})
+    return (
+        f"{result['metric']} = {result['value']} (formula: {result['formula']}). Deterministic.",
+        {"status": "OK", "result": result},
+    )
+
+
+async def finance_security_analysis(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Compose a deterministic security analysis from caller-supplied inputs."""
+    from . import finance_analysis
+
+    payload = args.get("payload") if isinstance(args.get("payload"), dict) else {
+        k: v for k, v in args.items() if k != "payload"
+    }
+    if not isinstance(payload, dict) or not payload:
+        return "A `payload` of named inputs is required.", {"status": "ERROR", "error": "payload required"}
+    result = finance_analysis.security_analysis(payload)
+    lines = [f"Security analysis: {result['quality']['state']} ({result['quality']['computed']}/{result['quality']['requested']} metrics)."]
+    for section, metrics in result.get("sections", {}).items():
+        ok = [name for name, out in metrics.items() if isinstance(out, dict) and out.get("status") == "OK"]
+        if ok:
+            lines.append(f"  {section}: {', '.join(ok)}")
+    if result.get("warnings"):
+        lines.append("  unavailable: " + "; ".join(result["warnings"][:8]))
+    return "\n".join(lines), {"status": result["status"], "result": result}
+
+
+async def finance_portfolio_analysis(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Compose a deterministic portfolio risk analysis from weighted assets."""
+    from . import finance_analysis
+
+    payload = args.get("payload") if isinstance(args.get("payload"), dict) else {
+        k: v for k, v in args.items() if k != "payload"
+    }
+    if not isinstance(payload, dict) or not payload.get("assets"):
+        return "A `payload` with `assets` (name/weight/observations) is required.", {"status": "ERROR", "error": "assets required"}
+    result = finance_analysis.portfolio_analysis(payload)
+    if result.get("status") != "OK":
+        return f"Portfolio analysis unavailable: {result.get('error')}.", {"status": result.get("status", "UNAVAILABLE"), "result": result}
+    lines = [f"Portfolio analysis: {result['quality']['state']} ({result['quality']['computed']}/{result['quality']['requested']} metrics)."]
+    for section, metrics in result.get("sections", {}).items():
+        if isinstance(metrics, dict):
+            ok = [name for name, out in metrics.items() if isinstance(out, dict) and out.get("status") == "OK"]
+            if ok:
+                lines.append(f"  {section}: {', '.join(ok)}")
+    return "\n".join(lines), {"status": result["status"], "result": result}
 
 
 async def finance_metric_catalog(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -852,15 +939,35 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
         "currency": _STR,
     }, ["metric", "inputs"]),
     "finance_series": _obj({
-        "metric": {**_STR, "description": "A time-series metric id (sharpe/sortino/value_at_risk/beta/cagr/…)."},
+        "metric": {**_STR, "description": "A time-series metric id (see finance_metric_catalog): sharpe, sortino, value_at_risk, parametric_var, monte_carlo_var, cvar, beta, alpha, correlation, covariance, cumulative_return, annualized_return, annualized_volatility, max_drawdown, drawdown_analysis, rolling_volatility, rolling_correlation, rolling_beta, cagr."},
         "observations": {"type": "array", "items": {"type": "object"}, "description": "each {date, value}"},
-        "benchmark": {"type": "array", "items": {"type": "object"}, "description": "benchmark series for beta"},
-        "options": {"type": "object", "description": "e.g. {risk_free_rate, frequency, confidence}"},
+        "benchmark": {"type": "array", "items": {"type": "object"}, "description": "second series for beta/alpha/correlation/covariance"},
+        "options": {"type": "object", "description": "e.g. {risk_free_rate, frequency, confidence, method (simple|log or pearson|spearman|kendall), ddof, window, top_n, horizon_periods, simulations, seed, distribution, years}"},
     }, ["metric", "observations"]),
     "finance_valuation": _obj({
-        "kind": {**_STR, "enum": ["wacc", "dcf"], "description": "which valuation to compute"},
+        "kind": {**_STR, "enum": ["wacc", "dcf", "dcf_sensitivity", "dcf_scenarios"], "description": "which valuation to compute"},
         "inputs": {"type": "object", "description": "explicit inputs (see the tool description)"},
+        "discount_rates": {"type": "array", "items": {"type": "number"}, "description": "dcf_sensitivity row axis (defaults to a grid around the base WACC)"},
+        "terminal_growths": {"type": "array", "items": {"type": "number"}, "description": "dcf_sensitivity column axis"},
+        "scenarios": {"type": "object", "description": "dcf_scenarios: name → {DcfInputs overrides}, e.g. bear/base/bull"},
     }, ["kind", "inputs"]),
+    "finance_growth": _obj({
+        "current": {"type": "number", "description": "current-period value"},
+        "prior": {"type": "number", "description": "prior-period value"},
+        "kind": {**_STR, "enum": ["yoy", "qoq", "mom", "ttm", "percent", "cagr"]},
+        "years": {"type": "number", "description": "required for kind=cagr"},
+        "currency": _STR,
+    }, ["current", "prior"]),
+    "finance_fcf": _obj({
+        "kind": {**_STR, "enum": ["free_cash_flow", "fcff", "fcfe"]},
+        "inputs": {"type": "object", "description": "free_cash_flow: {operating_cash_flow, capex}; fcff: {ebit, tax_rate, depreciation_amortization, capex, change_working_capital}; fcfe: {fcff, interest_expense, tax_rate, net_borrowing}"},
+    }, ["kind", "inputs"]),
+    "finance_security_analysis": _obj({
+        "payload": {"type": "object", "description": "named inputs: priceObservations, benchmarkObservations, riskFreeRate, frequency, currency, fundamentals, valuation"},
+    }, ["payload"]),
+    "finance_portfolio_analysis": _obj({
+        "payload": {"type": "object", "description": "assets: [{name, weight, observations}], plus benchmarkObservations, riskFreeRate, frequency, confidence"},
+    }, ["payload"]),
     "finance_metric_catalog": _obj({}),
     "research_quality": _obj({"research_id": _STR}, ["research_id"]),
 }
@@ -890,8 +997,12 @@ _TOOLS: list[tuple[str, str, Any, int]] = [
     ("research_continue", "Resume a partial/cancelled research run from its persisted state.", research_continue, 180_000),
     ("research_update", "Incrementally update a prior research run; changed sources are superseded and a new snapshot is written.", research_update, 180_000),
     ("finance_metrics", "Compute a deterministic financial ratio/margin/return metric (P/E, forward P/E, PEG, EV/EBITDA, ROIC, ROE, margins, FCF yield, …) from named inputs. Records formula + inputs; refuses on a missing input.", finance_metrics, 10_000),
-    ("finance_series", "Compute a deterministic risk/return time-series metric (Sharpe, Sortino, historical VaR, beta, CAGR, volatility, drawdown) from dated observations.", finance_series, 10_000),
-    ("finance_valuation", "Compute a WACC or a DCF valuation from explicit, auditable inputs. A DCF/WACC is an ESTIMATE with every assumption recorded; no rate is defaulted.", finance_valuation, 10_000),
+    ("finance_series", "Compute a deterministic risk/return time-series metric from dated observations: Sharpe, Sortino, historical/parametric/Monte-Carlo VaR, CVaR (expected shortfall), beta, Jensen alpha, correlation (pearson/spearman/kendall), covariance, cumulative/annualized return, volatility, max drawdown / full drawdown path, rolling volatility/correlation/beta, CAGR.", finance_series, 15_000),
+    ("finance_valuation", "Compute a WACC, a DCF, a WACC×terminal-growth DCF SENSITIVITY grid, or named DCF SCENARIOS (bear/base/bull) from explicit, auditable inputs. A DCF/WACC is an ESTIMATE with every assumption recorded; no rate is defaulted and invalid sensitivity cells are null, never a number.", finance_valuation, 15_000),
+    ("finance_growth", "Compute a deterministic growth figure (yoy/qoq/mom/ttm/percent/cagr) from two values, recording the comparison basis. A non-positive base is refused or warned on, never presented as meaningful.", finance_growth, 10_000),
+    ("finance_fcf", "Compute deterministic free cash flow: simple (OCF−CapEx), FCFF (unlevered) or FCFE (levered) from explicit inputs, with formula and assumptions recorded.", finance_fcf, 10_000),
+    ("finance_security_analysis", "Compose a full deterministic security analysis (returns, volatility, risk, market beta/alpha/correlation, fundamentals, valuation) from the data the caller supplies. A metric that cannot be computed is reported UNAVAILABLE with its reason; nothing is fabricated.", finance_security_analysis, 20_000),
+    ("finance_portfolio_analysis", "Compose a deterministic portfolio risk analysis (portfolio return/volatility, Sharpe/Sortino, VaR/CVaR, drawdown, covariance/correlation matrix, Euler risk contribution, concentration) from weighted assets.", finance_portfolio_analysis, 20_000),
     ("finance_metric_catalog", "List every deterministic financial metric the engine can compute, with its formula and required inputs.", finance_metric_catalog, 10_000),
     ("research_quality", "Report a completed research run's internal, explainable quality score (coverage/authority/freshness/support/conflicts/citations). Not a measure of truth.", research_quality, 10_000),
 ]

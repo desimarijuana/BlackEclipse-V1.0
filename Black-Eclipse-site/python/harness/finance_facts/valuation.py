@@ -15,10 +15,11 @@ its inputs.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as _dt
 import math
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from .metrics import DerivationError
 from .model import DerivedMetric
@@ -63,10 +64,6 @@ class DcfInputs:
     net_debt: float = 0.0                          # subtracted to reach equity
     shares_outstanding: Optional[float] = None    # to reach per-share value
     currency: Optional[str] = None
-
-
-def _warnings_note(text: str) -> tuple[str, ...]:
-    return (text,)
 
 
 def wacc(inputs: WaccInputs, *, now: Optional[str] = None) -> DerivedMetric:
@@ -138,7 +135,62 @@ def dcf(inputs: DcfInputs, *, now: Optional[str] = None) -> DerivedMetric:
     Discounts each forecast FCF, adds ONE terminal value (Gordon growth OR an
     exit multiple — never both silently), subtracts net debt, and optionally
     divides by shares for a per-share value. Every assumption is recorded and the
-    result is classified as an estimate.
+    result is classified as an estimate. The per-period schedule is attached in
+    `detail` so the number is fully reconstructable.
+    """
+    breakdown = dcf_breakdown(inputs)
+    calculated_at = now or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    b = breakdown
+    return DerivedMetric(
+        metric="dcf_equity_value_per_share" if b.per_share is not None else "dcf_equity_value",
+        value=b.per_share if b.per_share is not None else b.equity_value,
+        formula="sum(FCF_t/(1+r)^t) + TV/(1+r)^n - net_debt [ / shares ]",
+        inputs=tuple(b.inputs_rows),
+        calculated_at=calculated_at,
+        currency=inputs.currency,
+        warnings=(
+            f"terminal value via {b.terminal_desc}",
+            "a DCF is an ESTIMATE/OPINION driven by the forecast and discount rate, not a reported fact",
+            *b.terminal_assumptions,
+        ),
+        detail={
+            "schedule": b.schedule,
+            "discountRate": b.rate,
+            "terminalValue": b.terminal_value,
+            "presentValueExplicit": b.pv_explicit,
+            "presentValueTerminal": b.pv_terminal,
+            "enterpriseValue": b.enterprise_value,
+            "netDebt": b.net_debt,
+            "equityValue": b.equity_value,
+            "valuePerShare": b.per_share,
+        },
+    )
+
+
+@dataclass(frozen=True)
+class DcfBreakdown:
+    """The fully computed internal structure of a DCF (one formula, one place)."""
+
+    rate: float
+    fcf: tuple[float, ...]
+    terminal_value: float
+    terminal_desc: str
+    terminal_assumptions: tuple[str, ...]
+    pv_explicit: float
+    pv_terminal: float
+    enterprise_value: float
+    net_debt: float
+    equity_value: float
+    per_share: Optional[float]
+    schedule: list[dict]
+    inputs_rows: list[dict]
+
+
+def dcf_breakdown(inputs: DcfInputs) -> DcfBreakdown:
+    """Validate and compute a DCF once, returning the full auditable breakdown.
+
+    Every other DCF-shaped function (schedule, sensitivity, scenarios) is built
+    on this, so there is exactly one implementation of the discounting formula.
     """
     fcf = tuple(_finite(x, f"free_cash_flows[{i}]") for i, x in enumerate(inputs.free_cash_flows))
     if not fcf:
@@ -168,7 +220,18 @@ def dcf(inputs: DcfInputs, *, now: Optional[str] = None) -> DerivedMetric:
         terminal_assumptions = (f"terminal value = {multiple:.4g}x × terminal metric",)
 
     n = len(fcf)
-    pv_explicit = sum(cf / ((1.0 + rate) ** (t + 1)) for t, cf in enumerate(fcf))
+    schedule: list[dict] = []
+    pv_explicit = 0.0
+    for t, cf in enumerate(fcf):
+        discount_factor = 1.0 / ((1.0 + rate) ** (t + 1))
+        pv = cf * discount_factor
+        pv_explicit += pv
+        schedule.append({
+            "period": t + 1,
+            "freeCashFlow": cf,
+            "discountFactor": discount_factor,
+            "presentValue": pv,
+        })
     pv_terminal = terminal_value / ((1.0 + rate) ** n)
     enterprise_value = pv_explicit + pv_terminal
     net_debt = _finite(inputs.net_debt, "net_debt")
@@ -181,7 +244,6 @@ def dcf(inputs: DcfInputs, *, now: Optional[str] = None) -> DerivedMetric:
             raise DerivationError("shares_outstanding must be positive to compute a per-share value")
         per_share = equity_value / shares
 
-    calculated_at = now or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = [{"name": f"fcf[t={i + 1}]", "value": cf} for i, cf in enumerate(fcf)]
     rows.append({"name": "discount_rate", "value": rate})
     rows.append({"name": "terminal_value", "value": terminal_value})
@@ -190,19 +252,161 @@ def dcf(inputs: DcfInputs, *, now: Optional[str] = None) -> DerivedMetric:
     if inputs.shares_outstanding is not None:
         rows.append({"name": "shares_outstanding", "value": inputs.shares_outstanding})
 
-    return DerivedMetric(
-        metric="dcf_equity_value_per_share" if per_share is not None else "dcf_equity_value",
-        value=per_share if per_share is not None else equity_value,
-        formula="sum(FCF_t/(1+r)^t) + TV/(1+r)^n - net_debt [ / shares ]",
-        inputs=tuple(rows),
-        calculated_at=calculated_at,
-        currency=inputs.currency,
-        warnings=(
-            f"terminal value via {terminal_desc}",
-            "a DCF is an ESTIMATE/OPINION driven by the forecast and discount rate, not a reported fact",
-            *terminal_assumptions,
-        ),
+    return DcfBreakdown(
+        rate=rate, fcf=fcf, terminal_value=terminal_value, terminal_desc=terminal_desc,
+        terminal_assumptions=terminal_assumptions, pv_explicit=pv_explicit,
+        pv_terminal=pv_terminal, enterprise_value=enterprise_value, net_debt=net_debt,
+        equity_value=equity_value, per_share=per_share, schedule=schedule, inputs_rows=rows,
     )
 
 
-__all__ = ["WaccInputs", "DcfInputs", "wacc", "dcf"]
+def dcf_schedule(inputs: DcfInputs, *, now: Optional[str] = None) -> DerivedMetric:
+    """A DCF with the full per-period discounting schedule in `detail`."""
+    result = dcf(inputs, now=now)
+    result.detail["scheduleExtended"] = [
+        {
+            **row,
+            "discountedAt": f"r={result.detail['discountRate']:.6g}",
+        }
+        for row in result.detail["schedule"]
+    ]
+    return result
+
+
+def dcf_sensitivity(
+    inputs: DcfInputs,
+    *,
+    discount_rates: Optional[Sequence[float]] = None,
+    terminal_growths: Optional[Sequence[float]] = None,
+    now: Optional[str] = None,
+) -> DerivedMetric:
+    """A WACC × terminal-growth sensitivity grid for a Gordon-growth DCF.
+
+    Invalid cells (terminal growth >= discount rate) are marked `None` — a
+    mathematically meaningless value is refused, not returned. `detail` carries
+    the axis values and both the enterprise-value and per-share matrices.
+    """
+    if inputs.terminal_growth is None:
+        raise DerivationError("dcf_sensitivity requires a Gordon-growth DCF (terminal_growth, not exit_multiple)")
+    base_rate = _finite(inputs.discount_rate, "discount_rate")
+    base_growth = _finite(inputs.terminal_growth, "terminal_growth")
+    rates = tuple(_finite(r, "discount_rate") for r in (discount_rates or _grid(base_rate, 0.01)))  # type: ignore[arg-type]
+    growths = tuple(_finite(g, "terminal_growth") for g in (terminal_growths or _grid(base_growth, 0.005)))  # type: ignore[arg-type]
+    if not rates or not growths:
+        raise DerivationError("dcf_sensitivity needs at least one discount rate and one terminal growth")
+
+    ev_matrix: list[list[Optional[float]]] = []
+    ps_matrix: list[list[Optional[float]]] = []
+    for r in rates:
+        ev_row: list[Optional[float]] = []
+        ps_row: list[Optional[float]] = []
+        for g in growths:
+            if g >= r:
+                ev_row.append(None)
+                ps_row.append(None)
+                continue
+            candidate = _replace_dcf(inputs, discount_rate=r, terminal_growth=g)
+            try:
+                b = dcf_breakdown(candidate)
+            except DerivationError:
+                ev_row.append(None)
+                ps_row.append(None)
+                continue
+            ev_row.append(b.enterprise_value)
+            ps_row.append(b.per_share)
+        ev_matrix.append(ev_row)
+        ps_matrix.append(ps_row)
+
+    calculated_at = now or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return DerivedMetric(
+        metric="dcf_sensitivity",
+        value=None,
+        formula="enterprise value over a discount-rate × terminal-growth grid",
+        calculated_at=calculated_at,
+        currency=inputs.currency,
+        warnings=(
+            "a DCF sensitivity inherits every assumption of the base DCF",
+            "cells where terminal growth >= discount rate are None (invalid), never a number",
+        ),
+        detail={
+            "rowAxis": "discountRate",
+            "columnAxis": "terminalGrowth",
+            "discountRates": list(rates),
+            "terminalGrowths": list(growths),
+            "enterpriseValue": ev_matrix,
+            "valuePerShare": ps_matrix,
+        },
+    )
+
+
+def dcf_scenarios(
+    base: DcfInputs,
+    scenarios: dict[str, dict],
+    *,
+    now: Optional[str] = None,
+) -> DerivedMetric:
+    """Evaluate named DCF scenarios (e.g. bear/base/bull) from explicit overrides.
+
+    Each scenario is a mapping of `DcfInputs` field → value; fields left out keep
+    the base assumption. Every scenario's resolved assumptions are recorded, so a
+    scenario can never silently differ from what is shown.
+    """
+    if not scenarios:
+        raise DerivationError("dcf_scenarios requires at least one named scenario")
+    allowed = set(DcfInputs.__dataclass_fields__)
+    results: dict[str, Any] = {}
+    for name, overrides in scenarios.items():
+        if not isinstance(overrides, dict):
+            raise DerivationError(f"scenario {name!r} must be a mapping of DcfInputs fields")
+        unknown = set(overrides) - allowed
+        if unknown:
+            raise DerivationError(f"scenario {name!r} has unknown fields: {sorted(unknown)}")
+        candidate = _replace_dcf(base, **overrides)
+        b = dcf_breakdown(candidate)
+        results[name] = {
+            "assumptions": {
+                "discountRate": b.rate,
+                "terminalValue": b.terminal_value,
+                "terminalDescription": b.terminal_desc,
+                "freeCashFlows": list(b.fcf),
+                "netDebt": b.net_debt,
+                "sharesOutstanding": candidate.shares_outstanding,
+            },
+            "enterpriseValue": b.enterprise_value,
+            "equityValue": b.equity_value,
+            "valuePerShare": b.per_share,
+        }
+    calculated_at = now or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return DerivedMetric(
+        metric="dcf_scenarios",
+        value=results.get("base", {}).get("valuePerShare"),
+        formula="one DCF per named scenario, each with explicit assumptions",
+        calculated_at=calculated_at,
+        currency=base.currency,
+        warnings=("each scenario is an ESTIMATE driven by its own stated assumptions",),
+        detail={"scenarios": results},
+    )
+
+
+def _grid(center: float, step: float, *, count: int = 5) -> tuple[float, ...]:
+    half = count // 2
+    return tuple(round(center + (i - half) * step, 10) for i in range(count))
+
+
+def _replace_dcf(inputs: DcfInputs, **overrides: Any) -> DcfInputs:
+    allowed = set(DcfInputs.__dataclass_fields__)
+    clean = {k: v for k, v in overrides.items() if k in allowed and v is not None}
+    return dataclasses.replace(inputs, **clean)
+
+
+__all__ = [
+    "WaccInputs",
+    "DcfInputs",
+    "DcfBreakdown",
+    "wacc",
+    "dcf",
+    "dcf_breakdown",
+    "dcf_schedule",
+    "dcf_sensitivity",
+    "dcf_scenarios",
+]

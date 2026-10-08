@@ -58,7 +58,10 @@ from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.market import router as market_router
 from .routers.memory import router as memory_router
+from .routers.portfolio import router as portfolio_router
+from .routers.quant import router as quant_router
 from .routers.research import router as research_router
+from .routers.search import router as search_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.terminal import router as terminal_router
@@ -96,7 +99,10 @@ app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(market_router)
 app.include_router(memory_router)
+app.include_router(portfolio_router)
+app.include_router(quant_router)
 app.include_router(research_router)
+app.include_router(search_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
 app.include_router(terminal_router)

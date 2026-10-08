@@ -17,22 +17,24 @@ It rejects (never silently repairs):
   * non-finite values,
   * missing required assumptions (e.g. Sharpe without a risk-free rate).
 
-Values are returned as `derived` evidence by the caller — never as reported
+Values are returned as `derived` evidence by the caller â€” never as reported
 facts. No interpolation or backfill is performed.
 """
 
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field
 from datetime import date
+from statistics import NormalDist
 from typing import Any, Optional, Sequence
 
 from .ids import calculation_digest
 
 # Bump when a formula or its conventions change so stored receipts stay
 # interpretable.
-CALCULATION_VERSION = "1.0.0"
+CALCULATION_VERSION = "1.1.0"
 
 # Annualization conventions (trading-periods-per-year). Explicit, not inferred.
 PERIODS_PER_YEAR: dict[str, int] = {
@@ -42,6 +44,10 @@ PERIODS_PER_YEAR: dict[str, int] = {
     "quarterly": 4,
     "annual": 1,
 }
+
+# Return conventions. `simple` is (P1-P0)/P0; `log` is ln(P1/P0) and requires
+# strictly positive prices. The method is always recorded on the result.
+RETURN_METHODS = ("simple", "log")
 
 # Minimum observations required per metric (before any calculation is attempted).
 MIN_OBSERVATIONS: dict[str, int] = {
@@ -53,6 +59,19 @@ MIN_OBSERVATIONS: dict[str, int] = {
     "sortino": 3,
     "value_at_risk": 5,
     "beta": 3,
+    # Sprint: deterministic analysis-engine additions.
+    "cumulative_return": 2,
+    "annualized_return": 2,
+    "correlation": 3,
+    "covariance": 3,
+    "alpha": 3,
+    "cvar": 5,
+    "parametric_var": 5,
+    "monte_carlo_var": 5,
+    "drawdown_analysis": 2,
+    "rolling_volatility": 3,
+    "rolling_correlation": 3,
+    "rolling_beta": 3,
 }
 
 
@@ -84,6 +103,11 @@ class CalculationResult:
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     status: str = "OK"  # OK | ERROR
+    # Structured, machine-readable payloads for metrics whose answer is not a
+    # single scalar (drawdown paths, rolling series, correlation/covariance
+    # matrices, risk decomposition, Monte-Carlo provenance). Presentation code
+    # reads this; the calculation layer never returns pre-formatted strings.
+    detail: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +131,7 @@ class CalculationResult:
             "assumptions": self.assumptions,
             "warnings": self.warnings,
             "status": self.status,
+            "detail": self.detail,
         }
 
 
@@ -130,7 +155,7 @@ def _prepare(
     observations: Sequence[dict[str, Any]],
     *,
     metric: str,
-    frequency: Optional[str],
+    frequency: Optional[str] = None,
     allow_duplicate_dates: bool = False,
 ) -> _Series:
     """Validate and order raw observations into a clean series.
@@ -138,7 +163,7 @@ def _prepare(
     Each observation is `{"date": ..., "value": ..., "identity": ...,
     "currency": ..., "evidenceId": ...}`. Rejects non-finite values, mixed
     identities, and undocumented duplicate dates. Missing values are dropped with
-    a recorded policy — never interpolated.
+    a recorded policy â€” never interpolated.
     """
     if not observations:
         raise CalculationError("no observations supplied")
@@ -156,7 +181,7 @@ def _prepare(
         if date_str is None:
             raise CalculationError(f"observation {i} is missing a date")
         if value is None:
-            # Missing value → drop under the explicit "reject"/"omit" policy.
+            # Missing value â†’ drop under the explicit "reject"/"omit" policy.
             continue
         if not _is_finite(value):
             raise CalculationError(f"observation {date_str}: non-finite value {value!r}")
@@ -241,7 +266,7 @@ def _finalize(result: CalculationResult) -> CalculationResult:
     return result
 
 
-# ── Metrics ─────────────────────────────────────────────────────────────────
+# â”€â”€ Metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def period_change(
@@ -253,7 +278,7 @@ def period_change(
 ) -> CalculationResult:
     """Simple period-over-period change: (end - start) / |start|.
 
-    The smallest comparison primitive — it anchors the
+    The smallest comparison primitive â€” it anchors the
     `financial_comparison` flow. Expressed as a percentage.
     """
     # Default markers sort chronologically as strings ("0001" < "0002").
@@ -306,9 +331,21 @@ def cagr(
     return _finalize(result)
 
 
-def _returns(values: list[float]) -> list[float]:
+def _returns(values: list[float], method: str = "simple") -> list[float]:
+    """Period-over-period returns. `method` is `simple` or `log`.
+
+    A zero prior price is always undefined for a simple return; a log return
+    additionally requires both prices to be strictly positive.
+    """
+    if method not in RETURN_METHODS:
+        raise CalculationError(f"unknown return method {method!r}; expected {RETURN_METHODS}")
     out: list[float] = []
     for prev, curr in zip(values, values[1:]):
+        if method == "log":
+            if prev <= 0 or curr <= 0:
+                raise CalculationError("a log return requires strictly positive prices")
+            out.append(math.log(curr / prev))
+            continue
         if prev == 0:
             raise CalculationError("a return is undefined when a prior price is 0")
         out.append(curr / prev - 1.0)
@@ -320,16 +357,17 @@ def annualized_volatility(
     *,
     frequency: str = "daily",
     risk_free_rate: Optional[float] = None,
+    method: str = "simple",
 ) -> CalculationResult:
     """Annualized standard deviation of returns (sample stdev, n-1).
 
     Requires an explicit frequency so the annualization factor is a stated
-    assumption, not a guess.
+    assumption, not a guess. `method` selects simple or log returns.
     """
     if frequency not in PERIODS_PER_YEAR:
         raise CalculationError(f"unknown frequency {frequency!r}; expected {sorted(PERIODS_PER_YEAR)}")
     series = _prepare(observations, metric="annualized_volatility", frequency=frequency)
-    returns = _returns(series.values)
+    returns = _returns(series.values, method)
     n = len(returns)
     if n < 2:
         raise CalculationError("annualized volatility needs at least 3 observations (2 returns)")
@@ -347,7 +385,7 @@ def annualized_volatility(
     result.value = math.sqrt(variance) * math.sqrt(periods) * 100.0
     result.assumptions.append(f"sample standard deviation (n-1) of {frequency} returns")
     result.assumptions.append(f"annualized with {periods} periods per year")
-    result.assumptions.append("returns are simple returns (no log transform)")
+    result.assumptions.append(f"{method} returns")
     if risk_free_rate is not None:
         result.riskFreeRate = float(risk_free_rate)
         result.assumptions.append("risk-free rate supplied but not used for volatility")
@@ -390,7 +428,7 @@ def max_drawdown(
     result.assumptions.append("drawdown measured peak-to-trough on the provided series only")
     result.warnings.append("max drawdown is path-dependent on the observation frequency")
     if worst < 0:
-        result.assumptions.append(f"peak {peak_date} → trough {trough_date}")
+        result.assumptions.append(f"peak {peak_date} â†’ trough {trough_date}")
     return _finalize(result)
 
 
@@ -583,6 +621,27 @@ def beta(
     result.value = cov / var_b
     return _finalize(result)
 
+# The advanced metrics live in a sibling module to keep this file within the size
+# budget; they are re-exported here so `research.calculations` remains the ONE
+# public surface. The import sits after the base metrics because the sibling
+# module imports the shared guards from this one.
+from .calculations_ext import (  # noqa: E402
+    alpha,
+    annualized_return,
+    correlation,
+    correlation_matrix,
+    covariance,
+    covariance_matrix,
+    cvar,
+    cumulative_return,
+    drawdown_analysis,
+    monte_carlo_var,
+    parametric_var,
+    risk_contribution,
+    rolling_beta,
+    rolling_correlation,
+    rolling_volatility,
+)
 
 CALCULATORS = {
     "period_change": period_change,
@@ -593,12 +652,33 @@ CALCULATORS = {
     "sortino": sortino,
     "value_at_risk": value_at_risk,
     "beta": beta,
+    "cumulative_return": cumulative_return,
+    "annualized_return": annualized_return,
+    "correlation": correlation,
+    "covariance": covariance,
+    "alpha": alpha,
+    "cvar": cvar,
+    "parametric_var": parametric_var,
+    "monte_carlo_var": monte_carlo_var,
+    "drawdown_analysis": drawdown_analysis,
+    "rolling_volatility": rolling_volatility,
+    "rolling_correlation": rolling_correlation,
+    "rolling_beta": rolling_beta,
+}
+
+
+# Metrics whose input is a LIST of named series (rather than one observation
+# series), so they are dispatched separately by the adapter.
+MATRIX_CALCULATORS = {
+    "correlation_matrix": correlation_matrix,
+    "covariance_matrix": covariance_matrix,
 }
 
 
 __all__ = [
     "CALCULATION_VERSION",
     "PERIODS_PER_YEAR",
+    "RETURN_METHODS",
     "MIN_OBSERVATIONS",
     "CalculationError",
     "CalculationResult",
@@ -610,5 +690,21 @@ __all__ = [
     "sortino",
     "value_at_risk",
     "beta",
+    "cumulative_return",
+    "annualized_return",
+    "correlation",
+    "covariance",
+    "alpha",
+    "cvar",
+    "parametric_var",
+    "monte_carlo_var",
+    "drawdown_analysis",
+    "rolling_volatility",
+    "rolling_correlation",
+    "rolling_beta",
+    "correlation_matrix",
+    "covariance_matrix",
+    "risk_contribution",
     "CALCULATORS",
+    "MATRIX_CALCULATORS",
 ]

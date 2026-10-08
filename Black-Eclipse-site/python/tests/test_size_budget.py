@@ -25,9 +25,11 @@ SOFT_CEILING_LINES = 800
 # Files above the hard ceiling today, pinned to their measured size (splitlines).
 RATCHET_PY: dict[str, int] = {
     # Grew with the Document Intelligence run-blob wiring (the `document_sink`
-    # parameter, collector, and `update_run(documents=…)`). May only shrink from
-    # here; the collector wiring is a split candidate alongside the vision one.
-    "graph.py": 1870,
+    # parameter, collector, and `update_run(documents=…)`) and, later, the search
+    # service passthrough (`search=` on `execute_run`/`build_graph` and the
+    # ToolContext). May only shrink from here; the collector wiring is a split
+    # candidate alongside the vision one.
+    "graph.py": 1889,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -39,19 +41,17 @@ RATCHET_PY: dict[str, int] = {
     "persistence.py": 1395,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
-    # boot wiring (`vision_assets`, `document_store`, tool registration). May only
-    # shrink from here; the two subsystem-construction blocks are split candidates.
-    "service.py": 1222,
-    # `main.py` was split (Phase S.2): the FastAPI lifespan boot/shutdown wiring
-    # moved to `harness/boot.py`, dropping `main.py` under the hard ceiling — so it
-    # is removed from the ratchet rather than raised.
-    #
-    # `service.py` grew with the Market Data Layer wiring (a one-line
-    # `install_market_layer(self)` call + the per-run bundle pass); the market
-    # subsystem's own modules all stay well under the ceiling and the boot wiring
-    # lives in `market/bootstrap.py`. Split candidate: the subsystem construction
-    # block should move into per-subsystem `install_*` helpers like the market one.
-    "service.py": 1224,
+    # boot wiring (`vision_assets`, `document_store`, tool registration), then the
+    # Portfolio + Quant + Search layers (each a one-line `install_*` call plus the
+    # per-run bundle pass; the subsystem wiring itself lives in its own
+    # `bootstrap.py`). May only shrink from here; the subsystem-construction block
+    # is the split candidate.
+    "service.py": 1283,
+    # The in-flight Portfolio Accounting Engine's service facade (ledger →
+    # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
+    # while that subsystem is being built; split candidate is the valuation vs
+    # corporate-actions halves.
+    "portfolio/service.py": 1532,
 }
 
 _HARNESS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness")

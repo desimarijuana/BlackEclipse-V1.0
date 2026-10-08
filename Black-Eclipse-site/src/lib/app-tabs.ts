@@ -27,5 +27,7 @@ export type AppTab =
   | 'code'
   | 'jobs'
   | 'research'
+  | 'backtest'
   | 'editor'
-  | 'model-runtime';
+  | 'model-runtime'
+  | 'search';

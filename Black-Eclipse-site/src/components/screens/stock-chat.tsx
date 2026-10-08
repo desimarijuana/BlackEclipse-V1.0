@@ -100,12 +100,20 @@ const ResearchScreen = dynamic(
   () => import('@/components/screens/research/research-screen').then((m) => m.ResearchScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const BacktestScreen = dynamic(
+  () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 const EditorScreen = dynamic(
   () => import('@/components/screens/editor/editor-screen').then((m) => m.EditorScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 const ModelRuntimeScreen = dynamic(
   () => import('@/components/screens/model-runtime/model-runtime-screen').then((m) => m.ModelRuntimeScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
+const SearchScreen = dynamic(
+  () => import('@/components/screens/search/search-screen').then((m) => m.SearchScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 import { Newspaper, ArrowLeft } from '@/lib/icons';
@@ -1173,6 +1181,14 @@ function StockChatContent() {
             </div>
           )}
 
+          {visited.has('backtest') && (
+            <div className={cn('w-full h-full', activeTab === 'backtest' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto w-full px-4 md:px-8 py-6">
+                <BacktestScreen />
+              </div>
+            </div>
+          )}
+
           {visited.has('editor') && (
             <div className={cn('w-full h-full', activeTab === 'editor' ? '' : 'hidden')}>
               <EditorScreen />
@@ -1183,6 +1199,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'model-runtime' ? '' : 'hidden')}>
               <div className="flex-1 overflow-y-auto">
                 <ModelRuntimeScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('search') && (
+            <div className={cn('w-full h-full', activeTab === 'search' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto">
+                <SearchScreen />
               </div>
             </div>
           )}

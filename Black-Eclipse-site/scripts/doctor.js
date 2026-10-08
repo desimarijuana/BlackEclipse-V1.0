@@ -235,6 +235,18 @@ if (py) {
     }
   }
 
+  // 5f-bis. Unified search ANN index (sqlite-vec). OPTIONAL in effect: without it
+  //         semantic search uses brute-force cosine and reports `annBackend:
+  //         false` — still correct, never faked. Best-effort repair via the
+  //         requirements file.
+  if (run(`"${py}" -c "import sqlite_vec"`, { timeout: 20000 }).status !== 0) {
+    const requirements = path.join(root, "python", "requirements.txt");
+    if (fs.existsSync(requirements)) {
+      fix("Python search ANN index (optional)", `"${py}" -m pip install -r "${requirements}"`);
+    }
+    console.log("[setup] search ANN index (sqlite-vec): absent - semantic search will use brute-force cosine");
+  }
+
   // 5g. Computer Use Engine backends. OPTIONAL: each missing one degrades to an
   //     honest UNAVAILABLE with a reason (never a fake desktop), so these are
   //     best-effort repairs. Pillow powers capture; uiautomation is the rich

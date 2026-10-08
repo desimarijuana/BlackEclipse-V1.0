@@ -125,6 +125,22 @@ class AgenticService:
         from .market.bootstrap import install_market_layer  # noqa: PLC0415
 
         install_market_layer(self)
+        # The Portfolio Accounting Engine: transaction ledger → tax lots →
+        # positions → valuation/P&L/exposure/allocation/risk/rebalancing. Boot
+        # wiring lives in `portfolio/bootstrap.py`; it reuses the ONE market
+        # gateway (prices/FX) and the ONE agent-memory connection, and registers
+        # its tools on the SAME registry (read + effect-authorized mutations).
+        from .portfolio.bootstrap import install_portfolio_layer  # noqa: PLC0415
+
+        install_portfolio_layer(self)
+        # The Quant Engine: strategy specs → event-driven backtests → metrics →
+        # experiments. Boot wiring lives in `quant/bootstrap.py`; it reuses the
+        # ONE agent-memory connection (strategies + experiment metadata) and the
+        # ONE market gateway (historical bars), and registers its tools on the
+        # SAME registry.
+        from .quant.bootstrap import install_quant_layer  # noqa: PLC0415
+
+        install_quant_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.
@@ -296,6 +312,16 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - documents are optional; never block boot
             self.document_store = None
             log.warning("document intelligence subsystem unavailable", exc_info=True)
+        # Unified Retrieval / Search Intelligence Layer: a dedicated SQLite
+        # vector + FTS index, a provider-agnostic embedding layer (batching,
+        # caching, retry), hybrid retrieval, reranking, provenance and citations.
+        # It reads its sources from the ONE agent-memory connection and bridges
+        # results into the EvidenceStore; its tools register on the SAME registry.
+        # Boot wiring lives in `search/bootstrap.py`; a failure only makes the
+        # tools report search unavailable, so it never blocks boot.
+        from .search.bootstrap import install_search_layer  # noqa: PLC0415
+
+        install_search_layer(self)
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
@@ -928,6 +954,17 @@ class AgenticService:
         """Build the read-only JDdS bridge for a research request."""
         return _HttpDataBridge(base_url, token)
 
+    def server_bridge(self) -> DataBridge:
+        """A bridge for a server-initiated (HTTP route) data fetch.
+
+        Uses the configured front-door callback URL and the operator secret, so
+        an operator-triggered backtest can load market data through the SAME
+        read-only bridge the agent uses.
+        """
+        import os  # noqa: PLC0415
+
+        return _HttpDataBridge(_default_callback_base_url(), os.environ.get("CRON_SECRET"))
+
     async def retrieve_for_research(self, bridge: DataBridge, request: Any) -> Any:
         """Run ONE retrieval for the research flow through the shared layer/cache.
 
@@ -969,9 +1006,21 @@ class AgenticService:
             code_intel_runtime=getattr(self, "code_intel", None),
             evidence_store=getattr(self, "evidence_store", None),
             market=self._market_bundle(),
+            portfolio=self._portfolio_bundle(),
+            quant=self._quant_bundle(),
+            search=getattr(self, "search", None),
         )
         await self._schedule_review(request.runId, result.status)
         return result
+
+    def _quant_bundle(self) -> Any:
+        """The Quant Engine subsystem handed to each run (store)."""
+        from .quant.bootstrap import QuantBundle  # noqa: PLC0415
+
+        store = getattr(self, "quant_store", None)
+        if store is None:
+            return None
+        return QuantBundle(store=store)
 
     def _market_bundle(self) -> Any:
         """The market subsystem handed to each run (gateway/store/stream)."""
@@ -982,6 +1031,15 @@ class AgenticService:
             return None
         return MarketBundle(gateway=gateway, store=getattr(self, "market_store", None),
                             stream=getattr(self, "market_stream", None))
+
+    def _portfolio_bundle(self) -> Any:
+        """The portfolio subsystem handed to each run (service + store)."""
+        from .portfolio.bootstrap import PortfolioBundle  # noqa: PLC0415
+
+        portfolio = getattr(self, "portfolio", None)
+        if portfolio is None:
+            return None
+        return PortfolioBundle(service=portfolio, store=getattr(self, "portfolio_store", None))
 
     def run_lineage(self) -> Any:
         """The process-wide lineage/checkpoint store (Phase 1)."""
@@ -1158,6 +1216,7 @@ class AgenticService:
                     code_intel_runtime=getattr(self, "code_intel", None),
                     evidence_store=getattr(self, "evidence_store", None),
                     market=self._market_bundle(),
+                    search=getattr(self, "search", None),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

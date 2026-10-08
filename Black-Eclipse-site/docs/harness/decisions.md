@@ -4817,3 +4817,84 @@ equity order book) rather than faked. websockets/httpx are pinned; when
 websockets is absent, streaming reports STREAM_DISCONNECTED and REST is
 unaffected. Tests: python/tests/test_market_{unit,gateway,streaming}.py +
 src/lib/harness/market/bridge.test.ts. Docs docs/harness/market-data.md.
+
+## ADR-H150 - The Quant Engine is a deterministic Python engine; strategies are data, and backtest simulation is separate from real-holdings accounting
+
+**Context.** The harness needed real backtesting/research. The risk was the LLM
+being asked to compute P&L/Sharpe/drawdown, or a demo engine returning
+hardcoded metrics.
+
+**Decision.** All trading math lives in `python/harness/quant/`, a modular
+event-driven engine (`strategy`/`rules`/`indicators`/`data`/`orders`/
+`execution`/`sizing`/`risk`/`portfolio`/`metrics`/`engine`/`store`). A strategy
+is a structured, serializable **specification** (universe, timeframes,
+indicators, a rules DSL, risk, sizing, execution), not arbitrary code — so it is
+versionable, validatable and safely deterministic. The LLM only authors/edits
+specs and calls tools. Market data is read through the ONE Market Data Gateway
+(the engine never calls a provider). Point-in-time correctness is enforced by a
+documented bar-processing order: a `data_available_at` per bar, causal
+indicators (NaN warm-up), next-bar fills, and higher-timeframe alignment that
+only exposes a higher bar once it has closed. Heavy result series are gzipped
+artifacts under `.black-eclipse/quant/`; metadata is on the ONE `agent-memory.db`
+connection. Capabilities are reported as available/partial/unsupported. The
+research engines — optimization (grid/random/evolutionary/Bayesian), walk-forward
+(strict no-test-leakage), Monte-Carlo, and sensitivity/robustness — are
+implemented, tested, exposed as tools and routes, and advertised `available`;
+only options (Phase 7) and futures remain unsupported/partial and are NOT
+registered as tools. Portfolio backtests build one execution simulator + risk
+engine per strategy binding (per-strategy costs/limits); `historical` spread uses
+a per-bar spread column when present, else warns.
+
+**Consequences.** One deterministic source of truth for trading calculations;
+reproducible experiments (seed + engine version + dataset + assumptions);
+honest capability reporting. The backtest simulation portfolio
+(`quant/portfolio.py`, float, long/short, bar-loop) is deliberately separate
+from the Portfolio Accounting Engine (`harness/portfolio/`, Decimal, tax lots),
+which refuses shorts and is oriented to real holdings; for long-only runs the
+two MUST agree on realized P&L, which a test asserts. Reusing the accounting core
+for simulated transactions is deferred and would be an extension of the core,
+not a fork. Tests: python/tests/test_quant_*.py (57) +
+src/lib/backtest/backtest-client.test.ts. Docs docs/quant-engine.md.
+
+## ADR-H151 - Unified search is a provider-agnostic retrieval layer over a dedicated SQLite vector + FTS index (not pgvector)
+
+**Context.** Eclipse needed first-class semantic/vector search across documents,
+research evidence, agent memory, experiences and skills, with hybrid retrieval,
+reranking, provenance and citations. The reference design assumed PostgreSQL +
+pgvector. This repository is deliberately **SQLite-first and zero-config**
+(`npm install && npm run dev` must never require manual setup) and already had a
+deterministic lexical retrieval layer (`retrieval/`) and dedicated SQLite index
+stores (`code/intel/persistence/index.py`).
+
+**Decision.** Introduce `python/harness/search/` as the ONE retrieval layer and
+store its index in a **dedicated SQLite file** (`.black-eclipse/search/search.db`,
+`ECLIPSE_SEARCH_DB_PATH`), mirroring the code-index precedent rather than adding
+a second database engine. Introducing PostgreSQL/pgvector would break the
+zero-config promise, which is a concrete architectural reason to deviate from the
+reference plan (spec §6 permits this). The embedding-provider abstraction,
+vector-space/version registry, hybrid retrieval, reranking, provenance and
+citations are storage-agnostic, so the store can be swapped for pgvector later
+without touching callers. Keyword search uses SQLite **FTS5 BM25** (no
+Elasticsearch); vectors are served by a real **sqlite-vec `vec0` ANN index** per
+vector space when the extension is present (the KNN is restricted to the
+caller's authorization buckets before scoring, so no unauthorized vector is ever
+a candidate), and fall back to brute-force cosine when it is absent. Metadata
+filters are indexed (`SearchDocumentMeta` + a distinct `documentType` column) and
+compiled into the candidate SQL, and indexing is incremental by content hash. One
+`SearchService` is constructed at boot (`search/bootstrap.py`) and reused by the
+agent tools and the operator HTTP surface; per-run searches re-resolve the
+embedding provider from the run's `ModelSettings`. Semantic search **degrades
+honestly to keyword/FTS** when no embedding provider is configured — it never
+fabricates a vector, and a fake provider is never registered. Authorization is a
+SQL predicate compiled from the run's scope (workspace/owner/public), so results
+are never scanned-then-filtered. Zero-config still works: with no provider the
+layer is keyword-only.
+
+**Consequences.** Real semantic + hybrid + keyword search with batching, caching,
+retry/backoff, reranking, temporal/entity/metadata filters, dedup, parent/neighbor
+context, an EvidenceStore bridge and an evaluation harness (Recall@K/Precision@K/
+MRR/NDCG). The ANN ceiling and pgvector migration are explicit, documented
+limitations, not silent gaps. Tests: python/tests/test_search_*.py. Docs
+docs/harness/search-retrieval.md. Front door: `src/lib/harness/search-{client,types}.ts`,
+`src/app/api/harness/search/[[...path]]/route.ts`, and the mounted Search
+Intelligence tab.

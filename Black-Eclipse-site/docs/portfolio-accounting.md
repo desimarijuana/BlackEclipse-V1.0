@@ -1,0 +1,290 @@
+---
+title: Portfolio Accounting Engine
+status: Current
+last-verified: 2026-10-08
+---
+
+# Portfolio Accounting Engine
+
+**Who this is for:** anyone changing portfolio behaviour, adding a portfolio
+tool, or reasoning about where a portfolio number comes from.
+
+The engine turns a **transaction ledger** into positions, valuation, P&L,
+exposure, allocation, performance, risk and rebalancing proposals. The ledger is
+the source of truth; every other number is derived and reproducible.
+
+```
+Transactions ──▶ Tax lots ──▶ Positions ──▶ Valuation ──▶ P&L
+                                          ──▶ Exposure ──▶ Allocation
+                                          ──▶ Performance ──▶ Risk ──▶ Rebalancing
+```
+
+## Where it lives
+
+- **Runtime (authoritative):** `python/harness/portfolio/` — the accounting core
+  and the service the agent tools and HTTP routes share.
+- **Persistence:** the ONE `agent-memory.db` connection (see “Database” below),
+  through `PortfolioStore`.
+- **Agent tools:** `python/harness/portfolio/tools.py` (registered on the shared
+  `ToolRegistry`).
+- **HTTP:** `python/harness/routers/portfolio.py` (`/portfolio/*`, operator-gated).
+- **Front door:** `src/lib/harness/portfolio-client.ts`,
+  `src/app/api/portfolio/[[...path]]/route.ts`,
+  `src/components/screens/portfolio/portfolio-ledger.tsx`.
+- **Tests:** `python/tests/test_portfolio_*.py`.
+
+## Source of truth
+
+The **immutable transaction ledger**. `add_position` records a BUY; it never
+runs `UPDATE position SET quantity = …`. `remove_position` records a real SELL
+whose tax lots are matched to compute realized P&L. `update_position` appends an
+auditable `ADJUSTMENT` — history is never rewritten; a correction carries
+who/what/when/why (see `PortfolioAuditEvent`).
+
+Positions are **derived**. `TaxLot` and `TaxLotMatch` rows are rebuilt from the
+ledger whenever a mutation touches a symbol and are never edited directly. They
+exist for audit and tax queries.
+
+## Database
+
+Portfolio tables live in **`agent-memory.db`** (Python-owned), not `jdds.db`:
+
+- `jdds.db` (Prisma) is the committed **market-data** seed vault. Portfolio
+  transactions are private user/agent state that must never be committed or
+  treated as market data.
+- Every other runtime subsystem (runs, browser, jobs, documents, market
+  snapshots) persists on `agent-memory.db` via the ONE `AgentMemoryStore`
+  connection with idempotent DDL. The portfolio store follows that pattern —
+  no second database, no migration step.
+
+Tables (created idempotently by `store.py`): `Portfolio`, `PortfolioAccount`,
+`PortfolioTransaction`, `PortfolioPolicy`, `TaxLot`, `TaxLotMatch`,
+`PortfolioPositionMeta`, `PortfolioBenchmark`, `PortfolioSnapshot`,
+`RebalancePlan`, `RebalanceRecommendation`, `PortfolioAuditEvent`. Money and
+quantity are stored as exact decimal **strings**; foreign keys cascade.
+
+### Idempotency
+
+`PortfolioTransaction` has a partial unique index on
+`(portfolioId, source, externalId) WHERE externalId IS NOT NULL`. A retried
+import (API/worker/network) returns the existing row instead of duplicating it.
+Rows with no `externalId` are intentionally not deduplicated.
+
+## Cost-basis methods
+
+`FIFO`, `LIFO`, `AVERAGE_COST`, `HIFO` and `SPECIFIC_ID` are real accounting
+implementations (`accounting.py`), each tested for fees, fractional quantities,
+partial and complete liquidation, splits and transfers. `HIFO` consumes the
+highest-cost lot first (tax-loss harvesting); `SPECIFIC_ID` consumes the exact
+lots named in the sell transaction's `lot_selection` (`[{lotId, quantity}]`),
+falling back to FIFO for any unselected remainder.
+
+Golden case — BUY 10 @ $100, BUY 10 @ $200, SELL 10 @ $300:
+
+| method | realized cost basis | realized P&L |
+|---|---|---|
+| FIFO | $1,000 | $2,000 |
+| LIFO | $2,000 | $1,000 |
+| AVERAGE_COST | $1,500 | $1,500 |
+
+Fees on a BUY raise cost basis; fees/taxes on a SELL reduce proceeds. An
+in-kind `TRANSFER_OUT` with no stated price moves at **book value** (basis
+carries, no gain). Splits/reverse splits scale lot quantity and inverse-scale
+per-unit cost.
+
+**Invariants** (tested): `acquired − disposed == remaining` and
+`remaining cost basis + realized cost basis == acquisition cost`. A disposal can
+never drive a position negative — **short positions are refused**, not
+miscalculated.
+
+## Valuation, FX and data quality
+
+`quantity × price`, converted to the portfolio base currency via the market
+data gateway's FX. Every price is a `Mark` carrying **price, timestamp, source
+and freshness** (`FRESH`/`STALE`/`VERY_STALE`/`MISSING`). A missing price or FX
+yields an explicit `UNAVAILABLE`/`PARTIAL` data-quality state with named
+`missingPrices` / `stalePrices` / `missingFX` — never a silently substituted
+zero. Prices are read through the **Market Data Gateway** (provider-independent),
+or caller-injected `marks` (the HTTP front door passes live JDdS quotes).
+
+## P&L, exposure, allocation
+
+- **P&L:** realized (from lot matches) / unrealized / total, plus by-symbol.
+- **Exposure:** gross, net, long, short by asset / asset class / sector /
+  currency / country (factor exposure is a future dimension).
+- **Allocation:** by asset / asset class / sector / currency, returning absolute
+  value + weight and a reconciliation check (weights ≈ 100%).
+
+All money is `Decimal` (`money.py`); no binary float touches a balance.
+
+## Risk (deterministic)
+
+`risk.py`: annualized volatility, Sharpe, Sortino, max drawdown, VaR/CVaR
+(historical, parametric, and a **seeded** Monte-Carlo — reproducible, not fake),
+beta, correlation and concentration (HHI). Requires price history; returns
+`UNAVAILABLE` with reasons when inputs are insufficient.
+
+## Performance
+
+`performance.py`: time-weighted return, money-weighted return (IRR), CAGR,
+cumulative + daily returns, and benchmark comparison (tracking error,
+information ratio). Computed from portfolio snapshots.
+
+## Rebalancing (proposal only — never executes)
+
+`rebalance.py` produces buy/sell recommendations against target weights with
+allocation before/after, estimated fees, concentration change and (when tax
+rates are configured) an estimated tax impact per disposal, using the actual
+lots that would be sold. Methods: `threshold`, `calendar`, `hybrid`.
+
+> **It never writes a trade and never calls a broker.** Execution belongs to the
+> Trading/Execution layer and requires explicit user approval. The result states
+> `"proposal-only: no trades are placed; requires user approval"`.
+
+Tax rules are caller-supplied (`shortTermRate`/`longTermRate`) and jurisdiction-
+neutral: with no rates configured, tax impact is reported **unknown**, never
+invented.
+
+## Agent tools and safety
+
+Registered on the shared registry with flat names (the registry rejects dotted
+names):
+
+| Tool | Class | Effect |
+|---|---|---|
+| `portfolio_list`, `portfolio_get` | read | — |
+| `portfolio_calculate_pnl` / `_exposure` / `_allocation` / `_risk` / `_tax_lots` | read | — |
+| `portfolio_reconcile`, `portfolio_list_reconciliations` | read | — |
+| `portfolio_attribution`, `portfolio_factor_exposure`, `portfolio_hedge`, `portfolio_aggregate` | read | — |
+| `portfolio_create` | mutating | `portfolio.write` |
+| `portfolio_add_position`, `portfolio_remove_position`, `portfolio_update_position`, `portfolio_set_metadata` | mutating | `portfolio.write` |
+| `portfolio_apply_corporate_action`, `portfolio_record_swap`, `portfolio_record_bridge`, `portfolio_record_reward`, `portfolio_apply_staking`, `portfolio_rebuild`, `portfolio_apply_slashing`, `portfolio_record_funding` | mutating | `portfolio.write` |
+| `portfolio_rebalance`, `portfolio_optimize` | consequential | `portfolio.rebalance_proposal` |
+
+Read tools run freely. Mutating and consequential tools go through the run's
+effect authorizer (a single-use, digest-bound operator approval) — with no
+authorizer they are refused, the safe default. The HTTP surface is
+operator-gated (loopback or the runtime token).
+
+## HTTP routes
+
+`GET /portfolio/list`, `POST /portfolio/create`, `DELETE /portfolio/{id}`,
+`POST /portfolio/{id}/query` (accepts `marks`), `GET /portfolio/{id}`,
+`POST /portfolio/{id}/transaction`, `POST /portfolio/{id}/position`,
+`…/position/remove`, `…/position/update`, `…/metadata`,
+`POST …/corporate-action`, `POST …/swap`, `POST …/bridge`, `POST …/reward`,
+`POST …/staking`, `POST …/slashing`, `POST …/funding`, `POST …/rebuild`,
+`GET …/tax-lots`, `POST …/reconcile`, `GET …/reconciliations`,
+`POST …/optimize`, `POST …/attribution`, `POST …/factor-exposure`,
+`POST …/hedge`, `POST /portfolio/aggregate`, `POST …/rebalance`,
+`GET …/rebalance/plans`, `POST …/snapshot`, `GET …/snapshots`,
+`GET …/history`. All operator-gated; tenant scope via the
+`X-Harness-User` header (403 on mismatch).
+
+## Backtesting reuse
+
+The accounting core (`accounting.py`) is transaction-source agnostic. A future
+Backtesting Engine feeds **simulated** transactions through the SAME
+`compute_accounting` — no second accounting implementation.
+
+## Corporate actions
+
+Applied through `PortfolioService.apply_corporate_action` (tool
+`portfolio_apply_corporate_action`, route `POST /portfolio/{id}/corporate-action`).
+Every action appends normal ledger entries — history is never rewritten — and an
+audit event. Unsupported actions are refused (`UNSUPPORTED_CORPORATE_ACTION`).
+
+- **SPLIT / REVERSE_SPLIT** — scale lot quantity and inverse-scale per-unit cost.
+- **SPIN_OFF** — the parent's cost basis is reallocated to the child by relative
+  fair market value: a child acquisition (`SPIN_OFF`) plus a parent
+  `COST_BASIS_ADJUSTMENT`. Basis is conserved across parent + child.
+- **MERGER** — stock-for-stock carries basis (ratio → acquirer shares, basis
+  carried); with cash consideration the cash boot is a real partial disposal
+  (lot-matched realized gain) and the remaining basis carries to the acquirer.
+- **SYMBOL_CHANGE** — an in-kind transfer pair (out at book value, in with the
+  same basis) under the new symbol.
+- **RIGHTS_ISSUE** — subscribe to new shares at the subscription price (an
+  acquisition with cash out).
+- **WARRANT_EXERCISE** — dispose the warrant at book value and acquire the
+  underlying with basis = warrant basis + strike paid (the strike is a cash out).
+- **RETURN_OF_CAPITAL** — reduces cost basis (non-taxable) and pays cash in; any
+  excess over basis is recognized as a taxable gain via a `REALIZED_ADJUSTMENT`.
+
+A `COST_BASIS_ADJUSTMENT` transaction (field `basis_adjustment`) reallocates
+basis across open lots with no quantity change; the accounting invariant is
+`acquired cost − realized cost ± Σ basis adjustments = remaining + realized`.
+
+## Crypto
+
+- **SWAP** (`apply_swap`, tool `portfolio_record_swap`) — a taxable disposal of
+  the source asset plus an acquisition of the target at fair value (carried
+  basis = net proceeds). Two ledger legs.
+- **BRIDGE** (`apply_bridge`) — an in-kind cross-chain move; basis carries, no
+  gain/loss.
+- **Staking reward / airdrop** (`record_reward`) — an acquisition at fair market
+  value.
+- **STAKE / UNSTAKE** (`apply_staking`) — custody-only: audited, never changes
+  quantity or basis (the engine's `PASSTHROUGH` class).
+- **SLASHING** (`apply_slashing`) — a write-off: a disposal at zero proceeds,
+  realizing a loss equal to the consumed basis.
+- **FUNDING** (`record_funding`) — a perpetual-futures funding payment with a
+  signed amount (+ received, − paid), recorded against cash.
+
+## Attribution, optimization, factor exposure, hedging, reconciliation, aggregation
+
+- **Performance attribution** (`attribution.py`, tool `portfolio_attribution`) —
+  Brinson single-period decomposition of active return into allocation, selection
+  and interaction by group (Brinson-Fachler by default, BHB optional).
+- **Optimizer** (`optimizer.py`, tool `portfolio_optimize`) — real
+  projected-gradient `min_variance` / `mean_variance` / `inverse_volatility` with
+  exact bounded-simplex projection (long-only, per-asset bounds) and an optional
+  turnover cap. Deterministic; proposal only.
+- **Factor exposure** (`risk.factor_exposure`, tool `portfolio_factor_exposure`) —
+  Σ weightᵢ × caller-supplied factor loadingᵢ. No loadings ⇒ unavailable.
+- **P&L rollups** — `pnl.byAssetClass`, `pnl.bySector`, `pnl.byStrategy` in the
+  standard read; exposure and allocation already carry every group dimension.
+- **Currency hedging** (tool `portfolio_hedge`) — proposes FX hedge notional per
+  non-base currency to flatten (or hit a target) exposure. Proposal only.
+- **Reconciliation** (`reconciliation.py`, tool `portfolio_reconcile`) — compares
+  an external statement to the ledger per symbol → MATCHED / MISMATCH / MISSING /
+  UNKNOWN with an explicit tolerance; persists each run
+  (`PortfolioReconciliation`). It never mutates the ledger.
+- **Cross-portfolio aggregation** (tool `portfolio_aggregate`, route
+  `POST /portfolio/aggregate`) — a combined view over several portfolios by id or
+  owner.
+
+## Tenant authorization
+
+A portfolio records an `ownerId` (stamped from the creating actor). Every read
+and mutation authorizes: when an actor identity is asserted and it does not match
+the row's owner, the request is refused (`PORTFOLIO_FORBIDDEN` → HTTP 403).
+Identity is taken from the `X-Harness-User` header (or `actorId` in a body/query),
+which the Next front door forwards. When no actor is asserted the app is in its
+documented single-user local mode (no authentication); an unowned row is a
+legacy/guest portfolio. This is a real tenant boundary **whenever an actor is
+asserted** — it does not pretend the accountless local mode is multi-user secure.
+
+## Materialized positions
+
+`PortfolioPosition` is a per-symbol DERIVED cache rebuilt incrementally on every
+mutation, so reads price the cached rows instead of recomputing the whole ledger.
+It is **never** authoritative: a missing row is recomputed from the ledger and
+re-persisted on read (self-heal), and `rebuild_all`
+(tool `portfolio_rebuild`, route `POST /portfolio/{id}/rebuild`) force-rebuilds
+every symbol. A test asserts the cache always equals a fresh ledger recompute.
+
+## Known limits (honest)
+
+- **Options / derivatives pricing** is not modelled: an option/future held as a
+  position is carried at cost and priced only if a market price is supplied by
+  the gateway. A dedicated option-pricing/lot model is not implemented.
+- **Live intraday streaming** of portfolio value is not surfaced in the UI; the
+  Ledger read fetches quotes on demand.
+- **Crypto validator lifecycle** (delegation, epoch rewards) is not fully
+  modelled beyond the reward, slashing and custody events above.
+- **Tax rules** remain caller-configured rates (jurisdiction-neutral); no
+  jurisdiction tables are bundled.
+- **Risk** needs enough price history; without it the report is `UNAVAILABLE`.
+- **Performance** needs ≥2 snapshots; without them it is `UNAVAILABLE`.
+- **Multi-user security** is enforced whenever an actor is asserted; the
+  accountless local mode is intentionally NOT a multi-user boundary.

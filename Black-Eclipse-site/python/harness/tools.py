@@ -237,6 +237,10 @@ class ToolContext:
     # The process-wide market persistence (instruments/snapshots/quality events)
     # on the ONE agent-memory connection. Set by the graph; None = no persistence.
     market_store: Any = None
+    # The process-wide Quant Engine store (strategies + experiments) on the ONE
+    # agent-memory connection. Set by the graph from the service; None = the
+    # `quant_*` tools report STORE_UNAVAILABLE rather than losing a result.
+    quant_store: Any = None
     # The process-wide real-time market stream manager. Set by the graph; None =
     # a stream tool resolves the process-wide singleton.
     market_stream: Any = None
@@ -250,6 +254,15 @@ class ToolContext:
     # structured document blob (type, pages, status, capabilities, entities,
     # evidence counts) for the right sidebar. None = no collection attached.
     document_sink: Any = None
+    # The Portfolio Accounting Engine service (ledger + valuation). Set by the
+    # graph from the service; None = the `portfolio_*` tools report unavailable.
+    portfolio_service: Any = None
+    # The unified Retrieval / Search Intelligence service. Set by the graph from
+    # the service; None = the retrieval/search tools report search unavailable.
+    search: Any = None
+    # The run's workspace id, used to scope authorized search results. Set by the
+    # graph from `RunRequest.workspaceId`; None = no workspace scope.
+    workspace_id: Optional[str] = None
     # The ACTUAL per-call ceiling the registry will enforce for the tool call in
     # flight (set immediately before `execute`). A long-running tool reads this to
     # size its OWN internal budget so it can return a bounded partial result

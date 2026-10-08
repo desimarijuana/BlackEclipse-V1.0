@@ -101,6 +101,26 @@ DOCUMENT_TOOLS = [
 ]
 
 
+#: Unified Retrieval / Search Intelligence tools. All READ-ONLY and routed
+#: through the ONE search service (vector + FTS + rerank); they never touch the
+#: index or an embedding provider directly.
+SEARCH_TOOLS = [
+    "semantic_search",
+    "keyword_search",
+    "hybrid_search",
+    "search_documents",
+    "search_research",
+    "search_memory",
+    "search_experiences",
+    "search_skills",
+    "search_evidence",
+    "find_similar",
+    "document_context",
+    "related_chunks",
+    "search_admin",
+]
+
+
 WEB_RESEARCH_TOOLS = [
     "web_search",
     "news_search",
@@ -130,6 +150,10 @@ WEB_RESEARCH_TOOLS = [
     "finance_metrics",
     "finance_series",
     "finance_valuation",
+    "finance_growth",
+    "finance_fcf",
+    "finance_security_analysis",
+    "finance_portfolio_analysis",
     "finance_metric_catalog",
     "research_quality",
 ]
@@ -261,6 +285,9 @@ ECLIPSE_AGENT = AgentConfig(
         # conflicts, claim verification, calculations, citations, coverage. All
         # read-only; fetched content is wrapped as untrusted data.
         *WEB_RESEARCH_TOOLS,
+        # Unified Retrieval / Search Intelligence: semantic, keyword and hybrid
+        # search over documents, research, memory, experiences and skills.
+        *SEARCH_TOOLS,
         # Phase 8: the analysis sandbox (compute a derived metric). OFF per run
         # unless the caller enables it (`RunRequest.analysisEnabled`).
         "analysis_run",
@@ -472,6 +499,9 @@ CODE_AGENT_TOOLS = [
     # Evidence-Driven Web Research Engine — research a technical question,
     # compare sources, verify a claim. Read-only; untrusted content is data.
     *WEB_RESEARCH_TOOLS,
+    # Unified Retrieval / Search Intelligence — find evidence across documents,
+    # research, memory, experiences and skills.
+    *SEARCH_TOOLS,
     # Analysis sandbox (Phase 8) — compute a derived metric in isolation.
     "analysis_run",
     # Scaffold kits (Phase 9) — build a finance tool from a ready-made shape.
@@ -649,5 +679,6 @@ __all__ = [
     "COMPUTER_TOOLS",
     "DEFAULT_AGENT_ID",
     "ECLIPSE_AGENT",
+    "SEARCH_TOOLS",
     "get_agent",
 ]

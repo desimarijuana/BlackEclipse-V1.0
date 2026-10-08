@@ -29,6 +29,7 @@ export const APP_TABS: readonly AppTab[] = [
   'skills',
   'memory',
   'research',
+  'backtest',
 ];
 
 /** Query keys consumed by the link format itself (never treated as params). */

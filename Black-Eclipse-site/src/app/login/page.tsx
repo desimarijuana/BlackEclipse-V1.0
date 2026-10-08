@@ -7,12 +7,14 @@
 // normally not reached) or multi-user mode. On success it hard-navigates to the
 // `next` return path so a fresh session cookie is sent with the request.
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Mode = "loading" | "login" | "setup";
 
-export default function LoginPage() {
+// `useSearchParams` requires a Suspense boundary during static generation, so
+// the form is wrapped below. The fallback matches the page's dark shell.
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const nextPath = params.get("next") || "/";
@@ -152,5 +154,21 @@ export default function LoginPage() {
         </button>
       </form>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-black p-6">
+          <div className="glass-card-strong w-full max-w-sm rounded-2xl p-8 text-center text-sm text-zinc-400">
+            Loading…
+          </div>
+        </main>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
