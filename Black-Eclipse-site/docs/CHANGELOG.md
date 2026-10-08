@@ -44,6 +44,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`BLACK_ECLIPSE_MARKET_LIVE=1`). Docs updated: `docs/harness/market-data.md`,
   `docs/CHANGELOG.md`.
 
+- **Vision model recognition + cross-provider vision fallback (fixes "needs a
+  vision-capable model configured").** Vision is now decided **per model family,
+  not per SDK kind**: the shared `openai` kind no longer blanket-claims vision, so
+  text-only models (gpt-3.5/gpt-4/o1-mini, deepseek-chat, groq/llama, grok-2, …)
+  are no longer routed natively and wasted, while known VLMs are recognized
+  (gpt-4o/4.1/o-series/5, Claude, Gemini, grok-2-vision, and open-weight llava,
+  qwen2-vl/qwen2.5-vl/qwen3-vl, minicpm-v, moondream, pixtral, llama-3.2-vision,
+  llama-4, internvl, phi-3-vision/phi-4-multimodal, gemma-3, deepseek-vl, …).
+  `plan_route` now reads the run model's capabilities DIRECTLY (never a routed
+  substitute), fixes a registry lookup that passed a string where a list was
+  required, defaults to the process runtime, and may fall back to a vision model
+  on a DIFFERENT provider when that provider is keyless-local or has an env-var
+  credential (`models.provider_has_credentials`; still never a provider without a
+  key). Document Intelligence routes its embedded-image analysis and OCR fallback
+  through the vision orchestrator so a text-only run model still gets a real VLM.
+  Files: `model_runtime/catalog.py`, `harness/models.py`,
+  `vision/capabilities.py`, `vision/routing.py`,
+  `document_intelligence/{orchestrator,ocr}.py`. Tests
+  `python/tests/test_model_vision_capability.py` (+ updated local-only vision
+  invariant). ADR-H148. Docs: `docs/harness/vision.md`, `docs/harness/decisions.md`.
+
 ## 2026-10-07
 
 - **Financial Data Gateway — provider registry, centralized rate limits, crypto
