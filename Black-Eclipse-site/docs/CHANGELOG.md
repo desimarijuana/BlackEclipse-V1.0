@@ -12,6 +12,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   under the header and the panel tabs (the frosted-glass edge is the separation),
   and replaced the header `Sparkles` glyph with the `Bot` agent icon. Cosmetic
   only — no doc change — no contract/architecture impact.
+- Agent Workspace sidebar is now actually draggable-resizable: the left-edge
+  handle was sitting under the `z-10` content layer and was ungrabbable. Raised
+  it to `z-30`, widened the hit area, added a hover affordance (no permanent
+  border), locked body cursor/text-selection during the drag, and gave the handle
+  `role="separator"`. Width still persists to `localStorage`. Cosmetic/interaction
+  only — no doc change.
 
 ## 2026-10-07
 

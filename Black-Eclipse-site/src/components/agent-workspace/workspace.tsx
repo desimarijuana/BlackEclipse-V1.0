@@ -156,6 +156,10 @@ export function AgentWorkspace() {
   const startResize = (e: React.PointerEvent) => {
     resizeRef.current = e.clientX;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    }
   };
   const moveResize = (e: React.PointerEvent) => {
     if (resizeRef.current == null) return;
@@ -166,6 +170,10 @@ export function AgentWorkspace() {
   const endResize = () => {
     if (resizeRef.current != null) storeWidth(width);
     resizeRef.current = null;
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
   };
 
   if (!mounted || !open) return null;
@@ -252,16 +260,22 @@ export function AgentWorkspace() {
         )}
       </div>
 
-      {/* Drag the left edge to resize the docked column (desktop only). */}
+      {/* Drag the left edge to resize the docked column (desktop only). Sits
+          above the content layer (z-30) so the whole edge is grabbable, with a
+          hover affordance instead of a permanent border. */}
       <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('workspace.resize')}
+        title={t('workspace.resize')}
         onPointerDown={startResize}
         onPointerMove={moveResize}
         onPointerUp={endResize}
         onPointerCancel={endResize}
-        aria-label={t('workspace.resize')}
-        title={t('workspace.resize')}
-        className="absolute inset-y-0 left-0 hidden w-1.5 cursor-ew-resize touch-none md:block"
-      />
+        className="group absolute inset-y-0 left-0 z-30 hidden w-2 cursor-ew-resize touch-none select-none md:block"
+      >
+        <span className="pointer-events-none absolute inset-y-0 left-0 w-px bg-transparent transition-colors group-hover:bg-primary/40 group-active:bg-primary/60" />
+      </div>
     </div>
   );
 }
