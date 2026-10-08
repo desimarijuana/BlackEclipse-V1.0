@@ -47,29 +47,63 @@ def _identity_boundary_constants():
     return _main().IDENTITY_BOUNDARY
 
 
-def test_identity_boundary_never_claims_multi_user_safety():
+def test_identity_boundary_never_claims_multi_user_safety_by_default(monkeypatch):
+    # The DEFAULT (zero-config local) deployment: no auth, no tenancy isolation.
+    for var in ("HARNESS_AUTH", "HARNESS_AUTH_SECRET", "HOST"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("NODE_ENV", "development")
     boundary = _identity_boundary()
     assert boundary["authentication"] is False
     assert boundary["multiUserSafe"] is False
     assert boundary["tenancy"] == "single-user-local"
     assert boundary["scopeFiltering"] == "caller-supplied-labels"
+    assert boundary["frontDoorAuth"]["required"] is False
+    assert boundary["frontDoorAuth"]["source"] == "auto-local"
     # The four concepts are named distinctly and never conflated.
     identity_boundary = _identity_boundary_constants()
     assert set(identity_boundary) == {
         "authentication", "tenancyIsolation", "operatorAuthorization", "scopeFiltering",
     }
-    assert "not implemented" in identity_boundary["authentication"].lower()
-    assert "not implemented" in identity_boundary["tenancyIsolation"].lower()
+    # Authentication is now OPT-IN, not "not implemented": the text says so.
+    assert "opt-in" in identity_boundary["authentication"].lower()
+
+
+def test_identity_boundary_reports_required_auth_when_enabled(monkeypatch):
+    # When the front door enforces a signed-in user, identity says so honestly.
+    monkeypatch.setenv("HARNESS_AUTH", "required")
+    monkeypatch.setenv("HARNESS_AUTH_SECRET", "a-sufficiently-long-secret-value")
+    boundary = _identity_boundary()
+    assert boundary["authentication"] is True
+    assert boundary["multiUserSafe"] is True
+    assert boundary["tenancy"] == "per-user-scope"
+    assert boundary["scopeFiltering"] == "session-scoped"
+    assert boundary["frontDoorAuth"]["required"] is True
+    assert boundary["frontDoorAuth"]["misconfigured"] is False
+
+
+def test_identity_boundary_flags_misconfigured_required_auth(monkeypatch):
+    # Required but no secret => honest misconfiguration, never a false "safe".
+    monkeypatch.setenv("HARNESS_AUTH", "required")
+    monkeypatch.delenv("HARNESS_AUTH_SECRET", raising=False)
+    boundary = _identity_boundary()
+    assert boundary["frontDoorAuth"]["required"] is True
+    assert boundary["frontDoorAuth"]["secretConfigured"] is False
+    assert boundary["frontDoorAuth"]["misconfigured"] is True
 
 
 def test_health_reports_the_identity_boundary(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_MEMORY_DB_PATH", str(tmp_path / "agent-memory.db"))
     monkeypatch.setenv("ECLIPSE_MEMORY_DB_PATH", str(tmp_path / "eclipse-memory.db"))
+    # Default local deployment: no auth claimed.
+    for var in ("HARNESS_AUTH", "HARNESS_AUTH_SECRET", "HOST"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("NODE_ENV", "development")
     with TestClient(_app()) as c:
         body = c.get("/health").json()
     assert body["identity"]["authentication"] is False
     assert body["identity"]["multiUserSafe"] is False
     assert "exposure" in body["identity"]
+    assert "frontDoorAuth" in body["identity"]
 
 
 def test_loopback_bind_is_not_exposed():

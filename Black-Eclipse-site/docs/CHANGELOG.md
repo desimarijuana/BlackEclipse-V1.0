@@ -8,6 +8,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-07
 
+- **Authentication & multi-user mode — opt-in, auto-engages off loopback.**
+  BlackEclipse is now able to require a signed-in user, without breaking
+  zero-config. A single mode resolver (`src/lib/auth/config.ts`) makes auth
+  **required** when `HARNESS_AUTH=required`, or automatically when the app is
+  bound beyond loopback (or is a production build), and **off** for a local dev
+  bind — so `npm run dev` on localhost stays accountless. When required but
+  `HARNESS_AUTH_SECRET` is missing the app **fails closed** (`503
+  AUTH_MISCONFIGURED`); `doctor.js` prints the posture at boot. Two layers: the
+  Edge `middleware.ts` gates every page and `/api/**` on a validly signed session
+  cookie (except `/login` and `/api/auth/**`), and `requireApiAuth` /
+  `getAuthContext` (Node) do the authoritative session-row check. Passwords are
+  `scrypt`-hashed (Node `crypto`, no new dependency); sessions are opaque ids in
+  the gitignored `.black-eclipse/auth.db`; the cookie is `HttpOnly`/`SameSite=Lax`/
+  `Secure` off loopback and signed with `jose`. Tenancy is the session's: when auth
+  is on, `scope` comes from the session, never the request body (`resolveScope`).
+  `/health`'s `identity` now reports the real mode (`authentication`,
+  `frontDoorAuth`) instead of a hardcoded "not implemented". New: `src/lib/auth/*`,
+  `src/middleware.ts`, `src/app/login/page.tsx`, `/api/auth/{me,setup,login,logout}`,
+  a `better-sqlite3` ambient type. Tests: `src/lib/auth/*.test.ts`,
+  `src/middleware.test.ts`, updated `python/tests/test_identity_tenancy_boundary.py`.
+  Docs: `docs/harness/authentication.md`, ADR-H145. With `HARNESS_AUTH=off` the
+  prior no-auth, no-tenancy reality still holds and belongs on a trusted local
+  machine only.
+
 - **Phase S — stabilization (ratchet hygiene, docs drift, process).**
   (S.2) **Ratchet hygiene** — `main.py`'s FastAPI lifespan boot/shutdown wiring
   extracted to `harness/boot.py`; `main.py` dropped from ~1018 to ~955 lines (under

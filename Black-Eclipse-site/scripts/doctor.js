@@ -306,6 +306,35 @@ if (py) {
       ? "[setup] remote backend: configured"
       : "[setup] remote backend: not configured"
   );
+
+  // 6d. Authentication readiness. Authentication is OPT-IN and auto-engages the
+  //     moment the app is reachable beyond loopback (or is a production build).
+  //     This reports which mode will apply and whether it is actually usable, so a
+  //     public deployment is never silently left open NOR silently locked out.
+  const authRaw = (process.env.HARNESS_AUTH || "").trim().toLowerCase();
+  const authExplicit = ["1", "true", "yes", "on", "required", "enable", "enabled"].includes(authRaw)
+    ? true
+    : ["0", "false", "no", "off", "none", "disabled"].includes(authRaw)
+      ? false
+      : undefined;
+  const bindHost = (process.env.HOST || "").trim().toLowerCase();
+  const loopback = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+  const publicBind = Boolean(bindHost) && !loopback.has(bindHost);
+  const production = process.env.NODE_ENV === "production";
+  const authRequired = authExplicit === undefined ? publicBind || production : authExplicit;
+  const authSecret = process.env.HARNESS_AUTH_SECRET;
+  const secretOk = Boolean(authSecret) && authSecret !== "change-me-to-a-random-secret" && authSecret.length >= 16;
+  if (!authRequired) {
+    console.log("[setup] auth: off (single-user local; set HARNESS_AUTH=required to enforce a login)");
+  } else if (secretOk) {
+    console.log("[setup] auth: required and configured");
+  } else {
+    console.warn(
+      "[setup] auth: REQUIRED but HARNESS_AUTH_SECRET is not set; requests will fail closed (503).\n" +
+      "        Set a random secret (>= 16 chars), e.g. `HARNESS_AUTH_SECRET=$(openssl rand -hex 32)`,\n" +
+      "        or set HARNESS_AUTH=off to run accountless on a trusted local-only machine."
+    );
+  }
 }
 
 if (fixed > 0) console.log(`[setup] done — ${fixed} item(s) fixed.`);

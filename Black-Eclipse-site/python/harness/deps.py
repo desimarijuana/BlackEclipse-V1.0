@@ -24,27 +24,32 @@ service = AgenticService()
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 # ── Identity / tenancy boundary ──────────────────────────────────────────────
-# Black Eclipse is a SINGLE-USER LOCAL application. This block names the four
+# Black Eclipse is a SINGLE-USER LOCAL application by default. This block names the
 # concepts that must never be conflated, so a caller cannot mistake a
 # caller-supplied label for authorization:
 #
-#   * AUTHENTICATION — NOT implemented. There are no accounts and no login.
-#   * TENANCY ISOLATION — NOT implemented. `userId`/`scopeId` are scope FILTER
-#     labels, not security identities; they are self-asserted by the caller.
+#   * AUTHENTICATION — OPT-IN. The Next.js front door enforces a signed-in user
+#     when `HARNESS_AUTH` resolves on: explicitly, or automatically when the app
+#     is bound beyond loopback (or is a production build). The default local case
+#     stays accountless, so zero-config still works. The Python runtime is reached
+#     only by the front door over loopback / the operator token.
+#   * TENANCY ISOLATION — session-scoped when authentication is ON: `userId` is the
+#     authenticated user and `scope` comes from the session, never the request body.
+#     When auth is OFF, `userId`/`scopeId` are self-asserted scope FILTER labels.
 #   * OPERATOR AUTHORIZATION — transport/token only (loopback or the runtime
 #     secret), enforced by `require_operator`; never a request-body flag.
-#   * SCOPE FILTERING — enforced as filters in retrieval/listing, but because the
-#     labels are caller-supplied they are a correctness boundary, not a trust
-#     boundary.
+#   * SCOPE FILTERING — enforced as filters in retrieval/listing. It is a trust
+#     boundary only when authentication is on; otherwise it is a correctness
+#     boundary over caller-supplied labels.
 #
-# The app must therefore NEVER be presented as multi-user secure. A non-loopback
-# bind without a configured operator secret is flagged loudly at startup and in
-# `/health`.
+# The app must NEVER be presented as multi-user secure unless the front door
+# actually requires authentication. A non-loopback bind without a configured
+# operator secret is flagged loudly at startup and in `/health`.
 IDENTITY_BOUNDARY: dict[str, str] = {
-    "authentication": "not implemented — no accounts, no login",
+    "authentication": "opt-in — enforced by the front door when HARNESS_AUTH is on (auto-on beyond loopback)",
     "tenancyIsolation": (
-        "not implemented — single local operator; userId/scopeId are self-asserted "
-        "scope labels, never identities"
+        "session-scoped when authentication is on; otherwise single local operator where "
+        "userId/scopeId are self-asserted scope labels, never identities"
     ),
     "operatorAuthorization": (
         "transport/token only (loopback or the runtime secret); never a request-body flag"
@@ -110,18 +115,69 @@ def deployment_exposure(host: Optional[str] = None) -> dict[str, Any]:
     }
 
 
+def _truthy_flag(value: Optional[str]) -> Optional[bool]:
+    if value is None:
+        return None
+    v = value.strip().lower()
+    if v in ("1", "true", "yes", "on", "required", "enable", "enabled"):
+        return True
+    if v in ("0", "false", "no", "off", "none", "disabled"):
+        return False
+    return None
+
+
+def _front_door_auth() -> dict[str, Any]:
+    """The Next.js front door's auth posture (mirrors `src/lib/auth/config.ts`).
+
+    The Python runtime is still reached only by the front door over loopback /
+    the operator token; this reports whether the FRONT DOOR enforces a signed-in
+    user, so `/health` is honest end-to-end. It reads the same signals as the TS
+    resolver so the two cannot disagree.
+    """
+    import os
+
+    explicit = _truthy_flag(os.environ.get("HARNESS_AUTH"))
+    bind_host = (os.environ.get("HOST") or "").strip().lower()
+    public_bind = bool(bind_host) and bind_host not in _LOOPBACK_HOSTS
+    production = (os.environ.get("NODE_ENV") or "").strip().lower() == "production"
+    secret = os.environ.get("HARNESS_AUTH_SECRET")
+    secret_configured = bool(secret) and secret != _OPERATOR_SECRET_PLACEHOLDER and len(secret) >= 16
+    if explicit is not None:
+        required = explicit
+        source = "explicit-on" if explicit else "explicit-off"
+    elif public_bind or production:
+        required = True
+        source = "auto-public"
+    else:
+        required = False
+        source = "auto-local"
+    return {
+        "required": required,
+        "source": source,
+        "secretConfigured": secret_configured,
+        "misconfigured": required and not secret_configured,
+    }
+
+
 def identity_boundary(host: Optional[str] = None) -> dict[str, Any]:
     """A machine-readable statement of what is and is not protected.
 
     Returned in `/health` so a deployment can observe, without reading the docs,
-    that there is no authentication and no tenancy isolation.
+    that the app is single-user by default and whether the FRONT DOOR enforces a
+    signed-in user. When the front door requires authentication it says so; when
+    it does not, the app must never be presented as multi-user secure.
     """
+    front_door = _front_door_auth()
+    authenticated = bool(front_door["required"])
     boundary: dict[str, Any] = {
-        "authentication": False,
+        # True only when the front door actually enforces a signed-in user; the
+        # default (zero-config local) is False, and the app says so.
+        "authentication": authenticated,
         "operatorAuthorization": "transport/token",
-        "tenancy": "single-user-local",
-        "scopeFiltering": "caller-supplied-labels",
-        "multiUserSafe": False,
+        "tenancy": "per-user-scope" if authenticated else "single-user-local",
+        "scopeFiltering": "session-scoped" if authenticated else "caller-supplied-labels",
+        "multiUserSafe": authenticated,
+        "frontDoorAuth": front_door,
         "notes": IDENTITY_BOUNDARY,
     }
     boundary["exposure"] = deployment_exposure(host)

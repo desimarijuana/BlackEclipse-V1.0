@@ -4371,3 +4371,55 @@ the invariant: an absent backend degrades to a reason, never a fake desktop.
 `requirements.txt` extras + `setup-python.js`/`doctor.js` repairs. Tests:
 `test_computer_hardening.py`. macOS/Linux drivers, VM/headless desktops and an
 app-verification rig remain open (tracked in the Computer Use roadmap).
+
+## ADR-H145 — Authentication is opt-in and auto-engages off loopback; the front door is the boundary, not the runtime
+
+**Context.** BlackEclipse shipped as a single-user local app with no
+authentication and no tenancy isolation, and every layer said so honestly: the
+Python `deps.py` hardcoded `authentication: False`, `api-guard.ts` warned on a
+public bind, and `/health` reported the gap. That is correct for a local tool and
+not enough for any deployment reachable by another machine, where "no
+authentication" is a real hole rather than a design choice.
+
+**Decision.** Authentication is OPT-IN and AUTO-ENGAGES at the moment the app
+could be reached by another machine, and it is enforced at the FRONT DOOR (the
+Next.js app an external caller actually hits), not deep in the Python runtime:
+
+1. **One mode resolver** (`src/lib/auth/config.ts`). `HARNESS_AUTH=required|off`
+   wins; unset resolves to *required* on a non-loopback bind or a production
+   build, and *off* on a local dev bind. This preserves zero-config: `npm run dev`
+   on localhost stays accountless, and a public bind stops being silently open.
+2. **Fail closed, never silently.** When auth is required but
+   `HARNESS_AUTH_SECRET` is missing, requests get `503 AUTH_MISCONFIGURED` with an
+   instruction; the doctor reports the posture at boot.
+3. **Two layers, because the Edge runtime cannot open SQLite.** `middleware.ts`
+   (Edge) does the coarse gate — a validly signed session cookie for every page
+   and `/api/**`, except `/login` and `/api/auth/**`. `requireApiAuth` /
+   `getAuthContext` (Node) do the authoritative check against the session row.
+4. **Tenancy is the session's.** When auth is on, `scope` comes from the session,
+   never the request body — a signed-in user cannot widen their scope. When auth
+   is off, `userId`/`scopeId` remain self-asserted filter labels, exactly as before.
+5. **Honest everywhere.** `/health`'s `identity` reports the real mode
+   (`authentication`, `frontDoorAuth.{required,source,secretConfigured,misconfigured}`)
+   instead of a hardcoded "not implemented". The app is never presented as
+   multi-user secure unless the front door actually requires a login.
+
+Passwords are `scrypt`-hashed with a per-user salt (Node built-in `crypto`); no new
+dependency. Sessions are opaque server-side ids in `.black-eclipse/auth.db`
+(gitignored); the cookie is `HttpOnly`, `SameSite=Lax`, `Secure` off loopback, and
+signed with `jose` (already a dependency).
+
+**Why.** A local research tool should not force a login on a single user; a
+hosted one must not be open. One resolver that flips on reachability — plus a hard
+fail-closed when misconfigured — gives both without a config ceremony. Putting the
+boundary at the front door is honest about where the trust line is: the Python
+runtime is still reached only by the front door over loopback / the operator
+token, and this protects the surface an external caller can actually reach.
+
+**Consequences.** New `src/lib/auth/` (`config`, `store`, `session`, `token`,
+`server`, `handlers`), `src/middleware.ts`, `src/app/login/page.tsx`, the four
+`/api/auth/*` routes, a `better-sqlite3` ambient type, and a `doctor.js` auth line;
+`deps.identity_boundary` and `IDENTITY_BOUNDARY` reworded to the opt-in truth;
+`python/tests/test_identity_tenancy_boundary.py` updated and extended; docs
+`docs/harness/authentication.md`. With `HARNESS_AUTH=off`, the old no-auth,
+no-tenancy reality still holds and must stay on a trusted local machine.
