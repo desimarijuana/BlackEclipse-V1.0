@@ -25,6 +25,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/agent-workspace.md`, `docs/DECISIONS.md` (ADR-042 amended),
   `NAVIGATION.md`.
 
+- **Agent Workspace sidebar: toggle shortcut + denser Claude-style feed.** Added
+  a global Ctrl/Cmd + Shift + E toggle (new `workspace-keybind.tsx`, a
+  capture-phase listener mounted in `app/layout.tsx` beside the terminal keybind
+  so it works whether the sidebar is open or closed; predicate skips while typing
+  and is unit-tested). Listed it in the keyboard-shortcuts help dialog. Reworked
+  the Output feed for density: timestamps are no longer shown in the row (kept in
+  the expanded detail line), consecutive same-tool calls GROUP into one row with a
+  ×N badge and expand to the list, and a header **Collapse all** clears every open
+  row when any is expanded. New i18n key `workspace.collapseAll`. Docs updated:
+  `docs/agent-workspace.md`.
+
 - **Approvals — "Always allow" standing grants, a redesigned card, and an alert
   on request.** Made the repeated approval prompts stoppable. (1) New
   `python/harness/grants.py` (`GrantStore` on the ONE `agent-memory.db`, table

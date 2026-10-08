@@ -134,6 +134,7 @@ export const en = {
   'workspace.coverage': 'Coverage',
   'workspace.queries': 'Queries',
   'workspace.actions': 'Actions',
+  'workspace.collapseAll': 'Collapse all',
 
   // Top bar
   'topbar.searchPlaceholder': 'Search instruments, indicators, commands…',

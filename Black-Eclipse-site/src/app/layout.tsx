@@ -26,6 +26,7 @@ import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
 import { SoundProvider } from "@/lib/sounds";
 import { TerminalKeybind } from "@/components/layout/terminal-keybind";
+import { WorkspaceKeybind } from "@/components/agent-workspace/workspace-keybind";
 
 // ── Landing-wordmark fonts ──────────────────────────────────────────────────
 // Real display faces for the ChatBot wordmark (Settings › General › Background).
@@ -82,6 +83,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <GlobalSearch />
         <KeyboardShortcuts />
         <TerminalKeybind />
+        <WorkspaceKeybind />
         <SoundProvider />
         <AlertNotificationProvider />
       </body>

@@ -41,7 +41,7 @@ a tool-heavy run readable.
 | Existing-stream ingest seam | `src/lib/agent-workspace/ingest.ts` |
 | Display formatting (pure) | `src/lib/agent-workspace/format.ts` |
 | UI (docked sidebar + 4 panels + Viewer) | `src/components/agent-workspace/**` |
-| Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />`, a sibling of the main column) + top-bar toggle |
+| Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />`, a sibling of the main column) + top-bar toggle + `workspace-keybind.tsx` (mounted in `app/layout.tsx`) |
 
 ## It is a docked right sidebar
 
@@ -57,6 +57,15 @@ under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
 - **Minimal tabs:** **Output** (default), **Changes**, **Approvals**, **History**.
   The overview/activity/tasks/context/telemetry/research/browser/computer/
   artifacts panels were removed as noise — the Output feed carries the signal.
+- **Toggle:** **Ctrl/Cmd + Shift + E** (the VS Code "toggle Explorer" chord). A
+  dedicated capture-phase listener (`src/components/agent-workspace/workspace-keybind.tsx`)
+  is mounted in `app/layout.tsx` beside the terminal keybind, so it works whether
+  the sidebar is open or closed; it skips while typing. Listed in the
+  keyboard-shortcuts help dialog.
+- **Output feed density (Claude-Code style):** timestamps are hidden from the row
+  (kept in the expanded detail), consecutive same-tool calls GROUP into one row
+  with a ×N badge (expanding to the list), and a **Collapse all** control appears
+  in the feed header whenever a row is expanded.
 - **Resizable:** drag the inner (left) edge on desktop; width persists under
   `black-eclipse:workspace-width` (clamped 300–760 px). No hard border frame — the
   frosted-glass edge is the separation.
