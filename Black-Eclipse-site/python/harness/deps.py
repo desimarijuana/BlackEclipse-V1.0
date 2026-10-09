@@ -159,6 +159,15 @@ def _front_door_auth() -> dict[str, Any]:
     }
 
 
+def _multi_tenant_required() -> bool:
+    try:
+        from .security.identity import multi_tenant_required
+
+        return multi_tenant_required()
+    except Exception:  # noqa: BLE001 - security hot path must never break /health
+        return False
+
+
 def identity_boundary(host: Optional[str] = None) -> dict[str, Any]:
     """A machine-readable statement of what is and is not protected.
 
@@ -177,6 +186,7 @@ def identity_boundary(host: Optional[str] = None) -> dict[str, Any]:
         "tenancy": "per-user-scope" if authenticated else "single-user-local",
         "scopeFiltering": "session-scoped" if authenticated else "caller-supplied-labels",
         "multiUserSafe": authenticated,
+        "multiTenant": _multi_tenant_required(),
         "frontDoorAuth": front_door,
         "notes": IDENTITY_BOUNDARY,
     }
@@ -250,6 +260,21 @@ def actor_for(operator: bool = False, actor_id: str = "local"):
     return OPERATOR_ACTOR if operator else Actor(id=actor_id)
 
 
+def require_identity(request: Request):
+    """FastAPI dependency: a verified identity (header JWT / operator). Refuses
+    anonymous callers in multi-tenant mode. See `security.identity`."""
+    from .security.identity import require_identity as _require
+
+    return _require(request)
+
+
+def identity_for(request: Request):
+    """The caller's resolved (possibly anonymous) identity, never raising."""
+    from .security.identity import resolve_identity
+
+    return resolve_identity(request)
+
+
 def memory_available() -> bool:
     """True when the memory database is readable and not corrupt.
 
@@ -269,7 +294,9 @@ __all__ = [
     "actor_for",
     "deployment_exposure",
     "identity_boundary",
+    "identity_for",
     "memory_available",
+    "require_identity",
     "require_mcp_operator",
     "require_operator",
     "service",

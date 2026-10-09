@@ -103,6 +103,16 @@ class BlockBody(BaseModel):
     blockedBy: list[str] = Field(default_factory=list)  # noqa: N815
 
 
+class PlanCancelBody(BaseModel):
+    reason: str = ""
+
+
+class EscalateBody(BaseModel):
+    target: str = "BLOCKED"
+    error: str = ""
+    errorClass: Optional[str] = None  # noqa: N815
+
+
 class CriterionBody(BaseModel):
     text: str = Field(..., min_length=1)
     required: bool = True
@@ -176,6 +186,17 @@ def plan_tasks(plan_id: str, _: bool = Depends(require_operator)) -> dict[str, A
 def start_plan(plan_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         plan = _manager().start_plan(plan_id)
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, "plan": plan.model_dump(by_alias=True)}
+
+
+@router.post("/plans/{plan_id}/cancel")
+def cancel_plan(
+    plan_id: str, body: PlanCancelBody, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    try:
+        plan = _manager().cancel_plan(plan_id, reason=body.reason)
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, "plan": plan.model_dump(by_alias=True)}
@@ -322,6 +343,28 @@ def retry_task(task_id: str, _: bool = Depends(require_operator)) -> dict[str, A
     return {"success": True, "task": task.model_dump(by_alias=True)}
 
 
+@router.post("/tasks/{task_id}/resume")
+def resume_task(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        task = _manager().resume_task(task_id)
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, "task": task.model_dump(by_alias=True)}
+
+
+@router.post("/tasks/{task_id}/escalate")
+def escalate_task(
+    task_id: str, body: EscalateBody, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    try:
+        task = _manager().escalate_task(
+            task_id, target=body.target, error=body.error, error_class=body.errorClass,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, "task": task.model_dump(by_alias=True)}
+
+
 @router.post("/tasks/{task_id}/reopen")
 def reopen_task(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
@@ -420,6 +463,21 @@ def add_checkpoint(
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, "checkpoint": checkpoint.model_dump(by_alias=True)}
+
+
+@router.get("/tasks/{task_id}/checkpoints")
+def list_checkpoints(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    checkpoints = _manager().list_checkpoints(task_id)
+    return {"success": True, "checkpoints": [c.model_dump(by_alias=True) for c in checkpoints]}
+
+
+@router.post("/tasks/{task_id}/checkpoints/restore")
+def restore_checkpoint(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _manager().restore_checkpoint(task_id, resume=True)
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, **result}
 
 
 __all__ = ["router"]

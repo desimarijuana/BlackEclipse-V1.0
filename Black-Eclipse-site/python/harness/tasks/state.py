@@ -36,17 +36,48 @@ _TASK_TRANSITIONS: dict[TaskStatus, FrozenSet[TaskStatus]] = {
             TaskStatus.IN_PROGRESS,
             TaskStatus.BLOCKED,
             TaskStatus.WAITING,
+            TaskStatus.ASKING_USER,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
         }
     ),
     TaskStatus.IN_PROGRESS: frozenset(
         {
+            TaskStatus.VERIFYING,
             TaskStatus.COMPLETED,
             TaskStatus.FAILED,
             TaskStatus.WAITING,
+            TaskStatus.ASKING_USER,
             TaskStatus.BLOCKED,
             TaskStatus.CANCELLED,
+        }
+    ),
+    # VERIFYING is the authoritative state while a completed run's acceptance
+    # criteria and verification gates are evaluated. It can resolve to any
+    # terminal outcome, fall back to IN_PROGRESS/TODO (a failed check must be
+    # repaired), or park for the user / on a prerequisite.
+    TaskStatus.VERIFYING: frozenset(
+        {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.BLOCKED,
+            TaskStatus.WAITING,
+            TaskStatus.ASKING_USER,
+            TaskStatus.CANCELLED,
+        }
+    ),
+    # ASKING_USER is the durable "parked on a human" state (a question or an
+    # approval); distinct from WAITING (an external event) and BLOCKED (an
+    # unavailable prerequisite).
+    TaskStatus.ASKING_USER: frozenset(
+        {
+            TaskStatus.TODO,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.BLOCKED,
+            TaskStatus.WAITING,
+            TaskStatus.CANCELLED,
+            TaskStatus.FAILED,
         }
     ),
     TaskStatus.BLOCKED: frozenset(
@@ -54,6 +85,7 @@ _TASK_TRANSITIONS: dict[TaskStatus, FrozenSet[TaskStatus]] = {
             TaskStatus.TODO,
             TaskStatus.IN_PROGRESS,
             TaskStatus.WAITING,
+            TaskStatus.ASKING_USER,
             TaskStatus.CANCELLED,
             TaskStatus.FAILED,
         }
@@ -63,6 +95,7 @@ _TASK_TRANSITIONS: dict[TaskStatus, FrozenSet[TaskStatus]] = {
             TaskStatus.TODO,
             TaskStatus.IN_PROGRESS,
             TaskStatus.BLOCKED,
+            TaskStatus.ASKING_USER,
             TaskStatus.CANCELLED,
             TaskStatus.FAILED,
         }
@@ -83,10 +116,17 @@ _TASK_OPERATIONS: dict[str, FrozenSet[tuple[TaskStatus, TaskStatus]]] = {
             (TaskStatus.BLOCKED, TaskStatus.IN_PROGRESS),
             (TaskStatus.WAITING, TaskStatus.TODO),
             (TaskStatus.IN_PROGRESS, TaskStatus.TODO),
+            (TaskStatus.VERIFYING, TaskStatus.TODO),
+            (TaskStatus.VERIFYING, TaskStatus.IN_PROGRESS),
+            (TaskStatus.ASKING_USER, TaskStatus.TODO),
+            (TaskStatus.ASKING_USER, TaskStatus.IN_PROGRESS),
         }
     ),
     TaskOperation.RECOVER.value: frozenset(
-        {(TaskStatus.IN_PROGRESS, TaskStatus.TODO)}
+        {
+            (TaskStatus.IN_PROGRESS, TaskStatus.TODO),
+            (TaskStatus.VERIFYING, TaskStatus.TODO),
+        }
     ),
     TaskOperation.REOPEN.value: frozenset(
         {

@@ -775,6 +775,43 @@ class TaskStore:
         ).fetchone()
         return _checkpoint_row(row) if row else None
 
+    def prune(self, *, retention_days: int = 90, now: Optional[str] = None) -> dict[str, int]:
+        """Delete aged execution/trace rows, keeping the durable plans and tasks.
+
+        Retention applies to the high-volume append-only trails (checkpoints,
+        execution attempts, events) — never to the plans/tasks/criteria/artifacts,
+        which are the durable record. Rows younger than the cutoff are untouched.
+        """
+        import datetime as _dt  # noqa: PLC0415
+
+        if retention_days <= 0:
+            return {}
+        moment = now or now_iso()
+        try:
+            base = _dt.datetime.fromisoformat(moment.replace("Z", "+00:00"))
+        except ValueError:
+            base = _dt.datetime.now(_dt.timezone.utc)
+        cutoff = (base - _dt.timedelta(days=int(retention_days))).isoformat()
+        counts: dict[str, int] = {}
+        for table, column in (
+            ("HarnessTaskCheckpoint", "createdAt"),
+            ("HarnessTaskExecution", "startedAt"),
+            ("HarnessTaskEvent", "createdAt"),
+        ):
+            cur = self._db.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
+            counts[table] = cur.rowcount
+        self._db.commit()
+        return counts
+
+    def count_rows(self) -> dict[str, int]:
+        """A small size snapshot for operators/tests."""
+        out: dict[str, int] = {}
+        for table in ("HarnessPlan", "HarnessTask", "HarnessTaskEvent",
+                      "HarnessTaskExecution", "HarnessTaskCheckpoint"):
+            row = self._db.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()
+            out[table] = int(row["c"]) if row else 0
+        return out
+
     # ── Artifacts ────────────────────────────────────────────────────────────
     def add_artifact(
         self, *, task_id: str, uri: str, kind: str = "file", digest: Optional[str] = None,

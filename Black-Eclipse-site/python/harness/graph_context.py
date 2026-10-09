@@ -49,6 +49,11 @@ async def _memory_context(
     if is_trivial_turn(request.input.query):
         return ""
     try:
+        # The recall budget is the OPERATOR policy (`context_budget_chars`,
+        # bounded by eclipse_memory/policy.py), never a hardcoded constant:
+        # `EclipseMemoryService.retrieve` falls back to the policy when
+        # `budget_chars` is omitted. Passing an explicit value here would bypass
+        # Settings and make the operator's budget ineffective.
         result = memory_service.retrieve(
             query=request.input.query,
             subject=request.input.ticker,
@@ -56,7 +61,6 @@ async def _memory_context(
             scope_id=request.userId,
             run_id=request.runId,
             limit=8,
-            budget_chars=4000,
         )
     except Exception as exc:  # noqa: BLE001 - memory must never break a run
         await emitter.emit("memory.retrieval_failed", {"error": str(exc)})

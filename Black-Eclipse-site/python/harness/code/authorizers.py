@@ -81,7 +81,7 @@ def build_effect_authorizer(
     code_authorizer = make_computer_authorizer(code_authorizer)
 
     if approvals is None or not workspace_id:
-        return code_authorizer
+        return _wrap_with_security(code_authorizer, run_id, workspace_id)
 
     from .actions import make_code_action_authorizer  # noqa: PLC0415
 
@@ -93,7 +93,30 @@ def build_effect_authorizer(
             return bool(await action_authorizer(tool, args, ctx))
         return bool(await code_authorizer(tool, args, ctx))
 
-    return authorize
+    return _wrap_with_security(authorize, run_id, workspace_id)
+
+
+def _wrap_with_security(inner: Any, run_id: str, workspace_id: Optional[str]) -> Any:
+    """Route the composed authorizer through the Security Gateway.
+
+    The gateway is additive: it enforces the Security Floor and audits every
+    filesystem/shell effect, then delegates to `inner` for the capability's own
+    approval semantics. When no gateway is installed, `inner` is returned
+    unchanged (the existing authority), never a permissive stub.
+    """
+    try:
+        from ..security.bootstrap import get_gateway  # noqa: PLC0415
+
+        gateway = get_gateway()
+        if gateway is None:
+            return inner
+        from ..security.integration import make_security_authorizer  # noqa: PLC0415
+
+        return make_security_authorizer(
+            inner, run_id=run_id, workspace_id=workspace_id, gateway=gateway,
+        )
+    except Exception:  # noqa: BLE001 - the security layer must never weaken the chain
+        return inner
 
 
 __all__ = ["build_effect_authorizer"]

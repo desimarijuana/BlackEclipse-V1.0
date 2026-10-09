@@ -242,6 +242,27 @@ class SourceCollector:
     def has_content(self) -> bool:
         return bool(self._citations or self._source_meta or self._conflicts)
 
+    def known_urls(self) -> set[str]:
+        """Every URL this run actually retrieved or consulted.
+
+        Feeds the evidence release gate (`research.release_gate`): a citation in
+        the final answer is admissible only when its URL has runtime provenance.
+        Includes successful citations, listed source URLs, and consulted-but-failed
+        fetches (a failed route is not evidence, but a mention of it is not an
+        invented link)."""
+        urls: set[str] = set()
+        for citation in self._citations:
+            if citation.url:
+                urls.add(citation.url)
+        for meta in self._source_meta.values():
+            url = meta.get("url")
+            if url:
+                urls.add(str(url))
+        for name in self._source_status:
+            if isinstance(name, str) and name.startswith(("http://", "https://")):
+                urls.add(name)
+        return urls
+
     def to_research_blob(self) -> Optional[dict[str, Any]]:
         """Shape the collected provenance as the existing `research` run blob.
 

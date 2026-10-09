@@ -170,20 +170,51 @@ class ExecutionService:
 # ── workspace/actor helpers used by the tools ────────────────────────────────
 
 
+def _active_code_workspace(ctx: ToolContext) -> Any:
+    """The run's disposable code workspace, if one has been allocated.
+
+    The code-editing tools allocate ONE per-run worktree and cache it on the
+    context (`ctx._code_workspace`). When it exists, verification/build/test MUST
+    run against that same tree — otherwise a run could edit a copy and verify the
+    untouched original. Returns the `(code_workspace, binding, resolved, actor)`
+    bundle, or None.
+    """
+    bundle = getattr(ctx, "_code_workspace", None)
+    if bundle is None:
+        return None
+    try:
+        return bundle if bundle[1] is not None else None
+    except (TypeError, IndexError):
+        return None
+
+
 def make_actor(ctx: ToolContext) -> Any:
     """The Actor for a run's autonomy profile (mirrors `analysis_tools._actor`)."""
     from ..skills.permissions import Actor  # noqa: PLC0415
 
+    bundle = _active_code_workspace(ctx)
+    workspace_id = (
+        bundle[0].id if bundle is not None
+        else getattr(getattr(ctx, "workspace", None), "id", None)
+    )
     return Actor(
         id=getattr(ctx, "user_id", None) or "local",
         operator=False,
-        workspace_id=getattr(getattr(ctx, "workspace", None), "id", None),
+        workspace_id=workspace_id,
         autonomy=getattr(ctx, "autonomy", None),
     )
 
 
 def workspace_binding(ctx: ToolContext) -> Any:
-    """The run's workspace binding (the `WorkspaceBinding` on the resolved root)."""
+    """The run's workspace binding.
+
+    Prefers the run's allocated code workspace (the worktree the agent actually
+    edited) so execution/verification acts on the same tree; falls back to the
+    request's resolved workspace binding for read-only or non-code runs.
+    """
+    bundle = _active_code_workspace(ctx)
+    if bundle is not None:
+        return bundle[1]
     ws = getattr(ctx, "workspace", None)
     if ws is None:
         return None

@@ -56,3 +56,22 @@ async def test_search_admin_tool():
     result = await registry.execute("search_admin", "c1", {}, ctx)
     assert result.ok
     assert "embedding" in result.data
+
+
+@pytest.mark.asyncio
+async def test_search_context_tool_returns_budgeted_block():
+    service, _ = make_service(rerank_enabled=False)
+    instrument(service, FakeEmbeddingProvider())
+    await service.ingest_text(
+        "NVIDIA data center revenue grew on AI demand.",
+        title="NVDA", source_type="filing", source_id="nvda", namespace="filing",
+    )
+    registry = ToolRegistry()
+    register_search_tools(registry)
+    ctx = ToolContext(run_id="r1", log=lambda *a, **k: None, search=service, user_id=None)
+    result = await registry.execute("search_context", "c1", {"query": "nvidia revenue"}, ctx)
+    assert result.ok
+    # The assembled block is budgeted and delimited as untrusted data.
+    assert "<<<UNTRUSTED_SEARCH_CONTENT>>>" in result.text
+    assert "tokensEstimate" in result.data
+    assert result.data["usedChunkIds"]

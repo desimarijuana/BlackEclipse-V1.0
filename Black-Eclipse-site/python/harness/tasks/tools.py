@@ -299,6 +299,39 @@ async def _retry_task(args: dict[str, Any], ctx: ToolContext) -> Any:
     return _ok(_brief(task), {"task": task.model_dump(by_alias=True)})
 
 
+async def _resume_task(args: dict[str, Any], ctx: ToolContext) -> Any:
+    try:
+        task = _manager(ctx).resume_task(str(args.get("taskId") or args.get("task_id")))
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+    return _ok(_brief(task), {"task": task.model_dump(by_alias=True)})
+
+
+async def _escalate_task(args: dict[str, Any], ctx: ToolContext) -> Any:
+    try:
+        task = _manager(ctx).escalate_task(
+            str(args.get("taskId") or args.get("task_id")),
+            target=str(args.get("target") or "BLOCKED"),
+            error=str(args.get("error") or ""),
+            error_class=args.get("errorClass") or args.get("error_class"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+    return _ok(_brief(task), {"task": task.model_dump(by_alias=True)})
+
+
+async def _cancel_plan(args: dict[str, Any], ctx: ToolContext) -> Any:
+    try:
+        plan = _manager(ctx).cancel_plan(
+            str(args.get("planId") or args.get("plan_id")),
+            reason=str(args.get("reason") or ""),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+    return _ok(f"Plan {plan.id} is {plan.status.value}.",
+               {"plan": plan.model_dump(by_alias=True)})
+
+
 async def _attach_artifact(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
         artifact = _manager(ctx).attach_artifact(
@@ -550,6 +583,35 @@ _DEFS: list[tuple[str, str, dict[str, Any]]] = [
         {"type": "object", "properties": {"taskId": _TASK_REF}, "required": ["taskId"]},
     ),
     (
+        "resume_task",
+        "Resume a task parked for a human (ASKING_USER) or an external event "
+        "(WAITING/BLOCKED) back to TODO once the answer/event has arrived.",
+        {"type": "object", "properties": {"taskId": _TASK_REF}, "required": ["taskId"]},
+    ),
+    (
+        "escalate_task",
+        "Escalate a task to BLOCKED or ASKING_USER (non-terminal, resumable) instead "
+        "of failing it — for a dead-end resource or a decision only a human can make.",
+        {
+            "type": "object",
+            "properties": {
+                "taskId": _TASK_REF,
+                "target": {"type": "string", "enum": ["BLOCKED", "ASKING_USER"]},
+                "error": {"type": "string"}, "errorClass": {"type": "string"},
+            },
+            "required": ["taskId"],
+        },
+    ),
+    (
+        "cancel_plan",
+        "Cancel a whole plan and every non-terminal task inside it.",
+        {
+            "type": "object",
+            "properties": {"planId": _PLAN_REF, "reason": {"type": "string"}},
+            "required": ["planId"],
+        },
+    ),
+    (
         "attach_task_artifact",
         "Attach a reference to a real artifact (path, digest, asset id or URL). "
         "Never the bytes themselves.",
@@ -609,6 +671,9 @@ _HANDLERS = {
     "block_task": _block_task,
     "unblock_task": _unblock_task,
     "retry_task": _retry_task,
+    "resume_task": _resume_task,
+    "escalate_task": _escalate_task,
+    "cancel_plan": _cancel_plan,
     "attach_task_artifact": _attach_artifact,
     "set_task_criterion": _set_criterion,
     "checkpoint_task": _checkpoint_task,

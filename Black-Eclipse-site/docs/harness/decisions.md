@@ -4793,7 +4793,8 @@ bridge capability (market_data), normalizes to a canonical record, runs the
 mandatory data-quality engine, and preserves provenance into the Evidence &
 Research Engine. Agents never name a provider.
 
-**Context.** The retrieval layer (etrieval/) is provider-agnostic but shallow —
+**Context.** The retrieval layer (
+etrieval/) is provider-agnostic but shallow —
 it serves quote/statements/news/profile, not order books, trades, funding, open
 interest, options, FX or bonds. The market-data engine (scraper chain, yfinance
 bridge, Yahoo chart, crypto connector, SEC, economics) already lives in Next.js,
@@ -5217,3 +5218,211 @@ trajectory is reconstructable from one trace via
 publishing on the bus (preferred) or calling `get_hub().emit`/`.span` never by
 adding a second stack. `docs/harness/observability.md` is the entry point;
 `docs/NAVIGATION.md` and `docs/CHANGELOG.md` are updated in the same change.
+
+## ADR-H159 — Security is one decision path over the existing per-subsystem policies; the floor is immutable and every decision fails closed
+
+**Decision.** Eclipse gains a single Security subsystem at `python/harness/security/`
+whose `SecurityGateway` is the ONE authorization path for every privileged
+operation. It composes — never replaces — the existing federated controls:
+`code/policy.py`, `skills/permissions.py`, `mcp/approvals.py` + `grants.py`,
+`browser/policy.py`, `computer/policy.py` + `computer/finance/firewall.py`,
+`git/safety.py`, `execution/policy.py`, `terminal/`, `plugins/permissions.py`,
+`mcp/ssrf.py`, `observability/redaction.py` and `deps.py`. The gateway owns the
+missing central pieces: a **Permission Engine** (resource-scoped globs, never a
+global boolean), a **Policy Engine** (LOCKDOWN/SECURE/DEVELOPER/AUTONOMOUS/CUSTOM
+profiles, layered system→organization→user→project→agent→task, restrict-only
+compose, atomic hot reload that never replaces a known-good policy), a **Risk
+Engine** (server-side, ordered by severity), an **Approval Engine** (a typed
+broker over the existing single-use `McpApproval` store + `StandingGrant`s), a
+**Capability Engine** (issue/validate/delegate/restrict/revoke/expire; delegation
+may only reduce authority), a **Security Floor** (immutable hard-deny /
+hard-allow / mandatory-approval rules that no profile, skill, plugin, MCP server,
+prompt or request field can weaken), a **Network Policy Engine** (default-deny
+egress, reusing `mcp/ssrf.py`, DNS-pinned), a **Secrets Manager** (provider
+abstraction over env/local, scoped grants, values registered for redaction, never
+returned to the model), **session-isolated `SecurityContext`s**, and an
+**append-only, hash-chained audit** on the ONE `agent-memory.db`. Authorization
+decisions are `ALLOW` / `DENY` / `APPROVAL_REQUIRED` exactly. The initial
+migration routes the filesystem and shell capabilities through the gateway at the
+existing `code/authorizers.py` seam: the floor and network policy are always
+authoritative, policy-driven approvals are deferred to the capability's
+established single-use chain, and every evaluation is audited.
+
+**Why.** The brief asked for a unified security architecture covering thirty-five
+areas. Reconnaissance showed roughly sixty percent already existed — but
+federated, with risk logic duplicated in five modules, redaction in three, no
+central risk/policy/network/secrets authority, and no immutable baseline. Building
+a parallel stack would have violated `AGENTS.md`'s reuse-before-rebuild rule and
+created competing authorities; extending in place without unification would leave
+"one authoritative security decision path" unmet and bypassable. A composition
+layer that the existing per-subsystem policies delegate into is the only design
+that satisfies both the specification's invariants and the repository's own rules.
+
+**Consequences.** Every privileged effect now has one auditable decision path;
+the floor protects credentials, keys, the security configuration, system
+directories, production infrastructure and financial actions regardless of caller.
+Denials and approval-required outcomes fail closed: a missing approval store, an
+unreachable secret provider, a broken policy or an internal evaluation error all
+yield `DENY`, never a silent allow. Secrets are referenced (`secret://…`), scoped
+per consumer/session/task, and stripped from logs, tool output and the audit trail
+by the one redactor. Capabilities cannot escalate through delegation. Sessions are
+isolated: a capability, secret or workspace from another session is refused.
+`docs/harness/security.md` is the architecture entry point; the operator surface
+is `/security/*` (operator-gated) proxied by `/api/security/**`. The remaining
+capabilities (browser, database, deployment, financial, plugins, MCP, skills) are
+migrated in subsequent increments through the same `make_security_authorizer` seam
+and the same `AuthorizationRequest` contract. Tests:
+`python/tests/test_security_{core,adversarial,failure,concurrency,network_secrets,integration,api}.py`.
+
+## ADR-H160 — Every effectful capability is classified through the gateway; the sandbox is a separate physical boundary; approvals defer to the capability's own chain
+
+**Decision.** The Security subsystem is extended from the initial filesystem/shell
+migration to ALL capabilities. `security/classification.py` maps every tool in the
+canonical `code/policy.py` effect tuples to `(action, resource, permission)`, so
+`build_effect_authorizer` routes browser, computer, git/VCS, execution,
+application-runtime, infrastructure/deployment, database, vision, plugin, MCP and
+skill effects through the same `SecurityGateway`. The gateway enforces the floor
+(hard-deny) and a policy deny as terminal, audits and risk-scores every evaluation,
+and **defers approvals to the capability's own established single-use approval
+chain** (`defer_policy_approval=True`) so there is exactly one approval and no
+double prompt. Environment is resolved from the run context, the deploy action, or
+`BLACK_ECLIPSE_ENVIRONMENT`. The physical execution boundary is a separate
+abstraction, `security/sandbox.py` (`ExecutionSandbox`), with a hardened
+`DockerSandbox`, a `LocalSandbox` over the existing `code/sandbox.py` primitive, and
+an `UnavailableSandbox` that fails closed. Secrets gain production providers
+(`OsKeychainProvider`, `CliSecretProvider`) and the audit trail an optional
+append-only JSONL anchor with an HMAC-signed head. A `SecuritySettingsPanel`
+(Settings › Security) is the operator UI.
+
+**Why.** The original ADR left the other capabilities on their own policy modules,
+so the spec's invariant "no tool may bypass the gateway" was not yet true and the
+unified decision path was advisory for most effects. The choice to *defer* approvals
+rather than duplicate them is deliberate: each capability already has a correct,
+single-use, digest-bound approval with a working operator UX (MCP approvals, code
+actions, git operations, browser/computer ASK). Re-asking at the gateway would
+double-prompt and fragment the audit. Hard denies are never deferred, so the
+strongest control applies everywhere while the approval surface stays singular. The
+sandbox is kept separate from authorization because they answer different questions
+— *may this run?* versus *where does it run?* — and conflating them is the classic
+mistake the spec warns against.
+
+**Consequences.** Every privileged effect now has one auditable, floor-enforced
+decision path; a bypass-audit test fails if any canonical effect tool is
+unclassified. The environment actually gates PRODUCTION writes/deploys. Execution
+can be placed behind a real container boundary independent of policy. Secrets can
+come from the OS keychain or Vault/AWS/1Password via a configured CLI, and the audit
+trail can be anchored outside the runtime's writable database. The default remains
+zero-config and fail-closed: no Docker, no keychain, and no audit log means the
+local backend, honest unavailability, and the in-DB hash chain — never a silent
+weakening. `docs/harness/security.md` is updated in the same change; NAVIGATION and
+CHANGELOG too.
+
+## ADR-H161 — Identity is verified at the edge and carried as a signed token; tenants are isolated in the security plane; the front door is the authenticator
+
+**Decision.** The runtime no longer trusts a caller-supplied `userId`/`tenantId`.
+The Next.js front door authenticates the user, resolves the DB-backed user and
+tenant scope, and mints a short-lived (5 min) HS256 JWT with `HARNESS_AUTH_SECRET`
+(`src/lib/harness/runtime-identity.ts`). Proxies forward it as
+`X-Harness-Identity`; `python/harness/security/identity.py` verifies it with
+stdlib only (no new dependency) and yields a verified `Identity`. Precedence: a
+valid identity token → the session identity; otherwise loopback / operator secret
+→ an operator identity; otherwise anonymous. In multi-tenant mode
+(`HARNESS_MULTI_TENANT=1`, or auto-on when the front door requires auth) an
+anonymous caller is refused (401). The Security subsystem becomes tenant-aware:
+capabilities, secret grants, sessions and audit records carry a `tenantId` and
+never cross tenants; the gateway refuses an untenanted request in multi-tenant
+mode. Beyond loopback the runtime now refuses to start unless `CRON_SECRET` (and,
+in multi-tenant mode, `HARNESS_AUTH_SECRET`) are configured. A per-tenant token
+bucket rate-limits the security endpoints.
+
+**Why.** Internet-facing multi-tenancy requires that identity be *authenticated
+once, at the edge*, and *proven* to the runtime — not asserted in a body. Reusing
+the front door's signing secret keeps one authentication story; stdlib HS256
+verification keeps the zero-dependency rule. Scoping capabilities, secrets,
+sessions and audit by tenant is the authorization half of tenant isolation and is
+the part the security subsystem owns. The remaining half — every run, memory,
+task, artifact and database row carrying and enforcing a tenant — is a data-plane
+migration across every subsystem's storage, tracked separately; it is NOT claimed
+here.
+
+**Consequences.** A stolen/forged token fails signature or expiry; an anonymous
+request in multi-tenant mode is refused; a capability or secret granted to tenant
+A is inert for tenant B; the audit trail is filterable per tenant; and a
+misconfigured public bind without secrets refuses to start. **Boundary:** this
+delivers the multi-tenant *security plane* and the identity propagation seam. Full
+tenant data isolation (runs, memory, tasks, artifacts, market/JDdS reads, and the
+broader proxy rollout of the identity header) is the follow-on data-plane work and
+must be completed before a genuine multi-tenant deployment is declared. `/health`
+reports `multiTenant` so a deployment can observe the mode.
+
+## ADR-H160 - The Artifact Center is one catalog over the existing stores; it owns its own tables and a confined content-addressed file store, and every producer registers through one service
+
+**Decision.** Produced files are recorded in a single, durable catalog
+(`ArtifactService` + `ArtifactStore`) whose rows live on the ONE
+`agent-memory.db` connection, alongside a dedicated, confined,
+content-addressed on-disk store under `.black-eclipse/artifacts/`. The catalog is
+NOT JDdS (`jdds.db`, market data) and NOT another subsystem's tables. One
+service owns the lifecycle (register, version, preview, tag, collect, archive,
+restore, delete, purge, reconcile); the REST route group `/artifacts/*`
+(operator-gated), the `artifact_*` agent tools, and every producer hook
+(`analysis_tools`, the task scheduler) all call that one service. Bytes are never
+referenced by a workspace path: the service copies them into the store and returns
+an opaque storage key, and the storage layer � not the code policy's workspace
+ignore list � enforces confinement (`..`/absolute/symlink escape refused; `*.png`
+and `.black-eclipse/**` are legitimate content here).
+
+**Why.** The roadmap's round-2 complaint was that a produced file "never leaves
+Eclipse's copy" and nothing serves it. A one-off route per producer would have
+duplicated storage, authorization and provenance. One catalog over the existing
+connection reuses the harness's durability and the ONE event bus, and gives the
+Artifact Center a single place to enforce owner scope, idempotency, lifecycle and
+reconciliation.
+
+**Consequences.** Producers depend only on `ArtifactService`; a missing service is
+reported honestly (`ARTIFACT_UNAVAILABLE`) rather than silently dropping a file.
+Registration is idempotent by key, preview failure never invalidates the original,
+and soft-delete/purge are distinct with a shared-reference guard. A bounded
+reconciler repairs missing objects on a schedule. New tables live in
+`artifacts/store.py` (not `persistence.SCHEMA`), matching the subsystem pattern.
+`docs/harness/artifact-center.md` is the architecture entry point; the operator
+surface is `/artifacts/*` proxied by `/api/artifacts/**`. Tests:
+`python/tests/test_artifacts_{store,security,tools,api}.py` and
+`src/lib/harness/artifacts-browser.test.ts`.
+
+## ADR-H162 - Claim verification reaches the delivery seam: an ordinary run's citations are checked against the evidence it actually retrieved, and every web-research run is registered as an evidence-referencing artifact
+
+**Decision.** Two additions close the remaining gap between "the evidence and
+verification engine exists" and "it runs before the answer is released":
+
+1. An **evidence release gate** (`research/release_gate.py`) runs at the EXISTING
+   answer seam in `graph.execute_run`, beside the code and finance enforcements. It
+   is deterministic (no model call): it extracts the final answer's http(s)
+   citations and checks each against the URLs the run actually retrieved or
+   consulted (the `SourceCollector` provenance the chat Sources panel already
+   renders). A cited link with no runtime provenance is disclosed as unverified;
+   the verdict is persisted on the run's `research` blob
+   (`metadata.citationIntegrity`) and emitted as `evidence.release_gate`. It never
+   strips content (suppression would hide a real answer) and is a no-op when the
+   answer makes no citations, so casual conversation is not cluttered.
+2. A completed **web-research run is registered in the Artifact Center** as a
+   durable, evidence-REFERENCING report artifact
+   (`artifacts.producers.register_research_report`, invoked best-effort from
+   `research/web_engine.py` on completion). The Markdown report names claim
+   verdicts, conflicts and an evidence appendix by id, and its `metadata` carries
+   the `researchId`, `snapshotId` and evidence ids. It references the evidence
+   store; it never duplicates it. Registration is idempotent per
+   `(researchId, snapshotId)` and a no-op when the Artifact Center is not
+   installed.
+
+**Why.** The evaluation system already GRADED citation support, but the runtime
+never ENFORCED it: a model could cite a URL it never retrieved and nothing
+detected it before release. The gated financial flow validated its claims; ordinary
+runs did not. Separately, a research run's evidence/validation history was
+inspectable only inside the research subsystem, not in the one artifact catalog.
+
+**Consequences.** Provider-independent (deterministic; it works with any model, or
+none). The `graph.py` size ratchet is re-pinned for the two-line seam. Tests:
+`python/tests/test_evidence_release_gate.py`,
+`python/tests/test_research_artifact.py`, and two end-to-end cases in
+`python/tests/test_graph.py`. Owner docs:
+`docs/harness/web-research-engine.md`, `docs/harness/artifact-center.md`.

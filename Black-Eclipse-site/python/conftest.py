@@ -29,6 +29,31 @@ os.environ.setdefault("HARNESS_SEARCH_WARM_INDEX", "0")
 import pytest  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _isolate_process_globals():
+    """Reset process-global subsystem singletons around every test.
+
+    The Artifact Center registers a PROCESS-GLOBAL service at boot
+    (`artifacts.bootstrap.install_artifact_layer`, called from
+    `AgenticService.__init__` and the `/artifacts/*` self-heal). Without this, a
+    test that constructs a service leaks that global into every later test, so a
+    test that clears it (`set_artifact_service(None)`) becomes order- and
+    timing-dependent. Each test now starts from a clean global and the original
+    value is restored afterwards. Purely additive; introduces no new behavior.
+    """
+    try:
+        from harness.artifacts import bootstrap as _artifacts_bootstrap
+    except Exception:  # noqa: BLE001 - the artifacts layer is optional
+        yield
+        return
+    saved = _artifacts_bootstrap._SINGLETON  # noqa: SLF001 - the one global we isolate
+    _artifacts_bootstrap._SINGLETON = None  # noqa: SLF001
+    try:
+        yield
+    finally:
+        _artifacts_bootstrap._SINGLETON = saved  # noqa: SLF001
+
+
 @pytest.fixture
 def tmp_workspace():
     """A fresh writable temp directory, resolved the resilient way.

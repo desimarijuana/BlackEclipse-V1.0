@@ -258,3 +258,19 @@ def test_health_checker_process_and_tcp():
     # A TCP check to a closed port is a structured negative, never an exception.
     result = checker.tcp("127.0.0.1", 1, timeout_s=0.2)
     assert result["ok"] is False
+
+
+def test_workspace_binding_prefers_the_code_workspace(tmp_path):
+    """Verification must act on the tree the agent edited (the worktree)."""
+    from types import SimpleNamespace
+
+    from harness.execution.service import make_actor, workspace_binding
+
+    ctx = _tool_ctx(tmp_path, ws="server")
+    # No code workspace yet -> the request's resolved binding (server root).
+    assert workspace_binding(ctx).id == "server"
+    # Once a code workspace is allocated, execution/verification binds to it.
+    cw_binding = _binding(tmp_path / "wt", ws="cw1")
+    ctx._code_workspace = (SimpleNamespace(id="cw1"), cw_binding, None, None)
+    assert workspace_binding(ctx).id == "cw1"
+    assert make_actor(ctx).workspace_id == "cw1"

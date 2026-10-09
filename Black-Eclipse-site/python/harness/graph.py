@@ -361,6 +361,9 @@ def build_graph(
     # The unified Retrieval / Search Intelligence service, so the `*_search`
     # tools reach the ONE search layer (vector + FTS + rerank).
     search: Optional[Any] = None,
+    # The Artifact Center service, so `artifact_*` tools register and discover
+    # produced files through the ONE catalog (shared with producers).
+    artifact_service: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -497,6 +500,9 @@ def build_graph(
         # Quant Engine store (strategies + experiments) on the ONE agent-memory
         # connection, so `quant_*` tools persist and replay research.
         quant_store=getattr(quant, "store", None),
+        # The Artifact Center service, so `artifact_*` tools register and discover
+        # produced files through the ONE catalog (shared with producers).
+        artifact_service=artifact_service,
         # The Portfolio Accounting Engine service, so `portfolio_*` tools reach
         # the ONE ledger/valuation engine and the per-run market gateway.
         portfolio_service=getattr(portfolio, "service", None),
@@ -984,6 +990,7 @@ async def execute_run(
     portfolio: Optional[Any] = None,
     quant: Optional[Any] = None,
     search: Optional[Any] = None,
+    artifact_service: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -1266,6 +1273,7 @@ async def execute_run(
             portfolio=portfolio,
             quant=quant,
             search=search,
+            artifact_service=artifact_service,
         )
         return await app.ainvoke(initial_state)
 
@@ -1384,6 +1392,13 @@ async def execute_run(
             })
     except Exception:  # noqa: BLE001 - enforcement is additive, never fatal
         pass
+    # Evidence release gate (ordinary runs): a cited link with no runtime
+    # provenance is disclosed as unverified (`research/release_gate.py`).
+    from .research import release_gate  # noqa: PLC0415
+
+    output, evidence_release = await release_gate.apply(
+        output, source_collector, emitter=emitter, user_text=request.input.query,
+    )
     context_blob = _context_budget_blob(
         final_budget, request, kind="completed", retried=retry_budget is not None,
     )
@@ -1391,7 +1406,7 @@ async def execute_run(
     # run consulted no sources, so an empty panel is never shown). An ordinary
     # run's collected blob carries status `collected`, distinct from a gated
     # research run's `accepted`/`partial`/`rejected`.
-    research_blob = source_collector.to_research_blob()
+    research_blob = release_gate.attach(source_collector.to_research_blob(), evidence_release)
     # Vision results collected from this run's `vision_*` tool calls (None when no
     # vision tool ran), shaped for the right sidebar.
     vision_blob = vision_collector.to_blob()

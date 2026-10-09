@@ -1,7 +1,7 @@
 ---
 title: Code Execution & Verification Layer
 status: Current
-last-verified: 2026-10-06
+last-verified: 2026-10-08
 ---
 
 # Code Execution & Verification Layer
@@ -172,6 +172,30 @@ the bounded loop and returns `passed` only from a real `COMPLETED` build+test, w
 the full evidence list attached. `ExecutionStore` persists the result and its
 artifacts/tests/diagnostics/metrics for later reference (`execution_get`,
 `execution_logs`, …).
+
+The engine's results ALSO feed the run's per-run claim ledger. `build_project`,
+`test_project` and `run_verification` record their real executions into the same
+`VerificationLedger` that `command_run` feeds (via
+`execution/tools.py::_record_engine_verification`), so a truthful "the build
+succeeded / the tests passed" backed by an engine run is recognized as VERIFIED by
+`code/verify.py` rather than incorrectly marked `[UNVERIFIED]`. A passing
+`BUILD_AND_TEST` records both a `build` and a `unit_test` record; a non-passing
+outcome is recorded as a failing `unit_test` check only (a build failure is not
+asserted unless observed). The integration is additive and best-effort — no ledger
+or an unknown class is a no-op.
+
+**Verification acts on the tree the agent edited.** The code-editing tools
+allocate ONE per-run worktree and cache it on the run context
+(`ctx._code_workspace`). `execution/service.py::workspace_binding` (and
+`make_actor`) prefer that worktree binding when it exists, so `build_project`/
+`test_project`/`run_verification`/`execute_*` run against the same copy the agent
+modified rather than the untouched server root; without a code workspace the
+request's resolved binding is used, so non-code runs are unchanged.
+
+The offline harness closeout gates (`harness/eval_gates/`: `route_health`,
+`workflow`, `resume`, `capability_matrix`) are exposed at the operator-gated
+`GET /eval/gates` (`harness/routers/eval_gates.py`), so a deployment check can run
+them on demand. They remain fully offline and deterministic.
 
 ## Agent tools
 

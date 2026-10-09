@@ -194,6 +194,18 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         return _refusal(exc.code, exc.reason)
 
     _record_analysis(ctx, result)
+    # Universal registration: every file the sandbox produced is recorded in the
+    # Artifact Center (idempotent per run+digest) so it is discoverable, not just
+    # mentioned in this response. Best-effort; never fails the analysis.
+    try:
+        from .artifacts.producers import register_run_artifacts  # noqa: PLC0415
+
+        register_run_artifacts(
+            ctx, result.artifacts, source_tool="analysis_run",
+            agent_id=getattr(ctx, "agent_id", None),
+        )
+    except Exception:  # noqa: BLE001
+        pass
     await emit_code_event(ctx, "analysis.completed", {
         "status": result.status, "code": result.code,
         "artifacts": len(result.artifacts),

@@ -164,8 +164,11 @@ def _build_default_specs() -> list[EventTypeSpec]:
     for name, desc, prio in [
         ("task.created", "A durable task was created", "normal"),
         ("task.started", "A task started", "normal"),
+        ("task.verifying", "A task entered verification", "normal"),
+        ("task.asking_user", "A task is waiting on a human", "normal"),
         ("task.completed", "A task completed", "normal"),
         ("task.failed", "A task failed", "high"),
+        ("task.escalated", "A task was escalated instead of failing", "high"),
         ("task.cancelled", "A task was cancelled", "normal"),
         ("task.blocked", "A task became blocked", "normal"),
         ("task.unblocked", "A task became runnable", "normal"),
@@ -186,6 +189,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
     for name, desc, prio in [
         ("workflow.created", "A workflow was created", "normal"),
         ("workflow.started", "A workflow started", "normal"),
+        ("workflow.revised", "A workflow's plan structure changed", "normal"),
         ("workflow.completed", "A workflow completed", "normal"),
         ("workflow.failed", "A workflow failed", "high"),
         ("workflow.cancelled", "A workflow was cancelled", "normal"),
@@ -276,6 +280,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
         ("browser", ("browser",), 30, "normal"),
         ("code", ("code",), 60, "normal"),
         ("delegation", ("harness",), 60, "normal"),
+        ("artifact", ("artifacts",), 180, "normal"),
         ("document", ("document",), 90, "normal"),
         ("vision", ("vision",), 30, "normal"),
         ("mcp", ("mcp",), 30, "normal"),
@@ -290,6 +295,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
         ("recovery", ("self_improvement",), 180, "normal"),
         ("skill", ("skills",), 90, "normal"),
         ("learning", ("skills",), 90, "normal"),
+        ("security", ("security",), 365, "normal"),
     ]
     for prefix, producer, retention, priority in namespaces:
         spec = _spec(prefix, description=f"{prefix} namespace events", producer=producer, retention_days=retention, priority=priority)

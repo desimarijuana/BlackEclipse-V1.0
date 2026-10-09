@@ -272,6 +272,10 @@ class ToolContext:
     # None = the `plugin_*` tools resolve the module singleton (or report the
     # platform unavailable). Attached per run, never a global.
     plugin_manager: Any = None
+    # The process-wide Artifact Center service. Set by the graph from the service;
+    # None = the `artifact_*` tools report ARTIFACT_UNAVAILABLE rather than
+    # losing a produced file. Producers also reach it via the boot singleton.
+    artifact_service: Any = None
 
 
 class DataBridge:

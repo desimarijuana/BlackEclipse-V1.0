@@ -75,23 +75,55 @@ def _plan_agent(manager: TaskManager, task: Task) -> str:
     return "eclipse-agent"
 
 
-def _extract_artifacts(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Real artifacts only — from the run's code verification, never invented."""
+def _extract_artifacts(result: dict[str, Any], service: Any = None) -> list[dict[str, Any]]:
+    """Real artifacts only — never invented.
+
+    A run's produced files are recorded in the Artifact Center tagged with the
+    run id (the analysis/code tools register them as they execute). After the run
+    completes this links those catalog entries to the task by reference
+    (``artifact://<id>`` + checksum), so the task owns a durable, retrievable
+    pointer to what it produced. An explicit ``codeVerification.artifacts`` list,
+    when present, is also honoured. Best-effort: a catalog lookup failure yields
+    no artifacts, never a fabricated one.
+    """
     out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _add(uri: str, kind: str, digest: Any, size: Any, label: Any) -> None:
+        if not uri or uri in seen:
+            return
+        seen.add(uri)
+        out.append({
+            "uri": str(uri), "kind": str(kind or "file"), "digest": digest,
+            "sizeBytes": size, "label": label,
+        })
+
     verification = result.get("codeVerification")
     if isinstance(verification, dict):
         for item in verification.get("artifacts") or []:
-            if not isinstance(item, dict):
-                continue
-            uri = item.get("path") or item.get("uri")
-            if not uri:
-                continue
-            out.append({
-                "uri": str(uri), "kind": str(item.get("kind") or "file"),
-                "digest": item.get("digest"),
-                "sizeBytes": item.get("sizeBytes") or item.get("size"),
-                "label": item.get("label"),
-            })
+            if isinstance(item, dict):
+                _add(str(item.get("path") or item.get("uri") or ""),
+                     item.get("kind"), item.get("digest"),
+                     item.get("sizeBytes") or item.get("size"), item.get("label"))
+
+    artifacts_service = getattr(service, "artifacts", None)
+    run_id = str(result.get("runId") or "")
+    if artifacts_service is not None and run_id:
+        try:
+            from ..artifacts.model import ListArtifactsQuery  # noqa: PLC0415
+
+            page = artifacts_service.list(ListArtifactsQuery(run_id=run_id, limit=200))
+            for artifact in getattr(page, "artifacts", []) or []:
+                category = getattr(artifact.category, "value", None)
+                _add(
+                    f"artifact://{artifact.id}",
+                    (category or "file").lower(),
+                    getattr(artifact, "checksum", None),
+                    getattr(artifact, "size_bytes", None),
+                    getattr(artifact, "name", None),
+                )
+        except Exception:  # noqa: BLE001 - a catalog miss is not a task failure
+            log.debug("artifact catalog lookup failed for run %s", run_id, exc_info=True)
     return out
 
 
@@ -125,7 +157,7 @@ def build_task_executor(service: Any, manager: TaskManager):
             error=(error.get("message") if isinstance(error, dict) else None) or "",
             error_class=(error.get("code") if isinstance(error, dict) else None) or "",
             run_id=str(dumped.get("runId") or run_id),
-            artifacts=_extract_artifacts(dumped),
+            artifacts=_extract_artifacts(dumped, service),
             metrics={
                 "modelSteps": dumped.get("modelSteps", 0),
                 "toolCalls": dumped.get("toolCalls", 0),
@@ -144,6 +176,8 @@ _CANONICAL_TASK_EVENTS: dict[str, str] = {
     "TASK_CREATED": "task.created",
     "TASK_UPDATED": "task.updated",
     "TASK_STARTED": "task.started",
+    "TASK_VERIFYING": "task.verifying",
+    "TASK_ASKING_USER": "task.asking_user",
     "TASK_WAITING": "task.waiting",
     "TASK_BLOCKED": "task.blocked",
     "TASK_UNBLOCKED": "task.unblocked",
@@ -162,11 +196,13 @@ _CANONICAL_TASK_EVENTS: dict[str, str] = {
     "TASK_CRITERION_UPDATED": "task.criterion.updated",
     "TASK_PROGRESS_UPDATED": "task.progress.updated",
     "TASK_RECOVERED": "task.recovered",
+    "TASK_ESCALATED": "task.escalated",
     "TASK_ARTIFACT_ADDED": "task.artifact.added",
     "TASK_COMPLETION_REJECTED": "task.completion.rejected",
     "TASK_COMPLETION_OVERRIDDEN": "task.completion.overridden",
     "PLAN_CREATED": "workflow.created",
     "PLAN_STATUS_CHANGED": "workflow.status.changed",
+    "PLAN_REVISED": "workflow.revised",
 }
 
 

@@ -84,6 +84,9 @@ async def _boot() -> None:
     # tasks and dispatches each through the ordinary run path. Started after jobs
     # so a task-triggering job sees a live scheduler.
     await service.start_tasks()
+    # The Artifact Center: a bounded background reconciler that repairs catalog/
+    # storage inconsistencies (missing objects, recovered rows). Best-effort.
+    await service.start_artifacts()
     # The Plugin Platform: reload every plugin enabled before the last shutdown.
     # Durable state means a restart restores the same active plugin set; a plugin
     # that fails to reload is quarantined as FAILED, never silently dropped.
@@ -127,6 +130,15 @@ async def _boot() -> None:
         start_observability(service)
     except Exception:  # noqa: BLE001 - telemetry startup must never block boot
         log.warning("[harness-py] observability startup skipped", exc_info=True)
+    # Security subsystem: attach the now-live event system + observability metrics
+    # to the audit log (the gateway itself was installed at construction). Last so
+    # every sink it reports into already exists.
+    try:
+        from .security.bootstrap import start_security
+
+        await start_security(service)
+    except Exception:  # noqa: BLE001 - security startup must never block boot
+        log.warning("[harness-py] security startup skipped", exc_info=True)
 
 
 async def _shutdown() -> None:
@@ -137,6 +149,9 @@ async def _shutdown() -> None:
     await stop_plugins(service)
     # Flush + close telemetry sinks FIRST so terminal-job/plugin events reach a
     # live exporter before the bus is torn down.
+    from .security.bootstrap import stop_security
+
+    await stop_security(service)
     from .observability.integration import stop_observability
 
     stop_observability(service)
@@ -146,6 +161,7 @@ async def _shutdown() -> None:
 
     await stop_fabric(service)
     from .event_system.bootstrap import stop_events
+    await service.stop_artifacts()
     await service.stop_tasks()
     await stop_events(service)
     await service.stop_automation()

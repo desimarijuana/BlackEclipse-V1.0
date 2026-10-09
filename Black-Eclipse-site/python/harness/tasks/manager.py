@@ -65,6 +65,8 @@ INVALID_TRANSITION = "INVALID_TRANSITION"
 COMPLETION_REJECTED = "COMPLETION_REJECTED"
 INVALID_STATUS = "INVALID_STATUS"
 CROSS_PLAN_DEPENDENCY = "CROSS_PLAN_DEPENDENCY"
+VALIDATION_ERROR = "VALIDATION_ERROR"
+NOT_FOUND = "NOT_FOUND"
 
 Publisher = Callable[[str, dict[str, Any]], None]
 
@@ -224,6 +226,7 @@ class TaskManager:
                        data={"blockedReason": BlockedReason.DEPENDENCY.value,
                              "blockedBy": task.blocked_by})
         self.recompute_ancestors(task.id)
+        self.bump_plan_revision(plan_id, reason="task_created")
         return self.get_task(task.id)
 
     def add_subtask(
@@ -306,7 +309,7 @@ class TaskManager:
             fields.setdefault("leaseExpiresAt", None)
         if target == TaskStatus.COMPLETED:
             fields.setdefault("progress", 100)
-        if target != TaskStatus.WAITING:
+        if target not in (TaskStatus.WAITING, TaskStatus.ASKING_USER):
             fields.setdefault("waitingReason", None)
         if target != TaskStatus.BLOCKED:
             fields.setdefault("blockedReason", None)
@@ -320,6 +323,8 @@ class TaskManager:
     def _emit_for_status(self, task: Task, *, previous: TaskStatus) -> None:
         event_type = {
             TaskStatus.IN_PROGRESS: TaskEventType.TASK_STARTED,
+            TaskStatus.VERIFYING: TaskEventType.TASK_VERIFYING,
+            TaskStatus.ASKING_USER: TaskEventType.TASK_ASKING_USER,
             TaskStatus.WAITING: TaskEventType.TASK_WAITING,
             TaskStatus.BLOCKED: TaskEventType.TASK_BLOCKED,
             TaskStatus.FAILED: TaskEventType.TASK_FAILED,
@@ -338,13 +343,34 @@ class TaskManager:
         self._emit_for_status(updated, previous=task.status)
         return updated
 
+    def begin_verification(
+        self, task_id: str, *, actor_id: Optional[str] = None
+    ) -> Task:
+        """Move a running task into the authoritative VERIFYING state.
+
+        Entered after the run completes and before the completion contract is
+        evaluated, so an interrupted verification is recoverable as VERIFYING
+        rather than looking like an ordinary run.
+        """
+        task = self.get_task(task_id)
+        updated = self._transition(task, TaskStatus.VERIFYING)
+        self._emit_for_status(updated, previous=task.status)
+        return updated
+
     def wait_task(
         self, task_id: str, *, reason: WaitingReason | str = WaitingReason.EXTERNAL_EVENT,
         actor_id: Optional[str] = None,
     ) -> Task:
         task = self.get_task(task_id)
         value = WaitingReason(reason) if not isinstance(reason, WaitingReason) else reason
-        updated = self._transition(task, TaskStatus.WAITING, extra={"waitingReason": value})
+        # A question or an approval parks the task in ASKING_USER (a HUMAN wait);
+        # every other external event stays WAITING. The reason is still recorded.
+        target = (
+            TaskStatus.ASKING_USER
+            if value in (WaitingReason.USER_INPUT, WaitingReason.APPROVAL)
+            else TaskStatus.WAITING
+        )
+        updated = self._transition(task, target, extra={"waitingReason": value})
         self._emit_for_status(updated, previous=task.status)
         return updated
 
@@ -378,12 +404,45 @@ class TaskManager:
     ) -> Task:
         task = self.get_task(task_id)
         if task.status not in (TaskStatus.IN_PROGRESS, TaskStatus.TODO,
-                               TaskStatus.WAITING, TaskStatus.BLOCKED):
+                               TaskStatus.WAITING, TaskStatus.ASKING_USER,
+                               TaskStatus.VERIFYING, TaskStatus.BLOCKED):
             raise TaskError(INVALID_TRANSITION, f"cannot fail a task in {task.status.value}")
         updated = self._transition(task, TaskStatus.FAILED,
                                    extra={"error": error[:2000], "errorClass": error_class})
         self._emit_for_status(updated, previous=task.status)
         self._after_terminal(updated, completed=False)
+        return updated
+
+    def escalate_task(
+        self, task_id: str, *, target: TaskStatus | str, error: str = "",
+        error_class: Optional[str] = None, actor_id: Optional[str] = None,
+    ) -> Task:
+        """Escalate a task that exhausted its retry budget.
+
+        ``target`` is ``BLOCKED`` (a resource/prerequisite that will not resolve
+        by retrying) or ``ASKING_USER`` (only a human can unblock it). Both stay
+        NON-terminal and inspectable rather than being silently failed. The
+        default scheduler policy is still FAILED; escalation is opt-in per task.
+        """
+        task = self.get_task(task_id)
+        want = TaskStatus(target) if not isinstance(target, TaskStatus) else target
+        if want is TaskStatus.ASKING_USER:
+            value = WaitingReason.USER_INPUT
+            updated = self._transition(
+                task, TaskStatus.ASKING_USER,
+                extra={"waitingReason": value, "error": error[:2000], "errorClass": error_class},
+            )
+        elif want is TaskStatus.BLOCKED:
+            updated = self._transition(
+                task, TaskStatus.BLOCKED,
+                extra={"blockedReason": BlockedReason.RESOURCE,
+                       "error": error[:2000], "errorClass": error_class},
+            )
+        else:
+            raise TaskError(VALIDATION_ERROR, f"cannot escalate to {want.value}")
+        self._emit_for_status(updated, previous=task.status)
+        self._emit(TaskEventType.TASK_ESCALATED.value, task=updated,
+                   data={"target": want.value, "errorClass": error_class})
         return updated
 
     def retry_task(self, task_id: str, *, actor_id: Optional[str] = None) -> Task:
@@ -462,6 +521,57 @@ class TaskManager:
         self.recompute_ancestors(task_id)
         return cancelled
 
+    def cancel_plan(
+        self, plan_id: str, *, reason: str = "", actor_id: Optional[str] = None
+    ) -> Plan:
+        """Cancel a whole plan and every non-terminal task inside it.
+
+        Cancels deepest-first (a parent after its children), then forces the plan
+        to CANCELLED. Already-terminal plans are returned unchanged. This is the
+        operator's stop switch for a running plan; it does not reverse external
+        side effects already performed (a compensating action is a separate,
+        explicit operation).
+        """
+        plan = self.get_plan(plan_id)
+        if plan.status in (PlanStatus.COMPLETED, PlanStatus.FAILED, PlanStatus.CANCELLED):
+            return plan
+        tasks = self._store.list_tasks(plan_id=plan_id, limit=5000)
+        for task in sorted(tasks, key=lambda t: -self._depth(t.id)):
+            current = self._store.get_task(task.id)
+            if current is None or current.status in _TERMINAL:
+                continue
+            try:
+                self.cancel_task(task.id, reason=reason, cascade=False, actor_id=actor_id)
+            except TaskError:
+                pass
+        updated = self._store.get_plan(plan_id)
+        if updated is not None and updated.status not in (
+            PlanStatus.COMPLETED, PlanStatus.FAILED, PlanStatus.CANCELLED
+        ):
+            updated = self.set_plan_status(plan_id, PlanStatus.CANCELLED)
+        return updated if updated is not None else plan
+
+    def bump_plan_revision(self, plan_id: Optional[str], *, reason: str) -> None:
+        """Record a structural change to a plan (a new revision).
+
+        A plan's shape can change mid-flight (a new step, a new edge, a
+        decomposition). Each structural change increments a monotonic revision in
+        the plan's metadata and emits PLAN_REVISED, so a plan change is auditable
+        and a stale view can be detected. Completed work is never removed by this.
+        """
+        if not plan_id:
+            return
+        plan = self._store.get_plan(plan_id)
+        if plan is None:
+            return
+        metadata = dict(plan.metadata or {})
+        revision = int(metadata.get("revision") or 1) + 1
+        metadata["revision"] = revision
+        metadata["revisionReason"] = reason
+        self._store.update_plan_fields(plan_id, {"metadata": metadata})
+        self._emit(TaskEventType.PLAN_REVISED.value, plan_id=plan_id,
+                   data={"revision": revision, "reason": reason})
+
     # ── Dependencies ─────────────────────────────────────────────────────────
     def add_dependency(
         self, task_id: str, depends_on_task_id: str,
@@ -482,6 +592,7 @@ class TaskManager:
         self._emit(TaskEventType.TASK_DEPENDENCY_ADDED.value, task=task,
                    data={"dependsOnTaskId": prereq.id, "kind": k.value})
         self._reconcile_dependency_block(self.get_task(task_id))
+        self.bump_plan_revision(task.plan_id, reason="dependency_added")
         return dep
 
     def remove_dependency(self, task_id: str, depends_on_task_id: str) -> bool:
@@ -493,6 +604,7 @@ class TaskManager:
             self._emit(TaskEventType.TASK_DEPENDENCY_REMOVED.value, task=task,
                        data={"dependsOnTaskId": depends_on_task_id})
             self._reconcile_dependency_block(self.get_task(task_id))
+            self.bump_plan_revision(task.plan_id, reason="dependency_removed")
         return removed
 
     def get_dependencies(self, task_id: str) -> list[TaskDependency]:
@@ -777,6 +889,61 @@ class TaskManager:
     def list_checkpoints(self, task_id: str) -> list[TaskCheckpoint]:
         return self._store.list_checkpoints(task_id)
 
+    def prune(self, *, retention_days: int = 90) -> dict[str, int]:
+        """Apply the retention policy to aged execution/trace rows."""
+        return self._store.prune(retention_days=retention_days)
+
+    def latest_checkpoint(self, task_id: str) -> Optional[TaskCheckpoint]:
+        return self._store.latest_checkpoint(task_id)
+
+    def restore_checkpoint(
+        self, task_id: str, *, resume: bool = True, actor_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Restore a task from its latest durable checkpoint.
+
+        A checkpoint carries the resume metadata a task needs (the output
+        reference, progress and the run it belongs to). Restoring applies that
+        metadata, and — unless the task is already terminal — moves a stuck
+        ``IN_PROGRESS``/``VERIFYING`` task back to ``TODO`` so the scheduler
+        re-dispatches it. A terminal task is NOT reopened by a restore; the
+        checkpoint is simply returned. Raises when there is no checkpoint, so a
+        caller never believes it restored when it did not.
+        """
+        task = self.get_task(task_id)
+        checkpoint = self._store.latest_checkpoint(task_id)
+        if checkpoint is None:
+            raise TaskError(NOT_FOUND, f"no checkpoint exists for task {task_id!r}")
+        payload = checkpoint.payload or {}
+        applied: dict[str, Any] = {}
+        if payload.get("outputReference"):
+            applied["outputReference"] = payload["outputReference"]
+        if payload.get("progress") is not None:
+            applied["progress"] = max(0, min(100, int(payload["progress"])))
+        if applied:
+            self._store.update_task_fields(task.id, applied)
+        resumed = False
+        current = self.get_task(task_id)
+        if resume and current.status in (
+            TaskStatus.IN_PROGRESS, TaskStatus.VERIFYING, TaskStatus.WAITING,
+            TaskStatus.ASKING_USER, TaskStatus.BLOCKED,
+        ):
+            operation = (
+                TaskOperation.RECOVER.value
+                if current.status in (TaskStatus.IN_PROGRESS, TaskStatus.VERIFYING)
+                else None
+            )
+            self._transition(current, TaskStatus.TODO, operation=operation)
+            resumed = True
+        updated = self.get_task(task_id)
+        self._emit(TaskEventType.TASK_RECOVERED.value, task=updated,
+                   data={"checkpointId": checkpoint.id, "resumed": resumed,
+                         "from": current.status.value})
+        return {
+            "checkpoint": checkpoint.model_dump(by_alias=True),
+            "task": updated.model_dump(by_alias=True),
+            "resumed": resumed,
+        }
+
     def list_executions(self, task_id: str) -> list[TaskExecution]:
         return self._store.list_executions(task_id)
 
@@ -792,6 +959,12 @@ class TaskManager:
             d.model_dump(by_alias=True) for d in self._store.list_dependents(task.id)
         ]
         view["artifacts"] = [a.model_dump(by_alias=True) for a in self._store.list_artifacts(task.id)]
+        checkpoints = self._store.list_checkpoints(task.id)
+        view["checkpoints"] = [c.model_dump(by_alias=True) for c in checkpoints]
+        view["latestCheckpoint"] = (
+            self._store.latest_checkpoint(task.id).model_dump(by_alias=True)
+            if checkpoints else None
+        )
         executions = self._store.list_executions(task.id)
         view["executions"] = [e.model_dump(by_alias=True) for e in executions]
         view["executionCount"] = len(executions)

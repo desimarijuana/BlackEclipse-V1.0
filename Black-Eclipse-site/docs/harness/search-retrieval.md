@@ -10,8 +10,8 @@ last-verified: 2026-10-08
 **Store:** `.black-eclipse/search/search.db` (dedicated; `ECLIPSE_SEARCH_DB_PATH`)
 **Tools:** `semantic_search`, `keyword_search`, `hybrid_search`,
 `search_documents`, `search_research`, `search_memory`, `search_experiences`,
-`search_skills`, `search_evidence`, `find_similar`, `document_context`,
-`related_chunks`, `search_admin`
+`search_skills`, `search_evidence`, `search_context`, `find_similar`,
+`document_context`, `related_chunks`, `search_admin`
 **HTTP:** `python/harness/routers/search.py` (`/search/*`, operator-gated) →
 `src/app/api/harness/search/[[...path]]/route.ts`
 **UI:** Search Intelligence tab (`src/components/screens/search/search-screen.tsx`)
@@ -121,7 +121,10 @@ document row and in `SearchEvent`; jobs live in `SearchIndexJob`.
 - **neighbors** — previous/next chunk and section path, so a hit is never
   isolated.
 - **context assembly** — token budget, per-source and per-document limits,
-  diversity.
+  diversity. `ContextAssembler` (`search/context.py`, wired via
+  `SearchService.build_context`) is exposed to the agent as the `search_context`
+  tool: it returns a bounded, deduplicated block with neighbour context instead
+  of raw snippets, delimited as untrusted data.
 
 ## Security boundary
 
@@ -130,6 +133,12 @@ results are never scanned-then-filtered. A non-operator caller sees public rows
 plus rows in the run's workspace or owned by the run's user, for keyword, vector
 and hybrid paths alike. Agent tools derive the scope from the run; only the
 operator HTTP surface may request an unrestricted scope.
+
+Retrieved content is additionally delimited as **untrusted DATA** before it
+reaches the model: `search/tools.py` wraps chunk text (and `document_context`
+output) in `<<<UNTRUSTED_SEARCH_CONTENT>>> … <<<END_UNTRUSTED_SEARCH_CONTENT>>>`
+with an explicit policy note, mirroring the browser/web/vision untrusted-content
+convention. An indexed chunk can never impersonate a system/user instruction.
 
 ## Observability & evaluation
 

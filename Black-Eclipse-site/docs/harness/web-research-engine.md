@@ -1,7 +1,7 @@
 ---
 title: Evidence-Driven Web Research Engine
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-08
 ---
 
 # Evidence-Driven Web Research Engine
@@ -138,6 +138,34 @@ with the reason. A claim with no evidence is `UNSUPPORTED`; a claim whose only
 support is stale is `OUTDATED`; a claim touching an unresolved material conflict
 is `CONTRADICTED`. `build_citations` produces claim → evidence → source →
 location; `validate_citations` proves every material claim is traceable.
+
+### Release gate (ordinary runs)
+
+The gated research flow validates its claims. An **ordinary** run (the model calls
+web/retrieval tools and then writes prose) is now gated too, at the existing answer
+seam in `graph.execute_run` beside the code and finance enforcements.
+`research/release_gate.py` is deterministic (no model call): it extracts the final
+answer's http(s) citations and checks each against the URLs the run actually
+retrieved or consulted — the same `SourceCollector` provenance the chat Sources
+panel renders (`SourceCollector.known_urls()`). A cited link with no runtime
+provenance is **disclosed as unverified** (the disclosure is appended to the
+answer); a user-supplied URL and a consulted-but-failed fetch are admissible; a
+private/loopback host is ignored. The verdict (`ok` / `unverified` /
+`no_citations` / `no_evidence`) rides on the run's `research` blob as
+`metadata.citationIntegrity` and is emitted as `evidence.release_gate`. It never
+strips content and is a no-op when the answer makes no citations, so casual
+conversation is not cluttered. See ADR-H162.
+
+### Artifact Center linkage
+
+When a run completes, `research/web_engine.py` registers an evidence-REFERENCING
+report artifact (best-effort; a no-op when the Artifact Center is not installed).
+The Markdown report names claim verdicts, conflicts and an evidence appendix by id,
+and the artifact's `metadata` carries the `researchId`, `snapshotId` and evidence
+ids — it references the evidence store, never duplicating it. Registration is
+idempotent per `(researchId, snapshotId)`, so a re-run or resume does not create a
+second report. This is what makes a run stay inspectable after the conversation
+ends and preserves its evidence/validation history (ADR-H162).
 
 ## Deterministic calculations
 

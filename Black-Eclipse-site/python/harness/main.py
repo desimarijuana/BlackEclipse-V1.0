@@ -47,12 +47,14 @@ from .research.mandate import parse_mandate
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
 from .routers.application import router as application_router
+from .routers.artifacts import router as artifacts_router
 from .routers.a2a import router as a2a_router
 from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
 from .routers.computer import router as computer_router
 from .routers.events import router as events_router
 from .routers.evaluation import router as evaluation_router
+from .routers.eval_gates import router as eval_gates_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
 from .routers.fabric import router as fabric_router
@@ -70,6 +72,7 @@ from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.research import router as research_router
 from .routers.search import router as search_router
+from .routers.security import router as security_router
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.tasks import router as tasks_router
@@ -95,6 +98,7 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=li
 # surface stays `harness.main:app` and paths are unchanged.
 app.include_router(a2a_router)
 app.include_router(application_router)
+app.include_router(artifacts_router)
 app.include_router(automation_router)
 app.include_router(code_router)
 app.include_router(code_intel_router)
@@ -102,6 +106,7 @@ app.include_router(browser_router)
 app.include_router(computer_router)
 app.include_router(events_router)
 app.include_router(evaluation_router)
+app.include_router(eval_gates_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
 app.include_router(fabric_router)
@@ -119,6 +124,7 @@ app.include_router(portfolio_router)
 app.include_router(quant_router)
 app.include_router(research_router)
 app.include_router(search_router)
+app.include_router(security_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
 app.include_router(tasks_router)
@@ -189,14 +195,13 @@ def health() -> dict[str, Any]:
         "identity": identity_boundary(),
         # Application Runtime provider readiness (non-secret): which
         # orchestration/infra/cloud tools are installed AND authenticated, so a
-        # missing tool is a boot-time instruction, never a runtime surprise. Cached
-        # for 60s because this endpoint is polled.
+        # missing tool is a boot-time instruction, not a surprise (60s cache).
         "runtimeProviders": _runtime_readiness(),
         # Browser Automation Runtime: honest availability + the provider list.
         # Content-free; a missing Playwright/Chromium reads as available:false.
         "browser": browser_health(),
+        "security": (service.security.health() if getattr(service, "security", None) is not None else {"ok": False, "available": False}),
     }
-
 
 def _runtime_readiness() -> dict[str, Any]:
     """The provider readiness summary, or an honest empty report. Never raises."""
@@ -217,13 +222,10 @@ def _runtime_readiness() -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - readiness must never break /health
         return {"ready": None, "providers": [], "missing": [], "unauthenticated": [], "hints": []}
 
-
 @app.get("/retrieval/metrics")
 def retrieval_metrics() -> dict[str, Any]:
     """Retrieval-layer performance counters (cache hits/misses, in-flight)."""
     return {"success": True, **service.retrieval_metrics()}
-
-
 
 class ResearchRunRequest(BaseModel):
     """A research-mandate request (Phase 4). The front door proxies this; the
@@ -430,7 +432,6 @@ def model_runtime_usage(_: bool = Depends(require_operator)) -> dict[str, Any]:
             "health": store.model_health_summary(),
         }
     return {"success": True, **summary}
-
 
 
 @app.get("/agents")
@@ -1178,20 +1179,17 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
 
     import uvicorn
 
-    # Deployment guard: a non-loopback bind without a configured operator secret
-    # would expose a single-user app that has no authentication and no tenancy
-    # isolation. Refuse unless the operator explicitly acknowledges the risk via
-    # BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1, so this is never presented as
-    # multi-user secure by accident.
-    if host not in _LOOPBACK_HOSTS and not _operator_secret_configured():
-        if os.environ.get("BLACK_ECLIPSE_ALLOW_INSECURE_BIND") != "1":
-            raise SystemExit(
-                f"refusing to bind {host!r}: this app is single-user local with NO "
-                "authentication or tenancy isolation and userId/scopeId are self-asserted "
-                "labels. Bind 127.0.0.1, set CRON_SECRET and place it behind an "
-                "authenticated single-operator boundary, or set "
-                "BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1 to acknowledge the risk."
-            )
+    # Deployment guard: beyond loopback this is a network service and requires the
+    # operator secret, plus HARNESS_AUTH_SECRET in multi-tenant mode.
+    if host not in _LOOPBACK_HOSTS and os.environ.get("BLACK_ECLIPSE_ALLOW_INSECURE_BIND") != "1":
+        from .security.identity import auth_secret, multi_tenant_required
+
+        missing = [n for n, ok in (("CRON_SECRET", _operator_secret_configured()),
+                   ("HARNESS_AUTH_SECRET", (not multi_tenant_required()) or bool(auth_secret()))) if not ok]
+        if missing:
+            raise SystemExit(f"refusing to bind {host!r}: missing {', '.join(missing)}. "
+                             "Set the secrets and front it with authentication, or set "
+                             "BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1 to acknowledge the risk.")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

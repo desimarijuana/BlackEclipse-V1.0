@@ -330,6 +330,18 @@ class AgenticService:
         # Effectful-tool approvals (5G): persisted in the runtime's own DB and
         # consulted by every run's effect authorizer.
         self.approvals = ApprovalStore(self.store) if MCP_AVAILABLE else None
+        # The Security subsystem (ADR-H159): the ONE decision path (Security
+        # Gateway + Permission/Policy/Risk/Approval/Capability engines + Security
+        # Floor + secrets + network policy + audit) over every privileged effect.
+        # It is additive to the per-subsystem policies and never replaces the
+        # approval store; best-effort so it can never block construction.
+        try:
+            from .security.bootstrap import install_security_layer  # noqa: PLC0415
+
+            self.security = install_security_layer(self)
+        except Exception:  # noqa: BLE001 - security must never block construction
+            self.security = None
+            log.warning("security subsystem unavailable", exc_info=True)
         # Automatic learning review (M3): a lightweight in-process queue that
         # reviews completed runs after the fact. It creates ONLY inert records /
         # suggestions and never enables a skill. Started/stopped with the runtime.
@@ -366,6 +378,14 @@ class AgenticService:
         from .tasks.bootstrap import install_task_layer  # noqa: PLC0415
 
         install_task_layer(self)
+        # The Artifact Center: the durable catalog of produced files. Boot wiring
+        # lives in `artifacts/bootstrap.py`; it reuses the ONE agent-memory
+        # connection for its tables and a confined, content-addressed local store
+        # for bytes. A failure only leaves `self.artifacts` None, so it never
+        # blocks boot. A bounded reconciler is started in the lifespan.
+        from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
+
+        install_artifact_layer(self)
         # The Plugin Platform: ONE process-wide manager owning the registry, the
         # runtime instances, the event bridge, the hook registry, per-plugin
         # config/secrets/storage and health. Boot wiring lives in
@@ -1039,6 +1059,7 @@ class AgenticService:
             portfolio=self._portfolio_bundle(),
             quant=self._quant_bundle(),
             search=getattr(self, "search", None),
+            artifact_service=getattr(self, "artifacts", None),
         )
         await self._schedule_review(request.runId, result.status)
         return result
@@ -1217,6 +1238,23 @@ class AgenticService:
         except Exception:  # noqa: BLE001
             log.warning("task scheduler shutdown failed", exc_info=True)
 
+    async def start_artifacts(self) -> None:
+        """Start the artifact reconciler. Idempotent; a failure is a diagnostic."""
+        try:
+            from .artifacts.bootstrap import start_artifact_reconciler  # noqa: PLC0415
+
+            start_artifact_reconciler(self)
+        except Exception:  # noqa: BLE001 - the reconciler must never block boot
+            log.warning("artifact reconciler failed to start", exc_info=True)
+
+    async def stop_artifacts(self) -> None:
+        try:
+            from .artifacts.bootstrap import stop_artifact_reconciler  # noqa: PLC0415
+
+            await stop_artifact_reconciler(self)
+        except Exception:  # noqa: BLE001
+            log.warning("artifact reconciler shutdown failed", exc_info=True)
+
     async def run_workflow(self, request: RunRequest) -> Any:
         """Execute a saved workflow by id over the existing graph (Phase 5).
 
@@ -1302,6 +1340,7 @@ class AgenticService:
                     evidence_store=getattr(self, "evidence_store", None),
                     market=self._market_bundle(),
                     search=getattr(self, "search", None),
+                    artifact_service=getattr(self, "artifacts", None),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

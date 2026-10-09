@@ -8,6 +8,59 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Test isolation for the Artifact Center's process global (fixes a flaky
+  test).** `AgenticService.__init__` (and the `/artifacts/*` self-heal) register a
+  process-wide `ArtifactService`, so a test that constructed a service leaked it
+  into later tests and made
+  `test_artifacts_tools.py::test_tool_without_service_reports_unavailable`
+  order/timing dependent. Added an autouse `python/conftest.py` fixture that saves,
+  clears, and restores the `artifacts.bootstrap` singleton around every test, and
+  pinned the global accessor in that test. `no doc change — test isolation only`.
+- **Evidence release gate + research artifacts — claim verification now reaches
+  the delivery seam.** Closes the gap where the evidence/verification engine
+  existed but an ordinary (non-gated) run's answer was never checked against the
+  evidence it actually retrieved. (1) `python/harness/research/release_gate.py`: a
+  deterministic, model-free gate at the existing `graph.execute_run` answer seam
+  (beside the code and finance enforcements) that extracts the final answer's
+  http(s) citations and checks each against the URLs the run actually
+  retrieved/consulted (`SourceCollector.known_urls()`). An unretrieved citation is
+  disclosed as unverified; the verdict (`ok`/`unverified`/`no_citations`/
+  `no_evidence`) is persisted on the run's `research` blob
+  (`metadata.citationIntegrity`) and emitted as `evidence.release_gate`. Private/
+  loopback links are ignored, user-supplied URLs and consulted-but-failed fetches
+  are admissible, and a citation-free answer is untouched. (2)
+  `artifacts.producers.register_research_report`: a completed
+  `research/web_engine.py` run is registered in the Artifact Center as an
+  evidence-REFERENCING Markdown report (claim verdicts, conflicts and an evidence
+  appendix by id; `researchId`/`snapshotId`/evidence ids in metadata), idempotent
+  per `(researchId, snapshotId)` and a no-op when the catalog is absent — research
+  history is durable in the one catalog WITHOUT duplicating the evidence store.
+  Tests `python/tests/test_evidence_release_gate.py` +
+  `python/tests/test_research_artifact.py` + two end-to-end cases in
+  `test_graph.py`. Full suite green: Python 5040 passed/16 skipped, Vitest 2337
+  passed, `tsc` clean, eval gates ALL PASS. docs updated:
+  `docs/harness/web-research-engine.md`, `docs/harness/artifact-center.md`,
+  `docs/harness/decisions.md` (ADR-H162), `docs/NAVIGATION.md`, this file.
+
+- **Multi-tenant security plane: verified edge identity, tenant isolation, bind
+  hardening.** The runtime no longer trusts a caller-supplied `userId`/`tenantId`.
+  The front door (`src/lib/harness/runtime-identity.ts`) mints a 5-minute HS256
+  identity JWT from the authenticated session with `HARNESS_AUTH_SECRET`; proxies
+  forward it as `X-Harness-Identity`; `python/harness/security/identity.py`
+  verifies it with stdlib only (no new dependency). Precedence: session token →
+  operator (loopback/secret) → anonymous. Multi-tenant mode (`HARNESS_MULTI_TENANT`,
+  or auto-on when the front door requires auth) refuses anonymous callers (401).
+  The security subsystem is now tenant-aware: capabilities, secret grants,
+  sessions and audit carry a `tenantId` and never cross tenants; the gateway
+  refuses an untenanted request in multi-tenant mode. Beyond loopback the runtime
+  refuses to start without `CRON_SECRET` (and `HARNESS_AUTH_SECRET` in multi-tenant
+  mode). Per-tenant token-bucket rate limiting on the security endpoints. Tests
+  `python/tests/test_security_tenancy.py` + `test_security_ratelimit.py` (218
+  security tests total). **Boundary:** this is the multi-tenant *security plane*
+  and identity seam; full per-tenant DATA isolation (runs, memory, tasks,
+  artifacts, JDdS reads) and the remaining proxy rollout are the follow-on
+  data-plane migration (ADR-H161). docs updated: `docs/harness/security.md`,
+  `docs/harness/decisions.md` (ADR-H161), this file.
 - **Security hardening — full effect-tool migration, real sandbox abstraction,
   production secret providers, anchored audit, and an operator UI.** Extends the
   Security subsystem to production scope. (1) Migration: `security/classification.py`
@@ -56,6 +109,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **Artifacts page is full width.** Dropped the `max-w-6xl` cap on the Artifact
   Center screen and let the grid scale to `lg:grid-cols-5 xl:grid-cols-6`, so the
   catalog uses the whole workspace pane. `no doc change — style-only`.
+- **Artifact retention + auto-purge (production hardening).** `ArtifactService.cleanup_expired`
+  permanently removes soft-deleted artifacts whose `retentionUntil` (or
+  `deletedAt + HARNESS_ARTIFACT_RETENTION_DAYS`, default 30d) has elapsed; the
+  background reconciler now runs reconcile+discover+purge, gated by
+  `HARNESS_ARTIFACT_AUTO_PURGE`. Adds tests for expiry, grace retention, and
+  persistence across a process restart. `docs updated:
+  docs/harness/artifact-center.md`.
 
 - **Security subsystem — one authorization decision path over the existing
   per-subsystem policies.** New `python/harness/security/`: the `SecurityGateway`
@@ -848,6 +908,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   4972 passed / 16 skipped, `tsc --noEmit` clean, vitest 2331 passed.
   docs updated: `docs/harness/task-plan-system.md`,
   `docs/harness/search-retrieval.md`.
+
+- **Closeout: wire the search ContextAssembler, the eval gates, and the
+  worktree↔verification binding.** Three previously-unwired production paths are
+  now live. (1) `search/context.py::ContextAssembler` (token budget, per-source/
+  document diversity, neighbour context) is exposed to the agent as the
+  `search_context` tool (`search/tools.py` → `SearchService.build_context`),
+  returning a bounded, deduplicated block delimited as untrusted data instead of
+  raw snippets. (2) The offline harness closeout gates (`harness/eval_gates/`:
+  route_health/workflow/resume/capability_matrix) — previously reachable only
+  from the offline eval CLI — are exposed at the operator-gated `GET /eval/gates`
+  (`harness/routers/eval_gates.py`, registered in `main.py`). (3)
+  `execution/service.py::workspace_binding`/`make_actor` now prefer the run's
+  allocated code workspace (the per-run worktree the agent edited) over the
+  server-root binding, so `build_project`/`test_project`/`run_verification`/
+  `execute_*` verify the same tree that was modified. Tests:
+  `python/tests/test_eval_gates.py` (3, self-contained — no process-wide app),
+  `test_search_tools.py` (+1), `test_execution_tools.py` (+1). Fixed a test
+  isolation leak (a module-scoped full-app TestClient in the eval-gates test).
+  Checks re-run on this tree: pytest **5040 passed / 16 skipped**,
+  `tsc --noEmit` clean, vitest **2337 passed**. docs updated:
+  `docs/harness/search-retrieval.md`, `docs/harness/execution-architecture.md`.
 
 ## 2026-10-07
 

@@ -135,6 +135,15 @@ export interface ResearchClaim {
   issues: string[];
 }
 
+/** Deterministic citation-integrity verdict from the runtime evidence release gate. */
+export interface CitationIntegrity {
+  status: "ok" | "unverified" | "no_citations" | "no_evidence" | string;
+  checked: number;
+  verified: number;
+  domainKnown?: number;
+  unverified: string[];
+}
+
 export interface ResearchMetadata {
   taskType: string;
   status: "accepted" | "partial" | "rejected" | string;
@@ -147,6 +156,12 @@ export interface ResearchMetadata {
   missingEvidence: string[];
   conflicts: Array<Record<string, unknown>>;
   calculations: Array<Record<string, unknown>>;
+  /**
+   * Ordinary runs only: whether the final answer's cited links were backed by a
+   * source this run actually retrieved. Absent on gated research runs (whose
+   * claims are validated directly) and on answers that make no citations.
+   */
+  citationIntegrity?: CitationIntegrity | null;
 }
 
 export interface ResearchRunInfo {

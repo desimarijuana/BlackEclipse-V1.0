@@ -733,3 +733,42 @@ async def test_oversized_native_tool_result_emits_tool_truncated(store, monkeypa
     assert truncated[0]["shownChars"] == MAX_TOOL_RESULT_CHARS
     completed = [e["data"] for e in store.list_events("run_test") if e["type"] == "tool.completed"]
     assert completed[0]["truncated"] is True
+
+
+# ── Evidence release gate: citation integrity at the delivery seam ───────────
+
+
+@pytest.mark.asyncio
+async def test_evidence_release_gate_discloses_an_unretrieved_citation(store, monkeypatch):
+    """A cited link the run never retrieved is disclosed as unverified, persisted
+    on the run blob, and emitted — never silently released as sourced fact."""
+    model = ScriptedModel([
+        AIMessage(content="Apple's 10-K says revenue rose. [Source](https://totally-made-up.example/10k)"),
+    ])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed"
+    assert "totally-made-up.example" in result.output
+    assert "unverified" in result.output.lower()
+    events = [e["data"] for e in store.list_events("run_test") if e["type"] == "evidence.release_gate"]
+    assert len(events) == 1 and events[0]["status"] == "no_evidence"
+    assert result.research is not None
+    assert result.research["metadata"]["citationIntegrity"]["status"] == "no_evidence"
+
+
+@pytest.mark.asyncio
+async def test_evidence_release_gate_is_a_noop_without_citations(store, monkeypatch):
+    """An ordinary answer with no citations is delivered untouched and no gate
+    event is emitted, so casual conversation is never cluttered."""
+    model = ScriptedModel([AIMessage(content="AAPL trades at 237.42.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed"
+    assert result.output == "AAPL trades at 237.42."
+    assert not [e for e in store.list_events("run_test") if e["type"] == "evidence.release_gate"]

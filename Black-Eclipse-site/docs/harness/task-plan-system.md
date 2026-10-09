@@ -56,32 +56,53 @@ run may itself use `task_fork` to fan out.
 
 ## Task states
 
-Exactly one of: `TODO`, `IN_PROGRESS`, `BLOCKED`, `WAITING`, `FAILED`,
-`COMPLETED`, `CANCELLED`. No module mutates status directly; every change goes
-through `TaskManager`, which asks `state.py` first.
+Exactly one of: `TODO`, `IN_PROGRESS`, `VERIFYING`, `ASKING_USER`, `BLOCKED`,
+`WAITING`, `FAILED`, `COMPLETED`, `CANCELLED`. No module mutates status directly;
+every change goes through `TaskManager`, which asks `state.py` first.
 
 ```
-TODO ──► IN_PROGRESS ──► COMPLETED
- │            ├────────► FAILED
+TODO ──► IN_PROGRESS ──► VERIFYING ──► COMPLETED
+ │            │              ├────────► FAILED
  │            ├────────► WAITING ──► (resume) TODO
+ │            ├────────► ASKING_USER ──► (resume) TODO
  │            ├────────► BLOCKED ──► (unblock) TODO
  │            └────────► CANCELLED
- ├──► BLOCKED / WAITING / FAILED / CANCELLED
+ ├──► BLOCKED / WAITING / ASKING_USER / FAILED / CANCELLED
 ```
+
+- **VERIFYING** is the authoritative state between a completed run and the
+  completion decision: the scheduler enters it, then evaluates acceptance
+  criteria and the completion contract. An interrupted verification is
+  recoverable as `VERIFYING`, not indistinguishable from a plain run. It may
+  resolve to any terminal outcome, or fall back to `IN_PROGRESS`/`TODO` when a
+  check fails and must be repaired.
+- **ASKING_USER** is the durable "parked on a human" state: a question or an
+  approval (`WaitingReason.USER_INPUT`/`APPROVAL`) enters it, distinct from
+  `WAITING` (an external event) and `BLOCKED` (an unavailable prerequisite).
 
 A terminal state (`COMPLETED`/`FAILED`/`CANCELLED`) has no ordinary outgoing
 edge. Crossing back requires an explicit **operation**:
 
-- `retry_task` — `FAILED`/`BLOCKED`/`WAITING` → `TODO` (also used for a stale
-  `IN_PROGRESS` lease).
+- `retry_task` — `FAILED`/`BLOCKED`/`WAITING`/`VERIFYING`/`ASKING_USER` → `TODO`
+  (also used for a stale `IN_PROGRESS` lease).
 - `reopen_task` — a terminal state → `TODO`.
-- `recover` — `IN_PROGRESS` → `TODO` (a crashed worker's lease lapsed).
+- `recover` — `IN_PROGRESS`/`VERIFYING` → `TODO` (a crashed worker's lease lapsed).
 
 `WAITING` and `BLOCKED` are deliberately separate: **WAITING** is an external
 event (`USER_INPUT`, `APPROVAL`, `EXTERNAL_EVENT`, `TOOL`, `SCHEDULE`, `AGENT`);
 **BLOCKED** is an unavailable prerequisite (`DEPENDENCY`, `RESOURCE`,
 `PERMISSION`, `PARENT`). `BLOCKED` dependency edges carry `blockedBy` (the unmet
 prerequisite ids) so the UI can name what it is waiting for.
+
+### Escalation on retry exhaustion
+
+By default an exhausted retry budget fails the task (`FAILED`). A task may opt
+into ESCALATION by setting `metadata.escalateOnExhaustion` to `"BLOCKED"` or
+`"ASKING_USER"`: the scheduler then transitions there (non-terminal, inspectable,
+resumable) instead of failing — for a dead-end resource or a decision only a
+human can make. `TaskManager.escalate_task` is the ONE writer; it emits
+`TASK_ESCALATED`.
+
 
 ## Hierarchy and roll-up
 
@@ -198,40 +219,60 @@ task's declared criteria `PASSED` with the run id as evidence unless the task se
 ## Events, executions, checkpoints, artifacts
 
 - `HarnessTaskEvent` is the immutable history (every transition emits one; also
-  published on the process bus as `task.*` for live subscribers).
+  published on the process bus as `task.*`/`workflow.*` for live subscribers).
 - `HarnessTaskExecution` is one attempt per row (attempt, agent, run id, status,
   error class, metrics) — the debugging trail.
-- `HarnessTaskCheckpoint` is a durable resume boundary (label + payload).
-- `HarnessTaskArtifact` is a REFERENCE (uri/digest/label), never the bytes.
+- `HarnessTaskCheckpoint` is a durable resume boundary (label + payload). The
+  scheduler WRITES one at dispatch (`run_start`, carrying the run id/attempt/plan)
+  and one on completion (`run_complete`); `TaskManager.restore_checkpoint` reads
+  the latest and can move a stuck `IN_PROGRESS`/`VERIFYING` task back to `TODO`
+  with its resume metadata applied. A terminal task is never reopened by a
+  restore.
+- `HarnessTaskArtifact` is a REFERENCE (uri/digest/label), never the bytes. After
+  a run completes, `build_task_executor` links the run's catalog entries from the
+  Artifact Center (tagged with the run id) to the task by reference
+  (`artifact://<id>` + checksum), so a task owns a durable pointer to what it
+  produced.
+
+### Plan revision + cancellation
+
+Structural changes to a plan (a new task, a new/removed edge) bump a monotonic
+`metadata.revision` and emit `PLAN_REVISED`, so a plan change is auditable and a
+stale view is detectable; completed work is never removed. `cancel_plan` cancels
+every non-terminal task in a plan (deepest-first) and marks the plan
+`CANCELLED`; a terminal plan is returned untouched.
 
 ## Tools and API
 
 LLM-facing tools (permission `read` — a task is agent-local state, like a memory
 save): `create_plan`, `read_plan`, `run_plan`, `create_task`, `read_task`,
 `list_tasks`, `read_task_tree`, `update_task`, `complete_task`, `cancel_task`,
-`delete_task`, `add_subtask`, `decompose_task`, `add_dependency`,
+`cancel_plan`, `delete_task`, `add_subtask`, `decompose_task`, `add_dependency`,
 `remove_dependency`, `start_task`, `block_task`, `unblock_task`, `retry_task`,
-`attach_task_artifact`, `set_task_criterion`, `checkpoint_task`.
+`resume_task`, `escalate_task`, `attach_task_artifact`, `set_task_criterion`,
+`checkpoint_task`.
 
 Operator-gated HTTP routes (reads AND mutations, the jobs/MCP convention):
 `GET/POST /plans`, `GET /plans/{id}`, `GET /plans/{id}/tasks`,
-`POST /plans/{id}/start`, `GET/POST /tasks`, `GET/PATCH/DELETE /tasks/{id}`,
-`GET /tasks/{id}/tree|events|dependencies`,
-`POST /tasks/{id}/start|complete|cancel|retry|reopen|block|unblock|criteria|artifacts|checkpoints`,
+`POST /plans/{id}/start|cancel`, `GET/POST /tasks`, `GET/PATCH/DELETE /tasks/{id}`,
+`GET /tasks/{id}/tree|events|dependencies|checkpoints`,
+`POST /tasks/{id}/start|complete|cancel|retry|reopen|resume|escalate|block|unblock|criteria|artifacts|checkpoints`,
+`POST /tasks/{id}/checkpoints/restore`,
 `POST/DELETE /tasks/{id}/dependencies…`, `PATCH /criteria/{id}`.
 
 ### UI
 
-The mounted **Tasks** screen (`src/components/screens/tasks/tasks-screen.tsx`,
-AppTab `tasks`) renders the plan list and the live task tree: status, priority,
-progress, blocked/waiting reasons, retry count, acceptance criteria and per-task
-actions (Complete / Retry / Block / Unblock / Cancel, mark a criterion passed).
-Every value comes from `/api/plans` + `/api/tasks` — the real store, polled every
-5s; there is no mock data. The browser-safe client is
-`src/lib/harness/tasks-browser.ts` (fetch only, over the Next proxy routes
-`src/app/api/tasks/[[...path]]/route.ts` and `src/app/api/plans/[[...path]]/route.ts`);
-`src/lib/harness/tasks-client.ts` is the server-side client that reaches the
-Python runtime directly.
+The **Tasks** screen (`src/components/screens/tasks/tasks-screen.tsx`, AppTab
+`tasks`, mounted in `stock-chat.tsx`) renders the plan list and the live task
+tree: status, priority, progress, blocked/waiting reasons, retry count,
+acceptance criteria and per-task actions (Complete / Retry / Block / Unblock /
+Cancel, mark a criterion passed). It is reachable from the Agentic sidebar menu
+(alongside ChatBot, Skills, Eclipse Memory and Artifacts). Every value comes from
+`/api/plans` + `/api/tasks` — the real store, polled every 5s; there is no mock
+data. The browser-safe client is `src/lib/harness/tasks-browser.ts` (fetch only,
+over the Next proxy routes `src/app/api/tasks/[[...path]]/route.ts` and
+`src/app/api/plans/[[...path]]/route.ts`); `src/lib/harness/tasks-client.ts` is
+the server-side client that reaches the Python runtime directly.
 
 ## Security
 
@@ -259,12 +300,19 @@ real `HarnessRun` row, that a rejected completion fails the task and the plan,
 and that model-settings precedence (task → plan → env) holds — deterministically,
 with no network.
 
+`python/tests/test_tasks_state_hardening.py` covers the `VERIFYING`/`ASKING_USER`
+lifecycle, scheduler-entered verification, retry-exhaustion escalation
+(`BLOCKED`/`ASKING_USER`/default `FAILED`), plan cancel + revision, checkpoint
+write/restore, Artifact-Center linking and retention pruning.
+
 ## Configuration
 
 Environment overrides: `HARNESS_TASK_MAX_IN_FLIGHT`, `HARNESS_TASK_TICK_SECONDS`,
-`HARNESS_TASK_LEASE_SECONDS`, and the model defaults
+`HARNESS_TASK_LEASE_SECONDS`, `HARNESS_TASK_RETENTION_DAYS` (default 90; 0
+disables), and the model defaults
 `HARNESS_TASK_PROVIDER/MODEL/BASE_URL/API_KEY` (falling back to the jobs'
-`HARNESS_JOB_*`).
+`HARNESS_JOB_*`). The scheduler applies retention at most once an hour to aged
+checkpoints/executions/events only — never to plans, tasks, criteria or artifacts.
 
 **Model settings precedence** for a task run: the task's own
 `metadata.modelSettings`, then its PLAN's `metadata.modelSettings` (so a whole

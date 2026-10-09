@@ -23,4 +23,6 @@ export type AppTab =
   | 'market-workspace'
   | 'investor-eye'
   | 'skills'
-  | 'memory';
+  | 'memory'
+  | 'artifacts'
+  | 'tasks';

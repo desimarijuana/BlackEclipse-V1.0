@@ -652,6 +652,19 @@ class ResearchEngine:
                     "relations": relation_dicts,
                 },
             )
+        # Artifact Center: record this run as a durable, evidence-referencing report
+        # so it stays inspectable after the conversation ends. Best-effort, and a
+        # no-op when the Artifact Center is not installed (e.g. unit tests).
+        try:
+            from ..artifacts.producers import register_research_report  # noqa: PLC0415
+
+            register_research_report(
+                research_id=research_id, question=mandate.question, snapshot_id=snapshot_id,
+                evidence=admissible, claims=claims, citations=citation_dicts,
+                conflicts=conflicts, coverage=coverage,
+            )
+        except Exception:  # noqa: BLE001 - catalog registration is never fatal
+            pass
         await self._emit("webresearch.completed", {"researchId": research_id, "state": final_state, "coverage": coverage["status"]})
 
         return EngineResult(

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import datetime as _dt
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -98,6 +99,7 @@ class TaskScheduler:
         self._task: Optional[asyncio.Task[Any]] = None
         self._active: dict[str, asyncio.Task[Any]] = {}
         self._claimed: dict[str, str] = {}  # task_id -> claim_token
+        self._last_prune = 0.0
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
     async def start(self) -> None:
@@ -149,6 +151,7 @@ class TaskScheduler:
         """One scheduling pass. Returns a small report for tests/observability."""
         moment_iso = self._now().isoformat()
         recovered = await self.recover_expired_leases(now=moment_iso)
+        await self._maybe_prune()
         started = 0
         for task in self._manager.runnable_tasks(limit=500, now=moment_iso):
             if len(self._active) >= self._max_in_flight:
@@ -171,6 +174,25 @@ class TaskScheduler:
         await self.wait_idle()
         return report
 
+    async def _maybe_prune(self) -> None:
+        """Apply retention at most once an hour, off the event loop. Best-effort."""
+        import time as _time  # noqa: PLC0415
+
+        now = _time.monotonic()
+        if now - self._last_prune < 3600:
+            return
+        self._last_prune = now
+        try:
+            days = int(os.environ.get("HARNESS_TASK_RETENTION_DAYS", "90"))
+        except ValueError:
+            days = 90
+        if days <= 0:
+            return
+        try:
+            await asyncio.to_thread(self._manager.prune, retention_days=days)
+        except Exception:  # noqa: BLE001 - retention must never break scheduling
+            log.warning("task retention prune failed", exc_info=True)
+
     # ── Claim + launch ───────────────────────────────────────────────────────
     async def _claim_and_launch(self, task: Task) -> bool:
         token = uuid.uuid4().hex
@@ -190,6 +212,17 @@ class TaskScheduler:
             task_id=fresh.id, agent_id=fresh.assigned_agent_id, run_id=None
         )
         run_id = f"taskrun_{fresh.id}_{execution.attempt}"
+        # A durable resume boundary at dispatch: if the process dies mid-run the
+        # task can be restored to this point (run id + attempt) instead of being
+        # a black box.
+        try:
+            self._manager.save_checkpoint(
+                fresh.id, label="run_start", execution_id=execution.id,
+                payload={"runId": run_id, "planId": fresh.plan_id,
+                         "attempt": execution.attempt, "progress": fresh.progress},
+            )
+        except Exception:  # noqa: BLE001 - a checkpoint must never block dispatch
+            log.warning("failed to write run_start checkpoint", exc_info=True)
         running = asyncio.create_task(self._execute(fresh, token, execution.id, run_id))
         self._active[fresh.id] = running
 
@@ -289,12 +322,31 @@ class TaskScheduler:
                 )
             except Exception:  # noqa: BLE001 - an artifact must not fail the task
                 log.warning("failed to attach task artifact", exc_info=True)
+        # Mirror the task's artifacts into the Artifact Center so the produced
+        # files are cataloged and discoverable, with task/run provenance.
+        try:
+            from ..artifacts.producers import register_reference_dicts  # noqa: PLC0415
+
+            register_reference_dicts(
+                outcome.artifacts, source_tool="task",
+                run_id=outcome.run_id, task_id=task.id,
+                agent_id=getattr(task, "assigned_agent_id", None),
+            )
+        except Exception:  # noqa: BLE001 - never fail the task over registration
+            log.warning("failed to register task artifacts in the catalog", exc_info=True)
+        # The run finished; the task now enters the authoritative VERIFYING state
+        # while its acceptance criteria and completion contract are evaluated.
+        try:
+            self._manager.begin_verification(task.id, actor_id=self._worker_id)
+        except Exception:  # noqa: BLE001 - a status race must not crash the tick
+            log.warning("begin_verification refused for task %s", task.id, exc_info=True)
         self._apply_criteria(task, outcome)
         try:
             self._manager.complete_task(
                 task.id, output_reference=outcome.run_id or outcome.output[:2000] or None,
             )
         except Exception as exc:  # noqa: BLE001 - a rejected completion is a failure
+            log.warning("task %s completion rejected: %s", task.id, exc, exc_info=True)
             self._manager._store.finish_execution(  # noqa: SLF001
                 execution_id, status=ExecutionStatus.FAILED, error=str(exc),
                 error_class="COMPLETION_REJECTED", run_id=outcome.run_id or None,
@@ -306,6 +358,14 @@ class TaskScheduler:
             execution_id, status=ExecutionStatus.COMPLETED, run_id=outcome.run_id or None,
             metrics=outcome.metrics,
         )
+        try:
+            self._manager.save_checkpoint(
+                task.id, label="run_complete", execution_id=execution_id,
+                payload={"runId": outcome.run_id, "progress": 100,
+                         "outputReference": outcome.run_id},
+            )
+        except Exception:  # noqa: BLE001 - a checkpoint must never fail a task
+            log.warning("failed to write run_complete checkpoint", exc_info=True)
 
     def _apply_criteria(self, task: Task, outcome: TaskRunOutcome) -> None:
         criteria = self._manager.list_criteria(task.id)
@@ -352,9 +412,9 @@ class TaskScheduler:
         self._fail_or_retry(task, error=outcome.error, error_class=outcome.error_class)
 
     def _fail_or_retry(self, task: Task, *, error: str, error_class: str) -> None:
-        """Retry a RETRYABLE failure with backoff; otherwise fail the task."""
+        """Retry a RETRYABLE failure with backoff; otherwise fail (or escalate)."""
         live = self._manager._store.get_task(task.id)  # noqa: SLF001
-        if live is None or live.status != TaskStatus.IN_PROGRESS:
+        if live is None or live.status not in (TaskStatus.IN_PROGRESS, TaskStatus.VERIFYING):
             return
         if (self._is_retryable(error_class)
                 and live.retry_count < min(live.max_retries, MAX_MAX_RETRIES)):
@@ -366,6 +426,21 @@ class TaskScheduler:
                           "errorClass": error_class}
             )
             return
+        # Retries are exhausted (or the error is non-retryable). A task may opt
+        # into ESCALATION (metadata.escalateOnExhaustion = "BLOCKED" |
+        # "ASKING_USER") instead of a plain FAILED, so a resource/permission dead
+        # end or a human-only decision stays visible and resumable. Default is
+        # still FAILED.
+        escalate = (live.metadata or {}).get("escalateOnExhaustion")
+        if escalate in ("BLOCKED", "ASKING_USER"):
+            try:
+                self._manager.escalate_task(
+                    task.id, target=escalate, error=error, error_class=error_class,
+                    actor_id=self._worker_id,
+                )
+                return
+            except Exception:  # noqa: BLE001 - fall back to an honest failure
+                log.warning("escalation refused for task %s", task.id, exc_info=True)
         self._manager.fail_task(task.id, error=error, error_class=error_class,
                                 actor_id=self._worker_id)
 

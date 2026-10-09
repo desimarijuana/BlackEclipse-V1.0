@@ -59,6 +59,38 @@ def _service() -> Any:
     return runtime_mod.get_execution_service()
 
 
+# The verification-engine result classes MUST reach the run's claim ledger, or a
+# truthful "the build succeeded / tests passed" backed by a REAL execution is
+# rendered [UNVERIFIED] by `code/verify.py` (the ledger is normally fed only by
+# `command_run`). `command_class` is one of `code.policy.COMMAND_CLASSES`.
+_PROJECT_MODE_CLASS = {"BUILD": "build", "TEST": "unit_test"}
+
+
+def _record_engine_verification(
+    ctx: ToolContext, *, command_class: str, execution_id: str, passed: bool,
+    output: str = "", duration_ms: int = 0, argv: tuple[str, ...] = (),
+) -> None:
+    """Record a verification-engine execution in the run's ledger.
+
+    Best-effort and additive: a missing ledger or an unknown class is a no-op,
+    never a run failure. The class is validated by `VerificationLedger.record`.
+    """
+    ledger = getattr(ctx, "code_ledger", None)
+    if ledger is None:
+        return
+    try:
+        ledger.record(
+            command_execution_id=str(execution_id or ""),
+            command_class=command_class,
+            exit_code=0 if passed else 1,
+            duration_ms=int(duration_ms or 0),
+            output=output or "",
+            argv=tuple(argv),
+        )
+    except Exception:  # noqa: BLE001 - a ledger failure must not break the call
+        pass
+
+
 def _grants_execute(ctx: ToolContext) -> bool:
     autonomy = getattr(ctx, "autonomy", None)
     return bool(autonomy and "code.execute" in policy.code_grants(str(autonomy)))
@@ -253,6 +285,13 @@ async def _project_mode(args: dict[str, Any], ctx: ToolContext, mode: str) -> tu
         test_policy=(model.test_policy or None),
     )
     result = await asyncio.to_thread(service.run, request, actor=make_actor(ctx), emit=_emitter(ctx))
+    _record_engine_verification(
+        ctx, command_class=_PROJECT_MODE_CLASS.get(mode, "unit_test"),
+        execution_id=getattr(result, "execution_id", ""),
+        passed=bool(getattr(result, "ok", False)),
+        output=(getattr(result, "stdout", "") or getattr(result, "stderr", "") or ""),
+        duration_ms=int(getattr(result, "duration_ms", 0) or 0),
+    )
     return _render_project(result, mode)
 
 
@@ -309,6 +348,21 @@ async def run_verification(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
     outcome = await service.verifier.arun(
         request, actor=make_actor(ctx), fix=fix, emit=_emitter(ctx),
     )
+    # Feed the ledger so a truthful "build succeeded / tests passed" backed by
+    # this REAL verification is not rendered [UNVERIFIED] by `code/verify.py`.
+    # A passing BUILD_AND_TEST proves both the build and the tests; a non-passing
+    # outcome is recorded as a failing test check only (we do not assert a build
+    # failure we did not observe).
+    evidence = outcome.evidence[-1] if outcome.evidence else {}
+    execution_id = str(evidence.get("executionId") or "")
+    output = str(evidence.get("stdout") or evidence.get("stderr") or "")
+    duration_ms = int(evidence.get("durationMs") or 0)
+    if outcome.status == "passed":
+        _record_engine_verification(ctx, command_class="build", execution_id=execution_id,
+                                    passed=True, output=output, duration_ms=duration_ms)
+    _record_engine_verification(ctx, command_class="unit_test", execution_id=execution_id,
+                                passed=(outcome.status == "passed"),
+                                output=output, duration_ms=duration_ms)
     data = outcome.to_dict()
     text = (
         f"Verification {outcome.status} after {outcome.iterations} attempt(s)."

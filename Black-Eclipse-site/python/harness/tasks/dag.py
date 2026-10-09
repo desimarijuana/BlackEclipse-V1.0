@@ -118,11 +118,15 @@ def derive_parent_status(
         policy = children[0][2] if children else FailurePolicy.FAIL_FAST
         if policy == FailurePolicy.FAIL_FAST:
             return TaskStatus.FAILED
-    if _any(TaskStatus.IN_PROGRESS) or _any(TaskStatus.TODO):
+    if _any(TaskStatus.IN_PROGRESS) or _any(TaskStatus.TODO) or _any(TaskStatus.VERIFYING):
         return TaskStatus.IN_PROGRESS
     remaining = [s for s in statuses if s not in (TaskStatus.COMPLETED,)]
     if remaining and all(s == TaskStatus.WAITING for s in remaining):
         return TaskStatus.WAITING
+    # A container whose entire remaining work is parked on a human reports the
+    # same distinction its children make.
+    if remaining and all(s in (TaskStatus.WAITING, TaskStatus.ASKING_USER) for s in remaining):
+        return TaskStatus.ASKING_USER if _any(TaskStatus.ASKING_USER) else TaskStatus.WAITING
     if any(s in (TaskStatus.BLOCKED, TaskStatus.WAITING) for s in remaining):
         return TaskStatus.BLOCKED
     if remaining and all(s == TaskStatus.CANCELLED for s in remaining):
