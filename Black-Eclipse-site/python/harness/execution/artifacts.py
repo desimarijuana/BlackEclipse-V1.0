@@ -50,6 +50,10 @@ class ArtifactManager:
         self._root = Path(root)
         self._execution_id = execution_id
 
+    @property
+    def root(self) -> Path:
+        return self._root
+
     def collect(self, *, baseline: Optional[dict[str, float]] = None) -> tuple[list[Artifact], bool]:
         """Collect artifacts under the known directories.
 

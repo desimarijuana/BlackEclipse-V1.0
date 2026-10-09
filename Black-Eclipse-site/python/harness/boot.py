@@ -84,6 +84,10 @@ async def _boot() -> None:
     # tasks and dispatches each through the ordinary run path. Started after jobs
     # so a task-triggering job sees a live scheduler.
     await service.start_tasks()
+    # The Artifact Center: a bounded background reconciler that repairs catalog/
+    # storage inconsistencies (missing objects, recovered rows) and purges
+    # soft-deleted artifacts past retention. Best-effort.
+    await service.start_artifacts()
     # The Plugin Platform: reload every plugin enabled before the last shutdown.
     # Durable state means a restart restores the same active plugin set; a plugin
     # that fails to reload is quarantined as FAILED, never silently dropped.
@@ -146,6 +150,7 @@ async def _shutdown() -> None:
 
     await stop_fabric(service)
     from .event_system.bootstrap import stop_events
+    await service.stop_artifacts()
     await service.stop_tasks()
     await stop_events(service)
     await service.stop_automation()

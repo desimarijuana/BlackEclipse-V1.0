@@ -296,11 +296,45 @@ class ExecutionOrchestrator:
 
     # ── result builders ────────────────────────────────────────────────────────
 
+    def _register_produced(self, context, artifact_manager, artifacts) -> None:
+        """Register this execution's produced files in the Artifact Center.
+
+        Best-effort; never fails the execution. Paths are made absolute from the
+        workspace binding root the manager already holds, and provenance carries
+        the run/agent so the catalog can navigate back.
+        """
+        if not artifacts:
+            return
+        try:
+            from ..artifacts.producers import register_reference_dicts  # noqa: PLC0415
+
+            root = artifact_manager.root
+            refs = []
+            for artifact in artifacts:
+                rel = getattr(artifact, "path", "")
+                if not rel:
+                    continue
+                candidate = Path(rel)
+                uri = str(candidate if candidate.is_absolute() else root / candidate)
+                refs.append({
+                    "uri": uri, "name": Path(rel).name,
+                    "digest": getattr(artifact, "hash", "") or None,
+                    "sizeBytes": getattr(artifact, "size", None),
+                })
+            register_reference_dicts(
+                refs, source_tool="execution",
+                run_id=getattr(context, "run_id", None),
+                agent_id=getattr(context, "agent_id", None),
+            )
+        except Exception:  # noqa: BLE001 - registration must not break execution
+            pass
+
     def _success_result(
         self, request, context, run_raw, run_prepared, build_result, test_result,
         artifact_manager, baseline, started, emit,
     ) -> ExecutionResult:
         artifacts, truncated = artifact_manager.collect(baseline=baseline)
+        self._register_produced(context, artifact_manager, artifacts)
         diagnostics = self.diagnostics.normalize(
             (run_raw.output if run_raw else ""), language=context.language, source="run",
         ) if (run_raw and run_raw.exit_code not in (0, None)) else []
@@ -338,6 +372,7 @@ class ExecutionOrchestrator:
 
     def _from_build(self, request, context, build, artifact_manager, baseline, started, emit) -> ExecutionResult:
         artifacts, _ = artifact_manager.collect(baseline=baseline)
+        self._register_produced(context, artifact_manager, artifacts)
         result = ExecutionResult(
             execution_id=context.execution_id, status="BUILD_ERROR", exit_code=build.exit_code,
             language=context.language, runtime=context.runtime,
@@ -352,6 +387,7 @@ class ExecutionOrchestrator:
 
     def _from_test(self, request, context, test_result, build_result, artifact_manager, baseline, started, emit) -> ExecutionResult:
         artifacts, _ = artifact_manager.collect(baseline=baseline)
+        self._register_produced(context, artifact_manager, artifacts)
         failures = [f for f in test_result.failures]
         diagnostics = [
             d for f in failures if f.error
@@ -374,6 +410,7 @@ class ExecutionOrchestrator:
 
     def _from_raw_failure(self, request, context, raw, artifact_manager, baseline, started, emit) -> ExecutionResult:
         artifacts, _ = artifact_manager.collect(baseline=baseline)
+        self._register_produced(context, artifact_manager, artifacts)
         diagnostics = self.diagnostics.normalize(raw.output, language=context.language, source="runtime")
         result = ExecutionResult(
             execution_id=context.execution_id, status="RUNTIME_ERROR", exit_code=raw.exit_code,

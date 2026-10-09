@@ -10,7 +10,7 @@
 
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
-  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain,
+  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -51,6 +51,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
+  { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
 ];
 
 /** The modes a section is listed under. */

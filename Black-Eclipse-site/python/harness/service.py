@@ -366,6 +366,14 @@ class AgenticService:
         from .tasks.bootstrap import install_task_layer  # noqa: PLC0415
 
         install_task_layer(self)
+        # The Artifact Center: the durable catalog of produced files. Boot wiring
+        # lives in `artifacts/bootstrap.py`; it reuses the ONE agent-memory
+        # connection for its tables and a confined, content-addressed local store
+        # for bytes. A failure only leaves `self.artifacts` None, so it never
+        # blocks boot. A bounded reconciler is started in the lifespan.
+        from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
+
+        install_artifact_layer(self)
         # The Plugin Platform: ONE process-wide manager owning the registry, the
         # runtime instances, the event bridge, the hook registry, per-plugin
         # config/secrets/storage and health. Boot wiring lives in
@@ -1216,6 +1224,23 @@ class AgenticService:
             await scheduler.stop()
         except Exception:  # noqa: BLE001
             log.warning("task scheduler shutdown failed", exc_info=True)
+
+    async def start_artifacts(self) -> None:
+        """Start the artifact reconciler. Idempotent; a failure is a diagnostic."""
+        try:
+            from .artifacts.bootstrap import start_artifact_reconciler  # noqa: PLC0415
+
+            start_artifact_reconciler(self)
+        except Exception:  # noqa: BLE001 - the reconciler must never block boot
+            log.warning("artifact reconciler failed to start", exc_info=True)
+
+    async def stop_artifacts(self) -> None:
+        try:
+            from .artifacts.bootstrap import stop_artifact_reconciler  # noqa: PLC0415
+
+            await stop_artifact_reconciler(self)
+        except Exception:  # noqa: BLE001
+            log.warning("artifact reconciler shutdown failed", exc_info=True)
 
     async def run_workflow(self, request: RunRequest) -> Any:
         """Execute a saved workflow by id over the existing graph (Phase 5).

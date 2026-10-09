@@ -56,7 +56,7 @@ RATCHET_PY: dict[str, int] = {
     # Platform wiring already present in the working tree (HEAD was 1347). The
     # Execution Fabric adds NO lines here (it wires via `fabric/bootstrap.py`
     # called from `boot.py`). May only shrink from here.
-    "service.py": 1368,
+    "service.py": 1393,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

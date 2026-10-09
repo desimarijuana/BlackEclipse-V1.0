@@ -4793,7 +4793,8 @@ bridge capability (market_data), normalizes to a canonical record, runs the
 mandatory data-quality engine, and preserves provenance into the Evidence &
 Research Engine. Agents never name a provider.
 
-**Context.** The retrieval layer (etrieval/) is provider-agnostic but shallow —
+**Context.** The retrieval layer (
+etrieval/) is provider-agnostic but shallow —
 it serves quote/statements/news/profile, not order books, trades, funding, open
 interest, options, FX or bonds. The market-data engine (scraper chain, yfinance
 bridge, Yahoo chart, crypto connector, SEC, economics) already lives in Next.js,
@@ -5217,3 +5218,37 @@ trajectory is reconstructable from one trace via
 publishing on the bus (preferred) or calling `get_hub().emit`/`.span` never by
 adding a second stack. `docs/harness/observability.md` is the entry point;
 `docs/NAVIGATION.md` and `docs/CHANGELOG.md` are updated in the same change.
+
+## ADR-H160 - The Artifact Center is one catalog over the existing stores; it owns its own tables and a confined content-addressed file store, and every producer registers through one service
+
+**Decision.** Produced files are recorded in a single, durable catalog
+(`ArtifactService` + `ArtifactStore`) whose rows live on the ONE
+`agent-memory.db` connection, alongside a dedicated, confined,
+content-addressed on-disk store under `.black-eclipse/artifacts/`. The catalog is
+NOT JDdS (`jdds.db`, market data) and NOT another subsystem's tables. One
+service owns the lifecycle (register, version, preview, tag, collect, archive,
+restore, delete, purge, reconcile); the REST route group `/artifacts/*`
+(operator-gated), the `artifact_*` agent tools, and every producer hook
+(`analysis_tools`, the task scheduler) all call that one service. Bytes are never
+referenced by a workspace path: the service copies them into the store and returns
+an opaque storage key, and the storage layer � not the code policy's workspace
+ignore list � enforces confinement (`..`/absolute/symlink escape refused; `*.png`
+and `.black-eclipse/**` are legitimate content here).
+
+**Why.** The roadmap's round-2 complaint was that a produced file "never leaves
+Eclipse's copy" and nothing serves it. A one-off route per producer would have
+duplicated storage, authorization and provenance. One catalog over the existing
+connection reuses the harness's durability and the ONE event bus, and gives the
+Artifact Center a single place to enforce owner scope, idempotency, lifecycle and
+reconciliation.
+
+**Consequences.** Producers depend only on `ArtifactService`; a missing service is
+reported honestly (`ARTIFACT_UNAVAILABLE`) rather than silently dropping a file.
+Registration is idempotent by key, preview failure never invalidates the original,
+and soft-delete/purge are distinct with a shared-reference guard. A bounded
+reconciler repairs missing objects on a schedule. New tables live in
+`artifacts/store.py` (not `persistence.SCHEMA`), matching the subsystem pattern.
+`docs/harness/artifact-center.md` is the architecture entry point; the operator
+surface is `/artifacts/*` proxied by `/api/artifacts/**`. Tests:
+`python/tests/test_artifacts_{store,security,tools,api}.py` and
+`src/lib/harness/artifacts-browser.test.ts`.

@@ -8,6 +8,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Artifact retention + auto-purge (production hardening).** `ArtifactService.cleanup_expired`
+  permanently removes soft-deleted artifacts whose `retentionUntil` (or
+  `deletedAt + HARNESS_ARTIFACT_RETENTION_DAYS`, default 30d) has elapsed; the
+  background reconciler now runs reconcile+discover+purge, gated by
+  `HARNESS_ARTIFACT_AUTO_PURGE`. Adds tests for expiry, grace retention, and
+  persistence across a process restart. `docs updated:
+  docs/harness/artifact-center.md`.
+
+
 - **Security hardening — full effect-tool migration, real sandbox abstraction,
   production secret providers, anchored audit, and an operator UI.** Extends the
   Security subsystem to production scope. (1) Migration: `security/classification.py`

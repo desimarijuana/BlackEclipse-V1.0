@@ -289,6 +289,18 @@ class TaskScheduler:
                 )
             except Exception:  # noqa: BLE001 - an artifact must not fail the task
                 log.warning("failed to attach task artifact", exc_info=True)
+        # Mirror the task's artifacts into the Artifact Center so the produced
+        # files are cataloged and discoverable, with task/run provenance.
+        try:
+            from ..artifacts.producers import register_reference_dicts  # noqa: PLC0415
+
+            register_reference_dicts(
+                outcome.artifacts, source_tool="task",
+                run_id=outcome.run_id, task_id=task.id,
+                agent_id=getattr(task, "assigned_agent_id", None),
+            )
+        except Exception:  # noqa: BLE001 - never fail the task over registration
+            log.warning("failed to register task artifacts in the catalog", exc_info=True)
         self._apply_criteria(task, outcome)
         try:
             self._manager.complete_task(

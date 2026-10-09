@@ -88,6 +88,10 @@ const EclipseMemoryScreen = dynamic(
   () => import('@/components/screens/eclipse-memory/eclipse-memory-screen').then((m) => m.EclipseMemoryScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const ArtifactsScreen = dynamic(
+  () => import('@/components/screens/artifacts/artifacts-screen').then((m) => m.ArtifactsScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -1126,6 +1130,14 @@ function StockChatContent() {
           {visited.has('memory') && (
             <div className={cn('w-full h-full', activeTab === 'memory' ? '' : 'hidden')}>
               <EclipseMemoryScreen isOperator={clientIsOperator()} />
+            </div>
+          )}
+
+          {visited.has('artifacts') && (
+            <div className={cn('w-full h-full', activeTab === 'artifacts' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <ArtifactsScreen />
+              </div>
             </div>
           )}
 

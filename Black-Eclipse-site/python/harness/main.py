@@ -47,6 +47,7 @@ from .research.mandate import parse_mandate
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
 from .routers.application import router as application_router
+from .routers.artifacts import router as artifacts_router
 from .routers.a2a import router as a2a_router
 from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
@@ -95,6 +96,7 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=li
 # surface stays `harness.main:app` and paths are unchanged.
 app.include_router(a2a_router)
 app.include_router(application_router)
+app.include_router(artifacts_router)
 app.include_router(automation_router)
 app.include_router(code_router)
 app.include_router(code_intel_router)
@@ -129,13 +131,11 @@ app.include_router(workspace_router)
 # `npm run dev` that is still holding the port and serving stale code.
 _STARTED_AT_MS = int(time.time() * 1000)
 
-
 def _jsonschema_available() -> bool:
     """Whether the full JSON Schema validator is installed (skill contracts)."""
     from .skills.schema_validation import jsonschema_available
 
     return jsonschema_available()
-
 
 class StartRunResponse(BaseModel):
     success: bool
