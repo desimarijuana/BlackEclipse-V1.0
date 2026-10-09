@@ -8,6 +8,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Investment Thesis Tracker: API + screen (WIP).** `/api/theses` (list/create),
+  `/api/theses/[id]`, `/api/theses/[id]/evidence`, `/api/theses/[id]/revisions`
+  routes and the `src/app/theses/` screen over the versioned thesis models/lib.
+  `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
+
 - **Investment Thesis Tracker (workstream, WIP).** New Prisma models `Thesis` /
   `ThesisEvidence` / `ThesisRevision` (a thesis is versioned; every edit appends a
   revision so the original hypothesis is never silently rewritten, and evidence is a
