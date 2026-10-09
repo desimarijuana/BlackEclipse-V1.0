@@ -159,6 +159,28 @@ def test_intel_status_tool(tmp_path, runtime):
     assert result.data["workspace"]["fileCount"] >= 1
 
 
+def test_read_tool_does_not_force_a_synchronous_index(tmp_path, runtime, monkeypatch):
+    """A read query must never trigger a blocking full index.
+
+    With the runtime ENABLED, its per-workspace background indexer owns freshness.
+    A read path that called `manager._ensure_fresh()` ran a whole-workspace index
+    on the event loop, which cannot be cancelled by the tool timeout and froze
+    /health. Make a forced refresh raise, so any regression is caught here.
+    """
+    from harness.code.intel.manager import CodeIntelligenceManager
+
+    _ws, registry, ctx = _setup(tmp_path, "typescript-project", runtime)
+    runtime.set_enabled(True)  # background indexer owns freshness (production)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("the read path forced a synchronous full index")
+
+    monkeypatch.setattr(CodeIntelligenceManager, "_ensure_fresh", _boom)
+    result = _run(_call(registry, "code_get_definition", {"name": "UserService"}, ctx))
+    assert result.ok
+    assert result.data["count"] >= 1
+
+
 # ── semantic rename (preview + apply into a worktree) ────────────────────────────
 
 

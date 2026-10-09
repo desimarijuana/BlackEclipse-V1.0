@@ -15,6 +15,7 @@ root and rebased onto the write root.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Optional
 
@@ -215,6 +216,35 @@ def _manager(ctx: ToolContext):
     return _runtime(ctx).manager_for(ws)
 
 
+def _is_fresh(ctx: ToolContext, workspace: Any) -> bool:
+    """Whether the background indexer already keeps this workspace current.
+
+    The runtime owns freshness: its per-workspace watcher + incremental indexer
+    keep the shared index up to date (see `CodeIntelRuntime.is_fresh`). When it
+    says fresh, a read query must NOT trigger its own full synchronous walk —
+    that is what wedged the runtime (a minutes-long index on the event loop).
+    A DISABLED runtime has no background indexer, so it never counts as fresh and
+    the on-demand refresh still runs (off the event loop).
+    """
+    try:
+        runtime = _runtime(ctx)
+        if not getattr(runtime, "enabled", True):
+            return False
+        return bool(runtime.is_fresh(workspace))
+    except Exception:  # noqa: BLE001 - unknown freshness is treated as stale
+        return False
+
+
+def _ensure_fresh(manager: Any, ctx: ToolContext) -> None:
+    """Refresh the index only when the runtime does not already own freshness.
+
+    Never called on the event loop directly — callers run it via
+    `asyncio.to_thread` so a heavy index cannot stall health checks or runs.
+    """
+    if not _is_fresh(ctx, manager.workspace):
+        manager._ensure_fresh()
+
+
 def _refusal(tool: str, error: IntelError) -> tuple[str, Any]:
     text = f"REFUSED ({error.code}): {error.reason}"
     if error.recovery:
@@ -240,10 +270,17 @@ async def _guard(ctx: ToolContext, tool: str, run: Any) -> tuple[str, Any]:
 
 
 async def _call(ctx: ToolContext, tool: str, method: str, summary: str, **kwargs: Any) -> tuple[str, Any]:
-    async def _run() -> tuple[str, Any]:
+    def _work() -> Any:
+        # Acquiring the manager (per-workspace watcher setup) and the query are
+        # both synchronous and potentially heavy. Run BOTH off the event loop: a
+        # blocking call on the loop cannot be cancelled by the tool timeout and
+        # freezes the runtime's /health and every concurrent run.
         manager = _manager(ctx)
-        manager._ensure_fresh()
-        result = getattr(manager, method)(**kwargs)
+        _ensure_fresh(manager, ctx)
+        return getattr(manager, method)(**kwargs)
+
+    async def _run() -> tuple[str, Any]:
+        result = await asyncio.to_thread(_work)
         await emit_code_event(ctx, f"code.intel.{method}", {"tool": tool})
         return _payload(result, summary=_summary_text(summary, result))
 
@@ -400,7 +437,7 @@ async def _find_related_tests(args: dict[str, Any], ctx: ToolContext) -> tuple[s
 
 
 async def _intel_status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    async def _run() -> tuple[str, Any]:
+    def _collect() -> dict[str, Any]:
         runtime = _runtime(ctx)
         status = runtime.status()
         ws = getattr(ctx, "workspace", None)
@@ -409,6 +446,10 @@ async def _intel_status(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
             status["workspace"] = manager.index_status()
             status["project"] = manager.detect_project()
             status["servers"] = manager.language_server_status()
+        return status
+
+    async def _run() -> tuple[str, Any]:
+        status = await asyncio.to_thread(_collect)
         return _payload(status, summary="Code intelligence status.")
 
     return await _guard(ctx, "code_intel_status", _run)
@@ -418,9 +459,11 @@ async def _rename_symbol(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     model = RenameInput(**_present(args))
 
     async def _run() -> tuple[str, Any]:
-        manager = _manager(ctx)
-        manager._ensure_fresh()
-        result = manager.rename_symbol(model.name, model.newName, file=model.file, dry_run=model.dryRun)
+        manager = await asyncio.to_thread(_manager, ctx)
+        await asyncio.to_thread(_ensure_fresh, manager, ctx)
+        result = await asyncio.to_thread(
+            lambda: manager.rename_symbol(model.name, model.newName, file=model.file, dry_run=model.dryRun)
+        )
         preview = result.to_dict()
         if model.dryRun or not result.files:
             await emit_code_event(ctx, "code.intel.rename.preview", {
@@ -437,7 +480,9 @@ async def _rename_symbol(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             if "code.write" not in _policy.code_grants(str(getattr(ctx, "autonomy", None))):
                 raise IntelError("EDIT_CONFLICT", "This task isn't set up to make that kind of change.")
         cw, _binding, _resolved, _actor = _ensure_code_workspace(ctx)
-        applied = manager.apply_workspace_edit(result.files, write_root=cw.root, dry_run=False)
+        applied = await asyncio.to_thread(
+            lambda: manager.apply_workspace_edit(result.files, write_root=cw.root, dry_run=False)
+        )
         await emit_code_event(ctx, "code.intel.rename.applied", {
             "symbol": model.name, "newName": model.newName, "engine": result.engine,
             "filesChanged": len(applied.get("applied", [])),

@@ -71,7 +71,11 @@ PROTECTED_PATHS: tuple[str, ...] = (
 
 IGNORED_DIRS: tuple[str, ...] = (
     ".git", "node_modules", "src/generated", "__pycache__",
-    ".next", "_backups", ".black-eclipse", "scripts/vendor",
+    # `.next` is the production build; `.next-dev` is the `next dev` build
+    # (see next.config.ts distDir). Both are generated bundles and must never be
+    # indexed/searched — a dev build here is hundreds of multi-MB files, and
+    # parsing them wedged the runtime.
+    ".next", ".next-dev", "_backups", ".black-eclipse", "scripts/vendor",
     # Generated / build output that is never source (the CIUE §25 ignore set). A
     # build directory is excluded from indexing, searching and the walk.
     "dist", "build", "target", "coverage", "out", "vendor", "generated", ".cache",

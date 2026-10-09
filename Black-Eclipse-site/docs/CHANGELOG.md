@@ -8,6 +8,109 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Security hardening — full effect-tool migration, real sandbox abstraction,
+  production secret providers, anchored audit, and an operator UI.** Extends the
+  Security subsystem to production scope. (1) Migration: `security/classification.py`
+  maps EVERY effectful tool of every capability (filesystem, shell/code, git/VCS,
+  application-runtime, infrastructure/deploy, database, browser, computer/finance,
+  vision, plugins, MCP, skills) to the `(action, resource, permission)` vocabulary by
+  importing the canonical `code/policy.py` tool tuples — so `build_effect_authorizer`
+  now routes them all through the gateway; a bypass-audit test asserts zero
+  unclassified effect tools. Hard-deny and policy-deny are authoritative; approvals
+  defer to each capability's own single-use chain (exactly one approval, no
+  double-prompt). Environment resolves from the run context, the deploy action, or
+  `BLACK_ECLIPSE_ENVIRONMENT`, so PRODUCTION gates bite. (2) `security/sandbox.py`:
+  the `ExecutionSandbox` abstraction with a real `DockerSandbox` (`--network
+  none|bridge`, read-only rootfs, non-root, cap-drop ALL, no-new-privileges,
+  memory/pids/cpu limits, explicit mounts + secret env), a `LocalSandbox` over the
+  existing `code/sandbox.py` primitive, and an `UnavailableSandbox` that fails
+  closed; selection never returns an unbounded backend. (3) `security/secrets.py`:
+  `OsKeychainProvider` (Windows Credential Manager / macOS Keychain / Linux Secret
+  Service) and `CliSecretProvider` (Vault / AWS / 1Password / GCP / Azure via an
+  operator-configured argv template), both reporting availability honestly. (4)
+  `security/audit.py`: an optional append-only JSONL `AuditSink` with an HMAC-signed
+  head (`BLACK_ECLIPSE_SECURITY_AUDIT_LOG`), anchoring the trail outside the
+  runtime's database. (5) UI: a `SecuritySettingsPanel` (Settings › Security)
+  surfacing posture, pending approvals, capabilities (revoke) and audit-chain
+  validity. Tests `python/tests/test_security_{bypass_audit,sandbox,audit_sink,secret_providers}.py`
+  (202 security tests, all passing). docs updated: `docs/harness/security.md`,
+  `docs/harness/decisions.md` (ADR-H160), this file.
+- **Artifact Center — one durable catalog for everything the runtime and the user
+  produce.** New `python/harness/artifacts/`: `ArtifactService` + `ArtifactStore`
+  own the lifecycle (register, version, preview, tag, collect, archive, restore,
+  delete, purge, reconcile) over `HarnessArtifact*` tables on the ONE
+  `agent-memory.db` connection, with a confined, content-addressed
+  `LocalArtifactStorage` under `.black-eclipse/artifacts/` for the bytes (never
+  JDdS, never a workspace path from a caller). Producer hooks register real output
+  from `analysis_run` (`analysis_tools.py`), the task scheduler
+  (`tasks/scheduler.py`), and the Code Execution & Verification Layer
+  (`execution/orchestrator.py`); the `artifact_*` agent tools and the operator-gated
+  `/artifacts/*` route group go through the same service. Front door: the
+  `/api/artifacts/**` proxy + client-safe `artifacts-browser.ts` + the Artifact
+  Center screen (AppTab `artifacts`, Agentic sidebar). Search/filter/sort/pagination
+  are server-side; previews (text/CSV/JSON/code + Pillow image/PDF thumbnails),
+  downloads, version history, tags, collections, favorites, bulk actions, archive/
+  restore/delete and reconciliation are all real. `docs updated:
+  docs/harness/artifact-center.md, docs/harness/decisions.md (ADR-H160),
+  docs/NAVIGATION.md`.
+- **Artifacts page is full width.** Dropped the `max-w-6xl` cap on the Artifact
+  Center screen and let the grid scale to `lg:grid-cols-5 xl:grid-cols-6`, so the
+  catalog uses the whole workspace pane. `no doc change — style-only`.
+
+- **Security subsystem — one authorization decision path over the existing
+  per-subsystem policies.** New `python/harness/security/`: the `SecurityGateway`
+  (`gateway.py`) answers every privileged operation with `ALLOW` / `DENY` /
+  `APPROVAL_REQUIRED`, composing the existing controls (`code/policy.py`,
+  `skills/permissions.py`, `mcp/approvals.py`, `browser/policy.py`,
+  `computer/policy.py`+finance firewall, `git/safety.py`, `execution/policy.py`,
+  `plugins/permissions.py`, `mcp/ssrf.py`, `observability/redaction.py`) rather
+  than duplicating them. It adds the missing central pieces: a resource-scoped
+  **Permission Engine** (`permissions.py`), a layered restrict-only **Policy
+  Engine** with profiles LOCKDOWN/SECURE/DEVELOPER/AUTONOMOUS/CUSTOM and atomic
+  hot reload (`policy.py`), a server-side **Risk Engine** (`risk.py`), a typed
+  **Approval Engine** over the single-use `McpApproval` store + `StandingGrant`s
+  (`approval.py`), a no-escalation **Capability Engine** (`capabilities.py`), an
+  immutable **Security Floor** (`floor.py`) that hard-denies credentials/keys/the
+  security config/OS dirs/destructive infra and mandates approval for
+  production/financial classes, a default-deny **Network Policy Engine** reusing
+  `mcp/ssrf.py` with DNS pinning (`network.py`), a scoped **Secrets Manager** with
+  value redaction (`secrets.py`), session-isolated `SecurityContext`s
+  (`context.py`), and an append-only **hash-chained audit** on `agent-memory.db`
+  (`audit.py`+`store.py`). Everything fails closed. Migrated this change:
+  filesystem + shell/execution effects route through the gateway at the
+  `code/authorizers.py` seam (`integration.py::make_security_authorizer`) — floor
+  and network policy authoritative, policy approvals deferred to the existing
+  single-use chain, all evaluations audited. Boot wiring `install_security_layer`
+  in `service.py` + `start_security`/`stop_security` in `boot.py`; operator routes
+  `/security/*` (`routers/security.py`, operator-gated) + `/api/security/**`
+  proxy and `security-{client,browser}.ts`; `/health.security`. Tests
+  `python/tests/test_security_{core,adversarial,failure,concurrency,network_secrets,integration,api}.py`
+  (77 passing). docs updated: `docs/harness/security.md` (new),
+  `docs/harness/decisions.md` (ADR-H159), `docs/NAVIGATION.md`, this file.
+- **Fix: chat/runtime wedge caused by code-intelligence indexing.** A code-intel
+  read (`code_get_project_structure` and peers) could freeze the entire Python
+  runtime — `/health` timed out and chat returned no output — for two compounding
+  reasons, both now fixed. (1) The per-workspace watcher's first snapshot walked
+  every file under ignored trees and only filtered afterwards:
+  `code/fs/watch.py::_snapshot` now PRUNES ignored/protected directories during
+  the walk instead of `rglob`-ing the whole workspace (first snapshot ~58s → ~0.4s;
+  `node_modules`, `scripts/vendor`, `.black-eclipse`, build dirs never descended).
+  (2) The `next dev` build directory `.next-dev` (`next.config.ts` `distDir`) was
+  not in any ignore list, so its hundreds of multi-MB generated bundles were
+  parsed by the indexer; `.next-dev` is now excluded in `code/policy.py`
+  `IGNORED_DIRS` and the mirrored `code/fs/search.py` / `code/intel/language/detect.py`
+  lists. (3) `code/intel_tools.py` now acquires the manager, refreshes freshness
+  and runs the query via `asyncio.to_thread`, and no longer forces a synchronous
+  full index when the runtime's background indexer owns freshness — a code query
+  can no longer block the event loop, so `/health` and concurrent runs stay live.
+  (4) Defense in depth: `src/lib/harness/python-runtime.ts` now clears a
+  still-silent listener on the runtime port before spawning (a hung/zombie runtime
+  held the port and blocked a fresh start) and clears the resolved spawn promise
+  after a start settles, so a later `/health` miss can no longer return a stale
+  `true` and mask a runtime that has since hung.
+  Tests: `test_intel_regressions.py` (dev-dir skip + ignore policy),
+  `test_intel_tools.py` (read path never forces a sync index). no doc change —
+  bug fix; no architecture, data-contract, or setup change.
 - **Observability Platform — one vendor-neutral, fail-open telemetry layer that
   projects the existing event bus into OpenTelemetry-shaped traces, metrics,
   structured logs, token/cost accounting, SLOs, anomaly/loop detection and error
@@ -697,6 +800,54 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   report_replay,mining_improvement,cli_gate,api}.py` (89, incl. the
   gate-has-teeth proofs). docs updated: `docs/harness/agent-evaluation.md` (new),
   `docs/harness/decisions.md` (ADR-H157), `docs/NAVIGATION.md`, this file.
+
+- **Verification Engine ↔ run claim-ledger integration + memory-recall budget
+  honors policy.** The verification-engine tools (`build_project`, `test_project`,
+  `run_verification`) executed real build/test runs but never recorded them in the
+  run's `VerificationLedger`, so a truthful "the build succeeded / the tests
+  passed" backed by a REAL execution was rendered `[UNVERIFIED]` by `code/verify.py`
+  (the ledger was fed only by `command_run`). `execution/tools.py` now records each
+  engine execution through `_record_engine_verification` (additive, best-effort:
+  a missing ledger or unknown class is a no-op); a passing `BUILD_AND_TEST` records
+  `build` + `unit_test`, a non-passing outcome records a failing `unit_test` only.
+  Also fixed a policy bypass: `graph_context._memory_context` hardcoded
+  `budget_chars=4000`, so the operator's `context_budget_chars` setting was
+  ineffective; it now omits the value so `EclipseMemoryService.retrieve` applies
+  the policy. Tests: `python/tests/test_verification_engine_integration.py` (5).
+  docs updated: `docs/harness/execution-architecture.md` (ledger data-flow);
+  memory-budget change needs no doc change — bug fix, contract intact.
+
+- **Task/Plan lifecycle hardening — VERIFYING & ASKING_USER states, escalation,
+  plan cancel/revision, durable checkpoints, artifact linking, retention, mounted
+  Tasks UI.** Closed the remaining Task/Plan DoD gaps. State machine
+  (`tasks/{model,state,manager,scheduler}.py`): added `VERIFYING` (authoritative
+  state between a completed run and the completion decision) and `ASKING_USER`
+  (a human wait, distinct from `WAITING`/`BLOCKED`), with closed transitions and
+  retry/recover edges; the scheduler now enters `VERIFYING` before evaluating the
+  completion contract. Retry exhaustion can ESCALATE to `BLOCKED`/`ASKING_USER`
+  (opt-in `metadata.escalateOnExhaustion`; default stays `FAILED`) via
+  `TaskManager.escalate_task` + `TASK_ESCALATED`. Plans: `cancel_plan` (cancels
+  every non-terminal task deepest-first; terminal plans untouched) and a
+  monotonic `metadata.revision` + `PLAN_REVISED` on structural change. Checkpoints
+  become real: the scheduler writes `run_start`/`run_complete` boundaries and
+  `restore_checkpoint` resumes a stuck task; `task_view` exposes them. Task
+  artifacts now link the run's Artifact-Center entries by reference
+  (`artifact://<id>`), replacing the dead `codeVerification.artifacts` read; the
+  code-emitted `artifact_service` is threaded correctly through
+  `build_graph`/`execute_run` (fixes an undefined-`service` crash in the in-flight
+  Artifacts work). Bounded retention (`HARNESS_TASK_RETENTION_DAYS`, default 90)
+  prunes aged checkpoints/executions/events only. New tools `resume_task`,
+  `escalate_task`, `cancel_plan`; routes `POST /plans/{id}/cancel`,
+  `POST /tasks/{id}/resume|escalate`, `GET /tasks/{id}/checkpoints`,
+  `POST /tasks/{id}/checkpoints/restore`. Event registry gains
+  `task.verifying|asking_user|escalated` and `workflow.revised`. Native search
+  output (`search/tools.py`) is now delimited as untrusted content. The Tasks
+  screen is mounted (AppTab `tasks`, Agentic sidebar menu) with a nav label.
+  Tests: `python/tests/test_tasks_state_hardening.py` (18);
+  `src/lib/sidebar/config.test.ts` updated for the new section. Checks: pytest
+  4972 passed / 16 skipped, `tsc --noEmit` clean, vitest 2331 passed.
+  docs updated: `docs/harness/task-plan-system.md`,
+  `docs/harness/search-retrieval.md`.
 
 ## 2026-10-07
 

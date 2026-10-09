@@ -126,8 +126,31 @@ def test_rebase_edits_accepts_relative_paths(tmp_path):
 
 
 def test_ignore_policy_excludes_build_output():
-    for rel in ("apps/api/dist/bundle.js", "app/build/x.js", "target/debug/y", "coverage/lcov.info"):
+    for rel in (
+        "apps/api/dist/bundle.js", "app/build/x.js", "target/debug/y", "coverage/lcov.info",
+        # The `next dev` build directory (next.config.ts distDir). Indexing its
+        # hundreds of multi-MB generated bundles on the first code query wedged
+        # the whole runtime (the event loop could not service /health).
+        ".next-dev/server/app/page.js", ".next/server/app/page.js",
+    ):
         assert policy.is_ignored(rel), rel
+
+
+def test_indexer_skips_the_dev_build_directory(tmp_path):
+    from harness.code.intel.ast import ASTEngine
+    from harness.code.intel.indexer import IncrementalIndexer
+
+    root = tmp_path / "p"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.ts").write_text("export const x = 1;\n", encoding="utf-8")
+    (root / ".next-dev" / "server").mkdir(parents=True)
+    (root / ".next-dev" / "server" / "bundle.js").write_text("var a=function(){return 1};\n", encoding="utf-8")
+    idx = CodeIndex("devskip", path=tmp_path / "devskip.db")
+    ix = IncrementalIndexer(root, "devskip", idx, ast=ASTEngine("devskip", root=root))
+    walked = [rel for rel, _ in ix.iter_source_files()]
+    assert "src/main.ts" in walked
+    assert not any(rel.startswith(".next-dev/") for rel in walked)
+    idx.close()
 
 
 def test_context_engine_is_prefix_aware(tmp_path):

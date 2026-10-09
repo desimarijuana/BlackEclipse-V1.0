@@ -39,7 +39,7 @@ MAX_RESULT_LINE_CHARS = 500
 # Default path globs excluded unless the caller asks otherwise. Mirrors
 # `policy.IGNORED_DIRS` plus the common bulky/generated trees.
 DEFAULT_EXCLUDES: tuple[str, ...] = (
-    ".git", "node_modules", "__pycache__", ".next", "_backups",
+    ".git", "node_modules", "__pycache__", ".next", ".next-dev", "_backups",
     ".black-eclipse", ".venv", "venv", "dist", "build", "vendor",
 )
 

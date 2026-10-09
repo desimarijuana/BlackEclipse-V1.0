@@ -115,8 +115,8 @@ function harnessSourceMtimeMs(): number {
   }
 }
 
-/** Kill whatever is listening on the runtime port, if it is our stale service. */
-function killListenerOnPort(): void {
+/** PIDs currently LISTENING on the runtime port (empty when none / unavailable). */
+function listenerPidsOnPort(): string[] {
   try {
     if (process.platform === "win32") {
       const out = execSync("netstat -ano", { encoding: "utf8" });
@@ -127,21 +127,28 @@ function killListenerOnPort(): void {
           if (pid && pid !== "0") pids.add(pid);
         }
       }
-      for (const pid of pids) {
-        try {
-          execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
-        } catch { /* already gone */ }
-      }
-    } else {
-      const pid = execSync(`lsof -t -i:${HARNESS_PY_PORT}`, { encoding: "utf8" }).trim();
-      if (pid) {
-        for (const p of pid.split("\n")) {
-          try { execSync(`kill -9 ${p}`, { stdio: "ignore" }); } catch { /* gone */ }
-        }
-      }
+      return [...pids];
     }
+    const out = execSync(`lsof -t -i:${HARNESS_PY_PORT}`, { encoding: "utf8" }).trim();
+    return out ? out.split("\n") : [];
   } catch {
-    // No listener, or netstat/lsof unavailable — nothing to do.
+    // No listener, or netstat/lsof unavailable — nothing to report.
+    return [];
+  }
+}
+
+/** Kill whatever is listening on the runtime port, if it is our stale service. */
+function killListenerOnPort(): void {
+  for (const pid of listenerPidsOnPort()) {
+    try {
+      if (process.platform === "win32") {
+        execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+      } else {
+        execSync(`kill -9 ${pid}`, { stdio: "ignore" });
+      }
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -201,6 +208,21 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   }
   if (g.__harnessPyStart) return g.__harnessPyStart;
 
+  // Not healthy, and we are not mid-start. A process may be holding the runtime
+  // port without answering /health — a hung/zombie runtime from a previous
+  // `npm run dev` (spawned as a child, it survives the Next restart on Windows).
+  // It cannot serve a request and it blocks a fresh spawn, so clear it. A second,
+  // longer probe guards against a transient timeout on a genuinely healthy
+  // runtime under load (only a still-silent LISTENER is cleared; a cold start with
+  // nothing listening goes straight to the spawn).
+  if (listenerPidsOnPort().length > 0) {
+    const recheck = await getHealth(4_000);
+    if (!recheck) {
+      killListenerOnPort();
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
   g.__harnessPyStart = (async () => {
     const projectRoot = process.cwd();
     const appDir = path.join(projectRoot, "python");
@@ -238,13 +260,19 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
     if (!ready) {
       console.error("[harness] Python runtime did not become healthy within 30s");
       proc.kill();
-      g.__harnessPyStart = undefined;
       return false;
     }
     return true;
   })();
 
-  return g.__harnessPyStart;
+  try {
+    return await g.__harnessPyStart;
+  } finally {
+    // The spawn attempt is finished (ready or not). Health is the source of
+    // truth from here on: keeping the resolved promise around would let a later
+    // /health miss return a stale `true` and mask a runtime that has since hung.
+    g.__harnessPyStart = undefined;
+  }
 }
 
 /** Stop a spawned runtime (test/teardown helper). */

@@ -56,36 +56,60 @@ class WatchEvent:
         return payload
 
 
+def _dir_is_excluded(ws: Any, path: Path) -> bool:
+    """Whether a directory is ignored/protected and must not be descended into."""
+    rel = res.relative(ws, path)
+    return policy.is_protected(rel) or policy.is_ignored(rel)
+
+
 def _snapshot(ws: Any, targets: list[Path], recursive: bool) -> dict[str, tuple[int, int]]:
-    """A map rel → (mtime_ns, size) for the watched paths."""
+    """A map rel → (mtime_ns, size) for the watched paths.
+
+    The walk PRUNES ignored/protected directories (node_modules, the Next build
+    dirs, the app's own data dirs, vendored runtimes) instead of enumerating every
+    file under them and filtering afterwards. On a real workspace that blind walk
+    is tens of thousands of files and took ~a minute per snapshot — the constructor
+    and every poll froze their caller (the runtime's event loop).
+    """
     out: dict[str, tuple[int, int]] = {}
     seen = 0
+
+    def add(path: Path) -> bool:
+        """Record one file. Returns False once the watch-path cap is reached."""
+        nonlocal seen
+        rel = res.relative(ws, path)
+        if policy.is_protected(rel) or policy.is_ignored(rel):
+            return True
+        try:
+            st = path.stat()
+        except OSError:
+            return True
+        out[rel] = (st.st_mtime_ns, st.st_size)
+        seen += 1
+        return seen < MAX_WATCH_PATHS
+
     for target in targets:
         if target.is_file():
-            rel = res.relative(ws, target)
-            try:
-                st = target.stat()
-                out[rel] = (st.st_mtime_ns, st.st_size)
-            except OSError:
-                pass
+            if not add(target):
+                return out
             continue
         if not target.is_dir():
             continue
-        iterator = target.rglob("*") if recursive else target.glob("*")
-        for path in iterator:
-            if not path.is_file():
-                continue
-            rel = res.relative(ws, path)
-            if policy.is_protected(rel) or policy.is_ignored(rel):
-                continue
-            try:
-                st = path.stat()
-            except OSError:
-                continue
-            out[rel] = (st.st_mtime_ns, st.st_size)
-            seen += 1
-            if seen >= MAX_WATCH_PATHS:
-                return out
+        if not recursive:
+            for path in target.glob("*"):
+                if path.is_file() and not add(path):
+                    return out
+            continue
+        for dirpath, dirnames, filenames in os.walk(target, followlinks=False):
+            dirnames[:] = [
+                d for d in dirnames if not _dir_is_excluded(ws, Path(dirpath) / d)
+            ]
+            for name in filenames:
+                path = Path(dirpath) / name
+                if not path.is_file():
+                    continue
+                if not add(path):
+                    return out
     return out
 
 

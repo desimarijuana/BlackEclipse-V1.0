@@ -197,8 +197,9 @@ class LanguageDetector:
     def __init__(self, root: Path, *, ignored_dirs: Iterable[str] = ()) -> None:
         self.root = Path(root)
         self._ignored = set(ignored_dirs) | {
-            ".git", "node_modules", "__pycache__", ".next", "dist", "build",
-            "target", "coverage", ".venv", "venv", "vendor", ".cache", ".turbo",
+            ".git", "node_modules", "__pycache__", ".next", ".next-dev",
+            "dist", "build", "target", "coverage", ".venv", "venv", "vendor",
+            ".cache", ".turbo",
         }
 
     def detect(self) -> LanguageInfo:
