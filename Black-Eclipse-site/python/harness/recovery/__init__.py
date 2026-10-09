@@ -50,6 +50,7 @@ from .executor import RecoveryRunResult, recover_operation
 from .learning import incident_to_candidate, promote_incidents
 from .operations import OperationLedger
 from .probes import register_default_probes
+from .reproduction import ReproducerRegistry, ReproductionResult, reproduce
 from .policy import (
     CandidateStrategy,
     RecoveryBudget,
@@ -113,5 +114,8 @@ __all__ = [
     "recovery_enabled",
     "register_default_probes",
     "reject_reason",
+    "ReproducerRegistry",
+    "ReproductionResult",
+    "reproduce",
     "select_strategies",
 ]

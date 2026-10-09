@@ -190,6 +190,13 @@ export function saveLayout(blueprintId: string, layout: WorkspaceLayout, expecte
 export function getHistory(blueprintId: string) {
   return req<{ blueprintId: string; revisions: { revision: number; summary: string; changes: BlueprintChange[]; createdAt: string }[] }>(`/blueprints/${encodeURIComponent(blueprintId)}/history`);
 }
+export function exportBlueprint(blueprintId: string) {
+  return req<{ kind: string; schemaVersion: number; exportedAt: string; blueprint: UiBlueprint }>(`/blueprints/${encodeURIComponent(blueprintId)}/export`);
+}
+export function importBlueprint(payload: unknown) {
+  const blueprint = (payload as { blueprint?: unknown })?.blueprint ?? payload;
+  return req<{ blueprint: UiBlueprint }>("/blueprints/import", { method: "POST", body: JSON.stringify({ blueprint }) });
+}
 export function restoreRevision(blueprintId: string, revision: number) {
   return req<{ blueprint: UiBlueprint }>(`/blueprints/${encodeURIComponent(blueprintId)}/restore`, { method: "POST", body: JSON.stringify({ revision }) });
 }

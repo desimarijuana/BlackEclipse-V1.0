@@ -207,8 +207,13 @@ class DiagnosisEngine:
         hypotheses.sort(key=lambda h: h.confidence, reverse=True)
         selected: Optional[str] = None
         confidence = hypotheses[0].confidence
-        # Decide only when the top cause has strong evidence AND clearly leads.
-        if confidence >= 0.8 and (len(hypotheses) == 1 or confidence - hypotheses[1].confidence >= 0.3):
+        margin = confidence - (hypotheses[1].confidence if len(hypotheses) > 1 else 0.0)
+        # A successful reproduction proves the failure is deterministic and real, so
+        # the leading cause may be selected on a slightly weaker margin.
+        reproduced = observed.get("reproduced") is True
+        if confidence >= 0.8 and (len(hypotheses) == 1 or margin >= 0.3):
+            selected = hypotheses[0].cause
+        elif reproduced and confidence >= 0.5 and (len(hypotheses) == 1 or margin >= 0.2):
             selected = hypotheses[0].cause
         else:
             missing.append("evidence that distinguishes the leading hypotheses")

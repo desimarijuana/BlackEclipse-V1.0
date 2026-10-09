@@ -223,6 +223,36 @@ class UiService:
         self.get_blueprint(blueprint_id)
         return {"blueprintId": blueprint_id, "revisions": self._store.history(blueprint_id)}
 
+    def export_blueprint(self, blueprint_id: str, *, owner_id: Optional[str] = None) -> dict[str, Any]:
+        """A portable, self-describing snapshot (no secrets; blueprint data only)."""
+        blueprint = self.get_blueprint(blueprint_id, owner_id=owner_id)
+        return {
+            "kind": "eclipse.ui.blueprint",
+            "schemaVersion": blueprint.schema_version,
+            "exportedAt": now_iso(),
+            "blueprint": blueprint.model_dump(by_alias=True),
+        }
+
+    def import_blueprint(self, payload: dict[str, Any], *, owner_id: str = "operator", actor: Optional[str] = None) -> UiBlueprint:
+        """Validate an exported snapshot and store it as a NEW blueprint (fresh id)."""
+        raw = payload.get("blueprint") if isinstance(payload, dict) and isinstance(payload.get("blueprint"), dict) else payload
+        validation = validate_blueprint(raw, self._catalog)
+        if not validation.ok or validation.blueprint is None:
+            raise UiError(
+                "UI_BLUEPRINT_INVALID", "the imported blueprint failed validation",
+                issues=[i.model_dump(by_alias=True) for i in validation.issues],
+            )
+        imported = validation.blueprint.model_copy(deep=True)
+        imported.id = new_id("uibp")
+        imported.revision = 1
+        imported.created_at = now_iso()
+        imported.updated_at = imported.created_at
+        imported.owner = BlueprintOwner(kind="user", id=owner_id)
+        saved = self._store.save_blueprint(imported, summary="imported")
+        self._record("import_blueprint", saved.id, "completed", actor, detail=f"imported {saved.title}", result={"blueprintId": saved.id})
+        _publish(UiEventType.PAGE_CREATED.value, {"blueprintId": saved.id, "title": saved.title, "imported": True})
+        return saved
+
     # ── blueprints: write ─────────────────────────────────────────────────────
 
     def create_page(self, input_model: CreatePageInput, *, owner_id: str = "operator", actor: Optional[str] = None) -> UiBlueprint:

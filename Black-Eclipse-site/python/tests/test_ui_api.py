@@ -119,3 +119,22 @@ def test_engineering_workflow():
     compose = client.post("/ui/engineering", json={"text": "add a widget"})
     assert compose.status_code == 200
     assert compose.json()["created"] is False
+
+
+def test_export_import_roundtrip():
+    blueprint_id = client.post("/ui/blueprints", json={"title": "Portable"}).json()["blueprint"]["id"]
+    client.post(f"/ui/blueprints/{blueprint_id}/widgets", json={"componentId": "metric-card", "instanceId": "m1"})
+
+    exported = client.get(f"/ui/blueprints/{blueprint_id}/export")
+    assert exported.status_code == 200, exported.text
+    payload = exported.json()
+    assert payload["kind"] == "eclipse.ui.blueprint"
+
+    imported = client.post("/ui/blueprints/import", json={"blueprint": payload["blueprint"]})
+    assert imported.status_code == 200, imported.text
+    new_id = imported.json()["blueprint"]["id"]
+    assert new_id != blueprint_id
+
+    current = client.get(f"/ui/blueprints/{new_id}/current")
+    assert current.status_code == 200
+    assert current.json()["instances"][0]["componentId"] == "metric-card"

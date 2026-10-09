@@ -5618,3 +5618,38 @@ store methods (`save_envelope`/`load_envelope_dict`, `acquire_lease`/`release_le
 api}.py`. Owner doc: `docs/harness/failure-recovery.md`. Remaining: the install/
 build acquisition rungs, evidence-backed diagnosis, multi-agent delegation, and
 live console streaming.
+
+## ADR-H167 - Bounded auto-reproduction and hard safety invariants: reproduction makes a diagnosis decisive, and the autonomy engine's trust properties are pinned by adversarial and concurrency tests
+
+**Decision.** Add the last safe, generic rung of the loop and lock the trust
+properties:
+
+1. **Bounded auto-reproduction** (`reproduction.py`, `ReproducerRegistry` +
+   `reproduce()`): only the caller knows how to safely re-run a failing operation,
+   so reproduction is a registry keyed by failure kind. `reproduce()` runs the
+   matching reproducer under a hard `asyncio.wait_for` timeout and classifies the
+   outcome (reproduced / not / errored); a successful reproduction is recorded as
+   evidence and lets the diagnosis select the leading cause on a weaker margin
+   (determinism is proven). New operator route `POST /recovery/incidents/{id}/reproduce`.
+2. **Adversarial + concurrency tests** pin the invariants that make unattended
+   action trustworthy: the default envelope denies effectful classes; the kill
+   switch revokes everything; a non-retryable failure is never retried; recovery is
+   always bounded; a one-off approval is scoped to exactly its strategy; incident
+   messages are length-bounded and signatures are one-way; the repair lease is
+   exclusive under thread contention.
+3. **Production & operations documentation** in `docs/harness/failure-recovery.md`
+   (readiness/degradation, revocation, attack surface, concurrency, CI, and exactly
+   what full autonomy still needs).
+
+**Why.** Reproduction was the one generic evidence step the diagnosis engine
+lacked, and the safety properties were asserted piecemeal rather than pinned. For an
+open-source, single-user tool this is the readiness work: CI (already on
+`ubuntu-latest`), a revocable envelope, and tests that fail if a trust property is
+ever weakened.
+
+**Consequences.** Reproduction is caller-driven by design (like compensation and
+strategy handlers); the runtime registers none by default because it cannot know how
+to re-run an arbitrary operation. Remaining for full autonomy: wiring the install/
+build acquisition rungs and the delegation roles into the executor. Owner doc:
+`docs/harness/failure-recovery.md`. Tests: `test_recovery_{reproduction,safety,
+concurrency}.py`.

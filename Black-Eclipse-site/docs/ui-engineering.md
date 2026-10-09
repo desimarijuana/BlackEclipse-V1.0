@@ -123,6 +123,20 @@ SAME host implementation the published dashboard uses
 the builder; ids with no host renderer (the foundational catalog kinds) show the
 structural card.
 
+**Boot sync:** `UiCatalogSync` (mounted on the main app route) calls
+`syncCoreCatalog()` once, so the catalog is seeded without opening the Builder.
+
+**Portability & CLI:** `GET /ui/blueprints/{id}/export` produces a
+self-describing snapshot (`kind: eclipse.ui.blueprint`); `POST
+/ui/blueprints/import` validates it and stores it as a NEW blueprint.
+`eclipse ui {components|capabilities|blueprints|show|history|create|classify|
+export|import|restore}` drives the same service over the runtime's store.
+
+**Verification:** `python/tests/test_ui_agent_e2e.py` drives the REAL
+`execute_run` graph — a scripted model emits `ui_*` tool calls — and asserts a
+durable page with a metric card results, proving the natural-language → tools →
+state path without a live provider.
+
 **Permission model:** every `ui_*` tool is `permission="read"`, because a
 blueprint mutation changes only Eclipse's OWN saved UI configuration (owner-
 scoped) and grants no filesystem, network, shell, database or secret access —

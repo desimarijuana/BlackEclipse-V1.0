@@ -8,7 +8,7 @@
 // agent uses (optimistic concurrency, revision history, preview/diff). Nothing
 // here invents data: every value comes from `/api/ui/**` (the Python runtime).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Search, Layers, History } from '@/lib/icons';
 import { getWidgetDefinition, renderDashboardWidget } from '@/lib/dashboard/registry';
@@ -18,8 +18,10 @@ import {
   addWidget,
   classifyRequest,
   createPage,
+  exportBlueprint,
   getCurrentPage,
   getHistory,
+  importBlueprint,
   listBlueprints,
   listComponents,
   removeWidget,
@@ -66,6 +68,7 @@ export function UiBuilderScreen() {
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [liveRender, setLiveRender] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const note = useCallback((text: string, ok = true) => {
     setLog((prev) => [{ ts: new Date().toLocaleTimeString(), text, ok }, ...prev].slice(0, 40));
@@ -199,6 +202,39 @@ export function UiBuilderScreen() {
     }
   };
 
+  const handleExport = async () => {
+    if (!selectedId) return;
+    try {
+      const res = await exportBlueprint(selectedId);
+      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${blueprint?.title ?? 'blueprint'}.eclipse-ui.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      note('Exported blueprint', true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'export failed');
+    }
+  };
+
+  const handleImportFile = async (file: File) => {
+    setBusy(true);
+    try {
+      const payload = JSON.parse(await file.text());
+      const res = await importBlueprint(payload);
+      await refreshList();
+      await openBlueprint(res.blueprint.id);
+      note(`Imported ${res.blueprint.title}`, true);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'import failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="flex h-full w-full flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -209,6 +245,10 @@ export function UiBuilderScreen() {
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => void refreshList()} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground">Refresh</button>
           <button type="button" onClick={() => void syncCoreCatalog(true).then((r) => { note(`Synced ${r.registered}/${r.total} components`, r.failed === 0); void refreshList(); })} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground">Sync catalog</button>
+          <button type="button" onClick={() => void handleExport()} disabled={!selectedId} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground disabled:opacity-50">Export</button>
+          <button type="button" onClick={() => importRef.current?.click()} disabled={busy} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground disabled:opacity-50">Import</button>
+          <input ref={importRef} type="file" accept="application/json,.json" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
           <button type="button" onClick={handleCreate} disabled={busy} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground inline-flex items-center gap-1.5 disabled:opacity-50">
             <Plus size={14} /> New page
           </button>

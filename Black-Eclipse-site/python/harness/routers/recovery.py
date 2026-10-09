@@ -126,6 +126,17 @@ def diagnose(
     return {"diagnosis": diagnosis}
 
 
+@router.post("/recovery/incidents/{incident_id}/reproduce")
+async def reproduce(
+    incident_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    result = await _engine().reproduce_incident(incident_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    return result
+
+
 @router.post("/recovery/promote")
 def promote(
     payload: dict[str, Any],

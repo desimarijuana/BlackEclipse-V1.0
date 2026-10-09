@@ -128,6 +128,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/failure-recovery.md`, `docs/harness/decisions.md` (ADR-H166),
   `docs/NAVIGATION.md`, this file.
 
+- **Auto-reproduction + hard safety invariants (production hardening).** New
+  `recovery/reproduction.py` (`ReproducerRegistry`/`reproduce` — a caller-registered
+  reproducer per failure kind, run under a hard timeout; a successful reproduction
+  becomes evidence and makes the diagnosis decisive) with operator route
+  `POST /recovery/incidents/{id}/reproduce`. New tests pin the trust properties:
+  `test_recovery_safety.py` (envelope cannot be bypassed, kill switch, non-retryable
+  never retried, bounded recovery, scoped one-off approval, no secret persisted) and
+  `test_recovery_concurrency.py` (repair-lease exclusivity under thread contention).
+  `docs/harness/failure-recovery.md` gains a Production & operations section. 115
+  recovery pytest cases; full suite `5202+ passed, 16 skipped`; vitest 2394;
+  `npx tsc --noEmit` clean; eval gates ALL PASS. docs updated:
+  `docs/harness/failure-recovery.md`, `docs/harness/decisions.md` (ADR-H167),
+  `docs/NAVIGATION.md`, this file.
+
 - **Agent Workspace: new Context tab (session-context gauge).** The right sidebar
   gains a fifth tab showing how full the model's context window is, mirroring the
   OpenCode session sidebar: usage % + a segmented breakdown gauge, plus tiles for
@@ -229,6 +243,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   production vars). One container runs both services: the app spawns the Python
   harness as a child, so only port 3000 is exposed. Guide: `docs/DEPLOYMENT.md`
   (new). docs updated: `docs/DEPLOYMENT.md`, `docs/NAVIGATION.md`, this file.
+
+- **UI Engineering production-readiness: boot sync, export/import, CLI, and an
+  end-to-end agent proof.** (1) `UiCatalogSync` (mounted in `src/app/page.tsx`)
+  seeds the runtime catalog with the real dashboard widgets on first app load,
+  so the agent can Compose without opening the Builder. (2) Blueprint
+  portability: `GET /ui/blueprints/{id}/export` (self-describing snapshot) and
+  `POST /ui/blueprints/import` (validated, stored as a NEW blueprint), surfaced
+  as Builder Export/Import buttons. (3) `eclipse ui
+  {components|capabilities|blueprints|show|history|create|classify|export|import|restore}`
+  CLI group over the runtime's own store. (4) `test_ui_agent_e2e.py` drives the
+  REAL `execute_run` graph with a scripted model emitting `ui_*` tool calls and
+  asserts a durable page + metric card — the natural-language → tools → state
+  path proven without a live provider (removing the "needs credentials to
+  verify" blocker). `npm run build` (production) also passes cleanly. Tests:
+  `test_ui_cli.py`, export/import API case, `test_ui_agent_e2e.py`. docs
+  updated: `docs/ui-engineering.md`, `docs/NAVIGATION.md`, this file.
 
 ## 2026-10-08
 

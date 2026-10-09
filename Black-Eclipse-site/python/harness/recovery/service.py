@@ -25,6 +25,7 @@ from .envelope import AutonomyEnvelope, from_dict, load_envelope
 from .learning import promote_incidents
 from .operations import OperationLedger
 from .policy import RecoveryBudget
+from .reproduction import ReproducerRegistry, reproduce
 from .store import FAILED, OPEN, RESOLVED, RecoveryStore
 from .taxonomy import NormalizedFailure, normalize_failure
 
@@ -49,6 +50,7 @@ class RecoveryService:
         self.capability_index = capability_index
         self.envelope = envelope or self._resolve_envelope()
         self.operations = OperationLedger(self.store)
+        self.reproducers = ReproducerRegistry()
 
     def _resolve_envelope(self) -> AutonomyEnvelope:
         """A persisted operator envelope wins over the config file/default."""
@@ -202,6 +204,30 @@ class RecoveryService:
 
     def has_approval(self, incident_id: str, strategy: str) -> bool:
         return self.store.has_approval(incident_id, strategy)
+
+    # ── auto-reproduction ────────────────────────────────────────────────────
+
+    def register_reproducer(self, kind: Any, name: str, fn: Any) -> None:
+        """Register a bounded reproducer for a failure kind (caller-supplied)."""
+        self.reproducers.register(kind, name, fn)
+
+    async def reproduce_incident(self, incident_id: str, *, timeout_s: float = 10.0) -> Optional[dict[str, Any]]:
+        """Run the registered reproducer for an incident and re-diagnose."""
+        incident = self.store.get_incident(incident_id)
+        if incident is None:
+            return None
+        failure = normalize_failure(
+            code=incident.get("code"), message=incident.get("message"),
+            subsystem=incident.get("subsystem") or "harness",
+            source=incident.get("source") or "unknown",
+        )
+        result = await reproduce(self.reproducers, failure, timeout_s=timeout_s)
+        evidence = dict(incident.get("metadata") or {})
+        if result.attempted:
+            evidence["reproduced"] = result.reproduced
+        diagnosis: Diagnosis = self.diagnosis.diagnose(failure, evidence=evidence)
+        self.store.set_diagnosis(incident_id, diagnosis.to_dict())
+        return {"reproduction": result.to_dict(), "diagnosis": diagnosis.to_dict()}
 
     # ── discovery + learning ─────────────────────────────────────────────────
 

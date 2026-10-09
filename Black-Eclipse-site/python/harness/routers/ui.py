@@ -131,6 +131,10 @@ class RestoreBody(BaseModel):
     revision: int = Field(..., ge=1)
 
 
+class ImportBody(BaseModel):
+    blueprint: dict[str, Any] = Field(default_factory=dict)
+
+
 class PreviewBody(BaseModel):
     ops: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -344,6 +348,24 @@ def history(blueprint_id: str, request: Request, _: bool = Depends(require_opera
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, **result}
+
+
+@router.get("/ui/blueprints/{blueprint_id}/export")
+def export_blueprint(blueprint_id: str, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _service().export_blueprint(blueprint_id)
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, **result}
+
+
+@router.post("/ui/blueprints/import")
+def import_blueprint(request: Request, body: ImportBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        blueprint = _service().import_blueprint(body.model_dump())
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, "blueprint": blueprint.model_dump(by_alias=True)}
 
 
 @router.post("/ui/blueprints/{blueprint_id}/restore")

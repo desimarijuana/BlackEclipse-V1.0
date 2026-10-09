@@ -33,6 +33,7 @@ no shared identity.
 | Automatic execution | `python/harness/recovery/executor.py` | `recover_operation(service, op, verify=…)` — a bounded async retry/verify loop driving the controller and recording real outcomes; strategy handlers for repair-type strategies. |
 | **Autonomy envelope** | `python/harness/recovery/envelope.py` | `AutonomyEnvelope` — pre-committed, scoped, expiring permission by action class + risk/reversibility/cost/files/network caps; kill switch `HARNESS_AUTONOMY=0`. Durable (migration 29 `AutonomyEnvelope`). The executor acts unattended ONLY inside it. |
 | **Compensation** | `python/harness/recovery/compensation.py` | `compensate_pending()` — runs registered compensation handlers for pending operations, envelope-gated (`COMPENSATE`). |
+| **Auto-reproduction** | `python/harness/recovery/reproduction.py` | `ReproducerRegistry` + `reproduce()` — runs a caller-registered reproducer per failure kind under a hard timeout; a successful reproduction makes the diagnosis decisive and is recorded as evidence. |
 | **Coordination + approvals** | `store.py` + `executor.py` | Per-signature `RecoveryLease` (two workers never repair the same root cause at once); one-off operator `RecoveryApproval` authorizes an out-of-envelope strategy for one incident. |
 | **Diagnosis probes** | `python/harness/recovery/probes.py` | read-only deterministic probes (dependency presence, provider config, provider health) registered at boot; unknown → `None`, never a guess. |
 | **Operation ledger** | `python/harness/recovery/operations.py` | `OperationLedger` — idempotency-keyed tracking + compensation bookkeeping so a crashed repair is reconciled, not repeated. |
@@ -43,7 +44,7 @@ no shared identity.
 | Facade | `python/harness/recovery/service.py` | `RecoveryService.record_failure()` = classify + decide + persist + return. |
 | Boot wiring | `python/harness/recovery/bootstrap.py` | `install_recovery_layer` (idempotent) + `start_recovery`/`stop_recovery` (event subscription). |
 | Agent tools | `python/harness/recovery/tools.py` | `recovery_incidents`, `recovery_incident`, `recovery_summary`, `recovery_diagnose`, `recovery_discover` — read-only. |
-| Operator API | `python/harness/routers/recovery.py` | `/recovery/{health,summary,incidents,discover,envelope,operations}` and `/recovery/incidents/{id}/approvals` reads; `POST /recovery/incidents/{id}/{diagnose,outcome,approve}`, `POST /recovery/promote`, `PUT /recovery/envelope` operator-gated. |
+| Operator API | `python/harness/routers/recovery.py` | `/recovery/{health,summary,incidents,discover,envelope,operations}` and `/recovery/incidents/{id}/approvals` reads; `POST /recovery/incidents/{id}/{diagnose,reproduce,outcome,approve}`, `POST /recovery/promote`, `PUT /recovery/envelope` operator-gated. |
 | Console UI | `src/app/recovery/` (`page.tsx`, `recovery-console.tsx`) + `src/app/api/recovery/[[...path]]/route.ts` + `src/lib/harness/recovery-view.ts` | Standalone `/recovery` page (like `/events`, `/fabric`): incidents, diagnosis, attempts, capability discovery, promote, approve, and the autonomy envelope + operation ledger. |
 
 ## Invariants (do not weaken)
@@ -99,31 +100,58 @@ cause at once. An action outside the envelope is returned to the caller as
 `outside_autonomy_envelope` — unless an operator granted a **one-off approval**
 (`POST /recovery/incidents/{id}/approve`) for exactly that incident and strategy.
 
+## Production & operations
+
+- **Readiness / degradation.** `GET /recovery/health` reports `status`
+  (`ok`/`disabled`/`error`), the budget, the live envelope and incident counts.
+  `HARNESS_RECOVERY_ENABLED=0` disables capture entirely; a missing eclipse-memory
+  store disables only this engine, never boot (`install_recovery_layer` is
+  best-effort and idempotent).
+- **Revoking autonomy.** `HARNESS_AUTONOMY=0` is a global kill switch; the envelope
+  also expires via `expiresAt`. Both take effect on the next decision — the engine
+  can never widen its own authority, and the persisted envelope is written only by
+  the operator route.
+- **Attack surface.** Every mutation route is operator-gated by transport/token
+  (never a body flag); reads are open. Incidents store only sanitized, length-bounded
+  fields; signatures are one-way digests (no secret can be recovered from them).
+- **Concurrency.** A single SQLite connection serializes incident writes; the repair
+  lease is an atomic conditional upsert, exclusive across threads/processes. The
+  runtime itself is single-process async, so writes are effectively serialized.
+- **CI.** `.github/workflows/ci.yml` runs typecheck → lint → vitest + Python → eval
+  gates on `ubuntu-latest` for every push/PR.
+- **What full autonomy still needs.** Wiring the install/build *acquisition* rungs
+  and the *delegation* roles into the executor — both are large subsystem
+  integrations. The envelope, executor, ledger and approval path are already the
+  safe sockets for them.
+
 ## Tests
 
-`python/tests/test_recovery_{taxonomy,signature,policy,store,integration,api,diagnosis,executor,discovery,learning,envelope,probes,operations,compensation}.py`
-— 99 cases: classification/signature purity, recurrence, strategy selection and
+`python/tests/test_recovery_{taxonomy,signature,policy,store,integration,api,diagnosis,executor,discovery,learning,envelope,probes,operations,compensation,reproduction,safety,concurrency}.py`
+— 115 cases: classification/signature purity, recurrence, strategy selection and
 reject rules, controller bounds/backoff, durable upsert + attempts + summary +
 diagnosis, root-cause ranking, the bounded executor (retry/verify/suspend/
 envelope-gated handler/lease/approval), the autonomy envelope (kill switch/expiry/
-risk/caps/network), the read-only probes, the idempotent operation ledger,
-compensation, capability ranking + acquisition plans, incident→candidate promotion,
-boot subscription, the read tools, the operator API, and an end-to-end case that
-publishes a real `tool.failed` on the live bus and asserts the incident is recorded.
-Front door: `src/lib/harness/recovery-view.test.ts`. Unrelated regression coverage:
-the full harness suite (`5202 passed, 16 skipped`).
+risk/caps/network), read-only probes, the idempotent operation ledger, compensation,
+timeout-guarded reproduction that makes a diagnosis decisive, **adversarial safety
+invariants** (envelope cannot be bypassed, non-retryable never retried, recovery
+always bounded, one-off approval is scoped, no secret persisted), lease exclusivity
+under thread contention, capability ranking + acquisition plans, incident→candidate
+promotion, boot subscription, the read tools, the operator API, and an end-to-end
+case that publishes a real `tool.failed` on the live bus and asserts the incident is
+recorded. Front door: `src/lib/harness/recovery-view.test.ts`.
 
 ## What it can and cannot do (honest)
 
 **Can (unattended, inside the envelope):** classify, diagnose with real evidence,
-bound-and-retry with backoff, verify before claiming success, run approved repair
-handlers with idempotency + per-signature leasing, compensate recorded side effects,
-discover existing capabilities, persist the envelope and incidents, and turn
-validated repairs into inert skill candidates.
+auto-reproduce under a timeout to make a diagnosis decisive, bound-and-retry with
+backoff, verify before claiming success, run approved repair handlers with
+idempotency + per-signature leasing, compensate recorded side effects, discover
+existing capabilities, persist the envelope and incidents, and turn validated
+repairs into inert skill candidates.
 
-**Cannot yet (noted, not hidden):** auto-reproduce a failing operation itself;
-auto-acquire a *missing* capability (the plan is approval-flagged and the install/
-build rungs are not wired); auto-promote a skill without an operator; delegate
-diagnosis to sub-agents; stream live in the console; or compensate *without* a
-caller-registered compensation handler. The envelope makes unattended action *safe*;
-extending the enabled action classes is the operator's deliberate choice.
+**Cannot yet (noted, not hidden):** auto-acquire a *missing* capability (the plan is
+approval-flagged; the install/build rungs are not wired); auto-promote a skill
+without an operator; delegate diagnosis to sub-agents; stream live in the console;
+or compensate *without* a caller-registered handler. The envelope makes unattended
+action *safe*; extending the enabled action classes is the operator's deliberate
+choice.

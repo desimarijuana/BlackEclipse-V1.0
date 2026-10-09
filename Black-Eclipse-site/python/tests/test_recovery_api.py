@@ -152,6 +152,21 @@ def test_approve_is_operator_gated(client):
         assert remote.post("/recovery/incidents/x/approve", json={"strategy": "retry"}).status_code == 403
 
 
+def test_reproduce_route(client):
+    from harness.recovery.taxonomy import FailureKind
+
+    from harness.deps import service
+
+    recorded = service.recovery.record_failure(
+        code="TOOL_TIMEOUT", message="timed out", source="tool", task_id="repro-t1"
+    )
+    incident_id = recorded["incidentId"]
+    service.recovery.register_reproducer(FailureKind.TIMEOUT, "re-run", lambda _f: True)
+    res = client.post(f"/recovery/incidents/{incident_id}/reproduce")
+    assert res.status_code == 200
+    assert res.json()["reproduction"]["reproduced"] is True
+
+
 def test_live_event_is_captured_end_to_end(client):
     from harness.deps import service
 

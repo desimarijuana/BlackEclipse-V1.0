@@ -467,6 +467,70 @@ def _build_plugin_manager() -> Any:
     return PluginManager(store, ToolRegistry(), EventBus(), None)
 
 
+def _build_ui_service() -> Any:
+    """Build a standalone UI service over the runtime's own agent-memory store.
+
+    Uses the SAME DB the runtime uses (same blueprints, same catalog), so the CLI
+    and the running app can never disagree about saved UI state.
+    """
+    from .persistence import AgentMemoryStore
+    from .ui.catalog import UiCatalog
+    from .ui.service import UiService
+    from .ui.store import UiStore
+
+    return UiService(UiStore(AgentMemoryStore()), UiCatalog())
+
+
+def _cmd_ui(args: argparse.Namespace, _manager: Any) -> int:
+    """The UI Engineering CLI: catalog + blueprint inspection, export/import."""
+    import json as _json
+    from pathlib import Path
+
+    from .ui.model import CreatePageInput, RestoreRevisionInput
+
+    service = _build_ui_service()
+    action = args.action
+    target = args.target or ""
+
+    if action == "components":
+        specs = service.list_components()
+        return _emit(args, {"components": [s.model_dump(by_alias=True) for s in specs]}, f"{len(specs)} component(s)")
+    if action == "capabilities":
+        caps = service.get_capabilities()
+        return _emit(args, caps, f"{caps['componentCount']} component(s)")
+    if action == "blueprints":
+        listing = service.list_blueprints()
+        return _emit(args, listing, f"{listing['total']} blueprint(s)")
+    if action == "show":
+        blueprint = service.get_blueprint(target)
+        return _emit(args, {"blueprint": blueprint.model_dump(by_alias=True)}, f"{blueprint.title} r{blueprint.revision}")
+    if action == "history":
+        return _emit(args, service.history(target), f"history for {target}")
+    if action == "create":
+        blueprint = service.create_page(CreatePageInput(title=target or "Untitled"))
+        return _emit(args, {"blueprint": blueprint.model_dump(by_alias=True)}, f"created {blueprint.id}")
+    if action == "classify":
+        return _emit(args, service.classify_request(target), "classified")
+    if action == "restore":
+        if args.revision <= 0:
+            return _refusal("MISSING_REVISION", "restore requires --revision <n>")
+        blueprint = service.restore_revision(RestoreRevisionInput(blueprint_id=target, revision=args.revision))
+        return _emit(args, {"blueprint": blueprint.model_dump(by_alias=True)}, f"restored to r{blueprint.revision}")
+    if action == "export":
+        data = service.export_blueprint(target)
+        if args.path:
+            Path(args.path).write_text(_json.dumps(data, indent=2), encoding="utf-8")
+            return _emit(args, {"path": args.path}, f"exported to {args.path}")
+        return _emit(args, data, "exported")
+    if action == "import":
+        if not target:
+            return _refusal("MISSING_SOURCE", "import requires a file path")
+        payload = _json.loads(Path(target).read_text(encoding="utf-8"))
+        blueprint = service.import_blueprint(payload)
+        return _emit(args, {"blueprint": blueprint.model_dump(by_alias=True)}, f"imported {blueprint.id}")
+    return _refusal("UNKNOWN_ACTION", f"unknown ui action {action!r}")
+
+
 def _cmd_plugin(args: argparse.Namespace, _manager: Any) -> int:
     """The plugin CLI: lifecycle + developer commands. Real, not a placeholder."""
     import asyncio
@@ -828,6 +892,15 @@ def build_parser() -> argparse.ArgumentParser:
     plugin.add_argument("--webhook", default="", help="webhook id")
     plugin.add_argument("--secret", default=None, help="webhook signing secret")
 
+    ui = sub.add_parser("ui", parents=[common], help="UI Engineering (catalog + blueprints)")
+    ui.add_argument("action", choices=[
+        "components", "capabilities", "blueprints", "show", "history",
+        "create", "classify", "export", "import", "restore",
+    ])
+    ui.add_argument("target", nargs="?", default="", help="blueprint id, title, text, or file path")
+    ui.add_argument("--path", default="", help="export output path")
+    ui.add_argument("--revision", type=int, default=0, help="revision for restore")
+
     return parser
 
 
@@ -847,6 +920,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     # The `plugin` group builds its own PluginManager over the runtime's store.
     if getattr(args, "group", "") == "plugin":
         return _cmd_plugin(args, None)
+    # The `ui` group builds its own UI service over the runtime's store.
+    if getattr(args, "group", "") == "ui":
+        return _cmd_ui(args, None)
     try:
         manager = _build_manager(getattr(args, "root", None))
     except Exception as exc:  # noqa: BLE001 - a missing runtime is a clean CLI error
