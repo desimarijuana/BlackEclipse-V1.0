@@ -8,6 +8,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Recovery: test hardening.** `python/conftest.py` now isolates the process-global
+  recovery service singleton (`set_recovery_service`) in the autouse fixture, and the
+  approve-route API test uses a unique incident per run so it cannot collide with a
+  shared database. no doc change — test-only change.
+
 - **Agent Workspace: Context panel leads the right sidebar.** The Agent Workspace
   panel order now lists Context first (plus Output/Changes/Permissions/History) and
   the default/open panel is Context. Presentation only.

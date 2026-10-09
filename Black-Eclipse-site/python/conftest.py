@@ -60,12 +60,24 @@ def _isolate_process_globals():
         _ui_bootstrap._SINGLETON = None  # noqa: SLF001
     except Exception:  # noqa: BLE001 - the ui layer is optional
         _ui_bootstrap = None
+    # The recovery tools also hold a process-global service (`set_recovery_service`).
+    _recovery_tools = None
+    _recovery_saved = None
+    try:
+        from harness.recovery import tools as _recovery_tools  # noqa: PLC0415
+
+        _recovery_saved = _recovery_tools._SERVICE  # noqa: SLF001
+        _recovery_tools._SERVICE = None  # noqa: SLF001
+    except Exception:  # noqa: BLE001 - the recovery layer is optional
+        _recovery_tools = None
     try:
         yield
     finally:
         _artifacts_bootstrap._SINGLETON = saved  # noqa: SLF001
         if _ui_bootstrap is not None:
             _ui_bootstrap._SINGLETON = _ui_saved  # noqa: SLF001
+        if _recovery_tools is not None:
+            _recovery_tools._SERVICE = _recovery_saved  # noqa: SLF001
 
 
 @pytest.fixture

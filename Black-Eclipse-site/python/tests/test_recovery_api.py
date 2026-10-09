@@ -125,10 +125,13 @@ def test_health_reports_autonomy(client):
 
 
 def test_approve_route(client):
+    import uuid
+
     from harness.deps import service
 
     recorded = service.recovery.record_failure(
-        code="provider_unavailable", message="down", source="provider", task_id="appr-t1"
+        code="provider_unavailable", message="down", source="provider",
+        task_id=f"appr-{uuid.uuid4()}",
     )
     incident_id = recorded["incidentId"]
     assert client.get(f"/recovery/incidents/{incident_id}/approvals").json()["approvals"] == []
