@@ -8,6 +8,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Company detail: wide side-by-side layout; AI overview moved below.** The
+  overlay now uses a full-width `max-w-[1760px]` multi-column grid instead of a
+  single narrow `max-w-5xl` stack: Row 1 = interactive chart (2/3) beside the
+  at-a-glance rail (core metrics, 52-week range, session, risk & income,
+  tokenomics, profile, leadership); Row 2 = filings financials (2/3) beside the
+  AI brief (moved below the top row); Row 3 = technical + risk side by side;
+  Row 4 = news (2/3) beside the AI conclusion. Chart raised to 420px; removed the
+  now-orphaned right-pane divider. Presentation only — no contract change.
+  no doc change — layout/visual change. Full `vitest` 2448 + `next build` + `tsc` clean.
+
 - **Live quote: reject Yahoo's stale/bogus `regularMarketPrice` (real OGDC root
   cause).** Reproduced live: Yahoo's chart `meta.regularMarketPrice` for
   `OGDC.KA` is **131.87** while the actual latest bar close is **315.91** (and

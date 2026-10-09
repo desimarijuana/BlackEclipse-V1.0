@@ -476,7 +476,7 @@ export function TradingViewChart({
       {/* Main Grid: chart LEFT, information RIGHT (classic terminal layout) */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         {/* Left Column: Interactive chart + growth sparkline */}
-        <div className="flex-1 h-full relative border-r border-border/20 bg-black/20 flex flex-col min-w-0">
+        <div className="flex-1 h-full relative flex flex-col min-w-0">
           {/* Single-page section rail — no Fundamentals / Technical tabs */}
           <div className="flex items-center gap-2 px-4 py-2 glass-card-subtle border-b border-border/10 shrink-0">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Company Intelligence</span>
@@ -509,10 +509,10 @@ export function TradingViewChart({
           </div>
 
           <div className="flex-1 w-full h-full relative min-h-0 overflow-y-auto tv-metrics-rail">
-            <div className="p-4 md:p-6 space-y-5 text-xs max-w-5xl mx-auto">
-              {/* B — AI company intelligence brief (prominent, first) */}
-              <AiResearchSection research={research} variant="brief" />
-
+            <div className="p-4 md:p-6 text-xs w-full max-w-[1760px] mx-auto space-y-5">
+              {/* Row 1 — chart (wide, left) beside the at-a-glance rail (right) */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+              <div className="xl:col-span-2 space-y-5">
               {/* C — Interactive chart (existing charting engine) */}
               <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -521,24 +521,10 @@ export function TradingViewChart({
                   </h2>
                   <span className="text-[10px] font-mono text-muted-foreground">{tvSymbolDisplay}</span>
                 </div>
-                <div className="w-full h-[360px] rounded-xl overflow-hidden">
+                <div className="w-full h-[420px] rounded-xl overflow-hidden">
                   <ChartWidget symbol={symbol} market={effCountry || 'US'} className="h-full" />
                 </div>
               </div>
-                {/* ── Filings-backed fundamentals (provider snapshot) ──────── */}
-                {fund.loading && <FundamentalsLoading />}
-                {!fund.loading && fund.unavailable && (
-                  <FundamentalsUnavailable symbol={symbol} market={fundamentalsMarket} reason={fund.error} />
-                )}
-                {!fund.loading && fund.error && !fund.unavailable && (
-                  <FundamentalsError message={fund.error} onRetry={fund.refresh} />
-                )}
-                {!fund.loading && fund.data && (
-                  <div className="flex flex-col gap-5">
-                    <TickerHeader data={fund.data} />
-                    <FundamentalsFull data={fund.data} compact />
-                  </div>
-                )}
 
                 {/* ── Live metrics (chart, performance, quote stats) ───────── */}
                 {/* Real price history chart (ECharts) */}
@@ -599,6 +585,8 @@ export function TradingViewChart({
                     <VolumeChart bars={history.bars} />
                   </div>
                 )}
+              </div>
+              <div className="space-y-5">
 
                 {/* Core metrics */}
                 <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
@@ -754,21 +742,57 @@ export function TradingViewChart({
 
                 {/* F — leadership & management (provider-disclosed) */}
                 <LeadershipSection officers={fund.data?.company.leadership ?? []} companyName={fund.data?.company.name ?? effName} />
+              </div>{/* end at-a-glance rail */}
+              </div>{/* end Row 1 */}
 
-                {/* H — valuation caveat */}
-                <ValuationNote />
+              {/* Row 2 — filings financials (wide, left) beside the AI overview (moved below) */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                <div className="xl:col-span-2 space-y-5">
+                  {/* E/F/H — filings-backed fundamentals (provider snapshot) */}
+                  {fund.loading && <FundamentalsLoading />}
+                  {!fund.loading && fund.unavailable && (
+                    <FundamentalsUnavailable symbol={symbol} market={fundamentalsMarket} reason={fund.error} />
+                  )}
+                  {!fund.loading && fund.error && !fund.unavailable && (
+                    <FundamentalsError message={fund.error} onRetry={fund.refresh} />
+                  )}
+                  {!fund.loading && fund.data && (
+                    <div className="flex flex-col gap-5">
+                      <TickerHeader data={fund.data} />
+                      <FundamentalsFull data={fund.data} compact />
+                    </div>
+                  )}
 
-                {/* G — recent news & material events (JDDS feed) */}
-                <CompanyNewsSection news={news} />
+                  {/* H — valuation caveat */}
+                  <ValuationNote />
+                </div>
+                <div className="space-y-5">
+                  {/* B — AI company intelligence brief (below the top row) */}
+                  <AiResearchSection research={research} variant="brief" />
+                </div>
+              </div>
+
+              {/* Row 3 — technical & risk side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
                 {/* I — technical analysis (deterministic from real bars) */}
                 <TechnicalSection tech={technical} />
 
                 {/* J — risk analysis (deterministic + statement insights) */}
                 <RiskSection risks={risks} />
+              </div>{/* end Row 3 */}
 
-                {/* K — AI research conclusion */}
-                <AiResearchSection research={research} variant="conclusion" />
+              {/* Row 4 — recent news (wide) beside the AI conclusion */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                <div className="xl:col-span-2">
+                  {/* G — recent news & material events (JDDS feed) */}
+                  <CompanyNewsSection news={news} />
+                </div>
+                <div>
+                  {/* K — AI research conclusion */}
+                  <AiResearchSection research={research} variant="conclusion" />
+                </div>
+              </div>
               </div>
           </div>
         </div>
