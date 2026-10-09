@@ -8,6 +8,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Investment Thesis Tracker (workstream, WIP).** New Prisma models `Thesis` /
+  `ThesisEvidence` / `ThesisRevision` (a thesis is versioned; every edit appends a
+  revision so the original hypothesis is never silently rewritten, and evidence is a
+  first-class relation with provenance) and a `src/lib/theses/` library
+  (`types.ts`/`store.ts`/`analysis.ts`). `npx tsc --noEmit` clean.
+  docs updated: `docs/CHANGELOG.md`.
+
 - **Market data: observation freshness guard.** New `src/lib/chart/observation-freshness.ts`
   (metric-and-interval-aware freshness: `live`/`delayed`/`stale`/`historical`/
   `unavailable`/`unknown`, never inventing a timestamp) + tests; `/api/price-history`

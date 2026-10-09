@@ -979,3 +979,65 @@ model ConnectorMapping {
 
   @@index([connectorId])
 }
+
+// -- Investment Thesis Tracker (Workstream K) ---------------------------------
+// A persistent, versioned investment thesis. The ORIGINAL hypothesis is never
+// silently rewritten: every edit appends a ThesisRevision snapshot, so an old
+// view can always be reconstructed. Evidence (supporting/contradicting) is a
+// first-class relation with its own provenance.
+model Thesis {
+  id            String    @id @default(cuid())
+  symbol        String
+  marketId      String
+  companyName   String?
+  title         String
+  hypothesis    String
+  status        String    @default("active") // active | weakening | broken | closed
+  // JSON arrays (SQLite has no array columns).
+  assumptions   String    @default("[]") // string[]
+  catalysts     String    @default("[]") // string[]
+  risks         String    @default("[]") // string[]
+  metrics       String    @default("[]") // string[]  (metrics to monitor)
+  reviewDate    DateTime?
+  version       Int       @default(1)
+  sourceArtifacts String  @default("[]") // string[] artifact ids
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  evidence  ThesisEvidence[]
+  revisions ThesisRevision[]
+
+  @@index([symbol, marketId])
+  @@index([status])
+}
+
+model ThesisEvidence {
+  id          String    @id @default(cuid())
+  thesisId    String
+  stance      String // supporting | contradicting
+  summary     String
+  sourceUrl   String?
+  sourceType  String? // filing | news | web | calculation | user
+  publishedAt DateTime?
+  retrievedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  thesis Thesis @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+
+  @@index([thesisId])
+  @@index([stance])
+}
+
+model ThesisRevision {
+  id         String   @id @default(cuid())
+  thesisId   String
+  version    Int
+  snapshot   String // JSON snapshot of the thesis at this version
+  note       String?
+  createdAt  DateTime @default(now())
+
+  thesis Thesis @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+
+  @@unique([thesisId, version])
+  @@index([thesisId])
+}
