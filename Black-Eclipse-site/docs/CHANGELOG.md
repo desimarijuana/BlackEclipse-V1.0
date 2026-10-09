@@ -8,6 +8,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Agent Workspace: Context panel leads the right sidebar.** The Agent Workspace
+  panel order now lists Context first (plus Output/Changes/Permissions/History) and
+  the default/open panel is Context. Presentation only.
+  no doc change — UI panel ordering; no architecture, contract or setup change.
+
 - **UI Engineering foundation (TS): component catalog + declarative blueprint
   engine.** New framework-pure module `src/lib/ui-engineering/`: `catalog.ts`
   projects the existing `WidgetDefinition` registry into queryable

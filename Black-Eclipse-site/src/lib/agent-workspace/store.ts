@@ -1,4 +1,4 @@
-// ── Agent Workspace store ────────────────────────────────────────────────────
+// â”€â”€ Agent Workspace store â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Owns the LIVE normalized workspace for the active run, plus the user's panel
 // preferences. This is a UI store, not an agent engine: it never talks to the
 // runtime directly except through the existing SSE relay (`stream.ts`).
@@ -20,7 +20,7 @@ import { immer } from 'zustand/middleware/immer';
 import { applyWorkspaceEvents, initialWorkspaceState } from './reducer';
 import type { AgentWorkspaceState, WorkspaceEvent } from './types';
 
-/** Panel ids for the right sidebar. `output` is the default results feed. */
+/** Panel ids for the right sidebar. `context` is the first/default panel. */
 export type WorkspacePanel = 'output' | 'context' | 'changes' | 'permissions' | 'history';
 
 const OPEN_KEY = 'black-eclipse:workspace-open';
@@ -53,12 +53,12 @@ function writeBool(key: string, value: boolean): void {
   }
 }
 function readPanel(): WorkspacePanel {
-  if (typeof window === 'undefined') return 'output';
+  if (typeof window === 'undefined') return 'context';
   try {
     const raw = window.localStorage.getItem(PANEL_KEY);
     return isPanel(raw) ? raw : 'output';
   } catch {
-    return 'output';
+    return 'context';
   }
 }
 
@@ -79,7 +79,7 @@ interface WorkspaceStoreState {
   clear: () => void;
 }
 
-// ── Non-React batching singletons ─────────────────────────────────────────────
+// â”€â”€ Non-React batching singletons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 interface QueuedFrame {
   id?: string;
   seq?: number;
@@ -104,7 +104,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
     open: false,
     runId: null,
     state: initialWorkspaceState(),
-    activePanel: 'output',
+    activePanel: 'context',
 
     setOpen: (open) => {
       writeBool(OPEN_KEY, open);

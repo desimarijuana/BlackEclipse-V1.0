@@ -33,7 +33,7 @@ import { PANEL_ICONS, statusIcon } from './ui';
 // (Approvals) and past runs (History). The other telemetry/tasks/browser/computer
 // detail views were removed â€” they read as noise here; the Output feed carries
 // the useful signal.
-const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['output', 'context', 'changes', 'permissions', 'history'];
+const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['context', 'output', 'changes', 'permissions', 'history'];
 
 const PANEL_KEY: Record<(typeof SIDEBAR_PANELS)[number], TranslationKey> = {
   output: 'workspace.panel.output',
