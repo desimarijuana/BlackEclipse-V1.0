@@ -69,6 +69,25 @@ export function yahooChartCandidates(symbol: string, market: string): string[] {
   return candidates;
 }
 
+/**
+ * Choose the quote price from Yahoo's `meta.regularMarketPrice` and the newest
+ * real bar close. Yahoo's meta price is occasionally stale/bogus (observed:
+ * `OGDC.KA` meta 131.87 while the real latest close was 315.91). We therefore
+ * trust the meta price ONLY when it agrees with the newest actual bar within
+ * `tolerance`; otherwise the bar is authoritative. This never invents a value —
+ * both inputs are real, the guard just refuses an implausible one. A null/absent
+ * meta price also falls back to the bar.
+ */
+export function selectChartPrice(
+  metaPrice: number | null | undefined,
+  lastClose: number,
+  tolerance = 0.05,
+): number {
+  if (metaPrice == null || !Number.isFinite(metaPrice) || metaPrice <= 0) return lastClose;
+  if (lastClose > 0 && Math.abs(metaPrice / lastClose - 1) > tolerance) return lastClose;
+  return metaPrice;
+}
+
 interface YahooChartJson {
   chart?: {
     result?: Array<{
@@ -136,9 +155,11 @@ export async function fetchYahooChartSeries(
 
     const m = result?.meta;
     const lastClose = bars[bars.length - 1].close;
-    const price = typeof m?.regularMarketPrice === 'number' && m.regularMarketPrice > 0
-      ? m.regularMarketPrice
-      : lastClose;
+    // Guard against a stale/bogus regularMarketPrice (see selectChartPrice).
+    const price = selectChartPrice(
+      typeof m?.regularMarketPrice === 'number' ? m.regularMarketPrice : null,
+      lastClose,
+    );
     const previousClose =
       typeof m?.previousClose === 'number' && m.previousClose > 0
         ? m.previousClose

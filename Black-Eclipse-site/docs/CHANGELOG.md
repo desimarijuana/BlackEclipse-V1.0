@@ -8,6 +8,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Live quote: reject Yahoo's stale/bogus `regularMarketPrice` (real OGDC root
+  cause).** Reproduced live: Yahoo's chart `meta.regularMarketPrice` for
+  `OGDC.KA` is **131.87** while the actual latest bar close is **315.91** (and
+  `chartPreviousClose` 310.34), so the read-through produced a bogus
+  −57.5%/−57.5% quote. `fetchYahooChartSeries` now uses `selectChartPrice()`,
+  which trusts the meta price **only when it agrees with the newest real bar**
+  (≤5%), else the bar is authoritative. Applies to every instrument that uses
+  the shared chart fetch (quotes, ribbon, portfolio, header). Verified live:
+  `/api/quote?symbols=OGDC&market=PK` → **315.91 / +1.79%** (was 131.87).
+  Test `src/lib/scraper/yahoo-chart.test.ts` (+5). no doc change — bug fix; the
+  freshness/provenance contracts are unchanged.
+
 - **Company detail: close the gaps (canonical quote, persisted AI answer,
   leadership).** (1) The overlay now fetches ONE canonical `/api/quote` and uses
   it for the header **and** the metric cards (with source + freshness), so the
