@@ -1,7 +1,7 @@
 ---
 title: Market Data Layer
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-09
 ---
 
 # Market Data Layer
@@ -239,6 +239,19 @@ keyed streaming normalizers, and full tool invocation through the real registry.
 `test_market_live.py` is an opt-in live REST/WS soak
 (`BLACK_ECLIPSE_MARKET_LIVE=1`). TS: `src/lib/harness/market/{bridge,rate-limit,keyed-providers}.test.ts`.
 All offline tests fake provider calls; no network.
+
+## Observation freshness (web price surfaces)
+
+The Next.js price surfaces (`/api/price-history`, `/api/quote`) attach an
+observation envelope from the ONE shared module
+`src/lib/chart/observation-freshness.ts`: `observationTime`, `retrievedAt`,
+`freshness` and `stale`. Freshness is interval-aware (`1m` decays in minutes,
+`1d` is current for the session it belongs to), and an unknown observation time
+is `unknown`/stale — never `live`. The `/api/price-history` JDDS snapshot
+fallback is dated from the row's real `updatedAt`, never `now`, so a stale close
+cannot be drawn under today's date; the chart header/footer render such a series
+amber and say "stale · as of <date>" instead of "live". This is the general guard
+behind the OGDC-class defect (a live header beside a stale series).
 
 ## Known limitations (honest)
 

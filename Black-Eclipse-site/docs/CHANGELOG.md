@@ -8,6 +8,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Docs: navigation + market-data sync.** `NAVIGATION.md` gains trigger rows for
+  the Investment Thesis Tracker and observation freshness, and
+  `docs/harness/market-data.md` documents the observation-freshness envelope; both
+  `last-verified` bumped to 2026-10-09. docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/market-data.md`, `docs/CHANGELOG.md`.
+
 - **Investment Thesis Tracker: API route tests (WIP).** Adds
   `src/app/api/theses/route.test.ts` (5 cases). no doc change — test-only change.
 
