@@ -8,6 +8,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Investment Thesis Tracker: API route tests (WIP).** Adds
+  `src/app/api/theses/route.test.ts` (5 cases). no doc change — test-only change.
+
 - **Investment Thesis Tracker: analysis tests (WIP).** Adds
   `src/lib/theses/analysis.test.ts` (11 cases). no doc change — test-only change.
 
