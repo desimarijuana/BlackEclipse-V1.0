@@ -21,6 +21,9 @@ from .tasks.tools import TASK_TOOLS
 # The Agent-to-Agent tools. Registered by `a2a/bootstrap.py` on the SAME registry;
 # imported here as the ONE canonical list so the allowlist cannot drift.
 from .a2a.tools import A2A_TOOLS
+# The UI Engineering tools (`ui_*`). Registered by `ui/bootstrap.py` on the SAME
+# registry; imported here as the ONE canonical list so the allowlist cannot drift.
+from .ui.tools import UI_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -345,6 +348,12 @@ ECLIPSE_AGENT = AgentConfig(
         # Document intelligence: open/understand/search/query/compare/render
         # documents (PDF/DOCX/PPTX/XLSX/CSV/JSON/HTML/...). Read-only.
         *DOCUMENT_TOOLS,
+        # UI Engineering: inspect the live UI (application map, current page,
+        # component catalog, layout, capabilities) and compose/modify the user's
+        # saved UI blueprints (create page, add/move/resize/configure widgets,
+        # save/restore layout). UI-configuration state only — no filesystem,
+        # network, shell or secret access.
+        *UI_TOOLS,
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is

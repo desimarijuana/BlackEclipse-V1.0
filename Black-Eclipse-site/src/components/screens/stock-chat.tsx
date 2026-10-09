@@ -20,6 +20,8 @@ import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { Message } from '@/types/chat';
+import { useWorkspaceStore } from '@/lib/agent-workspace/store';
+import { restoreWorkspaceForChat } from '@/lib/agent-workspace/restore';
 
 // Screens — heavy ones (ECharts, WebGL bubbles, charts) are code-split and
 // only fetched when their tab is opened, so the first paint compiles/loads
@@ -94,6 +96,10 @@ const ArtifactsScreen = dynamic(
 );
 const TasksScreen = dynamic(
   () => import('@/components/screens/tasks/tasks-screen').then((m) => m.TasksScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
+const UiBuilderScreen = dynamic(
+  () => import('@/components/screens/ui-builder/ui-builder-screen').then((m) => m.UiBuilderScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 import { Newspaper, ArrowLeft } from '@/lib/icons';
@@ -407,10 +413,12 @@ function StockChatContent() {
           activeConversationIdRef.current = parsed[0].id;
           setActiveConversationId(parsed[0].id);
           setMessages(parsed[0].messages);
+          void restoreWorkspaceForChat(parsed[0].messages, parsed[0].id);
         } else {
           activeConversationIdRef.current = null;
           setActiveConversationId(null);
           setMessages([]);
+          useWorkspaceStore.getState().clear();
         }
       } catch (err) {
         console.error('Error loading conversations:', err);
@@ -421,6 +429,7 @@ function StockChatContent() {
       activeConversationIdRef.current = null;
       setActiveConversationId(null);
       setMessages([]);
+      useWorkspaceStore.getState().clear();
     }
   }, [mounted]);
 
@@ -437,6 +446,9 @@ function StockChatContent() {
     const chat = conversationsRef.current.find(c => c.id === id);
     if (chat) {
       setMessages(chat.messages);
+      void restoreWorkspaceForChat(chat.messages, id);
+    } else {
+      useWorkspaceStore.getState().clear();
     }
   };
 
@@ -444,6 +456,7 @@ function StockChatContent() {
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
     setMessages([]);
+    useWorkspaceStore.getState().clear();
   };
 
   const handleDeleteConversation = (id: string) => {
@@ -454,10 +467,12 @@ function StockChatContent() {
         activeConversationIdRef.current = updated[0].id;
         setActiveConversationId(updated[0].id);
         setMessages(updated[0].messages);
+        void restoreWorkspaceForChat(updated[0].messages, updated[0].id);
       } else {
         activeConversationIdRef.current = null;
         setActiveConversationId(null);
         setMessages([]);
+        useWorkspaceStore.getState().clear();
       }
     }
   };
@@ -1149,6 +1164,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'tasks' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <TasksScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('ui-builder') && (
+            <div className={cn('w-full h-full', activeTab === 'ui-builder' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <UiBuilderScreen />
               </div>
             </div>
           )}

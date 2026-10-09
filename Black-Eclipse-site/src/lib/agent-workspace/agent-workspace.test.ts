@@ -1,8 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeWorkspaceEvent } from './normalize';
 import { applyWorkspaceEvents, initialWorkspaceState } from './reducer';
-import { replayTrace } from './history';
+import { applyRunRecord, replayTrace } from './history';
+import type { RunRecord } from '@/lib/harness/types';
 import type { AgentWorkspaceState, WorkspaceEvent } from './types';
+
+function runRecord(overrides: Partial<RunRecord> = {}): RunRecord {
+  return {
+    id: 'run_x',
+    agentId: 'chat',
+    userId: null,
+    status: 'completed',
+    input: {},
+    output: null,
+    error: null,
+    modelSteps: 0,
+    toolCalls: 0,
+    toolErrors: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    provider: null,
+    model: null,
+    createdAt: '2026-10-09T00:00:00Z',
+    updatedAt: '2026-10-09T00:10:00Z',
+    startedAt: null,
+    finishedAt: null,
+    ...overrides,
+  } as RunRecord;
+}
 
 function run(events: WorkspaceEvent[], state = initialWorkspaceState('run_1')): AgentWorkspaceState {
   return applyWorkspaceEvents(state, events);
@@ -285,5 +311,55 @@ describe('history.replayTrace — reconstruct a run from a persisted trace', () 
     const a = replayTrace('r', trace);
     const b = replayTrace('r', [...trace].reverse());
     expect(a.execution.status).toBe(b.execution.status);
+  });
+});
+
+describe('history.applyRunRecord — authoritative run-record merge', () => {
+  it('fills model, telemetry and context from the record', () => {
+    const state = initialWorkspaceState('run_x');
+    applyRunRecord(
+      state,
+      runRecord({
+        provider: 'openai',
+        model: 'gpt-5',
+        promptTokens: 1000,
+        completionTokens: 200,
+        totalTokens: 1200,
+        modelSteps: 3,
+        toolCalls: 4,
+        finishedAt: '2026-10-09T00:10:00Z',
+        context: {
+          window: 128000,
+          windowKnown: true,
+          keptTurns: 6,
+          droppedTurns: 2,
+          droppedTokensEstimate: 300,
+          tighterRetry: false,
+        },
+      }),
+    );
+    expect(state.model).toEqual({ provider: 'openai', model: 'gpt-5' });
+    expect(state.telemetry.totalTokens).toBe(1200);
+    expect(state.telemetry.promptTokens).toBe(1000);
+    expect(state.telemetry.modelSteps).toBe(3);
+    expect(state.execution.status).toBe('completed');
+    expect(state.context.windowKnown).toBe(true);
+    expect(state.context.windowTokens).toBe(128000);
+    expect(state.context.turnsKept).toBe(6);
+    expect(state.context.turnsDropped).toBe(2);
+  });
+
+  it('does not overwrite replay data with zero-valued record fields', () => {
+    const state = replayTrace('run_x', [
+      { type: 'model.completed', seq: 1, at: '2026-10-09T00:00:01Z', data: { promptTokens: 50, completionTokens: 25, totalTokens: 75, step: 1 } },
+    ]);
+    applyRunRecord(state, runRecord({ provider: 'x', model: 'y' }));
+    expect(state.telemetry.totalTokens).toBe(75);
+  });
+
+  it('marks a failed run as failed', () => {
+    const state = initialWorkspaceState('run_x');
+    applyRunRecord(state, runRecord({ status: 'failed', finishedAt: '2026-10-09T00:10:00Z' }));
+    expect(state.execution.status).toBe('failed');
   });
 });

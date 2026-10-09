@@ -65,6 +65,12 @@ from .secrets import (
     SecretRegistry,
     SecretsManager,
 )
+from .tenant_store import (
+    TenantIdError,
+    TenantStoreRegistry,
+    default_tenant_root,
+    normalize_tenant,
+)
 
 __all__ = [
     "ANONYMOUS",
@@ -117,12 +123,16 @@ __all__ = [
     "SecurityGateway",
     "SessionRegistry",
     "UnavailableSandbox",
+    "TenantIdError",
+    "TenantStoreRegistry",
     "Verdict",
     "classify_tool",
     "default_floor",
+    "default_tenant_root",
     "effect_tool_names",
     "get_sandbox",
     "multi_tenant_required",
+    "normalize_tenant",
     "require_identity",
     "require_tenant",
     "resolve_identity",

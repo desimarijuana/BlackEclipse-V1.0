@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson } from "@/lib/harness";
+import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 
@@ -77,7 +78,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort);
+    const identityHeaders = await runtimeIdentityHeaders(request);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

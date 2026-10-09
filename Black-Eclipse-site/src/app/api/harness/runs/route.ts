@@ -8,6 +8,7 @@ import {
   HarnessRuntimeUnavailable,
   toHarnessErrorJson,
 } from "@/lib/harness";
+import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -31,7 +32,8 @@ export async function POST(request: Request) {
       : undefined;
     const background = (body as Record<string, unknown>).background === true;
 
-    const result = await startRun({ input: validated.value, agentId }, { background });
+    const identityHeaders = await runtimeIdentityHeaders(request);
+    const result = await startRun({ input: validated.value, agentId, identityHeaders }, { background });
     const isBackground = "status" in result && !("modelSteps" in result);
     return NextResponse.json({ success: true, ...result }, { status: isBackground ? 202 : 200 });
   } catch (err) {

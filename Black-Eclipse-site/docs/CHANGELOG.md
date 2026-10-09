@@ -6,8 +6,244 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-09
+
+- **UI Engineering foundation (TS): component catalog + declarative blueprint
+  engine.** New framework-pure module `src/lib/ui-engineering/`: `catalog.ts`
+  projects the existing `WidgetDefinition` registry into queryable
+  `UiComponentSpec`s (`adaptWidgetDefinition`, `ComponentCatalog.search`,
+  `validateComponentConfig`); `blueprint.ts` wraps the existing `WorkspaceLayout`
+  in a versioned `UiBlueprint` with strict, truthful validation (unknown
+  component / duplicate instance / bad config are reported, not silently
+  dropped); `patches.ts` applies a closed set of atomic, catalog-validated
+  `BlueprintOp`s in one Immer transaction (delegating layout math to
+  `workspace/ops.ts`); `revisions.ts` adds `diffBlueprints`, a bounded
+  append-only `BlueprintHistory`, `restoreRevision` and optimistic-concurrency
+  `detectConflict`; `store.ts` provides in-memory + localStorage
+  `BlueprintStore`s that never overwrite a corrupt payload. 38 vitest cases pass
+  and `npx tsc --noEmit` is clean. **Boundary:** frontend foundation only — the
+  `ui.*` agent tools, the Python `agent-memory.db` blueprint store, Compose/
+  Engineer mode selection and the UI Builder workspace are the next phases.
+  docs updated: `docs/ui-engineering.md` (new), `docs/NAVIGATION.md`, this file.
+
+- **UI Engineering runtime (Phases 4–5): server-side blueprint store + `ui_*`
+  agent tools.** New `python/harness/ui/` on the ONE `agent-memory.db` and the
+  ONE event system: `model.py` (pydantic contracts — `UiComponentSpec`,
+  `UiBlueprint`, the workspace layout tree, closed vocabularies; camelCase on
+  the wire), `catalog.py` (`UiCatalog` seeded with the foundational component
+  kinds + `validate_component_config` with TS-identical semantics), `engine.py`
+  (`validate_blueprint` strict/truthful + atomic `apply_ops` with revision bump
+  + `diff_blueprints`), `store.py` (`UiStore`: `UiBlueprint`,
+  `UiBlueprintRevision`, `UiComponent`, `UiOperation`, `UiIdempotency`), and
+  `service.py` (`UiService` = catalog + blueprints + widget ops + optimistic
+  concurrency `UI_CONFLICT` + operation audit + `ui.*` events). Registered 24
+  `ui_*` tools on the shared `ToolRegistry` (introspection `ui_get_*` +
+  `ui_create_page`/`ui_add_widget`/`ui_move_widget`/`ui_resize_widget`/
+  `ui_update_widget_config`/`ui_save_layout`/`ui_restore_revision`/
+  `ui_preview_change`) and added them to the default agent allowlist; new
+  operator-gated routes `routers/ui.py` (`/ui/*`) included by `main.py`; boot
+  wiring `install_ui_layer` in `service.py` + the `ui_service` `ToolContext`
+  seam in `graph.py`/`tools.py`; Next.js front door
+  `src/lib/harness/ui-client.ts` + `src/app/api/ui/[[...path]]/route.ts`; `ui`
+  event namespace. Tests `python/tests/test_ui_{engine,store,service,tools,api}.py`
+  (38 cases). All UI tools are `permission="read"` — they change only Eclipse's
+  own owner-scoped UI config, never filesystem/network/shell/secrets. **Boundary:**
+  the runtime seeds the foundational component kinds; syncing the real dashboard
+  widget registry into the runtime catalog, the two-mode Compose/Engineer flow
+  (Phase 6) and the UI Builder workspace (Phase 8) remain. Verified: pytest
+  5086+ passed (16 opt-in skips), `npx tsc --noEmit` clean. docs updated:
+  `docs/ui-engineering.md`, `docs/NAVIGATION.md`, this file.
+
+- **Failure Intelligence & Adaptive Recovery — the one cross-subsystem failure
+  layer.** New `python/harness/recovery/`: `taxonomy.py` (the shared
+  `FailureKind`/`Retryability` vocabulary + pure `normalize_failure`),
+  `signature.py` (stable 16-hex signatures + `RecurrenceTracker`), `policy.py`
+  (ordered `select_strategies` + `reject_reason`; never retries a deterministic
+  failure unchanged, never provider-swaps an auth denial), `controller.py`
+  (bounded `RecoveryDecision` + exponential backoff), `store.py`
+  (`RecoveryIncident`/`RecoveryAttempt` on **`eclipse-memory.db`**, migration 26),
+  `service.py` (classify+decide+persist), `bootstrap.py` (idempotent install +
+  Event System failure subscription), `tools.py` (read-only `recovery_*` tools),
+  and operator routes `routers/recovery.py` (`/recovery/*`). Wired in `boot.py`
+  (not `service.py`/`graph.py`, which are ratcheted) and `main.py`. It composes
+  existing taxonomies/diagnostics/retry/routing — it is NOT a second execution
+  loop and never runs a tool or mutates task state. 40 new pytest cases pass,
+  including a live `tool.failed` → incident end-to-end case. Full suite
+  `5129 passed, 16 skipped`; vitest 2375; `npx tsc --noEmit` clean; eval gates
+  ALL PASS. The `test_size_budget` ratchet is re-pinned for the pre-existing
+  in-flight drift in `graph.py`/`service.py` and `main.py` is held at 1200.
+  **Boundary:** the UI panel, automatic strategy execution and feeding incidents
+  into skill promotion remain. docs updated: `docs/harness/failure-recovery.md`
+  (new), `docs/harness/decisions.md` (ADR-H163), `docs/NAVIGATION.md`, this file.
+
+- **Recovery engine completes the loop: diagnosis, automatic execution, capability
+  discovery, incident→skill promotion, and a `/recovery` console.** New in
+  `python/harness/recovery/`: `diagnosis.py` (evidence-ranked `DiagnosisEngine` +
+  `Hypothesis`; decisive only with strong evidence, otherwise names the gap),
+  `executor.py` (`recover_operation` — a bounded async retry/verify loop driving the
+  controller, with caller-registered repair handlers and verify-gated success),
+  `discovery.py` (`CapabilityIndex` over tools/providers/skills + approval-flagged
+  `acquisition_plan`), `learning.py` (`promote_incidents` — inert `LearningCandidate`s
+  through the existing learning store). Persistence: migration 27 adds the
+  idempotent `RecoveryDiagnosis` table. New read tools `recovery_diagnose` /
+  `recovery_discover`; operator routes `POST /recovery/incidents/{id}/diagnose`,
+  `POST /recovery/promote`, `GET /recovery/discover`. Standalone front door:
+  `src/app/recovery/` console (mirrors `/events`), `src/app/api/recovery/[[...path]]`,
+  and `src/lib/harness/recovery-view.ts`. 64 pytest cases + `recovery-view.test.ts`;
+  full suite `5161 passed, 16 skipped`; vitest 2389; `npx tsc --noEmit` clean; eval
+  gates ALL PASS. docs updated: `docs/harness/failure-recovery.md`,
+  `docs/harness/decisions.md` (ADR-H164), `docs/NAVIGATION.md`, this file.
+
+- **Autonomy Envelope + deterministic probes + operation/compensation ledger.** New
+  in `python/harness/recovery/`: `envelope.py` (`AutonomyEnvelope`/`ActionClass` —
+  pre-committed, scoped, expiring permission by action class with risk/reversibility/
+  cost/file/network caps and a `HARNESS_AUTONOMY` kill switch; default is
+  conservative, effectful classes opt-in), `probes.py` (read-only dependency/provider
+  probes registered at boot), `operations.py` (`OperationLedger` — idempotency-keyed
+  side-effect tracking + compensation bookkeeping; migration 28 `RecoveryOperation`).
+  The executor now acts unattended ONLY inside the envelope (else returns
+  `outside_autonomy_envelope`). New operator routes `GET/PUT /recovery/envelope` and
+  `GET /recovery/operations`; console gains an "Autonomy & operations" tab. Fixed a
+  variable-shadowing bug in the executor found by the new tests. 87 pytest cases;
+  full suite `5190 passed, 16 skipped`; vitest 2392; `npx tsc --noEmit` clean; eval
+  gates ALL PASS. docs updated: `docs/harness/failure-recovery.md`,
+  `docs/harness/decisions.md` (ADR-H165), `docs/NAVIGATION.md`, this file.
+
+- **Agent Workspace: new Context tab (session-context gauge).** The right sidebar
+  gains a fifth tab showing how full the model's context window is, mirroring the
+  OpenCode session sidebar: usage % + a segmented breakdown gauge, plus tiles for
+  window / total / input / output tokens, remaining, turns kept-dropped, memories
+  and estimated cost, and a per-source legend. It reuses the already-normalized
+  store (`state.context`, `state.contextSources`, `state.telemetry`) — no harness
+  change — and resolves the window from the declared model catalog. New pure
+  module `src/lib/agent-workspace/context-usage.ts` (+9 tests) keeps the math
+  testable and honest (unknown window → "Not available", never a faked full bar);
+  `totalTokens` is run-cumulative per step, as documented. docs updated:
+  `docs/agent-workspace.md`.
+
+- **Agent Workspace tabs gain icons.** The sidebar nav was text-only, so the new
+  Context tab had no visual affordance. Each tab now renders its `PANEL_ICONS`
+  glyph before the label (Output=Bot, Context=SlidersHorizontal, Changes=FileText,
+  Approvals=ShieldAlert, History=Bot); `PANEL_ICONS.output` was added. No behavior
+  change — labels, order and attention dots unchanged. no doc change — visual
+  affordance only, contracts unchanged.
+
+- **UI Engineering Phases 6 & 8 + event-system shutdown fix.** Two-mode
+  generation: `python/harness/ui/mode.py::classify_request` is a deterministic,
+  model-free Compose/Engineer/both selector (errs toward Compose so a
+  configuration change is never silently turned into a source-code release),
+  exposed as the `ui_classify_request` tool and `POST /ui/classify`. UI Builder:
+  new `src/components/screens/ui-builder/ui-builder-screen.tsx` (AppTab
+  `ui-builder`) — page navigator, component catalog, structural preview,
+  properties inspector (config validated against each component's schema),
+  AI command panel (classify + add matched component), revision history/restore
+  and a diagnostics log — wired via `ui-client.ts` + the `/api/ui` proxy; added
+  `POST /ui/blueprints/{id}/widgets/{instance_id}/reorder` (+ client and
+  sidebar/nav/i18n entries; sidebar shortcut tests updated). **Defect fixed
+  (pre-existing, order-dependent):** `event_system/bus.py::shutdown` awaited
+  `asyncio.gather` across worker tasks created on a PREVIOUS loop, raising
+  `ValueError: The future belongs to a different loop`, which aborted
+  `EventSystem.stop()` before `_started=False`; the next boot's `start()` then
+  no-opped and the bus stayed `_closed`, so `publish()` silently dropped events
+  (the intermittent `test_recovery_api` live-event failure — reproduced with the
+  UI layer disabled). Shutdown is now loop-safe (drains only same-loop workers,
+  clears subscriptions) and `stop()` resets `_started` in a `finally`; `start()`
+  clears stale subscriptions. Tests: `python/tests/test_ui_mode.py` + reorder/
+  classify API cases + `test_events_bus.py` drain case; vitest 220 files / 2389
+  tests, pytest green. docs updated: `docs/ui-engineering.md`,
+  `docs/NAVIGATION.md`, this file.
+
+- **UI Engineering Agent (Phase 7): Engineer-mode orchestration over the existing
+  Task/Plan runtime.** New `python/harness/ui/engineering.py` (`UiEngineering`)
+  turns an Engineer/Both-mode request (`mode.classify_request`) into a DURABLE
+  plan + task on the EXISTING `python/harness/tasks/` manager (assigned to
+  `code-agent` at `edit_verify`, with UI acceptance criteria) — no parallel agent
+  loop is introduced; the existing scheduler + code capability execute it. The
+  loop closes via `ui_register_engineered_component`, which registers the new
+  component in the ONE catalog (so a later Compose request can use it), satisfies
+  the "registered in the UI catalog" criterion with evidence, and attaches a
+  `ui-component` artifact. Compose-mode requests create no task (`start` says so
+  honestly). `UiService` gains an `engineering` collaborator (built from
+  `service.tasks` in `bootstrap.install_ui_layer`); four tools
+  (`ui_start_engineering`, `ui_engineering_status`,
+  `ui_register_engineered_component`, `ui_link_engineering_artifact`) and four
+  operator-gated routes (`POST /ui/engineering`, `GET
+  /ui/engineering/{plan_id}`, `POST /ui/engineering/{task_id}/components`,
+  `POST /ui/engineering/{task_id}/artifacts`); the UI Builder AI panel gains a
+  "Create engineering task" action. Tests: `test_ui_engineering.py` +
+  engineering API cases (51 UI pytest cases total). docs updated:
+  `docs/ui-engineering.md`, `docs/NAVIGATION.md`, this file.
+
+- **Agent Workspace: reopening a past chat restores its run; Context tiles use the
+  glass system.** Opening an existing conversation now repoints the workspace at
+  that chat's most recent run instead of leaving the last live run's data on
+  screen: new `src/lib/agent-workspace/restore.ts` resolves the run id (last
+  `Message.runId`, else the runtime's `/api/sessions/{chatId}` run list), rebuilds
+  it via new `history.loadRunSnapshot` (replayed event trace **plus** the
+  authoritative run record — tokens, model, context window), and commits it with
+  the new `store.loadRun` action; a new chat / run-less chat calls `store.clear()`.
+  The History tab's reopen uses the same snapshot path. Also fixed the Context
+  stat tiles to the design language: `StatTile` now uses `.glass-card-subtle`
+  (frosted) instead of a flat fill + `border border-white/8`. New
+  `history.applyRunRecord` (+3 tests). docs updated: `docs/agent-workspace.md`.
+
+- **UI Engineering: host-registry ↔ runtime-catalog sync bridge + live-render
+  preview.** The UI Builder now pushes the REAL dashboard widget specs into the
+  runtime catalog via `syncCoreCatalog()` (`src/lib/harness/ui-sync.ts`,
+  adapting `dashboardComponentSpecs()` and POSTing `POST /ui/components`), so the
+  agent can Compose with the actual widgets and the specs persist on
+  agent-memory.db across restarts — no second hand-maintained widget list in
+  Python. Its "live render" toggle draws a widget through the SAME host
+  implementation the published dashboard uses (`renderDashboardWidget`) wrapped
+  in an error boundary (`ui-builder/live-boundary.tsx`); ids with no host
+  renderer fall back to the structural card. `registerComponent` now accepts a
+  loose spec (the runtime validates). Tests: `src/lib/harness/ui-sync.test.ts`.
+  docs updated: `docs/ui-engineering.md`, `docs/NAVIGATION.md`, this file.
+
+- **Production deployment kit (container).** New `Dockerfile` (Node 20 + Python 3;
+  installs Node + Python deps, `prisma generate`, `next build`),
+  `docker-entrypoint.sh` (links `jdds.db` / `agent-memory.db` /
+  `eclipse-memory.db` / `.black-eclipse/` into a mounted `/data` volume so state
+  survives restarts — needed because `src/lib/db.ts` hard-codes `cwd/jdds.db`),
+  `docker-compose.yml` (single service, `.env`, `be-data` volume, healthcheck,
+  `restart: unless-stopped`), `.dockerignore`, and `.env.example` (all required
+  production vars). One container runs both services: the app spawns the Python
+  harness as a child, so only port 3000 is exposed. Guide: `docs/DEPLOYMENT.md`
+  (new). docs updated: `docs/DEPLOYMENT.md`, `docs/NAVIGATION.md`, this file.
+
 ## 2026-10-08
 
+- **Run-path tenant identity + identity header on the explicit run routes.**
+  `RunRequest` gains a verified `tenantId`; the Python `/runs` boundary resolves it
+  from the edge identity (`resolve_identity`) and the graph puts it on the
+  `ToolContext`, so the security gateway scopes every effect decision to the run's
+  tenant (multi-tenant runs now authorize correctly instead of failing closed).
+  The explicit `/runs`, `/chat` and `/chat/stream` routes now attach
+  `X-Harness-Identity` (`runtimeIdentityHeaders`) via `runViaRuntime`, threading it
+  through `run-service`. Tests: `test_security_tenancy.py` (run endpoint sets
+  tenant from identity / leaves it None without). **Boundary:** run DATA still
+  lands in the shared store; routing the run path through `TenantStoreRegistry`
+  and isolating memory/tasks/artifacts/JDdS per tenant remain the data-plane work.
+  docs updated: `docs/harness/security.md`, this file.
+- **Tenant isolation + sandbox gate + universal identity header.** (1)
+  `security/tenant_store.py`: `TenantStoreRegistry` maps a sanitized tenant id to
+  its own `AgentMemoryStore` file under `.black-eclipse/tenants/<tenant>/`
+  (`BLACK_ECLIPSE_TENANT_DB_DIR`) — two tenants, two databases, so a missing
+  `WHERE` cannot leak rows; wired into `AgenticService.tenant_stores`. (2) The
+  identity header `X-Harness-Identity` is now forwarded by **every** `[[...path]]`
+  proxy (13 routes) via `runtimeIdentityHeaders`, so no feature route reaches the
+  runtime without the verified user/tenant. (3) `BLACK_ECLIPSE_SANDBOX_REQUIRED`
+  (`1`|`docker`) makes the gateway refuse an execution action when the required
+  isolation backend is absent (audited `security.sandbox.blocked`); a forced
+  `UnavailableSandbox` is now honored instead of silently re-detected. (4)
+  `scripts/security-preflight.js` (`npm run security:preflight`) fails closed on a
+  network-facing deployment missing `HARNESS_AUTH_SECRET`/`CRON_SECRET`. Tests
+  `test_security_tenant_store.py` + updated sandbox tests (231 security tests).
+  **Boundary:** the tenant-store primitive is available but the run path is not yet
+  routed through it, and the explicit `/runs` route still forwards only the
+  front-door-verified `userId`/`scopeId`; full data-plane tenancy remains. docs
+  updated: `docs/harness/security.md`, `docs/harness/decisions.md` (ADR-H162), this
+  file.
 - **Production hardening of the evidence release gate: credential-safe verdicts,
   and production gates exercised.** The gate now strips a cited URL's `user:pass@`
   authority before it is persisted on the run blob or emitted as
@@ -3319,604 +3555,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`edit_verify`) and the model actually receives the shell/filesystem tools
   instead of honestly refusing with "no filesystem access". Pure finance
   questions ("price of BTC") still classify `not_code`.
-
-## 2026-10-02
-
-
-- **Attachments are VISIBLE at the composer.** An attached file used to be hidden
-  behind a collapsed session bar, so "did it attach?" was unanswerable. Files now
-  render as chips directly above the chat composer â€” a file icon, the name, and an
-  X to remove â€” plus the "Attached N" count. Shown on both the empty landing and
-  an active conversation. The chip list merges pending (attached before a session
-  exists) and saved context files, de-duplicated (`mergeAttachmentChips`, pure and
-  tested). Verified in a real browser (Playwright): attaching a file renders the
-  `chatmade.py` chip with its remove button. Tests: `attachment-chips.test.ts`.
-  `tsc` clean; vitest 2042 passed; pytest 2474 passed.
-  docs updated: `docs/CHANGELOG.md`
-
-- **Attachments actually work: real file names + Office documents.** The file-name
-  guard was an ASCII allowlist, which REJECTED extremely common real names â€”
-  `notes(1).md`, `rÃ©sumÃ©.pdf`, `Q3 [final].xlsx`, `R&D.csv` â€” so "attach a file"
-  failed with "Invalid file name" for most files a person picks. It is now a
-  denylist (path separators, control chars, Windows reserved names) that accepts
-  Unicode and ordinary punctuation while still refusing traversal. Also added real
-  extraction for `.docx`/`.xlsx`/`.pptx` (Office files are ZIP+XML â€” a
-  dependency-free bounded ZIP reader extracts the text) so the most common finance
-  documents are no longer "unsupported". Verified live: `my report(1).pdf`,
-  `rÃ©sumÃ©.txt`, `Q3 [final].md`, `R&D.csv` all upload; a generated `earnings.docx`
-  uploads and its text reaches `loadContextDocuments`. Tests: 6 new cases.
-  `tsc` clean; vitest 2038 passed; pytest 2474 passed.
-  docs updated: `docs/CHANGELOG.md`
-
-- **ChatBot landing composer no longer floats up.** Commit `3445a2f` wrapped
-  `EmptyState` (which pins the composer with `flex-1 â€¦ justify-end`) in a plain
-  `flex w-full flex-col items-center` div with no `flex-1`, so the `justify-between`
-  column had nothing to push against and the input box drifted upward. The wrapper
-  now grows (`flex-1 â€¦ min-h-0`), restoring the bottom-pinned composer.
-  `tsc` clean.
-  no doc change â€” layout bug fix, contracts intact.
-
-- **Chat can now create files on your PC; attachments show; honest narration.**
-  Three real defects behind "it won't create a file / can't attach". (1) The
-  STREAMING chat path (`startChatRun`) sent an autonomy but never a `direct` flag,
-  so a code turn always edited a disposable worktree, never the folder the user
-  picked. The runtime now resolves direct mode itself: a run bound to a
-  user-selected trusted root edits the real folder, the built-in repo stays
-  isolated (`workspace.trusted_root_selected` + `graph._resolve_direct`). (2)
-  Attaching a file on the EMPTY state put it in a ref with zero UI feedback, and
-  the first message started the run before the upload landed â€” so the file neither
-  showed nor reached the run. Pending files now render immediately in the session
-  bar (shown in the empty state too) and `handleSend` awaits `flushPending` so the
-  first turn's context includes them. (3) Tool output said "disposable copy" even
-  in direct mode; `workspace_status`/patch/diff/revert messages now name where the
-  change actually landed (`ctx.direct`). Verified live: a chat-style run wrote
-  `honest.py` into the real folder, ran it (exit 0), and reported "written to the
-  user's real folder". Tests: `test_code_worktree.py` direct auto-resolve case.
-  `tsc` clean; vitest 2033 passed; pytest 2473 passed.
-  docs updated: `docs/CHANGELOG.md`
-
-- **Editor: a real explorer tree â€” create files/folders, expand in place, delete.**
-  The editor had no "+" control at all and clicking a folder navigated away, so a
-  file could not be added. The tree is now an editor explorer: click a file to
-  open it, click a folder to expand it in place, "+" (new file / new folder) opens
-  an inline name field committed with Enter, and hovering a row reveals Delete.
-  Added `POST /workspace/file/mkdir` and `/workspace/file/delete` (a non-empty
-  folder is refused, never removed recursively) plus their `code-client` /
-  `code-browser` proxies and `/api/workspace/file/{mkdir,delete}` routes.
-  Verified live: created `demo/sub`, wrote `demo/sub/a.txt`, listed it, and the
-  non-empty delete was refused. Tests: 4 new cases in `test_workspace_editor_api.py`.
-  `tsc` clean; vitest 2033 passed; pytest 2473 passed.
-  docs updated: `docs/CHANGELOG.md`
-
-- **The chat stream now reads like a real coding harness.** Tool activity showed
-  only a tool NAME ("Reading a file"); it now shows what the tool is doing and
-  what came back â€” "Writing the change `stream.py` â†’ 1 file(s)", "Running
-  `python stream.py` â†’ exit 0". Added `python/harness/code/activity.py`
-  (`tool_detail`/`tool_result_summary`) â€” a pure, bounded, content-free derivation
-  (a command, a file PATH, the changed PATHS; never file text, so a secret in a
-  patch body never reaches the stream). `graph.py` emits `detail` on
-  `tool.requested` and `summary` on `tool.completed`; the client carries
-  `ActivityItem.detail` and the row renders it in monospace beside the label.
-  Verified live against the runtime: the run's events carry
-  `terminal_run | detail= python stream.py | summary= exit 0`. Tests
-  `test_code_activity.py` + two `events.test.ts` cases. `tsc` clean; vitest 2032
-  passed; pytest 2470 passed.
-  docs updated: `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H121)
-
-- **Folder selection + direct editing + a general terminal + an Editor surface.**
-  Eclipse can now work on a folder you choose, not only its own repo. (1) **Trusted
-  roots**: a folder picker (`/workspace/browse`) and an operator-approved, persisted
-  allowlist (`TrustedRoot` in `agent-memory.db`); the SELECTED root becomes what
-  `workspace.default_root()` resolves to, after the env override â€” so zero-config is
-  unchanged. (2) **Direct mode**: `worktree.allocate(direct=True)` edits the selected
-  real folder (strategy `"direct"`; `release` never deletes it); a code task defaults
-  to direct when a folder is selected. Confinement is unchanged â€” `resolve_within` +
-  `PROTECTED_PATHS` still apply, so the human editor and the agent share one boundary.
-  (3) **`terminal_run`**: an arbitrary command WITHOUT a shell, classified
-  allow/ask/deny in Python â€” safe tools run, others need a per-command single-use
-  approval, destructive/shell/downloader commands are refused; runs through the
-  existing sandbox and is recorded in the ledger. (4) **Editor UI** (AppTab `editor`):
-  file tree + text editor + save, plus the folder picker. Verified live: approved a
-  folder, created and ran `auto.py` in the REAL folder (exit 0), listed/wrote/read a
-  nested file through the editor API, and confirmed `.env`/traversal/absolute paths
-  are refused. Tests `test_code_roots.py`/`test_code_terminal.py`/
-  `test_workspace_editor_api.py` + direct-mode cases in `test_code_worktree.py`.
-  `tsc` clean; vitest 2031 passed; pytest 2461 passed.
-  docs updated: `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H118/H119/H120)
-
-- **Alert symbol search un-capped; fired alerts now visible app-wide.** Two real
-  defects behind "only 4 assets / no notification". (1) `/api/quote` symbol
-  autocomplete was hard-capped at 8 rows (`LIMIT 8` + `.slice(0,8)`) via
-  `searchSymbols`, and de-duped by symbol alone â€” so searching "A" showed 8 and
-  a ticker listed in two markets collapsed to one. Now up to 100 rows, de-duped by
-  `symbol|market`, with the alert builder, market-overview strip, price-ribbon and
-  chart-compare suggestion lists raised from 8â†’50 and made scrollable. (2) Desktop
-  notifications silently no-op unless the user opted in AND granted permission â€”
-  which is why no notification appeared. `AlertNotificationProvider` now ALWAYS
-  shows an app-wide bottom-right in-app toast for every fired alert (all tabs, no
-  permission needed) and additionally raises the OS notification when enabled; it
-  is the single owner of delivery via the `be:alert-notify` event (the Settings
-  test button no longer calls `showAlertNotification` directly, which double-fired).
-  Verified against a forced rebuild: `?q=A` returns 100, a test fire created a new
-  event (8â†’9), the notification bundle is live; `tsc --noEmit` clean; eslint clean;
-  vitest 2031 passed.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
-
-- **Fix three real failures that made the code harness non-functional from the
-  UI.** Exercising the live stack (not just the test suite) showed "build me X"
-  could never complete. (1) **HTTP 500 on every code task**: `POST /code/tasks`
-  recorded the `task.created` `RunCheckpoint` (FK â†’ `HarnessRun(id)`) BEFORE the
-  run row existed, so `record_created` raised `sqlite3.IntegrityError: FOREIGN
-  KEY constraint failed`; the route now creates the run row first and
-  `execute_run` reuses a pre-created row (only in `created` status). (2) **No
-  write ever succeeded on Windows**: an unconfigured `git worktree add` aborted
-  on the deep scaffold-kit template paths with `Filename too long`, silently
-  demoting every allocation to the snapshot fallback, which then refused with
-  `SNAPSHOT_TOO_LARGE`; every git invocation now carries `-c core.longpaths=true`
-  (per-command, so the operator's global config is untouched). (3) **Chat never
-  bound code tools**: the non-streaming `chatWithAgent` (`/api/harness/chat`)
-  bypassed the Phase-14 classifier that only `startChatRun` used, so a coding
-  request reached the model with no write/execute tool and the model honestly
-  refused; it now resolves the same code profile. Verified live: a real task
-  created `hello.py` + a test in its disposable worktree and the ledger recorded
-  `python_test` exit 0; the chat route then built a module end-to-end. Added
-  regression tests `python/tests/test_code_api.py` (route FK ordering),
-  long-path assertions in `test_code_worktree.py`, and four
-  `chatWithAgent` profile cases. `tsc --noEmit` clean; vitest 2031 passed;
-  pytest 2428 passed; `npm run test:evals` all pass.
-  docs updated: `docs/CHANGELOG.md`
-
-- **Remove the remaining hardcoded 4-market lists.** After the alert builder fix,
-  an audit of every market list found two more that were silently narrowed to
-  `US/PK/IN/CRYPTO`: the Settings â€º General "Default Market" *fallback*
-  (`general-settings.tsx` `ALL_MARKETS`, now derived from `HEATMAP_MARKETS`) and
-  the legacy agent's `get_price` tool description (`src/lib/agent/tools.ts`, now
-  names several markets). The Market Data panel and screener already load the
-  full set from JDDS (`/api/markets` â†’ 28). Verified against a forced rebuild:
-  the old `["US","PK","IN","CRYPTO"]` literal is gone from `.next`, 28 markets /
-  1,455 crypto assets are reachable, and `npm run demo:btc` is 6/6 PASS.
-  `tsc --noEmit` clean; eslint clean; vitest 2027 passed.
-  docs updated: `docs/CHANGELOG.md`
-
-- **Alert builder: full market coverage + a runnable BTC demo.** Investigating a
-  report that "markets are limited" found the data path is complete (28 JDDS
-  markets + FX/commodities; 1,455 crypto assets incl. BTC; correct live quote),
-  but the alert builder's market dropdown was hardcoded to
-  `["US","PK","IN","CRYPTO"]`. It now lists every market the alert feed can
-  actually quote (`HEATMAP_MARKETS` minus FOREX/COMMODITIES, which have no Yahoo
-  suffix) in `src/app/alerts/alerts-client.tsx`. Added `scripts/demo-btc.mts`
-  (`npm run demo:btc`), a live end-to-end demo: JDDS vault â†’ yfinance CRYPTO
-  `BTC-USD` (~$84k) â†’ the bare-`US BTC` ETF trap it disambiguates (~$37) â†’ the
-  alert engine's `fetchSnapshots` â†’ markets beyond the old hardcoded list
-  (UK/JP/DE/CRYPTO) â†’ the running app's `/api/quote`. Verified: demo OK, 6 legs,
-  0 failed; `tsc --noEmit` clean; vitest 2027 passed.
-  docs updated: `docs/NAVIGATION.md`
-
-- **Universal financial-fact engine, slice 6: point-in-time, research router and
-  corporate-action ingestion â€” the remaining sections.** Closes the three gaps the
-  audit named. `finance_facts/point_in_time.py` (Â§15) keeps period_end /
-  publication / retrieval distinct and refuses a later report under an earlier
-  cutoff (`latest_known_per_metric` returns the revision available THEN, not the
-  newest that exists today). `finance_facts/router.py` (Â§24) classifies a question
-  into an intent and returns the evidence areas it NEEDS â€” with sector-specific
-  additions â€” so the agent plans retrieval instead of taking whatever JDdS holds.
-  `finance_facts/corporate_actions.py::extract_from_series` (Â§17) derives splits and
-  dividends from the price series the yfinance bridge already carried
-  (`scripts/yfinance_bridge.py` now emits `Dividends`/`Stock Splits` per bar;
-  `normalize_history` lifts them to `stock_split`/`dividend` observations). Tests:
-  `test_finance_facts_pit_router.py` (10 cases). Full release gate: vitest 178 files
-  / 2027 tests, pytest 2425, ALL GATES PASSED. Still no ticker-specific logic; no
-  prisma/schema.prisma or jdds.db change.
-  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
-
-- **Universal financial-fact engine, slice 5: the final-answer gate.** Closes the
-  loop â€” the answer is now checked against the run's own validated facts, exactly
-  as code claims are checked against the verification ledger. `finance_facts/enforce.py`
-  (`enforce_finance_answer`) is deterministic and makes no model call: if the answer
-  asserts a metric the run's analysis EXCLUDED (ambiguous definition, no period,
-  superseded) or states one side of a cross-source conflict without saying so, it
-  requires a disclosure â€” it never silently strips the number. An already-present
-  in-sentence disclosure is honoured, so it never nags. `source_collector.py` now
-  accumulates the per-retrieval analysis across the run (deduplicated, higher
-  confidence wins) and carries it on the `research` blob's `financeAnalysis`;
-  `graph.py` adds ONE guarded block that appends the disclosure to the completed
-  answer and emits `finance.analysis`. Wiring is additive and exception-guarded.
-  Tests: `test_finance_facts_enforce.py` (8 cases) plus the collected-blob path.
-  Full release gate: vitest 178 files / 2026 tests, pytest 2413, ALL GATES PASSED.
-  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
-
-- **Desktop-alert notifications â€” audit hardening.** A review of the new
-  desktop-notification provider found a real de-dup defect: it tracked only the
-  single last-seen event id, but the `/api/alerts/live` feed is capped at 50 rows
-  (`take: 50`), so a burst of alerts could push the last-seen id out of the window
-  and re-announce an already-seen event. Detection is extracted to a pure,
-  framework-free `src/lib/alerts/event-diff.ts` (`selectNewEvents`/`seedSeen`, a
-  bounded 200-id seen-set) and the provider now consumes it. Adds
-  `event-diff.test.ts` (5 tests, incl. the scroll-out-of-window case). Full audit
-  run: `tsc --noEmit` clean, eslint clean, vitest 2026 passed, Python 2413 passed,
-  eval gates ALL PASS, `next build` succeeded.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
-
-- **Desktop (OS) notifications for fired price alerts.** Fired alerts can now
-  rise as native OS notifications on the user's laptop, not just the in-app feed
-  on the `/alerts` tab. New client lib `src/lib/alerts/browser-notifier.ts` wraps
-  the Web Notification API (opt-in localStorage flag `be_alerts_browser_v1`,
-  default OFF; permission requested only from an explicit gesture; `show()` is an
-  honest no-op unless granted). New `AlertNotificationProvider`
-  (`src/components/layout/alert-notification-provider.tsx`), mounted once in
-  `src/app/layout.tsx`, polls the always-recorded `GET /api/alerts/live` stream
-  (10s, first poll seeds history so nothing replays) and raises one notification
-  per genuinely new event. Settings â€º Alerts/Notifications
-  (`alert-notifications-settings.tsx`) gained a "Desktop notifications" toggle
-  with honest `off`/`blocked`/`on` state and a test-notification button. No service
-  worker, so notifications show only while a BlackEclipse page is open â€” stated in
-  the UI. Additive; no schema/API contract change. Tests:
-  `src/lib/alerts/browser-notifier.test.ts` (5). Full suite 2021 passed;
-  `tsc --noEmit` clean.
-  docs updated: `docs/ARCHITECTURE.md` (Alert delivery), `docs/NAVIGATION.md`
-
-- **Universal financial-fact engine, slice 4b: self-review fixes.** A careful pass
-  over the new engine found and fixed four real defects. (1) `conflicts.detect_conflict`
-  flagged two time-series bars at different dates as a disagreement and a single
-  source repeating itself as a conflict â€” it now requires the same period AND
-  different sources, and compares by canonical concept so two labels of one
-  definition are comparable. (2) `analysis.analyze_result` reported each conflict
-  twice (once per direction) and grouped by raw label; it now detects each pair once
-  (keyed by object identity, since fact_ids can collide across sources) and groups by
-  canonical definition. (3) `sector.classify` labelled a conglomerate that contains a
-  bank as `bank`; a holding/conglomerate is now a structural classification that
-  outranks a sub-business keyword, while the bank ownership still sets
-  `contains_financial`. (4) `retrieval_tools._finish`/`_summarize` ran the analysis
-  twice per tool call; it is now computed once and shared, with `_summarize` keeping
-  a guarded fallback for direct callers. Regression tests added for the conflict
-  cases. Tests: `test_finance_facts.py` (53 across the two files).
-  docs updated: `docs/CHANGELOG.md`
-
-- **Universal financial-fact engine, slice 4: the enforcing gate.** Every
-  retrieval tool result now carries a validated `analysis` block the answer layer
-  must honor. `finance_facts/analysis.py::analyze_result` runs the full chain on a
-  retrieval result: lift each value into a `FinancialFact`, run the ordered
-  data-quality gates, compute evidence-based confidence, detect and explain
-  cross-source conflicts, build the evidence graph and report orphans, and classify
-  the entity. A fact is marked **admissible** (only disclosures â€” stale, soft
-  source) or **excluded** (no entity/period/definition, superseded, unreproducible);
-  `presentable` is false when anything is excluded, so an ambiguous `revenue` is
-  withheld rather than presented as a clean figure. `retrieval_tools._finish`
-  attaches `analysis` to the structured payload and `_summarize` prints the
-  notes + the withheld list; both are exception-guarded and additive. The label
-  resolver is now case/separator-normalized, so a provider's `marketCap`,
-  `market_cap` and `market cap` all resolve to the same definition. Tests:
-  `test_analysis_returns_validated_facts_and_gate_verdicts`,
-  `test_analysis_excludes_an_ambiguous_revenue_from_a_clean_answer`. Still no
-  ticker-specific logic; no schema/jdds.db change.
-  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
-
-- **Universal financial-fact engine, slice 3: wired into the retrieval tool
-  summary.** The deterministic fact engine now runs on live retrieval output.
-  `finance_facts/adapter.py::annotate_result` lifts every normalized object of a
-  retrieval result into a `FinancialFact` and produces the honesty notes the
-  answer must carry â€” accounting-definition ambiguity, detected business type, the
-  financial-framework warning for entities containing banks/insurers, cross-source
-  definition differences vs real disagreements, and stale values.
-  `retrieval_tools._summarize` appends a "Data-quality notes:" block when there is
-  something to disclose (absent otherwise, so no existing text changed). Metadata
-  fields (sector/industry/name) are never mistaken for ambiguous financial metrics.
-  Additive and exception-guarded: analysis can never break a summary. Test:
-  `test_summary_surfaces_definition_ambiguity_and_sector_but_not_metadata`. Still
-  no ticker-specific logic; no schema/jdds.db change.
-  docs updated: `docs/CHANGELOG.md`
-
-- **Phase 14 â€” the code capability, reachable from chat.** A coding request typed
-  in ordinary conversation is now served by the code capability that already
-  existed, instead of refusing for lack of a tool. A deterministic, model-free
-  classifier `python/harness/code/request_intent.py::classify_code_request`
-  (reached over the read-only operator-gated `POST /code/intent`) decides
-  `code_change` | `code_question` | `not_code`, with an AMBIGUOUS turn defaulting
-  to `not_code` (the refusal path is the safe failure). `agents.CHAT_CODE_TOOLS`
-  is a NARROWED profile applied per turn inside the existing
-  `graph.resolve_surface`, after the autonomy narrowing: `code_change` â†’
-  `edit_verify` (write/execute/verify), `code_question` â†’ `plan_only` (read-only).
-  The four external actions (`code_commit`/`code_push`/`code_open_pr`/
-  `code_deploy`) are absent from the declared set â€” external actions stay on the
-  Code Tasks surface. The front door gains additive `autonomy`
-  (`plan_only`|`edit_verify` only, fail-closed on anything else) and
-  `analysisEnabled` on `RunRequestPayload`; `startChatRun` resolves and sends them
-  from the classifier. A new `src/components/chat/chat-capability-panel.tsx`
-  composes the existing Phase-4 verification panel and is wired through
-  `activity-feed.tsx`/`activity-item.tsx`/`chat-history.tsx`, so a coding turn
-  shows what Eclipse did in plain words. The code task list gains "Build this"
-  (existing `/api/code/tasks`) and "Schedule" (existing `/api/jobs`, created
-  DISABLED with `agent_id="code-agent"`, `autonomy="edit_verify"`). The runtime's
-  registered tool set is UNCHANGED â€” an allowlist and a payload, never a tool.
-  Tests: `python/tests/test_code_request_intent.py`,
-  `test_chat_code_profile.py`, `test_code_reachability.py`,
-  `src/components/chat/chat-capability-panel.test.ts`; ADR-H117.
-  docs updated: `docs/harness/decisions.md` (ADR-H117), this file,
-  `docs/NAVIGATION.md`, `docs/harness/roadmap/README.md`,
-  `docs/harness/roadmap/phase-14-reachable-code-capability.md`,
-  `docs/harness/roadmap/progress/phase-14-progress.md`
-- **Phase 14 audit follow-up.** A self-review found and fixed four defects. (a)
-  The ADR-H117 append introduced mixed CRLF/LF into `docs/harness/decisions.md`
-  (caught by `gitignore-guard.test.ts`), normalized back to LF. (b) The first cut
-  of "Build this" only appeared on existing task rows, so an empty task list still
-  had no way to start a work order â€” the exact symptom the phase existed to
-  remove; `task-list.tsx` now renders a "what should Eclipse build or fix?"
-  composer above the list and the empty state. (c) The classifier returned
-  `not_code` for the user's literal wish ("create a new application", "build
-  algorithms", "build a Monte Carlo simulator"); the software-object vocabulary
-  gained those artifacts, a homograph guard stops "test the market" / "build a
-  portfolio" self-matching, and `what doesâ€¦` questions plus reported symptoms and
-  named errors now classify correctly. (d) A refused code step
-  (`code.refused`/`code.patch.refused`) now renders its ONE plain refusal
-  sentence, with the raw code behind "details", instead of a technical operation
-  label. Tests: `test_code_request_intent.py` 22â†’43 cases, `events.test.ts` two
-  refusal cases. (e) The Â§6.4 capability view is now a first-class
-  `RunResult.capability` (`{kind, profile, headline, verification}`), derived in
-  `python/harness/code/capability.py` from the run's verification blob (the
-  profile rides inside that existing additive blob â€” no new column, `persistence.py`
-  ratchet untouched) and mirrored client-side by `coerceChatCapability`; the panel
-  prefers it and falls back to the flat fields for older rows. Gates: vitest
-  **178/2027**, pytest **2415**, `npm run build` exit 0.
-  docs updated: `docs/harness/roadmap/progress/phase-14-progress.md`, this entry.
-
-- **Universal financial-fact engine, slice 2: derived metrics, corporate actions,
-  evidence graph.** Completes the deterministic foundation. `finance_facts/metrics.py`
-  derives P/E, P/B (COMMON equity, Â§7), EV/EBITDA, ROE (parent-attributable), growth
-  and more, each returning a `DerivedMetric` with formula + inputs + input periods +
-  input sources + timestamp, and REFUSING mixed currency/period or a negative-EPS
-  P/E rather than fabricating a number. `finance_facts/corporate_actions.py` flags
-  splits/buybacks/spin-offs/M&A that make a naive historical comparison invalid and
-  adjusts a pre-split price only when the ratio is known. `finance_facts/evidence.py`
-  builds the Questionâ†’Claimâ†’Derivedâ†’Factâ†’Source graph and detects orphans (a claim
-  with no fact, a fact with no source). Tests: `test_finance_facts_metrics.py` (14
-  cases). Still no ticker-specific logic; still pure Python; no schema/jdds.db change.
-  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
-
-- **Universal financial-fact foundation: every fact carries its meaning, not just
-  its value.** New pure-Python package `python/harness/finance_facts/` â€” the
-  deterministic layer the LLM reasons OVER (no prompts for rules). It EXTENDS the
-  Phase-4 evidence machinery (`research/{claims,supersession,calculations,periods}.py`
-  are reused, not rebuilt) and adds the dimensions they lacked: a
-  `FinancialFact` model (metric/definition/value/unit/currency, period with a
-  period TYPE, distinct publication/source/retrieved timestamps, accounting +
-  reporting standard, consolidation + attribution + ownership level,
-  reported/derived, freshness, confidence, supersedes); an accounting ontology
-  (`semantics.py`) that keeps Revenue â‰  Net Sales â‰  Gross Revenue and separates
-  net income / attributable-to-parent / NCI and gross/net/financial debt and the
-  cash variants (an ambiguous label like "revenue" resolves to None, never a
-  silent guess); a universal period model (`periods_ext.py`) where FY â‰  TTM and H1
-  â‰  FY; an independent TTM engine (`ttm.py`) that sums four adjacent quarters and
-  flags a material vendor difference as CONFLICT with an investigation checklist;
-  per-metric freshness (`freshness.py`); an evidence-based confidence model
-  (`confidence.py`); sector classification + sector metric sets (`sector.py`, bank
-  CET1/NIM, insurance combined ratio, REIT FFO, crypto, â€¦); currency/unit + FX-basis
-  normalization (`fx.py`); a structured semantic conflict record (`conflicts.py`)
-  where consolidated-vs-parent earnings is a definition difference, not an error;
-  and the ordered data-quality gate chain with distinct N/A reasons (`quality.py`).
-  Nothing is ticker-specific â€” KCHOL is one row in the diverse regression suite
-  (`test_finance_facts.py`, 33 cases: US tech, bank, insurance, REIT, energy,
-  mining, holding/conglomerate, crypto, NCI, negative earnings, restated, ADR,
-  stale-vault â€” asserted on RULES, not symbols). No prisma/schema.prisma or jdds.db
-  change. This is the foundation slice; wiring it into the retrieval/research path
-  is the next phase.
-  docs updated: `docs/NAVIGATION.md`, this file
-
-- **Phase 13 follow-up 3 â€” general multi-source, not price-only: the vault is a
-  cache, not a precondition.** The earlier fixes verified the price leg, but two
-  data classes were still vault-bound and would fail or go stale for anything the
-  committed snapshot lacks: `fundamentals` (company profile) and `market_snapshot`
-  (a symbol absent from the universe, or a vault row with no stored price).
-  `src/lib/harness/data-bridge.ts` now enriches the profile from the existing live
-  fundamentals pipeline (SEC â†’ FMP â†’ Yahoo) when the vault lacks it â€” and says
-  which one answered via `profileSource`; `live_quote`/`market_snapshot` resolve an
-  instrument outside the vault for a known covered market (`resolveAnyInstrument`
-  recovers a `not_found` the same way `financial_statements` already did), so a
-  live quote serves a symbol the vault never stored and the snapshot is never
-  `UNAVAILABLE` merely because JDdS is. The identity gate still refuses
-  AMBIGUOUS / `not_covered` / wrong-currency answers â€” the vault is skipped, not
-  bypassed. The yfinance bridge now also carries `marketCap`. Tests:
-  `data-bridge.test.ts` (profile enrichment + vault-hit short-circuit),
-  `data-bridge-phase2.test.ts` (live fallback for no-row and no-price);
-  `data-bridge-health.test.ts` updated so a both-sources-fail route is recorded as
-  a failure. ADR-H116 amended.
-  docs updated: `docs/harness/decisions.md` (ADR-H116), this file,
-  `docs/harness/roadmap/progress/phase-13-progress.md`
-
-- **Phase 13 follow-up 2 â€” per-field provenance: a live price no longer launders a
-  stale market cap.** The first follow-up routed `get_market_snapshot` through the
-  arbitrated layer, but the live provider used for US equities (yfinance
-  `fast_info`) returns a price and **no market cap**, so the cap always fell back to
-  JDdS â€” and the whole payload was stamped "verified", repeating the original demo
-  defect in a new form (a verified-looking badge on a months-old cap). Two fixes:
-  (1) the yfinance bridge now carries `marketCap` when the provider exposes it
-  (`scripts/yfinance_bridge.py`, `fetchers/yfinance.ts`, `data-bridge.ts`), so the
-  cap is genuinely cross-checked when possible; (2) when it is not, the snapshot
-  tool now labels **each field** by origin (`finance_tools.py`): a value from a
-  source that answered now is live; a value that fell back to the stored snapshot is
-  annotated `â€” saved snapshot` with its stored time and source, and the top-level
-  `verified` flag is true only when the PRICE itself is live (each `*Origin` is
-  exposed on the structured payload). Regression tests:
-  `test_demo_live_price_but_no_live_cap_labels_the_cap_saved` (the real US-equity
-  shape), plus the updated demo tests. ADR-H116 amended.
-  docs updated: `docs/harness/decisions.md` (ADR-H116), this file,
-  `docs/harness/roadmap/progress/phase-13-progress.md`
-
-- **Background Solid mode â€” fully tunable gradient/pattern and wordmark
-  typography.** The gradient/pattern styles were static (fixed angle, fixed tile
-  size) and the wordmark only offered font + size. Added: gradient shape
-  (`solidGradientType`: linear/radial) and `solidGradientAngle`; pattern tile
-  size `solidPatternScale` (4â€“80px) beside strength; and wordmark typography
-  controls `textWeight` (100â€“900), `textWidth` (font-stretch, 50â€“200%),
-  `textLetterSpacing` (âˆ’0.1â€“0.5em), `textLineHeight` (0.7â€“2), `textItalic` and
-  `textUppercase`. `ChatWordmark` applies them; `resolveBackgroundCss` uses the
-  gradient type/angle and pattern pitch. All new fields are normalized/clamped
-  (`textWeight` rounds to the nearest 100). Settings panel gains the matching
-  sliders/toggles; the option constants `GRADIENT_TYPE_OPTIONS` added.
-  docs updated: `docs/ARCHITECTURE.md`, this file; test:
-  `src/lib/backgrounds.test.ts`
-
-- **Phase 13 follow-up â€” the price/market-cap ROUTE the agent actually used now
-  verifies across sources.** The Phase-13 arbitration fixed the retrieval layer,
-  but the Eclipse Agent had a second market-cap tool, `get_market_snapshot`
-  (`python/harness/finance_tools.py`), that went STRAIGHT to JDdS and never ran
-  the layer at all â€” so a months-old market cap was returned as current (the
-  reported demo: "market cap of AMD" showed stale data). `get_market_snapshot`
-  now runs its price/change/market-cap leg through the same arbitrated
-  `current_quote` path (`_verified_price_leg`): a fresh live reading beats the
-  saved snapshot, a stale snapshot is not asserted as current, the observation
-  time and its age are stated, and when two sources disagree beyond the tolerance
-  every contested figure is shown instead of one value silently chosen (the
-  headline no longer falls back to the stored value in that case). `normalize_quote`
-  now dates a live payload from its `observationTime` so cross-source conflict
-  grouping can see it. The tool description is corrected. Regression tests:
-  `test_demo_stale_market_cap_is_not_returned_as_current`,
-  `test_demo_disagreement_is_shown_when_sources_differ`; the tool-execution
-  property in `test_context_overflow.py` is asserted on recorded tool executions,
-  not bridge calls. ADR-H115 amended.
-  docs updated: `docs/harness/decisions.md` (ADR-H115), this file,
-  `docs/harness/roadmap/progress/phase-13-progress.md`
-
-- **Landing wordmark font list was all system fallbacks â€” now real,
-  self-hosted faces.** Every `WORDMARK_FONT_OPTIONS` value was a font-family
-  stack for a face the app never loaded (e.g. "Bodoni Moda", "Didot", "Playfair
-  Display"), so all options rendered as the same system fallback and the choice
-  felt broken. `src/app/layout.tsx` now loads 16 display faces via
-  `next/font/google` (Bodoni Moda, Playfair, Cinzel, Cormorant, Orbitron,
-  Audiowide, Michroma, Press Start 2P, Silkscreen, VT323, Major Mono Display,
-  Space Mono, IBM Plex Mono, Bebas Neue, UnifrakturMaguntia, Rubik Glitch),
-  self-hosted with no runtime request, exposed as `--font-*` CSS variables on
-  `<html>`. `WORDMARK_FONT_OPTIONS` (`src/lib/backgrounds.ts`) now references
-  those variables, adding pixel (Press Start, Silkscreen), ASCII/terminal
-  (VT323, Major Mono, Space Mono, IBM Plex Mono) and stylised (Blackletter,
-  Glitch, Bebas) choices; `DEFAULT_WORDMARK_FONT` becomes
-  `var(--font-bodoni), Georgia, serif`. The Settings font picker is a clickable
-  preview grid (each label rendered in its own face). Keep the option list in
-  sync with the `layout.tsx` imports.
-  docs updated: `docs/ARCHITECTURE.md`; app config: `src/app/layout.tsx`
-
-- **Background: two types â€” Image or Solid (color/gradient/pattern + wordmark).**
-  Reworked Settings â€º General â€º Background after removing the dead "Pattern"
-  type. The type is now a real choice of two: **Image** (shipped/uploaded
-  wallpaper, the default) or **Solid**. Solid has a `solidFill` of
-  **Flat** / **Gradient** / **Pattern**: a `solidColor`, a two-color
-  `solidColor`â†’`solidColor2` gradient (empty stops follow the theme background /
-  brand tint), or a texture (`solidPattern`: grid / dots / diagonal / ASCII, at
-  `solidPatternOpacity`) over the base fill â€” each with a customizable wordmark
-  (text, font, color, size, strength, alignment, vertical). `BackgroundMode` is
-  `image | solid`; `BackgroundPrefs` gains `solidFill`, `solidColor`,
-  `solidColor2`, `solidPattern`, `solidPatternOpacity`, `textColor`. The
-  wordmark paints via the new `isWordmarkVisible` helper: forced on in solid mode
-  (it IS the backdrop), opt-in in image mode (the `textEnabled` toggle, disabled
-  in solid since it is inherent). `resolveBackgroundCss` emits the solid stack
-  (base fill + optional texture as a `background-image` list; brand-tinted ink);
-  `ChatWordmark` applies `textColor`. The font picker is now a clickable
-  preview grid (each option renders its own name in that typeface) instead of a
-  Radix `Select` â€” more robust inside the modal and it actually shows the fonts.
-  A saved `mode: 'pattern'` / `'none'` normalizes back to the default image.
-  Tests updated; `resolveBackgroundCss`/`applyBackgroundToDocument` lost their
-  now-unused `patternImage` parameter.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, this file; test:
-  `src/lib/backgrounds.test.ts`
-
-- **Phase 13 â€” source authority and freshness arbitration landed.** A price,
-  series or macro answer is now chosen by freshness-then-strength across all
-  eligible sources, with the disagreement preserved, instead of by the first
-  source in a static table. Added `python/harness/retrieval/authority.py` â€” the
-  ONE ordering table (`AUTHORITY`, one `DataTypeAuthority` row per data type) and
-  a pure decision function (`decide_source`). `current_quote`,
-  `historical_prices`, `macro_series` and `company_profile` become **arbitrated**:
-  every eligible candidate runs through the existing `parallel.run_parallel` +
-  `layer._resolve` + `conflicts.detect_conflicts` seam (no second conflict
-  algorithm), so a fresh live reading is consulted alongside a saved snapshot and
-  a vault-vs-live disagreement is surfaced as `CONFLICTING` instead of being
-  unreachable. A candidate older than the type's freshness ceiling is rejected
-  with `STALE_SOURCE` and the measured age; all-stale is `NO_FRESH_SOURCE`.
-  `planner._PLAN` and `layer._SINGLE_BEST` are deleted and their readers
-  repointed (one ordering in the tree, not three). `NormalizedFinancialObject`
-  gains additive `observation_time`/`observation_source` (`provider_asof` |
-  `snapshot_write` | `unknown`); `validate.validate_observations` flags ONE stale
-  row inside an otherwise fresh payload and stamps a snapshot-write value `saved
-  snapshot, not a live reading` (never worded as live). `data-bridge.ts`
-  `marketSnapshot` supplies `observationSource: "snapshot_write"`; `liveQuote`
-  supplies `provider_asof` only when the provider reports its own market time,
-  else `unknown` â€” its old `asOf: new Date()` (the retrieval clock) is corrected.
-  New `source.*` i18n keys and the extended plain-language gates. ADR-H115 and
-  ADR-H116 written; `NAVIGATION.md` rows 149/150/352 updated. Tests:
-  `test_source_authority.py` (15 cases, including the vault-vs-live disagreement
-  that failed on the pre-change code) plus the retrieval regression suites.
-  docs updated: `docs/harness/decisions.md`, `docs/harness/architecture.md`,
-  `docs/NAVIGATION.md`, this file,
-  `docs/harness/roadmap/progress/phase-13-progress.md`,
-  `docs/harness/roadmap/phase-13-source-authority.md`, `docs/harness/roadmap/README.md`
-
-- **Roadmap round 2 authored: phases 13â€“20 (reachability, source truth, and output)
-  added to `docs/harness/roadmap/`.** Round 1 (phases 0â€“12) built the machinery of a
-  harness; this round closes the six gaps a user reports against the *running* system,
-  each traced to a measured cause and each with a paste-ready prompt. Added:
-  `phase-13-source-authority.md` (the market-data vault is first for every
-  price-shaped type and the first success wins, so a live provider is never
-  consulted; measured from the live `jdds.db`: 0 of 55 195 price rows are fresh
-  within 15 min and 22.2 % are older than 7 days, while `data-bridge.ts` hard-codes
-  `cadenceSeconds: 24*60*60` and `validate.py` measures staleness only at dataset
-  level â€” the phase adds one `AUTHORITY` table, arbitrated dispatch and
-  per-observation age, and deletes `_PLAN`/`_SINGLE_BEST`), `phase-14-reachable-code-capability.md`
-  (the code modules exist on the one registry, but `eclipse-agent`'s 27-tool
-  allowlist has no code tool, `RunRequestPayload` has no `autonomy` field at all, and
-  `analysisEnabled` is referenced **0** times in `src/` â€” the phase adds a
-  deterministic request classifier, a narrow chat code profile and a chat capability
-  panel), `phase-15-attachments-and-artifacts.md` (extract.ts is text+PDF only with a
-  20 000-char silent truncation; the chat artifact surface prints a filename and a
-  12-char hash and no route serves the file; `code_commit`'s handler performs **no git
-  operation** yet returns `status: "approved"` â€” the phase adds office extractors,
-  stated truncation, an artifact-serving route and a user-decided promotion with
-  Option B recommended), `phase-16-bulk-acquisition.md` (the answer budget is 4
-  searches / 8 fetches / 90 s, the analysis sandbox is `network=False` with 16 allowed
-  imports, and the TS scraper layer is unreachable from the runtime â€” the phase adds a
-  declared attributable source registry, an explicit acquisition budget and a new
-  `data.collect` permission noun), `phase-17-working-on-a-cadence.md` (the job model,
-  scheduler, delivery and seven templates exist; no tool can create a job â€” the phase
-  adds a fixed catalogue, a default-off operator switch and an unattended-report
-  honesty contract), `phase-18-visual-output.md` (no plotting library is importable and
-  no artifact can be shown â€” the phase adds a deterministic renderer that the model's
-  program never gains access to, plus a bootstrap Monte Carlo that records its seed),
-  `phase-19-self-verification.md` (the ledger's claim classes cover commands only â€”
-  the phase adds artifact checks, a data-driven change-review rule table and two claim
-  classes), and `phase-20-measuring-all-of-it.md` (the generated capability statement
-  covers seven code shapes and omits every new class â€” the phase registers all classes
-  and publishes the unmeasured ones as unmeasured, with the eval step added inside the
-  existing `test-evals.js`). The index gains the phase rows, the round-2 ordering
-  rules, the measured six-gap ledger (Â§1.2), a supersede note on Â§2, and the
-  ADR-H115â€¦H125 assignments. Measured baseline re-established this session on the
-  untouched tree: `npm run check:all` â†’ `ALL GATES PASSED` (vitest 175 files / 1 995
-  tests; pytest 2 278 passed). No runtime file was changed by this entry; the phase
-  folders are proposals with no code behind them yet.
-  docs updated: `harness/roadmap/README.md`, `harness/roadmap/phase-13â€¦20`,
-  `harness/roadmap/NAVIGATION` row 62 (trigger table), this file
-
-- **ChatBot landing text is now opt-in (off by default).** The giant wordmark
-  previously shipped ON (`DEFAULT_BACKGROUND.text = 'ECLIPSE AGENT'`), so every
-  new user got text painted over their landing. Added a `textEnabled` boolean to
-  `BackgroundPrefs` (`src/lib/backgrounds.ts`) defaulting **false**;
-  `normalizeBackgroundPrefs` sets it true only when `textEnabled === true`, so
-  the flag stays off for absent/junk input. `ChatWordmark`
-  (`src/components/chat/chat-wordmark.tsx`) returns null unless the flag is on,
-  and the Background panel (`src/components/screens/background-settings.tsx`)
-  gained a `Landing text` Toggle (reusing the existing switch recipe) that
-  reveals the Text/Font/Align/Size controls only when enabled. The authored
-  `text` is retained while off, so toggling on restores it without retyping.
-  Wallpaper (`mode: 'image'`, Eclipse I) is unchanged and still the default.
-  docs updated: `docs/ARCHITECTURE.md`, this file; test:
-  `src/lib/backgrounds.test.ts`
-
-- **Main content panel is now a rounded floating card.** The right-hand content
-  panel in `stock-chat.tsx` was a full-bleed rectangle flush against the square
-  sidebar, so the top-left corner where they met was hard. It is now inset on
-  desktop (`md:m-2`), gently rounded (`md:rounded-xl`) and bordered, so it reads
-  as a card beside the sidebar and the shell/pattern shows through the corner
-  notches. It stays TRANSPARENT on the chat tab so the Aurora glow and page
-  pattern behind it are not hidden; non-chat tabs keep their existing frosted
-  `glass-card` fill. Mobile keeps the full-bleed panel (sidebar is a drawer
-  there). Sidebar unchanged.
-  no doc change â€” presentational corner treatment, no architecture/contract/
-  setup change (the content-panel host is already described in
-  `docs/ARCHITECTURE.md` Â§Presentation).

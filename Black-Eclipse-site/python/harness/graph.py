@@ -364,6 +364,9 @@ def build_graph(
     # The Artifact Center service, so `artifact_*` tools register and discover
     # produced files through the ONE catalog (shared with producers).
     artifact_service: Optional[Any] = None,
+    # The UI Engineering service, so `ui_*` tools inspect the live UI and mutate
+    # the user's saved UI blueprints through the ONE catalog + blueprint store.
+    ui_service: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -433,6 +436,7 @@ def build_graph(
         run_id=request.runId,
         log=lambda m, d=None: None,
         user_id=request.userId,
+        tenant_id=request.tenantId,
         user_message=request.input.query,
         # A skill run is composed with an agent id of the form `skill:<id>`; its
         # memory saves carry execution-lesson provenance, not explicit-user.
@@ -503,6 +507,9 @@ def build_graph(
         # The Artifact Center service, so `artifact_*` tools register and discover
         # produced files through the ONE catalog (shared with producers).
         artifact_service=artifact_service,
+        # The UI Engineering service, so `ui_*` tools reach the ONE catalog +
+        # blueprint store (shared with the routes and producers).
+        ui_service=ui_service,
         # The Portfolio Accounting Engine service, so `portfolio_*` tools reach
         # the ONE ledger/valuation engine and the per-run market gateway.
         portfolio_service=getattr(portfolio, "service", None),
@@ -991,6 +998,7 @@ async def execute_run(
     quant: Optional[Any] = None,
     search: Optional[Any] = None,
     artifact_service: Optional[Any] = None,
+    ui_service: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
@@ -1274,6 +1282,7 @@ async def execute_run(
             quant=quant,
             search=search,
             artifact_service=artifact_service,
+            ui_service=ui_service,
         )
         return await app.ainvoke(initial_state)
 

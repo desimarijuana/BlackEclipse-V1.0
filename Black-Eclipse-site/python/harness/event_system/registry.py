@@ -281,6 +281,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
         ("code", ("code",), 60, "normal"),
         ("delegation", ("harness",), 60, "normal"),
         ("artifact", ("artifacts",), 180, "normal"),
+        ("ui", ("ui",), 90, "normal"),
         ("document", ("document",), 90, "normal"),
         ("vision", ("vision",), 30, "normal"),
         ("mcp", ("mcp",), 30, "normal"),

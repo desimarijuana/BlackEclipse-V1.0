@@ -108,6 +108,9 @@ class ToolContext:
     log: Callable[[str, Optional[dict[str, Any]]], None]
     # The invoking user, used for memory scope isolation (None = anonymous).
     user_id: Optional[str] = None
+    # The verified tenant for this run. Set by the graph from the API-verified
+    # identity; the security gateway scopes every effect to it. None = single-tenant.
+    tenant_id: Optional[str] = None
     # The actual user turn text for THIS run. A model-facing `memory` write is
     # authorized against it by the shared decision gate — tool output, retrieved
     # memory and documents are never user intent.
@@ -276,6 +279,11 @@ class ToolContext:
     # None = the `artifact_*` tools report ARTIFACT_UNAVAILABLE rather than
     # losing a produced file. Producers also reach it via the boot singleton.
     artifact_service: Any = None
+    # The process-wide UI Engineering service (component catalog + blueprint
+    # store). Set by the graph from the service; None = the `ui_*` tools report
+    # UI_UNAVAILABLE rather than inventing UI state. Also reachable via the boot
+    # singleton so tools work even when the run context pre-dates the UI layer.
+    ui_service: Any = None
 
 
 class DataBridge:

@@ -43,7 +43,7 @@ export function StatTile({
 }) {
   const empty = value == null || value === '';
   return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
+    <div className="glass-card-subtle rounded-xl px-3 py-2">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{label}</div>
       <div
         className={cn(

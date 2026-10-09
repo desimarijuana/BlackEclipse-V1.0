@@ -167,6 +167,9 @@ Permission Engine decides *whether*; the sandbox decides *where/how*). The
 
 `select_sandbox()` prefers Docker, then Local, then Unavailable — it never returns
 an unbounded backend. `BLACK_ECLIPSE_SANDBOX_BACKEND` forces a preference.
+`BLACK_ECLIPSE_SANDBOX_REQUIRED` (`1` = any backend must exist, `docker` = Docker
+must be active) makes the gateway **refuse** an execution action when the required
+isolation is absent, audited as `security.sandbox.blocked`.
 
 ## Network (`security/network.py`)
 
@@ -201,9 +204,32 @@ untenanted request in multi-tenant mode. Beyond loopback the runtime refuses to
 start without `CRON_SECRET` (and `HARNESS_AUTH_SECRET` in multi-tenant mode); the
 security endpoints are per-tenant rate-limited.
 
-**Boundary:** this is the multi-tenant *security plane* + identity seam. Full
-per-tenant **data** isolation (runs, memory, tasks, artifacts, JDdS reads) is the
-follow-on data-plane migration and is not claimed here.
+**Physical tenant stores (`security/tenant_store.py`).** The strongest isolation
+is physical: `TenantStoreRegistry.store_for(tenant_id)` returns that tenant's own
+`AgentMemoryStore` at `.black-eclipse/tenants/<tenant>/agent-memory.db`
+(`BLACK_ECLIPSE_TENANT_DB_DIR`), with the id strictly sanitized (no traversal).
+Two tenants get two databases, so a missing `WHERE` cannot leak rows. **The run
+path does not yet route its data through the tenant store** (see Honest
+boundaries).
+
+**Identity header rollout + run-path tenant.** Every `[[...path]]/route.ts` proxy
+forwards `X-Harness-Identity` (`runtimeIdentityHeaders`), and the explicit
+`/runs`, `/chat` and `/chat/stream` routes now attach it too. The Python `/runs`
+boundary resolves the verified identity to the run's `tenantId`, the graph puts it
+on the `ToolContext`, and the security gateway scopes every effect decision to it
+— so multi-tenant runs authorize under the correct tenant. **Run *data* still
+lands in the shared store** until the run path is routed through
+`TenantStoreRegistry`.
+
+**Preflight.** `npm run security:preflight` (`scripts/security-preflight.js`)
+fails closed on a network-facing deployment missing `HARNESS_AUTH_SECRET` /
+`CRON_SECRET` and prints the manual controls (TLS proxy, edge rate limiting,
+KMS, WORM audit, per-tenant keys).
+
+**Boundary:** this is the multi-tenant *security plane* + identity seam + a
+physical-isolation primitive. Full per-tenant **data** isolation (routing runs,
+memory, tasks, artifacts, JDdS reads through tenant stores) is the follow-on
+data-plane migration and is not claimed here.
 
 ## Audit + observability (`security/audit.py`, `security/store.py`)
 
@@ -283,6 +309,8 @@ never the authority itself.
 | `BLACK_ECLIPSE_SECRETS_SERVICE` | `eclipse` | keychain service name |
 | `BLACK_ECLIPSE_SECRETS_CLI` | off | JSON `name → argv` templates for Vault/AWS/1Password/GCP/Azure |
 | `BLACK_ECLIPSE_SANDBOX_BACKEND` | auto | force `docker` or `local` |
+| `BLACK_ECLIPSE_SANDBOX_REQUIRED` | off | `1` or `docker` — refuse execution without that backend |
+| `BLACK_ECLIPSE_TENANT_DB_DIR` | `.black-eclipse/tenants` | per-tenant store root |
 | `HARNESS_MULTI_TENANT` | auto | require tenant identity (auto-on when front-door auth is on) |
 | `HARNESS_AUTH_SECRET` | — | the front door's signing secret; verifies the identity token |
 | `BLACK_ECLIPSE_DEFAULT_TENANT` | — | default tenant for operator/loopback requests |
@@ -298,7 +326,8 @@ reload races), `test_security_network_secrets.py`, `test_security_integration.py
 `test_security_bypass_audit.py` (every effect tool is classified),
 `test_security_sandbox.py`, `test_security_audit_sink.py`,
 `test_security_secret_providers.py`, `test_security_tenancy.py` (identity +
-tenant isolation) and `test_security_ratelimit.py`. 218 tests, all passing.
+tenant isolation), `test_security_ratelimit.py` and `test_security_tenant_store.py`
+(per-tenant physical isolation). All passing (see `pytest -k security`).
 
 ## Honest boundaries
 

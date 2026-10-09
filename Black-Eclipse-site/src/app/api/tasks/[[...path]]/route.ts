@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
+import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
     headers: {
       "Content-Type": "application/json",
       ...(token ? { "X-Harness-Operator": token } : {}),
+      ...(await runtimeIdentityHeaders(request)),
       ...(user ? { "X-Harness-User": user } : {}),
     },
     signal: AbortSignal.timeout(45_000),

@@ -7,6 +7,7 @@ import {
   toHarnessErrorJson,
 } from "@/lib/harness";
 import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
+import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 
@@ -68,7 +69,8 @@ export async function POST(request: Request) {
 
   let id: string;
   try {
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort);
+    const identityHeaders = await runtimeIdentityHeaders(request);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

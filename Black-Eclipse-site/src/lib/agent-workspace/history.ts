@@ -7,7 +7,8 @@
 
 import { normalizeWorkspaceEvent } from './normalize';
 import { applyWorkspaceEvents, initialWorkspaceState } from './reducer';
-import type { AgentWorkspaceState } from './types';
+import type { RunRecord } from '@/lib/harness/types';
+import type { AgentStatus, AgentWorkspaceState } from './types';
 
 export interface WorkspaceRunRow {
   id: string;
@@ -83,4 +84,78 @@ export function replayTrace(runId: string, events: TraceEvent[]): AgentWorkspace
     applyWorkspaceEvents(state, normalized);
   }
   return state;
+}
+
+/** Fetch the persisted run record (authoritative token/model/context figures). */
+export async function fetchRunRecord(runId: string): Promise<RunRecord | null> {
+  const res = await fetch(`/api/harness/runs/${encodeURIComponent(runId)}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const body = (await res.json()) as { run?: RunRecord };
+  return body.run ?? null;
+}
+
+function statusOf(record: RunRecord): AgentStatus {
+  switch (record.status) {
+    case 'failed':
+      return 'failed';
+    case 'cancelled':
+      return 'cancelled';
+    case 'created':
+    case 'running':
+      return 'running';
+    default:
+      return record.finishedAt ? 'completed' : 'running';
+  }
+}
+
+/**
+ * Merge the authoritative run record into a replayed state. The event trace can
+ * be incomplete (older runs may not persist `model.completed` / context events),
+ * so the record's tokens, model and context budget fill the gaps — and win when
+ * present. Pure: mutates and returns the given state.
+ */
+export function applyRunRecord(state: AgentWorkspaceState, record: RunRecord): AgentWorkspaceState {
+  if (record.provider) state.model.provider = record.provider;
+  if (record.model) state.model.model = record.model;
+
+  const t = state.telemetry;
+  if (record.promptTokens > 0) t.promptTokens = record.promptTokens;
+  if (record.completionTokens > 0) t.completionTokens = record.completionTokens;
+  if (record.totalTokens > 0) t.totalTokens = record.totalTokens;
+  if (record.modelSteps > 0) t.modelSteps = record.modelSteps;
+  if (record.toolCalls > 0) t.toolCalls = record.toolCalls;
+  if (record.toolErrors > 0) t.toolErrors = record.toolErrors;
+  const started = timeOf(record.startedAt ?? undefined, 0);
+  if (started > 0) t.startedAt = started;
+  const finished = timeOf(record.finishedAt ?? undefined, 0);
+  if (finished > 0) t.finishedAt = finished;
+
+  state.execution.runId = record.id;
+  state.execution.status = statusOf(record);
+
+  if (record.context) {
+    state.context.windowTokens = record.context.window ?? state.context.windowTokens ?? null;
+    state.context.windowKnown = record.context.windowKnown || state.context.windowKnown;
+    state.context.turnsKept = record.context.keptTurns;
+    state.context.turnsDropped = record.context.droppedTurns;
+    state.context.droppedTokensEstimate = record.context.droppedTokensEstimate;
+  }
+
+  return state;
+}
+
+/**
+ * Rebuild a finished run's workspace: replay its persisted trace (activity,
+ * changes, context sources) and fold in the authoritative run record (tokens,
+ * model, context window). Used by the History tab and when reopening a chat.
+ */
+export async function loadRunSnapshot(runId: string): Promise<AgentWorkspaceState> {
+  const [trace, record] = await Promise.all([
+    fetchRunTrace(runId),
+    fetchRunRecord(runId).catch(() => null),
+  ]);
+  const state = replayTrace(runId, trace.events);
+  return record ? applyRunRecord(state, record) : state;
 }

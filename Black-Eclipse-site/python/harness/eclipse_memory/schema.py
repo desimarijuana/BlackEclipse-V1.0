@@ -936,8 +936,145 @@ MIGRATIONS.append(
     )
 )
 
+# Failure Intelligence & Adaptive Recovery (spec §18). Durable incidents and
+# recovery attempts. This is AGENT memory (what Eclipse learned about its own
+# failures), so it lives in eclipse-memory.db — never in jdds.db (market data)
+# and never in agent-memory.db (run traces). One incident per stable failure
+# signature; attempts are the ordered history. Append-mostly, additive, and a
+# pre-change database opens with no data loss.
+MIGRATIONS.append(
+    (
+        26,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS RecoveryIncident (
+              id              TEXT PRIMARY KEY,
+              signature       TEXT NOT NULL,
+              kind            TEXT NOT NULL,
+              retryability    TEXT NOT NULL,
+              code            TEXT,
+              subsystem       TEXT,
+              source          TEXT,
+              message         TEXT,
+              taskId          TEXT,
+              runId           TEXT,
+              status          TEXT NOT NULL DEFAULT 'open',
+              occurrenceCount INTEGER NOT NULL DEFAULT 1,
+              attempts        INTEGER NOT NULL DEFAULT 0,
+              decision        TEXT,
+              metadata        TEXT,
+              firstSeenAt     TEXT NOT NULL,
+              lastSeenAt      TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_recovery_inc_signature ON RecoveryIncident(signature);",
+            "CREATE INDEX IF NOT EXISTS idx_recovery_inc_status    ON RecoveryIncident(status);",
+            "CREATE INDEX IF NOT EXISTS idx_recovery_inc_task      ON RecoveryIncident(taskId);",
+            """
+            CREATE TABLE IF NOT EXISTS RecoveryAttempt (
+              id          TEXT PRIMARY KEY,
+              incidentId  TEXT NOT NULL,
+              attemptNo   INTEGER NOT NULL,
+              action      TEXT NOT NULL,
+              strategy    TEXT,
+              reason      TEXT,
+              backoffMs   INTEGER NOT NULL DEFAULT 0,
+              outcome     TEXT NOT NULL DEFAULT 'planned',
+              detail      TEXT,
+              createdAt   TEXT NOT NULL,
+              FOREIGN KEY (incidentId) REFERENCES RecoveryIncident(id) ON DELETE CASCADE
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_recovery_att_incident ON RecoveryAttempt(incidentId);",
+        ],
+    )
+)
+
+# Root-cause diagnosis (spec §3). One diagnosis per incident, so it is its own
+# idempotent table (`CREATE TABLE IF NOT EXISTS`) rather than an ALTER — every
+# migration here must be safe to re-run against a database that already has it.
+MIGRATIONS.append(
+    (
+        27,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS RecoveryDiagnosis (
+              incidentId TEXT PRIMARY KEY,
+              diagnosis  TEXT NOT NULL,
+              updatedAt  TEXT NOT NULL,
+              FOREIGN KEY (incidentId) REFERENCES RecoveryIncident(id) ON DELETE CASCADE
+            );
+            """,
+        ],
+    )
+)
+
+# Recovery operation ledger (spec §5.2, §9.3). Durable, idempotency-keyed tracking
+# of a side-effecting recovery action so a crash mid-repair can reconcile instead
+# of repeating the effect, and a failed repair can be compensated. Idempotent DDL.
+MIGRATIONS.append(
+    (
+        28,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS RecoveryOperation (
+              id                 TEXT PRIMARY KEY,
+              idempotencyKey     TEXT NOT NULL UNIQUE,
+              kind               TEXT NOT NULL,
+              status             TEXT NOT NULL DEFAULT 'begun',
+              incidentId         TEXT,
+              request            TEXT,
+              result             TEXT,
+              compensatingAction TEXT,
+              createdAt          TEXT NOT NULL,
+              updatedAt          TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_recovery_op_incident ON RecoveryOperation(incidentId);",
+            "CREATE INDEX IF NOT EXISTS idx_recovery_op_status   ON RecoveryOperation(status);",
+        ],
+    )
+)
+
+# Autonomy durability + coordination (spec §9.4, §17). Three additive, idempotent
+# tables: the persisted operator envelope (autonomy survives a restart), a
+# per-signature repair lease (two workers never repair the same root cause at once),
+# and one-off operator approvals (authorize an out-of-envelope action for one
+# incident). `CREATE TABLE IF NOT EXISTS` only — safe to re-run.
+MIGRATIONS.append(
+    (
+        29,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS AutonomyEnvelope (
+              id        INTEGER PRIMARY KEY CHECK (id = 1),
+              payload   TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS RecoveryLease (
+              signature TEXT PRIMARY KEY,
+              holder    TEXT NOT NULL,
+              expiresAt TEXT NOT NULL
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS RecoveryApproval (
+              id         TEXT PRIMARY KEY,
+              incidentId TEXT NOT NULL,
+              strategy   TEXT NOT NULL,
+              approvedBy TEXT,
+              approvedAt TEXT NOT NULL,
+              UNIQUE(incidentId, strategy)
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_recovery_approval_incident ON RecoveryApproval(incidentId);",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
-
 
 __all__ = ["MIGRATIONS", "SCHEMA_VERSION"]

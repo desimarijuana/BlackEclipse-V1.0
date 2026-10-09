@@ -41,6 +41,7 @@ a tool-heavy run readable.
 | Existing-stream ingest seam | `src/lib/agent-workspace/ingest.ts` |
 | Display formatting (pure) | `src/lib/agent-workspace/format.ts` |
 | Context-usage math (pure) | `src/lib/agent-workspace/context-usage.ts` |
+| Reopen a past chat → load its last run | `src/lib/agent-workspace/restore.ts` |
 | UI (docked sidebar + 5 panels + Viewer) | `src/components/agent-workspace/**` |
 | Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />`, a sibling of the main column) + top-bar toggle + `workspace-keybind.tsx` (mounted in `app/layout.tsx`) |
 
@@ -151,6 +152,27 @@ The selected tab and open/closed state persist in `localStorage`
 (`black-eclipse:workspace-{panel,open}`, plus `width`). There is no auto-focus or
 pinning: the Output feed is the default and stays put. A pending approval shows an
 attention dot on the Approvals tab; a running run shows one on Output.
+
+## Reopening a past chat
+
+Live runs bind the workspace through the SSE stream (`ingest.ts`). When the user
+opens a **past** chat, there is no stream to bind — so `restore.ts` points the
+store at that conversation's most recent run instead:
+
+1. resolve the run id from the conversation's last `Message.runId`; if the chat
+   predates that field, fall back to the runtime's session→run list
+   (`GET /api/sessions/{chatId}` → `runs`, last = newest);
+2. rebuild the run with `loadRunSnapshot` — replay the persisted event trace
+   (`replayTrace`) *and* fold in the authoritative run record
+   (`GET /api/harness/runs/{id}`: tokens, model, context window) which the trace
+   may not carry;
+3. commit it with `store.loadRun(runId, snapshot)`.
+
+Opening a chat with no runs, or starting a new chat, calls `store.clear()`. A
+live run that begins while a history load is in flight is never clobbered
+(`restore.ts` checks the store's current run + status first). The History tab
+uses the same `loadRunSnapshot` path, so a replayed run and a reopened chat are
+built identically.
 
 ## Honesty rules (this is a financial product)
 

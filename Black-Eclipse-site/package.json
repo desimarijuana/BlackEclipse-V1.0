@@ -25,6 +25,7 @@
     "test:presets": "node scripts/test-presets.js",
     "demo:btc": "tsx scripts/demo-btc.mts",
     "eclipse": "node scripts/eclipse.js",
+    "security:preflight": "node scripts/security-preflight.js",
     "check:all": "node scripts/check-all.js"
   },
   "engines": {

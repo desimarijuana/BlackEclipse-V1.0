@@ -9,6 +9,7 @@
 
 import { SignJWT } from "jose";
 import { getAuthContext } from "@/lib/auth/server";
+import { runtimeCallbackToken } from "./runtime-auth";
 
 const IDENTITY_TTL = "5m";
 
@@ -49,4 +50,22 @@ export async function runtimeIdentityToken(request: Request): Promise<string | u
 export async function runtimeIdentityHeaders(request: Request): Promise<Record<string, string>> {
   const token = await runtimeIdentityToken(request);
   return token ? { "X-Harness-Identity": token } : {};
+}
+
+/**
+ * The full header set a proxy should forward to the Python runtime: the operator
+ * token (proving the front door) AND the verified identity token (proving the
+ * user/tenant). Use this in every `[[...path]]/route.ts` proxy so no route runs
+ * without a tenant identity.
+ */
+export async function runtimeProxyHeaders(
+  request: Request,
+  opts: { json?: boolean } = {}
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  const operator = runtimeCallbackToken();
+  if (operator) headers["X-Harness-Operator"] = operator;
+  Object.assign(headers, await runtimeIdentityHeaders(request));
+  if (opts.json) headers["Content-Type"] = "application/json";
+  return headers;
 }

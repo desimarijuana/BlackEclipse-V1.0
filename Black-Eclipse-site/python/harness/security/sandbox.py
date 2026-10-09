@@ -304,7 +304,10 @@ def select_sandbox(prefer: Optional[str] = None) -> ExecutionSandbox:
             if candidate is not None and candidate.available():
                 return candidate
             return UnavailableSandbox()
-        if _DEFAULT is not None and _DEFAULT.available():
+        # An explicitly selected backend is honored even when unavailable — so
+        # `set_sandbox(UnavailableSandbox())` (and a forced-unavailable policy)
+        # fails closed rather than silently re-detecting a weaker backend.
+        if _DEFAULT is not None:
             return _DEFAULT
         for backend in (DockerSandbox(), LocalSandbox()):
             if backend.available():

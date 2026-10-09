@@ -126,7 +126,15 @@ class EventBus:
         self._attach_legacy()
 
     async def shutdown(self, *, timeout: float = 10.0) -> None:
-        """Graceful shutdown: stop accepting, drain in-flight work, close queues."""
+        """Graceful shutdown: stop accepting, drain in-flight work, close queues.
+
+        Loop-safe. Subscriptions (and their worker tasks) may have been created on
+        a PREVIOUS event loop — a repeated app lifespan boot/shutdown, as the test
+        client does — so we never await a cross-loop future (that raises
+        `ValueError: The future belongs to a different loop`). Only same-loop
+        workers are drained; subscriptions are cleared so a later `start()`
+        rebuilds a clean set instead of driving stale workers.
+        """
         self._closed = True
         if self._legacy_unsubscribe is not None:
             try:
@@ -134,18 +142,35 @@ class EventBus:
             except Exception:  # noqa: BLE001
                 pass
             self._legacy_unsubscribe = None
-        for sub in list(self._subscriptions.values()):
+        subs = list(self._subscriptions.values())
+        self._subscriptions.clear()
+        self.metrics.set_subscribers(0)
+        try:
+            current: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        same_loop: list[asyncio.Future[Any]] = []
+        for sub in subs:
             if sub.queue is not None:
                 try:
                     sub.queue.put_nowait(_CLOSE)
                 except asyncio.QueueFull:
                     pass
-        workers = [s.worker for s in self._subscriptions.values() if s.worker is not None]
-        if workers:
+            worker = sub.worker
+            if worker is None or worker.done():
+                continue
             try:
-                await asyncio.wait_for(asyncio.gather(*workers, return_exceptions=True), timeout=timeout)
-            except asyncio.TimeoutError:
-                for worker in workers:
+                # Only same-loop workers can be safely awaited (and drained).
+                # A worker from a previous/closed loop is left alone.
+                if current is not None and worker.get_loop() is current:
+                    same_loop.append(worker)
+            except Exception:  # noqa: BLE001 - a dead/foreign worker must not break shutdown
+                pass
+        if same_loop:
+            try:
+                await asyncio.wait_for(asyncio.gather(*same_loop, return_exceptions=True), timeout=timeout)
+            except (asyncio.TimeoutError, Exception):  # noqa: BLE001 - shutdown is best-effort
+                for worker in same_loop:
                     worker.cancel()
 
     # ── legacy bridge ────────────────────────────────────────────────────────

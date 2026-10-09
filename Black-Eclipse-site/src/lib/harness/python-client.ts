@@ -103,12 +103,13 @@ export async function listAgentsFromRuntime(): Promise<{
 
 export async function runViaRuntime(
   payload: RunRequestPayload,
-  opts: { background?: boolean } = {}
+  opts: { background?: boolean; headers?: Record<string, string> } = {}
 ): Promise<RunResult | { runId: string; status: string }> {
   const query = opts.background ? "?background=true" : "";
   return request<RunResult | { runId: string; status: string }>(`/runs${query}`, {
     method: "POST",
     body: JSON.stringify(payload),
+    ...(opts.headers ? { headers: opts.headers } : {}),
   });
 }
 
@@ -116,8 +117,11 @@ export async function runViaRuntime(
  * Start a run in the background so its SSE stream can be observed live.
  * Returns the run id; the caller then streams `/api/harness/runs/:id/stream`.
  */
-export async function startRunBackground(payload: RunRequestPayload): Promise<string> {
-  const body = await runViaRuntime(payload, { background: true });
+export async function startRunBackground(
+  payload: RunRequestPayload,
+  headers?: Record<string, string>
+): Promise<string> {
+  const body = await runViaRuntime(payload, { background: true, ...(headers ? { headers } : {}) });
   return (body as { runId: string }).runId;
 }
 

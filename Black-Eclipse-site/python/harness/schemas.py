@@ -160,6 +160,9 @@ class RunRequest(BaseModel):
     agent: Optional[AgentConfig] = None
     modelSettings: ModelSettings  # noqa: N815
     userId: Optional[str] = None  # noqa: N815
+    # The verified tenant for this run. Set by the API boundary from the verified
+    # edge identity — never trusted from the client body when multi-tenant.
+    tenantId: Optional[str] = None  # noqa: N815
     # M3/M4: the request-scoped isolation identity. A run belongs to one session,
     # profile and project. All are optional for backward compatibility; when
     # absent the runtime uses the default profile and derives a session id.

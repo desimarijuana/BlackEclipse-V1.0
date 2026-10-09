@@ -163,6 +163,82 @@ def test_multi_tenant_gateway_denies_untenanted(monkeypatch):
     assert allowed.decision is Decision.ALLOW
 
 
+def test_integration_tenant_reads_tool_context():
+    from harness.security.integration import _tenant_for
+
+    class _Ctx:
+        tenant_id = "acme"
+
+    assert _tenant_for(_Ctx()) == "acme"
+    assert _tenant_for(object()) is None
+
+
+def test_run_endpoint_sets_tenant_from_identity(monkeypatch):
+    import asyncio
+
+    from starlette.requests import Request
+
+    from harness import main as main_mod
+    from harness.schemas import ModelSettings, RunInput, RunRequest
+
+    captured: dict = {}
+
+    class _Res:
+        def model_dump(self):
+            return {"runId": "run_x", "status": "completed"}
+
+    class _Stub:
+        async def run(self, request):
+            captured["tenant"] = request.tenantId
+            return _Res()
+
+    monkeypatch.setattr(main_mod, "service", _Stub())
+    token = sign_identity({"sub": "u1", "tenant": "acme"}, secret=SECRET)
+    scope = {
+        "type": "http",
+        "headers": [(b"x-harness-identity", token.encode())],
+        "client": ("203.0.113.9", 1),
+    }
+    payload = RunRequest(
+        runId="run_x", input=RunInput(query="hi"),
+        modelSettings=ModelSettings(provider="openai", model="m"),
+        callbackBaseUrl="http://127.0.0.1:3000",
+    )
+    asyncio.run(main_mod.start_run(Request(scope), payload))
+    assert captured["tenant"] == "acme"
+
+
+def test_run_endpoint_no_identity_leaves_tenant_none(monkeypatch):
+    import asyncio
+
+    from starlette.requests import Request
+
+    from harness import main as main_mod
+    from harness.schemas import ModelSettings, RunInput, RunRequest
+
+    captured: dict = {}
+
+    class _Res:
+        def model_dump(self):
+            return {"runId": "run_x", "status": "completed"}
+
+    class _Stub:
+        async def run(self, request):
+            captured["tenant"] = request.tenantId
+            return _Res()
+
+    monkeypatch.setattr(main_mod, "service", _Stub())
+    monkeypatch.delenv("BLACK_ECLIPSE_DEFAULT_TENANT", raising=False)
+    scope = {"type": "http", "headers": [], "client": ("127.0.0.1", 1)}
+    payload = RunRequest(
+        runId="run_x", input=RunInput(query="hi"),
+        modelSettings=ModelSettings(provider="openai", model="m"),
+        callbackBaseUrl="http://127.0.0.1:3000",
+    )
+    asyncio.run(main_mod.start_run(Request(scope), payload))
+    assert captured["tenant"] is None
+
+
 def test_audit_is_tenant_filterable():
     from harness.security.models import AuthorizationRequest
 

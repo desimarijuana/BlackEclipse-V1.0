@@ -26,8 +26,10 @@ from typing import Any, Optional
 from .bootstrap import get_gateway
 from .classification import classify_tool
 from .models import (
+    ACTION_CODE_EXECUTE,
     ACTION_DEPLOY_PRODUCTION,
     ACTION_DEPLOY_STAGING,
+    ACTION_SHELL_EXECUTE,
     AuthorizationRequest,
     Decision,
     Environment,
@@ -55,6 +57,35 @@ def _tenant_for(ctx: Any) -> Optional[str]:
     if raw is None:
         raw = os.environ.get("BLACK_ECLIPSE_DEFAULT_TENANT")
     return str(raw) if raw else None
+
+
+_EXECUTION_ACTIONS = (ACTION_SHELL_EXECUTE, ACTION_CODE_EXECUTE)
+
+
+def sandbox_requirement(action: str) -> Optional[str]:
+    """The isolation backend a policy REQUIRES for an execution action, or None.
+
+    `BLACK_ECLIPSE_SANDBOX_REQUIRED`:
+      * unset/""  → no extra requirement (the execution layer still uses
+                    `code/sandbox.py`, which refuses when no primitive exists);
+      * "1"       → any available sandbox backend must exist;
+      * "docker"  → a Docker sandbox must be the active backend.
+
+    Returns a refusal reason when the requirement is not met.
+    """
+    if action not in _EXECUTION_ACTIONS:
+        return None
+    required = (os.environ.get("BLACK_ECLIPSE_SANDBOX_REQUIRED") or "").strip().lower()
+    if not required or required in ("0", "false", "no", "off"):
+        return None
+    from .sandbox import get_sandbox
+
+    sandbox = get_sandbox()
+    if required == "docker" and sandbox.name != "docker":
+        return f"a docker sandbox is required but {sandbox.name!r} is the active backend"
+    if not sandbox.available():
+        return "no execution sandbox is available"
+    return None
 
 
 def _environment_for(ctx: Any) -> Environment:
@@ -88,8 +119,22 @@ def make_security_authorizer(
             return bool(await inner(tool, args, ctx)) if inner is not None else True
         action, resource, permission = classification
         environment = _ENV_BY_ACTION.get(action, _environment_for(ctx))
-        resolved_session = session_id or getattr(ctx, "session_id", None) or run_id
         tenant = _tenant_for(ctx)
+        resolved_session = session_id or getattr(ctx, "session_id", None) or run_id
+        # Sandbox non-bypass: when a backend is required but absent, refuse the
+        # execution BEFORE it can run, and record why.
+        refusal = sandbox_requirement(action)
+        if refusal:
+            try:
+                active.audit_event(
+                    type="security.sandbox.blocked", category="sandbox",
+                    tool=name, action=action, decision=Decision.DENY.value,
+                    result="denied", error=refusal, tenant_id=tenant,
+                    session_id=(session_id or run_id),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return False
         security_context = None
         if getattr(active, "sessions", None) is not None and resolved_session:
             security_context = active.sessions.get_or_create(

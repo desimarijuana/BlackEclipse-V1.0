@@ -48,10 +48,24 @@ def _isolate_process_globals():
         return
     saved = _artifacts_bootstrap._SINGLETON  # noqa: SLF001 - the one global we isolate
     _artifacts_bootstrap._SINGLETON = None  # noqa: SLF001
+    # The UI Engineering runtime registers a process-global service the same way
+    # (`ui.bootstrap.install_ui_layer` / the `/ui/*` self-heal). Isolate it too so
+    # a test that builds a service cannot leak that global into a later test.
+    _ui_bootstrap = None
+    _ui_saved = None
+    try:
+        from harness.ui import bootstrap as _ui_bootstrap  # noqa: PLC0415
+
+        _ui_saved = _ui_bootstrap._SINGLETON  # noqa: SLF001
+        _ui_bootstrap._SINGLETON = None  # noqa: SLF001
+    except Exception:  # noqa: BLE001 - the ui layer is optional
+        _ui_bootstrap = None
     try:
         yield
     finally:
         _artifacts_bootstrap._SINGLETON = saved  # noqa: SLF001
+        if _ui_bootstrap is not None:
+            _ui_bootstrap._SINGLETON = _ui_saved  # noqa: SLF001
 
 
 @pytest.fixture

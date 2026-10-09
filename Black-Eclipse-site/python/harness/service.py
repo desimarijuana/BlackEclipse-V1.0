@@ -342,6 +342,15 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - security must never block construction
             self.security = None
             log.warning("security subsystem unavailable", exc_info=True)
+        # Per-tenant physical data isolation: each tenant's runs/sessions/memory
+        # live in their own agent-memory file under the tenant root. The default
+        # store above stays the single-tenant/operator store.
+        try:
+            from .security.tenant_store import TenantStoreRegistry  # noqa: PLC0415
+
+            self.tenant_stores = TenantStoreRegistry()
+        except Exception:  # noqa: BLE001
+            self.tenant_stores = None
         # Automatic learning review (M3): a lightweight in-process queue that
         # reviews completed runs after the fact. It creates ONLY inert records /
         # suggestions and never enables a skill. Started/stopped with the runtime.
@@ -386,6 +395,12 @@ class AgenticService:
         from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
 
         install_artifact_layer(self)
+        # UI Engineering runtime: the component catalog + declarative blueprint
+        # engine + `ui_*` agent tools, on the ONE agent-memory connection. A
+        # failure only leaves `self.ui` None, so it never blocks boot.
+        from .ui.bootstrap import install_ui_layer  # noqa: PLC0415
+
+        install_ui_layer(self)
         # The Plugin Platform: ONE process-wide manager owning the registry, the
         # runtime instances, the event bridge, the hook registry, per-plugin
         # config/secrets/storage and health. Boot wiring lives in
@@ -1060,6 +1075,7 @@ class AgenticService:
             quant=self._quant_bundle(),
             search=getattr(self, "search", None),
             artifact_service=getattr(self, "artifacts", None),
+            ui_service=getattr(self, "ui", None),
         )
         await self._schedule_review(request.runId, result.status)
         return result

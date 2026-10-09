@@ -105,6 +105,9 @@ class EventSystem:
         set_loop(asyncio.get_running_loop())
         self.bus.start()
         self._prune_retention()
+        # Drop any subscriptions left over from a previous lifespan so consumers
+        # never accumulate (and stale workers never linger) across restarts.
+        self._subscriptions.clear()
         self._install_default_consumers()
         self._sampler = MarketSampler(self)
         await self._sampler.start()
@@ -118,10 +121,15 @@ class EventSystem:
         )
 
     async def stop(self) -> None:
-        if self._sampler is not None:
-            await self._sampler.stop()
-        await self.bus.shutdown()
-        self._started = False
+        # `_started` MUST be reset even if the bus teardown raises, otherwise the
+        # next boot's `start()` early-returns and the bus stays `_closed=True`
+        # (its `publish()` then silently drops every event).
+        try:
+            if self._sampler is not None:
+                await self._sampler.stop()
+            await self.bus.shutdown()
+        finally:
+            self._started = False
 
     # ── publish API ──────────────────────────────────────────────────────────
     async def publish(

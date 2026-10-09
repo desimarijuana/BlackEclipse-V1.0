@@ -86,3 +86,54 @@ def test_select_sandbox_never_returns_unbounded():
     assert sandbox.name == "unavailable"
     chosen = select_sandbox()
     assert chosen.name in ("docker", "local", "unavailable")
+
+
+def test_sandbox_requirement_gate(monkeypatch):
+    from harness.security.integration import sandbox_requirement
+    from harness.security.sandbox import LocalSandbox, UnavailableSandbox
+
+    monkeypatch.delenv("BLACK_ECLIPSE_SANDBOX_REQUIRED", raising=False)
+    assert sandbox_requirement("code.execute") is None
+    assert sandbox_requirement("filesystem.write") is None  # not an execution action
+
+    monkeypatch.setenv("BLACK_ECLIPSE_SANDBOX_REQUIRED", "docker")
+    set_sandbox(LocalSandbox())
+    assert sandbox_requirement("code.execute") is not None  # docker required, local active
+
+    monkeypatch.setenv("BLACK_ECLIPSE_SANDBOX_REQUIRED", "1")
+    assert sandbox_requirement("code.execute") is None  # any available backend ok
+
+    set_sandbox(UnavailableSandbox())
+    assert sandbox_requirement("code.execute") is not None  # nothing available
+    set_sandbox(None)
+
+
+def test_authorizer_refuses_when_sandbox_required_and_missing(monkeypatch):
+    import asyncio
+    import os
+    import tempfile
+
+    from harness.security import SecurityGateway
+    from harness.security.integration import make_security_authorizer
+    from harness.security.models import Decision, PolicyProfile
+    from harness.security.sandbox import UnavailableSandbox, set_sandbox
+
+    from harness.persistence import AgentMemoryStore
+
+    store = AgentMemoryStore(os.path.join(tempfile.mkdtemp(), "am.db"))
+    gw = SecurityGateway(store=store, profile=PolicyProfile.DEVELOPER)
+    monkeypatch.setenv("BLACK_ECLIPSE_SANDBOX_REQUIRED", "1")
+    set_sandbox(UnavailableSandbox())
+
+    class _Tool:
+        name = "command_run"
+
+    async def inner(tool, args, ctx=None):
+        return True
+
+    authorizer = make_security_authorizer(inner, run_id="r", workspace_id="ws", gateway=gw)
+    allowed = asyncio.run(authorizer(_Tool(), {"command": "ls"}, None))
+    assert allowed is False
+    events = gw.audit.list(category="sandbox")
+    assert any(e["decision"] == Decision.DENY.value for e in events)
+    set_sandbox(None)

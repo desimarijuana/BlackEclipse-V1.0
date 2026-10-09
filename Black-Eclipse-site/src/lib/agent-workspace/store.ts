@@ -73,6 +73,8 @@ interface WorkspaceStoreState {
   toggle: () => void;
   setActivePanel: (panel: WorkspacePanel) => void;
   bindRun: (runId: string) => void;
+  /** Present a fully-built snapshot (a replayed finished run) as the state. */
+  loadRun: (runId: string, state: AgentWorkspaceState) => void;
   ingest: (events: WorkspaceEvent[], frame: { id?: string; seq?: number }) => void;
   clear: () => void;
 }
@@ -136,6 +138,14 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
       set((s) => {
         s.runId = runId;
         s.state = initialWorkspaceState(runId);
+      });
+    },
+
+    loadRun: (runId, state) => {
+      resetBatch();
+      set((s) => {
+        s.runId = runId;
+        s.state = state;
       });
     },
 

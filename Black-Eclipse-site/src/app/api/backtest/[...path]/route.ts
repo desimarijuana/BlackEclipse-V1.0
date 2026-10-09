@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
+import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { redactSecrets } from "@/lib/harness/errors";
 
@@ -33,6 +34,7 @@ async function forward(request: Request, method: string, path: string[]): Promis
     headers: {
       "Content-Type": "application/json",
       ...(operatorToken ? { "X-Harness-Operator": operatorToken } : {}),
+      ...(await runtimeIdentityHeaders(request)),
     },
     body,
     signal: AbortSignal.timeout(BACKTEST_TIMEOUT_MS),

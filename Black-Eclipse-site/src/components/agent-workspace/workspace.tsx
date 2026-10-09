@@ -1,9 +1,9 @@
 'use client';
 
-// ── Agent Workspace — the right sidebar (execution observability) ─────────────
+// â”€â”€ Agent Workspace â€” the right sidebar (execution observability) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // A REAL docked column in the app shell's primary row (not a floating overlay):
 // the main panel shrinks to make room, exactly like the terminal's right dock.
-// It reflects what the agent is doing and — its default view — what it produced,
+// It reflects what the agent is doing and â€” its default view â€” what it produced,
 // with large outputs expanded inline, in the ChatGPT / Claude Code / Kimi idiom.
 //
 // Mounted in `stock-chat.tsx` as a sibling of the main column, so it reserves
@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { useWorkspaceStore, hydrateWorkspaceStore, type WorkspacePanel } from '@/lib/agent-workspace/store';
-import { fetchRunTrace, replayTrace } from '@/lib/agent-workspace/history';
+import { fetchRunTrace, loadRunSnapshot } from '@/lib/agent-workspace/history';
 import type { AgentWorkspaceState, ArtifactRef } from '@/lib/agent-workspace/types';
 import { OutputPanel } from './output-panel';
 import { ContextPanel } from './context-panel';
@@ -31,7 +31,7 @@ import { PANEL_ICONS, statusIcon } from './ui';
 // The sidebar is deliberately minimal: what the agent did (Output), how full the
 // model's context window is (Context), what it changed (Changes), what it needs
 // (Approvals) and past runs (History). The other telemetry/tasks/browser/computer
-// detail views were removed — they read as noise here; the Output feed carries
+// detail views were removed â€” they read as noise here; the Output feed carries
 // the useful signal.
 const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['output', 'context', 'changes', 'permissions', 'history'];
 
@@ -95,7 +95,6 @@ export function AgentWorkspace() {
 
   const [mounted, setMounted] = useState(false);
   const [viewing, setViewing] = useState<ArtifactRef | null>(null);
-  const [replayState, setReplayState] = useState<AgentWorkspaceState | null>(null);
   const [width, setWidth] = useState(DEFAULT_W);
   const resizeRef = useRef<number | null>(null);
 
@@ -104,8 +103,6 @@ export function AgentWorkspace() {
     setWidth(readWidth());
     hydrateWorkspaceStore();
   }, []);
-
-  const effective = replayState ?? state;
 
   const onDecide = useMemo(
     () => async (id: string, approve: boolean) => {
@@ -147,10 +144,10 @@ export function AgentWorkspace() {
     () =>
       async (id: string) => {
         try {
-          const { events } = await fetchRunTrace(id);
-          setReplayState(replayTrace(id, events));
+          const snapshot = await loadRunSnapshot(id);
+          useWorkspaceStore.getState().loadRun(id, snapshot);
         } catch {
-          setReplayState(null);
+          useWorkspaceStore.getState().clear();
         }
       },
     [],
@@ -181,7 +178,7 @@ export function AgentWorkspace() {
 
   if (!mounted || !open) return null;
 
-  const statusKey = STATUS_KEY[effective.execution.status];
+  const statusKey = STATUS_KEY[state.execution.status];
 
   return (
     <div
@@ -191,7 +188,7 @@ export function AgentWorkspace() {
       className={cn(
         // A real docked column beside the main panel: full height on desktop,
         // a full-width strip below the content on narrow screens (never an
-        // overlay). Frosted glass per the Eclipse design system — no hard border
+        // overlay). Frosted glass per the Eclipse design system â€” no hard border
         // frame; the glass edge is the separation.
         'relative z-20 flex shrink-0 flex-col overflow-hidden',
         'glass-card-strong',
@@ -204,7 +201,7 @@ export function AgentWorkspace() {
           {t('workspace.title')}
         </span>
         <span className="flex shrink-0 items-center gap-1 text-[10.5px] text-muted-foreground/70">
-          {statusIcon(effective.execution.status, 11)}
+          {statusIcon(state.execution.status, 11)}
           {t(statusKey)}
         </span>
         <button
@@ -219,7 +216,7 @@ export function AgentWorkspace() {
 
       <nav aria-label={t('workspace.title')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto px-2 py-1.5 scrollbar-hide">
         {SIDEBAR_PANELS.map((panel) => {
-          const attention = panelAttention(panel, effective);
+          const attention = panelAttention(panel, state);
           const Icon = PANEL_ICONS[panel];
           return (
             <button
@@ -241,7 +238,7 @@ export function AgentWorkspace() {
       </nav>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col p-3">
-        {!effective.runId && effective.activity.length === 0 && activePanel !== 'history' ? (
+        {!state.runId && state.activity.length === 0 && activePanel !== 'history' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
             <Sparkles size={20} className="text-muted-foreground/30" />
             <p className="text-[12px] leading-relaxed text-muted-foreground/50">{t('workspace.empty')}</p>
@@ -249,7 +246,7 @@ export function AgentWorkspace() {
         ) : (
           <PanelBody
             panel={activePanel}
-            state={effective}
+            state={state}
             runId={runId}
             load={loadArtifact}
             onOpenDiff={(change) => setViewing({ id: `diff:${change.path}`, name: change.path, type: 'diff', createdAt: Date.now(), storageRef: change.path })}

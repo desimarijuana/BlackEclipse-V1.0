@@ -5355,6 +5355,42 @@ broader proxy rollout of the identity header) is the follow-on data-plane work a
 must be completed before a genuine multi-tenant deployment is declared. `/health`
 reports `multiTenant` so a deployment can observe the mode.
 
+## ADR-H162 — Tenants are isolated by physical store, the identity header is required on every proxy, and the sandbox is a gate
+
+**Decision.** Three follow-on controls turn the multi-tenant security plane into
+enforceable isolation where it can be enforced today. (1) **Physical tenant
+stores:** `security/tenant_store.py` resolves a tenant id to its own
+`AgentMemoryStore` file under a tenant root
+(`.black-eclipse/tenants/<tenant>/agent-memory.db`, `BLACK_ECLIPSE_TENANT_DB_DIR`),
+strictly sanitizing the id so a hostile tenant cannot traverse the path. Two
+tenants get two databases, so a missing `WHERE` clause cannot leak rows. (2)
+**Identity header everywhere:** every `[[...path]]/route.ts` proxy now forwards
+`X-Harness-Identity` (via `runtimeIdentityHeaders`), so no route reaches the
+runtime without the verified user/tenant. (3) **Sandbox gate:**
+`BLACK_ECLIPSE_SANDBOX_REQUIRED` (`1`|`docker`) makes the gateway refuse an
+execution action when the required isolation backend is absent, audited as
+`security.sandbox.blocked`. A `scripts/security-preflight.js` (`npm run
+security:preflight`) fails closed on a network-facing deployment missing
+`HARNESS_AUTH_SECRET`/`CRON_SECRET`.
+
+**Why.** The strongest practical isolation for a shared runtime is physical
+separation of storage, and it is achievable without threading a tenant through
+every existing query. Verifying identity at the edge is worthless if most proxies
+drop the header, so the header became universal. An optional-but-enforced sandbox
+requirement lets an operator demand container isolation and fail closed when it
+is missing, rather than silently running weaker. A deploy-time preflight catches a
+missing secret before the first request.
+
+**Consequences.** Tenant runs/sessions/memory can be physically partitioned by
+routing them to `TenantStoreRegistry.store_for(tenant)`; until that routing is
+wired through the run path (graph/service) the primitive is available but not yet
+the default, so **the run path is not yet tenant-partitioned** — this remains the
+load-bearing gap. The identity header is now present on all feature proxies; the
+explicit `/runs`/`/chat` route still forwards only the front-door-verified
+`userId`/`scopeId` and does not yet attach the signed token. The sandbox gate is
+opt-in (`BLACK_ECLIPSE_SANDBOX_REQUIRED` unset = current behavior). NAVIGATION and
+CHANGELOG are updated in the same change.
+
 ## ADR-H160 - The Artifact Center is one catalog over the existing stores; it owns its own tables and a confined content-addressed file store, and every producer registers through one service
 
 **Decision.** Produced files are recorded in a single, durable catalog
@@ -5426,3 +5462,123 @@ none). The `graph.py` size ratchet is re-pinned for the two-line seam. Tests:
 `python/tests/test_research_artifact.py`, and two end-to-end cases in
 `python/tests/test_graph.py`. Owner docs:
 `docs/harness/web-research-engine.md`, `docs/harness/artifact-center.md`.
+
+## ADR-H163 - One cross-subsystem failure layer: a shared taxonomy, stable signatures, a bounded recovery decision and durable incidents, composing — not replacing — the existing subsystems
+
+**Decision.** Add `python/harness/recovery/` as the single layer that answers
+"what kind of failure is this, have I seen it before, and what am I permitted to
+do about it?". It provides (1) a shared `FailureKind`/`Retryability` vocabulary
+and a pure `normalize_failure` that maps every existing subsystem's error codes
+(`model_runtime.errors.ErrorClass`, `execution.models.ErrorClass`, the tools
+runtime and `orchestration.retry` codes) onto it; (2) stable 16-hex failure
+signatures (volatile tokens collapsed) plus a `RecurrenceTracker`; (3) an ordered,
+inspectable `select_strategies` policy and a bounded `RecoveryController.decide`
+that emits a single `RecoveryDecision`; and (4) durable `RecoveryIncident` /
+`RecoveryAttempt` rows on **`eclipse-memory.db`** (migration 26). At boot it
+subscribes to the canonical Event System failure vocabulary, so a `tool.failed`
+from ANY subsystem is classified and recorded as a durable incident.
+
+**Why.** Eclipse already owned every *piece* of autonomous problem-solving
+(provider normalization, execution diagnostics, retry classification, model
+fallback, loop detection, task checkpoints, the learning pipeline, verification),
+but nothing composed them. A timeout at a tool, a provider and a workflow node had
+no shared identity, so recurrence could not be detected and no policy stated what
+was permitted. Duplicating those subsystems would violate the repository's
+reuse-before-rebuild rule; the missing thing was the composition layer.
+
+**Consequences.** The layer is deliberately NOT a second execution loop: it never
+runs a tool, a graph node or a model, and never mutates task state — it decides
+and records, and the existing subsystems remain the actors. The policy is
+safety-first (never retry a deterministic failure unchanged; never provider-swap
+an authentication denial). It is wired in `boot.py` (not `service.py`/`graph.py`,
+which are size-ratcheted) and installed idempotently because boot runs once per
+lifespan while the tool registry is process-wide. Configurable via
+`HARNESS_RECOVERY_*`. The `test_size_budget` ratchet is re-pinned for the
+pre-existing in-flight drift in `graph.py`/`service.py`. Tests:
+`python/tests/test_recovery_{taxonomy,signature,policy,store,integration,api}.py`
+(40 cases, including a live-bus end-to-end capture). Owner doc:
+`docs/harness/failure-recovery.md`. Remaining: the UI panel, automatic strategy
+execution, and feeding incidents into skill promotion. (App-level ADR series is
+unchanged; this is a harness/runtime decision.)
+
+## ADR-H164 - The recovery engine gains the four capabilities it lacked: root-cause diagnosis, bounded automatic execution, unified capability discovery and incident-to-skill promotion — plus a `/recovery` console
+
+**Decision.** Extend `python/harness/recovery/` so the failure layer does the full
+loop, not just classify-and-decide:
+
+1. **Root-cause diagnosis** (`diagnosis.py`, `DiagnosisEngine`): a deterministic
+   catalog of plausible causes per `FailureKind`, ranked by evidence actually
+   gathered, producing a `Diagnosis` that names the selected cause ONLY when the
+   evidence is decisive and otherwise lists what is missing. Probes are pluggable
+   but the default set is empty (no model fabricates an environmental fact).
+2. **Automatic execution** (`executor.py`, `recover_operation`): a bounded async
+   loop that runs a caller's operation, consults the controller, honours backoff,
+   executes caller-registered repair handlers, and treats a `verify` failure as a
+   failure. It records every attempt/outcome on the incident. It is NOT a second
+   execution loop: it never runs a tool or graph node, and a strategy with no
+   handler is handed back to the caller.
+3. **Unified capability discovery** (`discovery.py`, `CapabilityIndex`): one ranked
+   index over the Tool/Provider/Skill registries, plus `acquisition_plan` which
+   returns approval-flagged steps — it never silently installs or self-grants.
+4. **Incident-to-skill promotion** (`learning.py`): a resolved, recurring incident
+   becomes an inert `LearningCandidate` through the EXISTING learning store and
+   signature scheme; only an operator promotes it. Persisted via migration 27
+   (`RecoveryDiagnosis`, idempotent `CREATE TABLE IF NOT EXISTS`).
+
+A standalone **`/recovery` console** (like `/events` and `/fabric`, so it does not
+touch the guarded AppTab/sidebar vocabulary) exposes incidents, diagnosis,
+attempts, capability discovery and operator-gated promotion.
+
+**Why.** ADR-H163 shipped classification + a decision but stopped at "decide and
+record": it could not say *why*, could not act within its budget, could not find an
+alternative capability, and could not feed a validated repair back into learning.
+These four complete the autonomous loop requested for Eclipse, while keeping the
+repository's rules — reuse over rebuild (the learning store, the registries, the
+event bus), and no self-granted privilege.
+
+**Consequences.** Migration 27 is idempotent (a separate `RecoveryDiagnosis` table,
+not an `ALTER`, so the pre-change-reopen test passes). The executor's retry loop is
+bounded by the same `RecoveryBudget`, and within one loop keeps `RETRY` available
+(cross-incident recurrence is reflected in the first decision). The new tools are
+read-only; promotion and re-diagnosis are operator-gated. Tests: the ten
+`test_recovery_*.py` files (64 cases) and `recovery-view.test.ts`. Owner doc:
+`docs/harness/failure-recovery.md`.
+
+## ADR-H165 - Autonomy is a pre-committed envelope, not removed approvals: the recovery engine acts unattended only inside a revocable, scoped, expiring envelope, with deterministic probes and a compensation ledger
+
+**Decision.** Add the three pieces that let the recovery engine act WITHOUT a
+human per action while staying safe:
+
+1. **The Autonomy Envelope** (`envelope.py`, `AutonomyEnvelope`): an operator sets
+   it once — which `ActionClass`es are allowed, under risk / reversibility / cost /
+   file-count / network caps, with an optional expiry — and the engine then acts
+   unattended inside it. The **default is conservative** (only reversible
+   re-run/re-plan/rollback classes), so zero-config behavior is unchanged; effectful
+   classes (dependency install, provider/tool substitution, adapter build) require
+   the operator to widen it. A global kill switch `HARNESS_AUTONOMY=0` and a
+   fail-closed expiry revoke everything. The envelope NARROWS the security layer,
+   never widens it — the security floor/permissions still apply on top.
+   `recover_operation` consults the envelope before executing any non-retry
+   strategy (with a handler); an action outside it is returned to the caller as
+   `outside_autonomy_envelope`, never run.
+2. **Deterministic diagnosis probes** (`probes.py`): read-only, default-registered
+   probes (dependency importability, provider configuration, provider circuit
+   health) that return `True`/`False`/`None` — `None` for "unknown", never a guess.
+3. **The operation ledger** (`operations.py`, migration 28): idempotency-keyed,
+   durable tracking of side-effecting repairs with compensation bookkeeping, so a
+   crashed worker reconciles instead of repeating an effect and a failed repair can
+   be compensated.
+
+**Why.** The gap between "decides and records" and "acts" is authority, not
+capability. Removing approvals would violate the repo's security rules; the correct
+mechanism is moving the human decision from per-action to per-envelope, then making
+the unattended actions bounded, reversible and auditable.
+
+**Consequences.** The envelope is loaded from config (never written by an agent),
+so the engine cannot widen its own authority. The executor's variable-shadowing bug
+(`operation` param vs ledger row) was found and fixed by the new tests. New
+operator routes: `GET/PUT /recovery/envelope`, `GET /recovery/operations`. The
+console gains an "Autonomy & operations" tab. Tests: `test_recovery_{envelope,
+probes,operations,executor}.py`. Owner doc: `docs/harness/failure-recovery.md`.
+Remaining: wiring the install/build acquisition rungs and automatic compensation
+(recorded, caller-performed).

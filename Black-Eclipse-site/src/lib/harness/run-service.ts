@@ -48,6 +48,12 @@ export interface StartRunOptions {
    * and resolved by a decide route, so a synchronous caller must leave it unset.
    */
   approvalMode?: "ask";
+  /**
+   * Verified identity headers (`X-Harness-Identity`) forwarded to the runtime, so
+   * a run is authorized under the caller's verified tenant. Server-only; set from
+   * `runtimeIdentityHeaders(request)` at the route.
+   */
+  identityHeaders?: Record<string, string>;
 }
 
 /**
@@ -63,6 +69,7 @@ export async function chatWithAgent(
   sessionId?: string,
   model?: string,
   reasoningEffort?: ReasoningLevel,
+  identityHeaders?: Record<string, string>,
 ): Promise<{
   output: string;
   runId: string;
@@ -94,6 +101,7 @@ export async function chatWithAgent(
     sessionId,
     ...(capability ? { autonomy: capability.autonomy } : {}),
     ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
+    ...(identityHeaders ? { identityHeaders } : {}),
   });
 
   if ("status" in result && !("modelSteps" in result)) {
@@ -202,6 +210,7 @@ export async function startChatRun(
   sessionId?: string,
   model?: string,
   reasoningEffort?: ReasoningLevel,
+  identityHeaders?: Record<string, string>,
 ): Promise<string> {
   const input = assertRunInput({
     query,
@@ -254,7 +263,7 @@ export async function startChatRun(
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };
-  await startRunBackground(payload);
+  await startRunBackground(payload, identityHeaders);
   return id;
 }
 
@@ -319,5 +328,8 @@ export async function startRun(
     callbackToken: runtimeCallbackToken(),
   };
 
-  return runViaRuntime(payload, opts);
+  return runViaRuntime(payload, {
+    ...opts,
+    ...(options.identityHeaders ? { headers: options.identityHeaders } : {}),
+  });
 }

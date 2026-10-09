@@ -54,6 +54,12 @@ async def _boot() -> None:
     # Retention: mark due AUTOMATIC memories expired on startup. Idempotent and
     # best-effort.
     service.run_startup_maintenance()
+    # Failure Intelligence & Adaptive Recovery: construct the classifier/controller
+    # and register its read-only inspection tools. Additive; capture itself is
+    # wired after the Event System starts.
+    from .recovery.bootstrap import install_recovery_layer
+
+    install_recovery_layer(service)
     # Terminal subsystem recovery: reconcile persisted process/session rows.
     service.start_terminal()
     # Application Runtime reconciliation: re-examine the runtimes left by a
@@ -80,6 +86,12 @@ async def _boot() -> None:
     # that publish, so their legacy run-bus emissions are ingested from boot.
     from .event_system.bootstrap import start_events
     await start_events(service)
+    # Failure Intelligence & Adaptive Recovery: subscribe to the now-live event
+    # bus so failures from every subsystem are classified and recorded as durable
+    # incidents. Bounded by the Event System's loop guard + the recovery budget.
+    from .recovery.bootstrap import start_recovery
+
+    await start_recovery(service)
     # The Task / Plan runtime: one durable scheduler task that claims runnable
     # tasks and dispatches each through the ordinary run path. Started after jobs
     # so a task-triggering job sees a live scheduler.
@@ -160,6 +172,10 @@ async def _shutdown() -> None:
     from .fabric.bootstrap import stop_fabric
 
     await stop_fabric(service)
+    # Detach the recovery subscription before the event bus is torn down.
+    from .recovery.bootstrap import stop_recovery
+
+    await stop_recovery(service)
     from .event_system.bootstrap import stop_events
     await service.stop_artifacts()
     await service.stop_tasks()

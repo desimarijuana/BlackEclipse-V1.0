@@ -77,7 +77,9 @@ from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.tasks import router as tasks_router
 from .routers.terminal import router as terminal_router
+from .routers.ui import router as ui_router
 from .routers.workspace import router as workspace_router
+from .routers.recovery import router as recovery_router
 from .schemas import ModelSettings, RunRequest, RunResult
 from .skills.draft import propose_draft
 from .skills.evaluation import evaluate_skill
@@ -90,7 +92,6 @@ from .skills.lifecycle import (
 )
 from .skills.permissions import Actor
 from .skills.runtime import SkillExecutionRequest
-
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=lifespan)
 
@@ -129,7 +130,9 @@ app.include_router(sessions_router)
 app.include_router(skills_router)
 app.include_router(tasks_router)
 app.include_router(terminal_router)
+app.include_router(ui_router)
 app.include_router(workspace_router)
+app.include_router(recovery_router)
 # Process start time (epoch ms). The TS launcher compares this against the
 # build time of `python/harness/` to detect an orphaned runtime from an earlier
 # `npm run dev` that is still holding the port and serving stale code.
@@ -138,7 +141,6 @@ _STARTED_AT_MS = int(time.time() * 1000)
 def _jsonschema_available() -> bool:
     """Whether the full JSON Schema validator is installed (skill contracts)."""
     from .skills.schema_validation import jsonschema_available
-
     return jsonschema_available()
 
 class StartRunResponse(BaseModel):
@@ -228,7 +230,6 @@ def retrieval_metrics() -> dict[str, Any]:
 class ResearchRunRequest(BaseModel):
     """A research-mandate request (Phase 4). The front door proxies this; the
     runtime owns the mandate → coverage flow. `query` is the objective."""
-
     query: str
     ticker: Optional[str] = None
     market: Optional[str] = None
@@ -253,7 +254,6 @@ def research_mandate(payload: dict[str, Any]) -> dict[str, Any]:
 @app.post("/research/run")
 async def research_run(request: ResearchRunRequest) -> JSONResponse:
     """Execute the evidence-grounded research flow for one objective.
-
     Returns the mandate, per-leg coverage, validated claims and the durable
     receipt. A general (unsupported) objective returns `supported=False` so the
     caller continues on the existing chat path.
@@ -442,7 +442,11 @@ def agents() -> dict[str, Any]:
 
 
 @app.post("/runs")
-async def start_run(request: RunRequest, background: bool = False) -> JSONResponse:
+async def start_run(http_request: Request, request: RunRequest, background: bool = False) -> JSONResponse:
+    from .security.identity import resolve_identity
+    _tenant = resolve_identity(http_request).tenant_id
+    if _tenant and not request.tenantId:
+        request = request.model_copy(update={"tenantId": _tenant})
     try:
         if background:
             await service.run_background(request)

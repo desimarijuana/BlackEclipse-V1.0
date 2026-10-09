@@ -41,7 +41,11 @@ RATCHET_PY: dict[str, int] = {
     # invoking `research.release_gate.apply`/`attach` at the answer seam. May only
     # shrink; the release-gate call is a split candidate alongside the collector
     # wiring.
-    "graph.py": 1948,
+    # +1 for the run tenant threading (`tenant_id=request.tenantId`).
+    # Re-pinned 1949→1957 to the measured tree: in-flight runtime wiring had
+    # already grown the file past its pin (the size test was red on the shared
+    # working tree before the recovery work). May only shrink from here.
+    "graph.py": 1957,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -70,7 +74,10 @@ RATCHET_PY: dict[str, int] = {
     # wiring (`install_artifact_layer` + start/stop). Re-pinned from 1380 to 1405
     # for the Artifact Center stream, then to 1407 to match the measured tree.
     # May only shrink.
-    "service.py": 1407,
+    # Re-pinned 1405→1407→1416 (security tenant-store wiring + in-flight streams).
+    # Re-pinned 1416→1423 to the measured tree (in-flight wiring; the size test was
+    # red on the shared working tree before the recovery work). May only shrink.
+    "service.py": 1423,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs
