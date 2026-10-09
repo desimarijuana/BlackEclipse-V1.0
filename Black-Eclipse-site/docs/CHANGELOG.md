@@ -8,6 +8,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-08
 
+- **Production hardening of the evidence release gate: credential-safe verdicts,
+  and production gates exercised.** The gate now strips a cited URL's `user:pass@`
+  authority before it is persisted on the run blob or emitted as
+  `evidence.release_gate`, so an embedded token never leaves the gate
+  (host/path/query preserved for the reader). Verified in production mode: a clean
+  `npm run build` (**✓ Compiled successfully**, no errors) and the operator-
+  triggered live smoke (`npm run test:smoke`) reached DuckDuckGo, the SEC ticker
+  map, SEC XBRL and TSMC IR (PDF correctly reported `unsupported_document`). docs
+  updated: `docs/harness/web-research-engine.md`, this file.
 - **Test isolation for the Artifact Center's process global (fixes a flaky
   test).** `AgenticService.__init__` (and the `/artifacts/*` self-heal) register a
   process-wide `ArtifactService`, so a test that constructed a service leaked it

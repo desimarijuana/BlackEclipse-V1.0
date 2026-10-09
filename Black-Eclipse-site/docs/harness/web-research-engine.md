@@ -152,7 +152,9 @@ provenance is **disclosed as unverified** (the disclosure is appended to the
 answer); a user-supplied URL and a consulted-but-failed fetch are admissible; a
 private/loopback host is ignored. The verdict (`ok` / `unverified` /
 `no_citations` / `no_evidence`) rides on the run's `research` blob as
-`metadata.citationIntegrity` and is emitted as `evidence.release_gate`. It never
+`metadata.citationIntegrity` and is emitted as `evidence.release_gate`. The verdict
+is credential-safe: a cited URL's `user:pass@` authority is stripped before it is
+persisted or emitted, so a token embedded in a URL never leaves the gate. It never
 strips content and is a no-op when the answer makes no citations, so casual
 conversation is not cluttered. See ADR-H162.
 

@@ -131,6 +131,17 @@ def test_known_urls_gathers_citations_sources_and_failed_fetches():
     assert {"https://a.example/ok", "https://b.example/fail", "https://c.example/fetched"} <= known
 
 
+def test_credentials_are_stripped_from_the_persisted_verdict():
+    # A cited URL can embed userinfo; it must not leave the gate in the blob or
+    # the emitted event.
+    verdict = enforce_evidence_answer(
+        "See https://user:secret@madeup.example/report", SourceCollector()
+    )
+    joined = " ".join(verdict.unverified) + (verdict.disclosure or "")
+    assert "secret" not in joined and "user:" not in joined
+    assert "madeup.example/report" in joined
+
+
 def test_gate_tolerates_a_broken_collector():
     class Broken:
         def known_urls(self):

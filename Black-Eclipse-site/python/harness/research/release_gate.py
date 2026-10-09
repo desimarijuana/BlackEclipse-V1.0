@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 # Reuses the SAME deterministic citation parsing as the evaluation citation grader
 # (`evaluation/graders/citation.py`); kept local so the runtime never imports the
@@ -63,6 +63,26 @@ def _key(url: str) -> Optional[tuple[str, str]]:
         return None
     path = (parsed.path or "").rstrip("/").lower()
     return host, path
+
+
+def _display(url: str) -> str:
+    """A URL safe to persist, emit and show: credentials are never carried.
+
+    A cited URL can embed userinfo (`https://user:token@host/…`). The verdict is
+    written to the run blob and emitted to the observability bus, so those
+    credentials must not leave the gate. The host/path/query are preserved (a user
+    needs them to see WHAT was cited); only the `user:pass@` authority is dropped.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url
+    if not parsed.username and not parsed.password:
+        return url
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    return urlunparse((parsed.scheme, host, parsed.path, parsed.params, parsed.query, parsed.fragment))
 
 
 def _is_checkable(url: str) -> bool:
@@ -154,9 +174,10 @@ def enforce_evidence_answer(
     if not known_keys and not known_hosts:
         # The answer cites sources but the run retrieved nothing at all: every
         # citation is unverifiable.
+        shown = [_display(u) for u in urls]
         return CitationIntegrity(
-            status="no_evidence", checked=len(urls), unverified=list(urls),
-            disclosure=_disclosure(urls),
+            status="no_evidence", checked=len(urls), unverified=shown,
+            disclosure=_disclosure(shown),
         )
 
     verified: list[str] = []
@@ -165,11 +186,11 @@ def enforce_evidence_answer(
     for url in urls:
         key = _key(url)
         if key is not None and key in known_keys:
-            verified.append(url)
+            verified.append(_display(url))
         elif key is not None and key[0] in known_hosts:
-            domain_known.append(url)
+            domain_known.append(_display(url))
         else:
-            unverified.append(url)
+            unverified.append(_display(url))
 
     status = "unverified" if unverified else "ok"
     return CitationIntegrity(
