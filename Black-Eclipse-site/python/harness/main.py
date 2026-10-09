@@ -135,13 +135,11 @@ app.include_router(workspace_router)
 # `npm run dev` that is still holding the port and serving stale code.
 _STARTED_AT_MS = int(time.time() * 1000)
 
-
 def _jsonschema_available() -> bool:
     """Whether the full JSON Schema validator is installed (skill contracts)."""
     from .skills.schema_validation import jsonschema_available
 
     return jsonschema_available()
-
 
 class StartRunResponse(BaseModel):
     success: bool
