@@ -144,6 +144,7 @@ export function CategoryIcon({ category, size = 13 }: { category: ActivityCatego
 }
 
 export const PANEL_ICONS = {
+  output: Bot,
   overview: Activity,
   activity: Activity,
   tasks: ListChecks,

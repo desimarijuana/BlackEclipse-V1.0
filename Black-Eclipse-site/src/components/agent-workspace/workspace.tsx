@@ -21,20 +21,23 @@ import { useWorkspaceStore, hydrateWorkspaceStore, type WorkspacePanel } from '@
 import { fetchRunTrace, replayTrace } from '@/lib/agent-workspace/history';
 import type { AgentWorkspaceState, ArtifactRef } from '@/lib/agent-workspace/types';
 import { OutputPanel } from './output-panel';
+import { ContextPanel } from './context-panel';
 import { ChangesPanel } from './changes-panel';
 import { PermissionsPanel } from './permissions-panel';
 import { HistoryPanel } from './history-panel';
 import { ArtifactViewer, type LoadedContent } from './viewer';
-import { statusIcon } from './ui';
+import { PANEL_ICONS, statusIcon } from './ui';
 
-// The sidebar is deliberately minimal: what the agent did (Output), what it
-// changed (Changes), what it needs (Approvals) and past runs (History). The
-// telemetry/tasks/context/browser/computer detail views were removed — they read
-// as noise here; the Output feed carries the useful signal.
-const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['output', 'changes', 'permissions', 'history'];
+// The sidebar is deliberately minimal: what the agent did (Output), how full the
+// model's context window is (Context), what it changed (Changes), what it needs
+// (Approvals) and past runs (History). The other telemetry/tasks/browser/computer
+// detail views were removed — they read as noise here; the Output feed carries
+// the useful signal.
+const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['output', 'context', 'changes', 'permissions', 'history'];
 
 const PANEL_KEY: Record<(typeof SIDEBAR_PANELS)[number], TranslationKey> = {
   output: 'workspace.panel.output',
+  context: 'workspace.panel.context',
   changes: 'workspace.panel.changes',
   permissions: 'workspace.panel.permissions',
   history: 'workspace.panel.history',
@@ -217,6 +220,7 @@ export function AgentWorkspace() {
       <nav aria-label={t('workspace.title')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto px-2 py-1.5 scrollbar-hide">
         {SIDEBAR_PANELS.map((panel) => {
           const attention = panelAttention(panel, effective);
+          const Icon = PANEL_ICONS[panel];
           return (
             <button
               key={panel}
@@ -224,10 +228,11 @@ export function AgentWorkspace() {
               onClick={() => setActivePanel(panel)}
               aria-pressed={activePanel === panel}
               className={cn(
-                'relative shrink-0 rounded-lg px-2.5 py-1 text-[11px] transition-colors',
+                'relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] transition-colors',
                 activePanel === panel ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/[0.05] hover:text-foreground',
               )}
             >
+              <Icon size={12} className="shrink-0" />
               {t(PANEL_KEY[panel])}
               {attention && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />}
             </button>
@@ -300,6 +305,15 @@ function PanelBody({
   switch (panel) {
     case 'output':
       return <OutputPanel activity={state.activity} artifacts={state.artifacts} load={load} />;
+    case 'context':
+      return (
+        <ContextPanel
+          context={state.context}
+          sources={state.contextSources}
+          telemetry={state.telemetry}
+          model={state.model}
+        />
+      );
     case 'changes':
       return <ChangesPanel changes={state.changes} onOpenDiff={onOpenDiff} />;
     case 'permissions':

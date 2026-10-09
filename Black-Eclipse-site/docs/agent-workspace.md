@@ -1,7 +1,7 @@
 ---
 title: Agent Workspace — Execution Observability
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-09
 ---
 
 # Agent Workspace — Execution Observability
@@ -40,7 +40,8 @@ a tool-heavy run readable.
 | Stream client (live) / trace replay (history) | `src/lib/agent-workspace/stream.ts`, `history.ts` |
 | Existing-stream ingest seam | `src/lib/agent-workspace/ingest.ts` |
 | Display formatting (pure) | `src/lib/agent-workspace/format.ts` |
-| UI (docked sidebar + 4 panels + Viewer) | `src/components/agent-workspace/**` |
+| Context-usage math (pure) | `src/lib/agent-workspace/context-usage.ts` |
+| UI (docked sidebar + 5 panels + Viewer) | `src/components/agent-workspace/**` |
 | Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />`, a sibling of the main column) + top-bar toggle + `workspace-keybind.tsx` (mounted in `app/layout.tsx`) |
 
 ## It is a docked right sidebar
@@ -54,9 +55,14 @@ Previously it was a global, portaled, floating panel. That was replaced because 
 floating overlay "is not a sidebar" and its 13 tabs buried the useful output
 under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
 
-- **Minimal tabs:** **Output** (default), **Changes**, **Approvals**, **History**.
-  The overview/activity/tasks/context/telemetry/research/browser/computer/
-  artifacts panels were removed as noise — the Output feed carries the signal.
+- **Minimal tabs:** **Output** (default), **Context**, **Changes**, **Approvals**,
+  **History**. The overview/activity/tasks/telemetry/research/browser/computer/
+  artifacts panels were removed as noise — the Output feed carries the signal. The
+  **Context** tab was added back (2026-10-09) once the need was concrete: a
+  session-context gauge answering "how full is the model's window, and what fills
+  it?", mirroring the OpenCode session sidebar. It reads the already-normalized
+  `state.context` + `state.contextSources` + `state.telemetry` and resolves the
+  window from the declared model catalog (`context-usage.ts`).
 - **Toggle:** **Ctrl/Cmd + Shift + E** (the VS Code "toggle Explorer" chord). A
   dedicated capture-phase listener (`src/components/agent-workspace/workspace-keybind.tsx`)
   is mounted in `app/layout.tsx` beside the terminal keybind, so it works whether
@@ -157,11 +163,14 @@ attention dot on the Approvals tab; a running run shows one on Output.
 
 ## Gaps (honest)
 
-- **Telemetry detail is not surfaced.** Runs, tokens, cost and context-window
-  figures are still normalized into state and remain available to any future
-  panel, but the removed Overview/Telemetry/Context tabs are gone — the sidebar
-  shows Output, Changes, Approvals and History only. Add a tab back if the need is
-  real.
+- **Context is partial by design.** The **Context** tab surfaces the context
+  window, total/input/output tokens, remaining, turns kept/dropped, memories and
+  estimated cost, plus a source-breakdown gauge. Two honest limits: the window is
+  the runtime-reported one when known, else the catalog's declared window (never
+  guessed); and `totalTokens` is the run-cumulative sum across model steps
+  (`reducer.ts`), matching OpenCode's session-total semantics — it is not a
+  single-request prompt size. The remaining telemetry that has no home (retries,
+  tool errors) is still normalized into state and shown in the Output feed.
 - **Browser / computer / research have no dedicated panels.** Their events still
   appear as rows in the Output feed, but there is no session/URL/screenshot view
   and no live screenshot pixels. There is no `/api/browser` or `/api/computer`
