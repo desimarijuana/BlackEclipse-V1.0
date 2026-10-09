@@ -630,6 +630,7 @@ class ResearchEngine:
                     "status": stop_reason,
                     "mandate": mandate.model_dump(),
                     "plan": plan.model_dump(),
+                    "answer": answer,
                 }
             )
             for ent in entity_dicts:

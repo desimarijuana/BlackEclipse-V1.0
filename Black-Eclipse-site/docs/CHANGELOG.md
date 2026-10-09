@@ -8,6 +8,61 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Company detail: close the gaps (canonical quote, persisted AI answer,
+  leadership).** (1) The overlay now fetches ONE canonical `/api/quote` and uses
+  it for the header **and** the metric cards (with source + freshness), so the
+  header can never show a different price than the chart/metrics — the structural
+  form of the OGDC 306.12-vs-131.87 class (live checks: real PSX OGDC ≈ 306–316
+  PKR; 131.87 exists nowhere in JDDS). (2) The web-research engine's deterministic
+  `answer` is now persisted (`WebResearchRun.answer`, additive migration;
+  `answer=COALESCE(...)` so state-only writes don't clobber it) and returned by
+  `GET /research/web/{id}`; the AI brief/conclusion render the typed
+  FACT/CALCULATION/INFERENCE/UNCERTAINTY synthesis + claims/citations/sources.
+  (3) Leadership is now a real provider integration: the yfinance bridge extracts
+  `companyOfficers`, the Yahoo provider normalizes `Officer[]` into
+  `CompanyProfile.leadership`, and `LeadershipSection` renders it with an
+  "verify against the latest filing" caveat (live: AAPL returned 10 officers incl.
+  CEO/CFO). Python tests added (`test_web_research_store.py`, +3); TS
+  `fundamentals.test.ts` (+1). Full `vitest` 2443, `next build`, `tsc`, `eslint`
+  clean. docs updated: `docs/NAVIGATION.md`, `docs/harness/web-research-engine.md`,
+  `docs/CHANGELOG.md`.
+
+- **Company Intelligence: single-page stock detail (no Fundamentals/Technical
+  tabs).** The Market Discovery stock overlay is now one continuous, vertically
+  scrollable page: quote header (A), AI company brief (B, driven by the existing
+  web-research engine via `/api/research/*` with per-symbol caching and honest
+  unavailable/retry states), interactive chart (C), inline filings fundamentals —
+  overview/statements/valuation/timeline via the new non-tabbed `FundamentalsFull`
+  (D/E/F/H), JDDS news feed (G), deterministic technical analysis (I), deterministic
+  risk synthesis (J) and an AI conclusion (K). New pure engines
+  `src/lib/company/technical.ts` (reuses `chart/indicators/registry`) and
+  `src/lib/company/risk.ts` (documented thresholds, evidence-backed), hooks
+  `use-company-news`/`use-company-research`, and `src/components/screens/company/sections.tsx`.
+  The duplicative right sidebar was removed. Tests `technical.test.ts` (6) +
+  `risk.test.ts` (6); full `vitest` 2442, `tsc` and `eslint` clean.
+  docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Chore: de-emphasize the ticker example in the freshness guard.** Reworded the
+  comments/docs so the guard is described as symbol- and market-agnostic (it is:
+  every instrument on both endpoints flows through the same path). No behaviour
+  change. docs updated: `docs/harness/market-data.md`.
+
+- **Thesis store: fix revision-versioning collision + real-DB integration test.**
+  `updateThesis` recorded a revision at the *prior* version, colliding with the
+  origin revision written at creation (`@@unique([thesisId, version])`). It now
+  records the resulting version's snapshot, so the full history is preserved and
+  the original hypothesis is never rewritten. Added
+  `src/lib/theses/store.integration.test.ts` (self-skips when the Thesis tables
+  are absent, unique symbol, cleans up). Full `vitest` (2430) + `tsc` clean.
+  no doc change — bug fix + test; the contracts in `docs/NAVIGATION.md` are unchanged.
+
+- **Fix: normalize `prisma/schema.prisma` line endings + drop an unused import.**
+  The appended Thesis models introduced one CRLF into an LF-only file, which the
+  `gitignore-guard` test correctly flagged; normalized back to LF. Removed the
+  pre-existing unused `DAILY_HISTORY_TTL_MS` import in
+  `/api/price-history`. Full `vitest` (2427), `tsc`, and `eslint` now clean.
+  no doc change — regression fix + lint cleanup.
+
 - **Docs: navigation + market-data sync.** `NAVIGATION.md` gains trigger rows for
   the Investment Thesis Tracker and observation freshness, and
   `docs/harness/market-data.md` documents the observation-freshness envelope; both

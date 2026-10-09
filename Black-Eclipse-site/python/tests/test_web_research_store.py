@@ -138,3 +138,45 @@ async def test_continue_after_cancel_is_not_instantly_cancelled(tmp_workspace):
     assert continued is not None
     assert continued.status.state in ("COMPLETED", "PARTIAL", "FAILED")
     assert continued.status.state != "CANCELLED"
+
+
+# -- synthesized answer persistence --------------------------------------------
+
+
+def test_run_answer_is_persisted_and_returned(tmp_workspace):
+    store = _store(tmp_workspace)
+    store.save_run({"researchId": "rA", "question": "q", "state": "COMPLETED", "answer": "FACT: revenue is X [1]."})
+    run = store.get_run("rA")
+    assert run is not None
+    assert run.get("answer") == "FACT: revenue is X [1]."
+
+
+def test_state_update_does_not_clobber_answer(tmp_workspace):
+    store = _store(tmp_workspace)
+    store.save_run({"researchId": "rB", "question": "q", "state": "COMPLETED", "answer": "kept"})
+    # A later state-only write (e.g. a cancel/continue path) must not erase it.
+    store.save_run({"researchId": "rB", "state": "RUNNING"})
+    assert store.get_run("rB").get("answer") == "kept"
+
+
+def test_legacy_run_table_gains_answer_column(tmp_workspace):
+    """An existing database whose run table predates `answer` is migrated in place."""
+    from harness.persistence import AgentMemoryStore
+
+    memory = AgentMemoryStore(os.path.join(tmp_workspace, "legacy.db"))
+    # Simulate the pre-migration table shape.
+    memory._db.execute(
+        "DROP TABLE IF EXISTS WebResearchRun"
+    )
+    memory._db.execute(
+        "CREATE TABLE WebResearchRun (researchId TEXT PRIMARY KEY, question TEXT NOT NULL, "
+        "objective TEXT, intent TEXT, depth TEXT, state TEXT NOT NULL, pointInTime TEXT, "
+        "freshness TEXT, createdAt TEXT, updatedAt TEXT, mandate TEXT, plan TEXT, status TEXT)"
+    )
+    memory._db.commit()
+
+    store = EvidenceStore(memory)  # __init__ runs the additive migration
+    cols = {r[1] for r in memory._db.execute("PRAGMA table_info(WebResearchRun)").fetchall()}
+    assert "answer" in cols
+    store.save_run({"researchId": "legacy1", "question": "q", "state": "COMPLETED", "answer": "ok"})
+    assert store.get_run("legacy1").get("answer") == "ok"

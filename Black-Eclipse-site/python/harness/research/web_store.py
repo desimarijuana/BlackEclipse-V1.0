@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS WebResearchRun (
   updatedAt    TEXT NOT NULL,
   mandate      TEXT,
   plan         TEXT,
-  status       TEXT
+  status       TEXT,
+  answer       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_wrr_state ON WebResearchRun(state);
 CREATE INDEX IF NOT EXISTS idx_wrr_created ON WebResearchRun(createdAt);
@@ -267,6 +268,9 @@ class EvidenceStore:
 
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
+        # Additive legacy migration: `answer` was introduced after the run table
+        # shipped, so existing databases need the column added in place.
+        self._ensure_column("WebResearchRun", "answer", "TEXT")
         # Backfill legacy rows into the link tables ONCE per database, tracked by a
         # dedicated marker table (self-contained; never touches another
         # subsystem's schema state).
@@ -279,6 +283,16 @@ class EvidenceStore:
                 "INSERT OR REPLACE INTO WebResearchMeta (key, value) VALUES ('linkBackfill', '1')"
             )
         self._db.commit()
+
+    def _ensure_column(self, table: str, column: str, decl: str) -> None:
+        """Additive, idempotent column migration for legacy databases."""
+        try:
+            cols = {r[1] for r in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
+            if column not in cols:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - additive migration is best-effort
+            pass
 
     def _backfill_links(self) -> None:
         """One-time, idempotent migration of rows that predate the link tables.
@@ -304,17 +318,19 @@ class EvidenceStore:
         self._db.execute(
             """INSERT INTO WebResearchRun
                  (researchId, question, objective, intent, depth, state, pointInTime,
-                  freshness, createdAt, updatedAt, mandate, plan, status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  freshness, createdAt, updatedAt, mandate, plan, status, answer)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(researchId) DO UPDATE SET
                  state=excluded.state, updatedAt=excluded.updatedAt,
-                 mandate=excluded.mandate, plan=excluded.plan, status=excluded.status""",
+                 mandate=excluded.mandate, plan=excluded.plan, status=excluded.status,
+                 answer=COALESCE(excluded.answer, WebResearchRun.answer)""",
             (
                 run["researchId"], run.get("question", ""), run.get("objective"),
                 run.get("intent"), run.get("depth"), run.get("state", "PLANNING"),
                 run.get("pointInTime"), run.get("freshness"),
                 run.get("createdAt") or now_iso(), run.get("updatedAt") or now_iso(),
                 _json(run.get("mandate")), _json(run.get("plan")), run.get("status"),
+                run.get("answer"),
             ),
         )
         self._db.commit()

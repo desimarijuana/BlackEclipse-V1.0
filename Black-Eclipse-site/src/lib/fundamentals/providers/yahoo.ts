@@ -13,6 +13,7 @@ import { yahooSymbol } from '@/lib/scraper/fetchers/yfinance';
 import type {
   EarningsEntry,
   FundamentalPeriod,
+  Officer,
   ProviderFundamentals,
   FundamentalsProvider,
   OwnershipSnapshot,
@@ -55,6 +56,7 @@ interface BridgeOutput {
   info?: InfoBag;
   periods?: Array<Record<string, unknown>>;
   earnings?: { history?: EarningsEntry[] };
+  officers?: Array<{ name?: string; title?: string; age?: number | null; yearBorn?: number | null; totalPay?: number | null }>;
   error?: string;
 }
 
@@ -74,6 +76,22 @@ function s(info: InfoBag, ...keys: string[]): string | null {
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
   return null;
+}
+
+/** Normalize the bridge's officer rows; drop any without a name AND title. */
+function toOfficers(rows: BridgeOutput['officers']): Officer[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((o) => o && typeof o.name === 'string' && o.name.trim() && typeof o.title === 'string' && o.title.trim())
+    .slice(0, 12)
+    .map((o) => ({
+      name: (o.name as string).trim(),
+      title: (o.title as string).trim(),
+      age: typeof o.age === 'number' ? o.age : null,
+      yearBorn: typeof o.yearBorn === 'number' ? o.yearBorn : null,
+      totalPay: typeof o.totalPay === 'number' ? o.totalPay : null,
+      source: 'yahoo',
+    }));
 }
 
 /** Convert a raw bridge period row (snake/camel-free names) into a period. */
@@ -182,6 +200,7 @@ export function parseYahooFundamentals(data: BridgeOutput, symbol: string): Prov
       description: s(info, 'longBusinessSummary'),
       employees: n(info, 'fullTimeEmployees'),
       exchange: s(info, 'fullExchangeName', 'exchange'),
+      leadership: toOfficers(data.officers),
     },
     periods,
     quote: {

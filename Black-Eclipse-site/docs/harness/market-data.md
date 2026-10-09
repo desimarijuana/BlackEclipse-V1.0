@@ -250,8 +250,9 @@ observation envelope from the ONE shared module
 is `unknown`/stale — never `live`. The `/api/price-history` JDDS snapshot
 fallback is dated from the row's real `updatedAt`, never `now`, so a stale close
 cannot be drawn under today's date; the chart header/footer render such a series
-amber and say "stale · as of <date>" instead of "live". This is the general guard
-behind the OGDC-class defect (a live header beside a stale series).
+amber and say "stale · as of <date>" instead of "live". This is symbol- and
+market-agnostic — every instrument on both endpoints flows through it; there is
+no per-ticker special case.
 
 ## Known limitations (honest)
 

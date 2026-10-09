@@ -121,6 +121,25 @@ describe('parseYahooFundamentals', () => {
   it('returns null when there is no data', () => {
     expect(parseYahooFundamentals({ periods: [], info: {} }, 'X')).toBeNull();
   });
+
+  it('normalizes disclosed executives and drops incomplete rows', () => {
+    const out = parseYahooFundamentals(
+      {
+        info: { longName: 'Example Corp.' },
+        periods: [],
+        officers: [
+          { name: 'Jane Doe', title: 'Chief Executive Officer', age: 54, totalPay: 12_000_000 },
+          { name: '  ', title: 'Chief Financial Officer' },
+          { name: 'No Title' },
+        ],
+      },
+      'EX',
+    );
+    expect(out!.company.leadership).toHaveLength(1);
+    expect(out!.company.leadership![0]).toMatchObject({
+      name: 'Jane Doe', title: 'Chief Executive Officer', age: 54, totalPay: 12_000_000, source: 'yahoo',
+    });
+  });
 });
 
 // ── SEC provider parse ─────────────────────────────────────────────────────

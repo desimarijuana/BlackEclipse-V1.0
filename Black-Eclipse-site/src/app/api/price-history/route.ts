@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { fetchPsxIndexChart } from "@/lib/scraper/fetchers/psx-index";
 import { resolveIndex } from "@/lib/indices";
-import { DAILY_HISTORY_TTL_MS, ttlForInterval } from "@/lib/chart/price-history-ttl";
+import { ttlForInterval } from "@/lib/chart/price-history-ttl";
 import { observationMeta } from "@/lib/chart/observation-freshness";
 import { fetchYahooChartSeries, yahooChartCandidates, type Bar } from "@/lib/scraper/yahoo-chart";
 

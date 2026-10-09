@@ -1,15 +1,13 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import {
-  X, TrendingUp, TrendingDown, BarChart2, ShieldAlert, Layers, Info,
-  Sparkles, BookOpen, HelpCircle, Landmark, Gauge, ChartCandlestick, Activity,
+  X, TrendingUp, BarChart2, ShieldAlert, Layers,
+  BookOpen, HelpCircle, Landmark, Gauge, ChartCandlestick, Activity,
 } from '@/lib/icons';
-import { Button } from '@/components/ui/button';
-import { TabBar } from '@/components/ui/tab-bar';
 import { ChartWidget } from '@/components/chart/chart-widget';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { describeSeriesSource } from '@/lib/chart/observation-freshness';
@@ -17,13 +15,24 @@ import { formatPriceWithCurrency } from '@/lib/market-currency';
 import { countryToMarketId } from '@/lib/markets';
 import { useFundamentals } from '@/components/screens/fundamentals/use-fundamentals';
 import {
-  FundamentalsBody,
+  FundamentalsFull,
   TickerHeader,
   LoadingState as FundamentalsLoading,
   UnavailableState as FundamentalsUnavailable,
   ErrorState as FundamentalsError,
-  type FundamentalSectionId,
 } from '@/components/screens/fundamentals/panel';
+import { computeTechnical } from '@/lib/company/technical';
+import { computeCompanyRisk } from '@/lib/company/risk';
+import { useCompanyNews } from '@/lib/company/use-company-news';
+import { useCompanyResearch } from '@/lib/company/use-company-research';
+import {
+  AiResearchSection,
+  CompanyNewsSection,
+  TechnicalSection,
+  RiskSection,
+  ValuationNote,
+  LeadershipSection,
+} from '@/components/screens/company/sections';
 
 // Full detail record served by /api/asset-details — superset of the screener
 // row so the overlay can render complete data for ANY asset type.
@@ -177,10 +186,8 @@ export function TradingViewChart({
   dividendRate = 'N/A',
   fdv = 'N/A',
 }: TradingViewChartProps) {
-  const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals'>('chart');
   const [showGlossary, setShowGlossary] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [fundSection, setFundSection] = useState<FundamentalSectionId>('overview');
 
   useEffect(() => {
     setMounted(true);
@@ -193,15 +200,23 @@ export function TradingViewChart({
   // normalize to the JDDS market id the fundamentals providers key off.
   const fundamentalsMarket = countryToMarketId(country);
 
-  // Provider → Normalization → JDDS snapshot. Fetched only while the
-  // Fundamentals tab is open so the screener click stays fast by default.
-  const fund = useFundamentals(activeTab === 'fundamentals' ? symbol : '', fundamentalsMarket);
+  // Provider → Normalization → JDDS snapshot. Loaded immediately so the company
+  // profile, statements and valuation render inline on the single page.
+  const fund = useFundamentals(symbol, fundamentalsMarket);
 
   // ── Full asset details ──────────────────────────────────────────────────
   // The screener row only carries partial data. Fetch the COMPLETE record
   // from /api/asset-details (works for every asset type in JDDS — stocks,
   // ETFs, funds, crypto, warrants, any market) and merge: live values win.
   const [detail, setDetail] = useState<AssetDetail | null>(null);
+  // ── Canonical quote ──────────────────────────────────────────────────────
+  // ONE live quote (with freshness + provenance) shared by the header AND the
+  // metric cards, so the header can never show a different number than the
+  // chart/metrics for the same instrument.
+  const [quote, setQuote] = useState<{
+    price: number; changePercent: number; currency?: string;
+    source?: string; freshness?: string; stale?: boolean; updatedAt?: string;
+  } | null>(null);
   useEffect(() => {
     if (!mounted) return;
     let cancelled = false;
@@ -255,6 +270,38 @@ export function TradingViewChart({
   const effVolumeRaw = volumeRaw || detail?.volumeRaw || 0;
   const effMarketCapRaw = marketCapRaw || detail?.marketCapRaw || 0;
 
+  // Fetch the canonical quote once (server-side resolution + freshness).
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const url = `/api/quote?symbols=${encodeURIComponent(symbol)}${effCountry ? `&market=${encodeURIComponent(effCountry)}` : ''}`;
+        const res = await fetch(url, { signal: controller.signal });
+        const data = await res.json();
+        const q = Array.isArray(data.quotes) ? data.quotes.find((x: { found?: boolean }) => x.found) : null;
+        if (!cancelled && q) {
+          setQuote({
+            price: Number(q.price) || 0,
+            changePercent: Number(q.changePercent) || 0,
+            currency: q.currency,
+            source: q.source,
+            freshness: q.freshness,
+            stale: q.stale,
+            updatedAt: q.updatedAt,
+          });
+        }
+      } catch { /* silent — fall back to screener/detail values */ }
+    })();
+    return () => { cancelled = true; controller.abort(); };
+  }, [symbol, effCountry, mounted]);
+
+  // Canonical price/change: the live quote wins; otherwise the screener/detail
+  // value. The header, metric cards and chart label all read from here.
+  const canonicalPrice = quote && quote.price > 0 ? quote.price : effPrice;
+  const canonicalChange = quote ? quote.changePercent : effChange;
+
   // Exchange-qualified TradingView symbol — numeric tickers ("000006", "786",
   // "1301") only resolve with their exchange prefix (SZSE:, PSX:, TSE:...).
   const tvResolved = getTradingViewSymbol(symbol, isCryptoAsset, effCountry || undefined);
@@ -269,7 +316,7 @@ export function TradingViewChart({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const isPositive = effChange >= 0;
+  const isPositive = canonicalChange >= 0;
 
   // ── Real price history ──────────────────────────────────────────────────
   // Fetched from /api/price-history — a REAL daily OHLCV series from the
@@ -316,6 +363,22 @@ export function TradingViewChart({
     return () => { cancelled = true; };
   }, [symbol, effCountry, mounted, historyRange]);
 
+  // ── Single-page intelligence: news + AI research + deterministic analytics ──
+  // One instance each so the page never starts duplicate requests.
+  const news = useCompanyNews(symbol);
+  const research = useCompanyResearch(symbol, effName, effCountry || fundamentalsMarket || 'US');
+  const technical = useMemo(() => computeTechnical(history?.bars ?? []), [history?.bars]);
+  const risks = useMemo(() => {
+    const b = parseFloat(effBeta);
+    return computeCompanyRisk({
+      technical,
+      periods: fund.data?.periods ?? [],
+      beta: Number.isFinite(b) ? b : null,
+      avgVolume: effVolumeRaw || null,
+      insights: fund.data?.insights ?? [],
+    });
+  }, [technical, fund.data, effBeta, effVolumeRaw]);
+
   // Live growth series for the compact strip (1-month closes) — reused by
   // the All Metrics growth chart via the same payload.
   const spark = (() => {
@@ -329,7 +392,7 @@ export function TradingViewChart({
   // Accurate 52-week range from real data; graceful fallback when missing.
   const has52w = !!(eff52High && eff52Low && eff52High > eff52Low);
   const rangePct = has52w
-    ? Math.min(100, Math.max(0, ((effPrice - eff52Low!) / (eff52High! - eff52Low!)) * 100))
+    ? Math.min(100, Math.max(0, ((canonicalPrice - eff52Low!) / (eff52High! - eff52Low!)) * 100))
     : null;
 
   // Market-cap tier — helps users gauge company size at a glance.
@@ -384,12 +447,18 @@ export function TradingViewChart({
           <div className="hidden sm:flex items-center gap-4 md:gap-6 text-right">
             <div>
               <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">Last Price</div>
-              <div className="font-mono text-base font-extrabold text-foreground">{formatPriceWithCurrency(effCountry, effPrice)}</div>
+              <div className="font-mono text-base font-extrabold text-foreground">{formatPriceWithCurrency(effCountry, canonicalPrice)}</div>
+              {quote && (
+                <div className={cn('text-[9px] font-mono', quote.stale ? 'text-amber-400' : 'text-muted-foreground/70')}>
+                  {quote.stale ? 'stale' : 'live'} · {quote.source ?? 'quote'}
+                  {quote.updatedAt ? ` · ${new Date(quote.updatedAt).toLocaleString()}` : ''}
+                </div>
+              )}
             </div>
             <div>
               <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">24H Change</div>
               <div className={`font-mono text-sm font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {isPositive ? '▲ +' : '▼ '}{effChange.toFixed(2)}%
+                {isPositive ? '▲ +' : '▼ '}{canonicalChange.toFixed(2)}%
               </div>
             </div>
           </div>
@@ -408,17 +477,9 @@ export function TradingViewChart({
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         {/* Left Column: Interactive chart + growth sparkline */}
         <div className="flex-1 h-full relative border-r border-border/20 bg-black/20 flex flex-col min-w-0">
-          {/* Internal Tab Menu */}
-          <div className="flex items-center gap-1.5 p-3 glass-card-subtle border-b border-border/10 shrink-0">
-            <TabBar
-              className="mb-0"
-              items={[
-                { id: 'chart', label: 'Interactive Chart' },
-                { id: 'fundamentals', label: 'Fundamentals' },
-              ]}
-              activeId={activeTab}
-              onChange={(id) => setActiveTab(id as 'chart' | 'fundamentals')}
-            />
+          {/* Single-page section rail — no Fundamentals / Technical tabs */}
+          <div className="flex items-center gap-2 px-4 py-2 glass-card-subtle border-b border-border/10 shrink-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Company Intelligence</span>
             <span className="ml-auto text-[10px] font-mono text-muted-foreground/70 hidden md:inline">{tvSymbolDisplay}</span>
           </div>
 
@@ -448,16 +509,22 @@ export function TradingViewChart({
           </div>
 
           <div className="flex-1 w-full h-full relative min-h-0 overflow-y-auto tv-metrics-rail">
-            {activeTab === 'chart' && (
-              <div className="w-full h-full flex flex-col">
-                <div className="flex-1 w-full min-h-0">
+            <div className="p-4 md:p-6 space-y-5 text-xs max-w-5xl mx-auto">
+              {/* B — AI company intelligence brief (prominent, first) */}
+              <AiResearchSection research={research} variant="brief" />
+
+              {/* C — Interactive chart (existing charting engine) */}
+              <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
+                    <ChartCandlestick size={14} className="text-primary" /> Interactive Chart
+                  </h2>
+                  <span className="text-[10px] font-mono text-muted-foreground">{tvSymbolDisplay}</span>
+                </div>
+                <div className="w-full h-[360px] rounded-xl overflow-hidden">
                   <ChartWidget symbol={symbol} market={effCountry || 'US'} className="h-full" />
                 </div>
               </div>
-            )}
-
-            {activeTab === 'fundamentals' && (
-              <div className="p-4 md:p-6 space-y-5 text-xs">
                 {/* ── Filings-backed fundamentals (provider snapshot) ──────── */}
                 {fund.loading && <FundamentalsLoading />}
                 {!fund.loading && fund.unavailable && (
@@ -469,12 +536,7 @@ export function TradingViewChart({
                 {!fund.loading && fund.data && (
                   <div className="flex flex-col gap-5">
                     <TickerHeader data={fund.data} />
-                    <FundamentalsBody
-                      data={fund.data}
-                      section={fundSection}
-                      onSectionChange={setFundSection}
-                      compact
-                    />
+                    <FundamentalsFull data={fund.data} compact />
                   </div>
                 )}
 
@@ -544,8 +606,8 @@ export function TradingViewChart({
                     <TrendingUp size={14} className="text-primary" /> Core Metrics
                   </h2>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                    <MetricCard label="Price" value={formatPriceWithCurrency(effCountry, effPrice)} />
-                    <MetricCard label="Change %" value={`${isPositive ? '+' : ''}${effChange.toFixed(2)}%`} tone={isPositive ? 'emerald' : 'rose'} hint={GLOSSARY.change} />
+                    <MetricCard label="Price" value={formatPriceWithCurrency(effCountry, canonicalPrice)} />
+                    <MetricCard label="Change %" value={`${isPositive ? '+' : ''}${canonicalChange.toFixed(2)}%`} tone={isPositive ? 'emerald' : 'rose'} hint={GLOSSARY.change} />
                     <MetricCard label="Market Cap" value={effMarketCap} sub={capTier.label !== 'N/A' ? capTier.label : undefined} hint={GLOSSARY.marketCap} />
                     <MetricCard label="P/E Ratio" value={effPe} sub={peRead?.label} hint={GLOSSARY.peRatio} />
                     {!isCryptoAsset && <MetricCard label="EPS" value={effEps} hint={GLOSSARY.eps} />}
@@ -615,7 +677,7 @@ export function TradingViewChart({
                       <MetricCard label="Beta (Volatility)" value={effBeta} hint="How much it swings vs the market: >1 = wilder, <1 = calmer." />
                       <MetricCard label="Forward P/E" value={effPe} hint="Price vs yearly profit — see the P/E read above." />
                       <MetricCard label="Dividend / Share" value={effDividendRate !== 'N/A' ? effDividendRate : 'None'} hint="Actual cash paid per share each year." />
-                      <MetricCard label="Annual Income" value={effDividendRate !== 'N/A' && effDividendRate !== 'None' && effPrice > 0 ? `${((parseFloat(effDividendRate) / effPrice) * 100).toFixed(2)}%` : '—'} hint="Dividend as % of today's price (yield)." />
+                      <MetricCard label="Annual Income" value={effDividendRate !== 'N/A' && effDividendRate !== 'None' && canonicalPrice > 0 ? `${((parseFloat(effDividendRate) / canonicalPrice) * 100).toFixed(2)}%` : '—'} hint="Dividend as % of today's price (yield)." />
                     </div>
                     {(() => {
                       const b = parseFloat(effBeta);
@@ -689,150 +751,28 @@ export function TradingViewChart({
                     )}
                   </div>
                 </div>
+
+                {/* F — leadership & management (provider-disclosed) */}
+                <LeadershipSection officers={fund.data?.company.leadership ?? []} companyName={fund.data?.company.name ?? effName} />
+
+                {/* H — valuation caveat */}
+                <ValuationNote />
+
+                {/* G — recent news & material events (JDDS feed) */}
+                <CompanyNewsSection news={news} />
+
+                {/* I — technical analysis (deterministic from real bars) */}
+                <TechnicalSection tech={technical} />
+
+                {/* J — risk analysis (deterministic + statement insights) */}
+                <RiskSection risks={risks} />
+
+                {/* K — AI research conclusion */}
+                <AiResearchSection research={research} variant="conclusion" />
               </div>
-            )}
           </div>
         </div>
 
-        {/* Right Column: In-depth Summary Sidebar */}
-        <div className="w-full lg:w-80 p-5 overflow-y-auto space-y-5 glass-card-subtle shrink-0 scrollbar-hide tv-metrics-rail">
-          <div className="space-y-5">
-            <div>
-              <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
-                <ChartCandlestick size={14} className="text-primary" /> Core Metrics Overview
-              </h2>
-            </div>
-
-            {/* Quick metrics grid / swipeable on mobile */}
-            <div className="flex overflow-x-auto lg:grid lg:grid-cols-2 gap-3 pb-2 lg:pb-0 scrollbar-none snap-x snap-mandatory">
-              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Price</span>
-                <div className="text-sm font-bold text-foreground mt-0.5">{formatPriceWithCurrency(effCountry, effPrice)}</div>
-              </div>
-              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Change %</span>
-                <div className={`text-sm font-bold mt-0.5 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {isPositive ? '+' : ''}{effChange.toFixed(2)}%
-                </div>
-              </div>
-              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Market Cap</span>
-                <div className="text-xs font-bold text-foreground mt-0.5 truncate">{effMarketCap}</div>
-              </div>
-              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">{isCryptoAsset ? 'Rank' : 'P/E Ratio'}</span>
-                <div className="text-xs font-bold text-foreground mt-0.5 truncate">{isCryptoAsset ? (effRank < 9999 ? `#${effRank}` : 'N/A') : effPe}</div>
-              </div>
-              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Volume</span>
-                <div className="text-xs font-bold text-foreground mt-0.5 truncate">{effVolume}</div>
-              </div>
-              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">{isCryptoAsset ? 'Category' : 'Industry'}</span>
-                <div className="text-xs font-bold text-foreground mt-0.5 truncate" title={isCryptoAsset ? effSector : effIndustry}>{isCryptoAsset ? effSector : effIndustry}</div>
-              </div>
-            </div>
-
-            {/* Asset Health Score Card */}
-            {isCryptoAsset && (() => {
-              let score = 50;
-              const circRatio = effMaxRaw && effMaxRaw > 0 ? effCircRaw / effMaxRaw : 1;
-              score += Math.round(circRatio * 20);
-
-              if (effMarketCapRaw && effMarketCapRaw > 0 && effVolumeRaw) {
-                const volToCap = effVolumeRaw / effMarketCapRaw;
-                if (volToCap > 0.1) score += 15;
-                else if (volToCap > 0.02) score += 10;
-                else score += 5;
-              } else {
-                score += 10;
-              }
-
-              if (effAthChange) {
-                if (effAthChange >= -15) score += 15;
-                else if (effAthChange >= -50) score += 10;
-                else score += 5;
-              } else {
-                score += 10;
-              }
-
-              const finalScore = Math.min(100, Math.max(0, score));
-              let healthLabel = 'Low Health';
-              let healthColor = 'text-rose-400 border-rose-500/25 bg-rose-500/5';
-              let HealthIcon = TrendingDown;
-              if (finalScore >= 75) {
-                healthLabel = 'Healthy';
-                healthColor = 'text-emerald-400 border-emerald-500/25 bg-emerald-500/5';
-                HealthIcon = TrendingUp;
-              } else if (finalScore >= 40) {
-                healthLabel = 'Mid Range';
-                healthColor = 'text-amber-400 border-amber-500/25 bg-amber-500/5';
-                HealthIcon = Info;
-              }
-
-              return (
-                <div className="p-4 rounded-xl border border-border/60 glass-card space-y-2">
-                  <div className="text-[10px] text-muted-foreground font-bold tracking-wider uppercase">Asset Health Score</div>
-                  <div className="flex items-center justify-between font-mono">
-                    <div className="text-xl font-black text-foreground">{finalScore} <span className="text-xs text-muted-foreground font-normal">/ 100</span></div>
-                    <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border", healthColor)}>
-                      <HealthIcon className="w-3 h-3 text-inherit" /> {healthLabel}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Blend of liquidity, supply maturity and distance from all-time highs.</p>
-                </div>
-              );
-            })()}
-
-            {/* 52-Week Visual Slider with REAL data */}
-            {!isCryptoAsset && (
-              <div className="p-4 rounded-xl border border-border/60 glass-card space-y-2">
-                <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold tracking-wider uppercase">
-                  <span>52W Range</span>
-                  {rangePct != null && <span className="text-foreground font-mono">{Math.round(rangePct)}%</span>}
-                </div>
-                <div className="relative h-1 bg-accent/40 rounded-full w-full mt-1.5">
-                  <div
-                    className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-background transition-all"
-                    style={{ left: `calc(${rangePct ?? 45}% - 5px)` }}
-                  />
-                </div>
-                <div className="flex justify-between font-mono text-[9px] text-muted-foreground">
-                  <span>{has52w ? formatPriceWithCurrency(effCountry, eff52Low!) : 'Low'}</span>
-                  <span>{has52w ? formatPriceWithCurrency(effCountry, eff52High!) : 'High'}</span>
-                </div>
-                {effShortFloat !== 'N/A' && (
-                  <div className="text-[9px] text-muted-foreground font-mono">Short Float: {effShortFloat}</div>
-                )}
-              </div>
-            )}
-
-            {/* Data provenance notice */}
-            <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-1">
-              <h3 className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                <ShieldAlert size={12} /> Core Asset Sync
-              </h3>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Quotes refresh through the local JDDS daemon. For deep analysis or report compilations, launch the AI research agent below.
-              </p>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-border/10 flex flex-col gap-2 shrink-0">
-            <Button
-              className="w-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 font-semibold py-2.5 rounded-xl text-xs cursor-pointer flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
-            >
-              <Sparkles size={12} /> Run AI Research Agent
-            </Button>
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="w-full border-border hover:bg-accent hover:text-foreground font-semibold py-2.5 rounded-xl text-xs cursor-pointer"
-            >
-              Back to Market Discover
-            </Button>
-          </div>
-        </div>
       </div>
 
       {/* Learn-the-terms glossary toggle */}

@@ -107,6 +107,20 @@ export interface CompanyProfile {
   description: string | null;
   employees: number | null;
   exchange: string | null;
+  /** Named executives when the provider discloses them (name + title). */
+  leadership?: Officer[];
+}
+
+/** One disclosed executive. `source` records where the name came from so the UI
+ *  never presents an old/first-seen officer as verified-current without context. */
+export interface Officer {
+  name: string;
+  title: string;
+  age?: number | null;
+  yearBorn?: number | null;
+  /** Total reported compensation for the last fiscal year, when disclosed. */
+  totalPay?: number | null;
+  source?: FundamentalProviderId;
 }
 
 /** Market-derived figures that complement the filings. */

@@ -67,6 +67,32 @@ export function FundamentalsBody({ data, section, onSectionChange, compact }: Fu
   );
 }
 
+// ── Full (single-page) fundamentals ─────────────────────────────────────────
+// Renders every fundamentals section sequentially with no internal tab bar, for
+// the single-page company detail experience (Sections D/E/F/H).
+export function FundamentalsFull({ data, compact }: { data: FundamentalsSnapshot; compact?: boolean }) {
+  return (
+    <div className={cn('flex flex-col', compact ? 'gap-8' : 'gap-10')}>
+      <section>
+        <SectionHead title="Financial overview" desc="Signals and highlights derived from the reported statements." />
+        <OverviewSection data={data} compact={compact} />
+      </section>
+      <section>
+        <SectionHead title="Financial statements" desc="Income statement, balance sheet and cash flow by reported period." />
+        <StatementsSection data={data} />
+      </section>
+      <section>
+        <SectionHead title="Valuation" desc="Multiples and valuation inputs with sources and periods." />
+        <ValuationSection data={data} />
+      </section>
+      <section>
+        <SectionHead title="Disclosure timeline" desc="Filings and dated events the numbers came from." />
+        <TimelineSection data={data} />
+      </section>
+    </div>
+  );
+}
+
 // ── Header ──────────────────────────────────────────────────────────────────
 
 export function TickerHeader({ data }: { data: FundamentalsSnapshot }) {

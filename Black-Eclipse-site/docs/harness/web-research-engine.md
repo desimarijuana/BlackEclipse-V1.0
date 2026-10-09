@@ -1,7 +1,7 @@
 ---
 title: Evidence-Driven Web Research Engine
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-09
 ---
 
 # Evidence-Driven Web Research Engine
@@ -368,6 +368,17 @@ resume after a cancel is not instantly cancelled again.
   came from — `build_graph` emits nothing ungrounded. Surfaced on `EngineResult`
   (`entities`/`relations`), via the `research_graph` tool, the run API, and a
   Knowledge Graph widget on the Research screen.
+
+## Answer persistence
+
+The deterministic synthesis (`_synthesize` → `EngineResult.answer`, typed
+`FACT`/`CALCULATION`/`INFERENCE`/`UNCERTAINTY` lines) is now persisted on
+`WebResearchRun.answer` (additive column; legacy databases are migrated in place
+by `EvidenceStore._ensure_column`). `GET /research/web/{id}` therefore returns
+`run.answer`, so a completed research run can be reopened with its grounded
+synthesis intact — this is what the single-page company detail renders as its AI
+brief and conclusion. A later state-only `save_run` (cancel/continue) never
+clobbers it (`answer = COALESCE(excluded.answer, WebResearchRun.answer)`).
 
 ## Tests
 

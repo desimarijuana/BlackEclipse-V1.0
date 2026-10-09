@@ -3,8 +3,9 @@
 // current. Before this, `/api/price-history` returned `source: "snapshot"` for a
 // stale JDDS `Price` row but the payload carried no observation time or age, so
 // a chart could draw a months-old close as if it were today's series — the same
-// class of defect as the OGDC 306.12-vs-131.87 split (a live header next to a
-// stale series). Freshness is METRIC-AND-INTERVAL AWARE: a daily bar is current
+// class of defect as a live header shown next to a stale series for the same
+// symbol. It is symbol- and market-agnostic: every instrument goes through the
+// same path. Freshness is METRIC-AND-INTERVAL AWARE: a daily bar is current
 // on the session it belongs to, while an intraday bar ages within minutes.
 //
 // A live quote, an annual figure and a news article must not share one TTL, so

@@ -14,6 +14,8 @@ export interface ResearchRunRow {
   status?: string | null;
   pointInTime?: string | null;
   freshness?: string | null;
+  /** The deterministic, evidence-grounded synthesized answer (persisted). */
+  answer?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }

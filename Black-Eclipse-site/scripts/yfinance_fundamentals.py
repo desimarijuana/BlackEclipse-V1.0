@@ -173,6 +173,28 @@ def build_earnings(ticker):
     return out
 
 
+def build_officers(raw_info):
+    """Named executives (name + title) when yfinance discloses them."""
+    out = []
+    for o in (raw_info.get("companyOfficers") or []):
+        if not isinstance(o, dict):
+            continue
+        name = o.get("name")
+        title = o.get("title")
+        if not name or not title:
+            continue
+        out.append({
+            "name": str(name),
+            "title": str(title),
+            "age": num(o.get("age")),
+            "yearBorn": num(o.get("yearBorn")),
+            "totalPay": num(o.get("totalPay")),
+        })
+        if len(out) >= 12:
+            break
+    return out
+
+
 def run():
     if len(sys.argv) < 2 or not sys.argv[1].strip():
         return {"error": "usage: yfinance_fundamentals.py <YAHOO_TICKER>"}
@@ -194,6 +216,7 @@ def run():
         "info": info,
         "periods": periods,
         "earnings": earnings,
+        "officers": build_officers(raw_info),
     }
 
 

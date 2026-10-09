@@ -125,22 +125,15 @@ export async function createThesis(input: ThesisInput): Promise<ThesisRecord> {
 }
 
 /**
- * Apply an update. A revision is appended FIRST (capturing the PRIOR version),
- * then the row is bumped. This preserves history and makes the change auditable.
+ * Apply an update. Creation recorded the origin as revision v1; an update bumps
+ * the thesis to `nextVersion` and records THAT version's snapshot, so the full
+ * history is preserved and the original hypothesis is never silently rewritten.
  */
 export async function updateThesis(id: string, patch: ThesisUpdate): Promise<ThesisRecord | null> {
   const existing = await prisma.thesis.findUnique({ where: { id } });
   if (!existing) return null;
   const nextVersion = existing.version + 1;
-  await prisma.thesisRevision.create({
-    data: {
-      thesisId: id,
-      version: existing.version,
-      snapshot: JSON.stringify(snapshotOf(existing, existing.version)),
-      note: patch.note ?? null,
-    },
-  });
-  await prisma.thesis.update({
+  const updated = await prisma.thesis.update({
     where: { id },
     data: {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
@@ -154,6 +147,14 @@ export async function updateThesis(id: string, patch: ThesisUpdate): Promise<The
         ? { reviewDate: patch.reviewDate ? new Date(patch.reviewDate) : null }
         : {}),
       version: nextVersion,
+    },
+  });
+  await prisma.thesisRevision.create({
+    data: {
+      thesisId: id,
+      version: nextVersion,
+      snapshot: JSON.stringify(snapshotOf(updated, nextVersion)),
+      note: patch.note ?? null,
     },
   });
   return getThesis(id);

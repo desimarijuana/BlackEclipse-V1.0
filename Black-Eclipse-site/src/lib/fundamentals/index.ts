@@ -105,6 +105,13 @@ function mergeCompany(parts: Array<Partial<CompanyProfile>>): CompanyProfile {
       break;
     }
   }
+  let leadership: CompanyProfile['leadership'] = [];
+  for (const p of parts) {
+    if (Array.isArray(p.leadership) && p.leadership.length > 0) {
+      leadership = p.leadership;
+      break;
+    }
+  }
   return {
     name: pick('name'),
     sector: pick('sector'),
@@ -114,6 +121,7 @@ function mergeCompany(parts: Array<Partial<CompanyProfile>>): CompanyProfile {
     description: pick('description'),
     employees,
     exchange: pick('exchange'),
+    leadership,
   };
 }
 
