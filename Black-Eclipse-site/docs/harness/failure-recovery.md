@@ -31,18 +31,20 @@ no shared identity.
 | Decision controller | `python/harness/recovery/controller.py` | `RecoveryController.decide()` → `RecoveryDecision` (`recover`/`suspend`/`stop`), bounded backoff. PURE. |
 | Root-cause diagnosis | `python/harness/recovery/diagnosis.py` | `DiagnosisEngine.diagnose()` → evidence-ranked `Hypothesis`es + `Diagnosis` (`selected` only when decisive). PURE + optional `Probe`s. |
 | Automatic execution | `python/harness/recovery/executor.py` | `recover_operation(service, op, verify=…)` — a bounded async retry/verify loop driving the controller and recording real outcomes; strategy handlers for repair-type strategies. |
-| **Autonomy envelope** | `python/harness/recovery/envelope.py` | `AutonomyEnvelope` — pre-committed, scoped, expiring permission by action class + risk/reversibility/cost/files/network caps; kill switch `HARNESS_AUTONOMY=0`. The executor acts unattended ONLY inside it. |
+| **Autonomy envelope** | `python/harness/recovery/envelope.py` | `AutonomyEnvelope` — pre-committed, scoped, expiring permission by action class + risk/reversibility/cost/files/network caps; kill switch `HARNESS_AUTONOMY=0`. Durable (migration 29 `AutonomyEnvelope`). The executor acts unattended ONLY inside it. |
+| **Compensation** | `python/harness/recovery/compensation.py` | `compensate_pending()` — runs registered compensation handlers for pending operations, envelope-gated (`COMPENSATE`). |
+| **Coordination + approvals** | `store.py` + `executor.py` | Per-signature `RecoveryLease` (two workers never repair the same root cause at once); one-off operator `RecoveryApproval` authorizes an out-of-envelope strategy for one incident. |
 | **Diagnosis probes** | `python/harness/recovery/probes.py` | read-only deterministic probes (dependency presence, provider config, provider health) registered at boot; unknown → `None`, never a guess. |
 | **Operation ledger** | `python/harness/recovery/operations.py` | `OperationLedger` — idempotency-keyed tracking + compensation bookkeeping so a crashed repair is reconciled, not repeated. |
 | Error taxonomy + signatures | `taxonomy.py` / `signature.py` | shared `FailureKind`/`Retryability`; stable 16-hex signatures + `RecurrenceTracker`. |
 | Capability discovery | `python/harness/recovery/discovery.py` | `CapabilityIndex` over tools/providers/skills + `acquisition_plan()` (approval-flagged, never self-grants). |
 | Incident → skill | `python/harness/recovery/learning.py` | `incident_to_candidate()` / `promote_incidents()` — inert `LearningCandidate`s through the EXISTING learning store. |
-| Persistence | `python/harness/recovery/store.py` | `RecoveryStore` on **`eclipse-memory.db`** (migrations 26/27/28: `RecoveryIncident`, `RecoveryAttempt`, `RecoveryDiagnosis`, `RecoveryOperation`). Rides the ONE `EclipseMemoryStore` connection. |
+| Persistence | `python/harness/recovery/store.py` | `RecoveryStore` on **`eclipse-memory.db`** (migrations 26–29: `RecoveryIncident`, `RecoveryAttempt`, `RecoveryDiagnosis`, `RecoveryOperation`, `AutonomyEnvelope`, `RecoveryLease`, `RecoveryApproval`). Rides the ONE `EclipseMemoryStore` connection. |
 | Facade | `python/harness/recovery/service.py` | `RecoveryService.record_failure()` = classify + decide + persist + return. |
 | Boot wiring | `python/harness/recovery/bootstrap.py` | `install_recovery_layer` (idempotent) + `start_recovery`/`stop_recovery` (event subscription). |
 | Agent tools | `python/harness/recovery/tools.py` | `recovery_incidents`, `recovery_incident`, `recovery_summary`, `recovery_diagnose`, `recovery_discover` — read-only. |
-| Operator API | `python/harness/routers/recovery.py` | `/recovery/{health,summary,incidents,discover,envelope,operations}` reads; `POST /recovery/incidents/{id}/{diagnose,outcome}`, `POST /recovery/promote`, `PUT /recovery/envelope` operator-gated. |
-| Console UI | `src/app/recovery/` (`page.tsx`, `recovery-console.tsx`) + `src/app/api/recovery/[[...path]]/route.ts` + `src/lib/harness/recovery-view.ts` | Standalone `/recovery` page (like `/events`, `/fabric`): incidents, diagnosis, attempts, capability discovery, promote, autonomy envelope + operation ledger. |
+| Operator API | `python/harness/routers/recovery.py` | `/recovery/{health,summary,incidents,discover,envelope,operations}` and `/recovery/incidents/{id}/approvals` reads; `POST /recovery/incidents/{id}/{diagnose,outcome,approve}`, `POST /recovery/promote`, `PUT /recovery/envelope` operator-gated. |
+| Console UI | `src/app/recovery/` (`page.tsx`, `recovery-console.tsx`) + `src/app/api/recovery/[[...path]]/route.ts` + `src/lib/harness/recovery-view.ts` | Standalone `/recovery` page (like `/events`, `/fabric`): incidents, diagnosis, attempts, capability discovery, promote, approve, and the autonomy envelope + operation ledger. |
 
 ## Invariants (do not weaken)
 
@@ -78,7 +80,7 @@ down. Replayed events are ignored.
 
 - `HARNESS_RECOVERY_ENABLED` — default ON; `0`/`false` disables capture.
 - **`HARNESS_AUTONOMY`** — global kill switch; `0`/`false` revokes all autonomy.
-- **`HARNESS_AUTONOMY_ENVELOPE`** — path to a JSON envelope (see `AutonomyEnvelope`).
+- **`HARNESS_AUTONOMY_ENVELOPE`** — path to a JSON envelope (see `AutonomyEnvelope`). A **persisted** operator envelope (`PUT /recovery/envelope`) overrides this file and the default, and survives a restart.
 - `HARNESS_RECOVERY_MAX_ATTEMPTS` (default 4)
 - `HARNESS_RECOVERY_MAX_PER_SIGNATURE` (default 2)
 - `HARNESS_RECOVERY_MAX_DELEGATIONS` (default 2)
@@ -91,34 +93,37 @@ retry/backoff (baseline resilience) always, and any **other** strategy only when
 its action class is enabled in the envelope AND a handler exists. The default
 envelope is conservative (only reversible re-run/re-plan/rollback classes);
 effectful classes (dependency install, provider/tool substitution, adapter build)
-require the operator to widen it via `PUT /recovery/envelope`. An action outside
-the envelope is returned to the caller as `outside_autonomy_envelope` — never run.
+require the operator to widen it via `PUT /recovery/envelope` (persisted). A
+repair holds a per-signature **lease** so two workers never repair the same root
+cause at once. An action outside the envelope is returned to the caller as
+`outside_autonomy_envelope` — unless an operator granted a **one-off approval**
+(`POST /recovery/incidents/{id}/approve`) for exactly that incident and strategy.
 
 ## Tests
 
-`python/tests/test_recovery_{taxonomy,signature,policy,store,integration,api,diagnosis,executor,discovery,learning,envelope,probes,operations}.py`
-— 87 cases: classification/signature purity, recurrence, strategy selection and
+`python/tests/test_recovery_{taxonomy,signature,policy,store,integration,api,diagnosis,executor,discovery,learning,envelope,probes,operations,compensation}.py`
+— 99 cases: classification/signature purity, recurrence, strategy selection and
 reject rules, controller bounds/backoff, durable upsert + attempts + summary +
 diagnosis, root-cause ranking, the bounded executor (retry/verify/suspend/
-envelope-gated handler), the autonomy envelope (kills switch/expiry/risk/caps/
-network), the read-only probes, the idempotent operation ledger, capability ranking
-+ acquisition plans, incident→candidate promotion, boot subscription, the read
-tools, the operator API, and an end-to-end case that publishes a real `tool.failed`
-on the live bus and asserts the incident is recorded. Front door:
-`src/lib/harness/recovery-view.test.ts`. Unrelated regression coverage: the full
-harness suite (`5190 passed, 16 skipped`).
+envelope-gated handler/lease/approval), the autonomy envelope (kill switch/expiry/
+risk/caps/network), the read-only probes, the idempotent operation ledger,
+compensation, capability ranking + acquisition plans, incident→candidate promotion,
+boot subscription, the read tools, the operator API, and an end-to-end case that
+publishes a real `tool.failed` on the live bus and asserts the incident is recorded.
+Front door: `src/lib/harness/recovery-view.test.ts`. Unrelated regression coverage:
+the full harness suite (`5202 passed, 16 skipped`).
 
 ## What it can and cannot do (honest)
 
 **Can (unattended, inside the envelope):** classify, diagnose with real evidence,
-bound-and-retry with backoff, verify before claiming success, discover existing
-capabilities, record durable incidents, and turn validated repairs into inert skill
-candidates.
+bound-and-retry with backoff, verify before claiming success, run approved repair
+handlers with idempotency + per-signature leasing, compensate recorded side effects,
+discover existing capabilities, persist the envelope and incidents, and turn
+validated repairs into inert skill candidates.
 
 **Cannot yet (noted, not hidden):** auto-reproduce a failing operation itself;
 auto-acquire a *missing* capability (the plan is approval-flagged and the install/
 build rungs are not wired); auto-promote a skill without an operator; delegate
-diagnosis to sub-agents; stream live in the console; or compensate side effects
-automatically (the ledger records what to compensate; the compensation action is
-the caller's). The envelope makes unattended action *safe*; extending the enabled
-action classes is the operator's deliberate choice.
+diagnosis to sub-agents; stream live in the console; or compensate *without* a
+caller-registered compensation handler. The envelope makes unattended action *safe*;
+extending the enabled action classes is the operator's deliberate choice.

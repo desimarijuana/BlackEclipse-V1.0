@@ -5582,3 +5582,39 @@ console gains an "Autonomy & operations" tab. Tests: `test_recovery_{envelope,
 probes,operations,executor}.py`. Owner doc: `docs/harness/failure-recovery.md`.
 Remaining: wiring the install/build acquisition rungs and automatic compensation
 (recorded, caller-performed).
+
+## ADR-H166 - Autonomy becomes durable and coordinated: persisting the envelope, leasing repairs per signature, granting one-off operator approvals, and executing compensating actions
+
+**Decision.** Four additions turn the envelope from an in-memory setting into an
+operable, unattended control plane:
+
+1. **The envelope is durable** (migration 29, `AutonomyEnvelope` table): a
+   `PUT /recovery/envelope` persists, and `RecoveryService` loads the durable
+   override ahead of the config file/default, so autonomy survives a restart.
+2. **A per-signature repair lease** (`RecoveryLease`): the executor claims the
+   lease for a failure's signature before running a repair handler and releases it
+   after, so two workers never repair the same root cause at once (advisory,
+   expiring, reclaimable). A held lease returns `repair_lease_held`.
+3. **One-off operator approvals** (`RecoveryApproval`): `POST
+   /recovery/incidents/{id}/approve` authorizes exactly one strategy for exactly
+   one incident, overriding the envelope for that action only — the human fallback
+   that keeps the loop usable without widening standing authority.
+4. **Compensating actions** (`compensation.py`, `compensate_pending`): registered
+   handlers undo a recorded side effect, envelope-gated under the `COMPENSATE`
+   action class; operations without a handler or forbidden by the envelope stay
+   pending and are reported.
+
+**Why.** The prior envelope could be set but not persisted, could not prevent two
+workers from racing the same repair, offered no way to authorize a single
+out-of-envelope action, and recorded compensation obligations it could not
+discharge. These are the difference between a policy object and a working control
+plane.
+
+**Consequences.** The engine still cannot widen its own authority: the durable
+envelope is written only by an operator route. Compensation remains caller-driven
+by design (the runtime cannot know how to undo an arbitrary external effect). New
+store methods (`save_envelope`/`load_envelope_dict`, `acquire_lease`/`release_lease`,
+`add_approval`/`has_approval`). Tests: `test_recovery_{compensation,store,executor,
+api}.py`. Owner doc: `docs/harness/failure-recovery.md`. Remaining: the install/
+build acquisition rungs, evidence-backed diagnosis, multi-agent delegation, and
+live console streaming.

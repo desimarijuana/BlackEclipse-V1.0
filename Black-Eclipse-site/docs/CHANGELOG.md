@@ -109,6 +109,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   gates ALL PASS. docs updated: `docs/harness/failure-recovery.md`,
   `docs/harness/decisions.md` (ADR-H165), `docs/NAVIGATION.md`, this file.
 
+- **Autonomy made durable + coordinated: persisted envelope, per-signature repair
+  lease, one-off operator approvals, and compensating actions.** Migration 29 adds
+  `AutonomyEnvelope` (a `PUT /recovery/envelope` now persists and survives restart),
+  `RecoveryLease` (two workers never repair the same root cause at once; the executor
+  returns `repair_lease_held`), and `RecoveryApproval` (`POST
+  /recovery/incidents/{id}/approve` authorizes exactly one out-of-envelope strategy
+  for one incident). New `recovery/compensation.py` `compensate_pending()` runs
+  caller-registered compensation handlers, envelope-gated under `COMPENSATE`. The
+  console gains a decision + "Approve strategy" control in the incident detail. 99
+  recovery pytest cases; full suite `5202 passed, 16 skipped`; vitest 2394;
+  `npx tsc --noEmit` clean; eval gates ALL PASS. docs updated:
+  `docs/harness/failure-recovery.md`, `docs/harness/decisions.md` (ADR-H166),
+  `docs/NAVIGATION.md`, this file.
+
 - **Agent Workspace: new Context tab (session-context gauge).** The right sidebar
   gains a fifth tab showing how full the model's context window is, mirroring the
   OpenCode session sidebar: usage % + a segmented breakdown gauge, plus tiles for
