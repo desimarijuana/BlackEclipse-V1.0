@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
 import { ChartWidget } from '@/components/chart/chart-widget';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
+import { describeSeriesSource } from '@/lib/chart/observation-freshness';
 import { formatPriceWithCurrency } from '@/lib/market-currency';
 import { countryToMarketId } from '@/lib/markets';
 import { useFundamentals } from '@/components/screens/fundamentals/use-fundamentals';
@@ -281,6 +282,9 @@ export function TradingViewChart({
     currency: string;
     perf: { week?: number; month?: number; quarter?: number };
     source: string;
+    freshness?: string;
+    observationTime?: string | null;
+    stale?: boolean;
   } | null>(null);
   const [historyRange, setHistoryRange] = useState<'1mo' | '3mo' | '6mo'>('3mo');
   useEffect(() => {
@@ -300,6 +304,9 @@ export function TradingViewChart({
             currency: data.currency || '$',
             perf: data.perf || {},
             source: data.source,
+            freshness: data.freshness,
+            observationTime: data.observationTime ?? null,
+            stale: data.stale,
           });
         } else if (!cancelled) {
           setHistory(null);
@@ -432,8 +439,11 @@ export function TradingViewChart({
                 </span>
               </span>
             ))}
-            <span className="ml-auto text-[9px] font-mono text-muted-foreground/50 shrink-0">
-              {history?.source === 'yfinance' ? 'live · Yahoo' : history ? 'snapshot' : ''}
+            <span className={cn(
+              'ml-auto text-[9px] font-mono shrink-0',
+              history?.stale ? 'text-amber-400' : 'text-muted-foreground/50',
+            )}>
+              {describeSeriesSource(history?.source, history?.freshness as never, history?.observationTime)}
             </span>
           </div>
 
@@ -474,8 +484,11 @@ export function TradingViewChart({
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                       <Activity size={14} className="text-primary" /> Price History
-                      <span className="text-[10px] font-mono font-normal text-muted-foreground">
-                        {history?.source === 'yfinance' ? 'live · Yahoo Finance' : history ? 'snapshot · cached' : ''}
+                      <span className={cn(
+                        'text-[10px] font-mono font-normal',
+                        history?.stale ? 'text-amber-400' : 'text-muted-foreground',
+                      )}>
+                        {describeSeriesSource(history?.source, history?.freshness as never, history?.observationTime)}
                       </span>
                     </h2>
                     <div className="flex items-center gap-1">

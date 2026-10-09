@@ -256,6 +256,12 @@ export async function GET(request: Request) {
         const psx = psxQuotes.get(sym) ?? (def?.provider === "psx" ? psxQuotes.get(def.symbol) : undefined);
         const price = idx && idx.price > 0 ? idx.price : psx?.price ?? 0;
         if (price > 0) {
+          const fromStored = Boolean(idx && idx.price > 0);
+          const storedMs = idx?.updatedAt?.getTime?.() ?? Date.now();
+          const ageMs = fromStored ? Math.max(0, Date.now() - storedMs) : 0;
+          const freshness = fromStored
+            ? (ageMs <= STORED_QUOTE_FRESH_MS ? "delayed" : "stale")
+            : "live";
           return {
             symbol: sym,
             name: idx?.name ?? def?.name ?? sym,
@@ -265,6 +271,10 @@ export async function GET(request: Request) {
             marketId: idx?.marketId ?? def?.market,
             source: idx && idx.price > 0 ? "index" : "psx",
             updatedAt: idx?.updatedAt,
+            observationTime: fromStored ? idx?.updatedAt : undefined,
+            freshness,
+            stale: freshness === "stale",
+            ageMs: fromStored ? ageMs : null,
             found: true,
           };
         }
@@ -288,6 +298,16 @@ export async function GET(request: Request) {
       // honestly show it as stale rather than pretending it is live).
       const liveQ: LiveQuote | undefined = live.get(r.symbol.toUpperCase());
       const usingLive = Boolean(liveQ);
+      // Freshness envelope: a stored row served after a failed live refresh is
+      // `stale`, not live. The UI can then grey it and show the real as-of time
+      // instead of presenting an old number as current.
+      const storedMs = r.price.updatedAt?.getTime?.() ?? Date.now();
+      const ageMs = Math.max(0, Date.now() - storedMs);
+      const freshness = usingLive
+        ? "live"
+        : ageMs <= STORED_QUOTE_FRESH_MS
+          ? "delayed"
+          : "stale";
       return {
         symbol: sym,
         name: r.name,
@@ -298,6 +318,10 @@ export async function GET(request: Request) {
         sector: r.sector ?? undefined,
         source: usingLive ? "live" : r.price.source,
         updatedAt: usingLive ? new Date(liveQ!.at).toISOString() : r.price.updatedAt,
+        observationTime: usingLive ? new Date(liveQ!.at).toISOString() : r.price.updatedAt,
+        freshness,
+        stale: freshness === "stale",
+        ageMs,
         found: true,
       };
     });

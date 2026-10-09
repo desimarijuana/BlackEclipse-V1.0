@@ -8,6 +8,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Market data: observation freshness guard.** New `src/lib/chart/observation-freshness.ts`
+  (metric-and-interval-aware freshness: `live`/`delayed`/`stale`/`historical`/
+  `unavailable`/`unknown`, never inventing a timestamp) + tests; `/api/price-history`
+  and `/api/quote` now carry observation time/age/freshness so a stale series is
+  labelled rather than drawn as current, and the chart surfaces it.
+  docs updated: `docs/CHANGELOG.md`.
+
 - **Recovery: test hardening.** `python/conftest.py` now isolates the process-global
   recovery service singleton (`set_recovery_service`) in the autouse fixture, and the
   approve-route API test uses a unique incident per run so it cannot collide with a

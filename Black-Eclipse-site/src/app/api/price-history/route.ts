@@ -4,6 +4,7 @@ import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { fetchPsxIndexChart } from "@/lib/scraper/fetchers/psx-index";
 import { resolveIndex } from "@/lib/indices";
 import { DAILY_HISTORY_TTL_MS, ttlForInterval } from "@/lib/chart/price-history-ttl";
+import { observationMeta } from "@/lib/chart/observation-freshness";
 import { fetchYahooChartSeries, yahooChartCandidates, type Bar } from "@/lib/scraper/yahoo-chart";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +115,22 @@ async function discoverMarkets(symbol: string, alreadyTried: string): Promise<st
 }
 
 
+/** An honest "no data" payload: explicitly unavailable, never a fabricated line. */
+function unavailablePayload(symbol: string, interval = "1d") {
+  return {
+    symbol,
+    points: [],
+    series: [],
+    source: "none",
+    observationTime: null,
+    retrievedAt: new Date().toISOString(),
+    freshness: "unavailable" as const,
+    stale: true,
+    ageMs: null,
+    interval,
+  };
+}
+
 function buildPayload(
   symbol: string,
   currency: string,
@@ -134,6 +151,10 @@ function buildPayload(
       quarter: perfOver(bars, 63),
     },
     source: extra.source,
+    // Observation envelope: when the newest bar was observed, when we produced
+    // this payload, and whether it may be shown as current. A chart must render
+    // a stale series as stale, never as live.
+    ...observationMeta(bars, interval),
   };
 }
 
@@ -161,7 +182,7 @@ async function respondWithPsxIndex(symbol: string, currency: string, interval: s
   const persisted = await loadPersistedHistory(key);
   if (persisted) return NextResponse.json(persisted);
 
-  return NextResponse.json({ symbol, points: [], series: [], source: "none" });
+  return NextResponse.json(unavailablePayload(symbol, interval));
 }
 
 // GET /api/price-history?symbol=OGDC&market=PK
@@ -205,7 +226,7 @@ export async function GET(request: Request) {
   const interval = (searchParams.get("interval") || "1d").trim().toLowerCase();
 
   if (!symbol) {
-    return NextResponse.json({ points: [], series: [], source: "none" });
+    return NextResponse.json(unavailablePayload(symbol, interval));
   }
 
   // A resolved index knows its own home market + currency, so a bare `^FTSE`
@@ -277,35 +298,38 @@ export async function GET(request: Request) {
   try {
     const byHint = await prisma.asset.findFirst({
       where: { symbol, marketId: preferred, isActive: true },
-      select: { price: { select: { price: true, previousClose: true } }, marketId: true },
+      select: { price: { select: { price: true, previousClose: true, updatedAt: true } }, marketId: true },
     });
     const asset = byHint ?? await prisma.asset.findFirst({
       where: { symbol, isActive: true, price: { isNot: null } },
-      select: { price: { select: { price: true, previousClose: true } }, marketId: true },
+      select: { price: { select: { price: true, previousClose: true, updatedAt: true } }, marketId: true },
     });
     if (asset?.price && asset.price.price > 0) {
       const last = asset.price.price;
-      const prev = asset.price.previousClose ?? last * 0.99;
-      const points = [prev, last];
+      const prev = asset.price.previousClose ?? last;
+      // The snapshot is the LAST KNOWN observation, not a live series. Date both
+      // points from its real `updatedAt` (never "now") and attach the freshness
+      // envelope so the caller can render it as stale/historical. Serving a
+      // months-old close under today's date was the defect that let a stale JDDS
+      // price sit next to a live header (the OGDC-class split).
+      const observedMs = asset.price.updatedAt?.getTime?.() ?? Date.now();
+      const observedIso = new Date(observedMs).toISOString().slice(0, 10);
+      const prevIso = new Date(observedMs - 86400000).toISOString().slice(0, 10);
+      const meta = observationMeta([{ date: observedIso }], interval);
       return NextResponse.json({
         symbol,
         currency: currencyFor(def, asset.marketId || preferred),
-        points,
+        points: [prev, last],
         series: [
-          {
-            date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
-            open: prev, high: prev, low: prev, close: prev, volume: null,
-          },
-          {
-            date: new Date().toISOString().slice(0, 10),
-            open: prev, high: last, low: prev, close: last, volume: null,
-          },
+          { date: prevIso, open: prev, high: prev, low: prev, close: prev, volume: null },
+          { date: observedIso, open: prev, high: last, low: prev, close: last, volume: null },
         ],
         perf: { week: undefined, month: undefined, quarter: undefined },
         source: "snapshot",
+        ...meta,
       });
     }
   } catch { /* ignore */ }
 
-  return NextResponse.json({ symbol, points: [], series: [], source: "none" });
+  return NextResponse.json(unavailablePayload(symbol, interval));
 }
