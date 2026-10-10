@@ -8,6 +8,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Remove the `/login` page.** Deleted `src/app/login/`; `HARNESS_AUTH=off` in the
+  local `.env` (gitignored) — no sign-in. The `/api/auth/*` API and middleware
+  remain but are inert while auth is off. no doc change — page removal; auth is
+  local env only.
+
+- **Agentic sidebar trimmed: Tasks, Pages and UI Builder removed from the nav.**
+  Dropped the `tasks`, `pages` and `ui-builder` entries from
+  `DEFAULT_SIDEBAR_SECTIONS` (`src/lib/sidebar/config.ts`) and the now-unused
+  icon imports; updated the Agentic-list and shortcut-count guards in
+  `config.test.ts`. The screens still mount via keep-alive and remain reachable
+  by deep-link (`/?tab=…`) — only the sidebar entries are gone.
+  no doc change — nav list edit only (no contract/architecture change).
+
 - **Assistant now shows the model that answered, and the floating dock renders
   the full turn.** Two gaps behind "it doesn't show the model / output is wrong".
   (1) **Model display**: the run record's `provider`/`model` now ride on the
