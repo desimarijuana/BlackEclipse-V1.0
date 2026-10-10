@@ -38,6 +38,12 @@ class RateLimit:
         }
 
 
+# Timeliness taxonomy: how current a provider's *data* is, independent of how
+# fast its API responds. `realtime` = live quotes; `delayed` = minutes behind;
+# `eod` = end-of-day only; `reference` = daily official reference rates.
+Timeliness = str  # "realtime" | "delayed" | "eod" | "reference" | "unknown"
+
+
 @dataclass
 class ProviderDescriptor:
     id: str
@@ -52,6 +58,13 @@ class ProviderDescriptor:
     rate_limit: RateLimit = field(default_factory=RateLimit)
     implemented: bool = True
     notes: Optional[str] = None
+    # Capability-registry enrichment (directive §4.3).
+    intervals: tuple[str, ...] = ()
+    adjustments: bool = False
+    timeliness: Timeliness = "unknown"
+    # Entitlement: what plan/credential the integration assumes. Separate from
+    # `configured` (whether a key is present) so a missing entitlement is honest.
+    entitlement: str = "keyless"
 
     def supports(self, capability: str, asset_type: Optional[str] = None) -> bool:
         if capability not in self.capabilities:
@@ -73,6 +86,10 @@ class ProviderDescriptor:
             "configured": self.configured,
             "implemented": self.implemented,
             "rateLimit": self.rate_limit.to_dict(),
+            "intervals": list(self.intervals),
+            "adjustments": self.adjustments,
+            "timeliness": self.timeliness,
+            "entitlement": self.entitlement,
         }
         if self.notes:
             out["notes"] = self.notes
@@ -91,6 +108,8 @@ def default_providers() -> list[ProviderDescriptor]:
             asset_types=("equity", "etf", "fund", "index", "commodity", "fx", "crypto", "option"),
             realtime=True, historical=True, streaming=False,
             rate_limit=RateLimit(concurrency=4, cost_tier="free"),
+            intervals=("1d", "1w", "1mo"),
+            adjustments=True, timeliness="delayed", entitlement="keyless",
             notes="Keyless; multi-market equities + FX + options (delayed). Subject to upstream terms.",
         ),
         ProviderDescriptor(
@@ -101,6 +120,8 @@ def default_providers() -> list[ProviderDescriptor]:
             asset_types=("crypto",),
             realtime=True, historical=True, streaming=True,
             rate_limit=RateLimit(requests_per_minute=1200, concurrency=4, cost_tier="free"),
+            intervals=("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"),
+            adjustments=False, timeliness="realtime", entitlement="keyless",
             notes="Keyless public REST + WebSocket for crypto spot/futures.",
         ),
         ProviderDescriptor(
@@ -111,6 +132,8 @@ def default_providers() -> list[ProviderDescriptor]:
             realtime=True, historical=False, streaming=False,
             credential_ref="COINGECKO_API_KEY",
             rate_limit=RateLimit(concurrency=2, cost_tier="freemium"),
+            intervals=("1d",), adjustments=False, timeliness="realtime",
+            entitlement="freemium",
             notes="Keyless public tier works; a key raises limits. Used for supply/FDV.",
         ),
         ProviderDescriptor(
@@ -120,6 +143,8 @@ def default_providers() -> list[ProviderDescriptor]:
             asset_types=("equity", "etf", "index", "fx", "commodity"),
             realtime=False, historical=True, streaming=False,
             rate_limit=RateLimit(concurrency=2, cost_tier="free"),
+            intervals=("1d", "1w", "1mo"), adjustments=True, timeliness="eod",
+            entitlement="keyless",
             notes="Keyless daily bars; used as a history fallback when Yahoo is unavailable.",
         ),
         ProviderDescriptor(
@@ -130,6 +155,8 @@ def default_providers() -> list[ProviderDescriptor]:
             realtime=False, historical=True, streaming=False,
             credential_ref="FRED_API_KEY",
             rate_limit=RateLimit(concurrency=2, cost_tier="free"),
+            intervals=("1d", "1w", "1mo"), adjustments=False, timeliness="eod",
+            entitlement="keyless",
             notes="Treasury yield curve + government bond data; FRED public CSV is keyless.",
         ),
         ProviderDescriptor(
@@ -139,6 +166,8 @@ def default_providers() -> list[ProviderDescriptor]:
             asset_types=("fx",),
             realtime=False, historical=True, streaming=False,
             rate_limit=RateLimit(concurrency=2, cost_tier="free"),
+            intervals=("1d",), adjustments=False, timeliness="reference",
+            entitlement="keyless",
             notes="Keyless daily reference rates; a cross fallback for FX.",
         ),
         # Keyed providers — runnable when their credential is configured. If the
@@ -151,6 +180,8 @@ def default_providers() -> list[ProviderDescriptor]:
             realtime=True, historical=True, streaming=True,
             credential_ref="POLYGON_API_KEY",
             rate_limit=RateLimit(concurrency=4, cost_tier="paid"),
+            intervals=("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo"),
+            adjustments=True, timeliness="realtime", entitlement="paid",
             notes="Keyed US equities: aggregates, snapshot/NBBO (top-of-book), trades.",
         ),
         ProviderDescriptor(
@@ -160,6 +191,8 @@ def default_providers() -> list[ProviderDescriptor]:
             realtime=True, historical=True, streaming=True,
             credential_ref="FINNHUB_API_KEY",
             rate_limit=RateLimit(requests_per_minute=60, concurrency=2, cost_tier="freemium"),
+            intervals=("1m", "5m", "15m", "30m", "1h", "1d", "1w"),
+            adjustments=True, timeliness="realtime", entitlement="freemium",
             notes="Keyed equities + real-time trades over WebSocket.",
         ),
     ]

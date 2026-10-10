@@ -60,9 +60,11 @@ class QualityReport:
     def finalize(self) -> "QualityReport":
         if self.invalid:
             self.status = "invalid"
-        elif self.findings:
+        elif any(f.severity == "warning" for f in self.findings):
             self.status = "warning"
         else:
+            # `info` findings (e.g. a closed-market note) are surfaced but never
+            # downgrade a value's status.
             self.status = "valid"
         return self
 
@@ -149,17 +151,34 @@ def check_series(report: QualityReport, series: HistoricalPriceSeries) -> None:
                    f"{len(series.gaps)} gap(s) detected across the requested range")
 
 
-def check_freshness(report: QualityReport, timestamp: Optional[str], freshness: str) -> Optional[float]:
-    """Flag a value older than the freshness window allows. Returns age seconds."""
+def check_freshness(report: QualityReport, timestamp: Optional[str], freshness: str,
+                    *, asset_type: Optional[str] = None, market: Optional[str] = None) -> Optional[float]:
+    """Flag a value older than the freshness window allows. Returns age seconds.
+
+    A closed market is NOT staleness: when the session is closed and the value is
+    at/after the last close, the finding is downgraded to an informational note
+    (`session`) rather than a warning, so a correctly frozen market is never
+    mislabelled.
+    """
     age = _age_seconds(timestamp)
     if age is None:
         report.add("timestamp", "warning", "no usable as-of timestamp", field="timestamp")
         return None
     cfg = get_config()
     if freshness == "realtime" and age > cfg.realtime_max_age_s:
-        report.add("freshness", "warning",
-                   f"value is {age:.0f}s old (realtime allows {cfg.realtime_max_age_s:.0f}s)",
-                   field="timestamp")
+        try:
+            from .calendar import assess  # local import: no cycle
+
+            session = assess(asset_type, timestamp, market=market)
+        except Exception:  # noqa: BLE001 - calendar is best-effort
+            session = {"state": "unknown", "reason": ""}
+        if session.get("state") == "closed_recent":
+            report.add("session", "info", session.get("reason") or "market closed",
+                       field="timestamp")
+        else:
+            report.add("freshness", "warning",
+                       f"value is {age:.0f}s old (realtime allows {cfg.realtime_max_age_s:.0f}s)",
+                       field="timestamp")
     return age
 
 
@@ -188,7 +207,10 @@ def evaluate_quote(quote: Quote) -> QualityReport:
     if quote.bid is not None and quote.ask is not None and quote.bid > quote.ask:
         report.add("invalid_value", "invalid",
                    f"crossed quote: bid {quote.bid} > ask {quote.ask}")
-    age = check_freshness(report, quote.timestamp or quote.meta.event_time, quote.meta.freshness)
+    age = check_freshness(
+        report, quote.timestamp or quote.meta.event_time, quote.meta.freshness,
+        asset_type=quote.meta.asset_type, market=quote.meta.exchange,
+    )
     quote.age_seconds = age
     return report.finalize()
 

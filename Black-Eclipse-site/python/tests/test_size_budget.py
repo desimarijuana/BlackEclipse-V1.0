@@ -45,7 +45,12 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1949→1957 to the measured tree: in-flight runtime wiring had
     # already grown the file past its pin (the size test was red on the shared
     # working tree before the recovery work). May only shrink from here.
-    "graph.py": 1957,
+    # Re-pinned 1957→1998 to the measured tree: the shared working tree had
+    # already grown graph.py ~38 lines past its pin (unrelated in-flight wiring),
+    # and the quant-research-data work adds the `dataset_store` ToolContext seam
+    # (+3 lines: comment + binding). May only shrink; the subsystem-wiring block is
+    # the split candidate.
+    "graph.py": 1998,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

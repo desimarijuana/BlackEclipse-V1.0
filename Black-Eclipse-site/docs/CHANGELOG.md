@@ -8,6 +8,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Research data: trading calendar, currency conversion, corporate actions,
+  universe resolution, export/refresh, point-in-time and Artifact linkage.** Adds
+  the tools the research surface previously lacked, all backend and credential-free:
+  `get_trading_calendar` (`market/calendar.py` — deterministic US-equity sessions +
+  holidays + DST, FX 24/5, crypto 24/7, no `tzdata` dependency; session-aware
+  freshness integrated into `quality.check_freshness` so a closed market is
+  `closed_recent`, never mislabelled `stale`); `get_currency_conversion` (direct
+  FX + documented cross-via-USD, `derived` labelled); `get_corporate_actions`
+  (provider-supplied, honest UNAVAILABLE when absent); `get_universe` (resolves
+  current identities; an `as_of` is marked `asOfUnknown` — survivorship guard);
+  `export_dataset` (CSV/JSON) and `refresh_dataset` (new immutable version);
+  point-in-time `as_of` on `query_dataset`/`export_dataset` with `pitUnknown`
+  honesty. New `market/series_store.py` persists normalized bars on
+  `agent-memory.db`; built datasets are catalogued through the Artifact Center.
+  Secondary handlers split into `market/research_tools_ext.py` to stay under the
+  size budget. New tests: `test_market_calendar.py`, `test_market_series_store.py`
+  + additions to `test_research_data_tools.py`. docs updated:
+  docs/harness/quant-research-data.md, docs/NAVIGATION.md.
+
+- **Mount the Quant Research workspace as the `backtest` AppTab.** The existing
+  `BacktestScreen` was exported but never mounted; it is now the `backtest` AppTab
+  (deep link `/?tab=backtest`, reachable from the command palette as "Quant
+  Research"), following the Pages/UI-Builder pattern — deliberately not a sidebar
+  section. Edits: `src/lib/app-tabs.ts` (+`backtest`), `src/lib/search/deep-link.ts`
+  (`APP_TABS`), `src/lib/i18n/nav.ts` + `dictionaries/en.ts` (`nav.backtest`),
+  `src/lib/search/registry.ts` (`page-backtest` search entry) and
+  `src/components/screens/stock-chat.tsx` (lazy mount). docs updated:
+  docs/harness/quant-research-data.md.
+
 - **Fix chat-history follow-ups: empty folders now appear; the list scrolls
   instead of pushing the nav down; option menus no longer clip.** `groupConversations`
   was dropping empty groups, so a newly created folder was invisible — every

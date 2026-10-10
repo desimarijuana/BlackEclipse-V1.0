@@ -33,6 +33,7 @@ def install_market_layer(service: Any) -> None:
     try:
         from .cache import MarketCache
         from .gateway import MarketDataGateway
+        from .research_tools import register_research_data_tools
         from .router import default_router
         from .store import MarketStore
         from .tools import register_market_tools
@@ -51,6 +52,9 @@ def install_market_layer(service: Any) -> None:
         except Exception:  # noqa: BLE001 - streaming is optional
             service.market_stream = None
         register_market_tools(service.registry)
+        # The shared quantitative-research tool surface (verification, transforms,
+        # versioned datasets) — routed through the same gateway + services.
+        register_research_data_tools(service.registry)
     except Exception:  # noqa: BLE001 - market data must never block boot
         service.market_store = None
         service.market_gateway = None

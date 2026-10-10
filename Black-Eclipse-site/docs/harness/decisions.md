@@ -5653,3 +5653,46 @@ to re-run an arbitrary operation. Remaining for full autonomy: wiring the instal
 build acquisition rungs and the delegation roles into the executor. Owner doc:
 `docs/harness/failure-recovery.md`. Tests: `test_recovery_{reproduction,safety,
 concurrency}.py`.
+
+## ADR-H168 - Research data is verified and versioned above the existing Market Data Gateway; verification is a pure policy engine, datasets are immutable, and no research client re-implements provider routing
+
+**Decision.** Extend the existing market/quant stack into a shared quantitative
+research data capability rather than building a second ingestion system:
+
+1. **Verification is a pure engine** (`market/verification.py`): named policies
+   (`cached_fast`, `fresh_preferred`, `cross_verified`, `historical_reproducible`,
+   `strict_research`) with documented, testable flags. `resolve_policy` raises on
+   an unknown name, so a request is never silently downgraded. Cross-source
+   comparison is deterministic: disagreeing sources produce a `Conflict` (never an
+   average), independence is earned (an unrecorded upstream reports `unknown`, a
+   shared upstream is classified distinctly), and only `verified` sets
+   `verified=true`.
+2. **The Gateway is the one retrieval seam.** Provider routing/quality/provenance
+   stay in `MarketDataGateway`; it gains provider pinning (`provider=`) and
+   `candidate_providers()` so a caller can deliberately retrieve an INDEPENDENT
+   source. The provider capability registry gains intervals, adjustment support,
+   a timeliness taxonomy and entitlement.
+3. **Datasets are immutable** (`quant/dataset_store.py`): insert-only versions on
+   the ONE `agent-memory.db`, a content hash (symbol-order independent) that makes
+   a rebuild idempotent, and gzipped artifacts under `.black-eclipse/quant/`.
+   New data / changed adjustments fork `vN+1`; the old version is preserved.
+4. **One tool surface** (`market/research_tools.py`) wraps the shared Gateway +
+   verification + transforms + dataset store; no tool re-implements routing. The
+   tools are registered in `market/bootstrap.py` and allowlisted in `agents.py`.
+
+**Why.** Free providers and JDdS can be stale, delayed, incomplete or mutually
+inconsistent. The requirement is not "more data" but **defensible** data: prove
+where a number came from, whether it was independently confirmed, and reproduce
+the exact inputs behind a result. Keeping verification pure and datasets
+insert-only makes those properties testable rather than aspirational.
+
+**Consequences.** Verification is only as independent as the configured providers;
+when no suitable second source exists `cross_verified` reports `unverified`, not
+verified. Provider adapters remain on the TS bridge. The Quant Research screen is
+mounted as the `backtest` AppTab (deep link / command palette), not a sidebar
+section, matching the Pages/UI-Builder convention. Not yet done: typed Workflow
+Graph nodes for the new tools, dataset/version-linked claim verification in the
+Evidence Engine, and isolated notebook execution. Owner doc:
+`docs/harness/quant-research-data.md`. Tests: `test_market_verification.py`,
+`test_quant_transform.py`, `test_quant_dataset_store.py`,
+`test_research_data_tools.py`.

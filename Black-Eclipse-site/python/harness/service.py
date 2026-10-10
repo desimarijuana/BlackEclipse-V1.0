@@ -1092,7 +1092,7 @@ class AgenticService:
         store = getattr(self, "quant_store", None)
         if store is None:
             return None
-        return QuantBundle(store=store)
+        return QuantBundle(store=store, dataset_store=getattr(self, "dataset_store", None))
 
     def _market_bundle(self) -> Any:
         """The market subsystem handed to each run (gateway/store/stream)."""

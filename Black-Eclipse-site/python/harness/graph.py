@@ -537,6 +537,9 @@ def build_graph(
         # Quant Engine store (strategies + experiments) on the ONE agent-memory
         # connection, so `quant_*` tools persist and replay research.
         quant_store=getattr(quant, "store", None),
+        # Immutable versioned research datasets (manifests + gzipped artifacts),
+        # so `build_research_dataset`/`query_dataset` persist reproducible data.
+        dataset_store=getattr(quant, "dataset_store", None),
         # The Artifact Center service, so `artifact_*` tools register and discover
         # produced files through the ONE catalog (shared with producers).
         artifact_service=artifact_service,

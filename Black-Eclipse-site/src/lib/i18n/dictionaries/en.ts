@@ -27,6 +27,7 @@ export const en = {
   'nav.tasks': 'Tasks',
   'nav.pages': 'Pages',
   'nav.uiBuilder': 'UI Builder',
+  'nav.backtest': 'Quant Research',
 
   // Artifact Center
   'artifacts.title': 'Artifacts',

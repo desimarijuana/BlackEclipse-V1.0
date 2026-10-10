@@ -24,6 +24,14 @@ from .a2a.tools import A2A_TOOLS
 # The UI Engineering tools (`ui_*`). Registered by `ui/bootstrap.py` on the SAME
 # registry; imported here as the ONE canonical list so the allowlist cannot drift.
 from .ui.tools import UI_TOOLS
+# The Quant Engine tools (`run_backtest`, `optimize_parameters`, …). Registered by
+# `quant/bootstrap.py`; imported as the ONE canonical list so the allowlist cannot
+# drift from what is registered.
+from .quant.tools import QUANT_TOOLS
+# The shared quantitative-research data tools (verification, resampling,
+# alignment, versioned datasets). Registered by `market/bootstrap.py`; imported as
+# the ONE canonical list.
+from .market.research_tools import RESEARCH_DATA_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -263,6 +271,15 @@ ECLIPSE_AGENT = AgentConfig(
         "get_fx_rate",
         "get_bond_data",
         "stream_market_data",
+        # Shared quantitative-research data surface: instrument resolution,
+        # provider capability/health introspection, cross-source verification,
+        # resampling, time-series alignment and immutable versioned datasets. All
+        # routed through the Market Data Gateway + shared services.
+        *RESEARCH_DATA_TOOLS,
+        # Quant Engine: versioned strategies, deterministic backtests, optimization,
+        # walk-forward, Monte-Carlo, sensitivity and robustness — over the same
+        # verified datasets.
+        *QUANT_TOOLS,
         # Phase-1 JDdS tools (still available)
         "get_market_snapshot",
         "get_fundamentals",

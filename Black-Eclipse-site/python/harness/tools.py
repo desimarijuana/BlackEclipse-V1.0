@@ -244,6 +244,10 @@ class ToolContext:
     # agent-memory connection. Set by the graph from the service; None = the
     # `quant_*` tools report STORE_UNAVAILABLE rather than losing a result.
     quant_store: Any = None
+    # The process-wide immutable research-dataset store (manifests + artifacts) on
+    # the ONE agent-memory connection. Set by the graph from the service; None =
+    # the dataset tools report UNAVAILABLE rather than pretending to persist.
+    dataset_store: Any = None
     # The process-wide real-time market stream manager. Set by the graph; None =
     # a stream tool resolves the process-wide singleton.
     market_stream: Any = None

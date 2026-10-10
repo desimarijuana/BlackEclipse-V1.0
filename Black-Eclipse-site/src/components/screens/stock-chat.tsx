@@ -109,6 +109,10 @@ const PagesScreen = dynamic(
   () => import('@/components/screens/pages/pages-screen').then((m) => m.PagesScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const BacktestScreen = dynamic(
+  () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -1211,6 +1215,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'pages' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <PagesScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('backtest') && (
+            <div className={cn('w-full h-full', activeTab === 'backtest' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <BacktestScreen />
               </div>
             </div>
           )}

@@ -27,4 +27,5 @@ export type AppTab =
   | 'artifacts'
   | 'tasks'
   | 'pages'
-  | 'ui-builder';
+  | 'ui-builder'
+  | 'backtest';

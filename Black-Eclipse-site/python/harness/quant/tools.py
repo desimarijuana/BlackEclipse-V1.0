@@ -876,15 +876,20 @@ def register_quant_tools(registry: Any) -> list[str]:
              "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
              "required": ["strategyId"]}, 120_000, long_running=True)
 
-    return [
-        "create_strategy", "load_strategy", "update_strategy", "validate_strategy",
-        "clone_strategy", "version_strategy", "list_strategies", "archive_strategy",
-        "run_backtest", "run_portfolio_backtest", "calculate_metrics", "inspect_trades",
-        "inspect_positions", "plot_equity_curve", "plot_drawdown", "compare_experiments",
-        "list_experiments", "export_backtest", "quant_capabilities",
-        "optimize_parameters", "run_walk_forward", "run_monte_carlo",
-        "run_sensitivity_analysis", "run_robustness_analysis",
-    ]
+    return list(QUANT_TOOLS)
 
 
-__all__ = ["register_quant_tools", "_CAPABILITY"]
+# The quant tool names, importable by `agents.py` so an agent allowlist never
+# drifts from what is actually registered.
+QUANT_TOOLS: tuple[str, ...] = (
+    "create_strategy", "load_strategy", "update_strategy", "validate_strategy",
+    "clone_strategy", "version_strategy", "list_strategies", "archive_strategy",
+    "run_backtest", "run_portfolio_backtest", "calculate_metrics", "inspect_trades",
+    "inspect_positions", "plot_equity_curve", "plot_drawdown", "compare_experiments",
+    "list_experiments", "export_backtest", "quant_capabilities",
+    "optimize_parameters", "run_walk_forward", "run_monte_carlo",
+    "run_sensitivity_analysis", "run_robustness_analysis",
+)
+
+
+__all__ = ["QUANT_TOOLS", "register_quant_tools", "_CAPABILITY"]

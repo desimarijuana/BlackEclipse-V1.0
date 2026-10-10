@@ -270,18 +270,25 @@ class MarketDataGateway:
         freshness: str,
         normalize: Any,
         prefer: tuple[str, ...] = (),
+        pin_provider: Optional[str] = None,
     ) -> Any:
         """Route → fetch → normalize → quality, with cache + fallback.
 
         `prefer` reorders candidate providers (only among those already valid for
         the capability + asset class) so an interval-specific source — e.g.
         Binance for intraday crypto — is tried first.
+
+        `pin_provider` restricts routing to exactly one provider, so a caller can
+        deliberately retrieve an INDEPENDENT source for cross-source verification
+        (or select a specific provider). A pinned provider that does not support
+        the capability/asset is a structured error, never a silent fallback.
         """
         self.metrics["requests"] += 1
         cache_params = {
             "capability": capability,
             "symbol": instrument.symbol,
             "market": instrument.market,
+            **({"_pin": pin_provider} if pin_provider else {}),
             **{k: v for k, v in params.items() if k not in ("provider",)},
         }
         if self.config.cache_enabled:
@@ -292,7 +299,16 @@ class MarketDataGateway:
 
         router = self._router_ref()
         order = router.provider_order(capability, instrument) if router else ()
-        if prefer and order:
+        if pin_provider:
+            if pin_provider not in order:
+                return MarketError(
+                    UNSUPPORTED_CAPABILITY,
+                    f"provider '{pin_provider}' does not support '{capability}' for "
+                    f"{instrument.asset_type}",
+                    provider=pin_provider, capability=capability,
+                )
+            order = (pin_provider,)
+        elif prefer and order:
             order = tuple(p for p in prefer if p in order) + tuple(
                 p for p in order if p not in prefer
             )
@@ -367,6 +383,15 @@ class MarketDataGateway:
         return last_error or MarketError(DATA_NOT_AVAILABLE, "no provider returned data",
                                          capability=capability)
 
+    def candidate_providers(self, capability: str, instrument: Any) -> tuple[str, ...]:
+        """Ordered, capability-fitting providers for a request (for verification).
+
+        Public so the verification layer can retrieve a deliberately DIFFERENT
+        source without reaching into router internals.
+        """
+        router = self._router_ref()
+        return router.provider_order(capability, instrument) if router else ()
+
     def _router_ref(self) -> Any:
         if self._router is None:
             try:
@@ -434,6 +459,7 @@ class MarketDataGateway:
         self, symbol: str, market: Optional[str] = None, *, start: Optional[str] = None,
         end: Optional[str] = None, interval: str = "1d", adjusted: bool = True,
         currency: Optional[str] = None, freshness: str = "slow",
+        provider: Optional[str] = None,
     ) -> Any:
         instrument, err = await self.resolve_instrument(symbol, market)
         if err:
@@ -443,16 +469,17 @@ class MarketDataGateway:
         return await self._dispatch(
             "historical", instrument, params, freshness=freshness,
             normalize=_normalize_series, prefer=_prefer_providers(instrument, interval),
+            pin_provider=(provider or "").strip().lower() or None,
         )
 
     async def get_ohlcv(
         self, symbol: str, market: Optional[str] = None, *, start: Optional[str] = None,
         end: Optional[str] = None, interval: str = "1d", adjusted: bool = True,
-        freshness: str = "intraday",
+        freshness: str = "intraday", provider: Optional[str] = None,
     ) -> Any:
         return await self.get_historical_prices(
             symbol, market, start=start, end=end, interval=interval,
-            adjusted=adjusted, freshness=freshness,
+            adjusted=adjusted, freshness=freshness, provider=provider,
         )
 
     async def get_volume(
