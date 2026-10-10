@@ -745,7 +745,7 @@ export function TradingViewChart({
               </div>{/* end at-a-glance rail */}
               </div>{/* end Row 1 */}
 
-              {/* Row 2 — filings financials (wide, left) beside the AI overview (moved below) */}
+              {/* Row 2 — filings financials (wide, left) beside recent news (right) */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
                 <div className="xl:col-span-2 space-y-5">
                   {/* E/F/H — filings-backed fundamentals (provider snapshot) */}
@@ -767,32 +767,22 @@ export function TradingViewChart({
                   <ValuationNote />
                 </div>
                 <div className="space-y-5">
-                  {/* B — AI company intelligence brief (below the top row) */}
-                  <AiResearchSection research={research} variant="brief" />
-                </div>
-              </div>
-
-              {/* Row 3 — technical & risk side by side */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-                {/* I — technical analysis (deterministic from real bars) */}
-                <TechnicalSection tech={technical} />
-
-                {/* J — risk analysis (deterministic + statement insights) */}
-                <RiskSection risks={risks} />
-              </div>{/* end Row 3 */}
-
-              {/* Row 4 — recent news (wide) beside the AI conclusion */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-                <div className="xl:col-span-2">
                   {/* G — recent news & material events (JDDS feed) */}
                   <CompanyNewsSection news={news} />
                 </div>
-                <div>
-                  {/* K — AI research conclusion */}
-                  <AiResearchSection research={research} variant="conclusion" />
-                </div>
               </div>
+
+              {/* Row 3 — AI company intelligence brief (full width, below the data) */}
+              <AiResearchSection research={research} variant="brief" />
+
+              {/* Row 4 — technical & risk side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <TechnicalSection tech={technical} />
+                <RiskSection risks={risks} />
+              </div>
+
+              {/* Row 5 — AI research conclusion (full width) */}
+              <AiResearchSection research={research} variant="conclusion" />
               </div>
           </div>
         </div>
@@ -960,7 +950,7 @@ function PriceHistoryChart({ bars, currency }: { bars: PriceBar[]; currency: str
   };
 
   const ref = useEChart(option, [bars, currency]);
-  return <div ref={ref} style={{ width: '100%', height: 260 }} />;
+  return <div ref={ref} style={{ width: '100%', height: 300 }} />;
 }
 
 // Horizontal performance bars — 1W / 1M / 3M real % changes.

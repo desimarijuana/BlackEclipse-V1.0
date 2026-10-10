@@ -6,9 +6,8 @@
 // driven by the parent) so a stock detail page never starts duplicate requests.
 // Nothing here fabricates a value or a citation.
 
-import { useState } from 'react';
 import {
-  Sparkles, RefreshCw, ExternalLink, Newspaper, ShieldAlert, AlertTriangle,
+  RefreshCw, ExternalLink, Newspaper, ShieldAlert, AlertTriangle,
   CheckCircle2, HelpCircle, BookOpen, Activity, TrendingUp, Landmark,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -60,15 +59,6 @@ function num(v: number | null | undefined, digits = 2, suffix = ''): string {
 
 type ClaimRow = { id?: string; text?: string; kind?: string; status?: string; confidence?: number; issues?: string | null };
 type SourceRow = { sourceId?: string; canonicalUrl?: string; domain?: string; publisher?: string; publishedAt?: string; sourceType?: string };
-type CitationRow = { citationId?: string; claimId?: string; sourceUrl?: string; title?: string };
-
-function claimTone(status: string | undefined): 'ok' | 'warn' | 'bad' | 'muted' {
-  const s = (status ?? '').toLowerCase();
-  if (s.includes('verif') || s.includes('support')) return 'ok';
-  if (s.includes('reject') || s.includes('contradict') || s.includes('fail')) return 'bad';
-  if (s.length) return 'warn';
-  return 'muted';
-}
 
 // ── Section B + K: AI research brief / conclusion ────────────────────────────
 export function AiResearchSection({
@@ -77,15 +67,16 @@ export function AiResearchSection({
   research: CompanyResearchState & { refresh: () => void };
   variant?: 'brief' | 'conclusion';
 }) {
-  const [showSources, setShowSources] = useState(false);
   const { detail, status, running, error, state, startedAt } = research;
   const claims = (detail?.claims ?? []) as ClaimRow[];
   const sources = (detail?.sources ?? []) as SourceRow[];
-  const citations = (detail?.citations ?? []) as CitationRow[];
   const conflicts = (detail?.conflicts ?? []) as unknown[];
 
-  const citationsFor = (claimId?: string) =>
-    citations.filter((c) => (claimId ? c.claimId === claimId : false)).slice(0, 3);
+  const synth = parseSynthesis(detail?.run?.answer);
+  const conclusionKeys = ['partially', 'not established', 'conflict', 'gap', 'excluded', 'citation'];
+  const sections = variant === 'conclusion'
+    ? synth.sections.filter((s) => conclusionKeys.some((k) => s.title.toLowerCase().includes(k)))
+    : synth.sections;
 
   const sourceCount = status?.sourceCount ?? sources.length;
   const evidenceCount = status?.evidenceCount ?? findingsCount(detail);
@@ -93,9 +84,9 @@ export function AiResearchSection({
 
   return (
     <SectionShell
-      icon={<Sparkles size={14} className="text-primary" />}
+      icon={<BookOpen size={14} className="text-primary" />}
       title={title}
-      subtitle={startedAt ? `researched ${new Date(startedAt).toLocaleString()}` : undefined}
+      subtitle={startedAt ? `updated ${new Date(startedAt).toLocaleString()}` : undefined}
       right={
         <div className="flex items-center gap-2">
           {state && chip(state === 'COMPLETED' ? 'ok' : state === 'FAILED' || state === 'CANCELLED' ? 'bad' : state === 'PARTIAL' ? 'warn' : 'muted', state.toLowerCase())}
@@ -117,27 +108,33 @@ export function AiResearchSection({
         </div>
       )}
 
-      {!running && (() => {
-        const lines = answerLines(detail?.run?.answer);
-        const onlyScenarios = variant === 'conclusion'
-          ? lines.filter((l) => l.kind === 'INFERENCE' || l.kind === 'UNCERTAINTY')
-          : [];
-        const shown = variant === 'conclusion' && onlyScenarios.length > 0 ? onlyScenarios : lines;
-        if (shown.length === 0) return null;
-        return (
-          <div className="rounded-xl border border-border/30 glass-card-subtle p-3 space-y-1.5">
-            <p className="text-[10px] font-mono uppercase text-muted-foreground">
-              {variant === 'conclusion' ? 'Scenarios & unknowns (from the synthesis)' : 'Evidence-grounded synthesis'}
-            </p>
-            {shown.map((l, i) => (
-              <p key={i} className="text-[12px] leading-relaxed">
-                {l.kind && <span className={cn('mr-1.5 font-mono text-[9px] font-bold uppercase', answerKindClass(l.kind))}>{l.kind}</span>}
-                <span className={l.kind ? 'text-foreground/90' : 'text-muted-foreground'}>{l.body}</span>
-              </p>
-            ))}
-          </div>
-        );
-      })()}
+      {/* Coverage subhead — assembled by the engine (coverage, source counts). */}
+      {synth.meta.length > 0 && variant === 'brief' && (
+        <p className="text-[11px] leading-relaxed text-muted-foreground border-l-2 border-primary/30 pl-2.5">
+          {synth.meta.join(' · ')}
+        </p>
+      )}
+
+      {/* Structured synthesis — titled sections instead of a wall of text. */}
+      {!running && sections.length > 0 && (
+        <div className="space-y-3">
+          {sections.map((s) => (
+            <div key={s.title}>
+              <h3 className={cn('text-[10px] font-bold uppercase tracking-wider mb-1', toneText(s.tone))}>
+                {s.title}
+              </h3>
+              <ul className="space-y-1">
+                {s.items.map((it, i) => (
+                  <li key={i} className="flex gap-2 text-[12px] leading-relaxed text-foreground/90">
+                    <span className={cn('mt-[7px] h-1 w-1 rounded-full shrink-0', toneDot(s.tone))} />
+                    <span>{it}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
 
       {running && (
         <div className="space-y-2" aria-busy="true">
@@ -151,37 +148,14 @@ export function AiResearchSection({
       )}
 
       {!running && detail && claims.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-muted-foreground">
-            <span>{claims.length} findings</span>
-            <span>{evidenceCount ?? 0} evidence items</span>
-            {conflicts.length > 0 && <span className="text-amber-400">{conflicts.length} conflict{conflicts.length === 1 ? '' : 's'} flagged</span>}
-            <span>cross-validation {status ? 'required' : 'unknown'}</span>
-          </div>
-          <ul className="space-y-2">
-            {claims.slice(0, variant === 'brief' ? 40 : 24).map((c, i) => {
-              const cites = citationsFor(c.id);
-              return (
-                <li key={c.id ?? i} className="text-[12px] leading-relaxed border-b border-border/10 pb-2">
-                  <div className="flex items-start gap-2">
-                    {claimTone(c.status)}
-                    <span className="flex-1">{c.text}</span>
-                  </div>
-                  {(cites.length > 0 || c.confidence != null) && (
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] font-mono text-muted-foreground">
-                      {c.confidence != null && <span>confidence {num(c.confidence, 2)}</span>}
-                      {cites.map((ct) => (
-                        <a key={ct.citationId} href={ct.sourceUrl || '#'} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 underline decoration-dotted hover:text-foreground">
-                          <ExternalLink size={9} /> {ct.title || safeHost(ct.sourceUrl)}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-muted-foreground">
+          <span>{claims.length} findings</span>
+          <span>{evidenceCount ?? 0} evidence items</span>
+          {conflicts.length > 0 && (
+            <span className="text-amber-400">
+              {conflicts.length} conflict{conflicts.length === 1 ? '' : 's'} flagged
+            </span>
+          )}
         </div>
       )}
 
@@ -198,27 +172,27 @@ export function AiResearchSection({
       )}
 
       {sources.length > 0 && (
-        <div className="pt-1">
-          <button onClick={() => setShowSources((v) => !v)}
-            className="text-[10px] font-mono font-bold text-primary hover:underline">
-            {showSources ? 'Hide sources' : `View ${sources.length} sources`}
-          </button>
-          {showSources && (
-            <ul className="mt-2 space-y-1">
-              {sources.slice(0, 30).map((s) => (
-                <li key={s.sourceId} className="text-[11px] flex items-center gap-2">
-                  <a href={s.canonicalUrl || '#'} target="_blank" rel="noreferrer"
-                    className="inline-flex items-center gap-1 underline decoration-dotted hover:text-foreground">
-                    <ExternalLink size={10} /> {s.publisher || s.domain || safeHost(s.canonicalUrl)}
-                  </a>
-                  <span className="text-[9px] text-muted-foreground font-mono">
-                    {s.sourceType ?? ''}{s.publishedAt ? ` · ${s.publishedAt.slice(0, 10)}` : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <details className="rounded-xl border border-border/30 bg-background/30 overflow-hidden">
+          <summary className="flex items-center justify-between gap-2 cursor-pointer select-none list-none px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
+            <span className="flex items-center gap-1.5">
+              <ExternalLink size={11} className="text-primary" /> Sources ({sources.length})
+            </span>
+            <span className="text-[10px] font-mono opacity-70">view</span>
+          </summary>
+          <ul className="border-t border-border/20 px-3 py-2 space-y-1 max-h-64 overflow-y-auto">
+            {sources.slice(0, 40).map((s) => (
+              <li key={s.sourceId} className="text-[11px] flex items-center gap-2">
+                <a href={s.canonicalUrl || '#'} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-foreground/90 hover:text-primary truncate">
+                  <ExternalLink size={10} className="shrink-0" /> {s.publisher || s.domain || safeHost(s.canonicalUrl)}
+                </a>
+                <span className="ml-auto shrink-0 text-[9px] text-muted-foreground font-mono">
+                  {s.sourceType ?? ''}{s.publishedAt ? ` · ${s.publishedAt.slice(0, 10)}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </SectionShell>
   );
@@ -235,31 +209,68 @@ function safeHost(url?: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url.slice(0, 40); }
 }
 
-// The engine's synthesized answer is a set of typed lines (FACT / CALCULATION /
-// INFERENCE / UNCERTAINTY / CONFLICT). This classifies each line so the UI can
-// show facts differently from inferences and never blur the two.
-type AnswerLine = { kind: string | null; body: string };
-function answerLines(answer: string | null | undefined): AnswerLine[] {
-  if (!answer) return [];
-  return answer
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((t) => {
-      const m = t.match(/^(FACT|CALCULATION|INFERENCE|UNCERTAINTY|CONFLICT|SOURCE)\b[:\-]?\s*(.*)$/i);
-      return { kind: m ? m[1].toUpperCase() : null, body: m ? m[2] : t };
-    });
+// The engine's synthesized answer is STRUCTURED text (not free prose):
+//   Research: <objective>
+//   Coverage: <status> — N sources, M evidence item(s), P primary.
+//   Findings (evidence-backed):
+//   - ...
+//   Partially supported (verify before relying on):
+//   - ...
+//   Not established / conflicting (removed from findings):
+//   - [STATUS] reason
+//   Conflicts / Gaps / Excluded / Citation issues ...
+// This parser turns it into titled sections so the brief reads as a proper
+// document with headings instead of a wall of text.
+export type SynthTone = 'ok' | 'warn' | 'bad' | 'muted' | 'info';
+export interface SynthSection { title: string; items: string[]; tone: SynthTone }
+export interface Synthesis { meta: string[]; sections: SynthSection[] }
+
+function toneForHeading(title: string): SynthTone {
+  const t = title.toLowerCase();
+  if (t.includes('conflict') || t.includes('not established') || t.includes('citation')) return 'bad';
+  if (t.includes('partially')) return 'warn';
+  if (t.includes('finding') || t.includes('evidence-backed')) return 'ok';
+  if (t.includes('gap') || t.includes('excluded')) return 'muted';
+  return 'info';
 }
-function answerKindClass(kind: string | null): string {
-  switch (kind) {
-    case 'FACT': return 'text-emerald-400';
-    case 'CALCULATION': return 'text-sky-400';
-    case 'INFERENCE': return 'text-amber-400';
-    case 'UNCERTAINTY': return 'text-rose-400';
-    case 'CONFLICT': return 'text-orange-400';
-    case 'SOURCE': return 'text-muted-foreground';
-    default: return 'text-muted-foreground';
+
+export function parseSynthesis(answer: string | null | undefined): Synthesis {
+  if (!answer) return { meta: [], sections: [] };
+  const meta: string[] = [];
+  const sections: SynthSection[] = [];
+  let current: SynthSection | null = null;
+  for (const rawLine of answer.split('\n')) {
+    const l = rawLine.trim();
+    if (!l) continue;
+    if (l.startsWith('- ')) {
+      if (!current) { current = { title: 'Summary', items: [], tone: 'info' }; sections.push(current); }
+      current.items.push(l.slice(2).trim());
+      continue;
+    }
+    // A trailing colon (and no leading dash) marks a heading — except the two
+    // leading metadata lines (Research / Coverage), which stay as a subhead.
+    if (l.endsWith(':') && !/^(research|coverage):/i.test(l)) {
+      current = { title: l.replace(/:$/, ''), items: [], tone: toneForHeading(l) };
+      sections.push(current);
+      continue;
+    }
+    meta.push(l);
   }
+  return { meta, sections };
+}
+
+function toneText(tone: SynthTone): string {
+  return tone === 'ok' ? 'text-emerald-400'
+    : tone === 'warn' ? 'text-amber-400'
+      : tone === 'bad' ? 'text-rose-400'
+        : tone === 'muted' ? 'text-muted-foreground'
+          : 'text-foreground';
+}
+function toneDot(tone: SynthTone): string {
+  return tone === 'ok' ? 'bg-emerald-400'
+    : tone === 'warn' ? 'bg-amber-400'
+      : tone === 'bad' ? 'bg-rose-400'
+        : 'bg-muted-foreground/60';
 }
 
 // ── Section G: news ──────────────────────────────────────────────────────────

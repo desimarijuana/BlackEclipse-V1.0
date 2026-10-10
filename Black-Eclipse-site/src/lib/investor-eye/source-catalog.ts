@@ -134,6 +134,23 @@ export const SOURCE_CATALOG: SourceCatalogEntry[] = [
     dataFreshness: 'hourly',
     note: 'Near-real-time satellite fire/thermal hotspots (MODIS + VIIRS), aggregated into bounded clusters.',
   },
+  {
+    id: 'eonet',
+    name: 'NASA EONET',
+    provider: 'NASA Earth Observatory',
+    category: 'hazard',
+    website: 'https://eonet.gsfc.nasa.gov/',
+    license: 'Open — U.S. Government work / NASA data policy, citation appreciated',
+    licenseUrl: 'https://www.nasa.gov/nasa-brand-center/imagery-guidelines/',
+    termsUrl: 'https://eonet.gsfc.nasa.gov/docs/v3',
+    commercialUse: 'yes',
+    requiresApiKey: false,
+    attributionRequired: true,
+    attribution: 'NASA EONET — Earth Observatory Natural Event Tracker',
+    rateLimit: 'Open v3 API; no key required. Requests are unbounded but cached by NASA.',
+    dataFreshness: 'hourly',
+    note: 'Curated global natural events (storms, floods, volcanoes, droughts, ice, dust, landslides) with citing agencies.',
+  },
 ];
 
 const BY_ID = new Map(SOURCE_CATALOG.map((e) => [e.id, e]));

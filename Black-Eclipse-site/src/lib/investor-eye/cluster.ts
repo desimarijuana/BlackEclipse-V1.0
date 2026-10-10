@@ -296,6 +296,7 @@ const SOURCE_QUALITY: Record<string, number> = {
   gdelt: 0.7,
   usgs: 0.95,
   firms: 0.9,
+  eonet: 0.85,
   news: 0.6,
 };
 

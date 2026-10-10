@@ -8,6 +8,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Company detail UI: proper AI brief formatting, collapsible sources, layout
+  polish.** The AI brief now parses the engine's structured synthesis
+  (`Research:`/`Coverage:` meta + titled sections `Findings`, `Partially
+  supported`, `Not established / conflicting`, `Conflicts`, `Gaps`, `Excluded`,
+  `Citation issues`) and renders each as a real heading + bulleted list with
+  severity tones — previously only `FACT:`-prefixed lines matched, so the whole
+  answer rendered as flat text. Sources are now a collapsed native `<details>`
+  dropdown ("Sources (N) — view") instead of an always-visible list. The AI
+  overview is a full-width row below the data (no narrow-column gaps), the section
+  icon is neutral (`BookOpen`), and the detailed claims list + inline citation
+  clutter were removed. Price-history chart raised to 300px. Presentation only.
+  docs updated: `docs/CHANGELOG.md`.
+
+- **Investor Eye: NASA EONET hazard source + per-source ingestion circuit
+  breaker.** (1) New keyless source adapter `sources/eonet.ts` adds the missing
+  storm/flood/volcano/drought/ice coverage (before: earthquakes + fires only),
+  normalizing EONET's observation history to a current position, mapping its
+  categories onto the shared hazard vocabulary, scaling severity from the
+  provider magnitude only where the unit is known (earthquake magnitude, storm
+  wind knots), and using the EONET event id as the stable cluster signature.
+  Registered in `sources/registry.ts`, licensed in `SOURCE_CATALOG` (governance
+  invariant intact), quality added to `SOURCE_QUALITY`. (2) New
+  `circuit-breaker.ts` short-circuits a source after 3 consecutive failures for a
+  5-minute cooldown (half-open probe, success closes), wired into `runSource`;
+  an open breaker reports the real reason — never a fake healthy-but-quiet
+  result. Tests: `sources/eonet.test.ts` (19), `circuit-breaker.test.ts` (6);
+  full `vitest` **230 files / 2473 tests green**, `tsc --noEmit` clean.
+  docs updated: `docs/investor-eye-architecture.md` (§5p, last-verified bumped).
+
 - **Company detail: wide side-by-side layout; AI overview moved below.** The
   overlay now uses a full-width `max-w-[1760px]` multi-column grid instead of a
   single narrow `max-w-5xl` stack: Row 1 = interactive chart (2/3) beside the

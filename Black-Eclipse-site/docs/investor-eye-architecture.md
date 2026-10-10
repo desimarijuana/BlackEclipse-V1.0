@@ -1,7 +1,7 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-10-03
+last-verified: 2026-10-09
 ---
 
 # Investor Eye — Architecture & Audit
@@ -14,8 +14,9 @@ the runtime bugs fixed after them, price reaction/alerts/gazetteer, event
 dossiers, clustering recovery, event plotting, the AI analyst, recurrence,
 data-source governance + NASA FIRMS, the layer/pin corrections that surfaced data
 already in the database, the globe's visual system + the two bugs that fixing it
-exposed, and finally the surface skins, the pin-glyph accuracy fixes and the
-living sky).
+exposed, the surface skins, the pin-glyph accuracy fixes, the living sky, and
+finally the NASA EONET multi-hazard source + a per-source ingestion circuit
+breaker).
 
 > This document is Phase 0's output. The repository is authoritative: where the
 > implementation spec and the code disagreed, the code won and this record notes
@@ -1349,6 +1350,75 @@ lines of algebra.
 
 `NAMES ON/OFF` sits in the map view controls beside the projection, skin and
 starfield toggles, and is persisted in the store and saved views.
+
+---
+
+## 5p. Phase 18 — the third hazard source, and a per-source circuit breaker
+
+Two gaps remained after §5k: the hazard layer still carried only two
+single-phenomenon providers, and a provider that was **deterministically down**
+still cost its full transport timeout on *every* ingestion cycle.
+
+### NASA EONET — the wide hazard source
+
+`firms.ts` and `usgs.ts` cover fires and earthquakes only. **NASA EONET v3**
+(`sources/eonet.ts`) is a keyless, global, JSON feed of *curated* natural events —
+severe storms, floods, volcanoes, droughts, dust/haze, landslides, sea/lake ice,
+snow, temperature extremes, water colour and some man-made incidents — each citing
+the agencies that reported it. One request adds the missing phenomena and doubles
+as a corroboration source.
+
+Design decisions, all following the established adapter discipline:
+
+- **Provider identity is the identity.** EONET's own event id is used as the
+  `clusterSignature`, so an event is never fuzzy-merged with news text (the same
+  rule that fixed the §5f fusing bug).
+- **Geometry is an observation history.** The most recent observation is the
+  current position. Polygon events (large fires, sea ice) are reduced to a
+  representative centroid — dropping the GeoJSON closing vertex so the point is
+  not biased toward one corner — which is a coordinate derived from provider
+  geometry, not a fabricated one. A `(0,0)` null-island sentinel is rejected.
+- **Severity uses the provider magnitude only where the unit is known.**
+  Earthquakes reuse the established magnitude scale; storms use a
+  tropical-cyclone band (`severityFromWindKnots`, with mph/m/s normalized to
+  knots). Everything else falls back to the honest text lexicon — a storm value
+  in an unknown unit is never mis-scaled as an earthquake.
+- **A feed link is fine; an agency URL is not.** Only the unique EONET event link
+  is carried as a source URL (it is safe as article identity). The corroborating
+  agency URLs are recorded by name/id *only* — a shared agency page (one InciWeb
+  URL across a region) would otherwise fuse unrelated events, the exact §5k FIRMS
+  trap.
+
+`eonet` also declares its licence in `SOURCE_CATALOG`, so the governance
+invariant (`source-catalog.test.ts`) still holds: an adapter cannot ship without
+its licence. Attribution is required and surfaces through
+`/api/investor-eye/health`'s `attributions`.
+
+### The per-source circuit breaker (`circuit-breaker.ts`)
+
+Ingestion already isolates one source's failure from the others, but a source
+that keeps failing deterministically (a host that always times out, a provider
+returning 5xx) still costs its full 10s transport timeout on every cycle. With
+several sources that is minutes of wall-clock per assembly spent waiting on
+something known to be broken.
+
+`runSource` now consults a breaker keyed by source id: after
+`failureThreshold` (3) consecutive failures the source is **short-circuited** —
+skipped without a network call — for a cooldown (5 min), then allowed one probe;
+any success closes it immediately. Both `fetch` failures and `RateLimited`
+throttles count (a provider hammering us should not be retried at full rate), and
+an honest **empty** result counts as success.
+
+The honesty rule is explicit: an open breaker does **not** invent a source
+result. The skipped run is reported with the real reason and failure count
+(`circuit open — N consecutive failures; retry in Xs`), so a short-circuit is
+never displayed as a healthy-but-quiet source. State is anchored on `globalThis`
+(same discipline as `sources/registry.ts` and `cache.ts`) so every route bundle
+shares one breaker per source; `resetBreakers()` is the test seam.
+
+Tests: `eonet.test.ts` (19 — category/severity/geometry/identity),
+`circuit-breaker.test.ts` (6 — open/half-open/close/re-open/independence), plus
+the unchanged full suite (2473 TS tests green, `tsc` clean).
 
 ---
 

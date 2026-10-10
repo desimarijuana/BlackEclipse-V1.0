@@ -13,6 +13,7 @@ import { gdeltSource } from './gdelt';
 import { usgsSource } from './usgs';
 import { newsSource } from './news';
 import { firmsSource } from './firms';
+import { eonetSource } from './eonet';
 
 const globalForSources = globalThis as unknown as {
   investorEyeSources: Map<string, EventSource> | undefined;
@@ -52,5 +53,8 @@ export function registerBuiltinSources(): void {
   registerSource(newsSource);
   // Satellite fire detections: keyless global CSV, aggregated into clusters.
   registerSource(firmsSource);
+  // Curated multi-hazard natural events: keyless global JSON (storms, floods,
+  // volcanoes, droughts, ice, …) — the wide coverage the point-feed hazards miss.
+  registerSource(eonetSource);
   registered = true;
 }

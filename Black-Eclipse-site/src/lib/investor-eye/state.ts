@@ -18,6 +18,7 @@ import { toMarketId, marketDisplayName, currencyFor } from '@/lib/markets';
 import { registerBuiltinSources, configuredSources, listSources } from './sources/registry';
 import { clusterEvents } from './cluster';
 import { collapseDuplicateKeys } from './dedup';
+import { breakerCanAttempt, breakerRecordFailure, breakerRecordSuccess, breakerSnapshot } from './circuit-breaker';
 import { reResolveEventLocation } from './geo-resolve';
 import { aggregatePoints, zoomForCount } from './geo';
 import { countryByIso2, COUNTRIES, resolveCountry } from './countries';
@@ -107,6 +108,23 @@ async function runSource(
 ): Promise<{ events: NormalizedEvent[]; summary: SourceRunSummary }> {
   const startedAt = new Date().toISOString();
   const started = Date.now();
+  // Circuit breaker: a source with several consecutive failures is skipped for a
+  // cooldown so a deterministically-down provider cannot cost its full timeout
+  // on every cycle. The skip is reported with the real reason — never as a
+  // healthy-but-quiet source.
+  if (!breakerCanAttempt(source.id)) {
+    const snap = breakerSnapshot(source.id);
+    return {
+      events: [],
+      summary: {
+        source: source.id, startedAt, finishedAt: new Date().toISOString(),
+        durationMs: 0, recordsReceived: 0, recordsAccepted: 0, recordsRejected: 0,
+        error: `circuit open — ${snap.failures} consecutive failures; retry in ${Math.ceil(snap.retryAfterMs / 1000)}s`,
+        status: 'error',
+        provenance: 'UNAVAILABLE',
+      },
+    };
+  }
   try {
     const raw = await source.fetch({ hours, maxRecords });
     const received = raw.length;
@@ -115,6 +133,7 @@ async function runSource(
       events = source.normalize(raw);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      breakerRecordFailure(source.id);
       return {
         events: [],
         summary: {
@@ -126,6 +145,8 @@ async function runSource(
         },
       };
     }
+    // Fetch + normalize succeeded (an honest empty result counts).
+    breakerRecordSuccess(source.id);
     const accepted = events.length;
     // A source may AGGREGATE: FIRMS ships one CSV batch that `normalize`
     // expands into hundreds of clusters, so accepted can exceed received. A
@@ -147,6 +168,10 @@ async function runSource(
     // throttle is treated as distinct from an error (so it is not reported as a
     // broken integration).
     const rateLimited = err instanceof Error && err.name === 'RateLimited';
+    // A throttle is upstream pressure, not proof the integration is broken, but
+    // it still warrants backing off — the breaker counts both so a provider that
+    // is hammering us does not get retried at full rate every cycle.
+    breakerRecordFailure(source.id);
     return {
       events: [],
       summary: {
