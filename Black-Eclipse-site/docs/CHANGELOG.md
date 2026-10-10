@@ -8,6 +8,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Fundamentals P1: first-party official-exchange provider (PSX / Pakistan).**
+  New `src/lib/fundamentals/filings/psx.ts` parses the PSX data-portal company
+  page (`dps.psx.com.pk/company/<SYM>`) — the exchange's OWN annual key financials
+  table (Sales, Profit after Taxation, EPS; "in thousands except EPS") —
+  deterministically with cheerio into real periods (thousands → base, PK fiscal
+  year end, sorted oldest→newest). New provider
+  `src/lib/fundamentals/providers/eclipse-filings.ts` (`id: eclipse-filings`,
+  keyless, `supports` PK) is registered in `PROVIDER_ORDER` before Yahoo, with
+  `FundamentalProviderId`/`PROVIDER_LABELS`/`SOURCE_LABEL` extended. So PK stocks
+  that had NO filings-backed fundamentals now show official exchange statements
+  (`primarySource: eclipse-filings`), reducing third-party reliance. Verified
+  live: OGDC, LUCK, ENGRO, HUBC, MCB, MARI, SYS each → 4 real periods. Tests
+  `filings/psx.test.ts` (3, incl. the page's malformed `<tbody>`-in-`<thead>`).
+  Full `vitest` 2508 + `next build` + `tsc` + `eslint` clean; server restarted.
+  docs updated: `docs/CHANGELOG.md`.
+
 - **Investor Eye: readable rail, full dossier overlay, AI-setup CTAs, agent world-events tool.**
   Right rail widened to 440/460px and retyped (11–13px) for readability, with
   the event dossier prioritised over the country panel; a wide, two-column

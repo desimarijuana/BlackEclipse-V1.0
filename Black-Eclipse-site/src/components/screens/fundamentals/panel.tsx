@@ -38,6 +38,7 @@ export const SOURCE_LABEL: Record<MetricSource, string> = {
   'sec-edgar': 'SEC EDGAR',
   financialmodelingprep: 'FMP',
   yahoo: 'Yahoo',
+  'eclipse-filings': 'Eclipse Filings',
   derived: 'Derived',
 };
 

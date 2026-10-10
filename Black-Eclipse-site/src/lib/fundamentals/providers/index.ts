@@ -11,11 +11,15 @@ import type { FundamentalProviderId, FundamentalsProvider } from '../types';
 import { secFundamentalsProvider } from './sec-edgar';
 import { fmpFundamentalsProvider } from './fmp';
 import { yahooFundamentalsProvider } from './yahoo';
+import { eclipseFilingsProvider } from './eclipse-filings';
 
-/** Statement authority: SEC filings first, then normalized vendors, then Yahoo. */
+/** Statement authority: SEC filings first, vendor normalizers, then the
+ *  first-party exchange filings, then Yahoo. The first provider that returns
+ *  periods is the statement source; gaps fill from the rest. */
 export const PROVIDER_ORDER: FundamentalProviderId[] = [
   'sec-edgar',
   'financialmodelingprep',
+  'eclipse-filings',
   'yahoo',
 ];
 
@@ -23,6 +27,7 @@ export const FUNDAMENTALS_PROVIDERS: Record<FundamentalProviderId, FundamentalsP
   'sec-edgar': secFundamentalsProvider,
   financialmodelingprep: fmpFundamentalsProvider,
   yahoo: yahooFundamentalsProvider,
+  'eclipse-filings': eclipseFilingsProvider,
 };
 
 /** Providers in precedence order, filtered to those usable right now. */

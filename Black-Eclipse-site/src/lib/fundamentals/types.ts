@@ -5,12 +5,13 @@
 // metrics + risk synthesis in `./compute`.
 
 /** Providers the fundamentals layer can pull from, in precedence order. */
-export type FundamentalProviderId = 'sec-edgar' | 'financialmodelingprep' | 'yahoo';
+export type FundamentalProviderId = 'sec-edgar' | 'financialmodelingprep' | 'yahoo' | 'eclipse-filings';
 
 export const PROVIDER_LABELS: Record<FundamentalProviderId, string> = {
   'sec-edgar': 'SEC EDGAR',
   financialmodelingprep: 'Financial Modeling Prep',
   yahoo: 'Yahoo Finance',
+  'eclipse-filings': 'Eclipse Filings (exchange)',
 };
 
 /** Where a single displayed value came from. `derived` = computed from raw. */
