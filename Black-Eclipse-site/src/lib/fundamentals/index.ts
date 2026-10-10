@@ -11,6 +11,7 @@
 import { prisma } from '@/lib/db';
 import { configuredProviders } from './providers';
 import { normalizePeriods } from './normalize';
+import { reconcilePeriods } from './reconcile';
 import { assembleSnapshot, buildGrowth, type AssembleInputs } from './compute';
 import type {
   CompanyProfile,
@@ -273,6 +274,13 @@ export function buildSnapshot(
   const contributors: MetricSource[] = [...new Set(results.map((r) => r.provider as MetricSource))];
   const primarySource: MetricSource = primary.provider;
 
+  // P3 — cross-source reconciliation: compare every provider that returned
+  // periods; disagreements are surfaced as insights, never averaged away.
+  const withPeriods = results.filter((r) => r.periods.length > 0);
+  const conflicts = withPeriods.length >= 2
+    ? reconcilePeriods(withPeriods.map((r) => ({ provider: r.provider, periods: normalizePeriods(r) })))
+    : [];
+
   const input: AssembleInputs = {
     symbol,
     market,
@@ -291,6 +299,7 @@ export function buildSnapshot(
     provenance,
     retrievedAt: new Date().toISOString(),
     fiscalYearEnd,
+    conflicts,
   };
   return assembleSnapshot(input);
 }

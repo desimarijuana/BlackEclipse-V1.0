@@ -4,6 +4,7 @@
 // renders as UNAVAILABLE in the UI.
 
 import { latestReportingPeriod } from './normalize';
+import type { PeriodConflict } from './reconcile';
 import type {
   CompanyProfile,
   EarningsEntry,
@@ -122,6 +123,8 @@ export interface AssembleInputs {
   provenance: FundamentalsSnapshot['provenance'];
   retrievedAt: string;
   fiscalYearEnd: string | null;
+  /** Cross-source disagreements detected during reconciliation (P3). */
+  conflicts?: PeriodConflict[];
 }
 
 export function assembleSnapshot(input: AssembleInputs): FundamentalsSnapshot {
@@ -243,6 +246,16 @@ export function assembleSnapshot(input: AssembleInputs): FundamentalsSnapshot {
     primary,
   });
 
+  // Surface cross-source disagreements (never silently averaged).
+  const conflictInsights: FundamentalInsight[] = (input.conflicts ?? []).slice(0, 4).map((c, i) => ({
+    id: `cross-source-${i}`,
+    tone: c.maxDeltaPct >= 10 ? 'warning' : 'neutral',
+    title: `Cross-source disagreement — ${c.metric} (${c.endDate})`,
+    detail: `${c.values.map((v) => `${v.provider} ${v.value.toLocaleString('en-US')}`).join(' · ')} — a ${c.maxDeltaPct.toFixed(1)}% difference. Shown, not averaged.`,
+    evidence: [c.metric],
+  }));
+  const allInsights = [...conflictInsights, ...insights];
+
   return {
     symbol: input.symbol,
     market: input.market,
@@ -259,7 +272,7 @@ export function assembleSnapshot(input: AssembleInputs): FundamentalsSnapshot {
     metrics,
     earnings: input.earnings,
     ownership: input.ownership,
-    insights,
+    insights: allInsights,
     timeline: input.timeline,
   };
 }

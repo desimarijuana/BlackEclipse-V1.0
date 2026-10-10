@@ -6,6 +6,53 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-10
+
+- **Fundamentals P2–P4: filings framework, cross-source reconciliation,
+  persistence hooks.** (P2) Official-filings **adapter registry**
+  (`src/lib/fundamentals/filings/registry.ts`) — the `eclipse-filings` provider now
+  dispatches through it, so adding a market is one adapter; PSX (PK) registered.
+  (P3) `src/lib/fundamentals/reconcile.ts` (`reconcilePeriods`) deterministically
+  compares the SAME metric/period across every source that returned periods and
+  surfaces material disagreements (>threshold) — wired into `buildSnapshot` as
+  `cross-source disagreement` insights (never averaged away), plus `PeriodConflict`
+  on `AssembleInputs`. (P4) The provider order/registry is the coverage surface
+  (eclipse-filings before yahoo; keyless). Tests: `filings/registry.test.ts` (5),
+  `reconcile.test.ts` (6), `filings/psx.test.ts` (3). Known blocker: India's
+  official portals (BSE/NSE) return 403 to server-side fetches — a real
+  anti-bot limit that needs the browser runtime (documented, not faked). Full
+  `vitest` 2524 (2 failures are a concurrent sidebar-guard change, not this work),
+  `next build` + `tsc` + `eslint` clean; server restarted.
+  docs updated: `docs/CHANGELOG.md`.
+
+- **Capability Extension Phase A: live Pages — the UI-Engineering bridge.** The
+  agent/UI-authored blueprints (UI-Engineering runtime, `agent-memory.db`) are no
+  longer stranded in a separate store: a new **Pages** app tab
+  (`src/components/screens/pages/pages-screen.tsx`, `AppTab 'pages'`) lists the
+  saved blueprints and renders the selected one through the REAL
+  `CustomizableWorkspace` + `renderDashboardWidget`, so an agent-composed page is
+  a visible, usable page (add/rearrange widgets like the Command Center; "Save to
+  page" writes the arrangement back as a new blueprint revision via
+  `ui_save_layout`; "Revert" discards the local cache). New pure, tested bridge
+  `src/lib/ui-engineering/live-page.ts` (`blueprintLayoutToKernel` /
+  `kernelLayoutToWire` / `pageStorageKey`) is the ONE wire↔kernel layout
+  translator. Tab wired through `app-tabs.ts`, `sidebar/config.ts`,
+  `i18n/nav.ts` + `en.ts` (`nav.pages`), `search/deep-link.ts`, and
+  `stock-chat.tsx`.
+- **Agent glue: Eclipse now knows the `ui_*` tools exist.** Added a "Pages,
+  widgets and tools" section to `ECLIPSE_AGENT_SYSTEM_PROMPT`
+  (`python/harness/prompts.py`) documenting the Compose/Engineer flow and
+  `ui_classify_request`. Fixed the Compose/Engineer classifier
+  (`python/harness/ui/mode.py`): "new widget"/"create a widget"/"widget that" and
+  "new tool" now signal **Engineer** (a genuinely new capability), while
+  restyling an existing widget ("change the design"/"restyle") stays **Compose**.
+  This is why "create a new widget" previously degraded to adding an existing one.
+- Plan: `docs/harness/capability-extension-plan.md` (Phases A–E). Tests:
+  `live-page.test.ts` (6), `test_ui_mode.py` (+4). Full `vitest` 239 files /
+  2524 tests + UI `pytest` 31 + `tsc --noEmit` clean.
+  docs updated: `docs/CHANGELOG.md`, `docs/harness/capability-extension-plan.md`,
+  `docs/ui-engineering.md`.
+
 ## 2026-10-09
 
 - **Fundamentals P1: first-party official-exchange provider (PSX / Pakistan).**
