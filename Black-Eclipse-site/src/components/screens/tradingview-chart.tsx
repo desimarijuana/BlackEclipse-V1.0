@@ -436,6 +436,14 @@ export function TradingViewChart({
                   {effSector}
                 </span>
               )}
+              {effCountry && (
+                <span
+                  title="Market / exchange"
+                  className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-lg hidden md:inline shrink-0 font-mono"
+                >
+                  {effCountry}
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
               Interactive chart, filings-backed fundamentals &amp; key metrics.
@@ -783,14 +791,14 @@ export function TradingViewChart({
                 </div>
               </div>
 
-              {/* Row 3 — AI company intelligence brief (full width, below the data) */}
-              <AiResearchSection research={research} variant="brief" />
-
-              {/* Row 4 — technical & risk side by side */}
+              {/* Row 3 — technical & risk side by side */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <TechnicalSection tech={technical} />
                 <RiskSection risks={risks} />
               </div>
+
+              {/* Row 4 — AI company intelligence brief (full width, below the at-a-glance / leadership rail) */}
+              <AiResearchSection research={research} variant="brief" />
 
               {/* Row 5 — AI research conclusion (full width) */}
               <AiResearchSection research={research} variant="conclusion" />

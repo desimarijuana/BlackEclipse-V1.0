@@ -8,6 +8,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Company detail: commodities/FX identity, market qualifier, AI overview moved
+  below.** `/api/asset-details` now resolves catalog symbols (gold `GC=F`,
+  `EURUSD=X`, …) → a synthetic asset (`found: true`, name/sector/marketId
+  `COMMODITY`/`FX`), so clicking a commodity/FX row (already wired via
+  `handleSymbolClick`) opens a detail page with a proper identity instead of "not
+  found". Header now shows a market/exchange qualifier chip next to the symbol
+  (disambiguates cross-market collisions like BNB CRYPTO vs DE). AI overview row
+  moved below the technical/risk row (bottom of the page). Verified live:
+  `/api/asset-details?symbol=GC=F` and `EURUSD=X` return `found:true`. Full
+  `vitest` + `next build` + `tsc` + `eslint` clean. docs updated:
+  `docs/CHANGELOG.md`.
+
+- **Investor Eye: fix intermittent/missing conflicts + honest coverage.** Root
+  causes audited: (1) GDELT only fetched the newest 15-minute bulk file, (2)
+  `assembleState` never replayed persisted events, (3) the relevance gate
+  silently dropped low-signal material conflicts, (4) no GDELT retry, (5) no way
+  to see *why* the Conflict layer was empty. Fixes: rolling GDELT window over the
+  last N 15-min slots with bounded concurrency + provider-id dedup + transient
+  retry; persisted-event replay into the window (flagged `replayed`, never
+  re-persisted); a material-conflict relevance floor (`quadClass===4` /
+  `goldstein<=-5`); and a new pure `coverage.ts` (`observed|quiet|degraded|
+  unavailable`) surfaced as a `retained` badge in the dossier, a `N retained`
+  count in the map footer, and an amber explanation under the map when no
+  conflicts are plotted. Tests: `gdelt-window.test.ts` (8), `coverage.test.ts`
+  (7), relevance +2; full `vitest` **232 files / 2488 tests green**, `tsc` clean.
+  docs updated: `docs/investor-eye-architecture.md` (§5q). ReliefWeb was
+  evaluated and rejected as a zero-config source (v2 now needs a pre-approved
+  `appname`).
+
 - **Company detail: web-research fundamentals fallback + shared sources
   disclosure.** When a filings-backed fundamentals snapshot has **no statement
   periods** (all providers missed, or the instrument has none — e.g. crypto BNB

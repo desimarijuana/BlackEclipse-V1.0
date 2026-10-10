@@ -159,6 +159,14 @@ export interface NormalizedEvent {
   /** Why it scored that relevance (shown in the UI, never a bare number). */
   relevanceReasons?: string[];
   /**
+   * True when this event was served from the persisted JDDS window rather than
+   * the sources fetched in THIS assembly — i.e. it is real, within-window
+   * evidence observed in an earlier cycle and replayed so the map does not lose
+   * an event the moment it ages out of the latest provider file. In-memory only
+   * (never written back), so it does not affect stored rows.
+   */
+  replayed?: boolean;
+  /**
    * A source-declared STABLE identity for this record, when the provider already
    * has one (GDELT's GLOBALEVENTID).
    *

@@ -17,6 +17,7 @@ import { TIME_RANGES, timeRangeHours, useInvestorEyeStore } from '@/lib/investor
 import { formatClock } from '@/lib/investor-eye/format';
 import { useDisplayTimeZone } from '@/lib/timezone';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
+import { conflictCoverage } from '@/lib/investor-eye/coverage';
 import { cn } from '@/lib/utils';
 import type {
   CompanyPoint, EconomicLayerData, InvestorEyeState, NormalizedEvent,
@@ -94,6 +95,8 @@ export function InvestorEyeScreen() {
   const lastKnownAt = state?.lastKnownAt ?? null;
   const staleGeneratedAt = state?.refreshing ? state.generatedAt : null;
   const displayTz = useDisplayTimeZone();
+  // "Why can't I see conflicts?" — observed / quiet / degraded / unavailable.
+  const coverage = useMemo(() => conflictCoverage(state), [state]);
 
   // Phase 2 inputs — only fetched when their layer is enabled.
   const needEconomy = activeLayers.includes('economy');
@@ -433,6 +436,14 @@ export function InvestorEyeScreen() {
             showCountryLabels={showCountryLabels}
             onModeUnavailable={() => setMapMode('2d')}
           />
+          {/* Coverage honesty: when no conflicts are plotted, say WHETHER that
+              is an observed quiet, a source coverage gap, or no feed at all —
+              an empty conflict layer must never read as proof of calm. */}
+          {state && !unavailable && coverage.status !== 'observed' && (
+            <div className="pointer-events-none absolute bottom-7 left-2 z-10 max-w-[64%] rounded-md border border-amber-500/20 bg-black/45 px-2 py-0.5 text-[9px] font-mono text-amber-200/90 backdrop-blur-sm">
+              {coverage.explanation}
+            </div>
+          )}
           {/* Map is the hero; a subtle frame label keeps provenance in view. */}
           <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
             NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}{mapSkin === 'black' ? ' · BLACK' : ' · GLOW'}
@@ -449,6 +460,14 @@ export function InvestorEyeScreen() {
           {state && (
             <div className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-[9px] font-mono text-muted-foreground backdrop-blur-sm">
               {state.events.length} events · {state.markets.length} markets
+              {/* Retained observations: real, within-window events from an
+                  earlier cycle. Surfaced so a rolled-up window is not read as
+                  "everything was fetched just now". */}
+              {state.events.some((e) => e.replayed) && (
+                <span className="text-amber-300/80">
+                  {' '}· {state.events.filter((e) => e.replayed).length} retained
+                </span>
+              )}
             </div>
           )}
         </div>

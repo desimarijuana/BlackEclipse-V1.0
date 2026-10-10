@@ -27,6 +27,7 @@ import type { EventEntityRef, NormalizedEvent, SourceRef } from '@/lib/investor-
 import { AnaloguesPanel } from './analogues-panel';
 import { ReactionPanel } from './reaction-panel';
 import { ExplainPanel } from './explain-panel';
+import { EventResearch } from './event-research';
 import { SituationPanel } from './situation-panel';
 import { cn } from '@/lib/utils';
 
@@ -78,6 +79,9 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
 
         {/* The AI analyst, where the question is asked. Grounded in this record. */}
         <ExplainPanel eventId={event.id ?? event.dedupKey} />
+
+        {/* Shared Evidence & Research Engine: cited sources, claims, conflicts. */}
+        <EventResearch event={event} />
 
         <Entities eventId={event.id} />
         <Evidence sources={event.sources} sourceCount={event.sourceCount} />
@@ -158,6 +162,17 @@ function Header({ event, onClose, headline }: { event: NormalizedEvent; onClose:
             {event.eventType.replace(/_/g, ' ')} · {event.severity}
           </span>
           <SourceBadge count={event.sourceCount} outlets={event.sources.length > 0 ? new Set(event.sources.map((s) => s.name)).size : undefined} />
+          {/* Provenance: this event was observed in an earlier cycle and
+              retained for the window rather than fetched just now. Stated
+              explicitly so a retained observation never reads as freshly live. */}
+          {event.replayed && (
+            <span
+              className="rounded-sm border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-mono text-amber-300"
+              title="Observed in an earlier ingestion cycle and retained for this window; not re-fetched in the latest cycle."
+            >
+              retained
+            </span>
+          )}
         </div>
         <div className="text-sm font-semibold leading-snug text-foreground">
           {headline ?? formatEventTitle(event.title, event.placeName)}

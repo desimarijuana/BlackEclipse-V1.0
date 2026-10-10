@@ -27,6 +27,22 @@ import { scoreRelevance, selectRelevant, KEEP_THRESHOLD } from '../relevance';
  * this bounds both the DB write and the map payload.
  */
 const GDELT_MAX_EVENTS = 400;
+
+/**
+ * How many 15-minute bulk files one fetch may pull. `lastupdate.txt` names only
+ * the NEWEST file, so fetching it alone showed only events GDELT coded in the
+ * last ~15 minutes — an ongoing conflict vanished from a "24h" window within a
+ * quarter hour. We walk backwards through the 15-minute slots (the filename
+ * carries the timestamp) and pull a bounded number, so one cycle covers a real
+ * slice of the window. Combined with the persisted-event replay in `state.ts`,
+ * the whole window is retained across cycles.
+ */
+const GDELT_MAX_FILES = 6;
+/** Concurrent file downloads — bounded so we never hammer the public host. */
+const GDELT_FETCH_CONCURRENCY = 3;
+/** Bounded retry for a transient bulk failure (mirrors `firms.ts`/`eonet.ts`). */
+const GDELT_ATTEMPTS = 2;
+const GDELT_RETRY_DELAY_MS = 800;
 import { resolveCountry } from '../countries';
 import { dedupKeyFor } from '../dedup';
 import { confidenceOf } from '../cluster';
@@ -101,13 +117,66 @@ export function inflateZipEntry(buf: Buffer, inflateRaw: (b: Buffer) => Buffer):
  * `https://data.gdeltproject.org/.../*.export.CSV.zip` returns 200 in ~2s).
  */
 export function parseLastUpdate(body: string): string | null {
+  return parseLastUpdateInfo(body)?.url ?? null;
+}
+
+export interface GdeltExportRef {
+  url: string;
+  /** The 14-digit UTC timestamp embedded in the filename, when present. */
+  timestamp: string | null;
+}
+
+/** Parse `lastupdate.txt` → the newest export URL plus its timestamp. */
+export function parseLastUpdateInfo(body: string): GdeltExportRef | null {
   // Lines: "<size> <md5> <url>" for export / mentions / gkg. Prefer ".export.".
   const lines = body.trim().split('\n');
   const exportLine = lines.find((l) => l.includes('.export.CSV.zip'));
   const chosen = exportLine ?? lines[0];
   const raw = chosen?.trim().split(/\s+/).pop();
   if (!raw || !raw.startsWith('http')) return null;
-  return raw.startsWith('http://') ? `https://${raw.slice('http://'.length)}` : raw;
+  const url = raw.startsWith('http://') ? `https://${raw.slice('http://'.length)}` : raw;
+  const m = url.match(/(\d{14})\.export\.CSV\.zip/);
+  return { url, timestamp: m ? m[1] : null };
+}
+
+/**
+ * Build the export URLs for the newest file plus its preceding 15-minute slots.
+ *
+ * GDELT names each file with its UTC publish time (`YYYYMMDDHHMMSS`), so walking
+ * backwards is pure date arithmetic on the filename — no directory listing, no
+ * extra index request. Slots GDELT actually skipped simply fail to download and
+ * are tolerated by the caller, so the result is "as many of the last N slots as
+ * exist".
+ */
+export function bulkExportUrls(latestUrl: string, count: number): string[] {
+  const m = latestUrl.match(/(\d{14})\.export\.CSV\.zip/);
+  if (!m || count <= 1) return [latestUrl];
+  const stamp = m[1];
+  const iso = `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(8, 10)}:${stamp.slice(10, 12)}:${stamp.slice(12, 14)}Z`;
+  const base = Date.parse(iso);
+  if (Number.isNaN(base)) return [latestUrl];
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = new Date(base - i * 15 * 60 * 1000);
+    const shifted = t.toISOString().replace(/[-:TZ]/g, '').slice(0, 14);
+    out.push(latestUrl.replace(stamp, shifted));
+  }
+  return out;
+}
+
+/** Run async work over a list with bounded concurrency, preserving order. */
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /**
@@ -252,35 +321,55 @@ async function getInflateRaw(): Promise<(b: Buffer) => Buffer> {
   return inflateRawFn;
 }
 
-/** Download + decompress the current GDELT bulk export. */
-async function fetchBulkExport(timeoutMs?: number): Promise<GdeltBulkFile> {
+/**
+ * Download + decompress the current GDELT bulk export plus recent slots.
+ *
+ * A single file covers only ~15 minutes of coding, so the window is built from
+ * the newest file and its preceding slots (bounded by GDELT_MAX_FILES). A slot
+ * that GDELT did not publish (or that times out) is skipped; the fetch fails
+ * only when EVERY slot fails, so a partial window still yields a real feed.
+ */
+async function fetchBulkExport(timeoutMs?: number, hours = 24): Promise<GdeltBulkFile> {
   // Measured: index ~1s, file ~2.4s. `safeGet` clamps to MAX_TIMEOUT_MS (10s),
   // so this is comfortably inside the transport's ceiling.
   const indexRes = await safeGet({ url: GDELT_LASTUPDATE, timeoutMs: timeoutMs ?? 10_000 });
   if (indexRes.status < 200 || indexRes.status >= 300) {
     throw new OutboundError('network', `GDELT lastupdate HTTP ${indexRes.status}`);
   }
-  const url = parseLastUpdate(indexRes.text);
-  if (!url) throw new OutboundError('network', 'GDELT lastupdate had no export URL');
+  const info = parseLastUpdateInfo(indexRes.text);
+  if (!info) throw new OutboundError('network', 'GDELT lastupdate had no export URL');
 
-  // `binary: true` is required: the shared transport decodes bodies as UTF-8 by
-  // default, which replaces invalid byte sequences with U+FFFD and would corrupt
-  // the zip beyond recovery.
-  const fileRes = await safeGet({ url, timeoutMs: timeoutMs ?? 10_000, binary: true });
-  if (fileRes.status < 200 || fileRes.status >= 300) {
-    throw new OutboundError('network', `GDELT export HTTP ${fileRes.status}`);
-  }
-  if (!fileRes.buffer) throw new OutboundError('network', 'GDELT export returned no bytes');
+  const slots = Math.max(1, Math.ceil(hours * 4)); // 4 slots per hour (15 min each)
+  const urls = bulkExportUrls(info.url, Math.min(GDELT_MAX_FILES, slots));
   const inflateRaw = await getInflateRaw();
-  const csv = inflateZipEntry(fileRes.buffer, inflateRaw).toString('utf8');
-  const retrievedAt = new Date().toISOString();
-  const rows = csv
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((line) => ({ fields: line.split('\t'), retrievedAt }));
+
+  const perFile = await mapPool(urls, GDELT_FETCH_CONCURRENCY, async (url) => {
+    try {
+      // `binary: true` is required: the shared transport decodes bodies as UTF-8
+      // by default, which replaces invalid byte sequences with U+FFFD and would
+      // corrupt the zip beyond recovery.
+      const fileRes = await safeGet({ url, timeoutMs: timeoutMs ?? 10_000, binary: true });
+      if (fileRes.status < 200 || fileRes.status >= 300) {
+        throw new OutboundError('network', `GDELT export HTTP ${fileRes.status}`);
+      }
+      if (!fileRes.buffer) throw new OutboundError('network', 'GDELT export returned no bytes');
+      const csv = inflateZipEntry(fileRes.buffer, inflateRaw).toString('utf8');
+      const retrievedAt = new Date().toISOString();
+      return csv
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((line) => ({ fields: line.split('\t'), retrievedAt }));
+    } catch (err) {
+      // A missing/expired slot is expected (GDELT skips some 15-min windows).
+      console.warn('[investor-eye:gdelt] slot unavailable:', url, err instanceof Error ? err.message : err);
+      return [];
+    }
+  });
+
+  const rows = perFile.flat();
   if (rows.length === 0) throw new OutboundError('network', 'GDELT export contained no rows');
-  return { url, rows };
+  return { url: info.url, rows };
 }
 
 /** Secondary path: the DOC API. Best-effort only; slow and throttled. */
@@ -317,17 +406,23 @@ export const gdeltSource: EventSource = {
   isConfigured: () => true,
 
   async fetch(query: SourceQuery): Promise<RawEvent[]> {
-    // Primary: the bulk export (fast, complete, not rate-limited).
-    try {
-      const bulk = await fetchBulkExport(query.timeoutMs);
-      return bulk.rows.map(({ fields, retrievedAt }) => ({
-        sourceId: GDELT_SOURCE_ID,
-        sourceName: 'GDELT',
-        raw: { kind: 'export' as const, fields },
-        retrievedAt,
-      }));
-    } catch (err) {
-      console.warn('[investor-eye:gdelt] bulk export failed:', err instanceof Error ? err.message : err);
+    // Primary: the bulk export (fast, complete, not rate-limited). One bounded
+    // retry for a transient transport failure, matching `firms.ts`/`eonet.ts`.
+    for (let attempt = 0; attempt < GDELT_ATTEMPTS; attempt++) {
+      try {
+        const bulk = await fetchBulkExport(query.timeoutMs, query.hours);
+        return bulk.rows.map(({ fields, retrievedAt }) => ({
+          sourceId: GDELT_SOURCE_ID,
+          sourceName: 'GDELT',
+          raw: { kind: 'export' as const, fields },
+          retrievedAt,
+        }));
+      } catch (err) {
+        console.warn('[investor-eye:gdelt] bulk export failed:', err instanceof Error ? err.message : err);
+        const transient = err instanceof OutboundError && (err.code === 'timeout' || err.code === 'network');
+        if (!transient || attempt === GDELT_ATTEMPTS - 1) break;
+        await new Promise((r) => setTimeout(r, GDELT_RETRY_DELAY_MS));
+      }
     }
     // Secondary: the DOC API. Kept so a bulk outage degrades instead of failing.
     try {
@@ -341,22 +436,34 @@ export const gdeltSource: EventSource = {
   },
 
   normalize(records: RawEvent[]): NormalizedEvent[] {
+    // Overlapping 15-minute slots repeat the same GLOBALEVENTID (with refreshed
+    // mention counts), so de-duplicate by provider id FIRST — otherwise repeats
+    // would consume the GDELT_MAX_EVENTS cap and crowd out distinct events. The
+    // later row is usually the more-reported one, so keep the higher-confidence
+    // record for a given id.
+    const byId = new Map<string, NormalizedEvent>();
     const events: NormalizedEvent[] = [];
+    const add = (event: NormalizedEvent) => {
+      const key = event.clusterSignature ?? event.dedupKey;
+      const prev = byId.get(key);
+      if (!prev || event.confidence >= prev.confidence) byId.set(key, event);
+    };
     for (const record of records) {
       const raw = record.raw as
         | { kind: 'export'; fields: string[] }
         | { kind: 'article'; article: { url?: string; title?: string; seendate?: string } };
       if (raw.kind === 'export') {
         const event = normalizeExportRow(raw.fields, record.retrievedAt);
-        if (event) events.push(event);
+        if (event) add(event);
         continue;
       }
       // DOC-API fallback: classify from the headline alone (no CAMEO data).
       const title = (raw.article.title ?? '').trim();
       if (!title) continue;
       const event = normalizeDocArticle(raw.article, title, record.retrievedAt);
-      if (event) events.push(event);
+      if (event) add(event);
     }
+    events.push(...byId.values());
     // GDELT codes every machine-readable event including local crime and sport.
     // Keep only the investor-relevant slice, ranked, so neither the map nor the
     // database is flooded with noise.

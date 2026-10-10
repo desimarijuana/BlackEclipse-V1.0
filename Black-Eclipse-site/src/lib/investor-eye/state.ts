@@ -498,9 +498,27 @@ async function runAssembly(hours: number, options: AssembleOptions): Promise<Inv
     // Persist clustered events (idempotent upsert on dedupKey).
     await persistEvents(clustered);
 
+    // Replay the persisted window on top of the live clusters. GDELT's newest
+    // bulk file covers only ~15 minutes, so without this an ongoing event drops
+    // off a "24h" window the moment it leaves the latest file — the reported
+    // "conflicts sometimes don't appear" bug. These rows are real, within-window
+    // evidence observed in an earlier cycle; they are flagged `replayed` and are
+    // never re-persisted, so their timestamps are not bumped.
+    let windowEvents = clustered;
+    try {
+      const persisted = await queryEvents({ hours, limit: 1500 });
+      const liveKeys = new Set(clustered.map((e) => e.dedupKey));
+      const replayed = persisted
+        .filter((e) => !liveKeys.has(e.dedupKey))
+        .map((e) => ({ ...e, replayed: true }));
+      if (replayed.length > 0) windowEvents = [...clustered, ...replayed];
+    } catch (err) {
+      console.warn('[investor-eye] persisted-event replay skipped:', err instanceof Error ? err.message : err);
+    }
+
     // Market observations come from the EXISTING data path.
     const { markets, provenance: marketProvenance } = await buildMarketObservations();
-    const countries = buildCountrySummaries(clustered, markets);
+    const countries = buildCountrySummaries(windowEvents, markets);
 
     // Warm the candle cache for the index universe so historical analogues have
     // real series to read (Phase 4.3).
@@ -530,7 +548,7 @@ async function runAssembly(hours: number, options: AssembleOptions): Promise<Inv
       const { refreshGraph } = await import('./graph-data');
       const { buildCompanies } = await import('./phase2');
       const companies = await buildCompanies(120);
-      await refreshGraph({ events: clustered, countries, markets, companies });
+      await refreshGraph({ events: windowEvents, countries, markets, companies });
     } catch (err) {
       console.warn('[investor-eye] graph rebuild skipped:', err instanceof Error ? err.message : err);
     }
@@ -553,7 +571,7 @@ async function runAssembly(hours: number, options: AssembleOptions): Promise<Inv
     let state: InvestorEyeState = {
       generatedAt: updatedAt,
       windowHours: hours,
-      events: clustered,
+      events: windowEvents,
       countries,
       markets,
       status: buildStatus(runs, eventsProvenance, lastKnownAt, updatedAt),

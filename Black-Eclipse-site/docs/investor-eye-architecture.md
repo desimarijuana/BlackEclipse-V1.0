@@ -1422,6 +1422,72 @@ the unchanged full suite (2473 TS tests green, `tsc` clean).
 
 ---
 
+## 5q. Phase 19 — why conflicts "sometimes don't appear", and the fix
+
+A reported symptom: the Conflict layer was intermittently empty. Audited against
+the code, it was not one bug but five, and the dominant one was structural.
+
+### Root causes
+
+1. **GDELT was fetched as a single 15-minute snapshot.** `lastupdate.txt` names
+   only the NEWEST export file, so the map showed events GDELT coded in the last
+   quarter hour — an ongoing conflict fell off a "24h" window almost immediately.
+2. **`assembleState` rebuilt from live fetches only and never read back the DB.**
+   Once a source cycle was thin (or failed), previously-seen events vanished.
+3. **The relevance gate dropped low-signal conflicts.** `KEEP_THRESHOLD = 0.3`;
+   a material conflict with no resolved country and a single actor took the
+   penalties and was silently filtered out.
+4. **GDELT had no retry** (unlike FIRMS/EONET) and its DOC fallback is slow and
+   throttled — an intermittent total source failure.
+5. **No way to tell *why*.** An empty Conflict layer looked identical whether the
+   world was calm or the sources were down.
+
+### The fixes
+
+- **Rolling GDELT window.** `fetchBulkExport` now walks backwards through the
+  newest file's 15-minute slots (`bulkExportUrls`, pure timestamp arithmetic on
+  the filename — no extra index request), pulling a bounded set
+  (`GDELT_MAX_FILES = 6`) with bounded concurrency (`mapPool`). A slot GDELT
+  skipped simply fails and is tolerated; the fetch fails only if *every* slot
+  does. `normalize` de-duplicates by `GLOBALEVENTID` first so overlapping slots
+  cannot crowd out distinct events under the `GDELT_MAX_EVENTS` cap.
+- **Persisted-event replay.** `runAssembly` now loads `queryEvents({hours})`
+  after persisting the live clusters and merges the rows not already present,
+  flagged `replayed`. These are real, within-window events observed in an
+  earlier cycle; they are never re-persisted (no timestamp bump). This is what
+  actually retains a 24h window when each cycle only sees ~15 minutes.
+- **Material-conflict floor.** `scoreRelevance` floors a material conflict
+  (`quadClass === 4` or `goldstein <= -5`) at `KEEP_THRESHOLD`, with the reason
+  `material conflict (floored)`. A floor cannot manufacture signal — it only
+  stops a real one from being filtered out.
+- **GDELT retry.** One bounded transient retry, mirroring `firms.ts`/`eonet.ts`.
+- **`coverage.ts`** — a pure report (`observed | quiet | degraded |
+  unavailable`) that reads only the assembled state and explains an empty
+  Conflict layer: an honest quiet zero, a source coverage gap, or no feed at all.
+  Tests pin all four states.
+
+### Where it surfaces
+
+The dossier shows a `retained` badge on a replayed event, the map footer shows a
+`N retained` count, and when no conflicts are plotted an amber line under the map
+states which of the three situations applies. An empty conflict layer can no
+longer read as proof of calm.
+
+### What is NOT yet done (honest)
+
+- **AI-assisted conflict backfill (Phase 2 proper):** when coverage is `degraded`,
+  call the Python Evidence & Research Engine / `world` agent to find cited
+  conflict reports and merge them as clearly-labelled `AI-INTERPRETED` events.
+  The deterministic coverage signal above is the foundation it needs; the LLM
+  path itself is not wired.
+- **ReliefWeb** (a natural conflict source) was evaluated and REJECTED as a
+  zero-config source: its API moved to v2 and from 1 Nov 2025 requires a
+  pre-approved `appname`. It would have to ship as an optional, operator-
+  configured source — not a default.
+- The shared research-engine wiring into dossiers (Phase 4) remains.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

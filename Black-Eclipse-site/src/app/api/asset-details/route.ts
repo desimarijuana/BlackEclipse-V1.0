@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
+import { commodityDef, forexDef } from "@/lib/market-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,38 @@ export async function GET(request: Request) {
     });
 
     if (rows.length === 0) {
+      // Commodities and FX are served by their own feeds, not JDDS. Resolve
+      // their identity here so the detail overlay shows a proper name/exchange
+      // instead of "not found" (the live price comes from /api/commodities or
+      // /api/forex and is merged by the caller).
+      const comm = commodityDef(symbol);
+      const fx = forexDef(symbol);
+      if (comm || fx) {
+        const isFx = Boolean(fx);
+        return NextResponse.json({
+          found: true,
+          asset: {
+            symbol,
+            name: comm?.name ?? fx!.name,
+            sector: isFx ? 'Foreign Exchange' : 'Commodity',
+            industry: comm?.unit ?? 'Currency pair',
+            country: 'GLOBAL',
+            securityType: isFx ? 'Currency Pair' : 'Commodity Future',
+            assetClass: isFx ? 'FX' : 'Commodity',
+            marketId: isFx ? 'FX' : 'COMMODITY',
+            currency: 'USD',
+            price: 0, changePercent: 0, volume: 'N/A', volumeRaw: 0,
+            marketCap: 'N/A', marketCapRaw: 0, peRatio: 'N/A', forwardPE: 'N/A',
+            dividendYield: 'N/A', dividendRate: 'N/A', eps: 'N/A', beta: 'N/A',
+            dayHigh: null, dayLow: null, dayOpen: null, previousClose: null,
+            fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
+            circulatingSupply: 'N/A', totalSupply: 'N/A', maxSupply: 'N/A',
+            ath: 'N/A', atl: 'N/A', athChangePercent: 0, atlChangePercent: 0, fdv: 'N/A',
+            source: isFx ? 'forex' : 'commodity',
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      }
       return NextResponse.json({ found: false });
     }
 

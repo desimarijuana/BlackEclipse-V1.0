@@ -109,7 +109,18 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
     score -= 0.15;
   }
 
-  const clamped = Math.max(0, Math.min(1, Number(score.toFixed(3))));
+  // Material conflict / severe hostility is the signal this surface exists to
+  // show, so it is FLOORED at the display threshold. Without this, a genuine
+  // material-conflict event with no resolved country or a single actor took the
+  // penalties below and was silently dropped — the "conflicts sometimes don't
+  // appear" bug. A floor cannot manufacture signal: it only prevents a real one
+  // from being filtered out.
+  const materialConflict =
+    input.quadClass === 4 || (typeof input.goldstein === 'number' && input.goldstein <= -5);
+  const floored = materialConflict ? Math.max(score, KEEP_THRESHOLD) : score;
+  if (materialConflict && score < KEEP_THRESHOLD) reasons.push('material conflict (floored)');
+
+  const clamped = Math.max(0, Math.min(1, Number(floored.toFixed(3))));
   return { score: clamped, reasons, keep: clamped >= KEEP_THRESHOLD };
 }
 
