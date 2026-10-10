@@ -8,6 +8,56 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Company detail: AI overview moved to the top-right (visible without
+  scrolling).** The AI brief card is now the first card in the at-a-glance rail
+  beside the chart, so it renders on the first screen instead of below technical
+  /risk. Presentation only. `tsc`/`eslint` clean, `next build` green.
+  no doc change — layout only.
+
+- **Investor Eye: full event dossier + actionable AI-setup.** Clicking an event
+  keeps the compact right-rail peek, but an **"Open dossier"** button
+  (or double-click) now opens a wide, two-column, Esc-dismissible **full event
+  dossier overlay** (`event-dossier-overlay.tsx`, portaled like `FullPageMap`;
+  `EventPanel` gained `onOpen`/`wide`). The dead "AI not configured" states are
+  now **actionable**: Explain/Evidence/Conflict-research panels show an
+  "Open AI settings" button that deep-links to Settings → AI Agent via a new
+  SSR-safe `navigation.ts` (`be:navigate {tab:'settings', section:'ai'}`; the
+  shell's handler now opens the Settings modal at a section). Escape ownership
+  handed to the dossier while open. Tests: `navigation.test.ts` (+2). Full
+  `vitest` **234 files / 2497 tests green**, `tsc` clean. docs updated:
+  `docs/investor-eye-architecture.md` (§5s).
+
+- **ChatBot Page customization tab + working conversation font.** New
+  **Customization › ChatBot Page** tab (`src/components/screens/chatbot-page-settings.tsx`):
+  the backdrop/landing-wordmark controls move here out of Settings › General
+  (General now links nowhere — the tab owns the whole ChatBot-page look),
+  alongside a new **conversation font** picker. New store
+  `src/lib/chat/appearance.ts` (`be_chat_appearance_v1`) offers the self-hosted
+  wordmark typefaces + an "App font" default, applies the pick as `--chat-font`
+  on `<html>`, and `ChatHistory`/the chat shell read it via
+  `var(--chat-font, var(--font-sans))` — so choosing a face really changes the
+  messages and composer instead of a system-only stack that silently fell back
+  to the app font. Verified live: `--chat-font` → Orbitron on the chat
+  container; the ChatBot Page tab renders the font grid + moved backdrop card.
+  `tsc` + targeted `eslint` clean; `vitest` green (the only size-budget failure
+  is the pre-existing concurrent `data-bridge.ts` growth). docs updated:
+  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
+
+- **Investor Eye: AI conflict search + `get_world_events` Python tool.** (1) New
+  "Conflict research (AI, cited)" panel in the analysis row drives the shared
+  Evidence & Research Engine for a cited conflict situation report over the
+  window (shared `research-findings.tsx`); it does NOT fabricate map pins —
+  findings are labelled research. Pure `windowConflictQuestion` mandate (+3
+  tests). (2) New read-only JDdS bridge capability `world_events` (own module
+  `src/lib/harness/world-events.ts`, so ratcheted `data-bridge.ts` does not grow)
+  + Python tool `get_world_events` (`python/harness/world_tools.py`, registered
+  in `service.py`) exposing geopolitical events to the authoritative agent
+  runtime, with source-failure/no-match honesty. Full `vitest` green
+  (233 files/2495 tests; one unrelated concurrent edit to
+  `customization-settings.tsx` trips the size-budget ratchet), `tsc` clean,
+  targeted Python tool tests 625 passed. docs updated:
+  `docs/investor-eye-architecture.md` (§5r).
+
 - **Asset detail: load ALL assets — indices + on-demand resolution.** Two gaps
   closed in `/api/asset-details`: (1) **indices** (`^GSPC`, `^IXIC`, …) now
   resolve from `IndexQuote` (canonical ticker + aliases) → real name + level;

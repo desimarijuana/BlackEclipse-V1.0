@@ -597,6 +597,9 @@ export function TradingViewChart({
               </div>
               <div className="space-y-5">
 
+                {/* AI overview — top-right so it is visible without scrolling */}
+                <AiResearchSection research={research} variant="brief" />
+
                 {/* Core metrics */}
                 <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                   <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
@@ -797,10 +800,7 @@ export function TradingViewChart({
                 <RiskSection risks={risks} />
               </div>
 
-              {/* Row 4 — AI company intelligence brief (full width, below the at-a-glance / leadership rail) */}
-              <AiResearchSection research={research} variant="brief" />
-
-              {/* Row 5 — AI research conclusion (full width) */}
+              {/* Row 4 — AI research conclusion (full width) */}
               <AiResearchSection research={research} variant="conclusion" />
               </div>
           </div>
