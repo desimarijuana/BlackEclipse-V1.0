@@ -24,6 +24,11 @@ export interface ChartMeta {
   previousClose: number | null;
   changePct: number | null;
   currency: string | null;
+  /** Yahoo-provided identity fields (used for on-demand resolution). */
+  longName: string | null;
+  shortName: string | null;
+  exchange: string | null;
+  instrumentType: string | null;
 }
 
 const BROWSER_UA =
@@ -96,6 +101,11 @@ interface YahooChartJson {
         previousClose?: number;
         chartPreviousClose?: number;
         currency?: string;
+        longName?: string;
+        shortName?: string;
+        exchangeName?: string;
+        fullExchangeName?: string;
+        instrumentType?: string;
       };
       timestamp?: number[];
       indicators?: {
@@ -169,7 +179,16 @@ export async function fetchYahooChartSeries(
     const changePct = previousClose && previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : null;
     return {
       bars,
-      meta: { price, previousClose, changePct, currency: m?.currency ?? null },
+      meta: {
+        price,
+        previousClose,
+        changePct,
+        currency: m?.currency ?? null,
+        longName: typeof m?.longName === 'string' ? m.longName : null,
+        shortName: typeof m?.shortName === 'string' ? m.shortName : null,
+        exchange: (typeof m?.fullExchangeName === 'string' && m.fullExchangeName) || (typeof m?.exchangeName === 'string' ? m.exchangeName : null) || null,
+        instrumentType: typeof m?.instrumentType === 'string' ? m.instrumentType : null,
+      },
     };
   } catch {
     return null;

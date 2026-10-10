@@ -8,6 +8,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Asset detail: load ALL assets — indices + on-demand resolution.** Two gaps
+  closed in `/api/asset-details`: (1) **indices** (`^GSPC`, `^IXIC`, …) now
+  resolve from `IndexQuote` (canonical ticker + aliases) → real name + level;
+  (2) **symbols the vault never ingested** (e.g. `SPY`, `SGOV`) now resolve
+  **on-demand** through the shared Yahoo chart fetch (`yahooChartCandidates` +
+  `fetchYahooChartSeries`, extended to carry `longName`/`shortName`/`exchangeName`/
+  `instrumentType`). Result: any Yahoo-resolvable instrument opens a detail page
+  instead of a dead "not found". Verified live: `^GSPC`→S&P 500 7811.54,
+  `^IXIC`→Nasdaq Composite, `SGOV`→iShares 0-3 Month Treasury ETF 100.51,
+  `SPY`→State Street SPDR S&P 500 ETF Trust 778.57, `GC=F`→Gold. Full `vitest`
+  2492 + `next build` + `tsc` + `eslint` clean. docs updated: `docs/CHANGELOG.md`.
+
+- **Investor Eye: shared Evidence & Research Engine in the event dossier.** New
+  `components/investor-eye/event-research.tsx` + `use-event-research.ts` drive the
+  SAME Python web-research engine (via `/api/research/*`) used by the Research
+  screen and company brief. LAZY (no auto-run on dossier open), cached per event,
+  renders sources/claims(status)/citations/conflicts + the run's deterministic
+  answer; 503-honest when the runtime is absent. Mandate built by pure, tested
+  `research-question.ts` (+4 tests). This is the concrete "use AI to corroborate
+  a conflict" path. Map-level promotion of AI findings to `AI-INTERPRETED` events
+  and Python-native world tools remain (documented). Full `vitest` **233 files /
+  2492 tests green**, `tsc` clean. docs updated:
+  `docs/investor-eye-architecture.md` (§5q, Phase 4 event level).
+
 - **Company detail: commodities/FX identity, market qualifier, AI overview moved
   below.** `/api/asset-details` now resolves catalog symbols (gold `GC=F`,
   `EURUSD=X`, …) → a synthetic asset (`found: true`, name/sector/marketId

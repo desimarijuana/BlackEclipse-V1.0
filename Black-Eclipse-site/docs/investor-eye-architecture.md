@@ -1473,18 +1473,39 @@ The dossier shows a `retained` badge on a replayed event, the map footer shows a
 states which of the three situations applies. An empty conflict layer can no
 longer read as proof of calm.
 
+### Shared Evidence & Research Engine in the dossier (Phase 4, event level)
+
+The event dossier now has an **Evidence & Research (engine)** section
+(`components/investor-eye/event-research.tsx`) that drives the SAME Python
+web-research engine behind the Research screen and the company brief, through the
+existing `/api/research/*` front door (`use-event-research.ts`). It is LAZY — an
+event does not auto-start a multi-minute run on open — and cached per event.
+Findings are the engine's: it renders sources, claims (with verification status),
+citations and a conflict count, plus the run's deterministic `answer`; with no
+runtime it says so (`npm run setup:python`) rather than faking a brief. The
+mandate text is built by a pure, tested `research-question.ts` so what the engine
+searches for is reviewable.
+
+This is also the concrete "use AI to find the conflict" path: ask the engine to
+**corroborate** a conflict the structured feed only hinted at, and it returns
+cited evidence rather than a generated narrative.
+
 ### What is NOT yet done (honest)
 
-- **AI-assisted conflict backfill (Phase 2 proper):** when coverage is `degraded`,
-  call the Python Evidence & Research Engine / `world` agent to find cited
-  conflict reports and merge them as clearly-labelled `AI-INTERPRETED` events.
-  The deterministic coverage signal above is the foundation it needs; the LLM
-  path itself is not wired.
+- **Map-level AI conflict backfill:** the above produces *cited evidence inside a
+  dossier*. Promoting engine findings into first-class **map events**
+  (`AI-INTERPRETED`) — so a thin Conflict layer can be filled from research — is
+  not wired; that needs a provenance contract for AI-derived events and an
+  explicit confidence/identity policy.
 - **ReliefWeb** (a natural conflict source) was evaluated and REJECTED as a
   zero-config source: its API moved to v2 and from 1 Nov 2025 requires a
   pre-approved `appname`. It would have to ship as an optional, operator-
   configured source — not a default.
-- The shared research-engine wiring into dossiers (Phase 4) remains.
+- **Python-native world tools** (e.g. `world_conflicts`, `event_evidence` in the
+  authoritative Python registry) are not added; Investor Eye's agent tools remain
+  the TypeScript `investor-eye-tools.ts` set, and the dossier reaches the engine
+  directly. Wiring domain tools into the Python registry needs a JDdS data-bridge
+  route for `GeopoliticalEvent`.
 
 ---
 

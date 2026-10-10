@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { commodityDef, forexDef } from "@/lib/market-catalog";
+import { resolveIndex } from "@/lib/indices";
+import { fetchYahooChartSeries, yahooChartCandidates } from "@/lib/scraper/yahoo-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +91,65 @@ export async function GET(request: Request) {
           },
         });
       }
+
+      // Indices live in IndexQuote (keyed by canonical ticker + aliases).
+      const def = resolveIndex(symbol);
+      const indexSymbols = def
+        ? [def.symbol.toUpperCase(), ...def.aliases.map((a) => a.toUpperCase()), symbol]
+        : [symbol];
+      const idx = await prisma.indexQuote.findFirst({ where: { symbol: { in: indexSymbols } } });
+      if (idx && idx.price > 0) {
+        const marketId = idx.marketId || 'US';
+        return NextResponse.json({
+          found: true,
+          asset: {
+            symbol: idx.symbol, name: idx.name, sector: 'Index', industry: 'Index',
+            country: marketId, securityType: 'Index', assetClass: 'Index', marketId,
+            currency: MARKET_CURRENCY[marketId] || '$',
+            price: idx.price, changePercent: idx.changePct ?? 0, volume: 'N/A', volumeRaw: 0,
+            marketCap: 'N/A', marketCapRaw: 0, peRatio: 'N/A', forwardPE: 'N/A',
+            dividendYield: 'N/A', dividendRate: 'N/A', eps: 'N/A', beta: 'N/A',
+            dayHigh: null, dayLow: null, dayOpen: null, previousClose: null,
+            fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
+            circulatingSupply: 'N/A', totalSupply: 'N/A', maxSupply: 'N/A',
+            ath: 'N/A', atl: 'N/A', athChangePercent: 0, atlChangePercent: 0, fdv: 'N/A',
+            source: 'index', updatedAt: idx.updatedAt ? new Date(idx.updatedAt).toISOString() : null,
+          },
+        });
+      }
+
+      // On-demand resolution: a symbol the vault has never ingested (SPY, SGOV,
+      // any Yahoo-resolvable instrument). Resolve it live so "all assets" open,
+      // instead of a dead "not found".
+      for (const cand of yahooChartCandidates(symbol, marketHint || 'US')) {
+        const chart = await fetchYahooChartSeries(cand, '1mo', '1d');
+        if (chart) {
+          const meta = chart.meta;
+          const marketId = marketHint || 'US';
+          return NextResponse.json({
+            found: true,
+            asset: {
+              symbol,
+              name: meta.longName || meta.shortName || symbol,
+              sector: 'Other', industry: 'Other',
+              country: marketId, securityType: meta.instrumentType || 'Unknown', assetClass: 'Other',
+              marketId,
+              currency: meta.currency || MARKET_CURRENCY[marketId] || '$',
+              price: meta.price ?? 0,
+              changePercent: meta.changePct ?? 0,
+              volume: 'N/A', volumeRaw: 0, marketCap: 'N/A', marketCapRaw: 0,
+              peRatio: 'N/A', forwardPE: 'N/A', dividendYield: 'N/A', dividendRate: 'N/A',
+              eps: 'N/A', beta: 'N/A',
+              dayHigh: null, dayLow: null, dayOpen: null, previousClose: meta.previousClose ?? null,
+              fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
+              circulatingSupply: 'N/A', totalSupply: 'N/A', maxSupply: 'N/A',
+              ath: 'N/A', atl: 'N/A', athChangePercent: 0, atlChangePercent: 0, fdv: 'N/A',
+              source: 'yahoo', updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
       return NextResponse.json({ found: false });
     }
 
