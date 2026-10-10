@@ -61,7 +61,11 @@ export function companyBriefQuestion(name: string, symbol: string, market: strin
     `what the company does and how it generates revenue; major products, services and business segments; ` +
     `geographic exposure; the current CEO and key executives with appointment dates; recent material developments; ` +
     `the latest reported financial performance; valuation context; major business and financial risks; ` +
-    `verifiable upcoming catalysts; the bull and bear case; and important unknowns or missing data.`
+    `verifiable upcoming catalysts; the bull and bear case; and important unknowns or missing data. ` +
+    `Where reported, state the exact figures with their period: total revenue, gross profit, operating income, ` +
+    `EBITDA, net income, diluted EPS, gross/operating/net margin, operating cash flow, free cash flow, capital ` +
+    `expenditure, total debt, cash and equivalents, total assets, total equity, dividend yield, ROE and market ` +
+    `capitalization — each in its reported currency and fiscal year.`
   );
 }
 

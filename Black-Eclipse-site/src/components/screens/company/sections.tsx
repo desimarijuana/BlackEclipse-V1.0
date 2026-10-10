@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import type { TechnicalSnapshot } from '@/lib/company/technical';
 import type { RiskEntry } from '@/lib/company/risk';
 import type { Officer } from '@/lib/fundamentals/types';
+import { parseFinancialFacts, type FinancialFact } from '@/lib/fundamentals/research-parse';
 import type { CompanyNewsState } from '@/lib/company/use-company-news';
 import type { CompanyResearchState } from '@/lib/company/use-company-research';
 
@@ -209,6 +210,19 @@ export function SourcesDisclosure({ sources }: { sources: SourceRow[] }) {
 // surfaces its verified findings so a company with no filings-backed
 // fundamentals still shows sourced figures. Never fabricates; clearly labelled
 // "not filings-backed".
+// Format a parsed research fact for display.
+function fmtFact(f: FinancialFact): string {
+  if (f.unit === 'percent') return `${f.value.toFixed(f.value >= 100 ? 0 : 1)}%`;
+  if (f.unit === 'ratio') return f.value.toFixed(2);
+  const a = Math.abs(f.value);
+  const sign = f.value < 0 ? '-' : '';
+  if (a >= 1e12) return `${sign}${(a / 1e12).toFixed(2)}T`;
+  if (a >= 1e9) return `${sign}${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${sign}${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${sign}${(a / 1e3).toFixed(1)}K`;
+  return `${sign}${a.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+}
+
 export function ResearchedFinancialsSection({
   research, symbol,
 }: {
@@ -218,6 +232,11 @@ export function ResearchedFinancialsSection({
   const synth = parseSynthesis(research.detail?.run?.answer);
   const findings = synth.sections.filter((s) => s.title.toLowerCase().includes('finding'));
   const sources = (research.detail?.sources ?? []) as SourceRow[];
+  const factText = [
+    research.detail?.run?.answer,
+    ...((research.detail?.claims ?? []) as ClaimRow[]).map((c) => c.text),
+  ].filter(Boolean).join('\n');
+  const facts = parseFinancialFacts(factText || '');
   return (
     <SectionShell
       icon={<BookOpen size={14} className="text-primary" />}
@@ -239,6 +258,18 @@ export function ResearchedFinancialsSection({
         No filings-backed fundamentals provider returned data for this instrument, so these figures are
         gathered by Eclipse&apos;s web-research engine. Treat them as sourced research, not audited filings.
       </p>
+
+      {/* Parsed figures pulled deterministically from the verified findings. */}
+      {!research.running && facts.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {facts.map((f) => (
+            <div key={f.key} className="rounded-xl border border-border/40 glass-card-subtle px-3 py-2 min-w-0" title={f.raw}>
+              <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground truncate">{f.label}</div>
+              <div className="text-sm font-bold font-mono text-foreground truncate">{fmtFact(f)}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {research.running && (
         <div className="space-y-2" aria-busy="true">

@@ -8,6 +8,40 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Fundamentals: first-party web-extraction fallback (parse research into
+  figures).** New deterministic `src/lib/fundamentals/research-parse.ts`
+  (`parseFinancialFacts`/`parseNumber`) pulls standard line items (revenue, gross/
+  operating/net income, EBITDA, EPS, margins, OCF/FCF, capex, debt, cash, assets,
+  equity, ROE, market cap, P/E …) out of the web-research engine's verified text
+  into `{key,label,value,unit,raw}` — conservatively (metric keyword + number in
+  the same sentence, word/suffix rescaling, percent requires a `%`), never
+  inventing a value. `companyBriefQuestion` now explicitly requests those figures
+  with period + currency, and `ResearchedFinancialsSection` renders them as a
+  metric grid (with the source sentence as the tooltip) above the findings and
+  collapsible sources. This is P0 of the first-party fundamentals plan (reduce
+  third-party API reliance); full official-filings extraction (P1/P2) remains.
+  Tests `research-parse.test.ts` (8). Full `vitest` 2505 + `next build` + `tsc`
+  + `eslint` clean. docs updated: `docs/CHANGELOG.md`.
+
+- **Investor Eye: readable right rail (was too narrow / too small).** The hero's
+  right rail was 360px with 8–10px type, so events/countries were unreadable.
+  Widened to `440px` (lg) / `460px` (xl) and taller (`62vh`); the Live Event
+  Stream and Country panel now use 11–13px type, larger markers, more row
+  padding and 3-line titles (was 2). The event dossier is prioritised over the
+  country panel in the rail (clicking a conflict shows the event, not a stale
+  country). `Block`/`Row` dossier primitives bumped 9–10px → 11–12px.
+  Presentation only; no data change. Full `vitest` **235 files / 2505 tests
+  green**, `tsc` clean. docs updated: `docs/investor-eye-architecture.md` (§5s).
+
+- **ChatBot landing wordmark default → Michroma; Background "Type" order
+  Solid-first.** `DEFAULT_WORDMARK_FONT` in `src/lib/backgrounds.ts` now defaults
+  to Michroma (`var(--font-michroma), system-ui, sans-serif`) instead of Bodoni,
+  matching the shipped preset wordmark face; existing saved prefs keep their
+  stored font. The backdrop "Type" options are reordered so **Solid** reads first,
+  then **Image** (default mode is unchanged). New users/reset now get the
+  Michroma wordmark. `backgrounds.test.ts` + `tsc` clean. no doc change — default
+  value + option order only, no contract or architecture change.
+
 - **Company detail: AI overview moved to the top-right (visible without
   scrolling).** The AI brief card is now the first card in the at-a-glance rail
   beside the chart, so it renders on the first screen instead of below technical
