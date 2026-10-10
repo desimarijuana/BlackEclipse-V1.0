@@ -1,13 +1,20 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from '@/lib/icons';
-import { Message } from '@/types/chat';
+import { X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { useT, navLabelKey } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
+import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
+import type { ChatOrganizationApi, Conversation } from '@/lib/chat/chat-organization';
+
+// The conversation + folder shapes live in `lib/chat/chat-organization` (alongside
+// their persistence + view logic); re-exported here so existing importers keep
+// resolving `Conversation` from the sidebar module.
+export type { ChatFolder, Conversation } from '@/lib/chat/chat-organization';
+
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
@@ -22,17 +29,11 @@ const NAV_MODES: Array<{ id: NavGroup; labelKey: 'sidebar.terminal' | 'sidebar.a
 import type { AppTab } from '@/lib/app-tabs';
 export type { AppTab };
 
-export interface Conversation {
-  id: string;
-  title: string;
-  messages: Message[];
-  timestamp: number;
-}
-
 interface SidebarProps {
   activeTab: AppTab;
   onChangeTab: (tab: AppTab) => void;
   conversations: Conversation[];
+  organization: ChatOrganizationApi;
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
@@ -48,6 +49,7 @@ export function Sidebar({
   activeTab,
   onChangeTab,
   conversations,
+  organization,
   activeConversationId,
   onSelectConversation,
   onNewChat,
@@ -214,50 +216,14 @@ export function Sidebar({
 
         {/* Chat History Panel on Top of the menu list */}
         {activeTab === 'chat' && !isCollapsed && (
-          <div className="flex flex-col gap-3 pb-4">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
-              <button
-                onClick={onNewChat}
-                className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1 cursor-pointer transition-all border border-border/5"
-                title={t('sidebar.newChat')}
-              >
-                <Plus size={12} />
-              </button>
-            </div>
-            
-            <div className="flex flex-col gap-1 max-h-[180px] overflow-y-auto scrollbar-hide">
-              {conversations.map((c) => {
-                const isActive = activeConversationId === c.id;
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => handleSelectChat(c.id)}
-                    className={`flex items-center justify-between rounded-xl px-3 py-2 text-[11px] cursor-pointer group transition-all border border-transparent ${
-                      isActive
-                        ? 'bg-white/[0.04] border-border/20 text-foreground font-semibold'
-                        : 'bg-transparent text-muted-foreground hover:bg-accent/25 hover:text-foreground'
-                    }`}
-                  >
-                    <span className="truncate max-w-[130px]">{c.title || t('sidebar.untitledSession')}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteConversation(c.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-rose-400 rounded transition-opacity"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-
-              {conversations.length === 0 && (
-                <span className="text-[10px] text-muted-foreground italic text-center py-2">{t('sidebar.noSessions')}</span>
-              )}
-            </div>
-          </div>
+          <ChatHistoryPanel
+            conversations={conversations}
+            organization={organization}
+            activeConversationId={activeConversationId}
+            onSelectConversation={handleSelectChat}
+            onNewChat={onNewChat}
+            onDeleteConversation={onDeleteConversation}
+          />
         )}
 
         {/* Navigation list (divider line on top of icons) */}

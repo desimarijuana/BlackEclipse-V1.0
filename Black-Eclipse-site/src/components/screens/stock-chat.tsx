@@ -18,6 +18,8 @@ import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
+import { CONVERSATIONS_STORAGE_KEY, normalizeConversations } from '@/lib/chat/chat-organization';
+import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { useHydrateChatAppearance } from '@/lib/chat/appearance';
 import { Message } from '@/types/chat';
@@ -413,14 +415,29 @@ function StockChatContent() {
     return () => window.removeEventListener('be:navigate', onNavigate);
   }, []);
 
-  // Load conversations from local storage
+  const saveConversations = (updated: Conversation[]) => {
+    conversationsRef.current = updated;
+    setConversations(updated);
+    localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(updated));
+  };
+
+  // Chat organization (folders / colors / pin / rename / move) is owned by a
+  // hook; it mutates the transcript list through this bridge so the conversation
+  // store stays here. The base view props are named; the org actions are bundled.
+  const chatOrganization = useChatOrganization(
+    (update) => saveConversations(update(conversationsRef.current)),
+  );
+  const loadChatOrganization = chatOrganization.load;
+  // Load conversations + folders from local storage
   useEffect(() => {
     if (!mounted) return;
-    const key = 'chats_guest';
-    const saved = localStorage.getItem(key);
+    loadChatOrganization();
+    const saved = localStorage.getItem(CONVERSATIONS_STORAGE_KEY);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        // Normalize on load: backfills createdAt + folder/color/pin fields on
+        // legacy rows so older transcripts gain organization support cleanly.
+        const parsed = normalizeConversations(JSON.parse(saved));
         conversationsRef.current = parsed;
         setConversations(parsed);
         if (parsed.length > 0) {
@@ -445,14 +462,7 @@ function StockChatContent() {
       setMessages([]);
       useWorkspaceStore.getState().clear();
     }
-  }, [mounted]);
-
-  const saveConversations = (updated: Conversation[]) => {
-    conversationsRef.current = updated;
-    setConversations(updated);
-    const key = 'chats_guest';
-    localStorage.setItem(key, JSON.stringify(updated));
-  };
+  }, [mounted, loadChatOrganization]);
 
   const handleSelectConversation = (id: string) => {
     activeConversationIdRef.current = id;
@@ -505,7 +515,8 @@ function StockChatContent() {
         id: currentId,
         title,
         messages: [userMsg],
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        createdAt: Date.now()
       };
       updatedConvs = [newChat, ...updatedConvs];
       activeConversationIdRef.current = currentId;
@@ -532,7 +543,8 @@ function StockChatContent() {
           id: currentId,
           title: userMsg.content.slice(0, 24),
           messages: [userMsg],
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          createdAt: Date.now()
         };
         updatedConvs = [newChat, ...updatedConvs];
         activeConversationIdRef.current = currentId;
@@ -560,6 +572,7 @@ function StockChatContent() {
         title: replyMsg.content.slice(0, 24),
         messages: [replyMsg],
         timestamp: Date.now(),
+        createdAt: Date.now(),
       };
       const next = [recovered, ...updatedConvs];
       conversationsRef.current = next;
@@ -915,6 +928,7 @@ function StockChatContent() {
           activeTab={activeTab} 
           onChangeTab={setActiveTab} 
           conversations={conversations}
+          organization={chatOrganization}
           activeConversationId={activeConversationId}
           onSelectConversation={handleSelectConversation}
           onNewChat={handleNewChat}

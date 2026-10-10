@@ -8,6 +8,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Chat history gains folders, colors, pinning, rename and search.** The sidebar
+  recent-chats list was a flat localStorage array with only delete. It now
+  supports user-created folders (collapsible, colored), per-chat accent color,
+  pin-to-top, inline rename, move-to-folder, and a search box filtering across
+  titles and message bodies with recent/created/alpha sort. New organization
+  layer: `src/lib/chat/chat-organization.ts` (conversation + folder types, color
+  palette, localStorage helpers, pure filter/sort/group view logic) and
+  `src/lib/chat/use-chat-organization.ts` (the state/handlers hook); UI extracted
+  to `src/components/layout/chat-history-panel.tsx`; `sidebar.tsx` takes one
+  bundled `organization` prop instead of a dozen callbacks. Legacy transcripts
+  are migrated on load (backfilled `createdAt`/`folderId`/`color`/`pinned`); the
+  new `chat_folders_v1` key is additive so no existing history is lost.
+  docs updated: ARCHITECTURE.md (Layer 0 persistence bullet).
+
 - **Re-pin the system-prompt size ratchet for the Eclipse UI authoring capability.**
   `prompts.py` gained a "Pages, widgets and tools" paragraph for the `ui_*` tools
   (compose pages/widgets, file engineering tasks), growing the prompt from 23725

@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-10
 ---
 
 # Architecture
@@ -26,7 +26,12 @@ whole routing story for the app: **one page**.
 
 - the `activeTab` state machine,
 - keep-alive tabs (mount on first visit, then `display:none`),
-- conversation persistence in `localStorage` (`chats_guest`),
+- conversation persistence in `localStorage` (`chats_guest`), plus the
+  chat-history organization layer (folders, colors, pin, rename, search) owned by
+  `src/lib/chat/chat-organization.ts` (types + pure filter/sort/group view logic)
+  and `src/lib/chat/use-chat-organization.ts`; folders persist under
+  `chat_folders_v1`, and per-chat organization fields live on each stored
+  conversation,
 - deep-link boot (`/?symbol=AAPL` opens the chart),
 - the command-palette destination bus, and the `be:navigate` custom event,
 - the full-viewport **Aurora** glow driven by combined sentiment.
