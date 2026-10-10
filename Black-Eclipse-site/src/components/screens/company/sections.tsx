@@ -171,29 +171,107 @@ export function AiResearchSection({
         <p className="text-[11px] text-muted-foreground">Research has not produced a result yet.</p>
       )}
 
-      {sources.length > 0 && (
-        <details className="rounded-xl border border-border/30 bg-background/30 overflow-hidden">
-          <summary className="flex items-center justify-between gap-2 cursor-pointer select-none list-none px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
-            <span className="flex items-center gap-1.5">
-              <ExternalLink size={11} className="text-primary" /> Sources ({sources.length})
+      {sources.length > 0 && <SourcesDisclosure sources={sources} />}
+    </SectionShell>
+  );
+}
+
+// Collapsed list of the sources a research run used (native <details>).
+export function SourcesDisclosure({ sources }: { sources: SourceRow[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <details className="rounded-xl border border-border/30 bg-background/30 overflow-hidden">
+      <summary className="flex items-center justify-between gap-2 cursor-pointer select-none list-none px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
+        <span className="flex items-center gap-1.5">
+          <ExternalLink size={11} className="text-primary" /> Sources ({sources.length})
+        </span>
+        <span className="text-[10px] font-mono opacity-70">view</span>
+      </summary>
+      <ul className="border-t border-border/20 px-3 py-2 space-y-1 max-h-64 overflow-y-auto">
+        {sources.slice(0, 40).map((s) => (
+          <li key={s.sourceId} className="text-[11px] flex items-center gap-2">
+            <a href={s.canonicalUrl || '#'} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 text-foreground/90 hover:text-primary truncate">
+              <ExternalLink size={10} className="shrink-0" /> {s.publisher || s.domain || safeHost(s.canonicalUrl)}
+            </a>
+            <span className="ml-auto shrink-0 text-[9px] text-muted-foreground font-mono">
+              {s.sourceType ?? ''}{s.publishedAt ? ` · ${s.publishedAt.slice(0, 10)}` : ''}
             </span>
-            <span className="text-[10px] font-mono opacity-70">view</span>
-          </summary>
-          <ul className="border-t border-border/20 px-3 py-2 space-y-1 max-h-64 overflow-y-auto">
-            {sources.slice(0, 40).map((s) => (
-              <li key={s.sourceId} className="text-[11px] flex items-center gap-2">
-                <a href={s.canonicalUrl || '#'} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-foreground/90 hover:text-primary truncate">
-                  <ExternalLink size={10} className="shrink-0" /> {s.publisher || s.domain || safeHost(s.canonicalUrl)}
-                </a>
-                <span className="ml-auto shrink-0 text-[9px] text-muted-foreground font-mono">
-                  {s.sourceType ?? ''}{s.publishedAt ? ` · ${s.publishedAt.slice(0, 10)}` : ''}
-                </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+// ── Researched financials (fallback when no filings provider returns data) ───
+// Reuses the SAME research run as the AI brief (no duplicate search) and
+// surfaces its verified findings so a company with no filings-backed
+// fundamentals still shows sourced figures. Never fabricates; clearly labelled
+// "not filings-backed".
+export function ResearchedFinancialsSection({
+  research, symbol,
+}: {
+  research: CompanyResearchState & { refresh: () => void };
+  symbol: string;
+}) {
+  const synth = parseSynthesis(research.detail?.run?.answer);
+  const findings = synth.sections.filter((s) => s.title.toLowerCase().includes('finding'));
+  const sources = (research.detail?.sources ?? []) as SourceRow[];
+  return (
+    <SectionShell
+      icon={<BookOpen size={14} className="text-primary" />}
+      title="Researched financials (web)"
+      subtitle={`${symbol} · not filings-backed`}
+      right={
+        <div className="flex items-center gap-2">
+          <button
+            onClick={research.refresh}
+            disabled={research.running}
+            className="flex items-center gap-1 rounded-md border border-border/40 px-2 py-1 text-[10px] font-bold text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw size={11} /> {research.running ? 'Searching…' : 'Refresh'}
+          </button>
+        </div>
+      }
+    >
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        No filings-backed fundamentals provider returned data for this instrument, so these figures are
+        gathered by Eclipse&apos;s web-research engine. Treat them as sourced research, not audited filings.
+      </p>
+
+      {research.running && (
+        <div className="space-y-2" aria-busy="true">
+          {[88, 70, 55].map((w, i) => (
+            <div key={i} className="h-3 rounded bg-muted/30 animate-pulse" style={{ width: `${w}%` }} />
+          ))}
+          <p className="text-[10px] text-muted-foreground font-mono">Searching and validating financial sources…</p>
+        </div>
+      )}
+
+      {!research.running && findings.length === 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {research.error
+            ? `Research unavailable: ${research.error}.`
+            : 'Web research has not produced verified financial findings yet.'}
+        </p>
+      )}
+
+      {!research.running && findings.map((s) => (
+        <div key={s.title}>
+          <h3 className={cn('text-[10px] font-bold uppercase tracking-wider mb-1', toneText(s.tone))}>{s.title}</h3>
+          <ul className="space-y-1">
+            {s.items.map((it, i) => (
+              <li key={i} className="flex gap-2 text-[12px] leading-relaxed text-foreground/90">
+                <span className={cn('mt-[7px] h-1 w-1 rounded-full shrink-0', toneDot(s.tone))} />
+                <span>{it}</span>
               </li>
             ))}
           </ul>
-        </details>
-      )}
+        </div>
+      ))}
+
+      <SourcesDisclosure sources={sources} />
     </SectionShell>
   );
 }

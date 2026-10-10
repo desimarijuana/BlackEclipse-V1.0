@@ -32,6 +32,7 @@ import {
   RiskSection,
   ValuationNote,
   LeadershipSection,
+  ResearchedFinancialsSection,
 } from '@/components/screens/company/sections';
 
 // Full detail record served by /api/asset-details — superset of the screener
@@ -756,10 +757,20 @@ export function TradingViewChart({
                   {!fund.loading && fund.error && !fund.unavailable && (
                     <FundamentalsError message={fund.error} onRetry={fund.refresh} />
                   )}
-                  {!fund.loading && fund.data && (
+                  {!fund.loading && fund.data && fund.data.periods.length > 0 && (
                     <div className="flex flex-col gap-5">
                       <TickerHeader data={fund.data} />
                       <FundamentalsFull data={fund.data} compact />
+                    </div>
+                  )}
+
+                  {/* Fallback: no filings-backed statements (all providers
+                      missed, or the instrument has none — e.g. crypto). Eclipse
+                      searches the web and shows the sourced findings. */}
+                  {!fund.loading && (!fund.data || fund.data.periods.length === 0) && (
+                    <div className="flex flex-col gap-5">
+                      {fund.data && <TickerHeader data={fund.data} />}
+                      <ResearchedFinancialsSection research={research} symbol={symbol} />
                     </div>
                   )}
 

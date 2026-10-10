@@ -8,6 +8,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Company detail: web-research fundamentals fallback + shared sources
+  disclosure.** When a filings-backed fundamentals snapshot has **no statement
+  periods** (all providers missed, or the instrument has none — e.g. crypto BNB
+  returns a quote-only profile with 0 periods), the page no longer dead-ends:
+  it renders `ResearchedFinancialsSection`, which reuses the SAME research run as
+  the AI brief (no duplicate search) and shows the engine's verified findings as
+  clearly-labelled "Researched financials (web) — not filings-backed", with the
+  collapsible sources dropdown. Extracted the shared `SourcesDisclosure` used by
+  both AI and researched-financials sections. `useCompanyResearch` already runs
+  per symbol, so this adds sourced figures without a second request. Verified:
+  `/api/fundamentals?symbol=BNB&market=CRYPTO` → available but 0 periods (now
+  falls back); AAPL → 8 periods (unchanged). Presentation + reuse only; no new
+  backend. Full `vitest` 2473 + `next build` + `tsc` + `eslint` clean.
+  docs updated: `docs/CHANGELOG.md`.
+
 - **Company detail UI: proper AI brief formatting, collapsible sources, layout
   polish.** The AI brief now parses the engine's structured synthesis
   (`Research:`/`Coverage:` meta + titled sections `Findings`, `Partially
