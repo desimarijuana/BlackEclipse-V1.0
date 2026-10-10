@@ -123,13 +123,15 @@ describe('groupConversations', () => {
     { id: 'f2', name: 'Empty', color: '#000' },
   ];
 
-  it('buckets by folder, puts unknown/unfiled in the trailing null group, and omits empties', () => {
+  it('buckets by folder, puts unknown/unfiled in the trailing null group, and keeps empty folders', () => {
     const groups = groupConversations(
       [conv({ id: 'a', folderId: 'f1' }), conv({ id: 'b', folderId: 'gone' }), conv({ id: 'c' })],
       folders,
     );
-    expect(groups.map((g) => g.folder?.id ?? null)).toEqual(['f1', null]);
-    expect(groups[1].conversations.map((c) => c.id)).toEqual(['b', 'c']);
+    expect(groups.map((g) => g.folder?.id ?? null)).toEqual(['f1', 'f2', null]);
+    expect(groups[0].conversations.map((c) => c.id)).toEqual(['a']);
+    expect(groups[1].conversations).toEqual([]);
+    expect(groups[2].conversations.map((c) => c.id)).toEqual(['b', 'c']);
   });
 });
 

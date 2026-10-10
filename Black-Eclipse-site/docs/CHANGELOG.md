@@ -8,6 +8,41 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Fix chat-history follow-ups: empty folders now appear; the list scrolls
+  instead of pushing the nav down; option menus no longer clip.** `groupConversations`
+  was dropping empty groups, so a newly created folder was invisible — every
+  folder now renders even with zero chats (the trailing "Unfiled" bucket still
+  only appears when non-empty). The sidebar list is bounded again
+  (`max-h-[45vh]` + its own scrollbar) so it never grows the sidebar and shoves
+  the navigation below it. Row/folder option menus moved into a `createPortal`
+  popover anchored to the opening button (with up-flip), so the scroll container
+  can no longer clip them. docs updated: CHANGELOG.md only.
+
+- **Quantitative research data infrastructure: independent verification, versioned
+  datasets and a shared research tool surface.** The market layer gains five named
+  verification policies (`cached_fast`, `fresh_preferred`, `cross_verified`,
+  `historical_reproducible`, `strict_research`) and a deterministic cross-source
+  verification engine that classifies an observation as verified/unverified/
+  conflicted/failed, records material conflicts and never averages disagreeing
+  sources (`python/harness/market/verification.py`). The Market Data Gateway gains
+  provider pinning (`provider=`) and `candidate_providers()` so a caller can
+  deliberately retrieve an INDEPENDENT source; the provider registry gains
+  intervals, adjustment support, a timeliness taxonomy (realtime/delayed/eod/
+  reference) and an entitlement field. Deterministic transforms
+  (`python/harness/quant/transform.py`: OHLCV resampling with partial-bucket flags
+  and explicit-only alignment) and an immutable, content-hashed, versioned dataset
+  store with manifests (`python/harness/quant/dataset_store.py`) are added. A new
+  shared research tool surface (`python/harness/market/research_tools.py`:
+  `get_market_data`, `verify_market_data`, `resample_data`, `align_timeseries`,
+  `build_research_dataset`, `query_dataset`, `compare_datasets`,
+  `get_data_quality_report`, `get_data_provenance`, `resolve_instrument`,
+  `list_providers`, `get_provider_health`, plus dataset version listing) is
+  registered in `market/bootstrap.py` and added to the Eclipse agent allowlist
+  (`agents.py`); the quant `run_backtest`/optimization tools are also now
+  allowlisted. New tests: `test_market_verification.py`, `test_quant_transform.py`,
+  `test_quant_dataset_store.py`, `test_research_data_tools.py`.
+  docs updated: docs/harness/quant-research-data.md (new), docs/NAVIGATION.md.
+
 - **Chat history gains folders, colors, pinning, rename and search.** The sidebar
   recent-chats list was a flat localStorage array with only delete. It now
   supports user-created folders (collapsible, colored), per-chat accent color,

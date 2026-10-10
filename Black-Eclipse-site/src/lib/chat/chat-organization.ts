@@ -162,8 +162,9 @@ export function sortConversations(convs: Conversation[], mode: ChatSortMode): Co
 }
 
 /**
- * Bucket conversations by folder, preserving folder order and appending the
- * "Unfiled" bucket (folder: null) last. Empty folders are omitted.
+ * Bucket conversations by folder, preserving folder order. Every folder is
+ * included (even empty ones, so a freshly created folder is visible), and the
+ * "Unfiled" bucket (folder: null) is appended last only when it has members.
  */
 export function groupConversations(convs: Conversation[], folders: ChatFolder[]): ChatHistoryGroup[] {
   const byFolder = new Map<string, Conversation[]>();
@@ -179,11 +180,10 @@ export function groupConversations(convs: Conversation[], folders: ChatFolder[])
       unfiled.push(c);
     }
   }
-  const groups: ChatHistoryGroup[] = [];
-  for (const folder of folders) {
-    const list = byFolder.get(folder.id);
-    if (list && list.length) groups.push({ folder, conversations: list });
-  }
+  const groups: ChatHistoryGroup[] = folders.map((folder) => ({
+    folder,
+    conversations: byFolder.get(folder.id) ?? [],
+  }));
   if (unfiled.length) groups.push({ folder: null, conversations: unfiled });
   return groups;
 }
