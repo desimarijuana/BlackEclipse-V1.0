@@ -37,6 +37,9 @@ export type HarnessUiEvent =
       research?: unknown;
       memory?: unknown;
       runId?: string;
+      /** The provider + model that actually served this turn (from the run). */
+      provider?: string;
+      model?: string;
       /** Phase 14: the run's code-verification ledger + code profile, when any. */
       codeVerification?: unknown;
       autonomy?: string | null;
@@ -295,6 +298,8 @@ export function normalizeHarnessEvent(
       research: payload.research ?? undefined,
       memory: payload.memory ?? undefined,
       runId: str(payload.runId),
+      provider: str(payload.provider),
+      model: str(payload.model),
       codeVerification: payload.codeVerification ?? undefined,
       autonomy: typeof payload.autonomy === 'string' ? payload.autonomy : payload.autonomy === null ? null : undefined,
       workspaceId: typeof payload.workspaceId === 'string' ? payload.workspaceId : payload.workspaceId === null ? null : undefined,

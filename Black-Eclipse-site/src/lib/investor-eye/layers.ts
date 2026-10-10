@@ -340,7 +340,7 @@ function heatmapCellDegrees(count: number): number {
  * (the first cut) drew a flat blue wash: every point had the same ~1px weight
  * and ECharts' heat brush then blurred single events below visibility.
  */
-export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
+export function buildEventHeatmapLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
   const anchorable = events.filter((e) => typeof e.lon === 'number' && typeof e.lat === 'number');
   const points = anchorable.map((e) => ({
     id: e.id ?? e.dedupKey,
@@ -396,6 +396,18 @@ export function buildEventHeatmapLayer(events: NormalizedEvent[]): MapLayer {
         ],
         note: 'Aggregated severity-weighted density. Zoom in to separate events.',
       };
+    },
+    // The heatmap is ON by default and its cells cover a wide area, so it was
+    // the pointer target for much of the map — but it had no click handler, and
+    // clicking a hotspot silently did nothing. Selecting the cell's
+    // representative event makes the hotspot open that event's dossier.
+    onClick: (datum) => {
+      const payload = datum.data as {
+        cluster?: { members?: Array<{ event: NormalizedEvent }> };
+        representative?: NormalizedEvent;
+      };
+      const rep = payload.representative ?? payload.cluster?.members?.[0]?.event;
+      if (rep) onSelect?.(rep);
     },
   };
 }
@@ -827,7 +839,7 @@ export function buildAllLayers(inputs: LayerInputs): MapLayer[] {
   const { state } = inputs;
   const layers: MapLayer[] = [
     buildCountryEventFill(state.countries, 'density', 'Event Density', false),
-    buildEventHeatmapLayer(state.events),
+    buildEventHeatmapLayer(state.events, inputs.onSelectEvent),
     buildEventsLayer(state.events, inputs.onSelectEvent),
     buildMarketsLayer(state.markets, state.countries, inputs.onSelectMarket),
     buildConflictLayer(state.events, inputs.onSelectEvent),

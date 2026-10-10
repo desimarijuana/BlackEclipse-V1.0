@@ -38,6 +38,13 @@ export interface CustomizableWorkspaceProps {
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   /** Optional extra chrome rendered in the top-right of the edit bar. */
   editBarExtra?: React.ReactNode;
+  /**
+   * Called whenever the layout changes (after every commit, and once on mount).
+   * Lets a host mirror the arrangement somewhere durable — e.g. the Command
+   * Center publishing its layout to a UI blueprint so the agent can see/edit it.
+   * MUST be stable (useCallback) or it will fire on every render.
+   */
+  onLayoutChange?: (layout: WorkspaceLayout) => void;
   /** Optional bottom status bar rendered under the canvas. */
   statusBar?: React.ReactNode;
   /** Toolbar style: full labelled buttons, icon-only (for narrow columns), or hidden. */
@@ -70,6 +77,7 @@ export function CustomizableWorkspace({
   widgetIcon,
   renderWidget,
   editBarExtra,
+  onLayoutChange,
   statusBar,
   toolbar = 'default',
   hideFloatingAdd = false,
@@ -108,6 +116,13 @@ export function CustomizableWorkspace({
     { id: 'workspace-library', label: 'Open widget library', keys: 'shift+w', run: () => { workspace.setEditMode(true); setLibraryOpen(true); }, enabled: shortcutsEnabled },
     { id: 'workspace-refresh', label: 'Refresh workspace widgets', keys: 'r', run: refreshAll, enabled: shortcutsEnabled },
   ]);
+
+  // Notify the host of every layout change (including the initial load), so a
+  // page can mirror its arrangement into durable state (a UI blueprint). The
+  // handler is the host's responsibility to keep stable.
+  useEffect(() => {
+    onLayoutChange?.(workspace.layout);
+  }, [workspace.layout, onLayoutChange]);
 
   useEffect(() => {
     if (!libraryOpen && !configPlacement) return;

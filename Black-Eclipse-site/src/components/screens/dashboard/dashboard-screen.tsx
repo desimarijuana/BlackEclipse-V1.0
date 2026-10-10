@@ -4,7 +4,7 @@
 // Hosts the workspace kernel (WorkspaceCanvas) for the active dashboard, plus
 // the dashboard switcher, onboarding, widget library, and config panel.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
@@ -17,6 +17,8 @@ import { getDashboardTemplate } from '@/lib/dashboard/templates';
 import { getDefaultBoard } from '@/lib/dashboard/default-board';
 import { useMarketViews } from '@/lib/dashboard/market-views';
 import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
+import { publishDashboardLayout } from '@/lib/ui-engineering/dashboard-blueprint';
+import type { WorkspaceLayout } from '@/lib/workspace/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
@@ -90,6 +92,19 @@ export function DashboardScreen() {
 
   const toggleFullscreen = () => setIsFullscreen(v => !v);
 
+  // Mirror the board to a UI blueprint (debounced) so Eclipse can see and edit
+  // the dashboard the user actually has. Best-effort — a failure never affects
+  // the UI. See docs/harness/capability-extension-plan.md (Phase E).
+  const publishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleLayoutChange = useCallback((layout: WorkspaceLayout) => {
+    const active = dashboards.active;
+    if (!active) return;
+    if (publishTimer.current) clearTimeout(publishTimer.current);
+    publishTimer.current = setTimeout(() => {
+      void publishDashboardLayout({ dashboardId: active.id, title: active.name, layout });
+    }, 2500);
+  }, [dashboards.active]);
+
   usePageShortcuts(rootRef, [
     { id: 'dashboard-new', label: 'New dashboard', keys: 'shift+d', run: createDashboard, enabled: dashboards.loaded && !showOnboarding },
     { id: 'dashboard-fullscreen', label: 'Toggle fullscreen', keys: 'shift+f', run: toggleFullscreen, enabled: dashboards.loaded && !showOnboarding },
@@ -121,6 +136,7 @@ export function DashboardScreen() {
       widgets={DASHBOARD_WIDGETS}
       widgetIcon={widgetIcon}
       renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
+      onLayoutChange={handleLayoutChange}
       dense
       zones={{
         left: {

@@ -70,6 +70,7 @@ export async function chatWithAgent(
   model?: string,
   reasoningEffort?: ReasoningLevel,
   identityHeaders?: Record<string, string>,
+  uiContext?: Record<string, unknown>,
 ): Promise<{
   output: string;
   runId: string;
@@ -91,7 +92,12 @@ export async function chatWithAgent(
     capability = null;
   }
   const result = await startRun({
-    input: { query, history, documents: documents.length ? documents : undefined },
+    input: {
+      query,
+      history,
+      documents: documents.length ? documents : undefined,
+      ...(uiContext && typeof uiContext === "object" ? { context: { ui: uiContext } } : {}),
+    },
     agentId: "eclipse-agent",
     runId,
     model,
@@ -211,11 +217,15 @@ export async function startChatRun(
   model?: string,
   reasoningEffort?: ReasoningLevel,
   identityHeaders?: Record<string, string>,
+  uiContext?: Record<string, unknown>,
 ): Promise<string> {
   const input = assertRunInput({
     query,
     history,
     documents: documents.length ? documents : undefined,
+    // Presentation-only UI focus (which page the user is on). The runtime
+    // surfaces it as a per-run prompt note so "my widgets" resolves to a page.
+    ...(uiContext && typeof uiContext === "object" ? { context: { ui: uiContext } } : {}),
   });
   const agent = await getAgentPreset("eclipse-agent");
   const cfg = await getLLMConfig();

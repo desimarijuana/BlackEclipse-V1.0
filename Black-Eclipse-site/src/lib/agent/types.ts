@@ -29,6 +29,15 @@ export interface AgentStatusEvent {
   tool?: string;
 }
 
+/**
+ * The UI the user is currently focused on, forwarded with a run so the agent can
+ * resolve "my widgets"/"this page" to a concrete blueprint. Presentation context
+ * only — it grants no capability and is truncated at the front door.
+ */
+export interface UiFocus {
+  page?: { blueprintId?: string; title?: string; path?: string };
+}
+
 export interface ChatOptions {
   /**
    * Conversation id. When present the front door loads that conversation's
@@ -47,6 +56,11 @@ export interface ChatOptions {
    * default and then the runtime's task profile decide.
    */
   reasoningEffort?: import('./reasoning').ReasoningLevel;
+  /**
+   * The UI page the user is currently focused on (Pages / UI Builder), forwarded
+   * into the run's context so `ui_get_current_page` can resolve "my widgets".
+   */
+  uiContext?: UiFocus;
   /**
    * Called with the harness run id as soon as it is known, so the caller can
    * offer cancellation before the reply arrives.

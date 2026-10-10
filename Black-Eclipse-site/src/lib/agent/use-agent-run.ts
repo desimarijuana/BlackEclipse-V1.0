@@ -20,6 +20,7 @@ import { emptyTurn } from './response-model';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
 import { sound } from '@/lib/sounds';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
+import { getUiFocus } from '@/lib/ui-engineering/ui-focus';
 
 export interface StartRunArgs {
   /** Conversation turns BEFORE the new user message (role + content). */
@@ -146,6 +147,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.research) t.research = event.research;
           if (event.memory) t.memory = event.memory;
           if (event.runId) t.runId = event.runId;
+          if (event.model) t.model = { model: event.model, provider: event.provider ?? null };
           if (event.codeVerification) t.codeVerification = event.codeVerification;
           if (event.autonomy !== undefined) t.autonomy = event.autonomy;
           if (event.capability) t.capability = event.capability;
@@ -232,6 +234,9 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           chatId: args.chatId,
           model: args.model,
           reasoningEffort: args.reasoningEffort,
+          // The page the user is currently working on (if any), so the agent can
+          // resolve "my widgets" to a concrete blueprint.
+          uiContext: getUiFocus(),
           signal: controller.signal,
           onRunId: (id) => {
             setRunId(id);

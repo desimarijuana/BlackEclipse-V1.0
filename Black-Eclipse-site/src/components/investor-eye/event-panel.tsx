@@ -37,7 +37,7 @@ interface EventPanelProps {
   onSelectCountry?: (iso2: string) => void;
   /** When provided, the header offers "Open dossier" and double-click opens it. */
   onOpen?: () => void;
-  /** Wide layout (the full dossier overlay): sections flow into two columns. */
+  /** Wide layout (the full dossier overlay): full-width single-column read. */
   wide?: boolean;
 }
 
@@ -55,12 +55,12 @@ export function EventPanel({ event, onClose, onSelectCountry, onOpen, wide }: Ev
 
       <div className={cn(
         'flex-1 overflow-y-auto px-4 py-3 scrollbar-hide',
-        wide
-          // Wide dossier: pack the sections into two balanced columns instead of
-          // one long strip, so the whole record is readable without a mile of
-          // scroll. Same CSS-columns technique the standing panels already use.
-          ? 'gap-5 space-y-4 lg:columns-2 lg:gap-6 lg:space-y-0 [&>*]:break-inside-avoid [&>*]:mb-4'
-          : 'space-y-4',
+        // Single vertical column spanning the (wide) dossier. The old two-column
+        // CSS flow read left-to-right and forced the eye to scan sideways through
+        // what is really a sequential record; a full-width stack reads
+        // top-to-bottom in the intended order (what happened → who → where → why
+        // → exposure → reaction → sources).
+        wide ? 'w-full space-y-5' : 'space-y-4',
       )}>
         <WhatHappened event={event} article={article} />
         {event.actors && event.actors.length > 0 && <Actors event={event} />}
@@ -203,13 +203,18 @@ function Header({ event, onClose, headline, onOpen, wide }: { event: NormalizedE
             <Maximize2 size={10} /> Open dossier
           </button>
         )}
-        <button
-          onClick={onClose}
-          className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-          aria-label="Close event panel"
-        >
-          <X size={14} />
-        </button>
+        {/* In the wide dossier the overlay owns the close chrome ("Back to map"
+            + its own X). Rendering this one too produced TWO crosses stacked in
+            the same corner. The rail peek is not wide, so it keeps its X. */}
+        {!wide && (
+          <button
+            onClick={onClose}
+            className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+            aria-label="Close event panel"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
     </div>
   );

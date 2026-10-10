@@ -316,10 +316,15 @@ def test_prompt_char_ceiling():
     steps are dispatched through the run path is a genuinely new capability that
     needs one guidance paragraph. Re-pinned to the measured size; the ratchet bites
     again from here.
+
+    Raised to 25217 by the Eclipse UI authoring capability: the `ui_*` tools let
+    the agent compose pages/widgets and file engineering tasks for Eclipse's own
+    interface — a genuinely new capability that needs one guidance paragraph.
+    Re-pinned to the measured size; the ratchet bites again from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 23725, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 25217, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

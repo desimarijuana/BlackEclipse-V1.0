@@ -11,8 +11,6 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
-  ListChecks,
-  Layers,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -35,10 +33,10 @@ export interface SidebarSectionDef {
 /** The primary navigation menu, in the shipped default order. ChatBot (the
  *  harness) leads by default, but the order is fully user-customizable.
  *
- *  The Agentic mode lists ChatBot, Skills and Eclipse Memory. The other agentic
- *  capabilities (Code, Editor, Jobs, Tasks, Plugins, Model Control Center,
- *  Search, Research, Backtest) are deliberately NOT sidebar tabs — ChatBot
- *  reaches them through its tools. */
+ *  The Agentic mode lists ChatBot, Skills, Eclipse Memory and Artifacts. The
+ *  other agentic capabilities (Code, Editor, Jobs, Tasks, Pages, UI Builder,
+ *  Plugins, Model Control Center, Search, Research, Backtest) are deliberately
+ *  NOT sidebar tabs — ChatBot reaches them through its tools. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'chat', label: 'ChatBot', icon: Bot, group: 'both' },
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard, group: 'terminal' },
@@ -54,8 +52,6 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
-  { id: 'tasks', label: 'Tasks', icon: ListChecks, group: 'agentic' },
-  { id: 'ui-builder', label: 'UI Builder', icon: Layers, group: 'agentic' },
 ];
 
 /** The modes a section is listed under. */

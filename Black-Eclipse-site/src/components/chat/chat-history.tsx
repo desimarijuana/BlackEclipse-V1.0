@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ArrowDown, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
+import { AlertTriangle, ArrowDown, Cpu, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
@@ -226,6 +226,24 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                           )}
                         </div>
                       </div>
+                    </div>
+                  )}
+                  {!working && msg.model?.model && (
+                    <div
+                      className={cn(
+                        'mb-1.5 inline-flex max-w-full items-center gap-1.5 font-mono text-muted-foreground/70',
+                        compact ? 'text-[10px]' : 'text-[11px]',
+                      )}
+                      title={`Answered by ${msg.model.model}${msg.model.provider ? ` · ${msg.model.provider}` : ''}`}
+                    >
+                      <Cpu size={compact ? 10 : 11} className="shrink-0 text-primary/60" />
+                      <span className="truncate">{msg.model.model}</span>
+                      {msg.model.provider && (
+                        <>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span className="truncate text-muted-foreground/50">{msg.model.provider}</span>
+                        </>
+                      )}
                     </div>
                   )}
                   {msg.content && <AssistantContent content={msg.content} compact={compact} />}

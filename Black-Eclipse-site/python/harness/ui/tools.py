@@ -170,9 +170,23 @@ async def _classify_request(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 async def _start_engineering(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
+        # Pin the invoking run's model on the engineering plan so the dispatched
+        # task uses the operator's configured provider, not an env default.
+        raw_settings = getattr(ctx, "model_settings", None)
+        model_settings: Optional[dict[str, Any]] = None
+        if raw_settings is not None:
+            dump = raw_settings.model_dump(by_alias=True) if hasattr(raw_settings, "model_dump") else dict(raw_settings)
+            if isinstance(dump, dict) and dump.get("provider") and dump.get("model"):
+                model_settings = {
+                    "provider": dump.get("provider"),
+                    "model": dump.get("model"),
+                    **({"baseUrl": dump["baseUrl"]} if dump.get("baseUrl") else {}),
+                    **({"apiKey": dump["apiKey"]} if dump.get("apiKey") else {}),
+                }
         result = _service(ctx).engineering.start(
             str(args.get("text") or ""), blueprint_id=args.get("blueprintId"),
             title=args.get("title"), autonomy=str(args.get("autonomy") or "edit_verify"),
+            model_settings=model_settings,
         )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)

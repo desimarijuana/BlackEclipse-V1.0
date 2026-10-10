@@ -26,4 +26,5 @@ export type AppTab =
   | 'memory'
   | 'artifacts'
   | 'tasks'
+  | 'pages'
   | 'ui-builder';

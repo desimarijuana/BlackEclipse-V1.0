@@ -31,6 +31,11 @@ class UiMode(str, Enum):
 #: Signals that a request needs NEW application functionality (source code).
 _ENGINEER_SIGNALS = (
     "new component", "create a component", "build a component", "custom component",
+    # A widget the catalog does not have yet is a NEW capability, exactly like a
+    # new component: "create a new widget", "build a widget that shows …".
+    "new widget", "create a widget", "build a widget", "custom widget", "widget that",
+    # Authoring a tool/integration is always the privileged code path.
+    "new tool", "create a tool", "build a tool", "custom tool",
     "doesn't exist", "does not exist", "not exist", "from scratch",
     "new plugin", "create a plugin", "build a plugin", "plugin",
     "backend", "server-side", "api endpoint", "new api", "endpoint", "route",
@@ -50,6 +55,9 @@ _COMPOSE_SIGNALS = (
     "layout", "arrange", "rearrange", "dashboard", "workspace", "page",
     "filter", "configure", "set the", "change the color", "theme", "below",
     "above", "row", "column", "grid", "pin", "duplicate",
+    # Restyling/rearranging an EXISTING widget is a compose request, not a new
+    # capability — the agent changes config/layout rather than writing code.
+    "change the design", "redesign", "restyle", "change the style", "change the look",
 )
 
 _NOT_A_UI_REQUEST = (

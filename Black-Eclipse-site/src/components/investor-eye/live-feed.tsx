@@ -24,22 +24,45 @@ import { cn } from '@/lib/utils';
 interface LiveFeedProps {
   events: NormalizedEvent[];
   onSelect: (event: NormalizedEvent) => void;
+  /** Open the full dossier popup for the event (click / Enter). */
+  onOpen?: (event: NormalizedEvent) => void;
   selectedKey?: string;
   /** True while the first world-state fetch is still in flight. */
   loading?: boolean;
   className?: string;
 }
 
-/** Feed lenses. `conflict` is first because it is the primary use case. */
-const FILTERS: Array<{ id: 'conflict' | 'all' | 'energy' | 'trade' | 'disaster'; label: string; types: string[] | null }> = [
-  { id: 'conflict', label: 'Conflict', types: ['conflict', 'military', 'protest'] },
-  { id: 'all', label: 'All', types: null },
-  { id: 'energy', label: 'Energy', types: ['energy'] },
-  { id: 'trade', label: 'Trade', types: ['trade', 'tariff', 'shipping', 'sanction'] },
-  { id: 'disaster', label: 'Hazards', types: ['natural_disaster'] },
+/**
+ * Feed lenses.
+ *
+ * A lens matches on event TYPE **or** economic CHANNEL, the same rule the map
+ * layers use (an event typed `conflict` that transmits through Shipping still
+ * belongs in Shipping). Matching on type alone made "Energy"/"Trade" drop
+ * channel-tagged events, so a lens could look broken when its events were
+ * classified under a neighbouring type. `channels: null` disables channel
+ * matching (used only by "All", which shows everything).
+ */
+const FILTERS: Array<{
+  id: 'conflict' | 'all' | 'energy' | 'trade' | 'disaster';
+  label: string;
+  types: string[] | null;
+  channels: string[] | null;
+}> = [
+  { id: 'conflict', label: 'Conflict', types: ['conflict', 'military', 'protest'], channels: ['Defense & Aerospace'] },
+  { id: 'all', label: 'All', types: null, channels: null },
+  { id: 'energy', label: 'Energy', types: ['energy'], channels: ['Energy'] },
+  { id: 'trade', label: 'Trade', types: ['trade', 'tariff', 'shipping', 'sanction'], channels: ['Trade & Tariffs', 'Shipping & Logistics'] },
+  { id: 'disaster', label: 'Hazards', types: ['natural_disaster'], channels: null },
 ];
 
 type FilterId = (typeof FILTERS)[number]['id'];
+
+/** True when `event` belongs in `filter` by type OR channel. */
+function matchesLens(event: NormalizedEvent, filter: (typeof FILTERS)[number]): boolean {
+  if (!filter.types) return true;
+  if (filter.types.includes(event.eventType)) return true;
+  return (filter.channels ?? []).some((c) => event.channels.includes(c));
+}
 
 /** Event-type → short display label. */
 const TYPE_LABEL: Record<string, string> = {
@@ -61,7 +84,7 @@ const TYPE_LABEL: Record<string, string> = {
   other: 'Other',
 };
 
-export function LiveFeed({ events, onSelect, selectedKey, loading = false, className }: LiveFeedProps) {
+export function LiveFeed({ events, onSelect, onOpen, selectedKey, loading = false, className }: LiveFeedProps) {
   const tz = useDisplayTimeZone();
   const [filter, setFilter] = useState<FilterId>('conflict');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -70,34 +93,33 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
 
   const rows = useMemo(() => {
-    const types = active.types;
-    const list = types ? events.filter((e) => types.includes(e.eventType)) : events;
+    const list = events.filter((e) => matchesLens(e, active));
     // Newest first; the state is already window-filtered by the timeline.
     return [...list].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, 60);
   }, [events, active]);
 
   const counts = useMemo(() => {
     const out: Record<string, number> = {};
-    for (const f of FILTERS) {
-      const types = f.types;
-      out[f.id] = types ? events.filter((e) => types.includes(e.eventType)).length : events.length;
-    }
+    for (const f of FILTERS) out[f.id] = events.filter((e) => matchesLens(e, f)).length;
     return out;
   }, [events]);
 
   const rowKeys = useMemo(() => rows.map((e) => e.id ?? e.dedupKey), [rows]);
   const selectRef = useRef(onSelect);
+  const openRef = useRef(onOpen);
   useEffect(() => {
     selectRef.current = onSelect;
+    openRef.current = onOpen;
   });
   const listNav = useListNavigation({
     ids: rowKeys,
     rootRef,
     enabled: !loading,
     shortcutPrefix: 'investor-eye.feed',
+    // Enter (or a click) opens the full dossier popup.
     onOpen: (key) => {
       const event = rows.find((e) => (e.id ?? e.dedupKey) === key);
-      if (event) onSelect(event);
+      if (event) openRef.current?.(event);
     },
     onSelectionChange: (key) => {
       const event = rows.find((e) => (e.id ?? e.dedupKey) === key);
@@ -167,7 +189,7 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
                 key={key}
                 type="button"
                 {...listNav.rowAttributes(key)}
-                onClick={() => onSelect(e)}
+                onClick={() => { onSelect(e); onOpen?.(e); }}
                 className={cn(
                   'flex w-full items-start gap-2.5 border-b border-border/5 px-3 py-2.5 text-left transition-colors cursor-pointer',
                   selected ? 'bg-primary/10' : 'hover:bg-accent/30',

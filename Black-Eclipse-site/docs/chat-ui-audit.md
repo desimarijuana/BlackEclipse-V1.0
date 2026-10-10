@@ -90,7 +90,7 @@ Front-door frames (added by the TS relay, top-level fields, no envelope):
 | Event | Data |
 |---|---|
 | `client.run` | `runId`, `documentsUsed` |
-| `client.final` | `runId`, `status`, `output`, `error` |
+| `client.final` | `runId`, `status`, `output`, `error`, `provider`, `model` |
 | `client.error` | `message` |
 | `stream.end` | `{}` |
 

@@ -8,6 +8,45 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Re-pin the system-prompt size ratchet for the Eclipse UI authoring capability.**
+  `prompts.py` gained a "Pages, widgets and tools" paragraph for the `ui_*` tools
+  (compose pages/widgets, file engineering tasks), growing the prompt from 23725
+  to 25217 chars. The size-ratchet tests in `test_memory_tools.py` and
+  `test_phase_s_stabilization.py` were re-pinned to 25217 with updated rationale,
+  matching the established convention (raise only for a genuinely new capability).
+  no doc change — test-only ratchet update; the capability itself is already
+  documented.
+
+- **Investor Eye: event click opens the dossier popup; dossier reads vertically;
+  lens filters match type OR channel; window-switch feedback.** (1) Clicking an
+  event — a map pin or a Live Event Stream row (or Enter on a focused row) — now
+  opens the full `EventDossierOverlay` directly via a new `handleOpenEvent`;
+  keyboard j/k stepping still only peeks the right rail, so arrowing never
+  throws a modal. (2) The wide dossier no longer flows into two `lg:columns-2`
+  columns (which read left-to-right); `EventPanel` in `wide` mode is now a
+  single vertical column that spans the (wide, `max-w-6xl`) overlay, and the
+  duplicate close button in the panel header is suppressed in `wide` mode — it
+  stacked a second cross under the overlay's own, giving two crosses. (3) `LiveFeed` lenses and the dashboard
+  `InvestorEyeWidget` lens now match on event TYPE **or** economic CHANNEL (the
+  same rule the map layers use), so an event classified under a neighbouring
+  type but transmitting through Energy/Trade/Shipping is no longer dropped. (4)
+  A "Loading <window> window — still showing <old>h" chip appears while a
+  time-range change is assembling (a cold window takes ~15s and previously
+  showed the old window's data with no feedback, so the range filter looked
+  inert). (5) The main screen's detail section no longer uses `lg:columns-3`
+  multi-column flow (which packed What Changed / Alerts / Risk / Transmissions /
+  Conflict research / Portfolio / Source health left-to-right); it is now a
+  single vertical stack, matching the dossier. (6) The event **heatmap** layer is
+  on by default and its wide cells were the pointer target for much of the map,
+  but it had no click handler — clicking a hotspot silently did nothing. It now
+  selects the cell's representative event (`buildEventHeatmapLayer` takes the
+  `onSelect` callback), so a hotspot opens that event's dossier. (7) The
+  dashboard `InvestorEyeMapWidget` — which deliberately embedded no dossier —
+  now opens the same `EventDossierOverlay` (lazy-loaded) on pin/hotspot click.
+  `npx tsc --noEmit` clean; `vitest` 2524 pass.
+  no doc change — UI/UX behavior fixes within the existing contract; no data
+  shape, setup, or architecture change.
+
 - **Remove the `/login` page.** Deleted `src/app/login/`; `HARNESS_AUTH=off` in the
   local `.env` (gitignored) — no sign-in. The `/api/auth/*` API and middleware
   remain but are inert while auth is off. no doc change — page removal; auth is
@@ -83,6 +122,32 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   2524 tests + UI `pytest` 31 + `tsc --noEmit` clean.
   docs updated: `docs/CHANGELOG.md`, `docs/harness/capability-extension-plan.md`,
   `docs/ui-engineering.md`.
+
+- **Capability Extension Phase B-rest: the run learns the page the user is on.**
+  The chat forwards the focused page with the run — a client focus store
+  (`src/lib/ui-engineering/ui-focus.ts`, set by Pages/UI Builder, read by
+  `use-agent-run`) → `ChatOptions.uiContext` → `buildPayload` → the
+  `/api/harness/chat[/stream]` routes sanitize it → `startChatRun`/`chatWithAgent`
+  put it in `input.context.ui` → `graph.py::_ui_focus_block` renders a per-run
+  "Current UI page" prompt note (cache-key excluded) naming the blueprint. So
+  "change my widgets" resolves to the actual page. Tests `test_ui_focus.py`.
+- **Phase C: Engineer requests actually run.** `UiEngineering.start` left the plan
+  in `PLANNING`, which the task scheduler skips — the root cause of "create a new
+  widget" finishing with nothing. It now starts the plan (RUNNING) so the
+  existing scheduler dispatches the task, and pins the invoking run's model on the
+  plan metadata (`ctx.model_settings`) so the task uses the operator's provider.
+  Tests `test_ui_engineering.py`.
+- **Phase D (started): engineering-task visibility.** The UI Builder now polls
+  `GET /ui/engineering/{planId}` and shows a live status card (plan + task
+  statuses) after filing an engineering task.
+- **Phase E (started, one-way): the Command Center mirrors to a blueprint.**
+  `CustomizableWorkspace` gained `onLayoutChange`; the dashboard debounce-publishes
+  its board into a per-dashboard UI blueprint (`dashboard-blueprint.ts`,
+  localStorage id map + idempotent create), so Eclipse can see and edit the board
+  the user actually has and it appears as a page. The reverse (agent edit → live
+  dashboard) is the documented follow-up.
+  Full `vitest` 239/2524 + UI `pytest` 62 + `tsc`/`eslint` clean.
+  docs updated: `docs/CHANGELOG.md`, `docs/harness/capability-extension-plan.md`.
 
 ## 2026-10-09
 

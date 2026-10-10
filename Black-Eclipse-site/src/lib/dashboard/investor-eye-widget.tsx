@@ -22,13 +22,17 @@ import { useDisplayTimeZone } from '@/lib/timezone';
 /** Time windows — the ids must match `registerStateTopic` windows in topics.ts. */
 const HOURS: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168, '30d': 720 };
 
-/** Event lenses. `null` types = no filter. */
-const LENSES: Record<string, string[] | null> = {
-  all: null,
-  conflict: ['conflict', 'military', 'protest'],
-  energy: ['energy'],
-  trade: ['trade', 'tariff', 'shipping', 'sanction'],
-  disaster: ['natural_disaster'],
+/**
+ * Event lenses. `types: null` = no filter. A lens matches on event TYPE **or**
+ * economic CHANNEL, the same rule the map layers use, so a channel-tagged event
+ * is not dropped just because it was classified under a neighbouring type.
+ */
+const LENSES: Record<string, { types: string[] | null; channels: string[] | null }> = {
+  all: { types: null, channels: null },
+  conflict: { types: ['conflict', 'military', 'protest'], channels: ['Defense & Aerospace'] },
+  energy: { types: ['energy'], channels: ['Energy'] },
+  trade: { types: ['trade', 'tariff', 'shipping', 'sanction'], channels: ['Trade & Tariffs', 'Shipping & Logistics'] },
+  disaster: { types: ['natural_disaster'], channels: null },
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -87,7 +91,9 @@ export function InvestorEyeWidget({ placement }: { placement: WidgetPlacement })
   const events = t.data?.events ?? [];
   const lens = LENSES[lensId];
   const rows = useMemo(() => {
-    const list = lens ? events.filter((e) => lens.includes(e.eventType)) : events;
+    const list = lens.types
+      ? events.filter((e) => lens.types!.includes(e.eventType) || (lens.channels ?? []).some((c) => e.channels.includes(c)))
+      : events;
     return [...list]
       .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
       .slice(0, 14);

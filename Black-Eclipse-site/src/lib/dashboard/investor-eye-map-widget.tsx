@@ -42,6 +42,14 @@ const WorldMap = dynamic(
   { ssr: false, loading: () => <MapLoader /> },
 );
 
+// The full event dossier overlay is code-split too: it pulls in the whole
+// event-panel tree, which a dashboard card should not pay for until the user
+// actually clicks an event.
+const EventDossierOverlay = dynamic(
+  () => import('@/components/investor-eye/event-dossier-overlay').then((m) => m.EventDossierOverlay),
+  { ssr: false },
+);
+
 export const INVESTOR_EYE_MAP_RANGE_FIELD: WidgetConfigField = {
   key: 'range', label: 'Time window', type: 'select',
   options: [
@@ -108,11 +116,13 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
   const selectedEvent = useInvestorEyeStore((s) => s.selectedEvent);
+  const dossierOpen = useInvestorEyeStore((s) => s.dossierOpen);
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const setSelectedEvent = useInvestorEyeStore((s) => s.setSelectedEvent);
   const setSelectedCountry = useInvestorEyeStore((s) => s.setSelectedCountry);
   const setSelectedMarket = useInvestorEyeStore((s) => s.setSelectedMarket);
+  const setDossierOpen = useInvestorEyeStore((s) => s.setDossierOpen);
 
   const [expanded, setExpanded] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
@@ -137,7 +147,8 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
     if (!state) return [];
     return buildAllLayers({
       state,
-      onSelectEvent: (e) => { setSelectedEvent(e); setSelectedCountry(null); },
+      // Clicking an event (pin or heatmap hotspot) opens the full dossier popup.
+      onSelectEvent: (e) => { setSelectedEvent(e); setSelectedCountry(null); setDossierOpen(true); },
       onSelectMarket: (m) => setSelectedMarket({ ...m }),
     }).map((layer) => ({
       ...layer,
@@ -146,7 +157,7 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
         // Event Density is the spatial component of the risk layer.
         || (layer.id === 'density' && activeLayers.includes('risk')),
     }));
-  }, [state, activeLayers, setSelectedEvent, setSelectedCountry, setSelectedMarket]);
+  }, [state, activeLayers, setSelectedEvent, setSelectedCountry, setSelectedMarket, setDossierOpen]);
 
   const handleSelectCountry = useCallback((iso2: string) => {
     setSelectedCountry(iso2);
@@ -277,15 +288,20 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
   // root carries `animate-fade-in-up`, whose transform would otherwise scope
   // `position: fixed` to the (short) widget card instead of the viewport.
   if (expanded && typeof document !== 'undefined') {
-    return createPortal(
-      <div className="fixed inset-0 z-[100] animate-fade-in">
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setExpanded(false)} />
-        <div className="absolute inset-2 flex flex-col overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-4 shadow-2xl shadow-black/50 sm:inset-5">
-          {header}
-          <div className="mt-3 flex min-h-0 flex-1">{body}</div>
-        </div>
-      </div>,
-      document.body,
+    return (
+      <>
+        {createPortal(
+          <div className="fixed inset-0 z-[100] animate-fade-in">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setExpanded(false)} />
+            <div className="absolute inset-2 flex flex-col overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-4 shadow-2xl shadow-black/50 sm:inset-5">
+              {header}
+              <div className="mt-3 flex min-h-0 flex-1">{body}</div>
+            </div>
+          </div>,
+          document.body,
+        )}
+        {dossierOpen && <EventDossierOverlay />}
+      </>
     );
   }
 
@@ -293,6 +309,7 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
     <div ref={rootRef} className="flex h-full flex-col p-4">
       {header}
       <div className="mt-2.5 flex min-h-0 flex-1">{body}</div>
+      {dossierOpen && <EventDossierOverlay />}
     </div>
   );
 }

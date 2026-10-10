@@ -1,4 +1,4 @@
-import type { ActivityItem, PendingApproval, ResponseStatus, TurnError } from '@/lib/agent/response-model';
+import type { ActivityItem, AssistantModel, PendingApproval, ResponseStatus, TurnError } from '@/lib/agent/response-model';
 
 /**
  * One turn in a conversation transcript.
@@ -30,6 +30,11 @@ export interface Message {
   memory?: unknown;
   /** The harness run id for this turn (enables run-scoped actions/diagnostics). */
   runId?: string;
+  /**
+   * The provider + model that actually served this turn (from the run record).
+   * Absent on user turns, legacy rows, and runs that reported no model.
+   */
+  model?: AssistantModel;
   /**
    * Phase 14: the run's code-verification ledger when the turn used the code
    * capability. Absent on user turns, ordinary chat, and legacy rows. Narrowed

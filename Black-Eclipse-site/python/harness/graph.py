@@ -167,6 +167,39 @@ def _runtime_policy_overrides(request: RunRequest) -> dict[str, Any]:
     from .model_runtime.integration import runtime_policy_overrides
 
     return runtime_policy_overrides(request)
+
+
+def _ui_focus_block(context: Any) -> str:
+    """A per-run note naming the UI page the user is working on (additive).
+
+    Presentation context only: it tells the agent which blueprint the `ui_*`
+    tools should target by default and grants nothing. Returns "" when absent.
+    Rendered into the per-run `runtime_context` (excluded from the cache key), so
+    it never invalidates the reusable prompt prefix.
+    """
+    if not isinstance(context, dict):
+        return ""
+    ui = context.get("ui")
+    if not isinstance(ui, dict):
+        return ""
+    page = ui.get("page")
+    if not isinstance(page, dict):
+        return ""
+    blueprint_id = str(page.get("blueprintId") or "").strip()
+    title = str(page.get("title") or "").strip()
+    path = str(page.get("path") or "").strip()
+    if not (blueprint_id or title or path):
+        return ""
+    label = title or path or blueprint_id
+    lines = ["# Current UI page", f'The user is currently working on the page "{label}".']
+    if blueprint_id:
+        lines.append(
+            f'Use blueprintId "{blueprint_id}" with the ui_* tools unless the user '
+            "names another page; call ui_get_current_page to read it first."
+        )
+    return "\n".join(lines)
+
+
 def _resolve_direct(request: Any) -> bool:
     """Whether a run edits the real folder or a disposable copy.
 
@@ -1155,6 +1188,11 @@ async def execute_run(
     # model the as-of period it needs without a shell call and is excluded from
     # the cache key so a new run date never invalidates the reusable prefix.
     runtime_context = runtime_context_block(request.runId)
+    # The page the user is working on (when the front door supplied it). Per-run
+    # and cache-key-excluded, exactly like the date/time block.
+    ui_focus = _ui_focus_block(request.input.context)
+    if ui_focus:
+        runtime_context = f"{runtime_context}\n\n{ui_focus}"
 
     prompt_plan = build_prompt_plan(
         system_prompt=system_prompt,

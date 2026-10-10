@@ -72,8 +72,17 @@ class UiEngineering:
         agent_id: str = "code-agent",
         autonomy: str = "edit_verify",
         priority: str = "NORMAL",
+        model_settings: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Create a durable engineering task for an Engineer/Both-mode request."""
+        """Create a durable engineering task for an Engineer/Both-mode request.
+
+        The plan is moved to RUNNING so the EXISTING task scheduler dispatches it
+        through the normal run path — creating a plan in PLANNING and stopping
+        there is what left "build me a new widget" silently unfinished. When the
+        caller supplies `model_settings` (the invoking run's provider/model), it is
+        pinned on the plan metadata so the dispatched task uses the operator's
+        configured model rather than an env default.
+        """
         if self._tasks is None:
             raise UiEngineeringError("UI_ENGINEERING_UNAVAILABLE", "the task runtime is not available")
         decision = self._ui.classify_request(text, blueprint_id=blueprint_id, owner_id=owner_id)
@@ -86,7 +95,12 @@ class UiEngineering:
                 "message": "This request can be Composed from registered components; no engineering task was created.",
             }
         name = (title or text.strip() or "UI engineering task")[:120]
-        metadata = {"kind": "ui-engineering", "mode": decision["mode"], "blueprintId": blueprint_id, "autonomy": autonomy}
+        metadata: dict[str, Any] = {
+            "kind": "ui-engineering", "mode": decision["mode"],
+            "blueprintId": blueprint_id, "autonomy": autonomy,
+        }
+        if isinstance(model_settings, dict) and model_settings.get("provider") and model_settings.get("model"):
+            metadata["modelSettings"] = dict(model_settings)
         plan = self._tasks.create_plan(CreatePlanInput(
             name=name, objective=text, agent_id=agent_id, metadata=metadata,
         ))
@@ -96,11 +110,19 @@ class UiEngineering:
             acceptance_criteria=[AcceptanceCriterionInput(text=c) for c in DEFAULT_ACCEPTANCE],
             metadata=metadata,
         ))
+        # Dispatch: the scheduler only claims tasks whose plan is RUNNING.
+        dispatched = False
+        try:
+            self._tasks.start_plan(plan.id)
+            dispatched = True
+        except Exception:  # noqa: BLE001 - a transition race must not lose the task
+            log.warning("could not start engineering plan %s", plan.id, exc_info=True)
         return {
             "created": True,
             "mode": decision["mode"],
             "planId": plan.id,
             "taskId": task.id,
+            "dispatched": dispatched,
             "acceptance": list(DEFAULT_ACCEPTANCE),
             "suggestedTools": decision["suggestedTools"],
         }

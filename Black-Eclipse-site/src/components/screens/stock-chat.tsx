@@ -103,6 +103,10 @@ const UiBuilderScreen = dynamic(
   () => import('@/components/screens/ui-builder/ui-builder-screen').then((m) => m.UiBuilderScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const PagesScreen = dynamic(
+  () => import('@/components/screens/pages/pages-screen').then((m) => m.PagesScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -668,6 +672,7 @@ function StockChatContent() {
         vision: turn.vision,
         memory: turn.memory,
         runId: turn.runId,
+        model: turn.model,
         error: turn.error,
         pendingApproval: turn.pendingApproval,
       }, turn.done);    };
@@ -1184,6 +1189,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'ui-builder' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <UiBuilderScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('pages') && (
+            <div className={cn('w-full h-full', activeTab === 'pages' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8">
+                <PagesScreen />
               </div>
             </div>
           )}

@@ -82,6 +82,16 @@ export interface ActivityItem {
   reasonKey?: import('@/lib/i18n/types').TranslationKey;
 }
 
+/**
+ * The provider + model that actually served one assistant turn, taken from the
+ * run record (never inferred). `provider` is absent when the runtime did not
+ * report one; the chat surface then shows the model id alone.
+ */
+export interface AssistantModel {
+  model: string;
+  provider?: string | null;
+}
+
 /** A recoverable failure attached to an assistant turn. */
 export interface TurnError {
   code?: string;
@@ -117,6 +127,11 @@ export interface AssistantTurn {
    * (eligibility, events) from the originating turn.
    */
   runId?: string;
+  /**
+   * The provider + model that actually served this turn (from the run record).
+   * Absent until `client.final` arrives and for runs that did not report one.
+   */
+  model?: AssistantModel;
   /**
    * Phase 14: the run's code-verification ledger, present when the turn used the
    * code capability. Typed loosely to keep this model free of a harness-runtime

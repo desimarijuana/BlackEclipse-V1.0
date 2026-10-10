@@ -29,6 +29,9 @@ export const APP_TABS: readonly AppTab[] = [
   'skills',
   'memory',
   'artifacts',
+  'tasks',
+  'pages',
+  'ui-builder',
 ];
 
 /** Query keys consumed by the link format itself (never treated as params). */

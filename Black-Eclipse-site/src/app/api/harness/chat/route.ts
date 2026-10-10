@@ -78,8 +78,20 @@ export async function POST(request: Request) {
       }
     }
 
+    const uiContext = (() => {
+      const raw = (body as Record<string, unknown>).uiContext;
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+      const page = (raw as { page?: unknown }).page;
+      if (page === null || typeof page !== "object" || Array.isArray(page)) return undefined;
+      const p = page as Record<string, unknown>;
+      const str = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 200) : undefined);
+      const out = { blueprintId: str(p.blueprintId), title: str(p.title), path: str(p.path) };
+      if (!out.blueprintId && !out.title && !out.path) return undefined;
+      return { page: out };
+    })();
+
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

@@ -25,6 +25,7 @@ export const en = {
   'nav.memory': 'Eclipse Memory',
   'nav.artifacts': 'Artifacts',
   'nav.tasks': 'Tasks',
+  'nav.pages': 'Pages',
   'nav.uiBuilder': 'UI Builder',
 
   // Artifact Center

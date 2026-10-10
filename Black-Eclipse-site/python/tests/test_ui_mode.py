@@ -34,6 +34,27 @@ def test_both_when_mixed():
     assert "ui_add_widget" in decision.suggested_tools
 
 
+def test_engineer_for_new_widget():
+    # A widget the catalog does not have is a NEW capability, not a compose.
+    assert classify_request("create a new widget that shows live swap spreads", catalog=_catalog()).mode is UiMode.ENGINEER
+
+
+def test_new_page_of_existing_widgets_is_compose():
+    # A new page built from registered widgets is authored via compose tools.
+    decision = classify_request("make me a new page for the rates desk", catalog=_catalog())
+    assert decision.mode is UiMode.COMPOSE
+    assert "ui_add_widget" in decision.suggested_tools
+
+
+def test_engineer_for_new_tool():
+    assert classify_request("build a new tool that prices swaptions", catalog=_catalog()).mode is UiMode.ENGINEER
+
+
+def test_restyling_an_existing_widget_is_compose():
+    decision = classify_request("change the design of my widgets and restyle the dashboard", catalog=_catalog())
+    assert decision.mode is UiMode.COMPOSE
+
+
 def test_known_component_prefers_compose():
     decision = classify_request("put a metric-card at the top of the page", catalog=_catalog())
     assert decision.mode is UiMode.COMPOSE

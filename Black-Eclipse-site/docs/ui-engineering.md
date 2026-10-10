@@ -126,6 +126,26 @@ structural card.
 **Boot sync:** `UiCatalogSync` (mounted on the main app route) calls
 `syncCoreCatalog()` once, so the catalog is seeded without opening the Builder.
 
+**Live Pages (bridge to the app):** blueprints are rendered as real pages, not
+only in the Builder. The **Pages** tab
+(`src/components/screens/pages/pages-screen.tsx`, `AppTab 'pages'`) lists the
+saved blueprints and draws the selected one through the SAME
+`CustomizableWorkspace` + `renderDashboardWidget` the Command Center uses, with
+`defaultLayout` mapped from the blueprint. The pure, tested
+`src/lib/ui-engineering/live-page.ts` (`blueprintLayoutToKernel` /
+`kernelLayoutToWire` / `pageStorageKey`) is the ONE translator between the wire
+blueprint layout and the kernel layout; "Save to page" writes the user's
+arrangement back via `ui_save_layout` and "Revert" clears the local cache. The
+Command Center's own localStorage layouts are mirrored into a per-dashboard
+blueprint on edit (`dashboard-blueprint.ts`, via `CustomizableWorkspace`'s
+`onLayoutChange`) so the agent can read/edit the board the user actually has.
+
+**Focus + dispatch:** the chat forwards the focused page with the run
+(`uiContext` → `input.context.ui` → a per-run prompt block), and an Engineer
+request now moves its task/plan to RUNNING so the existing scheduler dispatches
+it (previously it stopped at PLANNING and silently did nothing). See
+`docs/harness/capability-extension-plan.md` for the remaining Phase D/E work.
+
 **Portability & CLI:** `GET /ui/blueprints/{id}/export` produces a
 self-describing snapshot (`kind: eclipse.ui.blueprint`); `POST
 /ui/blueprints/import` validates it and stores it as a NEW blueprint.

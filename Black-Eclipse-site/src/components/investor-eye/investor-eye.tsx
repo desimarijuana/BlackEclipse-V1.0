@@ -94,6 +94,10 @@ export function InvestorEyeScreen() {
   const settled = stateEntry.updatedAt !== null;
   const loading = !state && !settled;
   const unavailable = !state && settled;
+  // Switching the time filter fetches a different window, which can take a
+  // cold assembly (~15s). Until that payload lands we are still showing the
+  // PREVIOUS window's events, so say so — otherwise the filter looks broken.
+  const switchingWindow = state != null && !unavailable && state.windowHours !== hours;
   // Pulled out before the guards so the banner text is readable without TS
   // narrowing `state` to `never` inside the `unavailable` branch.
   const lastKnownAt = state?.lastKnownAt ?? null;
@@ -150,6 +154,17 @@ export function InvestorEyeScreen() {
     setSelectedMarket(null);
   }, [setSelectedCompany, setSelectedEvent, setSelectedMarket]);
 
+  // Clicking an event — a map pin or a feed row — opens the FULL dossier popup
+  // directly. The rail peek is still used for keyboard stepping (j/k) so arrowing
+  // through the feed never throws a modal in the operator's face.
+  const handleOpenEvent = useCallback((event: NormalizedEvent) => {
+    setSelectedEvent(event);
+    setSelectedCountry(null);
+    setSelectedCompany(null);
+    setSelectedMarket(null);
+    setDossierOpen(true);
+  }, [setSelectedEvent, setSelectedCountry, setSelectedCompany, setSelectedMarket, setDossierOpen]);
+
   const layers = useMemo(() => {
     if (!state) return [];
     const economy = needEconomy && economyEntry.data?.values
@@ -160,7 +175,7 @@ export function InvestorEyeScreen() {
       economicValues: economy,
       companies: needCompanies ? companiesEntry.data?.companies : undefined,
       portfolioExposure: (portfolioOverlay || activeLayers.includes('portfolio')) ? portfolioExposure : undefined,
-      onSelectEvent: handleSelectEvent,
+      onSelectEvent: handleOpenEvent,
       onSelectMarket: (m) => setSelectedMarket({ ...m }),
       onSelectCompany: handleSelectCompany,
     }).map((layer) => ({
@@ -170,7 +185,7 @@ export function InvestorEyeScreen() {
         // Event Density is the spatial component of the risk layer.
         || (layer.id === 'density' && activeLayers.includes('risk')),
     }));
-  }, [state, activeLayers, needEconomy, economyEntry.data, needCompanies, companiesEntry.data, portfolioOverlay, portfolioExposure, handleSelectEvent, setSelectedMarket, handleSelectCompany]);
+  }, [state, activeLayers, needEconomy, economyEntry.data, needCompanies, companiesEntry.data, portfolioOverlay, portfolioExposure, handleOpenEvent, setSelectedMarket, handleSelectCompany]);
 
   const availableLayers = useMemo(() => {
     const set = new Set<string>(['events', 'markets']);
@@ -434,6 +449,15 @@ export function InvestorEyeScreen() {
               </div>
             </div>
           )}
+          {switchingWindow && (
+            <div className="pointer-events-none absolute right-2 top-9 z-20">
+              <div className="glass-card-subtle flex items-center gap-1.5 rounded-lg border border-primary/25 px-3 py-1 text-[10px] text-foreground">
+                <Loader2 size={11} className="animate-spin text-primary" />
+                Loading {TIME_RANGES.find((r) => r.id === timeRange)?.label ?? `${hours}h`} window — still showing{' '}
+                {state?.windowHours}h
+              </div>
+            </div>
+          )}
           <WorldMap
             className="absolute inset-0"
             layers={layers}
@@ -555,6 +579,7 @@ export function InvestorEyeScreen() {
             className="min-h-[240px] flex-1 lg:min-h-0"
             events={state?.events ?? []}
             onSelect={handleSelectEvent}
+            onOpen={handleOpenEvent}
             loading={loading}
             selectedKey={selectedEvent ? (selectedEvent.id ?? selectedEvent.dedupKey) : undefined}
           />
@@ -568,11 +593,11 @@ export function InvestorEyeScreen() {
       </div>
 
       {/* ── DETAIL — the standing analysis panels ────────────────────────── */}
-      {/* CSS multi-column "masonry": a 3-track grid reserves the height of its
-          TALLEST child in every track, which left a large dead gap under the
-          short panels. Columns pack independently, so each panel sits directly
-          beneath the previous one. `break-inside-avoid` keeps panels intact. */}
-      <div className="mt-2 shrink-0 lg:columns-3 lg:gap-2 [&>*]:mb-2 [&>*]:break-inside-avoid">
+      {/* A single vertical stack. The previous `lg:columns-3` multi-column flow
+          packed panels left-to-right, so the reader had to scan sideways and the
+          reading order jumped between columns. One column reads top-to-bottom in
+          a deliberate order; the graph keeps its own full-width row below. */}
+      <div className="mt-2 flex shrink-0 flex-col gap-2">
         {needEconomy && (
           <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2">
             <div className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Economic Metric</div>

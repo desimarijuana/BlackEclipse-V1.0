@@ -13,11 +13,13 @@ import { cn } from '@/lib/utils';
 import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Search, Layers, History } from '@/lib/icons';
 import { getWidgetDefinition, renderDashboardWidget } from '@/lib/dashboard/registry';
 import { syncCoreCatalog } from '@/lib/harness/ui-sync';
+import { setUiFocus } from '@/lib/ui-engineering/ui-focus';
 import { LiveBoundary } from './live-boundary';
 import {
   addWidget,
   classifyRequest,
   createPage,
+  engineeringStatus,
   exportBlueprint,
   getCurrentPage,
   getHistory,
@@ -38,6 +40,13 @@ import {
 } from '@/lib/harness/ui-client';
 
 interface LogEntry { ts: string; text: string; ok: boolean }
+
+// The plan view returned by GET /ui/engineering/{planId} (best-effort typing —
+// the runner owns the exact shape; we only read status + task statuses).
+interface EngView {
+  plan?: { id?: string; status?: string };
+  tasks?: Array<{ id?: string; title?: string; status?: string }>;
+}
 
 const SIZE_PRESETS = [null, 160, 240, 320, 420];
 
@@ -68,6 +77,8 @@ export function UiBuilderScreen() {
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [liveRender, setLiveRender] = useState(false);
+  const [engPlanId, setEngPlanId] = useState<string | null>(null);
+  const [engView, setEngView] = useState<EngView | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
   const note = useCallback((text: string, ok = true) => {
@@ -91,6 +102,7 @@ export function UiBuilderScreen() {
       const [current, hist] = await Promise.all([getCurrentPage(id), getHistory(id)]);
       setSelectedId(id);
       setBlueprint(current.blueprint);
+      setUiFocus({ page: { blueprintId: current.blueprint.id, title: current.blueprint.title, path: current.blueprint.path ?? undefined } });
       setInstances(current.instances);
       setRevisions(hist.revisions);
       setSelectedInstance(current.instances[0]?.instanceId ?? null);
@@ -123,6 +135,25 @@ export function UiBuilderScreen() {
     const inst = instances.find((i) => i.instanceId === selectedInstance);
     setConfigDraft(inst ? { ...inst.config } : {});
   }, [selectedInstance, instances]);
+
+  // Poll a running engineering task's status so "build me a new widget" is
+  // visible instead of a fire-and-forget. Stops on a terminal plan status.
+  useEffect(() => {
+    if (!engPlanId) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await engineeringStatus(engPlanId);
+        if (cancelled) return;
+        setEngView(res.plan as unknown as EngView);
+      } catch {
+        /* transient — keep the last view */
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [engPlanId]);
 
   const filtered = useMemo(() => {
     const q = catalogSearch.trim().toLowerCase();
@@ -193,8 +224,12 @@ export function UiBuilderScreen() {
     setBusy(true);
     try {
       const res = await startEngineering(aiText, selectedId ?? undefined);
-      if (res.created && res.taskId) note(`Engineering task ${res.taskId} created (plan ${res.planId})`);
-      else note(res.message ?? 'Compose mode — no task created');
+      if (res.created && res.taskId) {
+        note(`Engineering task ${res.taskId} created (plan ${res.planId})`);
+        setEngPlanId(res.planId ?? null);
+      } else {
+        note(res.message ?? 'Compose mode — no task created');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'engineering start failed');
     } finally {
@@ -418,6 +453,30 @@ export function UiBuilderScreen() {
               <div className="mt-2 text-[11px] text-muted-foreground">
                 <span className={cn('font-medium', aiResult.mode === 'engineer' ? 'text-amber-300' : aiResult.mode === 'both' ? 'text-sky-300' : 'text-emerald-300')}>{aiResult.mode}</span>
                 {' — '}{aiResult.reasons[0]}
+              </div>
+            )}
+
+            {engPlanId && (
+              <div className="mt-2 rounded-lg bg-black/20 px-2 py-1.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-foreground">Engineering task</span>
+                  <span className={cn('rounded px-1.5 py-0.5 text-[10px]',
+                    engView?.plan?.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-300'
+                    : engView?.plan?.status === 'FAILED' ? 'bg-rose-500/20 text-rose-300'
+                    : 'bg-sky-500/20 text-sky-300')}>
+                    {engView?.plan?.status ?? 'starting'}
+                  </span>
+                </div>
+                {(engView?.tasks ?? []).slice(0, 4).map((t) => (
+                  <div key={t.id} className="mt-0.5 flex items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate">{t.title ?? t.id}</span>
+                    <span className="shrink-0 text-[10px]">{t.status}</span>
+                  </div>
+                ))}
+                {(engView?.tasks?.length ?? 0) > 4 && (
+                  <div className="mt-0.5 text-[10px]">+{(engView?.tasks?.length ?? 0) - 4} more</div>
+                )}
+                <div className="mt-1 text-[10px]">Runs in the background — see the Tasks tab for full detail.</div>
               </div>
             )}
           </div>

@@ -34,6 +34,20 @@ def test_engineer_request_creates_a_durable_task(ui):
     assert view["plan"]["id"] == result["planId"]
     assert view["tasks"], "the plan should carry the engineering task"
 
+    # Phase C: the plan is DISPATCHED (RUNNING), not left in PLANNING — else the
+    # scheduler never claims the task and "build me a widget" silently no-ops.
+    assert result["dispatched"] is True
+    assert ui.engineering._tasks.get_plan(result["planId"]).status.value == "RUNNING"  # noqa: SLF001
+
+
+def test_engineer_pins_the_caller_model_on_the_plan(ui):
+    result = ui.engineering.start(
+        "build a new widget that shows swap spreads",
+        model_settings={"provider": "openai", "model": "gpt-x", "baseUrl": "http://x", "apiKey": "k"},
+    )
+    plan = ui.engineering._tasks.get_plan(result["planId"])  # noqa: SLF001
+    assert plan.metadata.get("modelSettings", {}).get("model") == "gpt-x"
+
 
 def test_compose_request_creates_no_task(ui):
     result = ui.engineering.start("move the latency chart below the timeline")

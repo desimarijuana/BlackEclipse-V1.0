@@ -180,6 +180,12 @@ export function ChatDock({
   const pendingApproval = agentRun.turn.pendingApproval
     ?? [...messages].reverse().find(m => m.role === 'assistant' && m.pendingApproval)?.pendingApproval;
 
+  // The REAL model that served the latest turn, once the run reports it. Falls
+  // back to the last assistant message so reloading a persisted transcript keeps
+  // showing which model answered. `undefined` until one is known — never faked.
+  const activeModel = agentRun.turn.model?.model
+    ?? [...messages].reverse().find(m => m.role === 'assistant' && m.model?.model)?.model?.model;
+
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
   // hidden with `display:none`. A portal to <body> is NOT hidden by an ancestor
   // `display:none`, so without this the dock would float over every other tab.
@@ -386,7 +392,14 @@ export function ChatDock({
               activities: turn.activities,
               error: turn.error,
               research: turn.research,
+              memory: turn.memory,
               vision: turn.vision,
+              documents: turn.documents,
+              codeVerification: turn.codeVerification,
+              autonomy: turn.autonomy,
+              capability: turn.capability,
+              runId: turn.runId,
+              model: turn.model,
               pendingApproval: turn.pendingApproval,
             }
           : m,
@@ -625,13 +638,14 @@ export function ChatDock({
               <Minus size={17} />
             </button>
 
-            {/* Provider pill — the REAL configured provider, never a made-up model. */}
+            {/* Model pill — the REAL model that answered (from the run), falling
+                back to the configured provider label. Never a made-up model. */}
             <span
               className="ml-1 hidden items-center gap-1.5 rounded-full border border-border/25 bg-accent/25 px-2.5 py-1 text-[10px] font-bold text-muted-foreground sm:inline-flex"
-              title={`Chat provider: ${providerLabel}`}
+              title={activeModel ? `Model: ${activeModel}` : `Chat provider: ${providerLabel}`}
             >
               <Bot size={11} className="text-primary" />
-              {providerLabel}
+              <span className="max-w-[160px] truncate">{activeModel ?? providerLabel}</span>
             </span>
 
             <div className="ml-auto flex items-center gap-1.5">

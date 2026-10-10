@@ -58,6 +58,20 @@ export async function POST(request: Request) {
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
 
+  // Presentation-only UI focus (which page the user is on). Sanitized + bounded:
+  // strings only, trimmed, capped; anything else is dropped.
+  const uiContext = (() => {
+    const raw = body.uiContext;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const page = (raw as { page?: unknown }).page;
+    if (page === null || typeof page !== "object" || Array.isArray(page)) return undefined;
+    const p = page as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 200) : undefined);
+    const out = { blueprintId: str(p.blueprintId), title: str(p.title), path: str(p.path) };
+    if (!out.blueprintId && !out.title && !out.path) return undefined;
+    return { page: out };
+  })();
+
   let documents: Array<{ name: string; text: string }> = [];
   if (chatId) {
     try {
@@ -70,7 +84,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =
@@ -125,6 +139,8 @@ export async function POST(request: Request) {
             status: run.status,
             output: run.output,
             error: run.error,
+            provider: run.provider ?? null,
+            model: run.model ?? null,
             research: run.research ?? null,
             memory: run.memory ?? null,
             context: run.context ?? null,
