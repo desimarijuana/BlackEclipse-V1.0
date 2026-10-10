@@ -39,6 +39,8 @@ import { FullPageMap } from './full-page-map';
 import { MapViewControls } from './map-view-controls';
 import { HeatmapToggle } from './heatmap-toggle';
 import { LiveFeed } from './live-feed';
+import { ConflictResearchPanel } from './conflict-research-panel';
+import { EventDossierOverlay } from './event-dossier-overlay';
 import { AlertsPanel } from './alerts-panel';
 import { SourceHealthPanel } from './source-health-panel';
 import { SavedViews } from './saved-views';
@@ -48,6 +50,8 @@ import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 export function InvestorEyeScreen() {
   const selectedCountry = useInvestorEyeStore((s) => s.selectedCountry);
   const selectedEvent = useInvestorEyeStore((s) => s.selectedEvent);
+  const dossierOpen = useInvestorEyeStore((s) => s.dossierOpen);
+  const setDossierOpen = useInvestorEyeStore((s) => s.setDossierOpen);
   const selectedMarket = useInvestorEyeStore((s) => s.selectedMarket);
   const selectedCompany = useInvestorEyeStore((s) => s.selectedCompany);
   const activeLayers = useInvestorEyeStore((s) => s.activeLayers);
@@ -246,11 +250,13 @@ export function InvestorEyeScreen() {
     { id: 'investor-eye.refresh', label: 'Refresh Investor Eye', keys: 'R', run: handleRefresh, enabled: !fullPage && !refreshing && !searchOpen },
   ]);
 
-  // Escape clears the current selection anywhere on the screen. In full-page
-  // mode the overlay owns Escape (it exits first), so this stands down.
+  // Escape clears the current selection anywhere on the screen. Full-page mode
+  // and the full event dossier own Escape first (they close themselves), so this
+  // stands down while either is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!canHandleKeyboardEvent(e, rootRef.current) || useInvestorEyeStore.getState().fullPage || searchOpen) return;
+      const s = useInvestorEyeStore.getState();
+      if (!canHandleKeyboardEvent(e, rootRef.current) || s.fullPage || s.dossierOpen || searchOpen) return;
       if (matchesShortcut(e, 'Escape')) {
         e.preventDefault();
         clearSelection();
@@ -265,7 +271,8 @@ export function InvestorEyeScreen() {
   // a mouse. Ignored while typing or when a modifier is held.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!canHandleKeyboardEvent(e, rootRef.current) || useInvestorEyeStore.getState().fullPage || searchOpen) return;
+      const s = useInvestorEyeStore.getState();
+      if (!canHandleKeyboardEvent(e, rootRef.current) || s.fullPage || s.dossierOpen || searchOpen) return;
 
       const dir = matchesShortcut(e, 'J') || matchesShortcut(e, 'ArrowDown') ? 1 : matchesShortcut(e, 'K') || matchesShortcut(e, 'ArrowUp') ? -1 : 0;
       if (dir === 0) return;
@@ -290,17 +297,20 @@ export function InvestorEyeScreen() {
 
   if (fullPage) {
     return (
-      <FullPageMap
-        layers={layers}
-        highlightPoints={highlightPoints}
-        availableLayers={availableLayers}
-        onSelectCountry={handleSelectCountry}
-        eventCount={state?.events.length ?? 0}
-        marketCount={state?.markets.length ?? 0}
-        dataUnavailable={unavailable}
-        lastKnownAt={state?.lastKnownAt ?? undefined}
-        onExit={() => setFullPage(false)}
-      />
+      <>
+        <FullPageMap
+          layers={layers}
+          highlightPoints={highlightPoints}
+          availableLayers={availableLayers}
+          onSelectCountry={handleSelectCountry}
+          eventCount={state?.events.length ?? 0}
+          marketCount={state?.markets.length ?? 0}
+          dataUnavailable={unavailable}
+          lastKnownAt={state?.lastKnownAt ?? undefined}
+          onExit={() => setFullPage(false)}
+        />
+        {dossierOpen && <EventDossierOverlay />}
+      </>
     );
   }
 
@@ -395,7 +405,7 @@ export function InvestorEyeScreen() {
       {/* The rail is why a click "tells you what it is about": the selection
           panel sits BESIDE the map, not below the fold, so clicking a pin
           immediately shows its intelligence without scrolling. */}
-      <div className="mt-2 grid min-h-0 shrink-0 grid-cols-1 items-stretch gap-2 lg:h-[58vh] lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-2 grid min-h-0 shrink-0 grid-cols-1 items-stretch gap-2 lg:h-[62vh] lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_460px]">
         <div className="relative h-[52vh] min-h-[320px] w-full overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card lg:h-full lg:min-h-0">
           {loading && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/40">
@@ -475,29 +485,30 @@ export function InvestorEyeScreen() {
         {/* Right rail: selection intelligence, then the live stream. */}
         <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
           {selectedCompany ? (
-            <PanelShell className="h-[420px] shrink-0 lg:h-[46%]">
+            <PanelShell className="h-[420px] shrink-0 lg:h-[50%]">
               <CompanyPanel
                 company={selectedCompany}
                 onClose={() => setSelectedCompany(null)}
                 onSelectCountry={(iso2) => { setSelectedCompany(null); handleSelectCountry(iso2); }}
               />
             </PanelShell>
+          ) : liveEvent ? (
+            <PanelShell className="h-[460px] shrink-0 lg:h-[56%]">
+              <EventPanel
+                event={liveEvent}
+                onClose={() => setSelectedEvent(null)}
+                onSelectCountry={handleSelectCountry}
+                onOpen={() => setDossierOpen(true)}
+              />
+            </PanelShell>
           ) : selectedCountry ? (
-            <PanelShell className="h-[420px] shrink-0 lg:h-[46%]">
+            <PanelShell className="h-[420px] shrink-0 lg:h-[50%]">
               <CountryPanel
                 iso2={selectedCountry}
                 name={countryByIso2(selectedCountry)?.name ?? selectedCountry}
                 hours={hours}
                 onClose={() => setSelectedCountry(null)}
                 onSelectEvent={handleSelectEvent}
-              />
-            </PanelShell>
-          ) : liveEvent ? (
-            <PanelShell className="h-[460px] shrink-0 lg:h-[52%]">
-              <EventPanel
-                event={liveEvent}
-                onClose={() => setSelectedEvent(null)}
-                onSelectCountry={handleSelectCountry}
               />
             </PanelShell>
           ) : selectedMarket ? (
@@ -580,6 +591,8 @@ export function InvestorEyeScreen() {
         <AlertsPanel />
         <RiskPanel />
         <TransmissionsPanel />
+        {/* "Use AI to find conflicts": cited research findings, not fake map pins. */}
+        {state && <ConflictResearchPanel windowHours={hours} />}
         {activeLayers.includes('portfolio') && (
           <label className="glass-card flex cursor-pointer items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-[10px]">
             <span className="text-muted-foreground">Portfolio overlay</span>
@@ -607,6 +620,10 @@ export function InvestorEyeScreen() {
           {' — '}layers without data are disabled rather than faked.
         </div>
       )}
+
+      {/* Full event dossier. Portaled; rendered only while an event is selected
+          and the user has asked to open it (rail peek → "Open dossier"). */}
+      {dossierOpen && <EventDossierOverlay />}
     </div>
   );
 }

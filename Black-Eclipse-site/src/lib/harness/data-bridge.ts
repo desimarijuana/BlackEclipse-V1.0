@@ -384,11 +384,9 @@ export async function fetchCapability(
   params: Record<string, unknown>
 ): Promise<DataBridgeResult> {
   const result = await dispatchCapability(capability, params);
-  // ONE instrumentation seam: every data-fetching capability records here, so a
-  // US-equity quote, a crypto/FX quote, fundamentals, filings, news and web
-  // research all land in the same ledger via the same canonical route key. The
-  // call is fire-and-forget and best-effort; a health failure never fails a data
-  // request. Introspection routes are excluded (they would record themselves).
+  // ONE instrumentation seam: every data-fetching capability records here, so
+  // every route lands in the same ledger via the same canonical key. Best-effort;
+  // a health failure never fails a data request. Introspection routes are excluded.
   if (!NON_DATA_CAPABILITIES.has(capability)) {
     void recordCapabilityHealth(capability, params, result);
   }
@@ -457,6 +455,7 @@ async function dispatchCapability(
       return (await import("./market/bridge")).fetchMarketData(params);
     case "market_stream_config":
       return (await import("./market/stream-config")).marketStreamConfig(params);
+    case "world_events": return (await import("./world-events")).worldEvents(params);
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }

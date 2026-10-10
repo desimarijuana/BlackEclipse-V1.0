@@ -39,6 +39,7 @@ const CAPABILITIES: DataCapability[] = [
   "mcp_oauth_token_clear",
   "market_data",
   "market_stream_config",
+  "world_events",
 ];
 
 export async function POST(request: Request) {

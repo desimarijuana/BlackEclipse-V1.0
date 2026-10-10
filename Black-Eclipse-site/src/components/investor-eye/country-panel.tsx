@@ -67,8 +67,8 @@ export function CountryPanel({ iso2, name, hours, onClose, onSelectEvent }: Coun
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b border-border/10 px-4 py-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground">{data?.country.name ?? name}</div>
-          <div className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">
+          <div className="truncate text-base font-semibold text-foreground">{data?.country.name ?? name}</div>
+          <div className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">
             {iso2}
             {data?.country.region ? ` · ${data.country.region}` : ''}
             {data?.country.currency ? ` · ${data.country.currency}` : ''}
@@ -98,21 +98,21 @@ export function CountryPanel({ iso2, name, hours, onClose, onSelectEvent }: Coun
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {topTypes.map(([type, count]) => (
-                    <span key={type} className="glass-card-subtle rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                    <span key={type} className="glass-card-subtle rounded-md border border-white/10 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
                       {type.replace(/_/g, ' ')} · {count}
                     </span>
                   ))}
                 </div>
               )}
-              <div className="mt-2 space-y-1">
+              <div className="mt-2 space-y-0.5">
                 {(data?.events ?? []).slice(0, 8).map((e) => (
                   <button
                     key={e.id ?? e.dedupKey}
                     onClick={() => onSelectEvent(e)}
-                    className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-accent/40 cursor-pointer"
+                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-accent/40 cursor-pointer"
                   >
-                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: severityColor(e.severity) }} />
-                    <span className="line-clamp-2 text-[11px] text-foreground/90">{e.title}</span>
+                    <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: severityColor(e.severity) }} />
+                    <span className="line-clamp-3 text-[13px] font-medium leading-snug text-foreground/90">{e.title}</span>
                   </button>
                 ))}
               </div>
@@ -124,10 +124,10 @@ export function CountryPanel({ iso2, name, hours, onClose, onSelectEvent }: Coun
               ) : (
                 <div className="grid grid-cols-2 gap-1.5">
                   {data?.metrics.map((m) => (
-                    <div key={m.id} className="glass-card-subtle rounded-lg border border-white/10 px-2 py-1.5">
-                      <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{m.label}</div>
-                      <div className="text-[13px] font-semibold text-foreground">
-                        {m.value}{m.unit ? <span className="text-[10px] text-muted-foreground">{m.unit}</span> : null}
+                    <div key={m.id} className="glass-card-subtle rounded-lg border border-white/10 px-2.5 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{m.label}</div>
+                      <div className="text-[16px] font-semibold text-foreground">
+                        {m.value}{m.unit ? <span className="text-[11px] text-muted-foreground">{m.unit}</span> : null}
                       </div>
                     </div>
                   ))}
@@ -137,9 +137,9 @@ export function CountryPanel({ iso2, name, hours, onClose, onSelectEvent }: Coun
 
             <Section title="Trade & Market Link" count={data?.country.marketId ? 1 : 0}>
               {data?.country.marketId ? (
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-[12px] text-muted-foreground">
                   Linked JDDS market: <span className="font-mono text-foreground">{data.country.marketId}</span>
-                  <div className="mt-1 text-[10px]">
+                  <div className="mt-1 text-[11px]">
                     Market observations for this country appear on the Markets layer.
                   </div>
                 </div>
@@ -157,9 +157,9 @@ export function CountryPanel({ iso2, name, hours, onClose, onSelectEvent }: Coun
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{title}</span>
-        <span className={cn('rounded-sm border px-1 text-[9px] font-mono', count > 0 ? 'border-primary/30 text-primary' : 'border-border/40 text-muted-foreground/60')}>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{title}</span>
+        <span className={cn('rounded-sm border px-1.5 text-[10px] font-mono', count > 0 ? 'border-primary/30 text-primary' : 'border-border/40 text-muted-foreground/60')}>
           {count}
         </span>
       </div>
@@ -169,5 +169,5 @@ function Section({ title, count, children }: { title: string; count: number; chi
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="text-[10px] italic text-muted-foreground/70">{text}</div>;
+  return <div className="text-[12px] italic text-muted-foreground/70">{text}</div>;
 }

@@ -116,10 +116,10 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
     <div ref={rootRef} className={cn('flex min-h-0 flex-col rounded-2xl border border-white/10 dark:border-white/5 glass-card', className)}>
       <div className="flex items-center justify-between gap-2 border-b border-border/10 px-3 py-2">
         <div className="flex items-center gap-1.5">
-          <Radio size={12} className="text-emerald-400" />
-          <span className="text-[9px] font-bold uppercase tracking-widest text-foreground">Live Event Stream</span>
+          <Radio size={13} className="text-emerald-400" />
+          <span className="text-[11px] font-bold uppercase tracking-widest text-foreground">Live Event Stream</span>
         </div>
-        <span className="font-mono text-[9px] text-muted-foreground">{rows.length}</span>
+        <span className="font-mono text-[10px] text-muted-foreground">{rows.length}</span>
       </div>
 
       {/* Lenses */}
@@ -133,14 +133,14 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
               onClick={() => setFilter(f.id)}
               aria-pressed={on}
               className={cn(
-                'rounded-md border px-1.5 py-0.5 text-[9px] font-semibold transition-colors cursor-pointer',
+                'rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors cursor-pointer',
                 on
                   ? 'border-primary/30 bg-primary/15 text-foreground'
                   : 'border-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground',
               )}
             >
               {f.label}
-              <span className="ml-1 font-mono text-[8px] text-muted-foreground/70">{counts[f.id] ?? 0}</span>
+              <span className="ml-1 font-mono text-[10px] text-muted-foreground/70">{counts[f.id] ?? 0}</span>
             </button>
           );
         })}
@@ -153,7 +153,7 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
             <span className="text-[9px] uppercase tracking-widest text-muted-foreground/70">Loading events…</span>
           </div>
         ) : rows.length === 0 ? (
-          <div className="px-3 py-4 text-[10px] italic text-muted-foreground/70">
+          <div className="px-3 py-4 text-[12px] italic text-muted-foreground/70">
             No {active.label.toLowerCase()} events in this window.
           </div>
         ) : (
@@ -169,31 +169,31 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
                 {...listNav.rowAttributes(key)}
                 onClick={() => onSelect(e)}
                 className={cn(
-                  'flex w-full items-start gap-2 border-b border-border/5 px-3 py-1.5 text-left transition-colors cursor-pointer',
+                  'flex w-full items-start gap-2.5 border-b border-border/5 px-3 py-2.5 text-left transition-colors cursor-pointer',
                   selected ? 'bg-primary/10' : 'hover:bg-accent/30',
                   listNav.isSelected(key) && 'ring-1 ring-inset ring-primary/40',
                 )}
               >
-                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: sev }} />
+                <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sev }} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="font-mono text-[9px] text-muted-foreground">{formatClock(e.publishedAt, tz)}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{formatClock(e.publishedAt, tz)}</span>
                     <span
-                      className="rounded-sm px-1 text-[8px] font-bold uppercase tracking-wide"
+                      className="rounded-sm px-1 text-[10px] font-bold uppercase tracking-wide"
                       style={{ color: sev, backgroundColor: `${sev}1f` }}
                     >
                       {TYPE_LABEL[e.eventType] ?? e.eventType}
                     </span>
                     {e.sourceCount > 1 && (
-                      <span className="font-mono text-[8px] text-muted-foreground/70">×{e.sourceCount}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground/70">×{e.sourceCount}</span>
                     )}
                   </span>
-                  <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-foreground">
+                  <span className="mt-1 line-clamp-3 block text-[13px] font-medium leading-snug text-foreground">
                     {/* Prefer a real headline; otherwise restructure the
                         provider's synthesized actor string into a sentence. */}
                     {e.headline ?? formatEventTitle(e.title, e.placeName)}
                   </span>
-                  <span className="mt-0.5 flex items-center gap-1.5 text-[9px] text-muted-foreground/70">
+                  <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
                     {e.countries.slice(0, 3).join(', ') || 'location unknown'}
                     {link && (
                       <a

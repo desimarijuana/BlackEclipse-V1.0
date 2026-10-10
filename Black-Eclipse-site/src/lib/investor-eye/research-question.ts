@@ -9,6 +9,25 @@
 
 import type { NormalizedEvent } from './types';
 
+/**
+ * Window-level mandate: "what conflicts are happening right now?" Used when the
+ * structured feed's conflict coverage is thin/degraded and the user asks the
+ * engine to corroborate from independent reporting.
+ */
+export function windowConflictQuestion(windowHours: number): string {
+  const days = Math.round(windowHours / 24);
+  const windowLabel = windowHours >= 24
+    ? `the last ${days} day${days === 1 ? '' : 's'}`
+    : `the last ${windowHours} hours`;
+  return (
+    `Conflict situation report for ${windowLabel}: identify the significant armed conflicts, military actions, ` +
+    `attacks and coercive/sanctions developments actually reported in this period, and where each occurred. ` +
+    `For every item, cite independent sources with dates, distinguish confirmed events from single-source or ` +
+    `unconfirmed reports, note any contradictory accounts, and identify the countries, commodities, sectors and ` +
+    `publicly traded companies most plausibly exposed. Do not invent events; if the period was genuinely quiet, say so.`
+  ).trim();
+}
+
 export function eventResearchQuestion(event: NormalizedEvent): string {
   const where = event.placeName ?? (event.countries.length > 0 ? event.countries.join(', ') : 'the reported location');
   const type = event.eventType.replace(/_/g, ' ');

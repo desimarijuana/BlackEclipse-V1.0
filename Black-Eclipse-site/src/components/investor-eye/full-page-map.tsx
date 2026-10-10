@@ -128,6 +128,7 @@ export function FullPageMap({
               event={selectedEvent}
               onClose={() => setSelectedEvent(null)}
               onSelectCountry={(iso2) => { setSelectedEvent(null); onSelectCountry(iso2, countryByIso2(iso2)?.name ?? iso2); }}
+              onOpen={() => useInvestorEyeStore.getState().setDossierOpen(true)}
             />
           </div>
         )}

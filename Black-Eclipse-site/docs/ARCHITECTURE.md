@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-09
 ---
 
 # Architecture
@@ -218,7 +218,7 @@ Two mechanisms:
       bar (the panel keeps its draft because it stays mounted; dialog close is
       suppressed while previewing). The old tiny inline mock was removed.
       **App background** is a separate, immediately-applied preference owned by
-      `src/lib/backgrounds.ts` (Settings › General › Background): mode
+      `src/lib/backgrounds.ts` (Customization › ChatBot Page): mode
       `image | solid`. `image` picks one of the shipped wallpapers
       (`public/backgrounds/eclipse bg-1.svg`/`-3.png`/`-4.svg`/`-5.svg`) or the
       user's own picture; `solid` paints the landing from `solidFill`
@@ -282,7 +282,16 @@ Two mechanisms:
       `src/app/layout.tsx` (16 `--font-*` variables on `<html>`, no runtime
       request) and referenced by `WORDMARK_FONT_OPTIONS` — elegant serif, sci-fi
       display, pixel and ASCII/mono faces. Keep that list in sync with the
-      `layout.tsx` imports.
+      `layout.tsx` imports. The ChatBot page's own look — the conversation
+      typeface plus the backdrop/wordmark above — lives together on the
+      **Customization › ChatBot Page** tab (the backdrop controls moved there
+      out of General). The conversation font is a separate, immediately-applied
+      preference owned by `src/lib/chat/appearance.ts` (`be_chat_appearance_v1`):
+      it offers the same self-hosted faces (`CHAT_FONT_OPTIONS`, plus a default
+      that follows the UI font), is applied as `--chat-font` on `<html>`, and is
+      read by `ChatHistory` and the chat shell via
+      `var(--chat-font, var(--font-sans))`, so picking a face changes the
+      messages and composer live.
       This replaced the old hardcoded, dead
       `/backgrounds/eclipse bg.svg` block in `stock-chat.tsx`. The Settings
       panel is tabbed (**General · Theme · Glass & Surfaces · Aurora · Charts ·

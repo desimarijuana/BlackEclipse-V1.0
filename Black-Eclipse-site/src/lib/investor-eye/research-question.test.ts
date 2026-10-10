@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { eventResearchQuestion } from './research-question';
+import { eventResearchQuestion, windowConflictQuestion } from './research-question';
 import type { NormalizedEvent } from './types';
 
 function event(over: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -44,5 +44,25 @@ describe('eventResearchQuestion', () => {
     const q = eventResearchQuestion(event({ actors: [] }));
     expect(q).not.toContain('Reported actors');
     expect(q).toContain('corroborate');
+  });
+});
+
+describe('windowConflictQuestion', () => {
+  it('names the window and asks for cited, confirmed-vs-unconfirmed reporting', () => {
+    const q = windowConflictQuestion(168);
+    expect(q).toContain('last 7 days');
+    expect(q).toMatch(/cite independent sources/i);
+    expect(q).toMatch(/confirmed events from single-source/i);
+  });
+
+  it('uses hours for a sub-day window and days otherwise', () => {
+    expect(windowConflictQuestion(12)).toContain('last 12 hours');
+    expect(windowConflictQuestion(24)).toContain('last 1 day');
+  });
+
+  it('forbids invented events and allows an honest quiet result', () => {
+    const q = windowConflictQuestion(48);
+    expect(q).toMatch(/do not invent events/i);
+    expect(q).toMatch(/genuinely quiet/i);
   });
 });

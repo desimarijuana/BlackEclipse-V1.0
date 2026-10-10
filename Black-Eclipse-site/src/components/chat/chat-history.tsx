@@ -161,7 +161,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
   };
 
   return (
-    <div ref={rootRef} className="relative flex-1 min-h-0 w-full">
+    <div
+      ref={rootRef}
+      className="relative flex-1 min-h-0 w-full"
+      style={{ fontFamily: 'var(--chat-font, var(--font-sans))' }}
+    >
       <div
         ref={scrollRef}
         onScroll={onScroll}

@@ -77,7 +77,11 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1405→1407→1416 (security tenant-store wiring + in-flight streams).
     # Re-pinned 1416→1423 to the measured tree (in-flight wiring; the size test was
     # red on the shared working tree before the recovery work). May only shrink.
-    "service.py": 1423,
+    # Re-pinned 1423→1428 for the world-state event tools (`register_world_tools`
+    # import + call), exposing Investor Eye's GeopoliticalEvent feed to the agent
+    # runtime on the same registry. May only shrink; the registration block is a
+    # split candidate alongside the subsystem-construction wiring.
+    "service.py": 1428,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

@@ -1509,6 +1509,84 @@ cited evidence rather than a generated narrative.
 
 ---
 
+## 5r. Phase 20 — AI conflict search, and world events on the Python tool registry
+
+Two completions of the Phase 2/4 work.
+
+### "Find conflicts with AI" (`conflict-research-panel.tsx`)
+
+When the structured feed's conflict coverage is thin — or the user simply wants
+independent corroboration — the analysis row now carries a **Conflict research
+(AI, cited)** panel. It asks the shared Evidence & Research Engine for a conflict
+situation report over the current window and renders the engine's findings
+(sources, claims with verification status, contradictions) via the shared
+`research-findings.tsx` presentation.
+
+It deliberately does **not** create map pins. Turning an LLM finding into a
+plotted event needs a provenance/identity policy we will not fake, so the panel
+gives exactly what the engine can defend and labels it as research. The mandate
+(`windowConflictQuestion`) is pure and tested, and forbids invented events.
+
+### World events on the Python tool registry (`get_world_events`)
+
+The authoritative agent runtime is Python, but it had no access to Investor Eye's
+`GeopoliticalEvent` feed. Added, following the established finance-tool pattern:
+
+- **`world_events` JDdS bridge capability** — a new read-only capability in its
+  own module (`src/lib/harness/world-events.ts`, extracted so the ratcheted
+  `data-bridge.ts` does not grow). It reads normalized events with window/type/
+  severity/country/text filters or a single event by id, ranked by relevance then
+  recency, and copies the `rowToEvent` field shapes.
+- **`get_world_events` Python tool** (`python/harness/world_tools.py`, registered
+  in `service.py`) — the honesty contract mirrors the finance tools: an
+  unreadable store is a `source_failure`, never "no events happened"; an empty
+  result is a no-match over a *filtered* feed, explicitly not proof the world was
+  calm.
+
+---
+
+## 5s. Phase 21 — the full event dossier, and actionable AI setup
+
+Two experience fixes from real use.
+
+### Clicking an event opens a real dossier
+
+The dossier previously lived only in the narrow right rail (a long document in
+~360px), and in full-page map mode in a `max-w-sm` bottom sheet. Selection now
+has two levels:
+
+- **Rail peek** — single click still shows the compact panel beside the map.
+- **Full dossier** — an **"Open dossier"** button in the header (or double-click
+  the panel) opens `event-dossier-overlay.tsx`: a wide, centred, **two-column**
+  overlay (`EventPanel wide`, using the same CSS-columns packing as the standing
+  panels), portaled to `document.body` like `FullPageMap`, dismissed with
+  **Esc** (the screen's Escape/j-k handlers stand down while it is open), a
+  backdrop click, or **Back to map**. `store.dossierOpen` is view state,
+  deliberately not persisted.
+
+### "AI not configured" is actionable, not a dead end
+
+The Analyst and the Evidence/Conflict-research panels used to print
+"no AI provider is configured" with no way forward. They now show **Open AI
+settings**, which deep-links to the exact section: a new SSR-safe helper
+(`navigation.ts`) dispatches `be:navigate { tab: 'settings', section: 'ai' }`,
+and the shell's handler opens the **Settings modal at that section** (settings is
+a modal, not a tab). The research-engine panels distinguish "needs the Python
+runtime" (`npm run setup:python` — stated, not deep-linkable) from "needs
+provider configuration" (deep-linked).
+
+### The rail was unreadable — widened and enlarged
+
+User feedback: the right rail was 360px with 8–10px type, so a clicked event or
+country was very hard to read. Fixed: rail **440px (lg) / 460px (xl)**, hero
+**62vh**; the Live Event Stream and Country panel now use **11–13px** type,
+larger severity markers, more row padding and **3-line** titles; the dossier
+`Block`/`Row` primitives went 9–10px → 11–12px. The rail's panel **precedence is
+company → event → country → market**, so clicking a conflict always shows the
+event dossier rather than a stale country panel. Presentation only.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

@@ -14,14 +14,14 @@
 //     card also shows the draft in isolation.
 //   * "Apply" persists the draft; "Discard" restores the saved theme.
 //
-// Tabs: Theme · Glass & Surfaces · Aurora · Charts · Language & Access.
+// Tabs: Theme · Glass & Surfaces · Aurora · Charts · ChatBot Page · Language & Access.
 
 import { useEffect, useRef, useState } from "react";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
-  Eye, EyeOff, Save, PanelLeft,
+  Eye, EyeOff, Save, PanelLeft, MessageSquareText,
 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -50,10 +50,11 @@ import {
 } from "@/lib/backgrounds";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
+import { ChatbotPageSettings } from "./chatbot-page-settings";
 import { PreviewLauncher } from "./customization-preview";
 import { SubSection, Toggle } from "./settings-ui";
 
-type CustomTab = "general" | "theme" | "glass" | "aurora" | "charts" | "access";
+type CustomTab = "general" | "theme" | "glass" | "aurora" | "charts" | "chatbot" | "access";
 
 /** The live ChatBot backdrop, captured for export / preset save. */
 function currentBackgroundSnapshot(): Partial<BackgroundPrefs> {
@@ -602,14 +603,14 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     { id: "glass", label: "Glass & Surfaces", icon: Layers },
     { id: "aurora", label: "Aurora", icon: Sparkles },
     { id: "charts", label: "Charts", icon: Activity },
+    { id: "chatbot", label: "ChatBot Page", icon: MessageSquareText },
     { id: "access", label: "Language & Access", icon: Accessibility },
   ];
 
   // The draft + Apply/Discard model only applies to theme-backed tabs. General,
-  // Background and Language & Access autosave instantly, so the toolbar would
-  // imply unsaved state that does not exist — hide it there.
+  // ChatBot Page (backdrop + conversation font) and Language & Access autosave
+  // instantly, so the toolbar would imply unsaved state that does not exist.
   const draftBacked = tab === "theme" || tab === "glass" || tab === "aurora" || tab === "charts";
-
   return (
     <div className="space-y-6">
       {/* ── Live preview toggle + Apply/Discard + full-screen preview ──── */}
@@ -885,6 +886,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
       {tab === "charts" && (
         <div className="animate-fade-in-up"><ChartSettingsPanel /></div>
       )}
+      {tab === "chatbot" && <ChatbotPageSettings />}
 
       {/* ══ Language & Access ══════════════════════════════════════════ */}
       {tab === "access" && (

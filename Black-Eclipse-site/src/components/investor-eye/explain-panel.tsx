@@ -14,8 +14,9 @@
 // says so, rather than pretending to work.
 
 import { useEffect, useState } from 'react';
-import { Sparkles, Loader2, AlertTriangle, RefreshCw } from '@/lib/icons';
+import { Sparkles, Loader2, AlertTriangle, RefreshCw, Settings } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { AI_SETTINGS_SECTION, openSettingsSection } from '@/lib/investor-eye/navigation';
 
 interface ExplainResponse {
   success?: boolean;
@@ -126,9 +127,15 @@ export function ExplainPanel({ eventId }: { eventId?: string }) {
       )}
 
       {state.status === 'unconfigured' && (
-        <div className="rounded-lg border border-border/30 px-2 py-1.5 text-[10px] text-muted-foreground">
-          No AI provider is configured, so the analyst is unavailable.
-          {state.error ? <span className="block text-[9px] text-muted-foreground/70">{state.error}</span> : null}
+        <div className="space-y-1.5 rounded-lg border border-primary/25 bg-primary/5 px-2 py-1.5 text-[10px] text-muted-foreground">
+          <div>No AI provider is configured, so the analyst is unavailable.</div>
+          {state.error ? <div className="text-[9px] text-muted-foreground/70">{state.error}</div> : null}
+          <button
+            onClick={() => openSettingsSection(AI_SETTINGS_SECTION)}
+            className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/15 px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-primary/25 cursor-pointer"
+          >
+            <Settings size={11} /> Configure AI provider
+          </button>
         </div>
       )}
     </div>

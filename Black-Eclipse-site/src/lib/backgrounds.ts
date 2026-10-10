@@ -56,10 +56,10 @@ export type WordmarkAlign = 'left' | 'center' | 'right';
 export const DEFAULT_WORDMARK_TEXT = 'ECLIPSE AGENT';
 
 /**
- * The default wordmark typeface — a high-contrast Didone/Bodoni display face
- * (the Hermes-Agent look), self-hosted via next/font as `--font-bodoni`.
+ * The default wordmark typeface — Michroma, a wide geometric sci-fi display
+ * face, self-hosted via next/font as `--font-michroma`.
  */
-export const DEFAULT_WORDMARK_FONT = 'var(--font-bodoni), Georgia, serif';
+export const DEFAULT_WORDMARK_FONT = 'var(--font-michroma), system-ui, sans-serif';
 
 export interface BackgroundPrefs {
   mode: BackgroundMode;
@@ -186,8 +186,8 @@ const WORDMARK_ALIGNS: readonly WordmarkAlign[] = ['left', 'center', 'right'];
 const MAX_WORDMARK_LENGTH = 64;
 
 export const BACKGROUND_MODE_OPTIONS: { id: BackgroundMode; label: string; hint: string }[] = [
-  { id: 'image', label: 'Image', hint: 'A shipped or uploaded wallpaper' },
   { id: 'solid', label: 'Solid', hint: 'A color, gradient or pattern with a customizable wordmark' },
+  { id: 'image', label: 'Image', hint: 'A shipped or uploaded wallpaper' },
 ];
 
 export const SOLID_FILL_OPTIONS: { id: SolidFill; label: string; hint: string }[] = [

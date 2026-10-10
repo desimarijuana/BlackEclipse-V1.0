@@ -10,13 +10,14 @@
 //   * Live Data         — how often dashboards re-fetch prices.
 //   * Safety            — destructive-action confirmation (localStorage via
 //     `general-prefs`).
-//   * Background        — the app backdrop picker (self-contained store).
+//
+// The ChatBot page backdrop/wordmark now lives on Customization › ChatBot Page.
 //
 // It is self-contained: the parent passes the values it already fetched and a
 // persist callback, keeping the merge additive and the parent shell thin.
 
 import { useEffect, useState } from "react";
-import { Image as ImageIcon, Monitor, RefreshCcw, RotateCcw, ShieldCheck } from "@/lib/icons";
+import { Monitor, RefreshCcw, RotateCcw, ShieldCheck } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,7 +28,6 @@ import {
   DEFAULT_GENERAL_PREFS, START_SCREEN_OPTIONS, loadGeneralPrefs, saveGeneralPrefs,
   type GeneralPrefs, type StartScreen,
 } from "@/lib/general-prefs";
-import { BackgroundSettingsPanel } from "./background-settings";
 import { Field, Panel, SubSection, Toggle } from "./settings-ui";
 
 export interface GeneralAppPreferences {
@@ -192,11 +192,9 @@ export function GeneralSettingsPanel({
         </Panel>
       </SubSection>
 
-      {/* Background — pattern / wallpaper / wordmark. Self-contained store, so
-          it applies live; leads nothing else and reads as its own section. */}
-      <SubSection icon={ImageIcon} title="Background">
-        <BackgroundSettingsPanel />
-      </SubSection>
+      {/* Background + landing wordmark moved to Customization › ChatBot Page,
+          alongside the conversation font, so every ChatBot-page look lives in
+          one place. */}
 
       <div className="flex justify-end">
         <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>

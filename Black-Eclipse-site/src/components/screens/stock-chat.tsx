@@ -19,6 +19,7 @@ import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
 import { useHydrateBackground } from '@/lib/backgrounds';
+import { useHydrateChatAppearance } from '@/lib/chat/appearance';
 import { Message } from '@/types/chat';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { restoreWorkspaceForChat } from '@/lib/agent-workspace/restore';
@@ -139,6 +140,8 @@ function StockChatContent() {
   useHydrateTheme();
   // Hydrate the app background (wallpaper; ChatBot page only).
   useHydrateBackground();
+  // Hydrate the ChatBot conversation font (ChatBot page only).
+  useHydrateChatAppearance();
   const t = useT();
   // Full-screen theme preview (Settings › Customization) hides the modal so the
   // real app can be auditioned; the panel stays mounted to keep its draft.
@@ -392,8 +395,15 @@ function StockChatContent() {
   // Screener panel links out to the full screener tab).
   useEffect(() => {
     const onNavigate = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
-      if (tab) setActiveTab(tab as AppTab);
+      const detail = (e as CustomEvent<{ tab?: string; section?: string }>).detail;
+      // Settings is a modal, not a tab: open it at the requested section instead
+      // of switching to a tab that renders nothing.
+      if (detail?.tab === 'settings') {
+        if (detail.section) setSettingsSection(detail.section as SectionId);
+        setSettingsOpen(true);
+        return;
+      }
+      if (detail?.tab) setActiveTab(detail.tab as AppTab);
     };
     window.addEventListener('be:navigate', onNavigate);
     return () => window.removeEventListener('be:navigate', onNavigate);
@@ -974,7 +984,9 @@ function StockChatContent() {
               <div className={cn(
                 'w-full h-full flex flex-col items-center justify-between pt-2 md:pt-4 relative min-w-0 transition-[padding] duration-500 ease-out',
                 focusMode && 'pt-0',
-              )}>
+              )}
+                style={{ fontFamily: 'var(--chat-font, var(--font-sans))' }}
+              >
                 {messages.length === 0 ? (
                   <div className="flex-1 flex w-full flex-col items-center min-h-0">
                     <EmptyState

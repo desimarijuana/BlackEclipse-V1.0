@@ -39,7 +39,7 @@ const RATCHET: Record<string, number> = {
   "src/components/screens/market-bubbles.tsx": 1413,
   "src/components/chart/chart-widget.tsx": 1405,
   "src/lib/workspace/workspace-canvas.tsx": 1374,
-  "src/components/screens/customization-settings.tsx": 1336,
+  "src/components/screens/customization-settings.tsx": 1337,
   "src/components/screens/market-news.tsx": 1336,
   // Grew when the AI section gained a real provider select + model dropdown
   // (the previous datalist was not surfaced by the input primitive). Pinned

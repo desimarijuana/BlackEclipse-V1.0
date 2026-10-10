@@ -87,6 +87,13 @@ interface InvestorEyeStore {
    */
   fullPage: boolean;
 
+  /**
+   * The selected event's FULL dossier is open as a wide overlay (vs the compact
+   * right-rail peek). View state — deliberately NOT persisted, so reopening the
+   * app never lands on a modal.
+   */
+  dossierOpen: boolean;
+
   /** Economic metric for the economy layer. */
   economicMetric: string;
   searchQuery: string;
@@ -113,6 +120,7 @@ interface InvestorEyeStore {
   setShowStars: (on: boolean) => void;
   setShowCountryLabels: (on: boolean) => void;
   setFullPage: (on: boolean) => void;
+  setDossierOpen: (on: boolean) => void;
   setEconomicMetric: (id: string) => void;
   setSearchQuery: (q: string) => void;
   setPortfolioOverlay: (on: boolean) => void;
@@ -234,6 +242,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     showStars: persisted.showStars ?? true,
     showCountryLabels: persisted.showCountryLabels ?? true,
     fullPage: false,
+    dossierOpen: false,
     economicMetric: persisted.economicMetric ?? 'inflation',
     searchQuery: '',
     portfolioOverlay: persisted.portfolioOverlay ?? false,
@@ -249,7 +258,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     setSelectedCompany: (company) =>
       set({ selectedCompany: company, selectedCountry: company?.iso2 ?? get().selectedCountry }),
     clearSelection: () =>
-      set({ selectedCountry: null, selectedEvent: null, selectedMarket: null, selectedCompany: null }),
+      set({ selectedCountry: null, selectedEvent: null, selectedMarket: null, selectedCompany: null, dossierOpen: false }),
 
     toggleLayer: (id) => {
       const current = get().activeLayers;
@@ -282,6 +291,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
       persist(get());
     },
     setFullPage: (on) => set({ fullPage: on }),
+    setDossierOpen: (on) => set({ dossierOpen: on }),
     setEconomicMetric: (id) => {
       set({ economicMetric: id });
       persist(get());

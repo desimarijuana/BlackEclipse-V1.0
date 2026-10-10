@@ -16,7 +16,7 @@
 // dressing up its actor string as reporting.
 
 import { useEffect, useState } from 'react';
-import { X, ExternalLink, MapPin, Loader2 } from '@/lib/icons';
+import { X, ExternalLink, MapPin, Loader2, Maximize2 } from '@/lib/icons';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { actorTypeLabel } from '@/lib/investor-eye/cameo';
 import { countryByIso2, countryByIso3 } from '@/lib/investor-eye/countries';
@@ -35,18 +35,33 @@ interface EventPanelProps {
   event: NormalizedEvent;
   onClose: () => void;
   onSelectCountry?: (iso2: string) => void;
+  /** When provided, the header offers "Open dossier" and double-click opens it. */
+  onOpen?: () => void;
+  /** Wide layout (the full dossier overlay): sections flow into two columns. */
+  wide?: boolean;
 }
 
-export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps) {
+export function EventPanel({ event, onClose, onSelectCountry, onOpen, wide }: EventPanelProps) {
   // Recover a real headline once, at the panel level, so the header and the
   // "What happened" block agree rather than one fetching independently.
   const article = useArticleMeta(event);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <Header event={event} onClose={onClose} headline={article.headline} />
+    <div
+      className="flex h-full flex-col overflow-hidden"
+      onDoubleClick={onOpen}
+    >
+      <Header event={event} onClose={onClose} headline={article.headline} onOpen={onOpen} wide={wide} />
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3 scrollbar-hide">
+      <div className={cn(
+        'flex-1 overflow-y-auto px-4 py-3 scrollbar-hide',
+        wide
+          // Wide dossier: pack the sections into two balanced columns instead of
+          // one long strip, so the whole record is readable without a mile of
+          // scroll. Same CSS-columns technique the standing panels already use.
+          ? 'gap-5 space-y-4 lg:columns-2 lg:gap-6 lg:space-y-0 [&>*]:break-inside-avoid [&>*]:mb-4'
+          : 'space-y-4',
+      )}>
         <WhatHappened event={event} article={article} />
         {event.actors && event.actors.length > 0 && <Actors event={event} />}
         <WhereAndWhen event={event} onSelectCountry={onSelectCountry} />
@@ -152,10 +167,10 @@ function useArticleMeta(event: NormalizedEvent) {
   };
 }
 
-function Header({ event, onClose, headline }: { event: NormalizedEvent; onClose: () => void; headline?: string }) {
+function Header({ event, onClose, headline, onOpen, wide }: { event: NormalizedEvent; onClose: () => void; headline?: string; onOpen?: () => void; wide?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-2 border-b border-border/10 px-4 py-3">
-      <div className="min-w-0">
+      <div className={cn('min-w-0', wide && 'max-w-[70%]')}>
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: severityColor(event.severity) }} />
           <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">
@@ -178,13 +193,24 @@ function Header({ event, onClose, headline }: { event: NormalizedEvent; onClose:
           {headline ?? formatEventTitle(event.title, event.placeName)}
         </div>
       </div>
-      <button
-        onClick={onClose}
-        className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-        aria-label="Close event panel"
-      >
-        <X size={14} />
-      </button>
+      <div className="flex shrink-0 items-center gap-1">
+        {onOpen && !wide && (
+          <button
+            onClick={onOpen}
+            className="flex items-center gap-1 rounded-lg border border-primary/25 bg-primary/10 px-2 py-1 text-[9px] font-semibold text-foreground hover:bg-primary/15 cursor-pointer"
+            title="Open the full dossier (or double-click the panel)"
+          >
+            <Maximize2 size={10} /> Open dossier
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+          aria-label="Close event panel"
+        >
+          <X size={14} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -573,8 +599,8 @@ function EventTimeline({ event }: { event: NormalizedEvent }) {
 function Block({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{title}</div>
-      {hint && <div className="mb-1 text-[9px] italic text-muted-foreground/70">{hint}</div>}
+      <div className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{title}</div>
+      {hint && <div className="mb-1 text-[11px] italic text-muted-foreground/70">{hint}</div>}
       {children}
     </div>
   );
@@ -582,9 +608,9 @@ function Block({ title, hint, children }: { title: string; hint?: string; childr
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-0.5">
-      <span className="text-[10px] text-muted-foreground">{label}</span>
-      <span className="text-right text-[10px] font-medium text-foreground">{value}</span>
+    <div className="flex items-start justify-between gap-3 py-1">
+      <span className="text-[12px] text-muted-foreground">{label}</span>
+      <span className="text-right text-[12px] font-medium text-foreground">{value}</span>
     </div>
   );
 }

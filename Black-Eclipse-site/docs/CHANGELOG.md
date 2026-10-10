@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-09
 
+- **Investor Eye: readable rail, full dossier overlay, AI-setup CTAs, agent world-events tool.**
+  Right rail widened to 440/460px and retyped (11–13px) for readability, with
+  the event dossier prioritised over the country panel; a wide, two-column
+  **full event dossier overlay** opens via "Open dossier"/double-click (Esc/back,
+  `store.dossierOpen`); the Explain/Research panels now offer an actionable
+  "Open AI settings" deep link (`be:navigate` → Settings modal at the AI
+  section); and the authoritative Python runtime gains `get_world_events` over a
+  new `world_events` JDdS bridge capability. Bundles in-flight ChatBot-page
+  customization. Full `vitest` 235 files / 2505 tests green, `tsc` clean.
+  docs updated: `docs/investor-eye-architecture.md` (§5s).
+
 - **Fundamentals: first-party web-extraction fallback (parse research into
   figures).** New deterministic `src/lib/fundamentals/research-parse.ts`
   (`parseFinancialFacts`/`parseNumber`) pulls standard line items (revenue, gross/

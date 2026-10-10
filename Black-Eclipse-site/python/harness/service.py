@@ -96,6 +96,11 @@ class AgenticService:
         # retrieval tools are the provider-agnostic path the agent should prefer.
         register_finance_tools(self.registry)
         register_retrieval_tools(self.registry)
+        # World-state events (Investor Eye) — the same JDdS feed the UI renders,
+        # exposed read-only on the SAME registry.
+        from .world_tools import register_world_tools  # noqa: PLC0415
+
+        register_world_tools(self.registry)
         # The memory/skill tools the system prompt promises — on the SAME
         # registry, so validation/permission/timeout machinery is shared.
         register_memory_tools(self.registry)
