@@ -28,6 +28,7 @@ from .ui.tools import UI_TOOLS
 # `quant/bootstrap.py`; imported as the ONE canonical list so the allowlist cannot
 # drift from what is registered.
 from .quant.tools import QUANT_TOOLS
+from .stats.tools import STATS_TOOLS
 # The shared quantitative-research data tools (verification, resampling,
 # alignment, versioned datasets). Registered by `market/bootstrap.py`; imported as
 # the ONE canonical list.
@@ -280,6 +281,12 @@ ECLIPSE_AGENT = AgentConfig(
         # walk-forward, Monte-Carlo, sensitivity and robustness — over the same
         # verified datasets.
         *QUANT_TOOLS,
+        # Statistical Analysis & Feature Engineering Engine: fourteen
+        # deterministic statistical tools (returns, volatility, correlation,
+        # beta, drawdown, stationarity, cointegration, autocorrelation,
+        # regression, regime, features, outliers, lead-lag, information
+        # coefficient) over caller-supplied series.
+        *STATS_TOOLS,
         # Phase-1 JDdS tools (still available)
         "get_market_snapshot",
         "get_fundamentals",

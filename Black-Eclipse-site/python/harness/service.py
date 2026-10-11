@@ -146,6 +146,10 @@ class AgenticService:
         from .quant.bootstrap import install_quant_layer  # noqa: PLC0415
 
         install_quant_layer(self)
+        # Statistical Analysis & Feature Engineering Engine (14 tools); wiring in
+        # `stats/bootstrap.py`, registered on the SAME registry.
+        from .stats.bootstrap import install_stats_layer  # noqa: PLC0415
+        install_stats_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.

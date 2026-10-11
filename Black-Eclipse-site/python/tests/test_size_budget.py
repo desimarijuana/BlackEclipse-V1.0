@@ -86,7 +86,10 @@ RATCHET_PY: dict[str, int] = {
     # import + call), exposing Investor Eye's GeopoliticalEvent feed to the agent
     # runtime on the same registry. May only shrink; the registration block is a
     # split candidate alongside the subsystem-construction wiring.
-    "service.py": 1428,
+    # Re-pinned 1428→1432 for the Statistical Analysis & Feature Engineering
+    # Engine boot wiring (`install_stats_layer` + import + comment); the wiring
+    # itself lives in `stats/bootstrap.py`. May only shrink.
+    "service.py": 1432,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

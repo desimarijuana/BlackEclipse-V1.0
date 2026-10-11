@@ -8,6 +8,148 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Strategy Development Engine (Phase 7): AI Strategy Copilot support —
+  grounded signals, research plans, reports and the remaining required tools.**
+  Added `quant/copilot.py` (`calculate_signals` = the decision timeline with
+  reason codes and NO orders; `build_research_plan` = an explicit hypothesis /
+  split / benchmark / cost / parameter-search / acceptance-criteria / bias spec;
+  `build_report` = Markdown grounded only in a stored experiment + artifact; plus
+  rule/sizing/stop helpers) and `quant/copilot_tools.py` (12 tools:
+  `calculate_signals`, `create_research_plan`, `generate_strategy_report`,
+  `generate_entry_exit_rules`, `configure_position_sizing`,
+  `configure_stops_and_targets`, `get_experiment_status`, `cancel_experiment`,
+  `calculate_performance_metrics`, `analyze_trade_log`, `compare_strategies`,
+  `run_parameter_sweep` — reusing existing handlers where one exists). Quant tools
+  now total 43. Routes `/quant/signals`,
+  `/quant/strategies/{id}/research-plan`, `/quant/experiments/{id}/report`.
+  Grounding is carried by the tools (deterministic artifacts or typed errors);
+  the agent system prompt is at its hard size ceiling, so no prompt text changed.
+  `backtestClient` gains `researchPlan`/`report`/`signals`. Docs updated:
+  `docs/quant-engine.md`, `docs/NAVIGATION.md`, `docs/harness/decisions.md`
+  (ADR-H172). Tests: `python/tests/test_quant_copilot.py` (7).
+
+- **Strategy Development Engine (Phase 3 backend): the Python Strategy SDK and
+  managed, isolated runtime.** Added `quant/sdk.py` (typed `Strategy` base +
+  `Context` + `run_user_strategy`; the driver *subclasses* `BacktestEngine`, so
+  fills, protective legs, risk, portfolio accounting and metrics are the SAME
+  code path as a declarative backtest), `quant/sdk_worker.py` +
+  `quant/sdk_runtime.py` (the source runs in a **separate process** with
+  `python -I`, a scrubbed environment — no PYTHONPATH/credentials — a wall-clock
+  timeout, an output-size cap and POSIX rlimits where available; results are
+  rehydrated into a typed `BacktestResult`), and reference strategies in
+  `quant/examples/` (`ma_crossover`, `mean_reversion`, `vol_target_trend`). The
+  `run_python_strategy` agent tool and `POST /quant/python/run` reuse the store;
+  the Backtest screen gains a "Python lab" panel (`python-lab.tsx`) wired via
+  `backtestClient.runPythonStrategy` + `useBacktestScreen.loadResult`. Capability
+  is advertised `partial` for `pythonStrategies` (process isolation, not a
+  container — stated honestly). Docs updated: `docs/quant-engine.md`,
+  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H171). Tests:
+  `python/tests/test_quant_sdk.py`, `test_quant_sdk_runtime.py`.
+  _(Multi-file project authoring + a syntax-highlighting editor remain; the lab
+  v1 is a single source module.)_
+
+- **Strategy Development Engine (Phase 4 UI): the dependency-free Visual
+  Strategy Builder canvas.** Added `src/components/screens/backtest/
+  strategy-canvas.tsx` (node palette grouped by category, drag-to-move,
+  typed-port click-to-connect, config inspector from each node's schema,
+  compile-with-diagnostics, and save-the-compiled-strategy) and its pure,
+  unit-tested core `src/lib/backtest/graph-editor.ts` (node/edge mutation,
+  connection rules, editor⇄`StrategyGraph` conversion, geometry, draft
+  persistence). Mounted behind a "Visual builder" toggle in the Backtest screen;
+  it calls `/quant/graph/*` and never computes signals itself. No new
+  dependency (the repo had no graph/ELK library). Docs updated:
+  `docs/quant-engine.md`, `docs/NAVIGATION.md`, `docs/harness/decisions.md`
+  (ADR-H170). Tests: `src/lib/backtest/graph-editor.test.ts` (9).
+
+- **Strategy Development Engine (Phase 4 core): the Visual Strategy Builder's
+  typed graph model, versioned node registry and graph→IR compiler.** Added
+  `quant/graph_model.py` (validated `StrategyGraph`: identity + typed nodes +
+  edges), `quant/nodes.py` (the versioned registry: data/universe, all catalog
+  indicators incl. Bollinger/MACD output selectors, logic compare/cross/group/
+  constant, trade entry/exit, sizing, stops/targets, risk limits — each with
+  typed ports, config schema and a pure `compile`), and `quant/compiler.py`
+  (parse → resolve types/versions → validate ports/types → deterministic topo
+  order + cycle detection → assemble the canonical `StrategySpec` → shared
+  `validate_strategy`; returns structured diagnostics and a spec-path→node-id
+  source map). Three agent tools (`compile_strategy_graph`,
+  `validate_strategy_graph`, `list_strategy_nodes`) and `/quant/graph/{nodes,
+  compile,validate}` routes reuse the same registry/compiler; `backtestClient`
+  gains `listGraphNodes`/`compileGraph`/`validateGraph`. The graph is an
+  authoring front only — it compiles to the SAME IR the Python lab and AI copilot
+  use, so it shares versions, bundles, validation and the whole engine. Docs
+  updated: `docs/quant-engine.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H170). Tests:
+  `python/tests/test_quant_graph_compiler.py` (15).
+  _(The React canvas UI, Python Strategy Lab and AI copilot authoring remain —
+  future phases on this same IR + compiler contract.)_
+
+- **Strategy Development Engine (Phase 1–2 foundation): immutable
+  content-addressed strategy versions, Strategy IR schema identity, structural
+  version diff, and portable strategy bundles.** Added `quant/schema.py`
+  (`STRATEGY_SCHEMA_VERSION`, same-major compatibility policy, a lossless
+  migration registry, and `spec_content_hash` = sha256 over the canonical IR) and
+  `quant/bundle.py` (self-describing zip — manifest + canonical IR + README —
+  with size/member caps, path-traversal rejection, schema gating and a
+  hash-mismatch warning; import re-validates through the normal schema path).
+  `quant/store.py` now records `contentHash`/`schemaVersion` on every version
+  (idempotent `ALTER` upgrade), **freezes** a version once an experiment
+  references it (`STRATEGY_VERSION_IMMUTABLE`/409 when different content is
+  re-saved under it), and adds `version_meta` + `diff_versions`. Three agent
+  tools (`export_strategy`, `import_strategy`, `diff_strategy_versions`) and
+  matching `/quant/strategies/{id}/export|import|diff` routes reuse the same
+  store/engine; the Backtest UI gains a `StrategyPortability` panel
+  (list versions, export/import JSON bundle, diff). Docs updated:
+  `docs/quant-engine.md`, `docs/NAVIGATION.md`, `docs/harness/decisions.md`
+  (ADR-H169). Tests: `python/tests/test_quant_versioning.py`,
+  `python/tests/test_quant_bundle.py`, `src/lib/backtest/backtest-client.test.ts`.
+  _(Python Strategy Lab, visual strategy builder + compiler, and AI copilot
+  authoring remain — future phases on the same IR + bundle contract.)_
+
+- **Statistical engine — persistence, feature registry, market-data adapter,
+  background jobs, caching and benchmarks (UI still pending).** Added to
+  `python/harness/stats/`: `datasets.py` (gateway-backed series/frame resolution
+  with honest errors) and `service.py` (cached, persistent, audited execution;
+  `execute_with_data`; artifact spilling for >5000-point series); `store.py`
+  (`StatsStore` on `agent-memory.db`: `StatsFeature`/`StatsFeatureVersion`
+  immutable versions, `StatsAnalysis`, `StatsRun`, `StatsValidation`,
+  `StatsAudit`, `StatsArtifact`, gzipped artifacts under `.black-eclipse/stats/`);
+  `feature_registry.py` (semver versioning, clone/compare/rollback, dependency
+  graph with cycle detection, real evaluate-based validate/preview, pipeline
+  steps); `cache.py` (computation-identity LRU cache); `runner.py`
+  (`StatsRunner` background jobs: submit/progress/cancel + durable mirror). Router
+  `routers/stats.py` grew to 23 operator-gated routes (`/analyses[/run|/submit]`,
+  `/jobs`, `/formulas/validate|execute`, `/features/*`, `/datasets/series`,
+  `/artifacts/{id}`, `/audit`). Agent tools extended to 31 in `stats/tools.py`
+  (registry + formula + data-driven analysis + jobs), allowlisted in `agents.py`.
+  Tests: `test_stats_{store,features,datasets,service,runner,performance}.py`
+  (40 new; 122 stats tests total). Benchmarks: returns 100k ~36 ms, corr 20×2000
+  ~13 ms, 20 features/20k ~39 ms. docs updated: `docs/quant-research/
+  IMPLEMENTATION_STATUS.md`, `API_CONTRACTS.md`, `FEATURES.md`,
+  `DATA_AND_PROVENANCE.md`, `OPERATIONS.md`, `TESTING.md`, `docs/NAVIGATION.md`.
+  _(Research Studio UI and per-workspace authorization remain.)_
+
+- **Statistical Analysis & Feature Engineering Engine (backend): fourteen
+  deterministic statistical tools, a safe formula language, agent tools, an
+  HTTP surface and the Next.js front door.** New package
+  `python/harness/stats/`: shared contract/provenance (`base.py`),
+  first-principles distributions (`dist.py`), a dependency-free Nelder–Mead
+  optimizer (`optim.py`), OLS/WLS/HC/HAC/ridge/lasso (`linreg.py`), a restricted
+  expression parser + whitelist evaluator (`formula.py`), and the fourteen tools
+  (`m_returns`, `m_volatility` [incl. EWMA/Parkinson/Garman–Klass/GARCH(1,1)],
+  `m_correlation`, `m_beta`, `m_drawdown`, `m_stationarity` [ADF/KPSS],
+  `m_cointegration` [Engle–Granger/Johansen], `m_autocorrelation` [ACF/PACF/
+  Ljung–Box], `m_regression`, `m_regime` [vol/trend/changepoint/HMM],
+  `m_features`, `m_outliers`, `m_leadlag`, `m_information`). Registry
+  `registry.py`; agent tools `tools.py` (14 + `stats_capabilities`), allowlisted
+  in `agents.py`; boot wiring `bootstrap.py` called from `service.py`; operator-
+  gated routes `routers/stats.py` (`/stats/v1`) included by `main.py`; front door
+  `src/app/api/stats/[...path]/route.ts` + `src/lib/stats-client.ts`. Tests:
+  `python/tests/test_stats_{dist,core,relationships,inference,structure,formula,
+  registry}.py` (82 passing). docs updated: `docs/quant-research/
+  IMPLEMENTATION_STATUS.md`, `STATISTICAL_METHODS.md`, `API_CONTRACTS.md`,
+  `FORMULA_LANGUAGE.md`, `docs/NAVIGATION.md`. _(UI studio, feature
+  persistence/versioning, jobs and DB migrations remain — see the tracker.)_
+
 - **Chat-history sidebar simplified: removed Import/Export, selection mode, and
   the Active/Archived/Trash scope tabs.** The panel now shows a single active
   view with search, sort, tag filter, folders (nested), drag, and the row options

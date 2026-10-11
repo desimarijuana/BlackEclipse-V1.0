@@ -113,6 +113,10 @@ const BacktestScreen = dynamic(
   () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const ResearchDataScreen = dynamic(
+  () => import('@/components/screens/research-data/research-data-screen').then((m) => m.ResearchDataScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -1044,13 +1048,13 @@ function StockChatContent() {
                     'flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between transition-[max-width] duration-500 ease-out',
                     focusMode && 'max-w-[860px] mx-auto',
                   )}>
-                    <ChatHistory
-                      messages={messages}
-                      onEditMessage={handleEditMessage}
-                      onRetryMessage={handleRetryMessage}
-                      onFeedback={handleFeedback}
-                      onFollowup={handleFollowup}
-                    />
+<ChatHistory
+  messages={messages}
+  onEditMessage={handleEditMessage}
+  onRetryMessage={handleRetryMessage}
+  onFeedback={handleFeedback}
+  onFollowup={handleFollowup}
+/>
                     <div className={cn(
                       'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 transition-[max-width] duration-500 ease-out',
                       focusMode ? 'max-w-[860px]' : 'max-w-[1400px]',
@@ -1233,6 +1237,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'backtest' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <BacktestScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('research-data') && (
+            <div className={cn('w-full h-full', activeTab === 'research-data' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <ResearchDataScreen />
               </div>
             </div>
           )}
