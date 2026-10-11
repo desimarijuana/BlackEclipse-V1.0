@@ -89,7 +89,11 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1428→1432 for the Statistical Analysis & Feature Engineering
     # Engine boot wiring (`install_stats_layer` + import + comment); the wiring
     # itself lives in `stats/bootstrap.py`. May only shrink.
-    "service.py": 1432,
+    # Re-pinned 1432→1438 to the measured tree for the in-flight Factor & Alpha
+    # Research Lab boot wiring (`install_factor_layer`; the wiring itself lives in
+    # `factors/bootstrap.py`). May only shrink; the subsystem-construction block
+    # remains the split candidate.
+    "service.py": 1438,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

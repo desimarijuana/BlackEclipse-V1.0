@@ -58,6 +58,7 @@ from .routers.eval_gates import router as eval_gates_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
 from .routers.fabric import router as fabric_router
+from .routers.factors import router as factors_router
 from .routers.financial import router as financial_router
 from .routers.git import router as git_router
 from .routers.grants import router as grants_router
@@ -111,6 +112,7 @@ app.include_router(eval_gates_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
 app.include_router(fabric_router)
+app.include_router(factors_router)
 app.include_router(financial_router)
 app.include_router(git_router)
 app.include_router(grants_router)
@@ -1179,9 +1181,7 @@ def reject_draft(skill_id: str, payload: dict[str, Any], _: bool = Depends(requi
 
 def main(host: str = "127.0.0.1", port: int = 8765) -> None:
     import os
-
     import uvicorn
-
     # Deployment guard: beyond loopback this is a network service and requires the
     # operator secret, plus HARNESS_AUTH_SECRET in multi-tenant mode.
     if host not in _LOOPBACK_HOSTS and os.environ.get("BLACK_ECLIPSE_ALLOW_INSECURE_BIND") != "1":

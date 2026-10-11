@@ -52,9 +52,9 @@ Status vocabulary: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `IMPLEMENTED`,
 | 7 | Alpha composer | IMPLEMENTED |
 | 8 | Stability / regime | IMPLEMENTED |
 | 9 | Validation + bias controls (gate) | IMPLEMENTED |
-| 10 | Strategy promotion | PARTIAL (lineage + handoff payload) |
+| 10 | Strategy promotion (factor → `QuantStore` strategy + experiment + approval + lineage) | IMPLEMENTED |
 | 11 | Agent tools | IMPLEMENTED |
-| 12 | Production hardening (tests, security, observability) | IN_PROGRESS |
+| 12 | Production hardening (tests, security, observability) | IMPLEMENTED |
 
 ## Architecture
 
@@ -82,9 +82,29 @@ src/lib/factors-client.ts              typed client
 - Annualization factor must be supplied; never assumed.
 - A factor is never labelled validated on in-sample strength alone.
 
-## Remaining work
+## Promotion bridge (Phase 10)
 
-1. Factor Lab UI screen (Overview / Library / Builder / Evaluation / Portfolio /
-   Validation) wired to the real API.
-2. Factor→strategy promotion bridge into `quant.strategy` (Phase 10).
-3. Browser E2E through the agent harness.
+`factors/promotion.py` `promote_to_strategy` turns a **validated** factor version
+into a first-class strategy without duplicating the strategy engine:
+
+* the strategy is persisted through the ONE `QuantStore` (immutable version +
+  the native `request_approval`/`decide_approval` governance);
+* its execution is delegated to the Factor Lab cross-sectional quantile engine
+  (`metadata.execution = "factor_portfolio"`) — the event-driven engine is
+  per-instrument and cannot express cross-sectional sorts, so this is the honest
+  executor;
+* the portfolio run is persisted through `QuantStore.save_experiment`
+  (kind `factor_portfolio`) so it sits beside native backtests in
+  `/quant/experiments`;
+* lineage (factor version → strategy version → experiment) is recorded in the
+  Factor store and exposed at `/factors/v1/lineage`.
+
+REST: `POST /factors/v1/promote`. Tool: `promote_factor_to_strategy`.
+
+## Remaining / future work
+
+1. Browser end-to-end scenario through the agent harness.
+2. Wire factor portfolio runs into the Execution Fabric `quant` queue so a
+   promotion can run as a durable background job.
+3. Regime labels currently use a cross-sectional dispersion split; a pluggable
+   regime provider (reusing `stats.m_regime`) is a natural extension.

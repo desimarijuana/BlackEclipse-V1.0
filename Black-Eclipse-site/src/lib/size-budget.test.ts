@@ -63,8 +63,9 @@ const RATCHET: Record<string, number> = {
   // `controls` follow-up (a response block re-enters the same agent loop).
   // Grew by one dynamic import + one keep-alive block for the Research Data
   // (`research-data`) tab. May only shrink from here; the per-tab keep-alive
-  // blocks remain the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1334,
+  // blocks remain the standing split candidate. Grew again by one dynamic
+  // import + one keep-alive block for the Factor Lab (`factor-lab`) tab.
+  "src/components/screens/stock-chat.tsx": 1344,
 };
 
 export interface SizeEntry {

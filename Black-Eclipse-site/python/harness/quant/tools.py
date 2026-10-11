@@ -1152,9 +1152,8 @@ def register_quant_tools(registry: Any) -> list[str]:
     register_copilot_tools(registry)
     register_strategy_ops_tools(registry)
 
-    # Engine selection, standalone cost diagnostics, OOS, bootstrap & comparison.
-    # Imported lazily: `advanced_tools` reuses these helpers, so importing it at
-    # module top would create a cycle.
+    # Advanced tools (engine/costs/OOS/bootstrap/multiple-testing/options/futures);
+    # imported lazily to avoid a cycle with `advanced_tools`.
     from .advanced_tools import register_advanced_tools
 
     register_advanced_tools(registry)
@@ -1189,15 +1188,12 @@ QUANT_TOOLS: tuple[str, ...] = (
     "run_sensitivity_analysis", "run_robustness_analysis",
     *COPILOT_TOOLS,
     *OPS_TOOLS,
-    # Advanced surfaces (registered by `advanced_tools.register_advanced_tools`).
-    # Kept literal here to avoid a circular import; a test asserts parity with
-    # `advanced_tools.ADVANCED_TOOLS`.
-    "run_event_driven_backtest", "run_vectorized_backtest",
-    "simulate_transaction_costs", "simulate_slippage", "simulate_spread",
-    "simulate_market_impact", "run_out_of_sample_test", "run_bootstrap_test",
-    "compare_backtests", "run_multiple_testing_diagnostics",
-    "price_option", "implied_volatility", "analyze_option_strategy",
-    "build_continuous_contract",
+    # Advanced surfaces; literal to avoid a cycle (parity asserted by a test).
+    "run_event_driven_backtest", "run_vectorized_backtest", "simulate_transaction_costs",
+    "simulate_slippage", "simulate_spread", "simulate_market_impact",
+    "run_out_of_sample_test", "run_bootstrap_test", "compare_backtests",
+    "run_multiple_testing_diagnostics", "price_option", "implied_volatility",
+    "analyze_option_strategy", "build_continuous_contract",
 )
 
 

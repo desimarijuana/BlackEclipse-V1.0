@@ -29,4 +29,5 @@ export type AppTab =
   | 'pages'
   | 'ui-builder'
   | 'backtest'
-  | 'research-data';
+  | 'research-data'
+  | 'factor-lab';

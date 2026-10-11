@@ -150,6 +150,12 @@ class AgenticService:
         # `stats/bootstrap.py`, registered on the SAME registry.
         from .stats.bootstrap import install_stats_layer  # noqa: PLC0415
         install_stats_layer(self)
+        # Factor & Alpha Research Lab: factor registry + IC/rank-IC + quantile
+        # portfolios + alpha composition + validation gate. Wiring in
+        # `factors/bootstrap.py`; registered on the SAME registry.
+        from .factors.bootstrap import install_factor_layer  # noqa: PLC0415
+
+        install_factor_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.

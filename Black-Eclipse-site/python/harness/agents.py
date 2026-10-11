@@ -33,6 +33,9 @@ from .stats.tools import STATS_TOOLS
 # alignment, versioned datasets). Registered by `market/bootstrap.py`; imported as
 # the ONE canonical list.
 from .market.research_tools import RESEARCH_DATA_TOOLS
+# The Factor & Alpha Research Lab tools. Registered by `factors/bootstrap.py`;
+# imported as the ONE canonical list so the allowlist cannot drift.
+from .factors.tools import FACTOR_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -287,6 +290,10 @@ ECLIPSE_AGENT = AgentConfig(
         # regression, regime, features, outliers, lead-lag, information
         # coefficient) over caller-supplied series.
         *STATS_TOOLS,
+        # Factor & Alpha Research Lab: factor registry, IC/rank-IC/decay,
+        # quantile portfolios, alpha composition, redundancy, stability and the
+        # research-validation gate.
+        *FACTOR_TOOLS,
         # Phase-1 JDdS tools (still available)
         "get_market_snapshot",
         "get_fundamentals",

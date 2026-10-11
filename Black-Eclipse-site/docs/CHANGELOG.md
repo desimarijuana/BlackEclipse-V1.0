@@ -8,6 +8,44 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-11
 
+- **Factor & Alpha Research Lab — Phase 10 promotion bridge + Phase 12
+  hardening.** Added `python/harness/factors/promotion.py`
+  (`promote_to_strategy`): a validated factor version is promoted into a
+  first-class Eclipse strategy persisted through the ONE `QuantStore` (immutable
+  version + the native `request_approval` governance), its cross-sectional
+  portfolio executed by the Factor Lab quantile engine and persisted via
+  `QuantStore.save_experiment` (kind `factor_portfolio`) so it sits beside native
+  backtests, with factor-version → strategy-version → experiment lineage recorded
+  in the Factor store. REST `POST /factors/v1/promote` + `GET /factors/v1/lineage`;
+  the `promote_factor_to_strategy` tool now performs the real promotion.
+  Hardening: added `python/tests/test_factors_{store,promotion,routes}.py` and
+  engine invariants (rank-IC monotone-transform invariance, dollar-neutral
+  long-short book, determinism) — 33 factor tests pass; full Python suite and
+  Vitest suite remain green; `tsc --noEmit` clean. Docs:
+  `docs/quant-research/FACTOR_LAB.md`.
+
+- **Factor & Alpha Research Lab — new quant-research vertical (factor registry,
+  IC/rank-IC/decay, quantile portfolios, alpha composition, validation gate).**
+  Added `python/harness/factors/` (`engine.py` = the authoritative NumPy math for
+  forward returns, cross-sectional Pearson IC + Spearman rank IC with
+  Newey–West HAC inference, factor decay, cross-sectional rank/z-score/
+  winsorize/demean/neutralize, quantile portfolios with turnover and
+  cost-aware net/gross accounting, portfolio metrics, factor combination/
+  correlation/redundancy, and the structured validation gate; `library.py` =
+  built-in momentum/reversal/low-vol/trend/liquidity factors via the shared safe
+  formula engine — fundamental/quality/carry factors are declared honestly
+  unavailable rather than fabricated; `models.py`; `store.py` = `FactorStore` on
+  `agent-memory.db` with immutable factor versions; `service.py`; `tools.py` =
+  13 agent tools wired into the `ECLIPSE_AGENT` allowlist; `bootstrap.py`).
+  REST surface `python/harness/routers/factors.py` (`/factors/v1`, operator-gated)
+  mounted in `main.py`; boot wiring in `service.py`. Front door
+  `src/app/api/factors/[[...path]]/route.ts` + `src/lib/factors-client.ts` + the
+  Factor Lab screen (`AppTab 'factor-lab'`) registered through the shell,
+  search registry and deep-link list. Tests: `python/tests/test_factors_engine.py`,
+  `test_factors_service.py` (28) plus the full Python suite (5592 passed) and the
+  full Vitest suite (2589 passed); `tsc --noEmit` clean. Docs:
+  `docs/quant-research/FACTOR_LAB.md` (new tracker), `docs/NAVIGATION.md`.
+
 - **Backtesting & Simulation Engine — options & futures asset-class support.**
   Closed the last advertised gaps. Added `quant/options.py` (reusing the market
   layer's `black_scholes` — no second pricing model): `price_option`,
