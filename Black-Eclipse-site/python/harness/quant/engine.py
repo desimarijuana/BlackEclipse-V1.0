@@ -713,6 +713,7 @@ class BacktestEngine:
         }
         metadata = {
             "engineVersion": ENGINE_VERSION,
+            "engine": "event-driven",
             "strategyId": self.bindings[0].strategy.id,
             "strategyVersion": self.bindings[0].strategy.version,
             "symbols": sorted(self._series.keys()),

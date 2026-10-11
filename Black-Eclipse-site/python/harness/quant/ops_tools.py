@@ -19,6 +19,8 @@ from typing import Any
 
 from .datasets import resolve_dataset
 from .errors import QuantError, StoreUnavailable
+from .sdk_deps import classify_imports
+from .strategy import StrategySpec
 
 _STDLIB = getattr(sys, "stdlib_module_names", set())
 _DANGEROUS_NAMES = {"eval", "exec", "compile", "__import__", "open"}
@@ -48,12 +50,12 @@ def inspect_source(source: str) -> dict[str, Any]:
                 func.attr if isinstance(func, ast.Attribute) else None)
             if name in _DANGEROUS_NAMES:
                 dangerous.add(name)
-    third_party = sorted(m for m in imports
-                         if m not in _STDLIB and m != "harness" and not m.startswith("harness"))
+    deps = classify_imports(imports)
     findings: list[dict[str, Any]] = []
-    for module in third_party:
-        findings.append({"code": "THIRD_PARTY_IMPORT", "severity": "warning",
-                         "message": f"imports third-party module {module!r}"})
+    for module in deps["unapproved"]:
+        findings.append({"code": "UNAPPROVED_DEPENDENCY", "severity": "warning",
+                         "message": f"imports unapproved module {module!r}; the runtime does "
+                                    "not install packages on demand"})
     for module in sorted(imports & _DANGEROUS_MODULES):
         findings.append({"code": "RESTRICTED_IMPORT", "severity": "warning",
                          "message": f"imports restricted module {module!r}"})
@@ -61,7 +63,9 @@ def inspect_source(source: str) -> dict[str, Any]:
         findings.append({"code": "DANGEROUS_CALL", "severity": "warning",
                          "message": f"calls {name!r}"})
     return {
-        "ok": True, "imports": sorted(imports), "thirdPartyImports": third_party,
+        "ok": True, "imports": sorted(imports),
+        "thirdPartyImports": deps["approved"] + deps["unapproved"],
+        "approvedDependencies": deps["approved"], "unapprovedDependencies": deps["unapproved"],
         "dangerousCalls": sorted(dangerous), "findings": findings,
         "note": "advisory only — the isolated worker process is the security boundary",
     }
@@ -208,6 +212,48 @@ async def run_python_project(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         return _err(exc)
 
 
+async def run_paper_session(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Run a deployed strategy against recent real data as a paper shadow run."""
+    try:
+        from .datasets import dataset_from_strategy
+        from .engine import BacktestConfig, run_backtest
+        from .tools import _gateway
+
+        store = _store(ctx)
+        dep = store.get_deployment(str(args.get("deploymentId")))
+        if dep["status"] != "active":
+            return ("ERROR — deployment is not active.",
+                    {"status": "ERROR", "error": {"code": "DEPLOYMENT_INACTIVE"}})
+        record = store.get_strategy(dep["strategyId"], dep["version"])
+        spec = StrategySpec.model_validate(record["spec"])
+        dataset = await dataset_from_strategy(
+            _gateway(ctx), spec, start=args.get("start"), end=args.get("end"),
+            symbols=args.get("symbols"))
+        result = run_backtest(spec, dataset, BacktestConfig(
+            initial_capital=float(args.get("initialCapital") or 100_000.0),
+            random_seed=int(args.get("randomSeed") or 42)))
+        run = store.save_paper_run(result, deployment_id=dep["id"],
+                                   strategy_id=dep["strategyId"], version=dep["version"])
+        m = run["metrics"]
+        return (f"Paper shadow run {run['id']} ({result.status}): trades "
+                f"{m.get('trade_count')}, return {m.get('total_return')}, sharpe {m.get('sharpe')}.",
+                {"status": "OK", "paperRun": run, "experimentId": run["experimentId"]})
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def list_paper_runs(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    try:
+        store = _store(ctx)
+        runs = store.list_paper_runs(deployment_id=args.get("deploymentId"),
+                                     strategy_id=args.get("strategyId"))
+        text = "\n".join(f"  {r['id']} exp={r['experimentId']} ret="
+                         f"{r['metrics'].get('total_return')}" for r in runs) or "  (none)"
+        return (f"{len(runs)} paper run(s):\n{text}", {"status": "OK", "paperRuns": runs})
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 def register_strategy_ops_tools(registry: Any) -> list[str]:
@@ -257,6 +303,19 @@ def register_strategy_ops_tools(registry: Any) -> list[str]:
          "Stop a deployment record.",
          stop_strategy_deployment, {"type": "object", "properties": {
              "deploymentId": {"type": "string"}}, "required": ["deploymentId"]})
+    _def("run_paper_session",
+         "Run a deployed strategy against recent real market data as a PAPER shadow run "
+         "(a real backtest recorded against the deployment; no orders are routed).",
+         run_paper_session, {"type": "object", "properties": {
+             "deploymentId": {"type": "string"}, "symbols": {"type": "array",
+                                                             "items": {"type": "string"}},
+             "start": {"type": "string"}, "end": {"type": "string"},
+             "initialCapital": {"type": "number"}, "randomSeed": {"type": "integer"}},
+             "required": ["deploymentId"]}, 180_000, long_running=True)
+    _def("list_paper_runs",
+         "List paper shadow runs (by deployment or strategy).",
+         list_paper_runs, {"type": "object", "properties": {
+             "deploymentId": {"type": "string"}, "strategyId": {"type": "string"}}})
     _def("run_python_project",
          "Run a multi-file Python strategy project (entry + sibling modules) in the isolated, "
          "env-scrubbed, time-limited worker.",
@@ -276,6 +335,7 @@ OPS_TOOLS: tuple[str, ...] = (
     "inspect_python_strategy",
     "request_strategy_approval", "decide_strategy_approval", "list_strategy_approvals",
     "create_strategy_deployment", "list_strategy_deployments", "stop_strategy_deployment",
+    "run_paper_session", "list_paper_runs",
     "run_python_project",
 )
 

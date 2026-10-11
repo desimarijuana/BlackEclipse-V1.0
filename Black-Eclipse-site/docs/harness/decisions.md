@@ -5939,3 +5939,37 @@ a market-data-driven shadow loop is a future step. Container-grade filesystem/
 network isolation and pinned per-run dependencies remain the one honest gap
 (process isolation only). Owner doc: `docs/quant-engine.md`. Tests:
 `test_quant_ops.py`.
+
+## ADR-H175 - The strategy runtime is hardened by policy + optional container, and paper deployments get a real shadow loop (still no live routing)
+
+**Context.** Two honest gaps remained: the Python runtime was process isolation
+only with no dependency policy or container option, and paper deployments were
+pure bookkeeping with nothing ever run against them.
+
+**Decision.**
+1. **Dependency policy** (`sdk_deps.py`): an approved numerical stack
+   (`numpy`/`pandas`/`polars`/`scipy`/`statsmodels`/… + stdlib + the harness).
+   `inspect_source` classifies imports and flags `UNAPPROVED_DEPENDENCY`; the
+   runtime never installs packages on demand, so an environment is pinned by the
+   harness rather than mutated per run.
+2. **Runtime hardening** (`sdk_runtime.py`): POSIX `RLIMIT_CPU`/`RLIMIT_AS` via a
+   preexec (best-effort; Windows relies on the timeout + output cap), plus an
+   **optional Docker backend** — `resolve_sandbox`/`docker_command` run the worker
+   with `--network none --read-only --memory 512m --cpus 1 --pids-limit 256`
+   when `HARNESS_QUANT_SDK_DOCKER_IMAGE` is set and Docker is present; otherwise
+   it falls back openly to process isolation. The capability is reported truthfully.
+3. **Paper shadow loop** (`store.save_paper_run` + `run_paper_session`): a deployed
+   (approved, active) strategy runs a REAL backtest over recent data and is
+   recorded (`QuantPaperRun` ? experiment id, metrics, status). It routes no
+   orders and stores `liveExecution: false`.
+
+**Why.** "Managed runtime" must mean an enforced environment, not a promise; and
+"paper trading" must be exercisable against real data while remaining
+structurally incapable of live execution. Both are made explicit and testable
+instead of asserted.
+
+**Consequences.** Docker requires an operator-provided image that bundles the
+harness + approved deps; without it, process isolation + rlimits is the active
+mode (stated). Live order routing remains absent everywhere — the only reachable
+deployment mode is `paper`. Owner doc: `docs/quant-engine.md`. Tests:
+`test_quant_ops.py`, `test_quant_sdk_runtime.py`.

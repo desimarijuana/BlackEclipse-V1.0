@@ -106,6 +106,18 @@ CREATE TABLE IF NOT EXISTS QuantStrategyDeployment (
   updatedAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_qdeploy_strategy ON QuantStrategyDeployment(strategyId);
+CREATE TABLE IF NOT EXISTS QuantPaperRun (
+  id TEXT PRIMARY KEY,
+  deploymentId TEXT NOT NULL,
+  strategyId TEXT NOT NULL,
+  version TEXT NOT NULL,
+  experimentId TEXT,
+  status TEXT NOT NULL,
+  symbolsJson TEXT,
+  metricsJson TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qpaper_deployment ON QuantPaperRun(deploymentId);
 """
 
 
@@ -458,6 +470,58 @@ class QuantStore:
         self._db.commit()
         return self._deployment_row(self._db.execute(
             "SELECT * FROM QuantStrategyDeployment WHERE id=?", (deployment_id,)).fetchone())
+
+    def get_deployment(self, deployment_id: str) -> dict:
+        row = self._db.execute("SELECT * FROM QuantStrategyDeployment WHERE id=?",
+                               (deployment_id,)).fetchone()
+        if row is None:
+            raise QuantError(f"deployment {deployment_id!r} not found",
+                             detail={"deploymentId": deployment_id})
+        return self._deployment_row(row)
+
+    # ── Paper shadow runs (records of a real backtest; NO orders) ─────────────
+    def save_paper_run(self, result: Any, *, deployment_id: str, strategy_id: str,
+                       version: str) -> dict:
+        exp_id = self.save_experiment(result, strategy_id=strategy_id,
+                                      strategy_version=version, kind="paper")
+        run_id = f"paper_{uuid.uuid4().hex[:16]}"
+        now = _iso_now()
+        self._db.execute(
+            "INSERT INTO QuantPaperRun "
+            "(id,deploymentId,strategyId,version,experimentId,status,symbolsJson,"
+            "metricsJson,createdAt) VALUES (?,?,?,?,?,?,?,?,?)",
+            (run_id, deployment_id, strategy_id, version, exp_id, result.status,
+             json.dumps(result.metadata.get("symbols", [])),
+             json.dumps(result.metrics), now))
+        self._db.commit()
+        return self._paper_row(self._db.execute(
+            "SELECT * FROM QuantPaperRun WHERE id=?", (run_id,)).fetchone())
+
+    @staticmethod
+    def _paper_row(row) -> dict:
+        return {
+            "id": row["id"], "deploymentId": row["deploymentId"],
+            "strategyId": row["strategyId"], "version": row["version"],
+            "experimentId": row["experimentId"], "status": row["status"],
+            "symbols": json.loads(row["symbolsJson"] or "[]"),
+            "metrics": json.loads(row["metricsJson"] or "{}"),
+            "createdAt": row["createdAt"], "liveExecution": False,
+        }
+
+    def list_paper_runs(self, *, deployment_id: Optional[str] = None,
+                        strategy_id: Optional[str] = None) -> list[dict]:
+        if deployment_id:
+            rows = self._db.execute(
+                "SELECT * FROM QuantPaperRun WHERE deploymentId=? ORDER BY createdAt DESC",
+                (deployment_id,)).fetchall()
+        elif strategy_id:
+            rows = self._db.execute(
+                "SELECT * FROM QuantPaperRun WHERE strategyId=? ORDER BY createdAt DESC",
+                (strategy_id,)).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM QuantPaperRun ORDER BY createdAt DESC").fetchall()
+        return [self._paper_row(r) for r in rows]
 
     # ── Experiments ──────────────────────────────────────────────────────────
     def save_experiment(

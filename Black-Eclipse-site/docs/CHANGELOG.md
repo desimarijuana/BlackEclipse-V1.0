@@ -8,6 +8,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Strategy Development Engine (runtime hardening + paper shadow loop).** Added
+  `quant/sdk_deps.py` (approved numerical dependency policy; `inspect_source`
+  flags `UNAPPROVED_DEPENDENCY`; no on-demand installs). Hardened
+  `quant/sdk_runtime.py`: POSIX `RLIMIT_CPU`/`RLIMIT_AS` preexec plus an optional
+  **Docker** backend (`resolve_sandbox`/`docker_command`, `--network none
+  --read-only --memory 512m --cpus 1 --pids-limit 256`) selected when
+  `HARNESS_QUANT_SDK_DOCKER_IMAGE` is set and Docker is present, else the process
+  worker. Added a **paper shadow loop** (`run_paper_session`, `list_paper_runs` +
+  `QuantPaperRun` table): a deployed (approved, active) strategy is run as a REAL
+  backtest over recent data and recorded — no orders, `liveExecution: false`.
+  Quant tools now **54**. Docs updated: `docs/quant-engine.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H175). Tests: `test_quant_ops.py`,
+  `test_quant_sdk_runtime.py`.
+
 - **Strategy Development Engine (lifecycle close-out): governance, source
   inspection, multi-file projects, deeper validation.** Added
   `quant/ops_tools.py` and store tables on `agent-memory.db`:

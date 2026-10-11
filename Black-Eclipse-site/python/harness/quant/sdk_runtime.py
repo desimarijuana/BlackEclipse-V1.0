@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,52 @@ from typing import Any, Optional
 from .engine import BacktestResult
 
 _WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk_worker.py")
+
+
+def docker_available() -> bool:
+    return shutil.which("docker") is not None
+
+
+def resolve_sandbox(prefer: str = "auto") -> str:
+    """Choose the isolation backend: 'docker' (container) or 'process'.
+
+    Docker is used when an image is configured (`HARNESS_QUANT_SDK_DOCKER_IMAGE`)
+    and the CLI is present; otherwise process isolation. `prefer='process'` forces
+    the worker process; `prefer='docker'` returns 'docker' only when usable.
+    """
+    image = os.environ.get("HARNESS_QUANT_SDK_DOCKER_IMAGE")
+    if prefer == "process":
+        return "process"
+    if image and docker_available():
+        return "docker"
+    return "process"
+
+
+def docker_command(image: str, workdir: str, in_name: str, out_name: str,
+                   entry: str = "sdk_worker.py") -> list[str]:
+    """The Docker invocation for a hardened run (pure; testable)."""
+    return [
+        "docker", "run", "--rm", "--network", "none", "--memory", "512m", "--cpus", "1",
+        "--read-only", "--pids-limit", "256", "--tmpfs", "/tmp",
+        "-v", f"{workdir}:/work", "-w", "/work", image,
+        "python", "-I", f"/work/{entry}", f"/work/{in_name}", f"/work/{out_name}",
+    ]
+
+
+def _posix_limits(timeout_s: float):
+    """A preexec that caps CPU time and address space (POSIX only)."""
+    def _apply() -> None:  # pragma: no cover - exercised only on POSIX
+        try:
+            import resource
+
+            cpu = int(timeout_s) + 1
+            resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 2))
+            gib = 1 << 30
+            resource.setrlimit(resource.RLIMIT_AS, (gib, gib))
+        except Exception:  # noqa: BLE001 - limits are best-effort
+            pass
+
+    return _apply
 
 # Only OS-essential variables cross into the worker. No PYTHONPATH (the worker
 # fixes sys.path itself), no secrets, no provider credentials.
@@ -91,6 +138,7 @@ def run_strategy_source(
     max_output_bytes: int = 12 * 1024 * 1024,
     extra_files: Optional[dict[str, str]] = None,
     entry: str = "strategy.py",
+    sandbox: str = "auto",
 ) -> tuple[Optional[BacktestResult], Optional[dict[str, Any]]]:
     """Run `source` (plus optional sibling `extra_files`) over `rows`.
 
@@ -121,11 +169,18 @@ def run_strategy_source(
         with open(in_path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
 
-        cmd = [sys.executable, "-I", _WORKER, in_path, out_path]
+        backend = resolve_sandbox(sandbox)
+        if backend == "docker":
+            shutil.copyfile(_WORKER, os.path.join(tmp, "sdk_worker.py"))
+            cmd = docker_command(os.environ["HARNESS_QUANT_SDK_DOCKER_IMAGE"], tmp,
+                                 "input.json", "output.json")
+        else:
+            cmd = [sys.executable, "-I", _WORKER, in_path, out_path]
+        preexec = _posix_limits(timeout_s) if (backend == "process" and os.name != "nt") else None
         try:
             proc = subprocess.run(
                 cmd, env=_worker_env(), cwd=tmp, timeout=timeout_s,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=preexec,
             )
         except subprocess.TimeoutExpired:
             return None, {"code": "SDK_TIMEOUT",

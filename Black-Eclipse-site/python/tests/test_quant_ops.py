@@ -38,8 +38,11 @@ def test_inspect_flags_third_party_and_dangerous():
     r = inspect_source("import requests\nimport os\ndef f():\n    eval('1')\n")
     assert "requests" in r["thirdPartyImports"]
     codes = {f["code"] for f in r["findings"]}
-    assert "THIRD_PARTY_IMPORT" in codes and "DANGEROUS_CALL" in codes
+    assert "UNAPPROVED_DEPENDENCY" in codes and "DANGEROUS_CALL" in codes
     assert "RESTRICTED_IMPORT" in codes
+    # An approved numerical dependency is not flagged.
+    ok = inspect_source("import numpy as np\n")
+    assert ok["approvedDependencies"] == ["numpy"] and not ok["unapprovedDependencies"]
 
 
 def test_inspect_syntax_error():
@@ -119,6 +122,43 @@ def test_multi_file_project_runs():
                                       extra_files={"helper.py": helper}, entry="main.py")
     assert err is None, err
     assert result is not None and result.status == "OK"
+
+
+# ── Paper shadow session (tool end-to-end) ───────────────────────────────────
+
+class _FakeGateway:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def get_historical_prices(self, symbol, market=None, *, start=None, end=None,
+                                    interval="1d", adjusted=True, currency=None, freshness="slow"):
+        from harness.market.models import HistoricalPriceSeries, MarketMeta, OHLCVBar
+
+        return HistoricalPriceSeries(
+            meta=MarketMeta(symbol=symbol, provider="synthetic", asset_type="crypto"),
+            interval=interval,
+            bars=[OHLCVBar(**{k: r[k] for k in
+                  ("timestamp", "open", "high", "low", "close", "volume")}) for r in self.rows],
+        )
+
+
+async def test_paper_session_runs(tmp_path):
+    from harness.tools import ToolContext, ToolRegistry
+
+    store = QuantStore(AgentMemoryStore(str(tmp_path / "am.db")), artifact_root=str(tmp_path / "a"))
+    store.save_strategy(_spec())
+    appr = store.request_approval("gov", "1.0.0")
+    store.decide_approval(appr["id"], approve=True)
+    dep = store.create_deployment("gov", "1.0.0", mode="paper")
+
+    registry = ToolRegistry()
+    register_quant_tools(registry)
+    ctx = ToolContext(run_id="t", log=lambda *a, **k: None, quant_store=store)
+    ctx.market_gateway = _FakeGateway(F.bull_market("X", n=200))
+    r = await registry.execute("run_paper_session", "c1", {"deploymentId": dep["id"]}, ctx)
+    assert r.ok and r.data["status"] == "OK", r.text
+    assert r.data["paperRun"]["liveExecution"] is False
+    assert store.list_paper_runs(deployment_id=dep["id"])
 
 
 # ── Registration ─────────────────────────────────────────────────────────────

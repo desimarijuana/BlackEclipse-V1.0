@@ -41,7 +41,8 @@ market data → indicator context → signal (rules) → risk → order
 | AI copilot support (signals, research plan, report, rule/sizing helpers) | `quant/copilot.py` |
 | AI copilot agent tools | `quant/copilot_tools.py` |
 | Benchmark-relative metrics (alpha/beta/IR/tracking error) | `quant/benchmark.py` |
-| Governance, source inspection, multi-file projects | `quant/ops_tools.py` |
+| Governance, source inspection, multi-file projects, paper shadow runs | `quant/ops_tools.py` |
+| Approved dependency policy | `quant/sdk_deps.py` |
 | Rule evaluation over arrays | `quant/rules.py` |
 | Causal indicators (EMA/SMA/RSI/ATR/MACD/Bollinger/…) | `quant/indicators.py` |
 | Market-data adapter, point-in-time dataset, quality checks, MTF alignment | `quant/data.py` |
@@ -261,9 +262,18 @@ reference the experiment id / strategy version / seed they were built from.
 - **Static validation depth**: `AMBIGUOUS_FILL_TIMING` (warning) and
   `INDICATOR_TF_UNORDERED` (error) join the existing checks.
 
-Honest remaining gap: **container-grade** filesystem/network isolation and pinned
-per-run dependency resolution; today the runtime is process isolation + scrubbed
-env + timeout + output cap + POSIX rlimits (`pythonStrategies` = `partial`).
+**Runtime hardening & dependency policy**: approved numerical dependencies
+(`sdk_deps.py`) — `inspect_source` flags `UNAPPROVED_DEPENDENCY`, and packages are
+never installed on demand. Isolation is process + scrubbed env + timeout + output
+cap + POSIX `RLIMIT_CPU`/`RLIMIT_AS`, with an **optional Docker backend**
+(`resolve_sandbox`/`docker_command`; `--network none --read-only --memory 512m
+--cpus 1 --pids-limit 256`) used when `HARNESS_QUANT_SDK_DOCKER_IMAGE` is set and
+Docker is present, else an open fallback to the process worker.
+
+**Paper shadow loop**: `run_paper_session` runs a deployed (approved, active)
+strategy as a REAL backtest over recent data and records a `QuantPaperRun`
+(experiment id, metrics, status). Live order routing is absent everywhere; the
+only reachable deployment mode is `paper` (`liveExecution: false`).
 
 ## Capability state (never overclaimed)
 

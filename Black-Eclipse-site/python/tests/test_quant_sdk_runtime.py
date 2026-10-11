@@ -61,6 +61,21 @@ def test_runtime_enforces_timeout():
     assert err is not None and err["code"] == "SDK_TIMEOUT"
 
 
+def test_sandbox_selection_and_docker_command(monkeypatch):
+    from harness.quant import sdk_runtime as R
+
+    assert R.resolve_sandbox("process") == "process"
+    monkeypatch.delenv("HARNESS_QUANT_SDK_DOCKER_IMAGE", raising=False)
+    assert R.resolve_sandbox("auto") == "process"
+    monkeypatch.setenv("HARNESS_QUANT_SDK_DOCKER_IMAGE", "quantsdk:latest")
+    monkeypatch.setattr(R, "docker_available", lambda: True)
+    assert R.resolve_sandbox("auto") == "docker"
+    cmd = R.docker_command("quantsdk:latest", "/tmp/x", "input.json", "output.json")
+    assert cmd[:2] == ["docker", "run"]
+    assert "--network" in cmd and cmd[cmd.index("--network") + 1] == "none"
+    assert "/tmp/x:/work" in cmd
+
+
 def test_runtime_rejects_empty_source():
     result, err = run_strategy_source("   ", ROWS, symbols=["TESTUSDT"])
     assert result is None
