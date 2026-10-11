@@ -180,6 +180,7 @@ registerPage({ id: 'page-skills', kind: 'page', title: 'Skills', aliases: ['skil
 registerPage({ id: 'page-memory', kind: 'page', title: 'Eclipse Memory', aliases: ['memory', 'eclipse memory', 'agent memory', 'memory control room'], keywords: ['memory', 'eclipse memory', 'agent', 'persistence', 'audit'], icon: 'memory', tab: 'memory', rankBoost: 1.1 });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 registerPage({ id: 'page-backtest', kind: 'page', title: 'Quant Research', aliases: ['quant research', 'backtest', 'backtesting', 'strategy', 'strategies', 'quant', 'research workspace', 'equity curve', 'optimization'], keywords: ['quant', 'research', 'backtest', 'strategy', 'optimize', 'walk forward', 'monte carlo', 'dataset', 'equity curve', 'drawdown'], icon: 'candlestick', tab: 'backtest', rankBoost: 1.2 });
+registerPage({ id: 'page-research-data', kind: 'page', title: 'Research Data', aliases: ['research data', 'datasets', 'data quality', 'dataset explorer', 'verification', 'provenance', 'universe'], keywords: ['research', 'data', 'dataset', 'quality', 'providers', 'verification', 'provenance', 'calendar', 'universe'], icon: 'activity', tab: 'research-data', rankBoost: 1.2 });
 
 // Market Regime — not a tab. Selecting it opens the top-bar Market Regime panel
 // (the shell handles the `action: 'open-regime'` param and returns before any tab

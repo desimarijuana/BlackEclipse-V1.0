@@ -33,6 +33,7 @@ export const APP_TABS: readonly AppTab[] = [
   'pages',
   'ui-builder',
   'backtest',
+  'research-data',
 ];
 
 /** Query keys consumed by the link format itself (never treated as params). */

@@ -101,7 +101,8 @@ fallback to a weaker policy.
 `build_research_dataset`, `get_dataset_versions`, `compare_datasets`,
 `query_dataset`, `get_data_quality_report`, `get_data_provenance`,
 `get_trading_calendar`, `get_currency_conversion`, `get_corporate_actions`,
-`get_universe`, `export_dataset`, `refresh_dataset`.
+`get_universe`, `record_universe`, `list_universes`, `export_dataset`,
+`refresh_dataset`, `analyze_dataset`.
 
 All are `read`/low-risk, registered in `market/bootstrap.py`, and allowlisted for
 the Eclipse agent (`agents.py`). The secondary handlers (calendar, FX, corporate
@@ -124,6 +125,50 @@ artifact service is bound.
 whose `knownAt` exceeds it are dropped, and when rows carry no known-at metadata
 the result sets `pitUnknown: true` rather than pretending PIT was enforced.
 
+## REST API
+
+`python/harness/routers/research_data.py` exposes the same services over HTTP
+(operator-gated), so the UI and external clients do not need an agent:
+
+- `GET /research-data/{policies,providers,health,calendar,series,quality,universes}`
+- `POST /research-data/{resolve,market-data,verify,resample,align}`
+- `GET /research-data/datasets`, `GET /research-data/datasets/{id}`,
+  `GET /research-data/datasets/{id}/versions`
+- `POST /research-data/datasets/build`,
+  `POST /research-data/datasets/{id}/{refresh,export,analyze}`
+- `POST /research-data/universes/record`
+- `POST /research-data/{fundamentals,macro}` — vault fundamentals / macro series
+- `POST /research-data/datasets/{id}/execute` — isolated notebook (below)
+
+The Next.js front door proxies `/api/research-data/*` → `/research-data/*`.
+Registered in `main.py`; routes reach shared state only through `harness.deps.service`.
+
+## Isolated notebook
+
+`research/notebook.py` runs operator-supplied analytical Python in the ONE bounded
+sandbox (`code.sandbox`), never in the FastAPI process. The notebook receives a
+materialized, read-only copy of one dataset version as a CSV
+(`os.environ['ECLIPSE_DATASET_PATH']`) and gets **no** provider credentials, vault
+values, callback token or proxy (`sandbox.build_env`). Wall-clock, memory and
+output are bounded; a missing sandbox is an honest refusal, never an unbounded
+run. Unattended agents use the declarative `analyze_dataset` instead.
+
+## Point-in-time universes
+
+`record_universe` writes **effective-dated** membership to `market/universe_store.py`
+(SCD-2: recording a later effective date closes the earlier open interval).
+`get_universe` with a recorded `universe_id` resolves membership `as_of` a date
+from that history — the survivorship-bias control. When nothing is recorded for a
+date, membership is reported UNKNOWN, never guessed.
+
+## UI
+
+`Research Data` (`research-data` AppTab; deep link `/?tab=research-data`) is a
+Dataset Explorer / Builder / Data Quality Center / Provider view over the REST
+API: list datasets, inspect manifest + coverage + quality + lineage, build a new
+immutable version, run deterministic analytics, export, refresh, and read
+provider capabilities and health.
+
 ## Where to look
 
 | I want to… | Open |
@@ -135,34 +180,35 @@ the result sets `pitUnknown: true` rather than pretending PIT was enforced.
 | Change dataset versioning | `python/harness/quant/dataset_store.py` |
 | Change the trading calendar / session freshness | `python/harness/market/calendar.py` |
 | Change the persistent bar store | `python/harness/market/series_store.py` |
+| Change universe point-in-time membership | `python/harness/market/universe_store.py` |
+| Change the research REST API | `python/harness/routers/research_data.py` + `src/app/api/research-data/[...path]/route.ts` |
+| Change the Research Data screen | `src/components/screens/research-data/research-data-screen.tsx` + `src/lib/research-data/research-data-client.ts` |
 | Add or change a research tool | `python/harness/market/research_tools.py` (core) + `research_tools_ext.py` (calendar/FX/corporate actions/universe/export/refresh) |
 
 ## Honest limits
 
 - Verification is only as independent as the configured providers. If no suitable
   second provider exists, `cross_verified` returns **unverified**, not verified.
-- The provider adapters themselves live on the TS bridge; a provider declared
-  `implemented=True` is exercised through that bridge. Live connectivity for
-  keyed providers requires their credentials (see Configuration).
-- The Quant Research screen (`src/components/screens/backtest/backtest-screen.tsx`)
-  is mounted as the `backtest` AppTab (deep link `/?tab=backtest`, searchable in
-  the command palette as "Quant Research"), following the Pages/UI-Builder pattern
-  — deliberately not a sidebar section. It is the **backtest/experiment** workspace
-  (strategy config, metrics, equity/drawdown curves, optimize / walk-forward /
-  Monte-Carlo / sensitivity / robustness, saved experiments). Dedicated Dataset
-  Builder/Explorer and Data Quality Center screens are not yet built; datasets are
-  reachable today through the agent tools and the `/quant/*` routes.
+- The provider adapters themselves live on the TS bridge; their normalization
+  contract is pinned with recorded, sanitized fixtures
+  (`test_market_provider_contract.py`). **Live** keyed-provider calls are opt-in
+  and require credentials (`test_market_live.py`, `BLACK_ECLIPSE_MARKET_LIVE=1`).
+- Independence is derived from each provider's declared `upstream`: a shared
+  upstream is NOT independent, and an unrecorded lineage is reported `unknown`
+  (never assumed independent).
+- The **backtest** screen (`backtest` AppTab) and the **Research Data** screen
+  (`research-data` AppTab: Dataset Explorer + Builder + Notebook + Data Quality
+  Center + Providers) are mounted; both follow the Pages/UI-Builder pattern
+  (deep link / command palette, not sidebar sections).
 - New research tools are registered and agent-callable but are **not yet typed
   nodes in the Workflow Graph** (deferred by request), and Evidence-Engine linkage
   is provenance passthrough + Artifact-Center cataloguing (no dataset/version-linked
   claim verification yet).
 - Corporate actions are only as complete as the provider's `corporateActions`
   payload; when absent the tool returns UNAVAILABLE rather than inventing events.
-- Universe membership is resolved from **current** identities; a requested `as_of`
-  is marked `asOfUnknown` (the survivorship guard) because no provider supplies
-  point-in-time index membership here.
-- Isolated notebook execution is not built; `query_dataset` is the safe, bounded
-  projection surface, and code execution remains the general `execute_*` layer.
+- Universe membership is recorded (effective-dated) and resolved as-of from that
+  history; when nothing was recorded for a date it is reported UNKNOWN — no
+  provider supplies point-in-time index membership here.
 
 ## Configuration
 

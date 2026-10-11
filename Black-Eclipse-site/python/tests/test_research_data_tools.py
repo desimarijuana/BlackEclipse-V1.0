@@ -259,6 +259,47 @@ def test_export_and_refresh_dataset(tmp_path, ctx):
     assert refreshed.data["diff"]["sameContent"] is True
 
 
+def test_record_and_asof_universe(tmp_path, ctx):
+    rec = _run(_registry().execute(
+        "record_universe", "c1",
+        {"universe_id": "sp500", "effective_from": "2020-01-01",
+         "members": [{"symbol": "AAPL"}, {"symbol": "MSFT"}]}, ctx))
+    assert rec.ok
+    assert rec.data["recorded"] == 2
+
+    # As-of inside the window → both members, real recorded membership.
+    inside = _run(_registry().execute(
+        "get_universe", "c2", {"universe_id": "sp500", "as_of": "2020-06-01"}, ctx))
+    assert inside.ok
+    assert inside.data["membershipBasis"] == "recorded_membership"
+    assert inside.data["asOfUnknown"] is False
+    assert inside.data["count"] == 2
+
+    # Retire AAPL after 2021-01-01; a later as-of must not include it.
+    _run(_registry().execute(
+        "record_universe", "c3",
+        {"universe_id": "sp500", "effective_from": "2021-01-01",
+         "members": [{"symbol": "AAPL", "effectiveTo": "2022-01-01"}]}, ctx))
+    later = _run(_registry().execute(
+        "get_universe", "c4", {"universe_id": "sp500", "as_of": "2022-06-01"}, ctx))
+    assert later.data["count"] == 1
+    listed = _run(_registry().execute("list_universes", "c5", {}, ctx))
+    assert listed.ok and listed.data["universes"][0]["universeId"] == "sp500"
+
+
+def test_analyze_dataset(ctx):
+    built = _run(_registry().execute(
+        "build_research_dataset", "c1", {"symbols": ["AAPL"], "dataset_id": "ds_an"}, ctx)).data["manifest"]
+    result = _run(_registry().execute(
+        "analyze_dataset", "c2",
+        {"dataset_id": built["datasetId"],
+         "operations": ["summary", "volatility", "max_drawdown"]}, ctx))
+    assert result.ok
+    assert result.data["results"]["summary"]["AAPL"]["count"] == 3
+    assert "AAPL" in result.data["results"]["volatility"]
+    assert "AAPL" in result.data["results"]["max_drawdown"]
+
+
 def test_dataset_comparison_across_versions(ctx):
     first = _run(_registry().execute(
         "build_research_dataset", "c1",

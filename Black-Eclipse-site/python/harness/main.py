@@ -71,6 +71,8 @@ from .routers.plugins import router as plugins_router
 from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.research import router as research_router
+from .routers.research_data import router as research_data_router
+from .routers.research_data import router as research_data_router
 from .routers.search import router as search_router
 from .routers.security import router as security_router
 from .routers.sessions import router as sessions_router
@@ -94,9 +96,7 @@ from .skills.permissions import Actor
 from .skills.runtime import SkillExecutionRequest
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=lifespan)
-
-# Route groups extracted into `harness/routers/`; registered here so the public
-# surface stays `harness.main:app` and paths are unchanged.
+# Route groups extracted into `harness/routers/` (public surface: `harness.main:app`).
 app.include_router(a2a_router)
 app.include_router(application_router)
 app.include_router(artifacts_router)
@@ -124,6 +124,7 @@ app.include_router(plugins_router)
 app.include_router(portfolio_router)
 app.include_router(quant_router)
 app.include_router(research_router)
+app.include_router(research_data_router)
 app.include_router(search_router)
 app.include_router(security_router)
 app.include_router(sessions_router)

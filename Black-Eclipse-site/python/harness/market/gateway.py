@@ -446,13 +446,14 @@ class MarketDataGateway:
 
     async def get_quote(
         self, symbol: str, market: Optional[str] = None, *, freshness: str = "realtime",
-        terms: Optional[ContractTerms] = None,
+        terms: Optional[ContractTerms] = None, provider: Optional[str] = None,
     ) -> Any:
         instrument, err = await self.resolve_instrument(symbol, market, terms)
         if err:
             return err
         return await self._dispatch(
-            "quote", instrument, {}, freshness=freshness, normalize=_normalize_quote
+            "quote", instrument, {}, freshness=freshness, normalize=_normalize_quote,
+            pin_provider=(provider or "").strip().lower() or None,
         )
 
     async def get_historical_prices(

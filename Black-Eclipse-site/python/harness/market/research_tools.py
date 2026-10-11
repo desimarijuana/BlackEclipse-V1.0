@@ -23,11 +23,14 @@ from .models import HistoricalPriceSeries
 from .quality import evaluate
 from .tools import _collect, _persist
 from .research_tools_ext import (  # noqa: F401 - re-exported handlers
+    analyze_dataset,
     export_dataset,
     get_corporate_actions,
     get_currency_conversion,
     get_trading_calendar,
     get_universe,
+    list_universes,
+    record_universe,
     refresh_dataset,
 )
 from .research_tools_ext import _series_store  # noqa: F401 - used by core handlers
@@ -729,8 +732,11 @@ RESEARCH_DATA_TOOLS: tuple[str, ...] = (
     "get_currency_conversion",
     "get_corporate_actions",
     "get_universe",
+    "record_universe",
+    "list_universes",
     "export_dataset",
     "refresh_dataset",
+    "analyze_dataset",
 )
 
 
@@ -972,6 +978,43 @@ def register_research_data_tools(registry: Any) -> list[str]:
             "adjusted": {"type": "boolean"}},
             "required": ["dataset_id"]},
         120_000,
+    )
+    _def(
+        "record_universe",
+        "Record effective-dated universe membership so a research universe can be "
+        "resolved as-of a past date. Membership is recorded, never invented — this is "
+        "the survivorship-bias control.",
+        record_universe,
+        {"type": "object", "properties": {
+            "universe_id": {"type": "string"}, "name": {"type": "string"},
+            "effective_from": {"type": "string"},
+            "members": {"type": "array", "items": {"type": "object"},
+                        "description": "[{symbol, effectiveFrom, effectiveTo?, meta?}] or [symbol]."},
+            "symbols": {"type": "array", "items": {"type": "string"}},
+            "as_of": {"type": "string"}},
+            "required": ["universe_id"]},
+    )
+    _def(
+        "list_universes",
+        "List recorded research universes and their membership counts.",
+        list_universes,
+        {"type": "object", "properties": {}},
+    )
+    _def(
+        "analyze_dataset",
+        "Run deterministic analytics over an immutable dataset version: summary, "
+        "returns, volatility, max_drawdown, sharpe, correlation. Declarative only — no "
+        "arbitrary code and no provider/secret access.",
+        analyze_dataset,
+        {"type": "object", "properties": {
+            "dataset_id": {"type": "string"}, "version": {"type": "string"},
+            "symbols": {"type": "array", "items": {"type": "string"}},
+            "symbol": {"type": "string", "description": "Target symbol (or 'A,B' for correlation)."},
+            "operations": {"type": "array", "items": {"type": "string",
+                "enum": ["summary", "returns", "volatility", "max_drawdown", "sharpe", "correlation"]}},
+            "risk_free_rate": {"type": "number"}, "periods_per_year": {"type": "integer"}},
+            "required": ["dataset_id"]},
+        60_000,
     )
     return list(RESEARCH_DATA_TOOLS)
 

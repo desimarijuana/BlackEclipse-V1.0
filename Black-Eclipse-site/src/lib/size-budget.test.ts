@@ -58,8 +58,13 @@ const RATCHET: Record<string, number> = {
   // and Unified Search tabs, then the Task / Plan runtime's mount (a dynamic
   // import + one keep-alive block). Grew once more by one dynamic import + one
   // keep-alive block for the Plugins tab. May only shrink from here; the shell's
-  // per-tab keep-alive blocks are the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1320,
+  // per-tab keep-alive blocks are the standing split candidate. Grew by one
+  // handler + one prop passthrough for the Interactive Response Engine's
+  // `controls` follow-up (a response block re-enters the same agent loop).
+  // Grew by one dynamic import + one keep-alive block for the Research Data
+  // (`research-data`) tab. May only shrink from here; the per-tab keep-alive
+  // blocks remain the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1334,
 };
 
 export interface SizeEntry {

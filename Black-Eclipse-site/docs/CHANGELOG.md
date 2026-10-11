@@ -8,6 +8,96 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Research data: isolated notebook, fundamentals/macro endpoints, provider
+  lineage, contract tests.** `research/notebook.py` executes operator analytical
+  code in the ONE bounded sandbox against a read-only dataset CSV (no secrets/
+  network; `/research-data/datasets/{id}/execute` + a Notebook tab in the
+  Research Data screen). `POST /research-data/{fundamentals,macro}` exposes vault
+  fundamentals and macro series. Provider descriptors declare an `upstream`
+  lineage (shared upstream ≠ independent; unknown ⇒ unknown) consumed by
+  verification. New tests: `test_research_notebook.py`,
+  `test_market_provider_contract.py` (recorded fixtures; live keyed calls remain
+  opt-in). Gateway `get_quote` gains provider pinning. docs updated:
+  docs/harness/quant-research-data.md.
+
+- **Chat history becomes a full client-side system: nested folders, tags,
+  ranked search, archive, trash + undo, bulk actions, export/import, and
+  mouse/touch drag.** Everything the earlier pass listed as missing is now built,
+  except cross-device sync (deliberately out of scope — localStorage only, no
+  auth). Data: `Conversation` gained `tags`/`archivedAt`/`deletedAt`;
+  `ChatFolder` gained `parentId`/`order` for nesting + ordering. New pure logic in
+  `chat-organization.ts` (folder forest with cycle safety, ranked AND-token search
+  with body snippets, scope/tag filtering) and `chat-export.ts` (versioned JSON
+  envelope, defensive parse, additive id-based merge). Hook gained tag/archive/
+  trash/restore/purge/bulk/move-folder/import handlers. UI split into
+  `chat-history-panel.tsx` (toolbar, scope tabs, tag filter, folder tree, bulk bar,
+  undo toast, pointer-based drag working on touch) and `chat-history-menu.tsx`
+  (options menu with tag editor). Legacy rows migrate on load. Tests: 21
+  organization + 5 export. docs updated: ARCHITECTURE.md (Layer 0 persistence),
+  CHANGELOG.md.
+
+- **Interactive Response Engine — full build-out (planner, controls, exports,
+  artifacts, financial charts, Mermaid).** Completes the engine's deferred
+  capabilities, all reusing existing infrastructure: a deterministic **response
+  planner** (`src/lib/response/planner.ts`) upgrades plain-Markdown GFM tables →
+  interactive tables and link-only source lists → citations for **every** settled
+  answer (no model call, byte-identical prose otherwise); **backend-driven
+  controls** (`src/components/response/controls-block.tsx`) compose a validated
+  prompt and re-enter the **existing** agent loop via a new `onFollowup` callback
+  threaded through both chat surfaces; **export** (`src/lib/response/export.ts`)
+  adds JSON / CSV / PNG (ECharts `getDataURL` via a new instance registry) / PDF
+  (lazy `jspdf` + `jspdf-autotable`, embedding mounted charts and reporting
+  anything it cannot embed in an appendix); **Artifact Center save** reuses the
+  existing `registerArtifact` → `POST /api/artifacts`; a **`financial_chart`**
+  block wraps the existing `ChartWidget` (live OHLCV, never embedded price data);
+  a **`mermaid`** block renders sequence/ER/class/gantt diagrams with
+  `securityLevel: 'strict'` (lazy-loaded; `mermaid` 12.1.0 added). Per-response
+  export/save actions live in `src/components/response/response-actions.tsx`. New
+  tests: `contract-extended.test.ts`, `planner.test.ts`, `export.test.ts`. docs
+  updated: docs/interactive-response-engine.md, docs/NAVIGATION.md,
+  docs/DECISIONS.md (ADR-043 amendment), skills/ARCHITECT.md (ADR-043 amendment).
+
+- **Research data becomes a proper system: REST API, Dataset/Quality UI,
+  point-in-time universes, dataset analytics.** `python/harness/routers/research_data.py`
+  exposes the research services over HTTP (operator-gated, `/research-data/*`,
+  included in `main.py`); `src/app/api/research-data/[...path]/route.ts` proxies
+  it and `src/components/screens/research-data/research-data-screen.tsx` is a new
+  `research-data` AppTab (Dataset Explorer + Builder + Data Quality Center +
+  Provider view). Point-in-time universe membership lives in
+  `python/harness/market/universe_store.py` (effective-dated, SCD-2) with
+  `record_universe`/`list_universes` and `get_universe` as-of resolution. New
+  `analyze_dataset` runs deterministic analytics (summary/returns/volatility/
+  max_drawdown/sharpe/correlation) over an immutable version. New tests:
+  `test_research_data_api.py` + universe/analyze tests in
+  `test_research_data_tools.py`. Size pins updated (`main.py` kept ≤1200,
+  `stock-chat.tsx` re-pinned). docs updated: docs/harness/quant-research-data.md,
+  docs/NAVIGATION.md.
+
+- **Chat history: drag a chat onto a folder to file it; folder options redesigned.**
+  Chat rows are now HTML5-draggable and every folder group (plus "Unfiled") is a
+  drop target that highlights while hovered and moves the chat on drop — a faster
+  path than the menu's "Move to". The folder options popover was rebuilt: an
+  identity header (color chip + name + chat count), a labelled color grid, and
+  roomier action rows, with "Delete folder" now stating that its chats move to
+  Unfiled. `docs updated: CHANGELOG.md only`.
+
+- **Interactive Response Engine — structured, interactive assistant answers.**
+  An assistant turn may now carry ONE fenced ```eclipse-response block whose JSON
+  body is validated by a versioned zod contract and rendered through a registered
+  component registry inline in chat: metric grids, sortable/filterable/paginated
+  tables, ECharts charts (line/area/bar/stacked/grouped/pie/scatter/histogram/
+  heatmap), dependency-free SVG diagrams (flow/dependency/state), timelines,
+  citations, callouts, key-value panels, collapsible details and tabs. This closes
+  the audit's documented gap (`docs/chat-ui-audit.md` §16, Risk R7 — "no
+  structured wire contract"). New `src/lib/response/` (contract/parse/chart-option/
+  diagram-layout + tests) and `src/components/response/`; `components/chat/
+  markdown.tsx` intercepts the fence and gained a `streaming` prop (threaded from
+  `chat-history.tsx`); per-block error boundaries; hard resource limits; unknown/
+  malformed blocks degrade to diagnostics, never code. Charts lazy-load ECharts;
+  persistence/reopen reuse the existing `Message.content` store. `zod` promoted to
+  a direct dependency; `prompts.py` gained a "Structured answers" section.
+  docs updated: docs/interactive-response-engine.md (new), docs/NAVIGATION.md,
+  docs/DECISIONS.md (ADR-043), skills/ARCHITECT.md (ADR-043).
 - **Research data: trading calendar, currency conversion, corporate actions,
   universe resolution, export/refresh, point-in-time and Artifact linkage.** Adds
   the tools the research surface previously lacked, all backend and credential-free:

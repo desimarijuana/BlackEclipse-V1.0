@@ -135,40 +135,234 @@ async def get_corporate_actions(args: dict[str, Any], ctx: Any) -> tuple[str, An
     return text, {"status": "OK" if any_ok else "UNAVAILABLE", "results": out}
 
 
+def _universe_store(ctx: Any):
+    from .universe_store import UniverseStore
+
+    market_store = getattr(ctx, "market_store", None)
+    if market_store is None:
+        return None
+    return UniverseStore(market_store)
+
+
 async def get_universe(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    import datetime as _dt
+
     from .research_tools import _gateway, _parse_symbols, _unavailable
+
+    universe_id = args.get("universe_id")
+    as_of = args.get("as_of")
+    store = _universe_store(ctx)
+    basis = "current_identities"
+    as_of_unknown = bool(as_of)
+    dated: dict[str, Any] = {}
 
     symbols = _parse_symbols(args)
     watchlist = args.get("watchlist")
     if watchlist and isinstance(watchlist, list):
         symbols = [*symbols, *[str(s).upper() for s in watchlist]]
-    symbols = list(dict.fromkeys(symbols))[:200]
+
+    # A recorded universe resolves membership from its effective-dated history.
+    if universe_id and store is not None and store.has(str(universe_id)):
+        cut = str(as_of) if as_of else _dt.date.today().isoformat()
+        recorded = store.members_as_of(str(universe_id), cut)
+        symbols = [m["symbol"] for m in recorded]
+        dated = {m["symbol"]: m for m in recorded}
+        basis = "recorded_membership"
+        as_of_unknown = False
+
+    symbols = list(dict.fromkeys([s for s in symbols if s]))[:200]
     if not symbols:
-        return _unavailable("symbols or watchlist is required", code="INVALID_REQUEST")
-    as_of = args.get("as_of")
+        return _unavailable("symbols, watchlist or a recorded universe_id is required",
+                            code="INVALID_REQUEST")
     gateway = _gateway(ctx)
     members: list[dict[str, Any]] = []
     for symbol in symbols:
         instrument, err = await gateway.resolve_instrument(symbol)
+        entry: dict[str, Any] = {"symbol": symbol}
+        if symbol in dated:
+            entry["effectiveFrom"] = dated[symbol].get("effectiveFrom")
+            entry["effectiveTo"] = dated[symbol].get("effectiveTo")
         if instrument is None or err is not None:
-            members.append({"symbol": symbol, "resolved": False,
-                            "reason": (err.message if err else "unresolved")})
-            continue
-        members.append({
-            "symbol": symbol, "resolved": True, "instrumentId": instrument.instrument_id,
-            "assetType": instrument.asset_type, "market": instrument.market,
-            "exchange": instrument.exchange,
-        })
-    # Membership is resolved from CURRENT identities; historical membership is
-    # unknown unless a source provides it. This is the survivorship-bias guard.
-    as_of_unknown = bool(as_of)
+            entry.update({"resolved": False, "reason": (err.message if err else "unresolved")})
+        else:
+            entry.update({
+                "resolved": True, "instrumentId": instrument.instrument_id,
+                "assetType": instrument.asset_type, "market": instrument.market,
+                "exchange": instrument.exchange,
+            })
+        members.append(entry)
     return (
-        f"UNIVERSE — {sum(1 for m in members if m.get('resolved'))}/{len(members)} resolved"
+        f"UNIVERSE — {sum(1 for m in members if m.get('resolved'))}/{len(members)} resolved "
+        f"(basis={basis})"
         + (f" (asOf={as_of}: historical membership UNKNOWN)" if as_of_unknown else ""),
-        {"status": "OK", "universeId": args.get("universe_id"), "asOf": as_of,
-         "membershipBasis": "current_identities", "asOfUnknown": as_of_unknown,
+        {"status": "OK", "universeId": universe_id, "asOf": as_of,
+         "membershipBasis": basis, "asOfUnknown": as_of_unknown,
          "count": len(members), "members": members},
     )
+
+
+async def record_universe(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .research_tools import _parse_symbols, _unavailable
+
+    store = _universe_store(ctx)
+    if store is None:
+        return _unavailable("universe store is not available")
+    universe_id = str(args.get("universe_id") or "").strip()
+    if not universe_id:
+        return _unavailable("universe_id is required", code="INVALID_REQUEST")
+    effective_from = args.get("effective_from") or args.get("as_of")
+    if not effective_from:
+        return _unavailable("effective_from (or as_of) is required", code="INVALID_REQUEST")
+    raw = args.get("members")
+    members: list[dict[str, Any]] = []
+    if isinstance(raw, list) and raw:
+        for m in raw:
+            if isinstance(m, dict):
+                members.append({
+                    "symbol": m.get("symbol"),
+                    "effectiveFrom": m.get("effectiveFrom") or m.get("effective_from") or effective_from,
+                    "effectiveTo": m.get("effectiveTo") or m.get("effective_to"),
+                    "meta": m.get("meta"),
+                })
+            elif isinstance(m, str):
+                members.append({"symbol": m, "effectiveFrom": effective_from})
+    else:
+        members = [{"symbol": s, "effectiveFrom": effective_from}
+                   for s in _parse_symbols(args)]
+    recorded = store.record_membership(universe_id, members, name=args.get("name"))
+    if recorded == 0:
+        return _unavailable("no valid members to record", code="INVALID_REQUEST")
+    return (
+        f"UNIVERSE {universe_id}: recorded {recorded} membership row(s) effective {effective_from}",
+        {"status": "OK", "universeId": universe_id, "recorded": recorded,
+         "effectiveFrom": effective_from},
+    )
+
+
+def _returns(closes: list[float]) -> list[float]:
+    out = []
+    for i in range(1, len(closes)):
+        prev = closes[i - 1]
+        if prev:
+            out.append(closes[i] / prev - 1)
+    return out
+
+
+def _stdev(xs: list[float]) -> float:
+    import math
+
+    if len(xs) < 2:
+        return 0.0
+    mean = sum(xs) / len(xs)
+    var = sum((x - mean) ** 2 for x in xs) / (len(xs) - 1)
+    return math.sqrt(var)
+
+
+async def analyze_dataset(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Run deterministic analytics over an immutable dataset version.
+
+    Declarative operations only (no arbitrary code, no provider/secret access):
+    `summary`, `returns`, `volatility`, `max_drawdown`, `sharpe`, `correlation`.
+    """
+    import math
+
+    from .research_tools import _dataset_store, _unavailable
+
+    store = _dataset_store(ctx)
+    if store is None:
+        return _unavailable("dataset store is not available")
+    dataset_id = str(args.get("dataset_id") or "")
+    if not dataset_id:
+        return _unavailable("dataset_id is required", code="INVALID_REQUEST")
+    try:
+        artifact = store.read_artifact(dataset_id, str(args.get("version")) if args.get("version") else None)
+    except Exception as exc:  # noqa: BLE001
+        return _unavailable(str(exc), code="DATASET_NOT_FOUND")
+    series: dict[str, list[dict[str, Any]]] = artifact.get("series", {})
+    selected = args.get("symbols")
+    if selected:
+        wanted = {str(s).upper() for s in selected}
+        series = {k: v for k, v in series.items() if k.upper() in wanted}
+    if not series:
+        return _unavailable("no series to analyze", code="DATA_NOT_AVAILABLE")
+    operations = args.get("operations") or ["summary"]
+    operations = [str(op) for op in operations]
+    rf = float(args.get("risk_free_rate") or 0.0)
+    periods = int(args.get("periods_per_year") or 252)
+
+    closes: dict[str, list[float]] = {}
+    for symbol, rows in series.items():
+        closes[symbol] = [float(r["close"]) for r in rows if r.get("close") is not None]
+
+    results: dict[str, Any] = {}
+    for name in operations:
+        symbol = args.get("symbol")
+        if name == "summary":
+            results["summary"] = {
+                s: {"count": len(v), "first": v[0] if v else None, "last": v[-1] if v else None,
+                    "mean": (sum(v) / len(v)) if v else None}
+                for s, v in closes.items()
+            }
+        elif name == "returns":
+            target = symbol or next(iter(closes))
+            r = _returns(closes.get(target, []))
+            results.setdefault("returns", {})[target] = {
+                "count": len(r), "total": (math.prod(1 + x for x in r) - 1) if r else 0.0,
+                "mean": (sum(r) / len(r)) if r else None,
+            }
+        elif name == "volatility":
+            target = symbol or next(iter(closes))
+            r = _returns(closes.get(target, []))
+            results.setdefault("volatility", {})[target] = {
+                "periodVol": _stdev(r), "annualized": _stdev(r) * math.sqrt(periods),
+            }
+        elif name == "max_drawdown":
+            target = symbol or next(iter(closes))
+            peak = None
+            mdd = 0.0
+            for price in closes.get(target, []):
+                peak = price if peak is None else max(peak, price)
+                if peak:
+                    mdd = min(mdd, price / peak - 1)
+            results.setdefault("max_drawdown", {})[target] = mdd
+        elif name == "sharpe":
+            target = symbol or next(iter(closes))
+            r = _returns(closes.get(target, []))
+            sd = _stdev(r)
+            excess = (sum(r) / len(r) - rf / periods) if r else 0.0
+            results.setdefault("sharpe", {})[target] = (excess / sd * math.sqrt(periods)) if sd else None
+        elif name == "correlation":
+            a, b = (symbol.split(",") + [None])[:2] if symbol else (None, None)
+            keys = list(closes)
+            if not a or not b:
+                a, b = keys[0], keys[1] if len(keys) > 1 else None
+            if b and a in closes and b in closes:
+                map_a = {row["timestamp"]: row["close"] for row in series[a] if row.get("close") is not None}
+                map_b = {row["timestamp"]: row["close"] for row in series[b] if row.get("close") is not None}
+                common = sorted(set(map_a) & set(map_b))
+                ra = _returns([map_a[t] for t in common])
+                rb = _returns([map_b[t] for t in common])
+                if len(ra) >= 2 and len(ra) == len(rb):
+                    ma, mb = sum(ra) / len(ra), sum(rb) / len(rb)
+                    cov = sum((x - ma) * (y - mb) for x, y in zip(ra, rb)) / (len(ra) - 1)
+                    sa, sb = _stdev(ra), _stdev(rb)
+                    results.setdefault("correlation", {})[f"{a},{b}"] = (cov / (sa * sb)) if (sa and sb) else None
+        else:
+            results.setdefault("errors", []).append(f"unknown operation {name!r}")
+    return (
+        f"ANALYZE {dataset_id} — {len(operations)} operation(s) over {len(closes)} symbol(s)",
+        {"status": "OK", "datasetId": dataset_id, "version": args.get("version"),
+         "operations": operations, "results": results},
+    )
+
+
+async def list_universes(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    store = _universe_store(ctx)
+    if store is None:
+        return _unavailable("universe store is not available")
+    rows = store.list_universes()
+    return (f"UNIVERSES — {len(rows)} recorded",
+            {"status": "OK", "universes": rows})
 
 
 async def export_dataset(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
