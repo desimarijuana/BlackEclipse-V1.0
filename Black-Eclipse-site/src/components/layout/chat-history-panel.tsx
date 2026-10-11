@@ -1,31 +1,28 @@
 "use client";
 
-import React, { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useMemo, useRef, useState } from 'react';
 import {
-  Check,
   ChevronDown,
   Folder,
   FolderOpen,
   FolderPlus,
   MoreHorizontal,
-  Pencil,
   Pin,
-  PinOff,
   Plus,
   Search,
-  Trash2,
   X,
 } from '@/lib/icons';
 import { useT } from '@/lib/i18n';
 import {
   buildChatHistoryView,
-  CHAT_COLORS,
+  collectTags,
+  scoreConversation,
   type ChatFolder,
   type ChatOrganizationApi,
   type ChatSortMode,
   type Conversation,
 } from '@/lib/chat/chat-organization';
+import { ChatHistoryMenu, type MenuAnchor } from '@/components/layout/chat-history-menu';
 
 export interface ChatHistoryPanelProps {
   conversations: Conversation[];
@@ -33,38 +30,11 @@ export interface ChatHistoryPanelProps {
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
+  /** Legacy permanent delete (also fixes the active selection in the shell). */
   onDeleteConversation: (id: string) => void;
 }
 
-/** An open options menu, anchored (viewport coords) to the button that opened it. */
-type MenuState = { kind: 'chat' | 'folder'; id: string; x: number; up: boolean; y: number } | null;
 type RenameTarget = { kind: 'chat' | 'folder'; id: string } | null;
-
-/** Compact color swatch strip. `value === null` renders a "no color" reset. */
-function ColorSwatches({ value, onPick }: { value: string | null; onPick: (color: string | null) => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {CHAT_COLORS.map((c) => (
-        <button
-          key={c.id}
-          onClick={() => onPick(c.value)}
-          className="flex h-4 w-4 items-center justify-center rounded-full border border-black/20 transition-transform hover:scale-110 cursor-pointer"
-          style={{ background: c.value }}
-          title={c.id}
-        >
-          {value === c.value && <Check size={9} className="text-white" />}
-        </button>
-      ))}
-      <button
-        onClick={() => onPick(null)}
-        className="flex h-4 w-4 items-center justify-center rounded-full border border-border/60 text-muted-foreground hover:text-foreground cursor-pointer"
-        title="none"
-      >
-        <X size={9} />
-      </button>
-    </div>
-  );
-}
 
 export function ChatHistoryPanel({
   conversations,
@@ -76,34 +46,87 @@ export function ChatHistoryPanel({
 }: ChatHistoryPanelProps) {
   const t = useT();
   const {
-    folders,
-    createFolder: onCreateFolder,
-    renameFolder: onRenameFolder,
-    deleteFolder: onDeleteFolder,
-    toggleFolder: onToggleFolder,
-    setFolderColor: onSetFolderColor,
-    moveConversation: onMoveConversation,
-    setConversationColor: onSetConversationColor,
-    togglePin: onTogglePin,
-    renameConversation: onRenameConversation,
+    folders, createFolder: onCreateFolder, renameFolder: onRenameFolder, deleteFolder: onDeleteFolder,
+    toggleFolder: onToggleFolder, setFolderColor: onSetFolderColor, moveFolder: onMoveFolder,
+    moveConversation: onMoveConversation, setConversationColor: onSetConversationColor, togglePin: onTogglePin,
+    renameConversation: onRenameConversation, addTag: onAddTag, removeTag: onRemoveTag, bulkPin,
   } = organization;
+
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<ChatSortMode>('recent');
-  const [menu, setMenu] = useState<MenuState>(null);
+  const [tagFilter, setTagFilter] = useState<string>('');
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const [renaming, setRenaming] = useState<RenameTarget>(null);
+  const [dropKey, setDropKey] = useState<string | null>(null);
+  const [ghost, setGhost] = useState<{ x: number; y: number; label: string } | null>(null);
+  const dragRef = useRef<{ id: string; kind: 'chat' | 'folder'; startX: number; startY: number; active: boolean; label: string } | null>(null);
+  const didDragRef = useRef(false);
 
   const view = useMemo(
-    () => buildChatHistoryView(conversations, folders, { query, sort }),
-    [conversations, folders, query, sort],
+    () => buildChatHistoryView(conversations, folders, { query, sort, scope: 'active', tag: tagFilter || null }),
+    [conversations, folders, query, sort, tagFilter],
   );
+  const tags = useMemo(() => collectTags(conversations), [conversations]);
+  const snippets = useMemo(() => {
+    if (!query.trim()) return null;
+    const map = new Map<string, string | null>();
+    for (const c of conversations) map.set(c.id, scoreConversation(c, query)?.snippet ?? null);
+    return map;
+  }, [conversations, query]);
 
-  /** Open/close a menu, anchoring it to the clicked button and flipping up when
-      there is not enough room below (a portal escapes the scroll container so it
-      is never clipped). */
+  // ── Drag & drop (pointer-based, so it works with mouse and touch) ───────────
+  const performDrop = (kind: 'chat' | 'folder', id: string, key: string) => {
+    if (kind === 'chat') {
+      if (key === 'pinned') bulkPin([id], true);
+      else if (key === 'unfiled') onMoveConversation(id, null);
+      else if (key.startsWith('folder:')) onMoveConversation(id, key.slice(7));
+    } else {
+      if (key === 'root') onMoveFolder(id, null, null);
+      else if (key.startsWith('folder:')) onMoveFolder(id, key.slice(7), null);
+    }
+  };
+
+  const beginDrag = (e: React.PointerEvent, id: string, kind: 'chat' | 'folder', label: string) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('[data-no-drag]')) return;
+    dragRef.current = { id, kind, startX: e.clientX, startY: e.clientY, active: false, label };
+    const onMove = (ev: PointerEvent) => {
+      const st = dragRef.current;
+      if (!st) return;
+      if (!st.active) {
+        if (Math.hypot(ev.clientX - st.startX, ev.clientY - st.startY) < 6) return;
+        st.active = true;
+        didDragRef.current = true;
+        document.body.style.userSelect = 'none';
+      }
+      setGhost({ x: ev.clientX, y: ev.clientY, label: st.label });
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      setDropKey(el?.closest('[data-droppable]')?.getAttribute('data-drop-key') ?? null);
+    };
+    const finish = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.style.userSelect = '';
+      const st = dragRef.current;
+      dragRef.current = null;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const key = el?.closest('[data-droppable]')?.getAttribute('data-drop-key') ?? null;
+      setGhost(null);
+      setDropKey(null);
+      if (st?.active && key) performDrop(st.kind, st.id, key);
+      setTimeout(() => { didDragRef.current = false; }, 0);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+
+  // ── Actions ────────────────────────────────────────────────────────────────
   const openMenu = (e: React.MouseEvent, kind: 'chat' | 'folder', id: string) => {
     e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    setMenu((prev) => (prev && prev.kind === kind && prev.id === id ? null : { kind, id, x: rect.right, y: rect.bottom, up: rect.bottom > window.innerHeight - 260 }));
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({ kind, id, x: r.right, y: r.bottom, up: r.bottom > window.innerHeight - 320 });
     setRenaming(null);
   };
 
@@ -121,6 +144,7 @@ export function ChatHistoryPanel({
       autoFocus
       defaultValue={initial}
       onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       onBlur={(e) => commitRename(target, e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') commitRename(target, (e.target as HTMLInputElement).value);
@@ -130,27 +154,41 @@ export function ChatHistoryPanel({
     />
   );
 
-  const renderChatRow = (c: Conversation) => {
+  // ── Rows ───────────────────────────────────────────────────────────────────
+  const renderRow = (c: Conversation, depth = 0) => {
     const isActive = activeConversationId === c.id;
     const isRenaming = renaming?.kind === 'chat' && renaming.id === c.id;
+    const snippet = snippets?.get(c.id) ?? null;
     return (
-      <div key={c.id}>
+      <div key={c.id} style={{ paddingLeft: depth * 12 }}>
         <div
-          onClick={() => !isRenaming && onSelectConversation(c.id)}
+          onClick={() => {
+            if (didDragRef.current) return;
+            if (!isRenaming) onSelectConversation(c.id);
+          }}
+          onPointerDown={(e) => !isRenaming && beginDrag(e, c.id, 'chat', c.title || t('sidebar.untitledSession'))}
           className={`flex items-center justify-between gap-1 rounded-xl px-2.5 py-1.5 text-[11px] cursor-pointer group transition-all border border-transparent ${
-            isActive
-              ? 'bg-white/[0.04] border-border/20 text-foreground font-semibold'
+            ghost && dragRef.current?.id === c.id && dragRef.current?.active ? 'opacity-40' : ''
+          } ${
+            isActive ? 'bg-white/[0.04] border-border/20 text-foreground font-semibold'
               : 'bg-transparent text-muted-foreground hover:bg-accent/25 hover:text-foreground'
           }`}
         >
           <span className="flex items-center gap-1.5 min-w-0 flex-1">
             {c.pinned && <Pin size={10} className="shrink-0 text-amber-400" weight="fill" />}
             {c.color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} />}
-            {isRenaming ? renameInput(renaming, c.title) : <span className="truncate">{c.title || t('sidebar.untitledSession')}</span>}
+            <span className="min-w-0 flex-1">
+              {isRenaming ? renameInput(renaming, c.title) : <span className="block truncate">{c.title || t('sidebar.untitledSession')}</span>}
+              {snippet && !isRenaming && <span className="block truncate text-[9px] font-normal text-muted-foreground/70">{snippet}</span>}
+            </span>
           </span>
+          {!isRenaming && (c.tags?.length ?? 0) > 0 && (
+            <span className="shrink-0 rounded bg-white/[0.06] px-1 text-[8px] text-muted-foreground">{c.tags!.length}</span>
+          )}
           {!isRenaming && (
             <button
               onClick={(e) => openMenu(e, 'chat', c.id)}
+              data-no-drag
               className={`shrink-0 rounded p-0.5 hover:text-foreground transition-opacity ${
                 menu?.kind === 'chat' && menu.id === c.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}
@@ -164,14 +202,18 @@ export function ChatHistoryPanel({
     );
   };
 
-  const renderGroupHeader = (folder: ChatFolder | null, count: number) => {
+  const renderGroupHeader = (folder: ChatFolder | null, count: number, depth: number) => {
     const isFolder = folder !== null;
     const isRenaming = isFolder && renaming?.kind === 'folder' && renaming.id === folder.id;
     const collapsed = isFolder && folder.collapsed;
     return (
-      <div className="flex items-center justify-between gap-1 px-1 group">
+      <div
+        className="flex items-center justify-between gap-1 px-1 group rounded-lg"
+        style={{ paddingLeft: 4 + depth * 12 }}
+        onPointerDown={(e) => isFolder && !isRenaming && beginDrag(e, folder.id, 'folder', folder.name)}
+      >
         <button
-          onClick={() => isFolder && onToggleFolder(folder.id)}
+          onClick={() => { if (didDragRef.current) return; if (isFolder) onToggleFolder(folder.id); }}
           className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
         >
           {isFolder && <ChevronDown size={11} className={`shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />}
@@ -181,9 +223,7 @@ export function ChatHistoryPanel({
           ) : (
             <Folder size={12} className="shrink-0 text-muted-foreground" />
           )}
-          {isRenaming ? (
-            renameInput(renaming, folder.name)
-          ) : (
+          {isRenaming ? renameInput(renaming, folder.name) : (
             <span className="truncate text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{folder ? folder.name : t('sidebar.unfiled')}</span>
           )}
           <span className="shrink-0 text-[9px] text-muted-foreground/70">{count}</span>
@@ -191,6 +231,7 @@ export function ChatHistoryPanel({
         {isFolder && !isRenaming && (
           <button
             onClick={(e) => openMenu(e, 'folder', folder.id)}
+            data-no-drag
             className={`shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-opacity cursor-pointer ${
               menu?.kind === 'folder' && menu.id === folder.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
             }`}
@@ -203,111 +244,23 @@ export function ChatHistoryPanel({
     );
   };
 
-  /** The portal-rendered options menu for the current target. */
-  const renderMenu = () => {
-    if (!menu || typeof document === 'undefined') return null;
-    const chat = menu.kind === 'chat' ? conversations.find((c) => c.id === menu.id) : undefined;
-    const folder = menu.kind === 'folder' ? folders.find((f) => f.id === menu.id) : undefined;
-    if (menu.kind === 'chat' && !chat) return null;
-    if (menu.kind === 'folder' && !folder) return null;
-
-    const close = () => setMenu(null);
-    const body = chat ? (
-      <>
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{t('sidebar.color')}</span>
-          <ColorSwatches value={chat.color ?? null} onPick={(color) => { onSetConversationColor(chat.id, color); close(); }} />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{t('sidebar.moveTo')}</span>
-          <div className="flex flex-wrap gap-1">
-            <button onClick={() => { onMoveConversation(chat.id, null); close(); }} className="rounded-md bg-accent/40 px-1.5 py-0.5 text-[10px] hover:bg-accent cursor-pointer">
-              {t('sidebar.unfiled')}
-            </button>
-            {folders.map((f) => (
-              <button key={f.id} onClick={() => { onMoveConversation(chat.id, f.id); close(); }} className="flex items-center gap-1 rounded-md bg-accent/40 px-1.5 py-0.5 text-[10px] hover:bg-accent cursor-pointer">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: f.color }} />
-                <span className="max-w-[80px] truncate">{f.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-col gap-0.5 border-t border-border/20 pt-1.5">
-          <button onClick={() => { setRenaming({ kind: 'chat', id: chat.id }); close(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[10px] hover:bg-accent/40 cursor-pointer">
-            <Pencil size={11} /> {t('sidebar.rename')}
-          </button>
-          <button onClick={() => { onTogglePin(chat.id); close(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[10px] hover:bg-accent/40 cursor-pointer">
-            {chat.pinned ? <PinOff size={11} /> : <Pin size={11} />} {chat.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
-          </button>
-          <button onClick={() => { onDeleteConversation(chat.id); close(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[10px] text-rose-400 hover:bg-rose-500/10 cursor-pointer">
-            <Trash2 size={11} /> {t('sidebar.delete')}
-          </button>
-        </div>
-      </>
-    ) : folder ? (
-      <>
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{t('sidebar.color')}</span>
-          <ColorSwatches value={folder.color} onPick={(color) => { if (color) onSetFolderColor(folder.id, color); }} />
-        </div>
-        <div className="flex flex-col gap-0.5 border-t border-border/20 pt-1.5">
-          <button onClick={() => { setRenaming({ kind: 'folder', id: folder.id }); close(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[10px] hover:bg-accent/40 cursor-pointer">
-            <Pencil size={11} /> {t('sidebar.rename')}
-          </button>
-          <button onClick={() => { onDeleteFolder(folder.id); close(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[10px] text-rose-400 hover:bg-rose-500/10 cursor-pointer">
-            <Trash2 size={11} /> {t('sidebar.delete')}
-          </button>
-        </div>
-      </>
-    ) : null;
-
-    return createPortal(
-      <>
-        <div className="fixed inset-0 z-[90]" onClick={close} />
-        <div
-          className="fixed z-[100] w-44 rounded-xl glass-card-strong border border-border/40 p-2 flex flex-col gap-2 shadow-xl"
-          style={{
-            left: Math.max(8, menu.x - 176),
-            top: menu.up ? undefined : menu.y + 4,
-            bottom: menu.up ? window.innerHeight - menu.y + 4 : undefined,
-          }}
-        >
-          {body}
-        </div>
-      </>,
-      document.body,
-    );
-  };
-
-  const searching = query.trim().length > 0;
+  const dragging = ghost !== null;
   const hasAnything = view.pinned.length > 0 || view.groups.length > 0;
 
   return (
-    <div className="flex flex-col gap-2.5 pb-4">
-      {/* Header: title + new chat + new folder */}
+    <div className="flex flex-col gap-2 pb-4">
+      {/* Header + global actions */}
       <div className="flex items-center justify-between px-1">
         <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
         <div className="flex items-center gap-0.5">
-          <button
-            onClick={onCreateFolder}
-            className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex items-center cursor-pointer transition-all border border-border/5"
-            title={t('sidebar.newFolder')}
-          >
-            <FolderPlus size={12} />
-          </button>
-          <button
-            onClick={onNewChat}
-            className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex items-center cursor-pointer transition-all border border-border/5"
-            title={t('sidebar.newChat')}
-          >
-            <Plus size={12} />
-          </button>
+          <IconBtn title={t('sidebar.newFolder')} onClick={() => onCreateFolder()}><FolderPlus size={12} /></IconBtn>
+          <IconBtn title={t('sidebar.newChat')} onClick={onNewChat}><Plus size={12} /></IconBtn>
         </div>
       </div>
 
-      {/* Search + sort */}
+      {/* Search + sort + tag */}
       <div className="flex items-center gap-1 px-1">
-        <div className="flex flex-1 items-center gap-1.5 rounded-lg glass-card-subtle border border-border/20 px-2 py-1">
+        <div className="flex flex-1 min-w-0 items-center gap-1.5 rounded-lg glass-card-subtle border border-border/20 px-2 py-1">
           <Search size={11} className="shrink-0 text-muted-foreground" />
           <input
             value={query}
@@ -315,12 +268,19 @@ export function ChatHistoryPanel({
             placeholder={t('sidebar.searchChats')}
             className="w-full min-w-0 bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/70 outline-none"
           />
-          {query && (
-            <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer">
-              <X size={11} />
-            </button>
-          )}
+          {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={11} /></button>}
         </div>
+        {tags.length > 0 && (
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className="max-w-[62px] rounded-lg glass-card-subtle border border-border/20 py-1 pl-1.5 pr-4 text-[9px] text-muted-foreground outline-none cursor-pointer"
+            title={t('sidebar.filterTag')}
+          >
+            <option value="">{t('sidebar.allTags')}</option>
+            {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+          </select>
+        )}
         <div className="relative flex items-center">
           <select
             value={sort}
@@ -336,34 +296,82 @@ export function ChatHistoryPanel({
         </div>
       </div>
 
-      {/* List — bounded height with its own scrollbar so it never pushes the nav
-          below it down. Menus render through a portal, so they are not clipped. */}
-      <div className="flex flex-col gap-2.5 max-h-[45vh] overflow-y-auto pr-1">
+      {/* List */}
+      <div className={`flex flex-col gap-2.5 max-h-[45vh] overflow-y-auto pr-1 ${dragging ? 'cursor-grabbing' : ''}`}>
         {view.pinned.length > 0 && (
-          <div className="flex flex-col gap-0.5">
+          <div data-droppable data-drop-key="pinned" className={`flex flex-col gap-0.5 rounded-lg ${dropKey === 'pinned' && dragging ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}>
             <div className="flex items-center gap-1.5 px-1">
               <Pin size={11} className="text-amber-400" weight="fill" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t('sidebar.pinned')}</span>
             </div>
-            {view.pinned.map(renderChatRow)}
+            {view.pinned.map((c) => renderRow(c))}
           </div>
         )}
 
-        {view.groups.map((g) => (
-          <div key={g.folder?.id ?? '__unfiled__'} className="flex flex-col gap-0.5">
-            {renderGroupHeader(g.folder, g.conversations.length)}
-            {!(g.folder?.collapsed) && g.conversations.map(renderChatRow)}
-          </div>
-        ))}
+        {view.groups.map((g) => {
+          const key = g.folder ? `folder:${g.folder.id}` : 'unfiled';
+          const isDropTarget = dropKey === key && dragging;
+          return (
+            <div
+              key={key}
+              data-droppable
+              data-drop-key={key}
+              className={`flex flex-col gap-0.5 rounded-lg transition-colors ${isDropTarget ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
+            >
+              {(g.folder || !query.trim()) && renderGroupHeader(g.folder, g.conversations.length, g.depth)}
+              {!(g.folder?.collapsed) && g.conversations.map((c) => renderRow(c, g.depth + (g.folder ? 1 : 0)))}
+            </div>
+          );
+        })}
 
         {!hasAnything && (
           <span className="text-[10px] text-muted-foreground italic text-center py-2">
-            {searching ? t('sidebar.noMatches') : t('sidebar.noSessions')}
+            {query.trim() ? t('sidebar.noMatches') : t('sidebar.noSessions')}
           </span>
         )}
       </div>
 
-      {renderMenu()}
+      {/* Drag ghost */}
+      {ghost && (
+        <div className="pointer-events-none fixed z-[110] max-w-[180px] truncate rounded-lg glass-card-strong border border-border/40 px-2 py-1 text-[10px] text-foreground shadow-xl" style={{ left: ghost.x + 12, top: ghost.y + 12 }}>
+          {ghost.label}
+        </div>
+      )}
+
+      {/* Options menu */}
+      {menu && (
+        <ChatHistoryMenu
+          anchor={menu}
+          conversation={menu.kind === 'chat' ? conversations.find((c) => c.id === menu.id) : undefined}
+          folder={menu.kind === 'folder' ? folders.find((f) => f.id === menu.id) : undefined}
+          folders={folders}
+          onClose={() => setMenu(null)}
+          onRename={(kind, id) => setRenaming({ kind, id })}
+          onSetConversationColor={onSetConversationColor}
+          onSetFolderColor={onSetFolderColor}
+          onMoveConversation={onMoveConversation}
+          onTogglePin={onTogglePin}
+          onPurge={(id) => { if (confirm(t('sidebar.confirmDeleteForever'))) onDeleteConversation(id); }}
+          onDeleteFolder={onDeleteFolder}
+          onMoveFolder={onMoveFolder}
+          onAddTag={onAddTag}
+          onRemoveTag={onRemoveTag}
+        />
+      )}
     </div>
+  );
+}
+
+function IconBtn({ children, title, onClick, active }: { children: React.ReactNode; title: string; onClick: () => void; active?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`p-1 rounded-md flex items-center cursor-pointer transition-all border border-border/5 ${
+        active ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

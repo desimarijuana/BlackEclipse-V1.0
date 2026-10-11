@@ -27,11 +27,14 @@ whole routing story for the app: **one page**.
 - the `activeTab` state machine,
 - keep-alive tabs (mount on first visit, then `display:none`),
 - conversation persistence in `localStorage` (`chats_guest`), plus the
-  chat-history organization layer (folders, colors, pin, rename, search) owned by
-  `src/lib/chat/chat-organization.ts` (types + pure filter/sort/group view logic)
-  and `src/lib/chat/use-chat-organization.ts`; folders persist under
-  `chat_folders_v1`, and per-chat organization fields live on each stored
-  conversation,
+  chat-history organization layer owned by `src/lib/chat/chat-organization.ts`
+  (conversation + folder types — nested folders via `parentId`/`order`, tags,
+  archive + trash stamps, color/pin — persisted-storage helpers, ranked search,
+  folder tree, and the pure filter/sort/group view logic),
+  `src/lib/chat/chat-export.ts` (versioned JSON export/import), and
+  `src/lib/chat/use-chat-organization.ts` (the state/handlers hook); folders
+  persist under `chat_folders_v1` and per-chat organization fields live on each
+  stored conversation,
 - deep-link boot (`/?symbol=AAPL` opens the chart),
 - the command-palette destination bus, and the `be:navigate` custom event,
 - the full-viewport **Aurora** glow driven by combined sentiment.

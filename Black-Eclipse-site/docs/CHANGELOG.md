@@ -8,6 +8,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Chat-history sidebar simplified: removed Import/Export, selection mode, and
+  the Active/Archived/Trash scope tabs.** The panel now shows a single active
+  view with search, sort, tag filter, folders (nested), drag, and the row options
+  menu. Because the scope tabs were the only way to view archived/trashed chats,
+  the row menu's Archive / Move-to-Trash / Restore actions were removed too —
+  leaving a single confirmed permanent Delete so nothing can be hidden
+  unrecoverably. The archive/trash data fields and pure logic remain (harmless,
+  test-covered) for a future re-expose. docs updated: CHANGELOG.md only.
+
 - **Research data: isolated notebook, fundamentals/macro endpoints, provider
   lineage, contract tests.** `research/notebook.py` executes operator analytical
   code in the ONE bounded sandbox against a read-only dataset CSV (no secrets/
