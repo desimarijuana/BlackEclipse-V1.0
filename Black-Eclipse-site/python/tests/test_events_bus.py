@@ -203,6 +203,23 @@ async def test_legacy_bridge_ingests_and_echoes(tmp_workspace):
     await bus.shutdown()
 
 
+async def test_legacy_bridge_auto_observes_unknown_namespace(tmp_workspace):
+    # An unregistered legacy event type must be auto-registered (namespace +
+    # exact type) and published, never dropped by a background-task exception.
+    legacy = FakeLegacyBus()
+    bus, store, _ = _build(tmp_workspace, legacy=legacy)
+    bus.start()
+    legacy.publish({
+        "id": "evt_custom_1", "runId": "run_2", "type": "custom.telemetry",
+        "seq": 1, "at": "2026-10-08T00:00:00.000Z", "data": {"v": 1},
+    })
+    await _drain(0.1)
+    assert store.get("evt_custom_1") is not None
+    assert bus._registry.known("custom.telemetry")
+    assert bus._registry.known("custom._observed")
+    await bus.shutdown()
+
+
 async def test_graceful_shutdown_drains_in_flight(tmp_workspace):
     bus, _, _ = _build(tmp_workspace)
     done = []

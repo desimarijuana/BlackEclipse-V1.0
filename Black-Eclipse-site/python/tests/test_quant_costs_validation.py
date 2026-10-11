@@ -112,8 +112,13 @@ def test_bootstrap_block_and_stationary_run():
 
 
 def test_bootstrap_sharpe_and_annualization():
+    # Daily equities/FX/bonds annualize on 252 sessions, matching the metrics
+    # engine; crypto uses the calendar factor (365).
     out = bootstrap_ci(_series(), statistic="sharpe", iterations=100, seed=2, interval="1d")
-    assert out["available"] and out["annualization"] == 365.0
+    assert out["available"] and out["annualization"] == 252.0
+    crypto = bootstrap_ci(_series(), statistic="sharpe", iterations=100, seed=2,
+                           interval="1d", asset_class="crypto")
+    assert crypto["available"] and crypto["annualization"] == 365.0
 
 
 def test_bootstrap_rejects_bad_inputs():

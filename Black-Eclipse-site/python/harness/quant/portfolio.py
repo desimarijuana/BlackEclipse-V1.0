@@ -163,8 +163,17 @@ class Portfolio:
             gross = (price - pos.avg_entry_price) * close_qty
         else:
             gross = (pos.avg_entry_price - price) * close_qty
-        # Commission is allocated to the closing trade.
-        net = gross - fill.commission
+        # Realized P&L is net of BOTH the entry commission attributable to the
+        # closed quantity and the exit commission. `pos.commission_paid` holds the
+        # entry-side commission accumulated while the position was open; allocate
+        # the part belonging to this close proportionally (so scaled-in positions
+        # stay correct) and release it from the position.
+        entry_share = (
+            pos.commission_paid * (close_qty / abs(pos.quantity))
+            if abs(pos.quantity) > 0 else 0.0
+        )
+        trade_commission = entry_share + fill.commission
+        net = gross - trade_commission
         entry_index = pos.entry_index if pos.entry_index is not None else fill.index
         bars = max(0, fill.index - entry_index)
         pnl_pct = 0.0
@@ -178,27 +187,38 @@ class Portfolio:
             entry_ts=pos.entry_ts, exit_ts=fill.ts,
             entry_price=pos.avg_entry_price, exit_price=price,
             quantity=close_qty, gross_pnl=gross, net_pnl=net,
-            commission=fill.commission, bars_held=bars, pnl_pct=pnl_pct,
+            commission=trade_commission, bars_held=bars, pnl_pct=pnl_pct,
             exit_reason=fill.reason, mae=pos.mae, mfe=pos.mfe,
         )
         self.trades.append(closed)
         self.realized_pnl += net
+        pos.realized_pnl += net
 
         remaining = pos.quantity + signed  # signed result; may flip sign
-        pos.commission_paid += fill.commission
         if abs(remaining) < 1e-12:
+            # Fully closed: no cost basis or commission remains.
             pos.quantity = 0.0
             pos.avg_entry_price = 0.0
             pos.entry_index = None
             pos.entry_ts = None
             pos.mae = pos.mfe = 0.0
+            pos.commission_paid = 0.0
+        elif (remaining > 0) == (pos.quantity > 0):
+            # Partial close: the remainder keeps the ORIGINAL cost basis and the
+            # un-attributed share of its entry commission.
+            pos.quantity = remaining
+            pos.commission_paid = max(0.0, pos.commission_paid - entry_share)
+            pos.mae = pos.mfe = 0.0
         else:
-            # Flip: the remainder is a fresh position at this price.
+            # Flip: the remainder is a fresh position at this price. The exit
+            # commission was fully expensed on the closed trade, so the new
+            # position starts with no carry-over commission.
             pos.quantity = remaining
             pos.avg_entry_price = price
             pos.entry_index = fill.index
             pos.entry_ts = fill.ts
             pos.mae = pos.mfe = 0.0
+            pos.commission_paid = 0.0
         pos.last_price = price
         return closed
 

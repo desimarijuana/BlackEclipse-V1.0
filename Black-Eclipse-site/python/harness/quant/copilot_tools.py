@@ -255,9 +255,12 @@ async def analyze_against_benchmark_tool(args: dict[str, Any], ctx: Any) -> tupl
             symbol, market=None, start=experiment.get("start"), end=experiment.get("end"),
             interval=interval)
         rows = [{"timestamp": b.timestamp, "close": b.close} for b in series.bars]
-        risk_free = float((experiment.get("configuration") or {}).get("riskFreeRate") or 0.0)
+        config = experiment.get("configuration") or {}
+        risk_free = float(config.get("riskFreeRate") or 0.0)
+        asset_class = str(args.get("assetClass") or config.get("assetClass") or "") or None
         metrics = benchmark_metrics(artifact.get("equityCurve", []), rows,
-                                    interval=interval, risk_free_rate=risk_free)
+                                    interval=interval, risk_free_rate=risk_free,
+                                    asset_class=asset_class)
         if not metrics.get("available"):
             return (f"Benchmark comparison unavailable: {metrics.get('reason')}",
                     {"status": "OK", "experimentId": exp_id, "benchmark": symbol, "metrics": metrics})

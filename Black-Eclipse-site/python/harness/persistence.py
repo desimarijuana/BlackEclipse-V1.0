@@ -20,6 +20,8 @@ import time
 import uuid
 from typing import Any, Optional
 
+from .sqlite_pool import ThreadLocalConnections
+
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -309,13 +311,31 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
 
 
 class AgentMemoryStore:
+    """SQLite-backed agent-memory store.
+
+    The store is shared across FastAPI's worker threads and async tasks, so it
+    hands each thread its **own** connection via `ThreadLocalConnections` (see
+    `harness/sqlite_pool.py`) rather than sharing one connection concurrently.
+    Connections are autocommit + `busy_timeout` so WAL readers and the single
+    writer coexist; the one multi-statement atomic op (`reset_memory`) issues an
+    explicit transaction.
+    """
+
     def __init__(self, path: Optional[str] = None) -> None:
         self.path = path or default_db_path()
-        self._db = sqlite3.connect(self.path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.executescript(SCHEMA)
+        self._pool = ThreadLocalConnections(self.path)
+        db = self._db  # establishes the calling thread's connection
+        db.executescript(SCHEMA)
         self._migrate()
-        self._db.commit()
+        db.commit()
+
+    @property
+    def _db(self) -> sqlite3.Connection:
+        return self._pool.db
+
+    def close(self) -> None:
+        """Close this store's connections (idempotent; safe to call at shutdown)."""
+        self._pool.close()
 
     def _migrate(self) -> None:
         """Add any post-release columns to an existing database (idempotent)."""

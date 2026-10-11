@@ -1,7 +1,7 @@
 ---
 title: Quant Engine — Trading, Backtesting & Research
 status: Current
-last-verified: 2026-10-10
+last-verified: 2026-10-11
 ---
 
 # Quant Engine — Trading, Backtesting & Research
@@ -82,9 +82,15 @@ market data → indicator context → signal (rules) → risk → order
 2. Indicators are **causal**: the value at `i` uses only `≤ i`; the warm-up
    region is `NaN`, and a rule referencing a `NaN` operand is `False`.
 3. Bar-processing order is fixed and tested: (1) fill orders submitted on an
-   earlier bar, (2) advance trailing stops, (3) trigger protective legs, (4)
-   evaluate exit signals, (5) evaluate entry signals at the close, (6) snapshot.
-   Nothing computed from bar `i` fills an order on bar `i`.
+   earlier bar, (2) check protective legs against the stop levels carried *into*
+   the bar — a trailing stop is advanced with this bar's favorable extreme only
+   if it did **not** trigger, so a same-bar high cannot tighten a stop that the
+   same bar's low already breached, (3) evaluate exit signals, (4) evaluate entry
+   signals at the close, (5) snapshot. Nothing computed from bar `i` fills an
+   order on bar `i`. Position sizing and protective-bracket sizing are likewise
+   causal: volatility sizing uses only bars up to and including the decision bar,
+   and an ATR-based stop/trail is measured from the **decision** bar
+   (`order.submitted_index`), never the later fill bar.
 4. Multi-timeframe: a higher-TF bar is available to a primary bar only when the
    higher bar's close is at or before the primary bar's close
    (`data.align_higher_to_primary`). Confirmation indicators are namespaced
@@ -107,6 +113,10 @@ market data → indicator context → signal (rules) → risk → order
   components are reported for audit but only `commission` is charged separately
   to cash. A frictionless run only ever results from an explicit `none`
   configuration (`ExecutionAssumptions.is_frictionless`).
+- A completed trade's `net_pnl` is gross P&L **minus both the entry and the exit
+  commission** (the entry share is allocated proportionally on partial closes),
+  so `sum(trade.net_pnl)` reconciles with the cash ledger. `Position.realized_pnl`
+  is maintained per symbol.
 
 ## Reproducibility & experiments
 

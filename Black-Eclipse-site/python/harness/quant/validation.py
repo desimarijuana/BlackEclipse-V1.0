@@ -23,7 +23,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from .data import bars_per_year
+from .metrics import _periods_per_year
 from .errors import QuantError
 
 
@@ -86,6 +86,7 @@ def bootstrap_ci(
     confidence: float = 0.95,
     block_size: Optional[int] = None,
     interval: str = "1d",
+    asset_class: Optional[str] = None,
 ) -> dict[str, Any]:
     """Percentile bootstrap CI for `statistic` over one return series.
 
@@ -122,7 +123,7 @@ def bootstrap_ci(
         raise ValidationError_(
             f"block size {b} exceeds series length {n}", detail={"blockSize": b, "length": n})
 
-    annualization = float(bars_per_year(interval))
+    annualization = float(_periods_per_year(interval, asset_class))
     estimate = _statistic(statistic, values, annualization)
 
     rng = random.Random(seed)

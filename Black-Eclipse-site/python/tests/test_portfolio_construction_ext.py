@@ -20,10 +20,81 @@ os.environ.setdefault(
 )
 
 from harness.portfolio.attribution import multi_period_attribution
-from harness.portfolio.construction import compare_allocations
-from harness.portfolio.estimation import estimate_factor_loadings
+from harness.portfolio.construction import compare_allocations, construct
+from harness.portfolio.estimation import estimate_factor_covariance, estimate_factor_loadings
+from harness.portfolio.risk_engine import factor_risk
 from harness.portfolio.simulation import rebalancing_simulation
 from portfolio_helpers import make_portfolio, make_service
+
+
+# ── Factor risk model ─────────────────────────────────────────────────────────
+
+def test_factor_covariance_and_risk_decomposition():
+    rng = random.Random(3)
+    f1 = [rng.gauss(0.0, 0.01) for _ in range(260)]
+    f2 = [rng.gauss(0.0, 0.008) for _ in range(260)]
+    a = [1.0 * x + 0.5 * y + rng.gauss(0.0, 0.001) for x, y in zip(f1, f2)]
+    b = [0.3 * x + 0.8 * y + rng.gauss(0.0, 0.001) for x, y in zip(f1, f2)]
+    est = estimate_factor_covariance({"A": a, "B": b}, {"F1": f1, "F2": f2})
+    assert est["available"] and est["diagnostics"]["positiveSemidefinite"]
+    fr = factor_risk({"A": 0.5, "B": 0.5}, est["loadings"], est["factorCovariance"],
+                     est["idiosyncraticVariance"])
+    vol2 = fr["portfolioVolatility"] ** 2
+    assert abs(fr["systematicVariance"] + fr["idiosyncraticVariance"] - vol2) < 1e-9
+    assert abs(sum(fr["factorRiskContributions"].values())
+               - fr["reconciliation"]["systematicVolatility"]) < 1e-9
+
+
+# ── Risk caps (volatility / parametric VaR) ───────────────────────────────────
+
+def test_max_volatility_cap_enforced_and_infeasible_detected():
+    cov = [[0.04, 0, 0, 0], [0, 0.04, 0, 0], [0, 0, 0.04, 0], [0, 0, 0, 0.04]]
+    # Equal-weight minimum variance has per-period vol 0.1.
+    feasible = construct(symbols=["A", "B", "C", "D"], method="min_variance", covariance=cov,
+                         constraints_payload={"max_volatility": 0.12})
+    assert feasible["status"] == "OPTIMAL"
+    assert feasible["validation"]["satisfied"]
+    infeasible = construct(symbols=["A", "B", "C", "D"], method="min_variance", covariance=cov,
+                           constraints_payload={"max_volatility": 0.05})
+    assert infeasible["status"] == "INFEASIBLE"
+
+
+def test_max_var_maps_to_a_volatility_cap():
+    cov = [[0.04, 0, 0, 0], [0, 0.04, 0, 0], [0, 0, 0.04, 0], [0, 0, 0, 0.04]]
+    from harness.portfolio.risk import _norm_ppf
+    z = abs(_norm_ppf(0.05))
+    # A VaR cap of 0.2 maps to a vol cap of 0.2/z ≈ 0.12 > 0.1 -> feasible.
+    ok = construct(symbols=["A", "B", "C", "D"], method="min_variance", covariance=cov,
+                   constraints_payload={"max_var": 0.2, "var_confidence": 0.95})
+    assert ok["status"] == "OPTIMAL"
+    assert any(c["name"] == "volatility_cap" and c["passed"] for c in ok["validation"]["checks"])
+    bad = construct(symbols=["A", "B", "C", "D"], method="min_variance", covariance=cov,
+                    constraints_payload={"max_var": 0.1, "var_confidence": 0.95})
+    assert bad["status"] == "INFEASIBLE"
+    assert z > 0
+
+
+# ── Cardinality / lot constraints ─────────────────────────────────────────────
+
+def test_max_positions_is_enforced():
+    cov = [[0.04 if i == j else 0 for j in range(4)] for i in range(4)]
+    r = construct(symbols=["A", "B", "C", "D"], method="mean_variance", covariance=cov,
+                  expected_returns=[0.10, 0.09, 0.02, 0.01],
+                  constraints_payload={"max_positions": 2})
+    active = [s for s, w in r["weights"].items() if w > 1e-8]
+    assert len(active) == 2
+    assert r["status"] in ("FEASIBLE_LIMIT_REACHED", "OPTIMAL")
+    assert r["validation"]["satisfied"]
+
+
+def test_lot_size_rounds_to_multiples():
+    cov = [[0.04 if i == j else 0 for j in range(3)] for i in range(3)]
+    r = construct(symbols=["A", "B", "C"], method="min_variance", covariance=cov,
+                  constraints_payload={"lot_size": 0.1})
+    assert abs(sum(r["weights"].values()) - 1.0) < 1e-6
+    for w in r["weights"].values():
+        assert abs(w / 0.1 - round(w / 0.1)) < 1e-4
+    assert r["validation"]["satisfied"]
 
 
 # ── Factor-model estimation ───────────────────────────────────────────────────

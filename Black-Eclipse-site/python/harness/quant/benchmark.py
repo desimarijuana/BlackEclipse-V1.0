@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from .data import bars_per_year
+from .metrics import _periods_per_year
 
 
 def _levels_from_equity(equity_curve: list[dict[str, Any]]) -> list[tuple[Any, float]]:
@@ -51,8 +51,14 @@ def benchmark_metrics(
     *,
     interval: str = "1d",
     risk_free_rate: float = 0.0,
+    asset_class: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Alpha/beta/correlation/tracking-error/IR vs a benchmark price series."""
+    """Alpha/beta/correlation/tracking-error/IR vs a benchmark price series.
+
+    Annualization follows the metrics engine's convention: 252 sessions for
+    equities/FX/bonds (365 only for crypto, or for sub-daily bars). Pass
+    `asset_class` to match the strategy; `None` is treated as non-crypto.
+    """
     strat = _returns(_levels_from_equity(equity_curve))
     bench = _returns(_levels_from_bars(benchmark_rows))
     common = sorted(set(strat) & set(bench))
@@ -64,7 +70,7 @@ def benchmark_metrics(
         }
     s = np.array([strat[t] for t in common], dtype=float)
     b = np.array([bench[t] for t in common], dtype=float)
-    bpy = bars_per_year(interval)
+    bpy = _periods_per_year(interval, asset_class)
     rf_bar = (1.0 + risk_free_rate) ** (1.0 / bpy) - 1.0 if bpy else 0.0
 
     var_b = float(np.var(b, ddof=1))

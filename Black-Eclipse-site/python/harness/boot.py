@@ -192,6 +192,12 @@ async def _shutdown() -> None:
     service.stop_application_runtime()
     service.stop_execution()
     await service.stop_terminal()
+    # Release SQLite connections LAST, once every subsystem is idle. The pool
+    # reconnects lazily, so a later lifespan entry still works.
+    try:
+        service.store.close()
+    except Exception:  # noqa: BLE001 - shutdown must never raise
+        log.warning("agent-memory store close failed", exc_info=True)
 
 
 __all__ = ["lifespan"]

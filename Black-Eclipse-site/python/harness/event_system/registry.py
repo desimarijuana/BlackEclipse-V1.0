@@ -100,6 +100,7 @@ def _spec(
     required_fields: tuple[str, ...] = (),
     field_types: Optional[Mapping[str, type]] = None,
     version: int = 1,
+    namespace: bool = False,
 ) -> EventTypeSpec:
     return EventTypeSpec(
         type=type,
@@ -115,6 +116,7 @@ def _spec(
         sensitive=sensitive,
         required_fields=required_fields,
         field_types=field_types or {},
+        namespace=namespace,
     )
 
 

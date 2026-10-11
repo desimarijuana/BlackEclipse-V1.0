@@ -163,6 +163,18 @@ layer. Everything is deterministic, validated and proposal-only.
   factor loadings by OLS (with alpha, residual variance, R²). `construct` uses it
   automatically for `factor_constrained` when `factor_returns` are supplied and
   loadings are absent.
+- **Factor risk model** (`estimation.estimate_factor_covariance`): builds
+  Σ = B·F·Bᵀ + D (OLS loadings × factor covariance + diagonal idiosyncratic
+  variance) — a genuine decomposition that does not double-count systematic and
+  idiosyncratic risk. `risk_engine.factor_risk` splits portfolio volatility into
+  systematic/idiosyncratic parts with factor risk contributions (Σ = systematic
+  volatility). Selected with `covariance_method: "factor"` + `factor_returns`.
+- **Risk caps** (`max_volatility` / `max_var`): a per-period volatility ceiling,
+  enforced inside the solver as a convex penalty and independently validated. A
+  parametric `max_var` (normal, at `var_confidence`) is mapped to an equivalent
+  volatility cap (VaR = z·σ). An unreachable cap returns `INFEASIBLE` — never a
+  silently relaxed result. Path-dependent drawdown constraints are deliberately
+  NOT claimed as supported.
 - **Strategy comparison** (`construction.compare_allocations`): several methods
   run over the SAME inputs and scored on the same covariance/expected-return
   yardstick (return, volatility, concentration, turnover, validation). It reports
@@ -174,6 +186,12 @@ layer. Everything is deterministic, validated and proposal-only.
   a scheduled (monthly/quarterly/semiannual/annual) point-in-time simulation that
   re-estimates inputs from the trailing window at each rebalance (no look-ahead),
   drifts holdings, charges turnover and costs, and reports net performance/risk.
+- **Cardinality & lot constraints** (`max_positions`, `min_position_weight`,
+  `lot_size`): combinatorial, so applied as a documented post-processing step —
+  drop sub-minimum positions, keep the largest `max_positions`, re-project onto
+  the convex constraints, round to lot multiples — then re-validated
+  independently and downgraded to `FEASIBLE_LIMIT_REACHED` (never `OPTIMAL`).
+  Honest about which methods accept it.
 - **Run persistence** (`store.PortfolioConstructionRun`): every construction run
   is an immutable record — method, status, symbols, target, constraints,
   independent validation, a content-hash `dataVersion` and the engine version —
@@ -223,7 +241,7 @@ names):
 | `portfolio_reconcile`, `portfolio_list_reconciliations` | read | — |
 | `portfolio_attribution`, `portfolio_factor_exposure`, `portfolio_hedge`, `portfolio_aggregate` | read | — |
 | `portfolio_estimate_inputs`, `portfolio_risk_contributions`, `portfolio_stress_test`, `portfolio_transaction_costs` | read | — |
-| `portfolio_compare_allocations`, `portfolio_estimate_factor_loadings`, `portfolio_simulate_rebalancing`, `portfolio_list_runs`, `portfolio_get_run` | read | — |
+| `portfolio_compare_allocations`, `portfolio_estimate_factor_loadings`, `portfolio_simulate_rebalancing`, `portfolio_list_runs`, `portfolio_get_run`, `portfolio_factor_risk` | read | — |
 | `portfolio_create` | mutating | `portfolio.write` |
 | `portfolio_add_position`, `portfolio_remove_position`, `portfolio_update_position`, `portfolio_set_metadata` | mutating | `portfolio.write` |
 | `portfolio_apply_corporate_action`, `portfolio_record_swap`, `portfolio_record_bridge`, `portfolio_record_reward`, `portfolio_apply_staking`, `portfolio_rebuild`, `portfolio_apply_slashing`, `portfolio_record_funding` | mutating | `portfolio.write` |

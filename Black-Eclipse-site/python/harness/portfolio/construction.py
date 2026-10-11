@@ -29,7 +29,7 @@ from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
-from .risk import TRADING_DAYS
+from .risk import TRADING_DAYS, _norm_ppf
 
 METHODS = (
     "equal_weight", "benchmark_weight", "min_variance", "mean_variance",
@@ -74,6 +74,15 @@ class ConstraintSet:
     turnover_cap: Optional[float] = None
     current_weights: Optional[dict[str, float]] = None
     transaction_cost_rate: float = 0.0
+    # Risk caps (per-period, matching the covariance units). `max_var` is a
+    # parametric (normal) VaR cap mapped to an equivalent volatility cap.
+    max_volatility: Optional[float] = None
+    max_var: Optional[float] = None
+    var_confidence: float = 0.95
+    # Cardinality / tradability (enforced as a documented iterative heuristic).
+    max_positions: Optional[int] = None
+    min_position_weight: Optional[float] = None
+    lot_size: Optional[float] = None
     tolerance: float = 1e-6
 
     def box(self) -> tuple[np.ndarray, np.ndarray]:
@@ -164,7 +173,10 @@ def feasibility_violation(
 
 # ── Independent validation ────────────────────────────────────────────────────
 
-def validate_constraints(weights: dict[str, float], constraints: ConstraintSet) -> dict[str, Any]:
+def validate_constraints(
+    weights: dict[str, float], constraints: ConstraintSet,
+    covariance: Optional[Sequence[Sequence[float]]] = None,
+) -> dict[str, Any]:
     """Independently re-check every constraint against the returned weights."""
     tol = constraints.tolerance
     checks: list[dict[str, Any]] = []
@@ -214,6 +226,29 @@ def validate_constraints(weights: dict[str, float], constraints: ConstraintSet) 
         checks.append({"name": "turnover", "passed": turnover <= constraints.turnover_cap + tol,
                        "value": round(turnover, 10), "target": constraints.turnover_cap})
 
+    cap = volatility_cap(constraints)
+    if cap is not None and covariance is not None:
+        w = np.array([present[s] for s in constraints.symbols])
+        vol = _portfolio_vol(w, _prepare(constraints.symbols, covariance))
+        checks.append({"name": "volatility_cap", "passed": vol <= cap + tol,
+                       "value": round(vol, 10), "target": round(cap, 10)})
+
+    if constraints.max_positions is not None:
+        active = [s for s, w in present.items() if abs(w) > 1e-8]
+        checks.append({"name": "max_positions", "passed": len(active) <= constraints.max_positions,
+                       "value": len(active), "target": constraints.max_positions})
+
+    if constraints.min_position_weight is not None:
+        below = [s for s, w in present.items() if 1e-8 < w < constraints.min_position_weight - tol]
+        checks.append({"name": "min_position_weight", "passed": not below, "violations": below,
+                       "target": constraints.min_position_weight})
+
+    if constraints.lot_size:
+        lot = constraints.lot_size
+        off = [s for s, w in present.items()
+               if abs(w) > 1e-8 and abs(w / lot - round(w / lot)) > 1e-4]
+        checks.append({"name": "lot_size", "passed": not off, "violations": off, "lot": lot})
+
     violations = [c for c in checks if not c["passed"]]
     return {"satisfied": not violations, "checks": checks, "violations": violations,
             "tolerance": tol}
@@ -256,6 +291,17 @@ def _projected_gradient(
     return x, {"converged": converged, "iterations": it + 1, "step": step}
 
 
+def volatility_cap(constraints: ConstraintSet) -> Optional[float]:
+    """The effective per-period volatility ceiling, from `max_volatility` and/or
+    a parametric `max_var` (VaR loss = z·σ, so σ_max = VaR_max / z)."""
+    cap = constraints.max_volatility
+    if constraints.max_var is not None:
+        z = abs(_norm_ppf(1.0 - constraints.var_confidence))
+        var_cap = constraints.max_var / z if z > 0 else None
+        cap = var_cap if cap is None else min(cap, var_cap)
+    return cap
+
+
 def _quad_form(w: np.ndarray, cov: np.ndarray) -> float:
     return float(w @ cov @ w)
 
@@ -276,7 +322,8 @@ def _result(
             "metrics": {}, "diagnostics": diagnostics or {},
         }
     weight_map = {s: round(float(weights[i]), 10) for i, s in enumerate(symbols)}
-    validation = validate_constraints(weight_map, constraints)
+    validation = validate_constraints(weight_map, constraints,
+                                      covariance=cov.tolist() if cov is not None else None)
     if status == SolverStatus.OPTIMAL and not validation["satisfied"]:
         status = SolverStatus.OPTIMAL_INACCURATE
     metrics: dict[str, Any] = {}
@@ -354,6 +401,14 @@ def _solve_quadratic(
     w0 = None
     if cost > 0 and constraints.current_weights:
         w0 = np.array([float((constraints.current_weights or {}).get(s, 0.0)) for s in symbols])
+    vol_cap = volatility_cap(constraints)
+    var_cap_sq = (vol_cap * vol_cap) if vol_cap is not None else None
+    risk_penalty = 1e3 * max(1.0, float(np.linalg.norm(cov, 2)))
+
+    def _excess(w: np.ndarray) -> float:
+        if var_cap_sq is None:
+            return 0.0
+        return max(0.0, _quad_form(w, cov) - var_cap_sq)
 
     def objective(w: np.ndarray) -> float:
         val = 0.5 * risk_aversion * _quad_form(w, cov)
@@ -361,6 +416,9 @@ def _solve_quadratic(
             val -= float(mu @ w)
         if cost > 0 and w0 is not None:
             val += cost * float(np.abs(w - w0).sum())
+        if var_cap_sq is not None:
+            excess = _excess(w)
+            val += risk_penalty * excess * excess
         return val
 
     def gradient(w: np.ndarray) -> np.ndarray:
@@ -369,16 +427,27 @@ def _solve_quadratic(
             g = g - mu
         if cost > 0 and w0 is not None:
             g = g + cost * np.sign(w - w0)
+        if var_cap_sq is not None:
+            excess = _excess(w)
+            if excess > 0:
+                g = g + risk_penalty * 2.0 * excess * 2.0 * (cov @ w)
         return g
 
     start = feasible_start(lo, hi, constraints.budget, linear)
     if start is None:
         return np.zeros(n), SolverStatus.INFEASIBLE, {"reason": "constraints are infeasible"}
     w, info = _projected_gradient(objective, gradient, start, lo, hi, constraints.budget, linear)
+    if vol_cap is not None and _portfolio_vol(w, cov) > vol_cap + 1e-6:
+        return w, SolverStatus.INFEASIBLE, {
+            "reason": f"a per-period volatility cap of {vol_cap} is not reachable "
+                      f"under the constraints (minimum achievable is "
+                      f"{round(_portfolio_vol(w, cov), 8)})"}
     status = SolverStatus.OPTIMAL if info["converged"] else SolverStatus.FEASIBLE_LIMIT_REACHED
     diag: dict[str, Any] = {"solver": info}
     if cost > 0:
         diag["transactionCostRate"] = round(cost, 10)
+    if vol_cap is not None:
+        diag["volatilityCap"] = round(vol_cap, 10)
     return w, status, diag
 
 
@@ -721,48 +790,133 @@ def construct(
                                     factor_constraints=factor_constraints)
     try:
         if method == "equal_weight":
-            return equal_weight(constraints, covariance=covariance,
-                                expected_returns=expected_returns)
-        if method == "benchmark_weight":
-            return benchmark_weight(constraints, benchmark_weights or {}, covariance=covariance)
-        if method == "min_variance":
-            return min_variance(symbols, covariance, constraints)
-        if method == "mean_variance":
+            result = equal_weight(constraints, covariance=covariance,
+                                  expected_returns=expected_returns)
+        elif method == "benchmark_weight":
+            result = benchmark_weight(constraints, benchmark_weights or {}, covariance=covariance)
+        elif method == "min_variance":
+            result = min_variance(symbols, covariance, constraints)
+        elif method == "mean_variance":
             if expected_returns is None:
                 return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
                         "reason": "mean_variance requires expected_returns", "weights": {}}
-            return mean_variance(symbols, covariance, expected_returns, constraints,
-                                 risk_aversion=risk_aversion)
-        if method == "risk_parity":
-            return risk_parity(symbols, covariance, constraints, budgets=risk_budgets)
-        if method == "volatility_target":
+            result = mean_variance(symbols, covariance, expected_returns, constraints,
+                                   risk_aversion=risk_aversion)
+        elif method == "risk_parity":
+            result = risk_parity(symbols, covariance, constraints, budgets=risk_budgets)
+        elif method == "volatility_target":
             if target_volatility is None:
                 return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
                         "reason": "volatility_target requires target_volatility", "weights": {}}
-            return volatility_target(symbols, covariance, constraints, target=target_volatility,
-                                     periods=periods)
-        if method == "black_litterman":
+            result = volatility_target(symbols, covariance, constraints, target=target_volatility,
+                                       periods=periods)
+        elif method == "black_litterman":
             if market_weights is None:
                 return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
                         "reason": "black_litterman requires market_weights", "weights": {}}
-            return black_litterman(symbols, covariance, market_weights, constraints,
-                                   risk_aversion=risk_aversion, tau=tau, views=views)
-        if method == "factor_constrained":
+            result = black_litterman(symbols, covariance, market_weights, constraints,
+                                     risk_aversion=risk_aversion, tau=tau, views=views)
+        elif method == "factor_constrained":
             if expected_returns is None:
                 return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
                         "reason": "factor_constrained requires expected_returns", "weights": {}}
-            return factor_constrained(symbols, covariance, expected_returns, constraints,
-                                      risk_aversion=risk_aversion)
-        if method == "efficient_frontier":
+            result = factor_constrained(symbols, covariance, expected_returns, constraints,
+                                        risk_aversion=risk_aversion)
+        elif method == "efficient_frontier":
             if expected_returns is None:
                 return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
                         "reason": "efficient_frontier requires expected_returns"}
-            return efficient_frontier(symbols, covariance, expected_returns, constraints)
+            result = efficient_frontier(symbols, covariance, expected_returns, constraints)
+        else:
+            return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
+                    "reason": f"unknown method {method!r}; methods are {METHODS}"}
     except (ValueError, np.linalg.LinAlgError) as exc:
         return {"available": False, "status": SolverStatus.SOLVER_ERROR.value, "reason": str(exc),
                 "weights": {}}
-    return {"available": False, "status": SolverStatus.SOLVER_ERROR.value,
-            "reason": f"unknown method {method!r}; methods are {METHODS}"}
+
+    if result.get("available") and result.get("weights"):
+        result = _apply_cardinality_and_lot(symbols, method, covariance, result, constraints)
+    return result
+
+
+def _apply_cardinality_and_lot(
+    symbols: Sequence[str], method: str, covariance: Sequence[Sequence[float]],
+    result: dict[str, Any], constraints: ConstraintSet,
+) -> dict[str, Any]:
+    """Enforce position-count / minimum-position / lot constraints.
+
+    These are combinatorial and are not enforced by the continuous solver, so
+    they are applied as a documented post-processing step: drop sub-minimum
+    positions, keep the largest `max_positions`, re-project onto the convex
+    constraints, then round to lot multiples. The result is re-validated
+    independently and downgraded to `FEASIBLE_LIMIT_REACHED` (never `OPTIMAL`).
+    Not supported for `benchmark_weight`, `black_litterman`, `volatility_target`
+    or `efficient_frontier`, which do not accept this post-processing.
+    """
+    if constraints.max_positions is None and constraints.min_position_weight is None \
+            and not constraints.lot_size:
+        return result
+    if method not in ("min_variance", "mean_variance", "risk_parity", "factor_constrained",
+                      "equal_weight"):
+        result["diagnostics"]["cardinalitySupported"] = False
+        result["notes"] = "position/lot constraints are not supported for this method"
+        return result
+
+    n = len(symbols)
+    w = np.array([float(result["weights"].get(s, 0.0)) for s in symbols])
+    lo, hi = constraints.box()
+    linear = constraints.linear()
+    changed = False
+    min_pos = constraints.min_position_weight or 0.0
+
+    def _prune(vec: np.ndarray) -> np.ndarray:
+        active = [i for i in range(n) if vec[i] > 1e-8]
+        if min_pos > 0:
+            drop = {i for i in active if vec[i] < min_pos}
+            for i in drop:
+                vec[i] = 0.0
+        if constraints.max_positions is not None:
+            active = [i for i in range(n) if vec[i] > 1e-8]
+            if len(active) > constraints.max_positions:
+                keep = set(sorted(active, key=lambda i: -vec[i])[:constraints.max_positions])
+                for i in active:
+                    if i not in keep:
+                        vec[i] = 0.0
+        return vec
+
+    new = _prune(w.copy())
+    if not np.allclose(new, w):
+        changed = True
+        new = project(new, lo, hi, constraints.budget, linear)
+        new = _prune(new)
+        new = project(new, lo, hi, constraints.budget, linear)
+
+    if constraints.lot_size:
+        lot = constraints.lot_size
+        total_lots = round(float(new.sum()) / lot)
+        if total_lots > 0 and abs(total_lots * lot - float(new.sum())) < 1e-6:
+            q = np.round(new / lot)
+            q = np.maximum(q, 0.0)
+            diff = total_lots - int(q.sum())
+            if diff != 0:
+                idx = int(np.argmax(q))
+                q[idx] = max(0.0, q[idx] + diff)
+            rounded = q * lot
+            if not np.allclose(rounded, new, atol=1e-6):
+                changed = True
+                new = rounded
+
+    weight_map = {s: round(float(new[i]), 10) for i, s in enumerate(symbols)}
+    cov = _prepare(symbols, covariance)
+    result["weights"] = weight_map
+    result["validation"] = validate_constraints(weight_map, constraints, covariance=cov.tolist())
+    if cov is not None:
+        result.setdefault("metrics", {})["expectedVolatility"] = round(_portfolio_vol(new, cov), 10)
+    if changed:
+        if result.get("status") == SolverStatus.OPTIMAL.value:
+            result["status"] = SolverStatus.FEASIBLE_LIMIT_REACHED.value
+        result["diagnostics"]["cardinalityHeuristic"] = True
+    return result
 
 
 def build_constraints(
@@ -805,6 +959,14 @@ def build_constraints(
                          or None),
         transaction_cost_rate=float(payload.get("transaction_cost")
                                     or payload.get("transaction_cost_rate") or 0.0),
+        max_volatility=(float(payload["max_volatility"]) if payload.get("max_volatility") is not None
+                        else None),
+        max_var=(float(payload["max_var"]) if payload.get("max_var") is not None else None),
+        var_confidence=float(payload.get("var_confidence") or 0.95),
+        max_positions=(int(payload["max_positions"]) if payload.get("max_positions") is not None else None),
+        min_position_weight=(float(payload["min_position_weight"])
+                             if payload.get("min_position_weight") is not None else None),
+        lot_size=(float(payload["lot_size"]) if payload.get("lot_size") is not None else None),
     )
 
 

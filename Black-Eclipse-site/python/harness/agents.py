@@ -41,6 +41,9 @@ from .factors.tools import FACTOR_TOOLS
 # imported as the ONE canonical list so the allowlist cannot drift. A `portfolio_`
 # name whose layer failed to install is simply unregistered and never advertised.
 from .portfolio.tools import PORTFOLIO_TOOLS
+# The ML Research Lab tools (`ml_*`). Registered by `ml/bootstrap.py` on the SAME
+# registry; imported as the ONE canonical list so the allowlist cannot drift.
+from .ml.tools import ML_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -307,6 +310,12 @@ ECLIPSE_AGENT = AgentConfig(
         # Read/compute tools are always available; the rebalance/optimize/construct
         # proposals are effect-gated (they never place trades).
         *PORTFOLIO_TOOLS,
+        # ML Research Lab: leakage-safe dataset construction, chronological/walk-
+        # forward/purged splits, native + optional model adapters, experiment runs,
+        # metric evaluation and a versioned model registry with reproduction.
+        # Durable training runs go through the Execution Fabric. A name whose
+        # layer failed to install is simply unregistered and never advertised.
+        *ML_TOOLS,
         # Phase-1 JDdS tools (still available)
         "get_market_snapshot",
         "get_fundamentals",

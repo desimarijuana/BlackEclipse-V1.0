@@ -361,12 +361,20 @@ class BacktestEngine:
             return price * trail.value / 100.0
         return abs(trail.value)
 
-    def _realized_vol(self, symbol: str, lookback: int) -> Optional[float]:
+    def _realized_vol(self, symbol: str, lookback: int, i: int) -> Optional[float]:
+        """Trailing realized volatility of log returns over `lookback` bars.
+
+        Only bars up to and including the decision bar `i` are used — a causal
+        window. Using a fixed tail of the whole series would leak future prices
+        into the position size.
+        """
         s = self._series[symbol]
-        n = s.length
-        if n < lookback + 1:
-            lookback = max(2, n - 1)
-        rets = np.diff(np.log(np.clip(s.close[-lookback - 1:], 1e-9, None)))
+        end = i + 1
+        start = max(0, end - lookback - 1)
+        window = np.clip(s.close[start:end], 1e-9, None)
+        if len(window) < 2:
+            return None
+        rets = np.diff(np.log(window))
         if len(rets) < 2:
             return None
         return float(np.std(rets, ddof=1))
@@ -386,12 +394,18 @@ class BacktestEngine:
     # ── order submission ─────────────────────────────────────────────────────
     def _make_protective(self, binding: StrategyBinding, symbol: str, i: int,
                          entry_side: str, quantity: float, entry_price: float,
-                         stop_distance: Optional[float]) -> None:
+                         stop_distance: Optional[float],
+                         atr_index: Optional[int] = None) -> None:
         """Create the live protective legs (stop-loss + take-profit + trailing).
 
         Created at the entry fill (position size known), so quantity is exact and
         the legs are submitted/accepted immediately. Called only from a fill.
+
+        `atr_index` is the bar whose ATR is safe to use for sizing the protective
+        distance — the *decision* bar, not the (later) fill bar, so the fill bar's
+        range cannot leak into the stop distance.
         """
+        ref = atr_index if atr_index is not None else i
         exit_rules = binding.strategy.rules.exit
         ids: dict[str, str] = {}
         qty = abs(quantity)
@@ -429,7 +443,7 @@ class BacktestEngine:
             ids["take_profit"] = order.id
         trail: Optional[TrailingStopSpec] = exit_rules.trailing_stop
         if trail is not None:
-            dist = self._trail_distance(trail, symbol, i, entry_price)
+            dist = self._trail_distance(trail, symbol, ref, entry_price)
             if dist and dist > 0:
                 stop_price = entry_price - dist if long_entry else entry_price + dist
                 order = self.orders.create(
@@ -465,7 +479,7 @@ class BacktestEngine:
         sizing_ctx = SizingContext(
             equity=self.portfolio.equity, price=price, stop_distance=stop_distance,
             atr=self._atr_value(symbol, i, strat.position_sizing.atr_indicator),
-            realized_vol=self._realized_vol(symbol, strat.position_sizing.lookback or 20),
+            realized_vol=self._realized_vol(symbol, strat.position_sizing.lookback or 20, i),
             kelly_win_rate=self._kelly_stats()[0], kelly_payoff=self._kelly_stats()[1],
             weight=1.0 / max(1, len(binding.symbols)),
         )
@@ -549,13 +563,16 @@ class BacktestEngine:
         self._observability["fills"] += 1
         pos = self.portfolio.position(order.symbol)
         # Entry fill: create the protective bracket sized to the new position.
+        # Size the stop from the DECISION bar (order.submitted_index), not the
+        # fill bar, so the fill bar's own high/low cannot leak into the ATR.
         if order.tag == "entry" and was_flat and not pos.is_flat:
+            ref = order.submitted_index if order.submitted_index is not None else i
             stop_distance, _ = self._stop_distance(
-                self.bindings_by_symbol[order.symbol], order.symbol, i, fill.price
+                self.bindings_by_symbol[order.symbol], order.symbol, ref, fill.price
             )
             self._make_protective(
                 self.bindings_by_symbol[order.symbol], order.symbol, i,
-                order.side, pos.quantity, fill.price, stop_distance,
+                order.side, pos.quantity, fill.price, stop_distance, atr_index=ref,
             )
         if trade is not None:
             self._observability["trades"] += 1
@@ -572,10 +589,14 @@ class BacktestEngine:
             order = self.orders.get(oid)
             if order is None or not order.is_open:
                 continue
-            if order.type == "trailing_stop":
-                sim.update_trailing(order, bar)
+            # Test the barrier BEFORE advancing a trailing stop. Otherwise this
+            # bar's favorable extreme could ratchet the stop past a level that
+            # this same bar's adverse extreme already breached — an optimistic
+            # same-bar sequencing that is not knowable intrabar.
             fill = sim.try_fill(order, bar, current_index=i, allow_same_bar=False)
             if fill is None:
+                if order.type == "trailing_stop":
+                    sim.update_trailing(order, bar)
                 continue
             self._apply_fill(order, fill, i)
             self._cancel_protective(symbol, i, except_id=oid)

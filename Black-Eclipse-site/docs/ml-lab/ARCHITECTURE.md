@@ -40,7 +40,7 @@ Next.js front door                     Python harness (the ONLY compute)
                                        ├─ adapters.py     model adapters (NumPy + optional)
                                        ├─ training.py     fold-fit pipeline + final holdout
                                        ├─ store.py        MLStore on agent-memory.db
-                                       └─ tools.py        12 ml_* agent tools
+                                       └─ tools.py        15 ml_* agent tools
 ```
 
 ## Boundaries and contracts
@@ -162,10 +162,12 @@ Lab and none are enabled by approval.
 `GET models/{id}` · `POST models/{id}/transition` · `GET models/{id}/verify` ·
 `POST models/{id}/predict`.
 
-Agent tools (`ML_TOOLS`): `ml_list_datasets`, `ml_list_features`,
+Agent tools (`ML_TOOLS`, 15): `ml_list_datasets`, `ml_list_features`,
 `ml_build_dataset`, `ml_run_experiment`, `ml_get_run`, `ml_list_experiments`,
 `ml_reproduce_run`, `ml_register_model`, `ml_list_models`, `ml_verify_model`,
-`ml_predict`, `ml_model_capabilities`.
+`ml_predict`, `ml_model_capabilities`, `ml_job_status`, `ml_list_jobs`,
+`ml_cancel_job`. `ML_TOOLS` is imported by `agents.py` and spread into the
+`ECLIPSE_AGENT` allowlist, so the supervised chat agent can drive ML research.
 
 ## UI
 

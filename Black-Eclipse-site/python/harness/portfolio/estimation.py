@@ -161,8 +161,12 @@ def estimate_expected_returns(
     elif method == "shrinkage":
         grand = sum(sum(series[s]) / len(series[s]) for s in symbols) / len(symbols)
         if shrinkage is None:
+            # James–Stein style auto-intensity: with N assets and average sample
+            # length T̄, use δ = N / T̄ (matching the covariance shrinkage
+            # heuristic), not N / (N·T̄) — the latter is ~N× too weak.
             total = sum(len(series[s]) for s in symbols)
-            delta = min(0.9, max(0.05, len(symbols) / max(total, 1)))
+            mean_len = max(total / max(len(symbols), 1), 1.0)
+            delta = min(0.9, max(0.05, len(symbols) / mean_len))
         else:
             delta = min(1.0, max(0.0, float(shrinkage)))
         out = {}
@@ -231,6 +235,71 @@ def estimate_factor_loadings(
     return {
         "available": True, "factors": factors, "loadings": loadings, "alpha": alpha or None,
         "residualVariance": resid, "r2": r2, "observations": length, "method": "ols",
+    }
+
+
+def estimate_factor_covariance(
+    asset_returns: dict[str, Sequence[float]],
+    factor_returns: dict[str, Sequence[float]],
+    *, annualize: bool = False, frequency: int = TRADING_DAYS,
+    psd_tolerance: float = 1e-10, regularize: bool = True,
+) -> dict[str, Any]:
+    """Build a factor covariance model Σ = B·F·Bᵀ + D.
+
+    `B` are the OLS factor loadings, `F` the sample covariance of the factors and
+    `D` the diagonal idiosyncratic (residual) variances. This is a genuine factor
+    risk model: it separates systematic and idiosyncratic risk and avoids
+    double-counting them (the systematic part comes only from B·F·Bᵀ; the residual
+    variances are the OLS residuals, which are orthogonal to the factors).
+    """
+    loadings = estimate_factor_loadings(asset_returns, factor_returns)
+    if not loadings.get("available"):
+        return {"available": False, "reason": loadings.get("reason", "factor model unavailable")}
+    symbols = sorted(asset_returns)
+    factors = loadings["factors"]
+    n, k = len(symbols), len(factors)
+    B = np.array([[loadings["loadings"][s][f] for f in factors] for s in symbols], dtype=float)
+    # The loadings/residuals were fit on the last `observations` rows of each
+    # asset series. The factor covariance MUST use the same trailing window,
+    # otherwise Σ = B·F·Bᵀ mixes a short-window B with a full-history F.
+    window = loadings["observations"]
+    factor_window = {f: list(map(float, factor_returns[f]))[-window:] for f in factors}
+    fcov = np.array(_sample_covariance(factors, factor_window, 1), dtype=float)
+    idio = np.array([max(loadings["residualVariance"][s], 0.0) for s in symbols], dtype=float)
+    systematic = B @ fcov @ B.T
+    covariance = systematic + np.diag(idio)
+    if annualize:
+        covariance = covariance * frequency
+        fcov = fcov * frequency
+        idio = idio * frequency
+        systematic = systematic * frequency
+    diagnostics = _covariance_diagnostics(covariance.tolist(), psd_tolerance)
+    warnings: list[str] = []
+    if not diagnostics["positiveSemidefinite"]:
+        if regularize:
+            repaired, shift = _nearest_psd(covariance.tolist())
+            covariance = np.array(repaired, dtype=float)
+            diagnostics["regularized"] = True
+            warnings.append(f"factor covariance regularized (+{round(shift, 10)} floor)")
+            diagnostics.update(_covariance_diagnostics(covariance.tolist(), psd_tolerance))
+        else:
+            warnings.append("factor covariance is not positive semidefinite")
+    return {
+        "available": True,
+        "model": "factor",
+        "symbols": symbols,
+        "factors": factors,
+        "loadings": loadings["loadings"],
+        "alpha": loadings.get("alpha"),
+        "r2": loadings.get("r2"),
+        "factorCovariance": [[round(float(fcov[i][j]), 14) for j in range(k)] for i in range(k)],
+        "idiosyncraticVariance": {symbols[i]: round(float(idio[i]), 14) for i in range(n)},
+        "systematicVariance": {symbols[i]: round(float(systematic[i][i]), 14) for i in range(n)},
+        "covariance": [[round(float(covariance[i][j]), 14) for j in range(n)] for i in range(n)],
+        "annualized": annualize,
+        "observations": loadings["observations"],
+        "diagnostics": diagnostics,
+        "warnings": warnings,
     }
 
 
@@ -338,7 +407,10 @@ def _sample_covariance(
     symbols: Sequence[str], returns: dict[str, Sequence[float]], ddof: int,
 ) -> list[list[float]]:
     n = len(symbols)
-    data = np.array([list(map(float, returns[s])) for s in symbols], dtype=float)
+    # Truncate to the shortest common window so unequal-length series stay
+    # aligned instead of building a ragged (object) array.
+    length = min(len(returns[s]) for s in symbols)
+    data = np.array([list(map(float, returns[s]))[-length:] for s in symbols], dtype=float)
     cov = np.cov(data, ddof=ddof, bias=(ddof == 0))
     if n == 1:
         cov = np.array([[float(np.var(data[0], ddof=ddof))]])
@@ -409,6 +481,7 @@ __all__ = [
     "estimate_expected_returns",
     "estimate_covariance",
     "estimate_factor_loadings",
+    "estimate_factor_covariance",
     "TRADING_DAYS",
     "RETURN_METHODS",
     "COV_METHODS",

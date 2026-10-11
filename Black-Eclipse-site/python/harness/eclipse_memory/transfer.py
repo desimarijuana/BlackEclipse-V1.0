@@ -546,17 +546,29 @@ def reset_memory(
         ).fetchall()
     }
     cleared: dict[str, int] = {}
+    db = store._db
+    # The store runs in autocommit mode, so wrap the multi-table clear in an
+    # explicit transaction to keep it all-or-nothing (BEGIN IMMEDIATE takes the
+    # write lock up front rather than upgrading a deferred read).
     try:
+        db.execute("BEGIN IMMEDIATE")
         for table in _MEMORY_TABLES:
             if table not in existing:
                 continue
-            count = store._db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            store._db.execute(f"DELETE FROM {table}")
+            count = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            db.execute(f"DELETE FROM {table}")
             cleared[table] = int(count)
-        store._db.commit()
-        store._db.execute("VACUUM;")
+        db.execute("COMMIT")
     except Exception as exc:  # noqa: BLE001
-        store._db.rollback()
+        try:
+            db.execute("ROLLBACK")
+        except Exception:  # noqa: BLE001 - rollback is best-effort
+            pass
+        raise RuntimeError(f"reset failed: {exc}") from exc
+    # VACUUM cannot run inside a transaction; the writes above are committed.
+    try:
+        db.execute("VACUUM;")
+    except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"reset failed: {exc}") from exc
     return {"ok": True, "cleared": cleared, "backup": backup}
 

@@ -20,6 +20,8 @@ import math
 import random
 from typing import Any, Optional, Sequence
 
+import numpy as np
+
 from .risk import TRADING_DAYS, _norm_ppf
 
 
@@ -76,6 +78,53 @@ def risk_contributions(
     return result
 
 
+def factor_risk(
+    weights: dict[str, float], loadings: dict[str, dict[str, float]],
+    factor_covariance: Sequence[Sequence[float]], idiosyncratic: dict[str, float],
+    *, names: Optional[Sequence[str]] = None,
+) -> dict[str, Any]:
+    """Decompose portfolio risk into systematic (factor) and idiosyncratic parts.
+
+    With exposures f = Bᵀw, systematic variance = fᵀFf and idiosyncratic variance
+    = Σ wᵢ²·Dᵢ. Factor risk contributions use the Euler decomposition on the
+    factor covariance: f_k(Ff)_k / σp, summing to the systematic volatility.
+    """
+    labels = list(names) if names is not None else list(weights)
+    k = len(factor_covariance)
+    factors = sorted({f for m in loadings.values() for f in m})
+    if not factors or len(factors) != k:
+        return {"available": False, "reason": "factor covariance dimension must match the factors"}
+    w = np.array([float(weights.get(s, 0.0)) for s in labels])
+    B = np.array([[float((loadings.get(s) or {}).get(f, 0.0)) for f in factors] for s in labels])
+    F = np.array(factor_covariance, dtype=float)
+    d = np.array([max(float(idiosyncratic.get(s, 0.0)), 0.0) for s in labels])
+    exposures = B.T @ w
+    systematic_var = float(exposures @ F @ exposures)
+    idio_var = float((w * w * d).sum())
+    total_var = systematic_var + idio_var
+    vol = math.sqrt(max(total_var, 0.0))
+    out: dict[str, Any] = {
+        "available": True,
+        "portfolioVolatility": round(vol, 10),
+        "systematicVariance": round(systematic_var, 12),
+        "idiosyncraticVariance": round(idio_var, 12),
+        "systematicShare": round(systematic_var / total_var, 10) if total_var > 0 else None,
+        "factorExposures": {factors[i]: round(float(exposures[i]), 10) for i in range(k)},
+    }
+    sys_vol = math.sqrt(max(systematic_var, 0.0))
+    if sys_vol > 0:
+        Ff = F @ exposures
+        out["factorRiskContributions"] = {
+            factors[i]: round(float(exposures[i] * Ff[i]) / sys_vol, 10) for i in range(k)
+        }
+        out["reconciliation"] = {
+            "sumOfFactorContributions": round(sum(out["factorRiskContributions"].values()), 10),
+            "systematicVolatility": round(sys_vol, 10),
+            "reconciles": abs(sum(out["factorRiskContributions"].values()) - sys_vol) <= 1e-8,
+        }
+    return out
+
+
 def hypothetical_impact(weights: dict[str, float], shocks: dict[str, float]) -> dict[str, Any]:
     """Apply a linear shock map (symbol → fractional return) to the portfolio."""
     if not shocks:
@@ -126,22 +175,25 @@ def historical_replay(
     if not used:
         return {"available": False, "reason": "no weighted holding has return history"}
     length = min(len(returns[s]) for s in used)
-    path: list[float] = []
-    cumulative = 0.0
+    path: list[float] = []          # compounded wealth index (starts at 1.0)
+    period_returns: list[float] = []
+    wealth = 1.0
     for t in range(length):
         r = sum(weights[s] * float(returns[s][t]) for s in used)
-        cumulative += r
-        path.append(cumulative)
+        period_returns.append(r)
+        wealth *= (1.0 + r)
+        path.append(wealth)
+    cumulative = wealth - 1.0
     peak = -math.inf
     max_dd = 0.0
     for value in path:
         peak = max(peak, value)
-        max_dd = min(max_dd, value - peak)
+        max_dd = min(max_dd, value / peak - 1.0)
     return {
         "available": True, "type": "historical", "observations": length,
         "cumulativeReturn": round(cumulative, 10),
-        "worstSinglePeriod": round(min(path), 10) if path else None,
-        "maxDrawdownOfCumulative": round(max_dd, 10),
+        "worstSinglePeriod": round(min(period_returns), 10) if period_returns else None,
+        "maxDrawdown": round(max_dd, 10),
         "path": [round(p, 8) for p in path],
         "assumptions": ["linear portfolio return", "caller-supplied point-in-time window"],
     }
@@ -244,6 +296,6 @@ def parametric_tail(volatility: float, confidence: float = 0.95) -> Optional[flo
 
 
 __all__ = [
-    "risk_contributions", "hypothetical_impact", "factor_shock_impact",
+    "risk_contributions", "factor_risk", "hypothetical_impact", "factor_shock_impact",
     "historical_replay", "monte_carlo", "stress_test", "parametric_tail", "TRADING_DAYS",
 ]

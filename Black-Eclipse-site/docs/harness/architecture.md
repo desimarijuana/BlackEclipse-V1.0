@@ -81,7 +81,8 @@ Two boundaries, both deliberate:
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
 | `deps.py` | the front door's shared state + authorization seam: the ONE process-wide `AgenticService`, the `require_operator`/`require_mcp_operator` transport/token dependencies, and the identity/tenancy boundary helpers (`identity_boundary`, `deployment_exposure`) |
 | `computer/` | the **Computer Use Engine**: observe and operate a real desktop (native apps, OS chrome, dialogs) with accessibility-first grounding, SOM snapshots + stale-element protection, background-first input, verification, recovery, a permission/risk policy engine, sensitive-region redaction and a **Finance Action Firewall**. Platform-independent `ComputerDriver` (Windows via `ctypes` Win32; Linux/X11 via `ctypes` X11/XTest; macOS via Core Graphics/AX; honest `NullDriver` where no backend exists). Registers the `computer_*` toolset on the ONE registry. Detail: `docs/harness/computer-use.md` |
-| `run_lineage.py` | **Phase 1**: run lineage + durable checkpoints + idempotency. Owns the two additive `HarnessRun` columns (`parentRunId`/`workflowId`) and the `RunCheckpoint`/`ToolExecutionIdempotency` tables, bound to the ONE store connection (so ratcheted `persistence.py` did not grow). `save_checkpoint`/`latest_checkpoint`/`mark_tool_executed`/`was_tool_executed`/`set_run_parent`/`list_child_runs` |
+| `run_lineage.py` | **Phase 1**: run lineage + durable checkpoints + idempotency. Owns the two additive `HarnessRun` columns (`parentRunId`/`workflowId`) and the `RunCheckpoint`/`ToolExecutionIdempotency` tables, bound to the store's per-thread connection (so ratcheted `persistence.py`
+did not grow). `save_checkpoint`/`latest_checkpoint`/`mark_tool_executed`/`was_tool_executed`/`set_run_parent`/`list_child_runs` |
 | `graph_context.py` | **extraction**: the per-run context blocks (recalled memory, compact profile, skill manifest) and the memory/learning outcome helpers, pure-extracted from `graph.py` to keep it under its size ratchet; re-exported by `graph.py` so callers are unchanged |
 | `workflows/` | **Phase 5**: the composable workflow graph. `model.py` (Workflow/WorkflowStep contracts + closed step-kind set + bounds), `validate.py` (cycle / unbounded fan-out / out-of-scope tool / no terminal path — each with a NAMED reason), `store.py` (validated persistence), `compile.py` (compiles onto the EXISTING `execute_run`; a step's tool scope = agent allowlist ∩ step tools, enforced at the same `ToolRegistry.execute(allowed=...)` seam; approval steps reuse the single-use `ApprovalStore`; parallel branches share the run cancel event/cache). Flag-gated (`HARNESS_WORKFLOWS_ENABLED`, default OFF) |
 | `eval_gates/` | **Phase 8**: the offline route_health / workflow / resume gates invoked by `scripts/test-evals.js` (the capability-matrix gate lives in TS, `scripts/eval-capability-matrix.ts`) |
@@ -756,6 +757,19 @@ DDL is idempotent, and `_migrate()` adds post-release columns
 (e.g. the token columns) to an existing database on open — no manual migration
 step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 `usage_summary()` aggregates them for analytics (`GET /usage`).
+
+**Connections are per-thread, not shared.** The store is used by FastAPI's worker
+threads and async tasks, so `AgentMemoryStore` hands each thread its own
+connection through `harness/sqlite_pool.py` (`ThreadLocalConnections`). A single
+`sqlite3.Connection` shared across threads is unsafe even with
+`check_same_thread=False` (concurrent `execute`/`commit` can raise `SystemError:
+error return without exception set` or interleave transactions). Connections run
+in autocommit (`isolation_level=None`) with a `busy_timeout`; WAL lets readers
+run alongside the single writer and autocommit makes a second writer wait rather
+than fail on a deferred read-to-write upgrade. The one multi-statement atomic
+operation (`reset_memory`) issues an explicit `BEGIN IMMEDIATE`/`COMMIT`.
+`AgentMemoryStore.close()` releases every connection and is called on the last
+lifespan exit (the pool reconnects lazily if the runtime restarts).
 
 ## Setup / operations
 

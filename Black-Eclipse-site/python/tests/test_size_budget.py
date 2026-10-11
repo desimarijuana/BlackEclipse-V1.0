@@ -60,8 +60,10 @@ RATCHET_PY: dict[str, int] = {
     "eclipse_memory/service.py": 1845,
     "eclipse_memory/store.py": 1749,
     # Grew with the `documents` run-blob column (schema + `_ADDED_COLUMNS` +
-    # `_run_row`). May only shrink from here.
-    "persistence.py": 1395,
+    # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
+    # per-thread/autocommit pool lives in `harness/sqlite_pool.py`, leaving only
+    # the `AgentMemoryStore` wiring here. May only shrink from here.
+    "persistence.py": 1415,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the

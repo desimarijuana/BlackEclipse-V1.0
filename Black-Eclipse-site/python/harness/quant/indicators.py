@@ -455,8 +455,14 @@ def compute_one(spec: IndicatorSpec, ohlcv: dict[str, np.ndarray]) -> dict[str, 
         fast = ema(src, p["fast"])
         slow = ema(src, p["slow"])
         macd_line = fast - slow
-        signal = ema(np.nan_to_num(macd_line, nan=0.0), p["signal"])
-        signal = np.where(np.isnan(macd_line), np.nan, signal)
+        # Seed the signal EMA only on the valid MACD segment; zero-filling the
+        # warm-up would bias the signal line (and the histogram) toward zero for
+        # the first `signal` valid bars.
+        signal = np.full(macd_line.shape, np.nan, dtype=float)
+        valid = ~np.isnan(macd_line)
+        if valid.any():
+            first = int(np.argmax(valid))
+            signal[first:] = ema(macd_line[first:], p["signal"])
         out[base] = macd_line
         out[f"{base}_signal"] = signal
         out[f"{base}_hist"] = macd_line - signal

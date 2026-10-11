@@ -69,7 +69,9 @@ def sortino(returns: Sequence[float], risk_free: float = 0.0, periods: int = TRA
         return None
     target = risk_free / periods
     downside = [min(0.0, r - target) ** 2 for r in returns]
-    dd = math.sqrt(sum(downside) / len(returns))
+    # Sample downside deviation (n-1), matching the frequency-aware convention in
+    # `quant/metrics.py` so the same named metric agrees across modules.
+    dd = math.sqrt(sum(downside) / (len(returns) - 1))
     if dd == 0:
         return None
     annual_ret = mean * periods

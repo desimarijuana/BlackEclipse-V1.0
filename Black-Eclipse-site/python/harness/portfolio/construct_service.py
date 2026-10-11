@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any, Optional, Sequence
+
+log = logging.getLogger("harness.portfolio.construction")
 
 from .errors import PortfolioError
 from .models import new_id, now_iso as _now_iso
@@ -36,7 +39,7 @@ async def construct_payload(service: Any, payload: dict[str, Any], *,
                             actor_id: Optional[str] = None) -> dict[str, Any]:
     from . import construction as _construction
     from .estimation import (align_returns, estimate_covariance,
-                             estimate_expected_returns, estimate_factor_loadings)
+                             estimate_expected_returns, estimate_factor_covariance)
 
     symbols = list(payload.get("symbols") or [])
     method = payload.get("method") or "min_variance"
@@ -92,19 +95,26 @@ async def construct_payload(service: Any, payload: dict[str, Any], *,
                 if er.get("available"):
                     expected_returns = [er["expectedReturns"][s] for s in symbols]
                     diagnostics["expectedReturns"] = er.get("meta")
+    factor_loadings = payload.get("factor_loadings")
+    factor_model = None
+    if payload.get("factor_returns") and returns:
+        fm = estimate_factor_covariance(
+            returns, payload["factor_returns"], annualize=bool(payload.get("annualize", False)))
+        if fm.get("available"):
+            factor_model = fm
+            if covariance is None or payload.get("covariance_method") == "factor":
+                covariance = fm["covariance"]
+                diagnostics["covariance"] = {"method": "factor",
+                                             "diagnostics": fm.get("diagnostics"),
+                                             "warnings": fm.get("warnings")}
+            if not factor_loadings:
+                factor_loadings = fm["loadings"]
+            diagnostics["factorModel"] = {"factors": fm["factors"], "r2": fm.get("r2"),
+                                          "observations": fm["observations"]}
     if not covariance:
         return {"available": False, "status": "SOLVER_ERROR",
                 "reason": "no covariance supplied and none could be estimated",
                 "diagnostics": diagnostics}
-
-    factor_loadings = payload.get("factor_loadings")
-    if method == "factor_constrained" and not factor_loadings and payload.get("factor_returns") \
-            and returns:
-        est = estimate_factor_loadings(returns, payload["factor_returns"])
-        if est.get("available"):
-            factor_loadings = est["loadings"]
-            diagnostics["factorLoadings"] = {"factors": est["factors"], "r2": est.get("r2"),
-                                             "observations": est["observations"]}
 
     result = _construction.construct(
         symbols=symbols, method=method, covariance=covariance,
@@ -125,6 +135,12 @@ async def construct_payload(service: Any, payload: dict[str, Any], *,
     if portfolio is not None:
         result["portfolioId"] = portfolio["id"]
     result.setdefault("execution", "proposal-only: no trades are placed; requires user approval")
+    if factor_model and result.get("weights"):
+        from .risk_engine import factor_risk
+
+        result["factorRisk"] = factor_risk(
+            result["weights"], factor_model["loadings"], factor_model["factorCovariance"],
+            factor_model["idiosyncraticVariance"])
 
     # Immutable run record: persist the exact inputs, constraints, status and
     # independently-validated target so any later result is reproducible from
@@ -151,6 +167,12 @@ async def construct_payload(service: Any, payload: dict[str, Any], *,
             )
         except Exception:  # noqa: BLE001 - persistence failure must not lose the result
             result["diagnostics"]["runPersisted"] = False
+
+    log.info(
+        "portfolio.construct method=%s status=%s run=%s symbols=%d portfolio=%s",
+        result.get("method") or method, result.get("status"), run_id, len(symbols),
+        (portfolio or {}).get("id") if portfolio else None,
+    )
 
     if result.get("available") and result.get("weights") and portfolio is not None \
             and payload.get("persist", True):

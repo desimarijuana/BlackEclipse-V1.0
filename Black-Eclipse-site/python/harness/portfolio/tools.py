@@ -421,7 +421,7 @@ async def portfolio_aggregate(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
 async def portfolio_estimate_inputs(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     """Deterministic expected-return and covariance estimation from returns."""
     from .estimation import (align_returns, estimate_covariance,
-                             estimate_expected_returns)
+                             estimate_expected_returns, estimate_factor_covariance)
 
     returns = args.get("returns")
     if returns is None and args.get("series"):
@@ -449,6 +449,9 @@ async def portfolio_estimate_inputs(args: dict[str, Any], ctx: Any) -> tuple[str
         "diagnostics": {"expectedReturns": er.get("meta"), "covariance": cov.get("diagnostics"),
                         "warnings": cov.get("warnings")},
     }
+    if args.get("factor_returns"):
+        payload["factorModel"] = estimate_factor_covariance(
+            returns, args["factor_returns"], annualize=bool(args.get("annualize", False)))
     text = (f"Estimated inputs for {len(returns_symbols) or len(returns)} assets: "
             f"expected returns ({er.get('method') or 'unavailable'}), covariance "
             f"({cov.get('method') or 'unavailable'}; PSD={cov.get('diagnostics', {}).get('positiveSemidefinite')}).")
@@ -607,6 +610,17 @@ async def portfolio_simulate_rebalancing(args: dict[str, Any], ctx: Any) -> tupl
     return (f"{result['schedule']} rebalancing ({result['method']}): total return "
             f"{result['totalReturn']}, vol {result['annualizedVolatility']}, "
             f"{result['rebalances']} rebalance(s), cost {result['totalCostFraction']}.", result)
+
+
+async def portfolio_factor_risk(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .risk_engine import factor_risk as _factor_risk
+
+    result = _factor_risk(args.get("weights") or {}, args.get("loadings") or {},
+                          args.get("factor_covariance") or [], args.get("idiosyncratic") or {})
+    if not result.get("available"):
+        return (f"Factor risk unavailable: {result.get('reason')}", result)
+    return (f"Portfolio volatility {result['portfolioVolatility']}; systematic share "
+            f"{result['systematicShare']}.", result)
 
 
 async def portfolio_list_runs(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -892,6 +906,8 @@ def register_portfolio_tools(registry: Any) -> None:
                                          "enum": ["arithmetic", "geometric", "ewma", "shrinkage", "user"]},
              "half_life": {"type": "number"}, "shrinkage": {"type": "number"},
              "annualize": {"type": "boolean"},
+             "factor_returns": {"type": "object",
+                                "description": "Factor return series → adds a factor covariance model."},
              "user_expected_returns": {"type": "object"}}},
          READ)
     _def("portfolio_construct",
@@ -938,6 +954,17 @@ def register_portfolio_tools(registry: Any) -> None:
              "groups": {"type": "object"},
              "covariance": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}}},
           "required": ["covariance"]},
+         READ)
+    _def("portfolio_factor_risk",
+         "Decompose portfolio risk into systematic (factor) and idiosyncratic parts from a factor "
+         "covariance model (Σ = B·F·Bᵀ + D), with factor risk contributions. Avoids double-counting.",
+         portfolio_factor_risk,
+         {"type": "object", "properties": {
+             "weights": {"type": "object"}, "loadings": {"type": "object"},
+             "factor_covariance": {"type": "array", "items": {"type": "array",
+                                                              "items": {"type": "number"}}},
+             "idiosyncratic": {"type": "object"}},
+          "required": ["weights", "loadings", "factor_covariance", "idiosyncratic"]},
          READ)
     _def("portfolio_stress_test",
          "Scenario/stress testing: hypothetical symbol/factor shocks, historical window replay "
@@ -1023,7 +1050,7 @@ PORTFOLIO_READ_TOOLS = [
     "portfolio_estimate_inputs", "portfolio_risk_contributions", "portfolio_stress_test",
     "portfolio_transaction_costs", "portfolio_compare_allocations",
     "portfolio_estimate_factor_loadings", "portfolio_simulate_rebalancing",
-    "portfolio_list_runs", "portfolio_get_run",
+    "portfolio_list_runs", "portfolio_get_run", "portfolio_factor_risk",
 ]
 PORTFOLIO_WRITE_TOOLS = [
     "portfolio_create", "portfolio_add_position", "portfolio_remove_position",

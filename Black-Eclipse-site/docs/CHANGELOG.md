@@ -8,6 +8,76 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-11
 
+- **Deployment hardening: thread-safe `agent-memory.db` connections.** The store
+  was one `sqlite3.Connection` shared across FastAPI's worker threads and async
+  tasks (`check_same_thread=False`, no lock), which intermittently raised
+  `SystemError: error return without exception set` on `commit` (seen as the
+  flaky `test_jobs_api` failure). New `python/harness/sqlite_pool.py`
+  (`ThreadLocalConnections`) gives each thread its own connection in autocommit
+  mode with a `busy_timeout`, so WAL readers run alongside the single writer and
+  a second writer waits rather than failing on a deferred read-to-write upgrade.
+  `AgentMemoryStore` delegates to the pool; `close()` releases connections and is
+  called on the last lifespan exit (`boot._shutdown`); `reset_memory` wraps its
+  multi-table clear in an explicit `BEGIN IMMEDIATE`/`COMMIT`. Full Python suite:
+  5722 passed, 16 skipped. docs updated: `docs/harness/architecture.md` (new
+  persistence/connection contract), `docs/CHANGELOG.md`, `docs/NAVIGATION.md`;
+  `persistence.py` ratchet re-pinned in `python/tests/test_size_budget.py`.
+- **Quant research correctness audit: look-ahead, accounting and integration
+  fixes.** Fixed independently-verified defects. (1) Volatility position sizing
+  read the *tail of the whole series* — direct future-price leakage; `_realized_vol`
+  now takes the decision bar and uses only bars up to and including it. (2) The
+  event engine's trade P&L omitted the **entry** commission (it was accrued but
+  never expensed), overstating `net_pnl`/`realized_pnl` and every trade metric;
+  closes now allocate the attributable entry commission and reconcile with the
+  cash ledger. Partial closes keep the original cost basis (previously the basis
+  was reset to the exit price). (3) The factor covariance model mixed a
+  short-window `B` with a full-history `F`; `estimate_factor_covariance` now uses
+  the same trailing window as the loadings. (4) Shrinkage expected-return
+  auto-intensity was `N/(N·T̄)` (~`N`× too weak); now `N/T̄`. (5)
+  `_sample_covariance` now truncates unequal-length series instead of building a
+  ragged array. (6) `historical_replay` reported the worst *cumulative* value as
+  the worst period and a non-compounded drawdown; now reports the true worst
+  period and a compounded-index `maxDrawdown`. (7) Trailing stops advanced on the
+  same bar's favorable extreme before testing the bar's adverse extreme; the
+  barrier is now tested first (no same-bar look-ahead). (8) Benchmark alpha/IR/TE
+  and bootstrap Sharpe annualized daily equities at 365; they now follow the
+  metrics engine (252, 365 only for crypto), via an `asset_class` argument. (9)
+  MACD's signal line was zero-seeded across the warm-up; it now runs only over the
+  valid MACD segment. (10) `Position.realizedPnl` is now maintained. (11)
+  `ML_TOOLS` were registered but absent from every explicit allowlist (unreachable
+  from the supervised agent); now spread into `ECLIPSE_AGENT`. (12) ATR-based
+  protective brackets were sized from the fill bar's ATR (one bar of future
+  range); now measured from the decision bar (`order.submitted_index`). (13)
+  `portfolio/risk.py::sortino` downside deviation used the population denominator
+  while `quant/metrics.py` used the sample one; both now use `n-1`. (14)
+  `event_system.registry._spec` did not accept `namespace`, so
+  `EventBus._observe` raised `TypeError` in a fire-and-forget task and **silently
+  dropped every unregistered legacy event type**; `_spec` now supports
+  `namespace`. Regression tests: `python/tests/test_quant_audit_fixes.py` (11),
+  `test_events_bus.py::test_legacy_bridge_auto_observes_unknown_namespace`, and
+  the corrected `test_quant_costs_validation.py`. Full Python suite: 5720 passed
+  (1 intermittent `test_jobs_api` sqlite-teardown flake passes in isolation);
+  eval gates: ALL PASS.
+  TS: the `factors` and `ml` catch-all route `Ctx` now uses the optional
+  `path?` form every other route uses (tsc was failing on 4 generated-validator
+  errors). docs updated: `docs/CHANGELOG.md`, `docs/quant-engine.md`,
+  `docs/NAVIGATION.md`, `docs/ml-lab/ARCHITECTURE.md`.
+- **Portfolio Construction & Risk Engine - Round 3: factor risk model, risk
+  caps, cardinality/lot, observability.** `estimation.estimate_factor_covariance`
+  builds Σ = B·F·Bᵀ + D (OLS loadings × factor covariance + diagonal
+  idiosyncratic variance) and `risk_engine.factor_risk` decomposes portfolio
+  volatility into systematic/idiosyncratic parts with factor risk contributions
+  (Σ reconciles to systematic volatility); selected via
+  `covariance_method:"factor"` + `factor_returns`. The solver now enforces a
+  convex `max_volatility` / parametric `max_var` cap (validated independently;
+  an unreachable cap returns `INFEASIBLE`). Cardinality (`max_positions`),
+  `min_position_weight` and `lot_size` are applied as a documented,
+  independently-validated post-processing step (downgraded to
+  `FEASIBLE_LIMIT_REACHED`). Structured construction logging with the run id.
+  New tool `portfolio_factor_risk` (39 `portfolio_*` tools). Tests
+  `python/tests/test_portfolio_construction_ext.py` extended (factor risk,
+  vol/VaR caps, cardinality, lot). docs updated:
+  `docs/portfolio-accounting.md`, `docs/NAVIGATION.md`.
 - **Portfolio Construction & Risk Engine - Round 2: persistence, costs, factor
   models, simulation, comparison, routes, background jobs, E2E.** Closed the
   remaining gaps from the first slice. `estimation.estimate_factor_loadings` (OLS

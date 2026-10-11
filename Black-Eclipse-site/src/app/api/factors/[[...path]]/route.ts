@@ -47,11 +47,11 @@ async function forward(request: Request, method: string, path: string[]): Promis
   return NextResponse.json(payload);
 }
 
-type Ctx = { params: Promise<{ path: string[] }> };
+type Ctx = { params: Promise<{ path?: string[] }> };
 
 export async function GET(request: Request, ctx: Ctx) {
   try {
-    const { path } = await ctx.params;
+    const { path = [] } = await ctx.params;
     return await forward(request, "GET", path);
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
@@ -66,7 +66,7 @@ export async function POST(request: Request, ctx: Ctx) {
   const blocked = guardMutation(request, "factors");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
-    const { path } = await ctx.params;
+    const { path = [] } = await ctx.params;
     return await forward(request, "POST", path);
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

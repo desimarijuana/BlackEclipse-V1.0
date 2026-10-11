@@ -307,9 +307,9 @@ class MetricsEngine:
         add("annualized_return", self.annualized_return(), "%",
             "geometric annualization of periodic returns", f"{self.periods:g} periods/yr")
         add("volatility", self.volatility(), "%",
-            "stdev(excess returns, ddof=1) * sqrt(periods)", f"{self.periods:g} periods/yr")
+            "stdev(periodic returns, ddof=1) * sqrt(periods)", f"{self.periods:g} periods/yr")
         add("downside_deviation", self.downside_deviation(), "%",
-            "sqrt(mean(min(0, r - rf)^2)) * sqrt(periods)")
+            "sqrt(sum(min(0, r - rf_period)^2) / (n - 1)) * sqrt(periods)")
         add("max_drawdown", self.max_drawdown(), "%",
             "min over t of (equity_t / running_peak_t - 1) * 100")
         add("average_drawdown", self.average_drawdown(), "%",
