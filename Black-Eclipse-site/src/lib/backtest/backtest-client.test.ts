@@ -22,29 +22,4 @@ describe('backtest client helpers', () => {
       expect(typeof backtestClient[key]).toBe('function');
     }
   });
-
-  it('exposes the strategy portability calls', () => {
-    for (const key of [
-      'listVersions', 'getVersionMeta', 'diffVersions', 'exportStrategy', 'getBundle',
-      'importStrategy',
-    ] as const) {
-      expect(typeof backtestClient[key]).toBe('function');
-    }
-  });
-
-  it('exposes the strategy graph compiler calls', () => {
-    for (const key of ['listGraphNodes', 'compileGraph', 'validateGraph'] as const) {
-      expect(typeof backtestClient[key]).toBe('function');
-    }
-  });
-
-  it('exposes the Python strategy lab call', () => {
-    expect(typeof backtestClient.runPythonStrategy).toBe('function');
-  });
-
-  it('exposes the copilot calls', () => {
-    for (const key of ['researchPlan', 'report', 'signals'] as const) {
-      expect(typeof backtestClient[key]).toBe('function');
-    }
-  });
 });

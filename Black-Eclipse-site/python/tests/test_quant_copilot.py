@@ -95,6 +95,34 @@ def test_config_helpers_validate():
     assert not [i for i in issues2 if i["severity"] == "error"]
 
 
+def test_benchmark_metrics_linear_relationship():
+    from harness.quant.benchmark import benchmark_metrics
+
+    bench_rets = [0.01, -0.02, 0.015, 0.005, -0.01]
+    equity, close = [{"index": 0, "ts": "2024-01-01", "equity": 100.0}], \
+                    [{"timestamp": "2024-01-01", "close": 100.0}]
+    e, c = 100.0, 100.0
+    for i, rb in enumerate(bench_rets):
+        e *= 1.0 + 2.0 * rb  # strategy returns are exactly 2× the benchmark
+        c *= 1.0 + rb
+        ts = f"2024-01-{i + 2:02d}"
+        equity.append({"index": i + 1, "ts": ts, "equity": e})
+        close.append({"timestamp": ts, "close": c})
+    m = benchmark_metrics(equity, close, interval="1d")
+    assert m["available"] and m["observations"] == 5
+    assert abs(m["beta"] - 2.0) < 1e-6
+    assert abs(m["correlation"] - 1.0) < 1e-6
+    assert abs(m["alpha"]) < 1e-9  # perfectly explained by beta
+
+
+def test_benchmark_metrics_insufficient_data():
+    from harness.quant.benchmark import benchmark_metrics
+
+    m = benchmark_metrics([{"ts": "a", "equity": 1}, {"ts": "b", "equity": 2}],
+                          [{"timestamp": "a", "close": 1}, {"timestamp": "b", "close": 2}])
+    assert m["available"] is False and "reason" in m
+
+
 def test_copilot_tools_registered():
     registry = ToolRegistry()
     register_quant_tools(registry)

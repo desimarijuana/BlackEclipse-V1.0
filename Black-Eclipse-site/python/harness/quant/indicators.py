@@ -189,6 +189,132 @@ def rolling_min(values: np.ndarray, period: int) -> np.ndarray:
     return out
 
 
+def _nan_rolling_mean(values: np.ndarray, period: int) -> np.ndarray:
+    """Rolling mean that stays NaN unless the whole window is defined."""
+    period = int(period)
+    n = values.shape[0]
+    out = np.full(n, np.nan, dtype=float)
+    for i in range(period - 1, n):
+        window = values[i - period + 1:i + 1]
+        if not np.isnan(window).any():
+            out[i] = float(np.mean(window))
+    return out
+
+
+def _rma_forward(values: np.ndarray, period: int) -> np.ndarray:
+    """Wilder smoothing that starts at the first defined value (NaN-aware)."""
+    period = int(period)
+    n = values.shape[0]
+    out = np.full(n, np.nan, dtype=float)
+    valid = np.where(~np.isnan(values))[0]
+    if len(valid) == 0:
+        return out
+    start = int(valid[0])
+    if start + period > n:
+        return out
+    seed = float(np.mean(values[start:start + period]))
+    out[start + period - 1] = seed
+    prev = seed
+    for i in range(start + period, n):
+        v = values[i] if not np.isnan(values[i]) else prev
+        prev = (prev * (period - 1) + float(v)) / period
+        out[i] = prev
+    return out
+
+
+def stochastic(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int,
+               d_period: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """Stochastic oscillator: (%K, %D). Range with zero width is NaN."""
+    hh = rolling_max(high, period)
+    ll = rolling_min(low, period)
+    rng = hh - ll
+    with np.errstate(invalid="ignore", divide="ignore"):
+        k = np.where(rng > 0, (close - ll) / rng * 100.0, np.nan)
+    d = _nan_rolling_mean(k, int(d_period))
+    return k, d
+
+
+def adx(high: np.ndarray, low: np.ndarray, close: np.ndarray,
+        period: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Average Directional Index and the +DI/-DI lines (Wilder)."""
+    n = high.shape[0]
+    plus_dm = np.zeros(n)
+    minus_dm = np.zeros(n)
+    for i in range(1, n):
+        up = high[i] - high[i - 1]
+        dn = low[i - 1] - low[i]
+        plus_dm[i] = up if (up > dn and up > 0) else 0.0
+        minus_dm[i] = dn if (dn > up and dn > 0) else 0.0
+    atr_line = atr(high, low, close, period)
+    plus_s = _rma_forward(plus_dm, period)
+    minus_s = _rma_forward(minus_dm, period)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        plus_di = np.where(atr_line > 0, 100.0 * plus_s / atr_line, np.nan)
+        minus_di = np.where(atr_line > 0, 100.0 * minus_s / atr_line, np.nan)
+        denom = plus_di + minus_di
+        dx = np.where(denom > 0, 100.0 * np.abs(plus_di - minus_di) / denom, np.nan)
+    adx_line = _rma_forward(dx, period)
+    return adx_line, plus_di, minus_di
+
+
+def obv(close: np.ndarray, volume: np.ndarray) -> np.ndarray:
+    """On-Balance Volume (cumulative signed volume)."""
+    n = close.shape[0]
+    out = np.zeros(n, dtype=float)
+    for i in range(1, n):
+        if close[i] > close[i - 1]:
+            out[i] = out[i - 1] + volume[i]
+        elif close[i] < close[i - 1]:
+            out[i] = out[i - 1] - volume[i]
+        else:
+            out[i] = out[i - 1]
+    return out
+
+
+def mfi(high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray,
+        period: int) -> np.ndarray:
+    """Money Flow Index (volume-weighted RSI of typical price)."""
+    n = close.shape[0]
+    tp = (high + low + close) / 3.0
+    pos = np.zeros(n)
+    neg = np.zeros(n)
+    for i in range(1, n):
+        flow = tp[i] * volume[i]
+        if tp[i] > tp[i - 1]:
+            pos[i] = flow
+        elif tp[i] < tp[i - 1]:
+            neg[i] = flow
+    out = np.full(n, np.nan, dtype=float)
+    for i in range(period, n):
+        p = float(np.sum(pos[i - period + 1:i + 1]))
+        ng = float(np.sum(neg[i - period + 1:i + 1]))
+        out[i] = 100.0 if ng == 0 else 100.0 - 100.0 / (1.0 + p / ng)
+    return out
+
+
+def williams_r(high: np.ndarray, low: np.ndarray, close: np.ndarray,
+               period: int) -> np.ndarray:
+    """Williams %R (0 to -100)."""
+    hh = rolling_max(high, period)
+    ll = rolling_min(low, period)
+    rng = hh - ll
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(rng > 0, -100.0 * (hh - close) / rng, np.nan)
+
+
+def cci(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> np.ndarray:
+    """Commodity Channel Index."""
+    tp = (high + low + close) / 3.0
+    mean = sma(tp, period)
+    n = close.shape[0]
+    out = np.full(n, np.nan, dtype=float)
+    for i in range(period - 1, n):
+        window = tp[i - period + 1:i + 1]
+        dev = float(np.mean(np.abs(window - mean[i])))
+        out[i] = (tp[i] - mean[i]) / (0.015 * dev) if dev > 0 else np.nan
+    return out
+
+
 # ── Source resolution ────────────────────────────────────────────────────────
 
 _PRICE_SOURCES = {"open", "high", "low", "close", "hl2", "hlc3", "ohlc4"}
@@ -239,6 +365,31 @@ INDICATOR_CATALOG: dict[str, dict[str, Any]] = {
         "outputs": ["{id}", "{id}_signal", "{id}_hist"],
     },
     "vwap": {"required": ["period"], "optional": [], "outputs": ["{id}"]},
+    "stochastic": {
+        "required": ["period"], "optional": ["d_period"],
+        "outputs": ["{id}_k", "{id}_d"],
+    },
+    "adx": {
+        "required": ["period"], "optional": [],
+        "outputs": ["{id}", "{id}_plus_di", "{id}_minus_di"],
+    },
+    "donchian": {
+        "required": ["period"], "optional": [],
+        "outputs": ["{id}_upper", "{id}_middle", "{id}_lower"],
+    },
+    "keltner": {
+        "required": ["period"], "optional": ["mult", "atr_period"],
+        "outputs": ["{id}_upper", "{id}_middle", "{id}_lower"],
+    },
+    "obv": {"required": [], "optional": [], "outputs": ["{id}"]},
+    "mfi": {"required": ["period"], "optional": [], "outputs": ["{id}"]},
+    "williams_r": {"required": ["period"], "optional": [], "outputs": ["{id}"]},
+    "cci": {"required": ["period"], "optional": [], "outputs": ["{id}"]},
+}
+
+_PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
+    "stochastic": {"d_period": 3},
+    "keltner": {"mult": 2.0, "atr_period": 10},
 }
 
 
@@ -258,6 +409,8 @@ def resolve_spec(spec: IndicatorSpec) -> IndicatorSpec:
         params.setdefault("signal", 9)
     if t == "bollinger":
         params.setdefault("num_std", 2.0)
+    for key, val in _PARAM_DEFAULTS.get(t, {}).items():
+        params.setdefault(key, val)
     source = spec.source or params.get("source")
     return IndicatorSpec(type=t, params=params, id=spec.id, source=source)
 
@@ -321,6 +474,37 @@ def compute_one(spec: IndicatorSpec, ohlcv: dict[str, np.ndarray]) -> dict[str, 
                 out[base][i] = float(np.sum(pv * v) / tot)
             else:
                 out[base][i] = float(np.mean(pv))
+    elif t == "stochastic":
+        k, d = stochastic(ohlcv["high"], ohlcv["low"], ohlcv["close"], p["period"],
+                          p.get("d_period", 3))
+        out[f"{base}_k"] = k
+        out[f"{base}_d"] = d
+    elif t == "adx":
+        adx_line, plus_di, minus_di = adx(ohlcv["high"], ohlcv["low"], ohlcv["close"], p["period"])
+        out[base] = adx_line
+        out[f"{base}_plus_di"] = plus_di
+        out[f"{base}_minus_di"] = minus_di
+    elif t == "donchian":
+        up = rolling_max(ohlcv["high"], p["period"])
+        lo = rolling_min(ohlcv["low"], p["period"])
+        out[f"{base}_upper"] = up
+        out[f"{base}_lower"] = lo
+        out[f"{base}_middle"] = (up + lo) / 2.0
+    elif t == "keltner":
+        mid = ema(_source_array(s.source or "close", ohlcv), p["period"])
+        atr_line = atr(ohlcv["high"], ohlcv["low"], ohlcv["close"], int(p.get("atr_period", 10)))
+        band = float(p.get("mult", 2.0)) * atr_line
+        out[f"{base}_middle"] = mid
+        out[f"{base}_upper"] = mid + band
+        out[f"{base}_lower"] = mid - band
+    elif t == "obv":
+        out[base] = obv(ohlcv["close"], ohlcv["volume"])
+    elif t == "mfi":
+        out[base] = mfi(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"], p["period"])
+    elif t == "williams_r":
+        out[base] = williams_r(ohlcv["high"], ohlcv["low"], ohlcv["close"], p["period"])
+    elif t == "cci":
+        out[base] = cci(ohlcv["high"], ohlcv["low"], ohlcv["close"], p["period"])
     else:  # pragma: no cover - resolve_spec already rejects unknown types
         raise IndicatorError(f"unhandled indicator {t!r}")
     return out
@@ -354,10 +538,14 @@ __all__ = [
     "IndicatorError",
     "IndicatorSpec",
     "INDICATOR_CATALOG",
+    "adx",
     "atr",
+    "cci",
     "compute_indicators",
     "compute_one",
     "ema",
+    "mfi",
+    "obv",
     "output_keys",
     "resolve_spec",
     "rma",
@@ -367,6 +555,8 @@ __all__ = [
     "rsi",
     "sma",
     "stddev",
+    "stochastic",
     "true_range",
+    "williams_r",
     "wma",
 ]

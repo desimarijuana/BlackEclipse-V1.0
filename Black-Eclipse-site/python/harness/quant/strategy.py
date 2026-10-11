@@ -30,18 +30,56 @@ CompareOp = Literal[">", ">=", "<", "<=", "==", "!=", "cross_above", "cross_belo
 PRICE_FIELDS = {"open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"}
 
 
+ComputeOp = Literal["+", "-", "*", "/", "min", "max"]
+UnaryFn = Literal["neg", "abs"]
+
+
+class BinaryExpr(BaseModel):
+    """Arithmetic / min-max over two operands."""
+
+    op: ComputeOp
+    left: "Operand"
+    right: "Operand"
+
+
+class UnaryExpr(BaseModel):
+    """Unary negation or absolute value."""
+
+    op: UnaryFn
+    operand: "Operand"
+
+
+class LagExpr(BaseModel):
+    """A causal lag/shift: the operand's value `bars` ago (NaN before that)."""
+
+    op: Literal["lag"] = "lag"
+    operand: "Operand"
+    bars: int = 1
+
+
+# Discriminated on `op` (the op sets are disjoint across the three shapes).
+Expr = Annotated[Union[BinaryExpr, UnaryExpr, LagExpr], Field(discriminator="op")]
+
+
 class Operand(BaseModel):
-    """A rule operand: either a reference (price field / indicator output) or a constant."""
+    """A rule operand: a reference, a constant, or a typed expression."""
 
     model_config = ConfigDict(populate_by_name=True)
     ref: Optional[str] = None
     value: Optional[float] = None
+    expr: Optional[Expr] = None
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "Operand":
-        if (self.ref is None) == (self.value is None):
-            raise ValueError("operand needs exactly one of `ref` or `value`")
+        present = sum(x is not None for x in (self.ref, self.value, self.expr))
+        if present != 1:
+            raise ValueError("operand needs exactly one of `ref`, `value` or `expr`")
         return self
+
+
+BinaryExpr.model_rebuild()
+UnaryExpr.model_rebuild()
+LagExpr.model_rebuild()
 
 
 class Condition(BaseModel):
@@ -397,21 +435,41 @@ def _collect_operands(node: RuleNode, path: str, out: list[tuple[str, Operand]])
             _collect_operands(child, f"{path}[{i}]", out)
 
 
+def _operand_refs(operand: Operand, out: list[tuple[str, str]]) -> None:
+    """Collect every reference inside an operand (including nested expressions)."""
+    if operand.ref is not None:
+        out.append(("", operand.ref))
+    if operand.expr is not None:
+        _expr_refs(operand.expr, out)
+
+
+def _expr_refs(expr: Any, out: list[tuple[str, str]]) -> None:
+    if isinstance(expr, BinaryExpr):
+        _operand_refs(expr.left, out)
+        _operand_refs(expr.right, out)
+    elif isinstance(expr, (UnaryExpr, LagExpr)):
+        _operand_refs(expr.operand, out)
+
+
 def _validate_group(node: RuleNode, path: str, known_refs: set[str],
                     issues: list[ValidationIssue]) -> None:
     operands: list[tuple[str, Operand]] = []
     _collect_operands(node, path, operands)
     for opath, operand in operands:
-        if operand.ref is None:
-            continue
-        ref = operand.ref.strip()
-        if ref.lower() in PRICE_FIELDS or ref in known_refs:
-            continue
-        issues.append(ValidationIssue(
-            "UNKNOWN_REFERENCE",
-            f"unknown reference {ref!r}; known: {sorted(known_refs)} + price fields",
-            opath,
-        ))
+        refs: list[tuple[str, str]] = []
+        _operand_refs(operand, refs)
+        for _, ref in refs:
+            ref = ref.strip()
+            if ref.lower() in PRICE_FIELDS or ref in known_refs:
+                continue
+            issues.append(ValidationIssue(
+                "UNKNOWN_REFERENCE",
+                f"unknown reference {ref!r}; known: {sorted(known_refs)} + price fields",
+                opath,
+            ))
+        if isinstance(operand.expr, LagExpr) and operand.expr.bars < 1:
+            issues.append(ValidationIssue(
+                "BAD_LAG", "lag bars must be >= 1", opath))
 
 
 def validate_strategy(spec: StrategySpec) -> list[ValidationIssue]:
@@ -580,8 +638,12 @@ def bump_version(version: str, part: VersionPart = "patch") -> str:
 
 
 __all__ = [
+    "BinaryExpr",
     "CommissionModel",
     "Condition",
+    "Expr",
+    "LagExpr",
+    "UnaryExpr",
     "EntryRules",
     "ExecutionAssumptions",
     "ExitRules",

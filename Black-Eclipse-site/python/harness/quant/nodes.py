@@ -316,9 +316,16 @@ def _register_builtins(reg: NodeRegistry) -> None:  # noqa: C901 - flat registry
          defaults={"combine": "all"})
 
     # ── Indicators ───────────────────────────────────────────────────────────
-    _MULTI = {"bollinger": {"upper": "_upper", "middle": "_middle", "lower": "_lower"},
-              "macd": {"line": "", "signal": "_signal", "hist": "_hist", "histogram": "_hist"}}
-    _DEFAULT_OUT = {"bollinger": "middle", "macd": "line"}
+    _MULTI = {
+        "bollinger": {"upper": "_upper", "middle": "_middle", "lower": "_lower"},
+        "macd": {"line": "", "signal": "_signal", "hist": "_hist", "histogram": "_hist"},
+        "stochastic": {"k": "_k", "d": "_d"},
+        "adx": {"line": "", "plus_di": "_plus_di", "minus_di": "_minus_di"},
+        "donchian": {"upper": "_upper", "middle": "_middle", "lower": "_lower"},
+        "keltner": {"upper": "_upper", "middle": "_middle", "lower": "_lower"},
+    }
+    _DEFAULT_OUT = {"bollinger": "middle", "macd": "line", "stochastic": "k",
+                    "adx": "line", "donchian": "middle", "keltner": "middle"}
 
     def _select_output(ctx: CompileContext, n: GraphNode, type_: str,
                        keys: list[str], sel: Optional[str]) -> str:
@@ -363,10 +370,30 @@ def _register_builtins(reg: NodeRegistry) -> None:  # noqa: C901 - flat registry
     _simple = [("sma", "SMA", 20), ("ema", "EMA", 20), ("wma", "WMA", 20), ("rma", "RMA", 14),
                ("rsi", "RSI", 14), ("atr", "ATR", 14), ("stddev", "StdDev", 20),
                ("roc", "ROC", 12), ("highest", "Highest", 20), ("lowest", "Lowest", 20),
-               ("vwap", "VWAP", 20)]
+               ("vwap", "VWAP", 20), ("mfi", "MFI", 14), ("williams_r", "Williams %R", 14),
+               ("cci", "CCI", 20)]
     for type_, title, period in _simple:
         reg.register(_make_indicator(type_, title, {"period": {"type": "integer",
                                                                "default": period}}))
+    reg.register(_make_indicator("obv", "OBV", {}))
+    reg.register(_make_indicator("stochastic", "Stochastic",
+                                 {"period": {"type": "integer", "default": 14},
+                                  "d_period": {"type": "integer", "default": 3},
+                                  "output": {"type": "string", "enum": ["k", "d"]}}))
+    reg.register(_make_indicator("adx", "ADX",
+                                 {"period": {"type": "integer", "default": 14},
+                                  "output": {"type": "string",
+                                             "enum": ["line", "plus_di", "minus_di"]}}))
+    reg.register(_make_indicator("donchian", "Donchian Channel",
+                                 {"period": {"type": "integer", "default": 20},
+                                  "output": {"type": "string",
+                                             "enum": ["upper", "middle", "lower"]}}))
+    reg.register(_make_indicator("keltner", "Keltner Channel",
+                                 {"period": {"type": "integer", "default": 20},
+                                  "mult": {"type": "number", "default": 2},
+                                  "atr_period": {"type": "integer", "default": 10},
+                                  "output": {"type": "string",
+                                             "enum": ["upper", "middle", "lower"]}}))
     reg.register(_make_indicator("bollinger", "Bollinger Bands",
                                  {"period": {"type": "integer", "default": 20},
                                   "num_std": {"type": "number", "default": 2},

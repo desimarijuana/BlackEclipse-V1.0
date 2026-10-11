@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .benchmark import benchmark_metrics
 from .copilot import (
     build_report,
     build_research_plan,
@@ -239,6 +240,34 @@ async def _compare(store: Any, exp_ids: list[str]) -> tuple[str, Any]:
             + "\n".join(lines), {"status": "OK", **comparison})
 
 
+async def analyze_against_benchmark_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    try:
+        store = _store(ctx)
+        exp_id = str(args.get("experimentId"))
+        experiment = store.get_experiment(exp_id)
+        artifact = store.read_artifact(exp_id)
+        symbol = str(args.get("benchmark") or args.get("symbol") or "").upper()
+        if not symbol:
+            return ("ERROR — a `benchmark` symbol is required.",
+                    {"status": "ERROR", "error": {"code": "BENCHMARK_REQUIRED"}})
+        interval = str(args.get("interval") or experiment.get("interval") or "1d")
+        series = await _gateway(ctx).get_historical_prices(
+            symbol, market=None, start=experiment.get("start"), end=experiment.get("end"),
+            interval=interval)
+        rows = [{"timestamp": b.timestamp, "close": b.close} for b in series.bars]
+        risk_free = float((experiment.get("configuration") or {}).get("riskFreeRate") or 0.0)
+        metrics = benchmark_metrics(artifact.get("equityCurve", []), rows,
+                                    interval=interval, risk_free_rate=risk_free)
+        if not metrics.get("available"):
+            return (f"Benchmark comparison unavailable: {metrics.get('reason')}",
+                    {"status": "OK", "experimentId": exp_id, "benchmark": symbol, "metrics": metrics})
+        return (f"vs {symbol}: alpha {metrics['alpha']:.4f}, beta {metrics['beta']:.3f}, "
+                f"IR {metrics['informationRatio']:.3f}, excess {metrics['excessReturn']:.2f}%.",
+                {"status": "OK", "experimentId": exp_id, "benchmark": symbol, "metrics": metrics})
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 async def run_parameter_sweep_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     from .tools import optimize_parameters
 
@@ -317,6 +346,13 @@ def register_copilot_tools(registry: Any) -> list[str]:
          compare_strategies_tool, {"type": "object", "properties": {
              "strategyIds": {"type": "array", "items": {"type": "string"}}},
              "required": ["strategyIds"]})
+    _def("analyze_against_benchmark",
+         "Compute benchmark-relative metrics (alpha, beta, correlation, tracking error, "
+         "information ratio, excess return) for a stored experiment against a benchmark symbol.",
+         analyze_against_benchmark_tool, {"type": "object", "properties": {
+             "experimentId": {"type": "string"}, "benchmark": {"type": "string"},
+             "symbol": {"type": "string"}, "interval": {"type": "string"}},
+             "required": ["experimentId"]}, 120_000, long_running=True)
     _def("run_parameter_sweep",
          "Grid-sweep a strategy's parameters over a parameter space (a convenience over "
          "optimize_parameters with method=grid).",
@@ -335,6 +371,7 @@ COPILOT_TOOLS: tuple[str, ...] = (
     "generate_entry_exit_rules", "configure_position_sizing", "configure_stops_and_targets",
     "get_experiment_status", "cancel_experiment", "calculate_performance_metrics",
     "analyze_trade_log", "compare_strategies", "run_parameter_sweep",
+    "analyze_against_benchmark",
 )
 
 

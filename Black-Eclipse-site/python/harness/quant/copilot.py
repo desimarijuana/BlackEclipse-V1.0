@@ -282,11 +282,24 @@ def build_report(experiment: dict[str, Any], artifact: Optional[dict[str, Any]] 
 
 # ── Rule / sizing / stop generators (copilot iteration helpers) ───────────────
 
+def _operand_text(operand: Any) -> str:
+    if operand.ref is not None:
+        return operand.ref
+    if operand.value is not None:
+        return str(operand.value)
+    expr = operand.expr
+    if expr is not None:
+        if hasattr(expr, "left"):
+            return f"({_operand_text(expr.left)} {expr.op} {_operand_text(expr.right)})"
+        if getattr(expr, "op", "") == "lag":
+            return f"lag({_operand_text(expr.operand)}, {expr.bars})"
+        return f"{expr.op}({_operand_text(expr.operand)})"
+    return "?"
+
+
 def _rule_to_text(node: Any) -> str:
     if isinstance(node, Condition):
-        left = node.left.ref if node.left.ref is not None else node.left.value
-        right = node.right.ref if node.right.ref is not None else node.right.value
-        return f"{left} {node.op} {right}"
+        return f"{_operand_text(node.left)} {node.op} {_operand_text(node.right)}"
     if isinstance(node, Group):
         joiner = " AND " if node.combine == "all" else " OR "
         inner = [f"({_rule_to_text(c)})" if isinstance(c, Group) else _rule_to_text(c)

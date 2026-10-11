@@ -5778,13 +5778,12 @@ backtest/research engine. Keeping the graph deliberately non-Turing-complete and
 separate from the future workflow editor prevents the two systems from
 entangling.
 
-**Consequences.** The visual canvas is a **dependency-free SVG/HTML surface**
-(`strategy-canvas.tsx`) that is a thin client of `/quant/graph/*`; it adds no
-graph/ELK dependency (the repo had none) and keeps the editor rules in a pure,
-unit-tested module (`graph-editor.ts`). Arbitrary Python cannot be represented as
-a graph — unsupported constructs stay Python-first, with the graph a faithful
+**Consequences.** The graph is authored **from the chatbot** (the agent composes
+a `StrategyGraph` and calls `compile_strategy_graph`/`validate_strategy_graph` —
+no dedicated UI, per product direction). Arbitrary Python cannot be represented
+as a graph — unsupported constructs stay Python-first, with the graph a faithful
 supported subset (no silent loss). Owner doc: `docs/quant-engine.md`. Tests:
-`test_quant_graph_compiler.py`, `graph-editor.test.ts`.
+`test_quant_graph_compiler.py`.
 
 ## ADR-H171 - The Python Strategy Lab runs user strategy code in an isolated worker process and shares the ONE engine for all accounting, so code-first strategies are neither privileged nor divergent
 
@@ -5813,9 +5812,8 @@ portfolio/execution accounting path that drifts from the declarative engine.
    file and *rehydrates* it into a typed `BacktestResult`. Windows relies on the
    timeout + output cap (stated honestly). This is process isolation, not a
    container � a hard FS/network boundary is the harness OS sandbox's job.
-4. **Surfaces**: `run_python_strategy` agent tool + `POST /quant/python/run`,
-   plus a "Python lab" panel in the Backtest screen and reference strategies in
-   `quant/examples/`.
+4. **Surfaces**: the `run_python_strategy` agent tool (driven from the chatbot) +
+   `POST /quant/python/run`, and reference strategies in `quant/examples/`.
 
 **Why.** User code is untrusted and must not run with the harness's authority;
 at the same time, a backtest must be reproducible and comparable across authoring
@@ -5866,3 +5864,40 @@ or refuted, which is the whole point of the requirement.
 **Consequences.** The copilot is not a separate harness � it is prompt guidance
 plus grounded tools. Its reports and plans are reproducible artifacts, not model
 prose. Owner doc: `docs/quant-engine.md`. Tests: `test_quant_copilot.py`.
+
+## ADR-H173 - The strategy expression DSL, the indicator set and benchmark metrics are extended in the deterministic engine; the chatbot is the only authoring surface (no dedicated strategy UI)
+
+**Context.** Three gaps remained from the strategy spec: the rule DSL was
+comparison-only, the indicator library was narrow, and there were no
+benchmark-relative metrics. Separately, product direction made clear the whole
+feature should be driven from the chatbot, not from dedicated panels.
+
+**Decision.**
+1. **Expression DSL** (`strategy.py` + `rules.py`): an `Operand` may be a
+   constant, a reference, or a typed `Expr` � arithmetic (`+ - * /`), `min`/`max`,
+   unary `neg`/`abs`, and causal `lag`/shift. Evaluation stays safe and causal
+   (no `eval`); division by zero / missing operands yield no value, so a
+   condition is simply `False` rather than acting on `inf`. Validation recurses
+   into expressions (`UNKNOWN_REFERENCE`, `BAD_LAG`).
+2. **Indicators** (`indicators.py`): added Stochastic, ADX (+DI/-DI), Donchian,
+   Keltner, OBV, MFI, Williams %R and CCI (all causal, catalogued, with node
+   registry entries and output selection for the multi-output ones).
+3. **Benchmark metrics** (`benchmark.py`): `analyze_against_benchmark` returns
+   alpha, beta, correlation, tracking error, information ratio and total/excess
+   return from an experiment's equity curve vs a real benchmark series; fewer than
+   3 aligned observations returns `available:false` with a reason.
+4. **No dedicated strategy UI.** The graph compiler, Python SDK and copilot are
+   driven entirely through the chatbot (agent tools). A visual canvas and a
+   Python-lab panel were built and then removed per direction; the backend
+   contracts are unchanged, so any future UI is a thin client of the same tools.
+
+**Why.** Authoring richness (expressions, indicators) and evaluation depth
+(benchmark metrics) belong in the deterministic engine where they are testable
+and shared by every path; the chatbot already carries the tool contract, so a
+parallel UI would be redundant surface area.
+
+**Consequences.** The rule DSL is now a small safe expression language, still
+non-Turing-complete. Benchmark comparison requires fetching the benchmark series
+and aligning timestamps; it never fabricates a value when alignment is thin.
+Owner doc: `docs/quant-engine.md`. Tests: `test_quant_expressions.py`,
+`test_quant_indicators_ext.py`, `test_quant_copilot.py`.

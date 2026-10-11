@@ -40,6 +40,7 @@ market data → indicator context → signal (rules) → risk → order
 | Reference Python strategies | `quant/examples/` |
 | AI copilot support (signals, research plan, report, rule/sizing helpers) | `quant/copilot.py` |
 | AI copilot agent tools | `quant/copilot_tools.py` |
+| Benchmark-relative metrics (alpha/beta/IR/tracking error) | `quant/benchmark.py` |
 | Rule evaluation over arrays | `quant/rules.py` |
 | Causal indicators (EMA/SMA/RSI/ATR/MACD/Bollinger/…) | `quant/indicators.py` |
 | Market-data adapter, point-in-time dataset, quality checks, MTF alignment | `quant/data.py` |
@@ -160,12 +161,11 @@ general-purpose workflow graph.
 - **Surfaces**: `compile_strategy_graph` / `validate_strategy_graph` /
   `list_strategy_nodes` agent tools and `POST /quant/graph/compile`,
   `POST /quant/graph/validate`, `GET /quant/graph/nodes`.
-- **Canvas UI**: `src/components/screens/backtest/strategy-canvas.tsx` is a
-  dependency-free SVG/HTML canvas (node palette, drag, typed-port connect,
-  config inspector, compile diagnostics, save-compiled-strategy) mounted behind a
-  "Visual builder" toggle in the Backtest screen. Its rules live in a pure,
-  unit-tested module (`src/lib/backtest/graph-editor.ts`). Arbitrary Python is
-  never forced into a graph — unsupported constructs remain Python-first.
+- **No separate UI**: the graph is authored through the CHATBOT (the agent
+  composes a `StrategyGraph` — often compiled from a natural-language request —
+  and calls `compile_strategy_graph`/`validate_strategy_graph`). The graph is a
+  strategy representation only; arbitrary Python is never forced into a graph —
+  unsupported constructs remain Python-first.
 
 ## Python Strategy Lab — the SDK and managed runtime
 
@@ -190,9 +190,9 @@ SAME engine as every other mode.
   `BacktestResult`. This is process isolation, not a container: a hard
   filesystem/network boundary is the harness OS sandbox's responsibility, so the
   capability is advertised `partial` (honest, not overclaimed).
-- **Surfaces**: `run_python_strategy` agent tool + `POST /quant/python/run`; a
-  "Python lab" panel in the Backtest screen; reference strategies in
-  `quant/examples/` (`ma_crossover`, `mean_reversion`, `vol_target_trend`).
+- **Surfaces**: the `run_python_strategy` agent tool (used from the chatbot) +
+  `POST /quant/python/run`; reference strategies in `quant/examples/`
+  (`ma_crossover`, `mean_reversion`, `vol_target_trend`).
 
 ## AI Strategy Copilot (grounded, not generative of results)
 
@@ -222,6 +222,24 @@ Grounding is carried by the tools themselves: their outputs are deterministic
 artifacts (a signal timeline, a plan, a report) or explicit typed errors, so the
 model has no tool that returns a fabricated result. Reports and plans always
 reference the experiment id / strategy version / seed they were built from.
+
+## Indicators, expressions & benchmark metrics
+
+- **Indicator library** (`indicators.py`): SMA, EMA, WMA, RMA, RSI, ATR, StdDev,
+  ROC, Highest, Lowest, Bollinger, MACD, VWAP, plus **Stochastic (%K/%D), ADX
+  (+DI/-DI), Donchian, Keltner, OBV, MFI, Williams %R and CCI**. All are causal
+  (warm-up is NaN); each declares its outputs, so rule references resolve exactly.
+- **Expression DSL** (`strategy.py` + `rules.py`): rule operands may be a
+  constant, a reference, or a typed **expression** — arithmetic (`+ - * /`),
+  `min`/`max`, unary `neg`/`abs`, and a causal `lag`/shift — evaluated per bar.
+  Division by zero and missing operands yield no value (the condition is `False`,
+  never `inf`/fabricated). Validation recurses into expressions (`UNKNOWN_REFERENCE`,
+  `BAD_LAG`). The DSL is safe (no `eval`).
+- **Benchmark-relative metrics** (`benchmark.py`): `analyze_against_benchmark`
+  computes alpha, beta, correlation, tracking error, information ratio, and
+  total/excess return from an experiment's equity curve vs a real benchmark
+  series; fewer than 3 aligned observations returns `available: false` with a
+  reason (never a fabricated number).
 
 ## Capability state (never overclaimed)
 

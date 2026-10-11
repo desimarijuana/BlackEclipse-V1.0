@@ -12,12 +12,14 @@ from typing import Any, Optional
 
 import numpy as np
 
-from .strategy import Condition, Group, Operand, RuleNode
+from .strategy import BinaryExpr, Condition, Group, LagExpr, Operand, RuleNode, UnaryExpr
 
 
 def resolve_operand(operand: Operand, ctx: dict[str, np.ndarray], i: int) -> Optional[float]:
     if operand.value is not None:
         return float(operand.value)
+    if operand.expr is not None:
+        return _resolve_expr(operand.expr, ctx, i)
     if operand.ref is None:
         return None
     arr = ctx.get(operand.ref)
@@ -31,6 +33,37 @@ def resolve_operand(operand: Operand, ctx: dict[str, np.ndarray], i: int) -> Opt
     if np.isnan(val):
         return None
     return val
+
+
+def _resolve_expr(expr: Any, ctx: dict[str, np.ndarray], i: int) -> Optional[float]:
+    """Evaluate a typed expression at bar `i` (causal; missing ⇒ None)."""
+    if isinstance(expr, BinaryExpr):
+        left = resolve_operand(expr.left, ctx, i)
+        right = resolve_operand(expr.right, ctx, i)
+        if left is None or right is None:
+            return None
+        op = expr.op
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        if op == "*":
+            return left * right
+        if op == "/":
+            return None if right == 0 else left / right
+        if op == "min":
+            return min(left, right)
+        return max(left, right)
+    if isinstance(expr, UnaryExpr):
+        value = resolve_operand(expr.operand, ctx, i)
+        if value is None:
+            return None
+        return -value if expr.op == "neg" else abs(value)
+    if isinstance(expr, LagExpr):
+        if i - expr.bars < 0:
+            return None
+        return resolve_operand(expr.operand, ctx, i - expr.bars)
+    return None
 
 
 def _compare(op: str, left: float, right: float) -> bool:

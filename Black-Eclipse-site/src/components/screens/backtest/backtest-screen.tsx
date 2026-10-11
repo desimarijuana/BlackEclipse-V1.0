@@ -7,32 +7,17 @@
 // runtime's result artifact — an empty result is shown honestly, never faked.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import dynamic from 'next/dynamic';
 import type { EChartsOption } from 'echarts';
 import { useEChart, baseChartOption } from '@/components/screens/portfolio/use-echart';
 import { useBacktestScreen } from '@/lib/backtest/use-backtest-screen';
 import { ResearchPanel } from './research-panel';
-
-const StrategyCanvas = dynamic(
-  () => import('./strategy-canvas').then((m) => m.StrategyCanvas),
-  { ssr: false, loading: () => <div className="glass-card rounded-2xl p-6 text-xs text-muted-foreground">Loading builder…</div> },
-);
-const PythonLab = dynamic(
-  () => import('./python-lab').then((m) => m.PythonLab),
-  { ssr: false, loading: () => <div className="glass-card rounded-2xl p-6 text-xs text-muted-foreground">Loading lab…</div> },
-);
 import {
-  backtestClient,
   formatMetric,
   type BacktestResult,
   type ExperimentSummary,
-  type StrategyRecord,
-  type VersionDiff,
-  type VersionInfo,
 } from '@/lib/backtest/backtest-client';
 import {
-  Activity, AlertTriangle, Download, History, LineChart, Loader2, Play, Plus, RefreshCw,
-  Trash2, TrendingUp, Upload,
+  Activity, AlertTriangle, LineChart, Loader2, Play, Plus, RefreshCw, Trash2, TrendingUp,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
@@ -80,134 +65,6 @@ const METRIC_CARDS: Array<{ key: string; label: string; icon: 'return' | 'risk' 
   { key: 'expectancy', label: 'Expectancy', icon: 'return' },
   { key: 'avg_gross_exposure', label: 'Avg Exposure', icon: 'risk' },
 ];
-
-// ── Strategy portability (immutable versions · export · import · diff) ──────
-// Every strategy must be reachable and portable independently of this UI: this
-// panel exports the canonical IR as a checksummed bundle, imports one back, and
-// diffs any two stored versions. All data comes from the Python Quant Engine.
-function StrategyPortability({
-  record,
-  onChanged,
-}: {
-  record: StrategyRecord;
-  onChanged: () => void;
-}) {
-  const [versions, setVersions] = useState<VersionInfo[]>([]);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [diff, setDiff] = useState<VersionDiff | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    backtestClient.listVersions(record.id).then((vs) => {
-      if (!alive) return;
-      setVersions(vs);
-      setTo(record.version);
-      setFrom(vs.length > 1 ? vs[0].version : '');
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [record.id, record.version]);
-
-  const download = async () => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const bundle = await backtestClient.getBundle(record.id, record.version);
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${record.id}@${record.version}.bundle.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setMsg(`Exported ${record.id} v${record.version} (sha256 ${bundle.manifest.contentHash.slice(0, 12)}…).`);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'export failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const upload = async (file: File) => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
-      const outcome = await backtestClient.importStrategy(parsed, true);
-      if (!outcome.valid) {
-        setErr('Bundle imported but failed validation.');
-        return;
-      }
-      setMsg(`Imported ${String((outcome.strategy as { id?: string }).id)} (sha256 ${outcome.contentHash.slice(0, 12)}…).`);
-      onChanged();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'import failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runDiff = async () => {
-    setErr(null); setDiff(null);
-    try {
-      setDiff(await backtestClient.diffVersions(record.id, from, to));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'diff failed');
-    }
-  };
-
-  return (
-    <div className="rounded-xl border border-white/10 p-2">
-      <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <History className="h-3 w-3" /> Versions &amp; portability
-      </div>
-      <div className="mb-2 font-mono text-[10px] text-muted-foreground">
-        {versions.length} version(s)
-        {record.contentHash ? ` · ${record.contentHash.slice(0, 12)}…` : ''}
-      </div>
-      <div className="mb-2 flex gap-2">
-        <button type="button" onClick={() => void download()} disabled={busy}
-          className="glass-button flex items-center gap-1 rounded-md px-2 py-1 text-[11px] disabled:opacity-50">
-          <Download className="h-3 w-3" /> Export
-        </button>
-        <label className="glass-button flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px]">
-          <Upload className="h-3 w-3" /> Import
-          <input type="file" accept=".json,application/json" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ''; }} />
-        </label>
-      </div>
-      {versions.length > 1 && (
-        <div className="flex flex-col gap-1">
-          <div className="flex gap-1">
-            <select value={from} onChange={(e) => setFrom(e.target.value)}
-              className="glass-card-subtle flex-1 rounded-md px-1.5 py-1 font-mono text-[10px] text-foreground outline-none">
-              {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
-            </select>
-            <span className="self-center text-[10px] text-muted-foreground">→</span>
-            <select value={to} onChange={(e) => setTo(e.target.value)}
-              className="glass-card-subtle flex-1 rounded-md px-1.5 py-1 font-mono text-[10px] text-foreground outline-none">
-              {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
-            </select>
-            <button type="button" onClick={() => void runDiff()}
-              className="glass-button rounded-md px-2 py-1 text-[10px]">Diff</button>
-          </div>
-          {diff && (
-            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-              {diff.sameContent
-                ? 'identical content'
-                : `${diff.changeCount} change(s): ${Object.entries(diff.bySection).map(([k, n]) => `${k}×${n}`).join(', ')}`}
-            </div>
-          )}
-        </div>
-      )}
-      {msg && <div className="mt-1 text-[10px] text-emerald-400">{msg}</div>}
-      {err && <div className="mt-1 text-[10px] text-amber-400">{err}</div>}
-    </div>
-  );
-}
 
 function EquityChart({ result }: { result: BacktestResult }) {
   const deps = useMemo(() => [result.equityCurve, result.drawdownCurve], [result]);
@@ -332,7 +189,6 @@ export function BacktestScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [bgMode, setBgMode] = useState(true);
-  const [mode, setMode] = useState<'form' | 'visual' | 'python'>('form');
 
   useEffect(() => {
     if (state.selected) {
@@ -411,16 +267,6 @@ export function BacktestScreen() {
             Deterministic quant engine · {state.strategies.length} strategies · {state.experiments.length} experiments
           </p>
         </div>
-        <button type="button" onClick={() => setMode((m) => (m === 'visual' ? 'form' : 'visual'))}
-          className={cn('glass-button flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs',
-            mode === 'visual' && 'text-sky-300')}>
-          {mode === 'visual' ? 'Form' : 'Visual builder'}
-        </button>
-        <button type="button" onClick={() => setMode((m) => (m === 'python' ? 'form' : 'python'))}
-          className={cn('glass-button flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs',
-            mode === 'python' && 'text-sky-300')}>
-          Python lab
-        </button>
         <button type="button" onClick={() => void state.refresh()}
           className="glass-button flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs">
           <RefreshCw className={cn('h-3.5 w-3.5', state.loading && 'animate-spin')} />
@@ -444,19 +290,7 @@ export function BacktestScreen() {
         <div className="glass-card-subtle rounded-xl px-3 py-2 text-xs text-muted-foreground">{notice}</div>
       )}
 
-      {mode === 'visual' && (
-        <StrategyCanvas onSaved={(id) => {
-          setMode('form');
-          setNotice(`Compiled and saved strategy ${id}.`);
-          void state.refresh();
-          void state.selectStrategy(id);
-        }} />
-      )}
-      {mode === 'python' && (
-        <PythonLab onResult={(result) => { state.loadResult(result); setNotice('Python strategy run complete.'); }} />
-      )}
-
-      <div className={cn('grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]', mode !== 'form' && 'hidden')}>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         {/* ── Control panel ── */}
         <div className="glass-card flex flex-col gap-3 rounded-2xl p-4">
           <div className="flex items-center justify-between">
@@ -506,13 +340,6 @@ export function BacktestScreen() {
                 </button>
               </div>
             </>
-          )}
-
-          {state.selected && (
-            <StrategyPortability
-              record={state.selected}
-              onChanged={() => { void state.refresh(); }}
-            />
           )}
 
           <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">

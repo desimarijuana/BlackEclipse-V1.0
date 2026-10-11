@@ -8,6 +8,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Strategy Development Engine (chatbot-only): expression DSL, expanded
+  indicators, benchmark metrics; the dedicated strategy UI was removed.** The
+  feature is now driven entirely from the chatbot (agent tools) per direction —
+  deleted `strategy-canvas.tsx`, `python-lab.tsx`, `src/lib/backtest/
+  graph-editor.ts` (+ test) and reverted the Backtest screen/client to their
+  prior form. Engine additions: **expression DSL** (`strategy.py`/`rules.py`:
+  arithmetic `+ - * /`, `min/max`, `neg/abs`, causal `lag`; safe, causal, no
+  `eval`; validation recurses with `UNKNOWN_REFERENCE`/`BAD_LAG`); **indicators**
+  (`indicators.py`: Stochastic, ADX ±DI, Donchian, Keltner, OBV, MFI, Williams
+  %R, CCI + node-registry entries); **benchmark metrics** (`quant/benchmark.py`:
+  alpha/beta/correlation/tracking-error/IR/excess via the new
+  `analyze_against_benchmark` tool — 44 `quant_*` tools total). Docs updated:
+  `docs/quant-engine.md`, `docs/NAVIGATION.md`, `docs/harness/decisions.md`
+  (ADR-H170/H171 amended, ADR-H173). Tests: `test_quant_expressions.py`,
+  `test_quant_indicators_ext.py`, `test_quant_copilot.py`.
+
 - **Strategy Development Engine (Phase 7): AI Strategy Copilot support —
   grounded signals, research plans, reports and the remaining required tools.**
   Added `quant/copilot.py` (`calculate_signals` = the decision timeline with
