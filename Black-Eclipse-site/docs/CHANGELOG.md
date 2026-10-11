@@ -6,6 +6,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-11
+
+- **Backtesting & Simulation Engine — vectorized engine, standalone execution-cost
+  diagnostics, out-of-sample + bootstrap validation, and comparison tools.** Closes
+  the remaining gaps against the requested 16-tool capability surface, reusing the
+  existing event engine (no second accounting path). Added `quant/vector_engine.py`
+  (restricted causal-signal engine; `VECTOR_UNSUPPORTED` for anything else, exact
+  equity parity with the event engine on the supported subset), `quant/costs.py`
+  (`simulate_transaction_costs`/`simulate_slippage`/`simulate_spread`/
+  `simulate_market_impact` over the SAME `ExecutionSimulator`, with honest
+  missing-input warnings), `quant/validation.py` (percentile bootstrap — IID/block/
+  stationary — and a chronological OOS split) and `quant/advanced_tools.py`
+  (`run_event_driven_backtest`, `run_vectorized_backtest`, `run_out_of_sample_test`,
+  `run_bootstrap_test`, `compare_backtests` + comparability cautions). `engine.py`
+  now tags `metadata.engine`; quant tools total **63**. Docs: `docs/quant-engine.md`,
+  `docs/NAVIGATION.md`, new `docs/backtesting-engine.md` (audit + 16-tool
+  traceability + honest blockers). Tests: `test_quant_costs_validation.py`,
+  `test_quant_vector_advanced.py` (full suite 331 passed; one pre-existing unrelated
+  `test_artifacts_api` failure). No options/live-trading claims added.
+
 ## 2026-10-10
 
 - **Strategy Development Engine (runtime hardening + paper shadow loop).** Added

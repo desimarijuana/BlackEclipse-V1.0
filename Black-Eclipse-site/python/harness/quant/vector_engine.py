@@ -162,6 +162,11 @@ class _VectorEngine:
         entry_index: Optional[int] = None
         entry_commission = 0.0
         pending: Optional[dict[str, Any]] = None
+        # Mark price for the snapshot. Mirrors the event engine: a position opened
+        # on this bar is marked at its entry fill price for the bar's snapshot
+        # (the event engine marks to close, then the fill overwrites last_price);
+        # on later bars it marks to that bar's close.
+        mark_price = 0.0
 
         equity_values: list[float] = []
         equity_curve: list[dict[str, Any]] = []
@@ -173,10 +178,15 @@ class _VectorEngine:
         commission_paid = 0.0
         order_seq = 0
 
-        def _do_trade(dq: float, i: int, reason: str) -> None:
-            nonlocal cash, pos, entry_price, entry_index, entry_commission, order_seq, commission_paid
+        def _do_trade(dq: float, i: int, reason: str) -> Optional[float]:
+            """Execute `dq` shares at bar `i`'s open. Returns the fill price when
+            the trade OPENS a position from flat (the event engine marks a
+            just-opened position at its fill price for that bar), else None."""
+            nonlocal cash, pos, entry_price, entry_index, entry_commission, order_seq, commission_paid, mark_price
             if dq == 0:
                 return
+            mark_price = 0.0  # set to the fill price below None
+            opened_from_flat = pos == 0.0 and dq != 0
             bar = _barctx(self.symbol, i, ts, open_, close, series)
             side = "buy" if dq > 0 else "sell"
             qty = abs(dq)
@@ -185,6 +195,7 @@ class _VectorEngine:
                        + sim.slippage_adjustment(base, qty, bar)
                        + sim.impact_adjustment(base, qty, bar))
             fill_price = base + adverse if side == "buy" else base - adverse
+            mark_price = fill_price
             commission = sim.commission(qty, fill_price)
             order_seq += 1
             oid = f"vorder_{order_seq}"
@@ -234,13 +245,16 @@ class _VectorEngine:
                 entry_index = None
                 entry_commission = 0.0
             del was_flat
+            return fill_price if opened_from_flat else None
 
         for i in range(n):
+            opened_mark: Optional[float] = None
             if pending is not None:
-                _do_trade(pending["target"] - pos, i, pending["reason"])
+                opened_mark = _do_trade(pending["target"] - pos, i, pending["reason"])
                 pending = None
 
-            eq_market = pos * float(close[i])
+            mark_price = opened_mark if opened_mark is not None else float(close[i])
+            eq_market = pos * mark_price
             equity = cash + eq_market
             equity_values.append(equity)
             equity_curve.append({"index": i, "ts": ts[i], "equity": equity})

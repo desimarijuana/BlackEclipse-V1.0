@@ -30,10 +30,27 @@ class CostModelError(QuantError):
     code = "COST_MODEL_ERROR"
 
 
+_EXEC_ALIASES = {
+    "marketImpact": "market_impact", "fillAt": "fill_at", "latencyBars": "latency_bars",
+    "contractMultiplier": "contract_multiplier",
+}
+
+
+def _normalize_exec(execution: dict[str, Any]) -> dict[str, Any]:
+    """Accept camelCase cost keys (and nested commission multipliers) too."""
+    out: dict[str, Any] = {}
+    for key, value in execution.items():
+        value2 = value
+        if isinstance(value, dict):
+            value2 = {_EXEC_ALIASES.get(k, k): v for k, v in value.items()}
+        out[_EXEC_ALIASES.get(key, key)] = value2
+    return out
+
+
 def build_assumptions(execution: Optional[dict[str, Any]]) -> ExecutionAssumptions:
     """Validate an execution-assumptions block; a bad block is a typed error."""
     try:
-        return ExecutionAssumptions.model_validate(execution or {})
+        return ExecutionAssumptions.model_validate(_normalize_exec(execution or {}))
     except ValidationError as exc:
         raise CostModelError(f"invalid execution assumptions: {exc.error_count()} problem(s)",
                              detail={"errors": exc.errors()}) from exc
@@ -59,8 +76,7 @@ def _bar(order: dict[str, Any], index: int) -> BarContext:
     )
 
 
-def _orders(args: dict[str, Any]) -> list[dict[str, Any]]:
-    raw = args.get("orders")
+def _validate_orders(raw: Any) -> list[dict[str, Any]]:
     if not raw or not isinstance(raw, list):
         raise CostModelError("`orders` must be a non-empty array of order objects")
     out: list[dict[str, Any]] = []
@@ -100,6 +116,7 @@ def simulate_costs(
     """
     if kind not in ("transaction", "slippage", "spread", "impact"):
         raise CostModelError(f"unknown cost kind {kind!r}")
+    orders = _validate_orders(orders)
     assumptions = build_assumptions(execution)
     sim = ExecutionSimulator(assumptions, seed=seed)
     warnings: list[dict[str, Any]] = []

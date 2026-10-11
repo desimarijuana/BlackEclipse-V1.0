@@ -5874,7 +5874,7 @@ feature should be driven from the chatbot, not from dedicated panels.
 
 **Decision.**
 1. **Expression DSL** (`strategy.py` + `rules.py`): an `Operand` may be a
-   constant, a reference, or a typed `Expr` — arithmetic (`+ - * /`), `min`/`max`,
+   constant, a reference, or a typed `Expr` ï¿½ arithmetic (`+ - * /`), `min`/`max`,
    unary `neg`/`abs`, and causal `lag`/shift. Evaluation stays safe and causal
    (no `eval`); division by zero / missing operands yield no value, so a
    condition is simply `False` rather than acting on `inf`. Validation recurses
@@ -5902,11 +5902,11 @@ and aligning timestamps; it never fabricates a value when alignment is thin.
 Owner doc: `docs/quant-engine.md`. Tests: `test_quant_expressions.py`,
 `test_quant_indicators_ext.py`, `test_quant_copilot.py`.
 
-## ADR-H174 - Governance, source inspection and multi-file projects close the strategy lifecycle — but live order routing is structurally refused
+## ADR-H174 - Governance, source inspection and multi-file projects close the strategy lifecycle ï¿½ but live order routing is structurally refused
 
 **Context.** The strategy spec's remaining backend items were: a governed path
 from a reviewed strategy to a deployable one, the paper-trading boundary, source
-safety inspection, and multi-file strategy projects — all without a dedicated UI
+safety inspection, and multi-file strategy projects ï¿½ all without a dedicated UI
 and without ever enabling live trading.
 
 **Decision.**
@@ -5918,8 +5918,8 @@ and without ever enabling live trading.
    deployment is a **record** (`liveExecution: false`), never an execution.
 2. **Source inspection** (`ops_tools.inspect_source`): a static AST pass reports
    imports, third-party dependencies, restricted modules and dangerous calls.
-   It is explicitly **advisory** — the isolated worker process is the security
-   boundary — so it never pretends to be a sandbox.
+   It is explicitly **advisory** ï¿½ the isolated worker process is the security
+   boundary ï¿½ so it never pretends to be a sandbox.
 3. **Multi-file projects**: `run_strategy_source` accepts sibling `extra_files`
    + an `entry` module; the worker adds the project dir to `sys.path`, so a
    strategy can `import` its own helper modules inside the same isolated,
@@ -5948,13 +5948,13 @@ pure bookkeeping with nothing ever run against them.
 
 **Decision.**
 1. **Dependency policy** (`sdk_deps.py`): an approved numerical stack
-   (`numpy`/`pandas`/`polars`/`scipy`/`statsmodels`/… + stdlib + the harness).
+   (`numpy`/`pandas`/`polars`/`scipy`/`statsmodels`/ï¿½ + stdlib + the harness).
    `inspect_source` classifies imports and flags `UNAPPROVED_DEPENDENCY`; the
    runtime never installs packages on demand, so an environment is pinned by the
    harness rather than mutated per run.
 2. **Runtime hardening** (`sdk_runtime.py`): POSIX `RLIMIT_CPU`/`RLIMIT_AS` via a
    preexec (best-effort; Windows relies on the timeout + output cap), plus an
-   **optional Docker backend** — `resolve_sandbox`/`docker_command` run the worker
+   **optional Docker backend** ï¿½ `resolve_sandbox`/`docker_command` run the worker
    with `--network none --read-only --memory 512m --cpus 1 --pids-limit 256`
    when `HARNESS_QUANT_SDK_DOCKER_IMAGE` is set and Docker is present; otherwise
    it falls back openly to process isolation. The capability is reported truthfully.
@@ -5970,6 +5970,6 @@ instead of asserted.
 
 **Consequences.** Docker requires an operator-provided image that bundles the
 harness + approved deps; without it, process isolation + rlimits is the active
-mode (stated). Live order routing remains absent everywhere — the only reachable
+mode (stated). Live order routing remains absent everywhere ï¿½ the only reachable
 deployment mode is `paper`. Owner doc: `docs/quant-engine.md`. Tests:
 `test_quant_ops.py`, `test_quant_sdk_runtime.py`.

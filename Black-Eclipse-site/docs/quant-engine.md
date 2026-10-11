@@ -54,6 +54,10 @@ market data → indicator context → signal (rules) → risk → order
 | Backtest simulation portfolio (cash/positions/P&L/exposure) | `quant/portfolio.py` |
 | Performance / risk / trade statistics + definitions | `quant/metrics.py` |
 | Event-driven loop + `BacktestResult` | `quant/engine.py` |
+| Vectorized research engine (representable subset only) | `quant/vector_engine.py` |
+| Standalone commission/slippage/spread/impact diagnostics | `quant/costs.py` |
+| Bootstrap CIs + chronological out-of-sample split | `quant/validation.py` |
+| Advanced tools (engine selection, cost sim, OOS, bootstrap, compare) | `quant/advanced_tools.py` |
 | Parameter spaces (dotted paths, ranges, grid/sample) | `quant/params.py` |
 | Optimization (grid/random/evolutionary/Bayesian, objectives, Pareto, stability) | `quant/optimize.py` |
 | Walk-forward (train/test, IS/OOS/combined, divergence) | `quant/walkforward.py` |
@@ -218,7 +222,9 @@ SAME store/engine/validator as manual strategies and cites what it references.
   `calculate_performance_metrics`, `analyze_trade_log`, `compare_strategies`,
   `run_parameter_sweep`.
 - **Routes**: `/quant/signals`, `/quant/strategies/{id}/research-plan`,
-  `/quant/experiments/{id}/report`. Tool count: 43 `quant_*` tools.
+  `/quant/experiments/{id}/report`. Tool count: 63 `quant_*` tools (incl. the
+vectorized engine, standalone cost diagnostics, out-of-sample, bootstrap and
+comparison tools in `advanced_tools.py`).
 
 Grounding is carried by the tools themselves: their outputs are deterministic
 artifacts (a signal timeline, a plan, a report) or explicit typed errors, so the
@@ -275,6 +281,58 @@ strategy as a REAL backtest over recent data and records a `QuantPaperRun`
 (experiment id, metrics, status). Live order routing is absent everywhere; the
 only reachable deployment mode is `paper` (`liveExecution: false`).
 
+## Vectorized engine (fast path, restricted on purpose)
+
+`quant/vector_engine.py` is a **restricted** fast path, not a second general
+backtester. It runs only the strategy semantics that reduce to a causal
+signal → target position → mark-to-market pipeline and **refuses everything
+else** with a structured `VECTOR_UNSUPPORTED` error (routed to the event engine):
+no protective legs, no path-dependent risk rules, no confirmation timeframes, no
+execution latency, `fill_at=next_open`, sizing in {fixed_quantity, fixed_dollar,
+percent_equity}, one symbol. It reuses the SAME `build_context` indicators,
+`rules.evaluate`, `sizing.compute_quantity`, `ExecutionSimulator` and
+`MetricsEngine`, so a supported strategy cannot silently change meaning. For the
+supported subset the two engines agree **exactly** on the equity curve
+(`test_quant_vector_advanced.py::test_vector_event_parity_fixed_quantity`).
+
+## Standalone execution-cost diagnostics
+
+`quant/costs.py` exposes the SAME cost models the engine uses as four standalone
+tools — `simulate_transaction_costs`, `simulate_slippage`, `simulate_spread`,
+`simulate_market_impact`. Given a list of hypothetical orders (side/quantity/price
++ optional bar context: `atr`, `avgVolume`, `barSpread`, OHLCV) and an
+`execution` assumptions block, each returns a per-order audit, the total, the
+model used, and warnings where a model lacked a required input (a missing input
+contributes zero and is reported — never presented as a measured zero cost). It
+accepts camelCase cost keys (`marketImpact`, `fillAt`, …) as well as the field
+names, and a frictionless configuration is labelled `frictionless: true`.
+
+## Out-of-sample and bootstrap
+
+- `run_out_of_sample_test` (`quant/validation.py` + `advanced_tools.py`) resolves
+  the full dataset, splits it chronologically into an in-sample head and an
+  out-of-sample tail (`split_index`), runs the **real event engine** on each
+  disjoint slice, and reports both metric sets plus a `leakage`/`split` block
+  (`overlapBars: 0`). It persists the OOS run. It cannot itself verify that
+  parameters were frozen before the window was seen, so it emits
+  `OOS_PARAMETERS_MUST_BE_FROZEN` — an explicit, honest caveat, not a certification.
+- `run_bootstrap_test` computes a **percentile** bootstrap CI for a return-series
+  statistic (`mean`/`total`/`std`/`sharpe`) using IID, block (circular) or
+  stationary resampling. It is seeded and reproducible; IID resampling warns
+  `BOOTSTRAP_IID_ASSUMES_INDEPENDENCE`; block size is recorded. Input is either an
+  experiment id (its equity curve is converted to per-period returns) or an
+  explicit returns array. Only the experiment slice, not a fabricated distribution.
+- `compare_backtests` compares stored experiments on a fixed metric set and adds
+  comparability cautions when ranges/instruments/capital differ or a run is
+  frictionless, so a fair ranking is never implied when assumptions differ.
+
+## Engine selection
+
+`run_backtest` / `run_event_driven_backtest` run the authoritative event engine;
+`run_vectorized_backtest` runs the restricted vector engine and refuses
+unsupported strategies. Both produce the same `BacktestResult` envelope, tagged
+`metadata.engine` (`event-driven` | `vectorized`).
+
 ## Capability state (never overclaimed)
 
 `BacktestResult.capability` and `GET /quant/capabilities` report:
@@ -284,7 +342,9 @@ available    stocks, crypto, fx, multi-symbol, multi-timeframe,
              commission, slippage, spread (incl. historical), latency, market-impact,
              strategies, experiments, indicators, metrics, portfolio-backtest,
              optimization (grid/random/evolutionary/bayesian), walk-forward,
-             monte-carlo, sensitivity, robustness, graph-compiler
+             monte-carlo, sensitivity, robustness, graph-compiler,
+             vectorized-backtest (restricted subset), cost-diagnostics,
+             out-of-sample, bootstrap, backtest-comparison
 partial      futures, python-strategies (isolated worker process; not a container)
 unsupported  options
 ```

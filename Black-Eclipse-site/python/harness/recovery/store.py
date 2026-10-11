@@ -263,7 +263,7 @@ class RecoveryStore:
             """INSERT INTO RecoveryLease (signature, holder, expiresAt) VALUES (?, ?, ?)
                ON CONFLICT(signature) DO UPDATE SET holder = excluded.holder,
                                                     expiresAt = excluded.expiresAt
-               WHERE RecoveryLease.expiresAt < ?""",
+               WHERE RecoveryLease.expiresAt <= ?""",
             (signature, holder, future, now),
         )
         self._db.commit()
