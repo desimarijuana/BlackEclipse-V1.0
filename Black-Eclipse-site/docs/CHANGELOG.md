@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-11
 
+- **Backtesting & Simulation Engine — options & futures asset-class support.**
+  Closed the last advertised gaps. Added `quant/options.py` (reusing the market
+  layer's `black_scholes` — no second pricing model): `price_option`,
+  `implied_volatility` (bisection, refuses out-of-bounds prices), and
+  `analyze_option_strategy` (multi-leg expiry payoff, break-evens, max
+  profit/loss reported `null` when unbounded, position-level net Greeks). Added
+  `quant/futures.py` `build_continuous_contract` (splice ordered contracts at a
+  roll schedule with difference/ratio/none back-adjustment; newest contract
+  unadjusted; result labelled a backtest proxy). Capability now advertises
+  options/futures `partial` (analytics available; options backtesting /
+  deliverable contracts not claimed) plus `optionAnalytics`/`continuousContracts`.
+  REST: `POST /quant/{option-price,implied-volatility,option-strategy,
+  continuous-contract}`. Quant tools now **68**. Docs: `docs/quant-engine.md`,
+  `docs/backtesting-engine.md`, `docs/CHANGELOG.md`. Tests:
+  `test_quant_options_futures.py` + additions to `test_quant_vector_advanced.py`
+  and `test_quant_routes.py`.
+
 - **Backtesting & Simulation Engine — production hardening: multiple-testing
   diagnostics, real OOS contamination detection, square-root market impact and
   REST routes.** Added `quant/multiple_testing.py` (Deflated Sharpe Ratio +
@@ -57,6 +74,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/changelog/2026-10.md`.
 
 ## 2026-10-10
+
+- **Production-readiness fixes for the Strategy SDK sandbox.** Added a shippable
+  container image (`python/Dockerfile.quantsdk` + `python/requirements-quant-sdk.txt`
+  — numpy/pydantic/PyYAML only) so the optional Docker isolation path
+  (`HARNESS_QUANT_SDK_DOCKER_IMAGE`) is real, not aspirational; documented it in
+  `docs/harness/quant-sdk-sandbox.md`. Added an end-to-end smoke test
+  (`test_quant_e2e_smoke.py`) driving the full chatbot flow through the real tool
+  registry (create → backtest → report → approve → deploy paper → paper shadow
+  run). Re-ran the front-end gates: `vitest run` **2589 passed** and `next build`
+  clean. `docs/harness/quant-sdk-sandbox.md` updated.
 
 - **Strategy Development Engine (runtime hardening + paper shadow loop).** Added
   `quant/sdk_deps.py` (approved numerical dependency policy; `inspect_source`

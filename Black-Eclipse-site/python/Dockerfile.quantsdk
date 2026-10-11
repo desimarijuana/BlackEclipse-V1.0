@@ -1,0 +1,31 @@
+# BlackEclipse Strategy SDK sandbox image.
+#
+# A minimal, network-isolated image in which a user Python strategy runs under
+# `harness/quant/sdk_runtime.py`. The runtime launches the worker with
+# `--network none --read-only --memory 512m --cpus 1 --pids-limit 256`, so this
+# image contains only the deterministic engine + its three dependencies.
+#
+# Build (from the repo's Black-Eclipse-site/ directory):
+#   docker build -f python/Dockerfile.quantsdk -t blackeclipse-quantsdk:latest python
+#
+# Then enable container isolation:
+#   setx HARNESS_QUANT_SDK_DOCKER_IMAGE blackeclipse-quantsdk:latest
+#
+# The harness is placed on the interpreter path via a .pth file so it is
+# importable under `python -I` (which ignores PYTHONPATH).
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY requirements-quant-sdk.txt /app/requirements-quant-sdk.txt
+RUN pip install --no-cache-dir -r /app/requirements-quant-sdk.txt
+
+COPY harness /app/harness
+RUN echo /app > "$(python -c 'import site; print(site.getsitepackages()[0])')/blackeclipse.pth"
+
+# No CMD: the runtime supplies `python -I /work/sdk_worker.py ...`.

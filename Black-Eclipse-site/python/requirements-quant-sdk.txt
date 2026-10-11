@@ -1,0 +1,7 @@
+# Minimal dependency set for the isolated Python Strategy SDK worker
+# (`harness/quant/sdk_worker.py`). Deliberately small: a strategy runs only the
+# deterministic quant engine (numpy/pydantic/yaml), never the agent stack,
+# providers, or network clients. Used by `python/Dockerfile.quantsdk`.
+numpy>=1.26,<3
+pydantic>=2.7,<3
+PyYAML>=6,<7
