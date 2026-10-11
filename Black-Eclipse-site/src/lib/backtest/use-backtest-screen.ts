@@ -183,8 +183,12 @@ export function useBacktestScreen() {
     return backtestClient.validateStrategy(strategy);
   }, []);
 
+  const loadResult = useCallback((result: BacktestResult) => {
+    setState((s) => ({ ...s, result }));
+  }, []);
+
   return {
     ...state, refresh, selectStrategy, run, runResearch, openExperiment,
-    removeExperiment, saveStrategy, validate,
+    removeExperiment, saveStrategy, validate, loadResult,
   };
 }

@@ -20,7 +20,13 @@ import time
 import uuid
 from typing import Any, Optional
 
-from .errors import ExperimentNotFound, StrategyNotFound, StrategyVersionNotFound
+from .errors import (
+    ExperimentNotFound,
+    StrategyNotFound,
+    StrategyVersionImmutable,
+    StrategyVersionNotFound,
+)
+from .schema import STRATEGY_SCHEMA_VERSION, spec_content_hash
 from .strategy import StrategySpec
 
 
@@ -78,6 +84,30 @@ CREATE INDEX IF NOT EXISTS idx_qexp_created ON QuantExperiment(createdAt);
 """
 
 
+def _dict_diff(a: Any, b: Any, path: str, out: list[dict]) -> None:
+    """Append structural changes (added/removed/changed) with dotted paths."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        for key in sorted(set(a) | set(b)):
+            child = f"{path}.{key}" if path else key
+            if key not in a:
+                out.append({"path": child, "kind": "added", "b": b[key]})
+            elif key not in b:
+                out.append({"path": child, "kind": "removed", "a": a[key]})
+            else:
+                _dict_diff(a[key], b[key], child, out)
+    elif isinstance(a, list) and isinstance(b, list):
+        for i in range(max(len(a), len(b))):
+            child = f"{path}[{i}]"
+            if i >= len(a):
+                out.append({"path": child, "kind": "added", "b": b[i]})
+            elif i >= len(b):
+                out.append({"path": child, "kind": "removed", "a": a[i]})
+            else:
+                _dict_diff(a[i], b[i], child, out)
+    elif a != b:
+        out.append({"path": path or "(root)", "kind": "changed", "a": a, "b": b})
+
+
 class QuantStore:
     def __init__(self, agent_memory_store: Any, *, artifact_root: Optional[str] = None) -> None:
         self._store = agent_memory_store
@@ -91,12 +121,48 @@ class QuantStore:
 
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
+        # Additive columns for immutability/provenance (idempotent upgrade path).
+        self._ensure_column("QuantStrategyVersion", "contentHash", "TEXT")
+        self._ensure_column("QuantStrategyVersion", "schemaVersion", "TEXT")
         self._db.commit()
 
+    def _ensure_column(self, table: str, column: str, ddl: str) -> None:
+        cols = {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in cols:
+            self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
     # ── Strategies ───────────────────────────────────────────────────────────
-    def save_strategy(self, spec: StrategySpec, *, description: Optional[str] = None) -> dict:
+    def save_strategy(self, spec: StrategySpec, *, description: Optional[str] = None,
+                      force: bool = False) -> dict:
+        """Persist a strategy version.
+
+        Immutability contract: a version already referenced by an experiment is
+        frozen. Re-saving the *same* content is a no-op; re-saving *different*
+        content under a referenced version raises `StrategyVersionImmutable` —
+        the caller must bump the version. `force=True` overrides deliberately.
+        """
         now = _iso_now()
         spec_json = spec.to_json()
+        content_hash = spec_content_hash(spec)
+        version_id = f"{spec.id}@{spec.version}"
+
+        prior = self._db.execute(
+            "SELECT specJson, contentHash FROM QuantStrategyVersion WHERE id=?", (version_id,)
+        ).fetchone()
+        if prior is not None and not force:
+            prior_hash = prior["contentHash"] or spec_content_hash(json.loads(prior["specJson"]))
+            if prior_hash != content_hash:
+                referenced = self._db.execute(
+                    "SELECT 1 FROM QuantExperiment WHERE strategyId=? AND strategyVersion=? LIMIT 1",
+                    (spec.id, spec.version),
+                ).fetchone()
+                if referenced is not None:
+                    raise StrategyVersionImmutable(
+                        f"strategy {spec.id!r} version {spec.version!r} is immutable: it is "
+                        "referenced by an experiment; bump the version to change it",
+                        detail={"strategyId": spec.id, "version": spec.version},
+                    )
+
         existing = self._db.execute(
             "SELECT id, createdAt FROM QuantStrategy WHERE id = ?", (spec.id,)
         ).fetchone()
@@ -114,18 +180,28 @@ class QuantStore:
                 (spec.name, description or spec.description, spec.asset_class,
                  spec.version, now, spec.id),
             )
-        version_id = f"{spec.id}@{spec.version}"
         self._db.execute(
-            "INSERT OR REPLACE INTO QuantStrategyVersion "
-            "(id,strategyId,version,specJson,createdAt) VALUES (?,?,?,?,?)",
-            (version_id, spec.id, spec.version, spec_json, now),
+            "INSERT INTO QuantStrategyVersion "
+            "(id,strategyId,version,specJson,contentHash,schemaVersion,createdAt) "
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET specJson=excluded.specJson, "
+            "contentHash=excluded.contentHash, schemaVersion=excluded.schemaVersion",
+            (version_id, spec.id, spec.version, spec_json, content_hash,
+             STRATEGY_SCHEMA_VERSION, now),
         )
         self._db.commit()
         return self.get_strategy(spec.id, spec.version)  # type: ignore[return-value]
 
     def _row_to_spec(self, row) -> dict:
         spec = json.loads(row["specJson"])
-        return {"spec": spec, "version": row["version"], "createdAt": row["createdAt"]}
+        content_hash = row["contentHash"] or spec_content_hash(spec)
+        return {
+            "spec": spec,
+            "version": row["version"],
+            "contentHash": content_hash,
+            "schemaVersion": row["schemaVersion"] or STRATEGY_SCHEMA_VERSION,
+            "createdAt": row["createdAt"],
+        }
 
     def get_strategy(self, strategy_id: str, version: Optional[str] = None) -> Optional[dict]:
         head = self._db.execute(
@@ -169,10 +245,66 @@ class QuantStore:
 
     def list_versions(self, strategy_id: str) -> list[dict]:
         rows = self._db.execute(
-            "SELECT version, createdAt FROM QuantStrategyVersion WHERE strategyId=? "
-            "ORDER BY createdAt ASC", (strategy_id,),
+            "SELECT version, contentHash, schemaVersion, createdAt FROM QuantStrategyVersion "
+            "WHERE strategyId=? ORDER BY createdAt ASC", (strategy_id,),
         ).fetchall()
-        return [{"version": r["version"], "createdAt": r["createdAt"]} for r in rows]
+        return [
+            {
+                "version": r["version"],
+                "contentHash": r["contentHash"],
+                "schemaVersion": r["schemaVersion"] or STRATEGY_SCHEMA_VERSION,
+                "createdAt": r["createdAt"],
+            }
+            for r in rows
+        ]
+
+    def version_meta(self, strategy_id: str, version: str) -> dict:
+        """Content hash + schema version + experiment-reference count for a version."""
+        row = self._db.execute(
+            "SELECT specJson, contentHash, schemaVersion, createdAt FROM QuantStrategyVersion "
+            "WHERE strategyId=? AND version=?", (strategy_id, version),
+        ).fetchone()
+        if row is None:
+            raise StrategyVersionNotFound(
+                f"strategy {strategy_id!r} version {version!r} not found",
+                detail={"strategyId": strategy_id, "version": version},
+            )
+        content_hash = row["contentHash"] or spec_content_hash(json.loads(row["specJson"]))
+        refs = self._db.execute(
+            "SELECT COUNT(*) AS n FROM QuantExperiment WHERE strategyId=? AND strategyVersion=?",
+            (strategy_id, version),
+        ).fetchone()
+        return {
+            "strategyId": strategy_id,
+            "version": version,
+            "contentHash": content_hash,
+            "schemaVersion": row["schemaVersion"] or STRATEGY_SCHEMA_VERSION,
+            "createdAt": row["createdAt"],
+            "experimentCount": int(refs["n"]) if refs else 0,
+            "immutable": bool(refs and refs["n"] > 0),
+        }
+
+    def diff_versions(self, strategy_id: str, a: str, b: str) -> dict:
+        """A structural diff between two stored versions of one strategy."""
+        sa = self.get_strategy(strategy_id, a)
+        sb = self.get_strategy(strategy_id, b)
+        changes: list[dict] = []
+        _dict_diff(sa["spec"], sb["spec"], "", changes)
+        by_section: dict[str, int] = {}
+        for change in changes:
+            section = change["path"].split(".")[0].split("[")[0] or "(root)"
+            by_section[section] = by_section.get(section, 0) + 1
+        return {
+            "strategyId": strategy_id,
+            "a": a,
+            "b": b,
+            "sameContent": sa.get("contentHash") == sb.get("contentHash"),
+            "hashA": sa.get("contentHash"),
+            "hashB": sb.get("contentHash"),
+            "changeCount": len(changes),
+            "bySection": by_section,
+            "changes": changes,
+        }
 
     def archive_strategy(self, strategy_id: str, archived: bool = True) -> None:
         cur = self._db.execute(

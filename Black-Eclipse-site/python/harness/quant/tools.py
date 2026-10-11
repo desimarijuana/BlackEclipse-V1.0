@@ -15,13 +15,20 @@ Tools registered here (Phase 1–2):
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import os
+import time
 from typing import Any, Optional
 
 from ..market.errors import MarketError
 from . import StrategySpec, parse_strategy, validate_strategy
+from .bundle import bundle_to_bytes, export_bundle, import_bundle, write_bundle
+from .compiler import compile_graph
+from .copilot_tools import COPILOT_TOOLS, register_copilot_tools
 from .datasets import dataset_from_strategy, resolve_dataset
+from .nodes import REGISTRY
 from .engine import BacktestConfig, BacktestResult, run_backtest, run_portfolio_backtest
 from .errors import QuantError, StoreUnavailable
 from .montecarlo import MonteCarloConfig, MonteCarloEngine
@@ -34,6 +41,7 @@ from .robustness import (
     SensitivityConfig,
     SensitivityEngine,
 )
+from .sdk_runtime import run_strategy_source
 from .strategy import bump_version, errors_only
 from .walkforward import WalkForwardConfig, WalkForwardEngine
 
@@ -43,6 +51,8 @@ _CAPABILITY = {
     "indicators": "available", "metrics": "available",
     "walkForward": "available", "monteCarlo": "available",
     "optimization": "available", "robustness": "available", "sensitivity": "available",
+    "graphCompiler": "available",
+    "pythonStrategies": "partial",
     "options": "unsupported", "futures": "partial",
 }
 
@@ -280,6 +290,222 @@ async def archive_strategy(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         archived = _flag(args, "archived", True)
         store.archive_strategy(str(args.get("strategyId")), archived)
         return (f"Strategy {args.get('strategyId')} archived={archived}.", {"status": "OK"})
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+def _strategy_exports_root(store: Any) -> str:
+    return os.path.join(os.path.dirname(store._root), "exports", "strategies")
+
+
+def _bundle_source(args: dict[str, Any]) -> Any:
+    if args.get("bundleBase64"):
+        try:
+            return base64.b64decode(str(args["bundleBase64"]))
+        except (ValueError, TypeError) as exc:
+            from .errors import StrategyBundleError
+
+            raise StrategyBundleError("bundleBase64 is not valid base64") from exc
+    if isinstance(args.get("bundle"), dict):
+        return args["bundle"]
+    raise ValueError("a `bundle` object or `bundleBase64` string is required")
+
+
+def _graph_source(args: dict[str, Any]) -> Any:
+    if isinstance(args.get("graph"), dict):
+        return args["graph"]
+    if args.get("graphJson"):
+        return args["graphJson"]
+    raise ValueError("a `graph` object or `graphJson` string is required")
+
+
+def _compile_payload(result: Any) -> dict[str, Any]:
+    return {
+        "status": "OK" if result.ok else "INVALID",
+        "ok": result.ok,
+        "spec": result.spec.to_dict() if result.spec else None,
+        "diagnostics": [d.to_dict() for d in result.diagnostics],
+        "sourceMap": result.source_map,
+        "ordering": result.ordering,
+    }
+
+
+def _series_rows(dataset: Any) -> dict[str, list[dict[str, Any]]]:
+    rows: dict[str, list[dict[str, Any]]] = {}
+    for symbol, series in dataset.series.items():
+        rows[symbol] = [
+            {
+                "timestamp": series.timestamps[i], "open": float(series.open[i]),
+                "high": float(series.high[i]), "low": float(series.low[i]),
+                "close": float(series.close[i]), "volume": float(series.volume[i]),
+            }
+            for i in range(series.length)
+        ]
+    return rows
+
+
+async def run_python_strategy(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Run a user Python `Strategy` (source) in the isolated SDK runtime."""
+    try:
+        store = _store(ctx)
+        code = args.get("strategyCode")
+        if not code or not str(code).strip():
+            return ("ERROR — `strategyCode` (a Strategy subclass) is required.",
+                    {"status": "ERROR", "error": {"code": "SDK_EMPTY_SOURCE",
+                                                  "message": "strategyCode is required"}})
+        symbols = [str(s).upper() for s in (args.get("symbols") or [])]
+        if not symbols:
+            return ("ERROR — `symbols` is required (the universe is code-defined).",
+                    {"status": "ERROR", "error": {"code": "SDK_NO_SYMBOLS",
+                                                  "message": "symbols required"}})
+        interval = str(args.get("interval") or "1d")
+        start, end = args.get("start"), args.get("end")
+        dataset = await resolve_dataset(
+            _gateway(ctx), symbols, primary=interval, start=start, end=end)
+        rows = _series_rows(dataset)
+        timeout_s = min(300.0, float(args.get("timeoutSeconds") or 60.0))
+        result, err = await asyncio.to_thread(
+            run_strategy_source,
+            str(code), rows,
+            symbols=symbols, interval=interval,
+            initial_capital=float(args.get("initialCapital") or 100_000.0),
+            risk_free_rate=float(args.get("riskFreeRate") or 0.0),
+            random_seed=int(args.get("randomSeed") or 42),
+            params=args.get("params") or {}, class_name=args.get("className"),
+            strategy_id=args.get("strategyId"), timeout_s=timeout_s,
+        )
+        if err is not None:
+            return (f"ERROR — {err.get('code')}: {err.get('message')}",
+                    {"status": "ERROR", "error": err})
+        assert result is not None
+        exp_id = None
+        if _flag(args, "save", True):
+            exp_id = store.save_experiment(
+                result, strategy_id=args.get("strategyId") or result.metadata.get("strategyId"),
+                strategy_version=result.metadata.get("strategyVersion"), kind="python_backtest")
+        return (_render_result(result, exp_id), _result_data(result, exp_id))
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def compile_strategy_graph(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Compile a visual strategy graph into the canonical StrategySpec IR."""
+    try:
+        result = compile_graph(_graph_source(args))
+        errs = result.errors()
+        if errs:
+            text = ("Graph compilation failed — "
+                    + f"{len(errs)} error(s):\n"
+                    + "\n".join(f"  - {d.node_id or d.path}: {d.message}" for d in errs[:20]))
+        else:
+            n_ind = len(result.spec.indicators) if result.spec else 0
+            text = (f"Graph compiled to strategy {result.spec.id!r} "
+                    f"v{result.spec.version} ({n_ind} indicator(s))." if result.spec
+                    else "Graph compiled.")
+        return (text, _compile_payload(result))
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def validate_strategy_graph(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Validate a strategy graph (structure, types, cycle, IR validity)."""
+    try:
+        result = compile_graph(_graph_source(args))
+        errs = result.errors()
+        text = (f"Graph is valid ({len(result.diagnostics)} warning(s))." if not errs
+                else "Graph is invalid:\n"
+                + "\n".join(f"  - {d.node_id or d.path}: {d.message}" for d in errs[:20]))
+        return (text, _compile_payload(result))
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def list_strategy_nodes(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """List the strategy node registry (types, ports, config schema)."""
+    try:
+        nodes = REGISTRY.describe_all()
+        text = "\n".join(f"  {n['type']} v{n['version']} [{n['category']}] — {n['title']}"
+                         for n in nodes)
+        return (f"{len(nodes)} node type(s):\n{text}", {"status": "OK", "nodes": nodes})
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def export_strategy(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Export an immutable strategy version as a portable, checksummed bundle."""
+    try:
+        store = _store(ctx)
+        sid = str(args.get("strategyId"))
+        record = store.get_strategy(sid, args.get("version"))
+        spec = StrategySpec.model_validate(record["spec"])
+        provenance = {
+            "source": "black-eclipse",
+            "strategyId": sid,
+            "version": record["version"],
+            "contentHash": record.get("contentHash"),
+            "exportedAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+        }
+        bundle = export_bundle(spec, provenance=provenance,
+                               schema_version=record.get("schemaVersion"))
+        manifest = bundle["manifest"]
+        data: dict[str, Any] = {"status": "OK", "manifest": manifest, "strategy": bundle["strategy"]}
+        text = (f"Exported {sid} v{record['version']} "
+                f"(sha256 {str(manifest['contentHash'])[:12]}…).")
+        if _flag(args, "write", True):
+            path = os.path.join(_strategy_exports_root(store), f"{sid}@{record['version']}.zip")
+            write_bundle(bundle, path)
+            data["path"] = path
+            text += f" Wrote bundle to {path}."
+        if _flag(args, "includeBytes", False):
+            data["bundleBase64"] = base64.b64encode(bundle_to_bytes(bundle)).decode("ascii")
+        return (text, data)
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def import_strategy(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Import a portable strategy bundle; validates before it is trusted."""
+    try:
+        result = import_bundle(_bundle_source(args))
+        spec = result["spec"]
+        issues = result["issues"]
+        errs = errors_only(issues)
+        data: dict[str, Any] = {
+            "status": "INVALID" if errs else "OK",
+            "strategy": spec.to_dict(),
+            "manifest": result["manifest"],
+            "issues": [i.to_dict() for i in issues],
+            "warnings": result["warnings"],
+            "contentHash": result["contentHash"],
+        }
+        if errs:
+            return (
+                "Imported bundle is invalid:\n"
+                + "\n".join(f"  - {i.path}: {i.message}" for i in errs),
+                data,
+            )
+        if _flag(args, "save", False):
+            record = _store(ctx).save_strategy(spec)
+            data["saved"] = record
+            return (f"Imported and saved strategy {spec.id!r} v{spec.version}.", data)
+        return (f"Imported strategy {spec.id!r} v{spec.version} (not saved; pass save=true).", data)
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def diff_strategy_versions(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Structurally diff two stored versions of a strategy."""
+    try:
+        store = _store(ctx)
+        diff = store.diff_versions(str(args.get("strategyId")),
+                                   str(args.get("from")), str(args.get("to")))
+        if not diff["changes"]:
+            text = f"No changes between v{diff['a']} and v{diff['b']}."
+        else:
+            lines = [f"  {c['kind']:<7} {c['path']}" for c in diff["changes"][:40]]
+            text = (f"{diff['changeCount']} change(s) v{diff['a']} → v{diff['b']} "
+                    f"(sameContent={diff['sameContent']}):\n" + "\n".join(lines))
+        return (text, {"status": "OK", **diff})
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
 
@@ -742,6 +968,55 @@ def register_quant_tools(registry: Any) -> list[str]:
          archive_strategy, {"type": "object", "properties": {
              "strategyId": {"type": "string"}, "archived": {"type": "boolean"}},
              "required": ["strategyId"]})
+    _GRAPH_INPUT = {"type": "object", "properties": {
+        "graph": {"type": "object", "description": "Strategy graph (nodes + edges)."},
+        "graphJson": {"type": "string", "description": "Strategy graph as JSON text."}}}
+    _def("compile_strategy_graph",
+         "Compile a visual/Python strategy graph (typed nodes + edges) into the canonical "
+         "StrategySpec IR, with diagnostics and a source map. The IR is the source of truth.",
+         compile_strategy_graph, _GRAPH_INPUT)
+    _def("validate_strategy_graph",
+         "Validate a strategy graph: node types/versions, port types, required inputs, cycles "
+         "and the resulting IR. Returns every diagnostic.",
+         validate_strategy_graph, _GRAPH_INPUT)
+    _def("list_strategy_nodes",
+         "List the versioned strategy node registry (types, ports, config schema) usable in a "
+         "visual strategy graph.",
+         list_strategy_nodes, {"type": "object", "properties": {}})
+    _def("export_strategy",
+         "Export a stored strategy version as a portable, checksummed bundle zip "
+         "(manifest + canonical IR). The IR is the source of truth, independent of UI.",
+         export_strategy, {"type": "object", "properties": {
+             "strategyId": {"type": "string"}, "version": {"type": "string"},
+             "write": {"type": "boolean", "description": "Write the .zip under the quant "
+                                                         "exports dir (default true)."},
+             "includeBytes": {"type": "boolean", "description": "Also return bundleBase64."}},
+             "required": ["strategyId"]})
+    _def("import_strategy",
+         "Import a portable strategy bundle (bundle object or base64 zip). Validates the "
+         "IR and schema; optionally persists it (save=true).",
+         import_strategy, {"type": "object", "properties": {
+             "bundle": {"type": "object"}, "bundleBase64": {"type": "string"},
+             "save": {"type": "boolean"}}})
+    _def("diff_strategy_versions",
+         "Structurally diff two stored versions of a strategy (added/removed/changed paths).",
+         diff_strategy_versions, {"type": "object", "properties": {
+             "strategyId": {"type": "string"}, "from": {"type": "string"},
+             "to": {"type": "string"}}, "required": ["strategyId", "from", "to"]})
+    _def("run_python_strategy",
+         "Run a user-authored Python `Strategy` (subclass of ~harness.quant.sdk.Strategy) in "
+         "the isolated SDK runtime over real historical data; returns a full backtest result. "
+         "The decision code runs in a separate, env-scrubbed, time-limited process; accounting "
+         "uses the ONE engine.",
+         run_python_strategy, {"type": "object", "properties": {
+             "strategyCode": {"type": "string", "description": "Python source defining a Strategy subclass."},
+             "className": {"type": "string"},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
+             "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"},
+             "randomSeed": {"type": "integer"}, "params": {"type": "object"},
+             "timeoutSeconds": {"type": "number"}, "save": {"type": "boolean"}},
+             "required": ["strategyCode", "symbols"]}, 180_000, long_running=True)
     _def("run_backtest",
          "Run a deterministic event-driven backtest for a persisted strategy over real "
          "historical data, apply commission/slippage/spread/latency, and persist an experiment.",
@@ -863,6 +1138,8 @@ def register_quant_tools(registry: Any) -> list[str]:
              "start": {"type": "string"}, "end": {"type": "string"},
              "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
              "required": ["strategyId", "paramRanges"]}, 120_000, long_running=True)
+    register_copilot_tools(registry)
+
     _def("run_robustness_analysis",
          "Combine sensitivity, cost sensitivity, trade concentration, sample size and regime "
          "dependence into a deterministic robustness verdict with plain-language conclusions.",
@@ -884,11 +1161,14 @@ def register_quant_tools(registry: Any) -> list[str]:
 QUANT_TOOLS: tuple[str, ...] = (
     "create_strategy", "load_strategy", "update_strategy", "validate_strategy",
     "clone_strategy", "version_strategy", "list_strategies", "archive_strategy",
+    "compile_strategy_graph", "validate_strategy_graph", "list_strategy_nodes",
+    "export_strategy", "import_strategy", "diff_strategy_versions", "run_python_strategy",
     "run_backtest", "run_portfolio_backtest", "calculate_metrics", "inspect_trades",
     "inspect_positions", "plot_equity_curve", "plot_drawdown", "compare_experiments",
     "list_experiments", "export_backtest", "quant_capabilities",
     "optimize_parameters", "run_walk_forward", "run_monte_carlo",
     "run_sensitivity_analysis", "run_robustness_analysis",
+    *COPILOT_TOOLS,
 )
 
 

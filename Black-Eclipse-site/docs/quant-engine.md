@@ -1,7 +1,7 @@
 ---
 title: Quant Engine — Trading, Backtesting & Research
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-10
 ---
 
 # Quant Engine — Trading, Backtesting & Research
@@ -30,6 +30,16 @@ market data → indicator context → signal (rules) → risk → order
 | Concern | File |
 |---|---|
 | Strategy contract, rule DSL, validation, semver | `quant/strategy.py` |
+| Strategy IR schema identity, compatibility, migration, content hash | `quant/schema.py` |
+| Portable strategy bundles (export/import + safety) | `quant/bundle.py` |
+| Typed strategy graph model (visual builder authoring front) | `quant/graph_model.py` |
+| Versioned strategy node registry + built-in nodes | `quant/nodes.py` |
+| Strategy graph compiler (graph → canonical IR) | `quant/compiler.py` |
+| Python Strategy SDK (in-process driver) | `quant/sdk.py` |
+| Isolated Python strategy worker + managed runtime | `quant/sdk_worker.py`, `quant/sdk_runtime.py` |
+| Reference Python strategies | `quant/examples/` |
+| AI copilot support (signals, research plan, report, rule/sizing helpers) | `quant/copilot.py` |
+| AI copilot agent tools | `quant/copilot_tools.py` |
 | Rule evaluation over arrays | `quant/rules.py` |
 | Causal indicators (EMA/SMA/RSI/ATR/MACD/Bollinger/…) | `quant/indicators.py` |
 | Market-data adapter, point-in-time dataset, quality checks, MTF alignment | `quant/data.py` |
@@ -96,6 +106,123 @@ assumptions and metrics. Metadata lives in the ONE `agent-memory.db` connection
 orders/fills) are written as gzipped JSON artifacts under
 `.black-eclipse/quant/experiments/`. Same inputs + same seed ⇒ identical result.
 
+## Strategy IR identity, immutable versions & portability
+
+The strategy contract (`StrategySpec`) is the canonical **Strategy Intermediate
+Representation**; the visual builder, the Python lab and the AI copilot all
+converge on it, and it is the source of truth — never the graph.
+
+- **Schema identity** (`schema.py`): `STRATEGY_SCHEMA_VERSION` names the wire
+  format. `schema_compatible` accepts any same-major version (additive changes
+  stay loadable) and refuses a different major. `migrate` applies an ordered,
+  lossless migration registry (empty at 1.0.0) and **preserves unknown keys**
+  rather than dropping them. `spec_content_hash` is a sha256 over the
+  canonicalized IR dict (order-independent).
+- **Immutable versions** (`store.py`): `QuantStrategyVersion` carries
+  `contentHash` + `schemaVersion`. Once an experiment references a version, the
+  version is **frozen** — re-saving *different* content under it raises
+  `STRATEGY_VERSION_IMMUTABLE` (`409`) and the caller must bump the version;
+  identical content re-saves are a no-op. Editing is always a new version.
+  Unreferenced versions may still be corrected (backward compatible).
+  `version_meta` reports hash/schema/reference-count; `diff_versions` returns a
+  structural added/removed/changed diff (`GET /quant/strategies/{id}/diff?a=&b=`).
+- **Portable bundles** (`bundle.py`): `export_strategy` / `import_strategy`
+  produce/consume a self-describing zip (`manifest.json` + `strategy.json` +
+  `README.md`) and a JSON form (`GET /quant/strategies/{id}/export?format=json`).
+  Import is **untrusted input**: size caps (compressed + uncompressed), member
+  cap, path-traversal rejection, no on-disk extraction, schema gating, a
+  hash-mismatch warning, and re-validation through the normal schema path with
+  unknown keys preserved. The Backtest UI surfaces export/import/diff in the
+  `StrategyPortability` panel; three agent tools (`export_strategy`,
+  `import_strategy`, `diff_strategy_versions`) expose the same store/engine.
+
+## Visual Strategy Builder — the graph compiler
+
+The Visual Strategy Builder is a **typed strategy graph** that compiles to the
+SAME canonical IR as every other authoring mode. It is deliberately NOT a
+general-purpose workflow graph.
+
+- **Graph** (`graph_model.py`): identity + nodes (`id`, `type`, semver, config) +
+  typed edges. Shape-checked before compilation.
+- **Node registry** (`nodes.py`): each node has a stable `type_id`, its own
+  semver (same-major compatible), typed ports (`series`/`number`/`rule`/`any`),
+  a config schema/defaults and a pure `compile(ctx, node, inputs)`. Built-ins
+  span data/universe, every catalog indicator (+ Bollinger/MACD output selectors),
+  logic (compare / cross-above-below / group / constant), trading (entry/exit),
+  sizing, stops/targets and risk limits. Add a node without touching the compiler.
+- **Compiler** (`compiler.py`): parse → resolve types/versions → validate
+  ports/types → deterministic topological order (cycle detection) → compile →
+  assemble `StrategySpec` → shared `validate_strategy`. Returns structured
+  diagnostics (`UNKNOWN_NODE_TYPE`, `UNSUPPORTED_NODE_VERSION`, `TYPE_MISMATCH`,
+  `MISSING_INPUT`, `CYCLE_DETECTED`, `DUPLICATE_NODE_ID`, `BAD_CONFIG`, plus the
+  IR validation codes) and a **source map** (spec path → node id). Compilation is
+  **deterministic** for equivalent graphs.
+- **Surfaces**: `compile_strategy_graph` / `validate_strategy_graph` /
+  `list_strategy_nodes` agent tools and `POST /quant/graph/compile`,
+  `POST /quant/graph/validate`, `GET /quant/graph/nodes`.
+- **Canvas UI**: `src/components/screens/backtest/strategy-canvas.tsx` is a
+  dependency-free SVG/HTML canvas (node palette, drag, typed-port connect,
+  config inspector, compile diagnostics, save-compiled-strategy) mounted behind a
+  "Visual builder" toggle in the Backtest screen. Its rules live in a pure,
+  unit-tested module (`src/lib/backtest/graph-editor.ts`). Arbitrary Python is
+  never forced into a graph — unsupported constructs remain Python-first.
+
+## Python Strategy Lab — the SDK and managed runtime
+
+A strategy can be authored as ordinary Python (`quant/sdk.py`) and run on the
+SAME engine as every other mode.
+
+- **SDK**: subclass `Strategy` with `initialize(ctx)`, `on_data(ctx, bar)`,
+  `on_fill`, `on_order_update`, `on_stop`. `Context` exposes params, declared
+  indicators (`ctx.indicator(id)`), causal `ctx.history(field, n)`, position and
+  portfolio state (`ctx.position/cash/equity`), a seeded `ctx.rng`, and order
+  intents (`ctx.buy/sell/close/order`). Stops/targets/sizing/risk are set in
+  `initialize`.
+- **Shared accounting**: the driver subclasses `BacktestEngine`, so fills
+  (next-bar, with commission/slippage/spread/impact/latency), protective legs,
+  the risk engine, portfolio accounting and metrics are the SAME code path as a
+  declarative backtest. The SDK only supplies per-bar decisions.
+- **Managed runtime**: `run_strategy_source` writes the source + data to a temp
+  dir and launches `sdk_worker.py` in a **separate process** with `python -I`, a
+  **scrubbed environment** (no PYTHONPATH, no credentials/provider keys), a
+  **wall-clock timeout** (killed on overrun), an **output-size cap**, and POSIX
+  CPU/address-space limits where supported. Results are rehydrated into a typed
+  `BacktestResult`. This is process isolation, not a container: a hard
+  filesystem/network boundary is the harness OS sandbox's responsibility, so the
+  capability is advertised `partial` (honest, not overclaimed).
+- **Surfaces**: `run_python_strategy` agent tool + `POST /quant/python/run`; a
+  "Python lab" panel in the Backtest screen; reference strategies in
+  `quant/examples/` (`ma_crossover`, `mean_reversion`, `vol_target_trend`).
+
+## AI Strategy Copilot (grounded, not generative of results)
+
+The copilot's LLM proposes and explains; deterministic code computes. It uses the
+SAME store/engine/validator as manual strategies and cites what it references.
+
+- **Signals** (`calculate_signals`): the entry/exit decision timeline with reason
+  codes and optional indicator snapshots — **no orders are submitted**, no
+  portfolio is touched.
+- **Research plan** (`create_research_plan`): hypothesis, universe, data
+  requirements, IS/validation/holdout splits, benchmark, declared costs, an
+  inferred parameter search space, objective, metrics, walk-forward, robustness
+  checks, acceptance criteria and known biases (survivorship, overfitting,
+  look-ahead). The holdout is used once, never for repeated selection.
+- **Report** (`generate_strategy_report`): Markdown grounded ONLY in a stored
+  experiment + its artifact — metrics, warnings, trade extremes, reproducibility
+  and the "no live orders, not investment advice" note.
+- **Iteration helpers**: `generate_entry_exit_rules` (plain-language rules),
+  `configure_position_sizing`, `configure_stops_and_targets` (validated copies).
+- **Research conveniences**: `get_experiment_status`, `cancel_experiment`,
+  `calculate_performance_metrics`, `analyze_trade_log`, `compare_strategies`,
+  `run_parameter_sweep`.
+- **Routes**: `/quant/signals`, `/quant/strategies/{id}/research-plan`,
+  `/quant/experiments/{id}/report`. Tool count: 43 `quant_*` tools.
+
+Grounding is carried by the tools themselves: their outputs are deterministic
+artifacts (a signal timeline, a plan, a report) or explicit typed errors, so the
+model has no tool that returns a fabricated result. Reports and plans always
+reference the experiment id / strategy version / seed they were built from.
+
 ## Capability state (never overclaimed)
 
 `BacktestResult.capability` and `GET /quant/capabilities` report:
@@ -105,8 +232,8 @@ available    stocks, crypto, fx, multi-symbol, multi-timeframe,
              commission, slippage, spread (incl. historical), latency, market-impact,
              strategies, experiments, indicators, metrics, portfolio-backtest,
              optimization (grid/random/evolutionary/bayesian), walk-forward,
-             monte-carlo, sensitivity, robustness
-partial      futures
+             monte-carlo, sensitivity, robustness, graph-compiler
+partial      futures, python-strategies (isolated worker process; not a container)
 unsupported  options
 ```
 

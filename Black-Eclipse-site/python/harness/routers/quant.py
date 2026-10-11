@@ -10,12 +10,16 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from ..deps import require_operator, service
 from ..quant import StrategySpec, parse_strategy, validate_strategy
+from ..quant.bundle import bundle_to_bytes, export_bundle, import_bundle
+from ..quant.compiler import compile_graph
 from ..quant.datasets import dataset_from_strategy, resolve_dataset
+from ..quant.sdk_runtime import run_strategy_source
+from ..quant.nodes import REGISTRY
 from ..quant.engine import BacktestConfig, run_backtest, run_portfolio_backtest
 from ..quant.errors import QuantError
 from ..quant.montecarlo import MonteCarloConfig, MonteCarloEngine
@@ -153,12 +157,274 @@ async def list_versions(strategy_id: str, _: bool = Depends(require_operator)) -
     return {"versions": _store().list_versions(strategy_id)}
 
 
+@router.get("/quant/strategies/{strategy_id}/export")
+async def export_strategy_bundle(strategy_id: str, version: Optional[str] = None,
+                                 format: str = "zip",
+                                 _: bool = Depends(require_operator)):
+    try:
+        store = _store()
+        record = store.get_strategy(strategy_id, version)
+        spec = StrategySpec.model_validate(record["spec"])
+        bundle = export_bundle(spec, provenance={
+            "source": "black-eclipse", "strategyId": strategy_id,
+            "version": record["version"], "contentHash": record.get("contentHash"),
+        }, schema_version=record.get("schemaVersion"))
+        if format == "json":
+            return {"bundle": bundle}
+        filename = f"{strategy_id}@{record['version']}.zip"
+        return Response(
+            content=bundle_to_bytes(bundle), media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class ImportBody(BaseModel):
+    bundle: Optional[dict[str, Any]] = None
+    bundleBase64: Optional[str] = None
+    save: bool = False
+
+
+@router.post("/quant/strategies/import")
+async def import_strategy_bundle(body: ImportBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        import base64
+
+        if body.bundleBase64:
+            source: Any = base64.b64decode(body.bundleBase64)
+        elif body.bundle is not None:
+            source = body.bundle
+        else:
+            raise HTTPException(status_code=400, detail={
+                "code": "INVALID_REQUEST", "message": "bundle or bundleBase64 required"})
+        result = import_bundle(source)
+        spec = result["spec"]
+        errs = errors_only(result["issues"])
+        payload: dict[str, Any] = {
+            "valid": not errs,
+            "strategy": spec.to_dict(),
+            "manifest": result["manifest"],
+            "issues": [i.to_dict() for i in result["issues"]],
+            "warnings": result["warnings"],
+            "contentHash": result["contentHash"],
+        }
+        if not errs and body.save:
+            payload["saved"] = _store().save_strategy(spec)
+        return payload
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.get("/quant/strategies/{strategy_id}/diff")
+async def diff_strategy_versions(strategy_id: str, a: str, b: str,
+                                 _: bool = Depends(require_operator)) -> dict:
+    try:
+        return _store().diff_versions(strategy_id, a, b)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.get("/quant/strategies/{strategy_id}/versions/{version}")
+async def get_strategy_version_meta(strategy_id: str, version: str,
+                                    _: bool = Depends(require_operator)) -> dict:
+    try:
+        return _store().version_meta(strategy_id, version)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+# ── Strategy graph (visual builder compiler) ─────────────────────────────────
+
+@router.get("/quant/graph/nodes")
+async def list_graph_nodes(_: bool = Depends(require_operator)) -> dict:
+    return {"nodes": REGISTRY.describe_all()}
+
+
+class GraphBody(BaseModel):
+    graph: Optional[dict[str, Any]] = None
+    graphJson: Optional[str] = None
+
+
+def _graph_source(body: GraphBody) -> Any:
+    if body.graph is not None:
+        return body.graph
+    if body.graphJson:
+        return body.graphJson
+    raise HTTPException(status_code=400, detail={
+        "code": "INVALID_REQUEST", "message": "graph or graphJson required"})
+
+
+@router.post("/quant/graph/compile")
+async def compile_graph_route(body: GraphBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        result = compile_graph(_graph_source(body))
+        return {
+            "ok": result.ok,
+            "spec": result.spec.to_dict() if result.spec else None,
+            "diagnostics": [d.to_dict() for d in result.diagnostics],
+            "sourceMap": result.source_map,
+            "ordering": result.ordering,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/quant/graph/validate")
+async def validate_graph_route(body: GraphBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        result = compile_graph(_graph_source(body))
+        return {
+            "valid": result.ok,
+            "diagnostics": [d.to_dict() for d in result.diagnostics],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 @router.post("/quant/validate")
 async def validate(body: StrategyBody, _: bool = Depends(require_operator)) -> dict:
     try:
         spec = _parse_body(body)
         issues = validate_strategy(spec)
         return {"valid": not errors_only(issues), "issues": [i.to_dict() for i in issues]}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+# ── AI Strategy Copilot (deterministic plans, reports, signals) ──────────────
+
+@router.post("/quant/strategies/{strategy_id}/research-plan")
+async def research_plan_route(strategy_id: str, body: dict[str, Any],
+                              _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.copilot import build_research_plan
+
+        record = _store().get_strategy(strategy_id, body.get("version"))
+        spec = StrategySpec.model_validate(record["spec"])
+        plan = build_research_plan(
+            spec, start=body.get("start"), end=body.get("end"),
+            benchmark=body.get("benchmark"), train_bars=int(body.get("trainBars") or 250),
+            test_bars=int(body.get("testBars") or 60),
+            max_evaluations=int(body.get("maxEvaluations") or 60),
+            objective=str(body.get("objective") or "sharpe"))
+        return {"plan": plan}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.get("/quant/experiments/{experiment_id}/report")
+async def experiment_report_route(experiment_id: str, artifact: bool = True,
+                                  _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.copilot import build_report
+
+        store = _store()
+        experiment = store.get_experiment(experiment_id)
+        art = store.read_artifact(experiment_id) if artifact else None
+        return {"experimentId": experiment_id, "format": "markdown",
+                "report": build_report(experiment, art)}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/quant/signals")
+async def signals_route(body: BacktestBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.copilot import calculate_signals
+
+        store = _store()
+        if body.strategyId:
+            strategy = StrategySpec.model_validate(
+                store.get_strategy(body.strategyId, body.version)["spec"])
+        elif body.strategy is not None:
+            strategy = parse_strategy(body.strategy)
+        else:
+            raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST",
+                                                         "message": "strategyId required"})
+        dataset = await dataset_from_strategy(
+            _market_gateway(), strategy, start=body.start, end=body.end, symbols=body.symbols)
+        return calculate_signals(strategy, dataset, symbols=body.symbols)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+# ── Python Strategy Lab (isolated SDK runtime) ───────────────────────────────
+
+class PythonRunBody(BaseModel):
+    strategyCode: str
+    className: Optional[str] = None
+    symbols: list[str] = Field(default_factory=list)
+    interval: str = "1d"
+    start: Optional[str] = None
+    end: Optional[str] = None
+    initialCapital: float = 100_000.0
+    riskFreeRate: float = 0.0
+    randomSeed: int = 42
+    params: dict[str, Any] = Field(default_factory=dict)
+    timeoutSeconds: float = 60.0
+    save: bool = True
+    background: bool = False
+
+
+def _dataset_rows(dataset: Any) -> dict[str, list[dict[str, Any]]]:
+    return {
+        symbol: [
+            {"timestamp": s.timestamps[i], "open": float(s.open[i]), "high": float(s.high[i]),
+             "low": float(s.low[i]), "close": float(s.close[i]), "volume": float(s.volume[i])}
+            for i in range(s.length)
+        ]
+        for symbol, s in dataset.series.items()
+    }
+
+
+@router.post("/quant/python/run")
+async def python_run_route(body: PythonRunBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        store = _store()
+        symbols = [s.upper() for s in body.symbols]
+        if not symbols:
+            raise HTTPException(status_code=400, detail={
+                "code": "SDK_NO_SYMBOLS", "message": "symbols required"})
+        dataset = await resolve_dataset(
+            _market_gateway(), symbols, primary=body.interval, start=body.start, end=body.end)
+        rows = _dataset_rows(dataset)
+        timeout_s = min(300.0, max(1.0, body.timeoutSeconds))
+
+        async def work(progress: Any) -> dict:
+            import asyncio
+
+            result, err = await asyncio.to_thread(
+                run_strategy_source, body.strategyCode, rows,
+                symbols=symbols, interval=body.interval,
+                initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+                random_seed=body.randomSeed, params=body.params, class_name=body.className,
+                timeout_s=timeout_s,
+            )
+            if err is not None:
+                return {"status": "ERROR", "error": err}
+            assert result is not None
+            exp_id = None
+            if body.save:
+                exp_id = store.save_experiment(
+                    result, strategy_id=result.metadata.get("strategyId"),
+                    strategy_version=result.metadata.get("strategyVersion"),
+                    kind="python_backtest")
+            payload = result.to_dict(include_series=True)
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "python_backtest", work)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -554,6 +820,13 @@ async def compare(body: CompareBody, _: bool = Depends(require_operator)) -> dic
         return _store().compare_experiments(body.experimentIds)
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
+
+
+# The Statistical Analysis Engine router owns its own `/stats/v1` prefix; it is
+# mounted here so `main.py` stays under its non-ratcheted hard ceiling.
+from .stats import router as _stats_router  # noqa: E402
+
+router.include_router(_stats_router)
 
 
 __all__ = ["router"]

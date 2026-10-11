@@ -51,6 +51,30 @@ class StrategyValidationFailed(QuantError):
     code = "STRATEGY_VALIDATION_FAILED"
 
 
+class StrategyVersionImmutable(QuantError):
+    """A persisted version cannot be rewritten because an experiment references it.
+
+    Immutable history is a contract: once a version has been used by an
+    experiment, it is frozen. Editing produces a NEW version instead.
+    """
+
+    code = "STRATEGY_VERSION_IMMUTABLE"
+    http_status = 409
+
+
+class UnsupportedSchemaVersion(QuantError):
+    """A serialized strategy declares a schema version this runtime cannot load."""
+
+    code = "UNSUPPORTED_SCHEMA_VERSION"
+    http_status = 422
+
+
+class StrategyBundleError(QuantError):
+    """A portable strategy bundle is malformed, unsafe, or too large."""
+
+    code = "STRATEGY_BUNDLE_ERROR"
+
+
 # ── Data errors ──────────────────────────────────────────────────────────────
 
 class DataError(QuantError):
@@ -141,6 +165,9 @@ __all__ = [
     "StrategyVersionNotFound",
     "InvalidStrategy",
     "StrategyValidationFailed",
+    "StrategyVersionImmutable",
+    "UnsupportedSchemaVersion",
+    "StrategyBundleError",
     "DataError",
     "MissingData",
     "InvalidSymbol",

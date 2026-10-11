@@ -5696,3 +5696,173 @@ Evidence Engine, and isolated notebook execution. Owner doc:
 `docs/harness/quant-research-data.md`. Tests: `test_market_verification.py`,
 `test_quant_transform.py`, `test_quant_dataset_store.py`,
 `test_research_data_tools.py`.
+
+## ADR-H169 - Strategy versions are immutable and content-addressed, and the Strategy IR is portable: identity is a sha256 over the canonical IR, and every strategy escapes the UI through a checksummed bundle
+
+**Context.** The Quant Engine persisted strategy "versions" as overwritable
+semver rows (`save_strategy` used `INSERT OR REPLACE`) with no content identity
+and no portability surface. That made three requirements impossible to honour:
+(a) an experiment must reference a strategy state that can never change under it,
+(b) two runtimes/the UI must agree that two strategies are the same content, and
+(c) a strategy authored in one surface (visual graph, Python lab, AI copilot)
+must be usable in another, independent of that surface.
+
+**Decision.**
+1. **Content identity** (`quant/schema.py`): `spec_content_hash` is a sha256 over
+   the canonical Strategy IR dict (order-independent), and the IR carries an
+   explicit `STRATEGY_SCHEMA_VERSION` with a compatibility policy (same major ?
+   loadable) and an ordered, lossless migration registry.
+2. **Immutable versions** (`quant/store.py`): `QuantStrategyVersion` gains
+   `contentHash` + `schemaVersion` columns (idempotent `ALTER` upgrade path). A
+   version already referenced by an experiment is frozen: re-saving *different*
+   content under it raises `STRATEGY_VERSION_IMMUTABLE` and the caller must bump
+   the version; identical content re-saves are a no-op. Editing is always a new
+   version. `version_meta` reports the hash, schema and reference count;
+   `diff_versions` returns a structural (added/removed/changed) diff.
+3. **Portable bundles** (`quant/bundle.py`): a self-describing zip
+   (`manifest.json` + `strategy.json` + `README.md`) with format/version id,
+   schema version, content hash and provenance. Import is treated as untrusted
+   input � compressed/uncompressed size caps, member-count cap, path-traversal
+   rejection, no on-disk extraction, schema gating and a hash-mismatch warning �
+   and the IR is re-validated through the normal schema path with unknown keys
+   preserved.
+4. **One surface.** Three agent tools (`export_strategy`, `import_strategy`,
+   `diff_strategy_versions`) and matching `/quant/strategies/{id}/export`
+   (zip or `?format=json`), `/quant/strategies/import` and
+   `/quant/strategies/{id}/diff` routes reuse the SAME store/engine; the IR, not
+   the graph, is the source of truth.
+
+**Why.** Immutability is what makes an experiment reproducible: if a version can
+silently change after being referenced, every result it produced is
+unverifiable. A content hash makes sameness machine-checkable and lets identical
+content dedupe. Portability that is a first-class, checksummed artifact keeps a
+strategy usable no matter which authoring surface created it.
+
+**Consequences.** Overwriting an *unreferenced* version is still allowed (a
+correction), preserving backward compatibility; only referenced versions become
+hard-immutable. The migration registry is empty at 1.0.0 (identity) but exists so
+a future schema change has one tested home. Python-lab, visual-builder and
+AI-copilot authoring still share this same IR + bundle contract. Owner doc:
+`docs/quant-engine.md`. Tests: `test_quant_versioning.py`, `test_quant_bundle.py`.
+
+## ADR-H170 - The Visual Strategy Builder is a typed node graph that compiles to the canonical StrategySpec: the registry is the extension seam and the IR stays the single source of truth
+
+**Context.** The spec requires a visual strategy authoring canvas, but also a
+strict rule: the visual graph is a *strategy* representation, not a general
+workflow graph, and a single universal representation cannot losslessly express
+every Python program. Building a canvas before the compile contract exists would
+bake the representation into the UI and diverge from the Python lab / AI copilot.
+
+**Decision.**
+1. **Typed graph model** (`quant/graph_model.py`): `StrategyGraph` = identity +
+   nodes (`id`, `type`, version, config) + edges (`from/fromPort/to/toPort`),
+   pydantic-validated so an untrusted UI/agent graph is shape-checked first.
+2. **Versioned node registry** (`quant/nodes.py`): each node declares a stable
+   `type_id`, its own semver, typed ports (`series`/`number`/`rule`/`any`), a
+   config schema + defaults, and a pure `compile(ctx, node, inputs)` that emits an
+   IR fragment. Nodes span data/universe, indicators (all catalog entries + the
+   multi-output Bollinger/MACD selectors), logic (compare/cross/group/constant),
+   trading (entry/exit), sizing, stops/targets and risk limits. Adding a node
+   never touches the compiler or the (future) canvas.
+3. **Compiler** (`quant/compiler.py`): parse ? resolve types/versions ? validate
+   ports/connections/types ? deterministic topological order with cycle detection
+   ? compile fragments ? assemble `StrategySpec` ? run the shared
+   `validate_strategy`. Emits structured diagnostics (`UNKNOWN_NODE_TYPE`,
+   `TYPE_MISMATCH`, `MISSING_INPUT`, `CYCLE_DETECTED`, �) and a source map
+   (spec path ? node id). Output is deterministic for equivalent graphs.
+
+**Why.** Compiling to the SAME `StrategySpec` the Python lab and AI copilot
+produce means a visual strategy is not a second-class authoring mode: it shares
+the immutable-version store, the bundle format, the validator and the entire
+backtest/research engine. Keeping the graph deliberately non-Turing-complete and
+separate from the future workflow editor prevents the two systems from
+entangling.
+
+**Consequences.** The visual canvas is a **dependency-free SVG/HTML surface**
+(`strategy-canvas.tsx`) that is a thin client of `/quant/graph/*`; it adds no
+graph/ELK dependency (the repo had none) and keeps the editor rules in a pure,
+unit-tested module (`graph-editor.ts`). Arbitrary Python cannot be represented as
+a graph — unsupported constructs stay Python-first, with the graph a faithful
+supported subset (no silent loss). Owner doc: `docs/quant-engine.md`. Tests:
+`test_quant_graph_compiler.py`, `graph-editor.test.ts`.
+
+## ADR-H171 - The Python Strategy Lab runs user strategy code in an isolated worker process and shares the ONE engine for all accounting, so code-first strategies are neither privileged nor divergent
+
+**Context.** The spec requires a serious Python research environment: user-authored
+strategy code, a documented SDK, and a *managed* runtime with enforced limits and
+no credential/sandbox escape. Two failure modes had to be avoided: (a) treating
+`exec`/restricted built-ins as a security boundary, and (b) implementing a second
+portfolio/execution accounting path that drifts from the declarative engine.
+
+**Decision.**
+1. **SDK** (`quant/sdk.py`): a typed `Strategy` base with lifecycle hooks
+   (`initialize`, `on_data`, `on_fill`, `on_order_update`, `on_stop`) and a
+   `Context` exposing params, declared indicators, history, position/portfolio
+   state, deterministic RNG (`ctx.rng`, seeded) and order intents
+   (`buy/sell/close/order`). `run_user_strategy` drives it.
+2. **Shared accounting** (`_SdkEngine(BacktestEngine)`): the driver *subclasses*
+   the existing engine, overriding only signal evaluation to call user code.
+   Fills (next-bar), protective legs, risk engine, portfolio accounting and
+   metrics are the SAME code as a declarative backtest � a code strategy is not a
+   second-class path and cannot drift financially.
+3. **Isolated runtime** (`quant/sdk_worker.py` + `quant/sdk_runtime.py`): the
+   source runs in a **separate process** launched with `python -I`, a **scrubbed
+   environment** (no PYTHONPATH, no provider keys/credentials), a **wall-clock
+   timeout** (killed on overrun), an **output-size cap**, and POSIX CPU/AS limits
+   where available. The parent never trusts stdout; it reads a bounded result
+   file and *rehydrates* it into a typed `BacktestResult`. Windows relies on the
+   timeout + output cap (stated honestly). This is process isolation, not a
+   container � a hard FS/network boundary is the harness OS sandbox's job.
+4. **Surfaces**: `run_python_strategy` agent tool + `POST /quant/python/run`,
+   plus a "Python lab" panel in the Backtest screen and reference strategies in
+   `quant/examples/`.
+
+**Why.** User code is untrusted and must not run with the harness's authority;
+at the same time, a backtest must be reproducible and comparable across authoring
+modes. Isolating execution while reusing the engine for accounting satisfies both
+without a second ledger.
+
+**Consequences.** Code-first strategies get the immutable-version store, bundle
+format and research engines exactly like declarative ones. Multi-file project
+authoring and a full syntax-highlighting editor are deferred; the lab's v1 is a
+single source module. Capability is advertised `partial` for `pythonStrategies`
+(process isolation, not a container). Owner doc: `docs/quant-engine.md`. Tests:
+`test_quant_sdk.py`, `test_quant_sdk_runtime.py`.
+
+## ADR-H172 - The AI Strategy Copilot is grounded in deterministic artifacts: it proposes and cites, it never computes results
+
+**Context.** Phase Seven requires a copilot that turns natural language into a
+strategy, a research plan and a report, on the SAME infrastructure as manual
+strategies. The risk is an LLM that "runs" strategies in prose and invents
+metrics.
+
+**Decision.** The copilot's back end is deterministic and the LLM only proposes
+and explains:
+1. `quant/copilot.py` � `calculate_signals` (the strategy's entry/exit decision
+   timeline with reason codes and indicator snapshots, and NO order submission),
+   `build_research_plan` (an explicit spec: hypothesis, IS/validation/holdout
+   splits, benchmark, declared costs, inferred parameter search, metrics,
+   walk-forward, robustness, acceptance criteria, known biases),
+   `build_report` (Markdown grounded ONLY in a stored experiment + its artifact),
+   and pure helpers to describe rules and to produce validated sizing/stop copies.
+2. `quant/copilot_tools.py` registers the spec's tool names (`calculate_signals`,
+   `create_research_plan`, `generate_strategy_report`, `generate_entry_exit_rules`,
+   `configure_position_sizing`, `configure_stops_and_targets`,
+   `get_experiment_status`, `cancel_experiment`, `calculate_performance_metrics`,
+   `analyze_trade_log`, `compare_strategies`, `run_parameter_sweep`), all reusing
+   the existing store/engine and reusing existing handlers where one exists.
+3. Routes `/quant/signals`, `/quant/strategies/{id}/research-plan`,
+   `/quant/experiments/{id}/report`. Grounding is carried by the tools themselves
+   (their output is a deterministic artifact or an explicit error) — the agent
+   system prompt is already at its hard size ceiling, so no prompt text was added.
+4. Safety (inherited, not re-implemented): the copilot cannot bypass
+   `validate_strategy`, cannot run code outside the isolated worker, cannot
+   rewrite a referenced version, and never places live orders.
+
+**Why.** Grounding every copilot claim in a deterministic artifact (signals, a
+plan, an experiment report) makes "the AI found a profitable strategy" auditable
+or refuted, which is the whole point of the requirement.
+
+**Consequences.** The copilot is not a separate harness � it is prompt guidance
+plus grounded tools. Its reports and plans are reproducible artifacts, not model
+prose. Owner doc: `docs/quant-engine.md`. Tests: `test_quant_copilot.py`.

@@ -18,6 +18,123 @@ export interface StrategySummary {
 export interface StrategyRecord extends StrategySummary {
   version: string;
   spec: Record<string, unknown>;
+  contentHash?: string | null;
+  schemaVersion?: string | null;
+}
+
+/** A stored strategy version's immutable identity. */
+export interface VersionInfo {
+  version: string;
+  contentHash?: string | null;
+  schemaVersion?: string | null;
+  createdAt: string;
+}
+
+export interface VersionMeta extends VersionInfo {
+  strategyId: string;
+  experimentCount: number;
+  immutable: boolean;
+}
+
+/** The manifest of a portable strategy bundle. */
+export interface BundleManifest {
+  format: string;
+  bundleVersion: number;
+  schemaVersion: string;
+  strategyId: string;
+  strategyVersion: string;
+  name: string;
+  description?: string;
+  contentHash: string;
+  provenance: Record<string, unknown>;
+}
+
+export interface DiffChange {
+  path: string;
+  kind: 'added' | 'removed' | 'changed';
+  a?: unknown;
+  b?: unknown;
+}
+
+export interface VersionDiff {
+  strategyId: string;
+  a: string;
+  b: string;
+  sameContent: boolean;
+  hashA?: string | null;
+  hashB?: string | null;
+  changeCount: number;
+  bySection: Record<string, number>;
+  changes: DiffChange[];
+}
+
+/** A strategy-graph node type in the runtime registry. */
+export interface GraphNodeSpec {
+  type: string;
+  version: string;
+  title: string;
+  category: string;
+  description: string;
+  inputs: Array<{ name: string; type: string; required: boolean; variadic: boolean }>;
+  outputs: Array<{ name: string; type: string }>;
+  config: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+}
+
+export interface GraphDiagnostic {
+  code: string;
+  message: string;
+  nodeId?: string;
+  path?: string;
+  severity: string;
+}
+
+export interface GraphCompileResult {
+  ok: boolean;
+  spec: Record<string, unknown> | null;
+  diagnostics: GraphDiagnostic[];
+  sourceMap: Record<string, string>;
+  ordering: string[];
+}
+
+export interface StrategyGraph {
+  schemaVersion?: string;
+  strategy: {
+    id: string;
+    name: string;
+    version?: string;
+    description?: string;
+    assetClass?: string | null;
+  };
+  nodes: Array<{ id: string; type: string; version?: string; config?: Record<string, unknown> }>;
+  edges: Array<{ from: string; fromPort?: string; to: string; toPort?: string }>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PythonRunInput {
+  strategyCode: string;
+  className?: string;
+  symbols: string[];
+  interval?: string;
+  start?: string;
+  end?: string;
+  initialCapital?: number;
+  riskFreeRate?: number;
+  randomSeed?: number;
+  params?: Record<string, unknown>;
+  timeoutSeconds?: number;
+  save?: boolean;
+  background?: boolean;
+}
+
+export interface ImportOutcome {
+  valid: boolean;
+  strategy: Record<string, unknown>;
+  manifest: BundleManifest;
+  issues: Array<{ code: string; message: string; path: string; severity: string }>;
+  warnings: string[];
+  contentHash: string;
+  saved?: StrategyRecord;
 }
 
 export interface MetricDefinition {
@@ -257,6 +374,79 @@ export const backtestClient = {
     jsonFetch<{ strategy: StrategyRecord; issues: unknown[] }>("/strategies", {
       method: "POST",
       body: JSON.stringify({ strategy, description }),
+    }),
+
+  listVersions: (id: string) =>
+    jsonFetch<{ versions: VersionInfo[] }>(
+      `/strategies/${encodeURIComponent(id)}/versions`,
+    ).then((r) => r.versions),
+
+  getVersionMeta: (id: string, version: string) =>
+    jsonFetch<VersionMeta>(
+      `/strategies/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`,
+    ),
+
+  diffVersions: (id: string, a: string, b: string) =>
+    jsonFetch<VersionDiff>(
+      `/strategies/${encodeURIComponent(id)}/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    ),
+
+  /** Download a strategy as a portable bundle zip. */
+  exportStrategy: async (id: string, version?: string): Promise<Blob> => {
+    const url = `${BASE}/strategies/${encodeURIComponent(id)}/export${
+      version ? `?version=${encodeURIComponent(version)}` : ""}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`export failed (${res.status})`);
+    return res.blob();
+  },
+
+  /** The portable bundle as JSON (manifest + canonical IR). */
+  getBundle: (id: string, version?: string) =>
+    jsonFetch<{ bundle: { manifest: BundleManifest; strategy: Record<string, unknown> } }>(
+      `/strategies/${encodeURIComponent(id)}/export?format=json${
+        version ? `&version=${encodeURIComponent(version)}` : ""}`,
+    ).then((r) => r.bundle),
+
+  /** Import a bundle as a decoded object, or a base64 zip string. */
+  importStrategy: (bundle: Record<string, unknown> | string, save = false) =>
+    jsonFetch<ImportOutcome>("/strategies/import", {
+      method: "POST",
+      body: JSON.stringify(
+        typeof bundle === "string" ? { bundleBase64: bundle, save } : { bundle, save },
+      ),
+    }),
+
+  researchPlan: (id: string, body: Record<string, unknown> = {}) =>
+    jsonFetch<{ plan: Record<string, unknown> }>(
+      `/strategies/${encodeURIComponent(id)}/research-plan`,
+      { method: "POST", body: JSON.stringify(body) },
+    ).then((r) => r.plan),
+
+  report: (experimentId: string, artifact = true) =>
+    jsonFetch<{ experimentId: string; format: string; report: string }>(
+      `/experiments/${encodeURIComponent(experimentId)}/report${artifact ? "" : "?artifact=false"}`,
+    ),
+
+  signals: (input: RunBacktestInput) =>
+    jsonFetch<Record<string, unknown>>("/signals", { method: "POST", body: JSON.stringify(input) }),
+
+  runPythonStrategy: (input: PythonRunInput) =>
+    jsonFetch<BacktestResult | { runId: string; status: string } | { status: string; error: unknown }>(
+      "/python/run", { method: "POST", body: JSON.stringify(input) }),
+
+  listGraphNodes: () =>
+    jsonFetch<{ nodes: GraphNodeSpec[] }>("/graph/nodes").then((r) => r.nodes),
+
+  compileGraph: (graph: StrategyGraph) =>
+    jsonFetch<GraphCompileResult>("/graph/compile", {
+      method: "POST",
+      body: JSON.stringify({ graph }),
+    }),
+
+  validateGraph: (graph: StrategyGraph) =>
+    jsonFetch<{ valid: boolean; diagnostics: GraphDiagnostic[] }>("/graph/validate", {
+      method: "POST",
+      body: JSON.stringify({ graph }),
     }),
 
   validateStrategy: (strategy: Record<string, unknown>) =>
