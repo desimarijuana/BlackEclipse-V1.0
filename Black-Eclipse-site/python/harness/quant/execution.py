@@ -19,6 +19,7 @@ Fill conventions (documented, tested):
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 from typing import Optional
@@ -135,6 +136,8 @@ class ExecutionSimulator:
         if not avg or avg <= 0:
             return 0.0
         participation = abs(quantity) / avg
+        if m.type == "sqrt":
+            return price * (m.coefficient / 10000.0) * math.sqrt(participation)
         return price * (m.coefficient / 10000.0) * participation
 
     def _adverse(self, side: OrderSide, base_price: float, extra: float) -> float:

@@ -48,6 +48,7 @@ what exists.
 | `run_sensitivity_analysis` | existing | `tools.run_sensitivity_analysis` |
 | `analyze_trade_log` | existing | `copilot_tools.analyze_trade_log` |
 | `compare_backtests` | **added** | `advanced_tools.compare_backtests` (+ comparability warnings) |
+| `run_multiple_testing_diagnostics` (beyond the 16) | **added** | `multiple_testing.py` (Deflated Sharpe + PBO/CSCV) |
 
 All 16 are registered in `quant/tools.py` (`QUANT_TOOLS`, now **63** tools) and
 allowlisted automatically through `harness/agents.py`. `run_event_driven_backtest`
@@ -76,27 +77,34 @@ and `run_vectorized_backtest` carry `metadata.engine` provenance.
 
 ## Verification (this change)
 
-- `python/tests/test_quant_costs_validation.py` — cost models + bootstrap + split.
+- `python/tests/test_quant_costs_validation.py` — cost models (incl. square-root
+  impact) + bootstrap + split.
 - `python/tests/test_quant_vector_advanced.py` — capability boundaries, vectorized
-  run, **exact vector/event parity**, no-look-ahead, and all 9 new tools end-to-end.
-- Full quant + stats suite: **331 passed** (`python -m pytest python/tests -k
-  "quant or stats"`), with one **pre-existing, unrelated** failure in
-  `test_artifacts_api.py::test_stats_and_tags` (artifact-tag order dependence;
-  passes in isolation and without these changes).
+  run, **exact vector/event parity**, no-look-ahead, OOS contamination detection,
+  and all 10 new tools end-to-end.
+- `python/tests/test_quant_multiple_testing.py` — norm helpers, DSR, PBO/CSCV.
+- `python/tests/test_quant_routes.py` — the advanced REST endpoints are registered
+  and `/quant/costs` executes end-to-end.
+- Full quant + stats suite: **343 passed**, with one **pre-existing, unrelated**
+  failure in `test_artifacts_api.py::test_stats_and_tags` (artifact-tag order
+  dependence; passes in isolation and without these changes).
 - `npx tsc --noEmit` — clean.
 
 ## Honest remaining blockers / not-claimed
 
-- **Options** remain `unsupported` (not registered) — a real options abstraction is
-  its own build. **Futures** is `partial`.
+- **Options** remain `unsupported` (not registered) — a real options abstraction
+  (contracts, pricing, IV, Greeks) is a data- and domain-dependent build and is
+  not faked. **Futures** is `partial` (contract metadata / continuous-contract
+  handling needs provider support).
 - **Vectorized engine** covers only the causal-signal subset; it refuses
   everything else. It is not a general faster engine.
-- **Out-of-sample** cannot itself prove parameters were frozen before the window
-  was seen; it emits `OOS_PARAMETERS_MUST_BE_FROZEN`.
-- **Market impact** is a linear participation model; without volume inputs it
-  reports zero *with a warning*, never a calibrated estimate.
-- **Statistical validation** provides bootstrap CIs and OOS splitting; deflated
-  Sharpe / probability-of-backtest-overfitting diagnostics are not implemented
-  (the robustness module aggregates stability/overfitting safeguards instead).
+- **Out-of-sample** now *detects* contamination (a prior optimization/walk-forward/
+  sensitivity/robustness experiment whose window overlaps the OOS window flags
+  `OOS_WINDOW_CONTAMINATED`) but still cannot see a selection done outside the
+  store; it also always emits `OOS_PARAMETERS_MUST_BE_FROZEN`.
+- **Market impact** is a participation model (linear or square-root); without
+  volume inputs it reports zero *with a warning*, never a calibrated estimate.
+- **Multiple-testing** diagnostics compute when their inputs exist; they assume
+  IID-ish returns and contiguous-block dependence and say so.
 - **Python strategy isolation** is process-level, not a hard container, unless the
-  optional Docker backend is configured.
+  optional Docker backend is configured (`HARNESS_QUANT_SDK_DOCKER_IMAGE`).

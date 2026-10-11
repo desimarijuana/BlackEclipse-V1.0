@@ -182,8 +182,11 @@ class SpreadModel(BaseModel):
 
 
 class MarketImpactModel(BaseModel):
-    type: Literal["none", "linear"] = "none"
-    coefficient: float = 0.0           # impact in bps per 1% of average volume
+    # `linear`: impact ∝ participation; `sqrt`: the widely-used square-root law
+    # (impact ∝ sqrt(participation)). Both are participation models — they are an
+    # *assumed* relationship, not a calibrated estimate, and are reported as such.
+    type: Literal["none", "linear", "sqrt"] = "none"
+    coefficient: float = 0.0           # bps at 100% participation (linear) / sqrt law scalar
 
 
 class ExecutionAssumptions(BaseModel):

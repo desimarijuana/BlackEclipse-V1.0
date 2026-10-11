@@ -756,6 +756,179 @@ async def robustness_route(body: RobustnessBody, _: bool = Depends(require_opera
         raise _http(exc) from exc
 
 
+# ── Advanced engines (vectorized / costs / OOS / bootstrap / multiple-testing) ─
+
+@router.post("/quant/vectorized-backtest")
+async def vectorized_backtest_route(body: ResearchBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.vector_engine import run_vectorized_backtest, vector_capability
+
+        store = _store()
+        strategy = _load_strategy(store, body.strategyId, body.version)
+        cap = vector_capability(strategy, symbols=body.symbols)
+        if not cap["supported"]:
+            raise QuantError("strategy is not representable by the vectorized engine: "
+                             + "; ".join(cap["reasons"]), detail=cap)
+
+        async def work(progress: Any) -> dict:
+            dataset = await _dataset_for(strategy, body)
+            result = run_vectorized_backtest(strategy, dataset, BacktestConfig(
+                initial_capital=body.initialCapital, risk_free_rate=body.riskFreeRate,
+                random_seed=body.seed), symbols=body.symbols)
+            exp_id = _save(store, result, strategy, "vectorized_backtest", body.save)
+            payload = result.to_dict()
+            payload["experimentId"] = exp_id
+            return payload
+
+        return await _maybe_background(body, "vectorized_backtest", work)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class CostBody(BaseModel):
+    orders: list[dict[str, Any]] = Field(default_factory=list)
+    execution: Optional[dict[str, Any]] = None
+    seed: Optional[int] = None
+
+
+@router.post("/quant/costs")
+async def costs_route(body: CostBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.costs import simulate_costs
+
+        return {"simulations": {
+            kind: simulate_costs(kind, body.orders, body.execution, seed=body.seed)
+            for kind in ("transaction", "slippage", "spread", "impact")}}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class OutOfSampleBody(ResearchBody):
+    oosFraction: Optional[float] = None
+    oosStartIndex: Optional[int] = None
+
+
+@router.post("/quant/out-of-sample")
+async def out_of_sample_route(body: OutOfSampleBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.advanced_tools import _oos_contamination, run_out_of_sample
+
+        store = _store()
+        strategy = _load_strategy(store, body.strategyId, body.version)
+        report = await run_out_of_sample(strategy, _market_gateway(), {
+            "start": body.start, "end": body.end, "symbols": body.symbols,
+            "initialCapital": body.initialCapital, "riskFreeRate": body.riskFreeRate,
+            "randomSeed": body.seed, "oosFraction": body.oosFraction,
+            "oosStartIndex": body.oosStartIndex,
+        })
+        split = report["split"]
+        evidence = _oos_contamination(store, strategy.id, split["oosStart"], split["oosEnd"])
+        report["contaminated"] = bool(evidence)
+        report["contaminationEvidence"] = evidence
+        exp_id = _save(store, report["oosResult"], strategy, "out_of_sample", body.save)
+        report["experimentId"] = exp_id
+        return {k: v for k, v in report.items() if k != "oosResult"}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class BootstrapBody(BaseModel):
+    experimentId: Optional[str] = None
+    returns: Optional[list[float]] = None
+    method: str = "iid"
+    statistic: str = "mean"
+    iterations: int = 2000
+    seed: int = 42
+    confidence: float = 0.95
+    blockSize: Optional[int] = None
+    interval: str = "1d"
+
+
+@router.post("/quant/bootstrap")
+async def bootstrap_route(body: BootstrapBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.advanced_tools import snapshot_return_series
+        from ..quant.validation import bootstrap_ci
+
+        returns, interval, source = body.returns, body.interval, "returns"
+        if returns is None:
+            if not body.experimentId:
+                raise QuantError("provide `returns` or an `experimentId`",
+                                 detail={"code": "BOOTSTRAP_INPUT_REQUIRED"})
+            returns, interval = snapshot_return_series(
+                _store().read_artifact(body.experimentId), body.interval)
+            source = f"experiment:{body.experimentId}"
+        result = bootstrap_ci(returns, method=body.method, statistic=body.statistic,
+                              iterations=body.iterations, seed=body.seed,
+                              confidence=body.confidence, block_size=body.blockSize,
+                              interval=interval)
+        result["source"] = source
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class MultipleTestingBody(ResearchBody):
+    paramSpace: dict[str, Any] = Field(default_factory=dict)
+    maxEvaluations: int = 20
+    returns: Optional[list[float]] = None
+    trialSharpes: Optional[list[float]] = None
+    returnsMatrix: Optional[list[list[float]]] = None
+    srVariance: Optional[float] = None
+    trialCount: Optional[int] = None
+    nSplits: int = 16
+
+
+@router.post("/quant/multiple-testing")
+async def multiple_testing_route(body: MultipleTestingBody,
+                                 _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.advanced_tools import _sweep_trials
+        from ..quant.multiple_testing import deflated_sharpe, pbo_cscv
+
+        returns, trial_sharpes, matrix = body.returns, body.trialSharpes, body.returnsMatrix
+        sweep: Optional[dict[str, Any]] = None
+        has_dsr = returns is not None and (
+            trial_sharpes is not None or (body.srVariance is not None and body.trialCount is not None))
+        if matrix is None and not has_dsr:
+            strategy = _load_strategy(_store(), body.strategyId, body.version)
+            dataset = await _dataset_for(strategy, body)
+            trials = _sweep_trials(strategy, dataset, {
+                "paramSpace": body.paramSpace, "maxEvaluations": body.maxEvaluations,
+                "seed": body.seed, "symbols": body.symbols,
+                "initialCapital": body.initialCapital, "riskFreeRate": body.riskFreeRate})
+            if len(trials) < 2:
+                raise QuantError("the sweep produced fewer than 2 usable trials",
+                                 detail={"code": "MULTIPLE_TESTING_TOO_FEW_TRIALS"})
+            matrix = [tr["returns"] for tr in trials]
+            trial_sharpes = [tr["sharpe"] for tr in trials]
+            best = max(range(len(trials)), key=lambda i: trials[i]["sharpe"])
+            returns = trials[best]["returns"]
+            sweep = {"generatedFrom": "parameter_sweep", "trials": len(trials),
+                     "bestSharpe": trial_sharpes[best], "bestParams": trials[best]["params"]}
+        dsr = None
+        if returns is not None:
+            if trial_sharpes is not None:
+                dsr = deflated_sharpe(returns, trial_sharpes=trial_sharpes)
+            elif body.srVariance is not None and body.trialCount is not None:
+                dsr = deflated_sharpe(returns, sr_variance=body.srVariance,
+                                      trial_count=body.trialCount)
+        pbo = pbo_cscv(matrix, n_splits=body.nSplits) if matrix is not None else None
+        return {"deflatedSharpe": dsr, "pbo": pbo, "sweep": sweep}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 # ── Background runs ──────────────────────────────────────────────────────────
 
 @router.get("/quant/runs")
@@ -817,7 +990,11 @@ class CompareBody(BaseModel):
 @router.post("/quant/compare")
 async def compare(body: CompareBody, _: bool = Depends(require_operator)) -> dict:
     try:
-        return _store().compare_experiments(body.experimentIds)
+        from ..quant.advanced_tools import _comparability_warnings
+
+        comparison = _store().compare_experiments(body.experimentIds)
+        comparison["comparability"] = _comparability_warnings(comparison["experiments"])
+        return comparison
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
 

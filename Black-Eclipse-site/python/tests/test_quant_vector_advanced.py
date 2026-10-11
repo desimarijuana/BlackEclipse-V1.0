@@ -246,3 +246,44 @@ async def test_compare_backtests_tool(env):
     # differing initialCapital must raise a comparability caution
     assert any(w["code"] == "COMPARABILITY_DIFFERENT_INITIALCAPITAL"
                for w in r.data["comparability"])
+
+
+async def test_multiple_testing_tool_runs_real_sweep(env):
+    registry, ctx, _ = env
+    await _call(registry, ctx, "create_strategy", {"strategy": SUPPORTED})
+    r = await _call(registry, ctx, "run_multiple_testing_diagnostics", {
+        "strategyId": "vec_cross",
+        "paramSpace": {"indicators.0.params.period": [4, 6, 8, 10, 12, 14]}})
+    assert r.ok and r.data["status"] == "OK", r.text
+    assert r.data["sweep"]["trials"] >= 2
+    assert r.data["deflatedSharpe"]["available"] is True
+    assert r.data["pbo"]["available"] is True
+
+
+async def test_capability_advertises_new_engines(env):
+    registry, ctx, _ = env
+    r = await _call(registry, ctx, "quant_capabilities", {})
+    cap = r.data["capability"]
+    for key in ("vectorizedBacktest", "costDiagnostics", "outOfSample", "bootstrap",
+                "multipleTesting"):
+        assert cap[key] == "available"
+
+
+def test_oos_contamination_detects_overlapping_selection_experiments():
+    from harness.quant.advanced_tools import _oos_contamination
+
+    class _StubStore:
+        def __init__(self, exps):
+            self._exps = exps
+
+        def list_experiments(self, strategy_id=None, limit=50):
+            return self._exps
+
+    store = _StubStore([
+        {"id": "e1", "kind": "optimization", "start": "2023-05-01", "end": "2023-09-01"},
+        {"id": "e2", "kind": "backtest", "start": "2023-06-01", "end": "2023-08-01"},
+        {"id": "e3", "kind": "optimization", "start": "2020-01-01", "end": "2020-06-01"},
+    ])
+    hits = _oos_contamination(store, "s", "2023-07-01", "2023-12-31")
+    assert [h["id"] for h in hits] == ["e1"]
+    assert _oos_contamination(store, "s", "2024-01-01", "2024-06-01") == []

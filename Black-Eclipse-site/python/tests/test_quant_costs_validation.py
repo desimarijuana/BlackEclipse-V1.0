@@ -60,6 +60,14 @@ def test_impact_linear_uses_volume():
     assert out["warnings"] == []
 
 
+def test_impact_sqrt_law():
+    out = simulate_costs("impact", [
+        {"side": "buy", "quantity": 100, "price": 100.0, "avgVolume": 1000.0},
+    ], {"market_impact": {"type": "sqrt", "coefficient": 10.0}})
+    # 100 * (10/10000) * sqrt(0.1) * 100 units
+    assert out["orders"][0]["impact"] == pytest.approx(100 * 0.001 * math.sqrt(0.1) * 100)
+
+
 def test_historical_spread_missing_is_warned_not_silent():
     out = simulate_costs("spread", [
         {"side": "buy", "quantity": 10, "price": 100.0},

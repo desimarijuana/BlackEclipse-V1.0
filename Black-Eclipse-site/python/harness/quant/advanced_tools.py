@@ -13,9 +13,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import numpy as np
+
 from .costs import simulate_costs
 from .engine import BacktestConfig, run_backtest
 from .errors import QuantError
+from .multiple_testing import deflated_sharpe, pbo_cscv
+from .params import ParamSpace, apply_params
+from .strategy import StrategySpec
 from .validation import bootstrap_ci, returns_from_equity, split_index
 from .vector_engine import VectorUnsupported, run_vectorized_backtest, vector_capability
 
@@ -79,8 +84,10 @@ async def run_out_of_sample(strategy: Any, gateway: Any, args: dict[str, Any]) -
             "isBars": is_end,
             "oosBars": len(timeline) - oos_start,
             "overlapBars": 0,
+            "isStart": timeline[0],
             "isEnd": timeline[is_end - 1],
             "oosStart": timeline[oos_start],
+            "oosEnd": timeline[-1],
         },
         "inSample": {"metrics": is_result.metrics, "bars": is_result.metadata.get("bars")},
         "outOfSample": {"metrics": oos_result.metrics, "bars": oos_result.metadata.get("bars")},
@@ -167,6 +174,19 @@ async def run_out_of_sample_test(args: dict[str, Any], ctx: Any) -> tuple[str, A
         store = t._store(ctx)
         strategy = await t._load_strategy(store, args)
         report = await run_out_of_sample(strategy, t._gateway(ctx), args)
+        split = report["split"]
+        contaminating = _oos_contamination(
+            store, strategy.id, split["oosStart"], split["oosEnd"])
+        report["contaminated"] = bool(contaminating)
+        report["contaminationEvidence"] = contaminating
+        if contaminating:
+            report["warnings"].append({
+                "code": "OOS_WINDOW_CONTAMINATED",
+                "message": "the out-of-sample window overlaps an earlier optimization/"
+                           "selection experiment for this strategy; this cannot be "
+                           "certified as untouched",
+                "detail": {"experiments": [e["id"] for e in contaminating]},
+            })
         exp_id = None
         if t._flag(args, "save", True):
             exp_id = store.save_experiment(
@@ -177,9 +197,25 @@ async def run_out_of_sample_test(args: dict[str, Any], ctx: Any) -> tuple[str, A
         return (f"Out-of-sample {strategy.id} v{strategy.version}: "
                 f"IS return={report['inSample']['metrics'].get('total_return')}, "
                 f"OOS return={report['outOfSample']['metrics'].get('total_return')} "
-                f"(OOS bars={report['split']['oosBars']}, overlap=0).", data)
+                f"(OOS bars={split['oosBars']}, overlap=0, "
+                f"contaminated={report['contaminated']}).", data)
     except Exception as exc:  # noqa: BLE001
         return t._err(exc)
+
+
+def _oos_contamination(store: Any, strategy_id: str, oos_start: str, oos_end: str) -> list[dict]:
+    """Prior selection experiments whose window overlaps [oos_start, oos_end]."""
+    selecting = {"optimization", "walk_forward", "sensitivity", "robustness"}
+    out: list[dict] = []
+    for exp in store.list_experiments(strategy_id=strategy_id, limit=200):
+        if exp.get("kind") not in selecting:
+            continue
+        start, end = exp.get("start"), exp.get("end")
+        if not start or not end:
+            continue
+        if start <= oos_end and end >= oos_start:
+            out.append({"id": exp["id"], "kind": exp["kind"], "start": start, "end": end})
+    return out
 
 
 async def run_bootstrap_test(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -216,6 +252,104 @@ async def run_bootstrap_test(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
                 f"{result['confidence'] * 100:.0f}% CI "
                 f"[{result['ciLower']}, {result['ciUpper']}] over {result['successful']} "
                 f"replicates.", {"status": "OK", "bootstrap": result})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+# ── Multiple-testing / overfitting diagnostics ───────────────────────────────
+
+def _per_period_sharpe(returns: list[float]) -> float:
+    arr = np.asarray(returns, dtype=float)
+    if arr.size < 2:
+        return 0.0
+    sd = float(np.std(arr, ddof=1))
+    return float(np.mean(arr) / sd) if sd > 0 else 0.0
+
+
+def _sweep_trials(strategy: StrategySpec, dataset: Any, args: dict[str, Any]) -> list[dict[str, Any]]:
+    """Run a bounded real parameter sweep, collecting each trial's returns."""
+    space = ParamSpace.from_dict(args.get("paramSpace") or {})
+    base = strategy.to_dict()
+    max_eval = max(2, min(int(args.get("maxEvaluations") or 20), 200))
+    if space.is_empty():
+        combos: list[dict[str, Any]] = [{}]
+    elif space.size() <= max_eval:
+        combos = list(space.grid())
+    else:
+        import random as _random
+
+        combos = space.sample(max_eval, _random.Random(int(args.get("seed") or 42)))
+    symbols = args.get("symbols")
+    trials: list[dict[str, Any]] = []
+    for params in combos:
+        try:
+            spec = StrategySpec.model_validate(apply_params(base, params))
+            cfg = BacktestConfig(
+                initial_capital=float(args.get("initialCapital") or 100_000.0),
+                risk_free_rate=float(args.get("riskFreeRate") or 0.0),
+                random_seed=int(args.get("seed") or 42),
+            )
+            res = run_backtest(spec, dataset, cfg, symbols=symbols)
+            returns = returns_from_equity([p["equity"] for p in res.equity_curve])
+            trials.append({"params": params, "returns": returns,
+                           "sharpe": _per_period_sharpe(returns)})
+        except Exception:  # noqa: BLE001 - a bad combo is skipped, not fatal
+            continue
+    return trials
+
+
+async def run_multiple_testing_diagnostics(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    t = _t()
+    try:
+        returns = args.get("returns")
+        trial_sharpes = args.get("trialSharpes")
+        matrix = args.get("returnsMatrix")
+        sr_var = args.get("srVariance")
+        trial_count = args.get("trialCount")
+        has_explicit_dsr = returns is not None and (
+            trial_sharpes is not None or (sr_var is not None and trial_count is not None))
+
+        sweep: Optional[dict[str, Any]] = None
+        if matrix is None and not has_explicit_dsr:
+            if not args.get("strategyId"):
+                return ("ERROR — provide `returns`+`trialSharpes` / `returnsMatrix`, or a "
+                        "`strategyId` + `paramSpace` to run a real sweep.",
+                        {"status": "ERROR", "error": {"code": "MULTIPLE_TESTING_INPUT_REQUIRED"}})
+            from .datasets import dataset_from_strategy
+
+            store = t._store(ctx)
+            strategy = await t._load_strategy(store, args)
+            dataset = await dataset_from_strategy(
+                t._gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
+                symbols=args.get("symbols"))
+            trials = _sweep_trials(strategy, dataset, args)
+            if len(trials) < 2:
+                return ("ERROR — the sweep produced fewer than 2 usable trials.",
+                        {"status": "ERROR", "error": {"code": "MULTIPLE_TESTING_TOO_FEW_TRIALS"}})
+            matrix = [tr["returns"] for tr in trials]
+            trial_sharpes = [tr["sharpe"] for tr in trials]
+            best = max(range(len(trials)), key=lambda i: trials[i]["sharpe"])
+            returns = trials[best]["returns"]
+            sweep = {"generatedFrom": "parameter_sweep", "trials": len(trials),
+                     "bestSharpe": trial_sharpes[best], "bestParams": trials[best]["params"]}
+
+        dsr: Optional[dict[str, Any]] = None
+        if returns is not None:
+            if trial_sharpes is not None:
+                dsr = deflated_sharpe(returns, trial_sharpes=trial_sharpes)
+            elif sr_var is not None and trial_count is not None:
+                dsr = deflated_sharpe(returns, sr_variance=float(sr_var),
+                                      trial_count=int(trial_count))
+        pbo = pbo_cscv(matrix, n_splits=int(args.get("nSplits") or 16)) if matrix is not None else None
+
+        parts = []
+        if dsr and dsr.get("available"):
+            parts.append(f"DSR={dsr['deflatedSharpeRatio']:.3f}")
+        if pbo and pbo.get("available"):
+            parts.append(f"PBO={pbo['probabilityOfBacktestOverfitting'] * 100:.1f}%")
+        summary = ", ".join(parts) or "insufficient inputs"
+        return (f"Multiple-testing diagnostics: {summary}.",
+                {"status": "OK", "deflatedSharpe": dsr, "pbo": pbo, "sweep": sweep})
     except Exception as exc:  # noqa: BLE001
         return t._err(exc)
 
@@ -375,6 +509,26 @@ def register_advanced_tools(registry: Any) -> list[str]:
              "experimentIds": {"type": "array", "items": {"type": "string"}}},
              "required": ["experimentIds"]})
 
+    _def("run_multiple_testing_diagnostics",
+         "Deflated Sharpe Ratio (Bailey & López de Prado) and Probability of Backtest "
+         "Overfitting (CSCV) to test whether a selected result survives the number of trials "
+         "tried. Runs a real bounded parameter sweep from `paramSpace`, or accepts an explicit "
+         "return series / trial Sharpes / returns matrix. Reports assumptions; never applies a "
+         "test whose inputs are missing.",
+         run_multiple_testing_diagnostics, {"type": "object", "properties": {
+             "strategyId": {"type": "string"}, "version": {"type": "string"},
+             "paramSpace": {"type": "object"}, "maxEvaluations": {"type": "integer"},
+             "returns": {"type": "array", "items": {"type": "number"}},
+             "trialSharpes": {"type": "array", "items": {"type": "number"}},
+             "returnsMatrix": {"type": "array", "items": {"type": "array",
+                                                          "items": {"type": "number"}}},
+             "srVariance": {"type": "number"}, "trialCount": {"type": "integer"},
+             "nSplits": {"type": "integer"}, "seed": {"type": "integer"},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "start": {"type": "string"}, "end": {"type": "string"},
+             "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"}},
+             "required": []}, 180_000, long_running=True)
+
     return list(ADVANCED_TOOLS)
 
 
@@ -388,6 +542,7 @@ ADVANCED_TOOLS: tuple[str, ...] = (
     "run_out_of_sample_test",
     "run_bootstrap_test",
     "compare_backtests",
+    "run_multiple_testing_diagnostics",
 )
 
 

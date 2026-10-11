@@ -53,6 +53,11 @@ _CAPABILITY = {
     "walkForward": "available", "monteCarlo": "available",
     "optimization": "available", "robustness": "available", "sensitivity": "available",
     "graphCompiler": "available",
+    "vectorizedBacktest": "available",
+    "costDiagnostics": "available",
+    "outOfSample": "available",
+    "bootstrap": "available",
+    "multipleTesting": "available",
     "pythonStrategies": "partial",
     "options": "unsupported", "futures": "partial",
 }
@@ -1185,7 +1190,7 @@ QUANT_TOOLS: tuple[str, ...] = (
     "run_event_driven_backtest", "run_vectorized_backtest",
     "simulate_transaction_costs", "simulate_slippage", "simulate_spread",
     "simulate_market_impact", "run_out_of_sample_test", "run_bootstrap_test",
-    "compare_backtests",
+    "compare_backtests", "run_multiple_testing_diagnostics",
 )
 
 

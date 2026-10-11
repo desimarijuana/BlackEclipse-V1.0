@@ -57,6 +57,7 @@ market data → indicator context → signal (rules) → risk → order
 | Vectorized research engine (representable subset only) | `quant/vector_engine.py` |
 | Standalone commission/slippage/spread/impact diagnostics | `quant/costs.py` |
 | Bootstrap CIs + chronological out-of-sample split | `quant/validation.py` |
+| Deflated Sharpe + Probability of Backtest Overfitting (CSCV) | `quant/multiple_testing.py` |
 | Advanced tools (engine selection, cost sim, OOS, bootstrap, compare) | `quant/advanced_tools.py` |
 | Parameter spaces (dotted paths, ranges, grid/sample) | `quant/params.py` |
 | Optimization (grid/random/evolutionary/Bayesian, objectives, Pareto, stability) | `quant/optimize.py` |
@@ -97,7 +98,8 @@ market data → indicator context → signal (rules) → risk → order
   bar's own absolute spread when the dataset carries a `spread` column; if it
   does not, the cost is zero **with a recorded `HISTORICAL_SPREAD_UNAVAILABLE`
   warning**, never silently.
-- Market impact: `none | linear`.
+- Market impact: `none | linear | sqrt` (linear and square-root participation laws;
+  both are *assumed* relationships, not calibrated estimates).
 - Latency: `latency_bars`.
 - A filled `Fill.price` already embeds slippage/spread/impact adversely; those
   components are reported for audit but only `commission` is charged separately
@@ -222,9 +224,12 @@ SAME store/engine/validator as manual strategies and cites what it references.
   `calculate_performance_metrics`, `analyze_trade_log`, `compare_strategies`,
   `run_parameter_sweep`.
 - **Routes**: `/quant/signals`, `/quant/strategies/{id}/research-plan`,
-  `/quant/experiments/{id}/report`. Tool count: 63 `quant_*` tools (incl. the
-vectorized engine, standalone cost diagnostics, out-of-sample, bootstrap and
-comparison tools in `advanced_tools.py`).
+  `/quant/experiments/{id}/report`. Tool count: 64 `quant_*` tools (incl. the
+vectorized engine, standalone cost diagnostics, out-of-sample, bootstrap,
+multiple-testing and comparison tools in `advanced_tools.py`). These are also
+exposed over REST: `POST /quant/vectorized-backtest`, `/quant/costs`,
+`/quant/out-of-sample`, `/quant/bootstrap`, `/quant/multiple-testing` (the last
+three are thin adapters over `validation.py` / `multiple_testing.py`).
 
 Grounding is carried by the tools themselves: their outputs are deterministic
 artifacts (a signal timeline, a plan, a report) or explicit typed errors, so the
@@ -326,6 +331,28 @@ names, and a frictionless configuration is labelled `frictionless: true`.
   comparability cautions when ranges/instruments/capital differ or a run is
   frictionless, so a fair ranking is never implied when assumptions differ.
 
+## Multiple-testing & overfitting diagnostics
+
+`quant/multiple_testing.py` (tool `run_multiple_testing_diagnostics`) implements
+two referenced methods from first principles (no SciPy):
+
+- **Deflated Sharpe Ratio** (Bailey & López de Prado, 2014) — the probability the
+  selected strategy's per-period Sharpe is positive *after* deflating for the
+  number of trials and the returns' skew/kurtosis. Needs the trial-Sharpe variance
+  (`trialSharpes` or `srVariance`+`trialCount`); without it the result is
+  `available: false` with a reason.
+- **Probability of Backtest Overfitting** via Combinatorially Symmetric
+  Cross-Validation (Bailey, Borwein, López de Prado & Zhu, 2016) — over all
+  balanced IS/OOS partitions of a configs×periods return matrix, how often the
+  in-sample best lands in the worse out-of-sample half.
+
+The tool **runs a real bounded parameter sweep** (`strategyId` + `paramSpace`) to
+build the trial Sharpes and matrix, or accepts an explicit return series / trial
+Sharpes / matrix. It states its assumptions and never applies a test whose inputs
+are missing. It is intentionally separate from `robustness.py` (which aggregates
+stability/sample-size/regime evidence into a verdict) — neither is applied
+mechanically.
+
 ## Engine selection
 
 `run_backtest` / `run_event_driven_backtest` run the authoritative event engine;
@@ -344,7 +371,7 @@ available    stocks, crypto, fx, multi-symbol, multi-timeframe,
              optimization (grid/random/evolutionary/bayesian), walk-forward,
              monte-carlo, sensitivity, robustness, graph-compiler,
              vectorized-backtest (restricted subset), cost-diagnostics,
-             out-of-sample, bootstrap, backtest-comparison
+             out-of-sample, bootstrap, backtest-comparison, multiple-testing
 partial      futures, python-strategies (isolated worker process; not a container)
 unsupported  options
 ```
