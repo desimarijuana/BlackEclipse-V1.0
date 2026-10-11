@@ -59,7 +59,12 @@ _CAPABILITY = {
     "bootstrap": "available",
     "multipleTesting": "available",
     "pythonStrategies": "partial",
-    "options": "unsupported", "futures": "partial",
+    # options: pricing/Greeks/implied-vol + multi-leg analytics are available;
+    # historical options *backtesting* is not (needs dated chains). futures:
+    # continuous-contract construction is available; backtesting trades the
+    # continuous proxy, not deliverable contracts.
+    "options": "partial", "futures": "partial",
+    "optionAnalytics": "available", "continuousContracts": "available",
 }
 
 _STRATEGY_SUMMARY_KEYS = (
@@ -1191,6 +1196,8 @@ QUANT_TOOLS: tuple[str, ...] = (
     "simulate_transaction_costs", "simulate_slippage", "simulate_spread",
     "simulate_market_impact", "run_out_of_sample_test", "run_bootstrap_test",
     "compare_backtests", "run_multiple_testing_diagnostics",
+    "price_option", "implied_volatility", "analyze_option_strategy",
+    "build_continuous_contract",
 )
 
 

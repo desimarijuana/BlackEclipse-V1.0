@@ -49,5 +49,9 @@ def test_advanced_quant_routes_registered():
         "/quant/monte-carlo",
         "/quant/sensitivity",
         "/quant/robustness",
+        "/quant/option-price",
+        "/quant/implied-volatility",
+        "/quant/option-strategy",
+        "/quant/continuous-contract",
     ):
         assert path in paths, path

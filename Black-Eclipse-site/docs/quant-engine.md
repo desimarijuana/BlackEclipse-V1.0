@@ -58,6 +58,8 @@ market data → indicator context → signal (rules) → risk → order
 | Standalone commission/slippage/spread/impact diagnostics | `quant/costs.py` |
 | Bootstrap CIs + chronological out-of-sample split | `quant/validation.py` |
 | Deflated Sharpe + Probability of Backtest Overfitting (CSCV) | `quant/multiple_testing.py` |
+| Options pricing/IV/Greeks + multi-leg strategy analytics | `quant/options.py` |
+| Continuous futures contract splice + back-adjustment | `quant/futures.py` |
 | Advanced tools (engine selection, cost sim, OOS, bootstrap, compare) | `quant/advanced_tools.py` |
 | Parameter spaces (dotted paths, ranges, grid/sample) | `quant/params.py` |
 | Optimization (grid/random/evolutionary/Bayesian, objectives, Pareto, stability) | `quant/optimize.py` |
@@ -224,12 +226,14 @@ SAME store/engine/validator as manual strategies and cites what it references.
   `calculate_performance_metrics`, `analyze_trade_log`, `compare_strategies`,
   `run_parameter_sweep`.
 - **Routes**: `/quant/signals`, `/quant/strategies/{id}/research-plan`,
-  `/quant/experiments/{id}/report`. Tool count: 64 `quant_*` tools (incl. the
+  `/quant/experiments/{id}/report`. Tool count: 68 `quant_*` tools (incl. the
 vectorized engine, standalone cost diagnostics, out-of-sample, bootstrap,
-multiple-testing and comparison tools in `advanced_tools.py`). These are also
-exposed over REST: `POST /quant/vectorized-backtest`, `/quant/costs`,
-`/quant/out-of-sample`, `/quant/bootstrap`, `/quant/multiple-testing` (the last
-three are thin adapters over `validation.py` / `multiple_testing.py`).
+multiple-testing, option analytics, futures continuous contracts and comparison
+tools in `advanced_tools.py`). These are also exposed over REST:
+`POST /quant/vectorized-backtest`, `/quant/costs`, `/quant/out-of-sample`,
+`/quant/bootstrap`, `/quant/multiple-testing`, `/quant/option-price`,
+`/quant/implied-volatility`, `/quant/option-strategy`, `/quant/continuous-contract`
+(thin adapters over the same core functions).
 
 Grounding is carried by the tools themselves: their outputs are deterministic
 artifacts (a signal timeline, a plan, a report) or explicit typed errors, so the
@@ -371,13 +375,38 @@ available    stocks, crypto, fx, multi-symbol, multi-timeframe,
              optimization (grid/random/evolutionary/bayesian), walk-forward,
              monte-carlo, sensitivity, robustness, graph-compiler,
              vectorized-backtest (restricted subset), cost-diagnostics,
-             out-of-sample, bootstrap, backtest-comparison, multiple-testing
-partial      futures, python-strategies (isolated worker process; not a container)
-unsupported  options
+             out-of-sample, bootstrap, backtest-comparison, multiple-testing,
+             option-pricing/greeks/implied-vol, multi-leg option strategy analytics,
+             continuous futures contracts
+partial      futures (continuous-contract construction yes; backtest trades the
+             continuous PROXY, not deliverables),
+             options (pricing/Greeks/IV/strategy analytics + live chains yes;
+             historical options BACKTESTING no),
+             python-strategies (isolated worker process; not a container)
+unsupported  — (nothing advertised unavailable that is implemented)
 ```
 
-The `unsupported` items are **not registered as tools** — they are later phases
-and are advertised as unavailable rather than faked. Options remain Phase 7.
+Capabilities not listed are **not registered as tools** and are advertised
+unavailable rather than faked.
+
+## Options & futures analytics
+
+`quant/options.py` and `quant/futures.py` fill the last asset-class gaps. Options
+**pricing does not get re-implemented**: they reuse `market.greeks.black_scholes`
+(the one options model) and add:
+
+- `price_option` — theoretical price + Greeks (assumptions stated with the result);
+- `implied_volatility` — the inverse of Black-Scholes by bisection, refusing prices
+  outside the no-arbitrage bounds so it never returns a fabricated vol;
+- `analyze_option_strategy` — multi-leg expiry payoff curve, net premium,
+  break-evens, and **max profit/loss reported `null` when unbounded** (never a
+  fabricated grid maximum), plus position-level net Greeks (× multiplier).
+
+`build_continuous_contract` splices ordered futures contracts at a roll schedule
+with `difference` / `ratio` back-adjustment (or `none`), records every roll (date,
+contracts, gap, factor), leaves the newest contract unadjusted, and labels the
+result an explicit backtest **proxy**. Option **backtesting** and deliverable
+futures contracts are deliberately not claimed.
 
 ## Research engines
 
@@ -449,11 +478,18 @@ second, asserted under a generous 20s ceiling).
 
 ## Deferred (documented, not hidden)
 
-**Options (Phase 7) remain deferred** and are advertised `unsupported` (not
-registered as tools): a real options abstraction (contracts, pricing, IV,
-Greeks, option strategies) is its own build and is not faked. `futures` is
-`partial`. Everything else in the required tool list now has a working,
-tested engine behind it.
+**Options analytics are now available** (`options.py`: pricing, implied vol,
+Greeks, multi-leg strategy payoff/risk) and the live options-chain/greeks surface
+lives in the market layer (`market.greeks`, `get_options_chain`). Two things are
+deliberately still not claimed and are advertised `partial`:
+
+- **historical options backtesting** — needs dated option chains and expiry
+  handling in the event engine; the analytics tools do not pretend otherwise;
+- **deliverable futures contracts** — `build_continuous_contract` produces an
+  explicit backtest *proxy* (back-adjusted continuous series), not a physically
+  settleable contract.
+
+Everything else in the required tool list has a working, tested engine behind it.
 
 Heavy runs are offloaded in-process (see **Background execution** above), so a
 long backtest/optimization no longer blocks the request. Deeper scaling — a

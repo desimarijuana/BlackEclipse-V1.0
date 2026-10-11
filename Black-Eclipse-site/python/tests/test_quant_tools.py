@@ -140,7 +140,9 @@ async def test_capability_advertises_research_engines(env):
     r = await _call(registry, ctx, "quant_capabilities", {})
     cap = r.data["capability"]
     assert cap["optimization"] == cap["walkForward"] == cap["monteCarlo"] == cap["robustness"] == "available"
-    assert cap["options"] == "unsupported"
+    # options analytics are available; options *backtesting* is what remains partial.
+    assert cap["options"] == "partial"
+    assert cap["optionAnalytics"] == "available"
 
 
 def test_downsample_keeps_endpoints_and_bounds_size():

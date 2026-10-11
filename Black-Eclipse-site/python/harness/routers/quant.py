@@ -929,6 +929,100 @@ async def multiple_testing_route(body: MultipleTestingBody,
         raise _http(exc) from exc
 
 
+# ── Options & futures analytics ──────────────────────────────────────────────
+
+class OptionPriceBody(BaseModel):
+    type: str
+    spot: float
+    strike: float
+    timeToExpiry: float
+    iv: float
+    riskFree: Optional[float] = None
+    dividendYield: float = 0.0
+
+
+@router.post("/quant/option-price")
+async def option_price_route(body: OptionPriceBody,
+                             _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..market.greeks import DEFAULT_RISK_FREE
+        from ..quant.options import price_option
+
+        return price_option(option_type=body.type, spot=body.spot, strike=body.strike,
+                            time_to_expiry=body.timeToExpiry, iv=body.iv,
+                            risk_free=(body.riskFree if body.riskFree is not None else DEFAULT_RISK_FREE),
+                            dividend_yield=body.dividendYield)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class ImpliedVolBody(BaseModel):
+    marketPrice: float
+    type: str
+    spot: float
+    strike: float
+    timeToExpiry: float
+    riskFree: Optional[float] = None
+    dividendYield: float = 0.0
+
+
+@router.post("/quant/implied-volatility")
+async def implied_vol_route(body: ImpliedVolBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..market.greeks import DEFAULT_RISK_FREE
+        from ..quant.options import implied_volatility
+
+        return implied_volatility(body.marketPrice, option_type=body.type, spot=body.spot,
+                                  strike=body.strike, time_to_expiry=body.timeToExpiry,
+                                  risk_free=(body.riskFree if body.riskFree is not None else DEFAULT_RISK_FREE),
+                                  dividend_yield=body.dividendYield)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class OptionStrategyBody(BaseModel):
+    legs: list[dict[str, Any]] = Field(default_factory=list)
+    spotMin: float
+    spotMax: float
+    points: int = 201
+    valuationSpot: Optional[float] = None
+    timeToExpiry: Optional[float] = None
+    iv: Optional[float] = None
+    riskFree: Optional[float] = None
+
+
+@router.post("/quant/option-strategy")
+async def option_strategy_route(body: OptionStrategyBody,
+                                _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..market.greeks import DEFAULT_RISK_FREE
+        from ..quant.options import analyze_option_strategy
+
+        return analyze_option_strategy(
+            body.legs, spot_min=body.spotMin, spot_max=body.spotMax, points=body.points,
+            valuation_spot=body.valuationSpot, time_to_expiry=body.timeToExpiry, iv=body.iv,
+            risk_free=(body.riskFree if body.riskFree is not None else DEFAULT_RISK_FREE))
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class ContinuousContractBody(BaseModel):
+    contracts: list[dict[str, Any]] = Field(default_factory=list)
+    rollDates: list[str] = Field(default_factory=list)
+    adjustment: str = "difference"
+
+
+@router.post("/quant/continuous-contract")
+async def continuous_contract_route(body: ContinuousContractBody,
+                                    _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.futures import splice_continuous
+
+        return splice_continuous(body.contracts, body.rollDates, adjustment=body.adjustment)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 # ── Background runs ──────────────────────────────────────────────────────────
 
 @router.get("/quant/runs")

@@ -265,8 +265,36 @@ async def test_capability_advertises_new_engines(env):
     r = await _call(registry, ctx, "quant_capabilities", {})
     cap = r.data["capability"]
     for key in ("vectorizedBacktest", "costDiagnostics", "outOfSample", "bootstrap",
-                "multipleTesting"):
+                "multipleTesting", "optionAnalytics", "continuousContracts"):
         assert cap[key] == "available"
+    assert cap["options"] == "partial"
+
+
+async def test_option_tools_via_registry(env):
+    registry, ctx, _ = env
+    r = await _call(registry, ctx, "price_option", {
+        "type": "call", "spot": 100, "strike": 100, "timeToExpiry": 1.0, "iv": 0.2,
+        "riskFree": 0.05})
+    assert r.ok and r.data["option"]["price"] == pytest.approx(10.4506, abs=1e-3)
+
+    r = await _call(registry, ctx, "analyze_option_strategy", {
+        "legs": [{"type": "call", "strike": 100, "quantity": 1, "premium": 5}],
+        "spotMin": 50, "spotMax": 200})
+    assert r.ok and r.data["strategy"]["maxProfit"] is None
+    assert r.data["strategy"]["maxLoss"] == pytest.approx(-500)
+
+    r = await _call(registry, ctx, "build_continuous_contract", {
+        "rollDates": ["t2"],
+        "contracts": [
+            {"symbol": "A", "rows": [
+                {"timestamp": "t0", "open": 10, "high": 11, "low": 9, "close": 10, "volume": 1},
+                {"timestamp": "t1", "open": 11, "high": 12, "low": 10, "close": 12, "volume": 1}]},
+            {"symbol": "B", "rows": [
+                {"timestamp": "t2", "open": 24, "high": 25, "low": 23, "close": 24, "volume": 1},
+                {"timestamp": "t3", "open": 25, "high": 26, "low": 24, "close": 25, "volume": 1}]},
+        ]})
+    assert r.ok and r.data["barCount"] == 4
+    assert [b["close"] for b in r.data["bars"]] == pytest.approx([22, 24, 24, 25])
 
 
 def test_oos_contamination_detects_overlapping_selection_experiments():

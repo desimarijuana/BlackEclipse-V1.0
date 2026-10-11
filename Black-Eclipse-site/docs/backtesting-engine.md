@@ -49,6 +49,8 @@ what exists.
 | `analyze_trade_log` | existing | `copilot_tools.analyze_trade_log` |
 | `compare_backtests` | **added** | `advanced_tools.compare_backtests` (+ comparability warnings) |
 | `run_multiple_testing_diagnostics` (beyond the 16) | **added** | `multiple_testing.py` (Deflated Sharpe + PBO/CSCV) |
+| Options: `price_option`, `implied_volatility`, `analyze_option_strategy` (beyond the 16) | **added** | `options.py` (reuses `market.greeks`) |
+| Futures: `build_continuous_contract` (beyond the 16) | **added** | `futures.py` (splice + back-adjustment) |
 
 All 16 are registered in `quant/tools.py` (`QUANT_TOOLS`, now **63** tools) and
 allowlisted automatically through `harness/agents.py`. `run_event_driven_backtest`
@@ -83,19 +85,24 @@ and `run_vectorized_backtest` carry `metadata.engine` provenance.
   run, **exact vector/event parity**, no-look-ahead, OOS contamination detection,
   and all 10 new tools end-to-end.
 - `python/tests/test_quant_multiple_testing.py` — norm helpers, DSR, PBO/CSCV.
+- `python/tests/test_quant_options_futures.py` — Black-Scholes reference values,
+  IV round-trip + bounds, multi-leg payoff/boundedness/Greeks, and futures
+  splice/adjustment.
 - `python/tests/test_quant_routes.py` — the advanced REST endpoints are registered
   and `/quant/costs` executes end-to-end.
-- Full quant + stats suite: **343 passed**, with one **pre-existing, unrelated**
-  failure in `test_artifacts_api.py::test_stats_and_tags` (artifact-tag order
-  dependence; passes in isolation and without these changes).
+- Full Python suite: **5555 passed, 16 skipped (opt-in live), 0 failed** (full
+  run); the `-k "quant or stats"` subset shows one **pre-existing, unrelated**
+  `test_artifacts_api::test_stats_and_tags` ordering failure that does not appear
+  in the full run.
 - `npx tsc --noEmit` — clean.
 
 ## Honest remaining blockers / not-claimed
 
-- **Options** remain `unsupported` (not registered) — a real options abstraction
-  (contracts, pricing, IV, Greeks) is a data- and domain-dependent build and is
-  not faked. **Futures** is `partial` (contract metadata / continuous-contract
-  handling needs provider support).
+- **Options** are now `partial`: pricing, implied vol, Greeks, multi-leg strategy
+  analytics and live chains are available; **historical options backtesting** is
+  not (it needs dated chains + expiry handling in the event engine).
+  **Futures** is `partial`: `build_continuous_contract` produces a back-adjusted
+  continuous *proxy*; deliverable-contract backtesting is not claimed.
 - **Vectorized engine** covers only the causal-signal subset; it refuses
   everything else. It is not a general faster engine.
 - **Out-of-sample** now *detects* contamination (a prior optimization/walk-forward/

@@ -166,6 +166,114 @@ def _cost_handler(kind: str):
     return handler
 
 
+# ── Options & futures analytics ──────────────────────────────────────────────
+
+def _risk_free(args: dict[str, Any]) -> float:
+    from ..market.greeks import DEFAULT_RISK_FREE
+
+    value = args.get("riskFree")
+    return float(value) if value is not None else DEFAULT_RISK_FREE
+
+
+async def price_option_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    t = _t()
+    try:
+        from .options import price_option
+
+        result = price_option(
+            option_type=str(args.get("type") or args.get("optionType") or ""),
+            spot=float(args.get("spot") or 0), strike=float(args.get("strike") or 0),
+            time_to_expiry=float(args.get("timeToExpiry") or 0),
+            iv=float(args.get("iv") or 0), risk_free=_risk_free(args),
+            dividend_yield=float(args.get("dividendYield") or 0))
+        if not result.get("available"):
+            return (f"Option price unavailable: {result.get('reason')}",
+                    {"status": "OK", "option": result})
+        return (f"{result['optionType']} K={result['strike']}: price={result['price']:.4f}, "
+                f"delta={result['delta']:.4f}, vega={result['vega']:.4f}.",
+                {"status": "OK", "option": result})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+async def implied_volatility_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    t = _t()
+    try:
+        from .options import implied_volatility
+
+        result = implied_volatility(
+            float(args.get("marketPrice") or 0),
+            option_type=str(args.get("type") or args.get("optionType") or ""),
+            spot=float(args.get("spot") or 0), strike=float(args.get("strike") or 0),
+            time_to_expiry=float(args.get("timeToExpiry") or 0), risk_free=_risk_free(args),
+            dividend_yield=float(args.get("dividendYield") or 0))
+        if not result.get("available"):
+            return (f"Implied vol unavailable: {result.get('reason')}",
+                    {"status": "OK", "iv": result})
+        return (f"Implied volatility = {result['impliedVolatility']:.4f}.",
+                {"status": "OK", "iv": result})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+async def analyze_option_strategy_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    t = _t()
+    try:
+        from .options import analyze_option_strategy
+
+        result = analyze_option_strategy(
+            args.get("legs") or [],
+            spot_min=float(args.get("spotMin") or 0), spot_max=float(args.get("spotMax") or 0),
+            points=int(args.get("points") or 201),
+            valuation_spot=(float(args["valuationSpot"]) if args.get("valuationSpot") is not None else None),
+            time_to_expiry=(float(args["timeToExpiry"]) if args.get("timeToExpiry") is not None else None),
+            iv=(float(args["iv"]) if args.get("iv") is not None else None),
+            risk_free=_risk_free(args))
+        mp = result["maxProfit"]
+        ml = result["maxLoss"]
+        return (f"Strategy ({result['strategyType']}): break-evens={result['breakEvens']}, "
+                f"maxProfit={mp}, maxLoss={ml}, bounded={result['bounded']}.",
+                {"status": "OK", "strategy": result})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+def _rows_from_series(series: Any) -> list[dict[str, Any]]:
+    return [{"timestamp": bar.timestamp, "open": bar.open, "high": bar.high,
+             "low": bar.low, "close": bar.close, "volume": getattr(bar, "volume", 0.0)}
+            for bar in series.bars]
+
+
+async def build_continuous_contract_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    t = _t()
+    try:
+        from .futures import splice_continuous
+
+        roll_dates = [str(x) for x in (args.get("rollDates") or [])]
+        contracts = args.get("contracts")
+        if not contracts:
+            symbols = [str(s) for s in (args.get("symbols") or [])]
+            if not symbols:
+                return ("ERROR — provide `contracts` or `symbols`.",
+                        {"status": "ERROR", "error": {"code": "FUTURES_INPUT_REQUIRED"}})
+            gateway = t._gateway(ctx)
+            contracts = []
+            for sym in symbols:
+                series = await gateway.get_historical_prices(
+                    sym, None, start=args.get("start"), end=args.get("end"),
+                    interval=str(args.get("interval") or "1d"))
+                contracts.append({"symbol": sym, "rows": _rows_from_series(series)})
+        result = splice_continuous(contracts, roll_dates,
+                                   adjustment=str(args.get("adjustment") or "difference"))
+        return (f"Continuous contract: {result['barCount']} bars, {len(result['rolls'])} roll(s), "
+                f"adjustment={result['adjustment']}.",
+                {"status": "OK",
+                 **{k: v for k, v in result.items() if k != "bars"},
+                 "bars": result["bars"]})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
 # ── Statistical validation ───────────────────────────────────────────────────
 
 async def run_out_of_sample_test(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -509,6 +617,52 @@ def register_advanced_tools(registry: Any) -> list[str]:
              "experimentIds": {"type": "array", "items": {"type": "string"}}},
              "required": ["experimentIds"]})
 
+    _def("price_option",
+         "Theoretical price and Greeks (delta/gamma/theta/vega/rho) for a European option via "
+         "the market layer's Black-Scholes model. States its assumptions; unavailable inputs "
+         "are reported, never fabricated.",
+         price_option_tool, {"type": "object", "properties": {
+             "type": {"type": "string", "enum": ["call", "put"]},
+             "spot": {"type": "number"}, "strike": {"type": "number"},
+             "timeToExpiry": {"type": "number", "description": "years to expiry"},
+             "iv": {"type": "number"}, "riskFree": {"type": "number"},
+             "dividendYield": {"type": "number"}},
+             "required": ["type", "spot", "strike", "timeToExpiry", "iv"]})
+    _def("implied_volatility",
+         "Solve implied volatility from an option's market price by inverting Black-Scholes "
+         "(bisection). Refuses prices outside no-arbitrage bounds.",
+         implied_volatility_tool, {"type": "object", "properties": {
+             "marketPrice": {"type": "number"}, "type": {"type": "string", "enum": ["call", "put"]},
+             "spot": {"type": "number"}, "strike": {"type": "number"},
+             "timeToExpiry": {"type": "number"}, "riskFree": {"type": "number"},
+             "dividendYield": {"type": "number"}},
+             "required": ["marketPrice", "type", "spot", "strike", "timeToExpiry"]})
+    _def("analyze_option_strategy",
+         "Multi-leg option strategy analytics: expiry payoff curve, net premium, break-evens, "
+         "max profit/loss (reported null when unbounded) and net Greeks. No early exercise.",
+         analyze_option_strategy_tool, {"type": "object", "properties": {
+             "legs": {"type": "array", "items": {"type": "object", "properties": {
+                 "type": {"type": "string", "enum": ["call", "put"]}, "strike": {"type": "number"},
+                 "quantity": {"type": "number", "description": "+ long / - short"},
+                 "premium": {"type": "number"}, "multiplier": {"type": "number"},
+                 "iv": {"type": "number"}}, "required": ["type", "strike", "quantity", "premium"]}},
+             "spotMin": {"type": "number"}, "spotMax": {"type": "number"},
+             "points": {"type": "integer"}, "valuationSpot": {"type": "number"},
+             "timeToExpiry": {"type": "number"}, "iv": {"type": "number"},
+             "riskFree": {"type": "number"}},
+             "required": ["legs", "spotMin", "spotMax"]})
+    _def("build_continuous_contract",
+         "Build a continuous futures series from ordered contracts + a roll schedule, with "
+         "difference/ratio back-adjustment (or none). Records every roll; the newest contract "
+         "is unadjusted. The result is an explicit backtest PROXY.",
+         build_continuous_contract_tool, {"type": "object", "properties": {
+             "contracts": {"type": "array", "items": {"type": "object"}},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "rollDates": {"type": "array", "items": {"type": "string"}},
+             "adjustment": {"type": "string", "enum": ["none", "difference", "ratio"]},
+             "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}},
+             "required": ["rollDates"]})
+
     _def("run_multiple_testing_diagnostics",
          "Deflated Sharpe Ratio (Bailey & López de Prado) and Probability of Backtest "
          "Overfitting (CSCV) to test whether a selected result survives the number of trials "
@@ -543,6 +697,10 @@ ADVANCED_TOOLS: tuple[str, ...] = (
     "run_bootstrap_test",
     "compare_backtests",
     "run_multiple_testing_diagnostics",
+    "price_option",
+    "implied_volatility",
+    "analyze_option_strategy",
+    "build_continuous_contract",
 )
 
 

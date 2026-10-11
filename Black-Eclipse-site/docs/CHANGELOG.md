@@ -75,6 +75,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Factor Lab, options and futures quant surfaces + advanced engine/route
+  updates.** Added `python/harness/factors/` (engine/library/models/store) with
+  `docs/quant-research/FACTOR_LAB.md`, and `quant/options.py` + `quant/futures.py`
+  with `test_quant_options_futures.py`; extended `quant/advanced_tools.py`,
+  `quant/tools.py` and `routers/quant.py` (engine selection, cost diagnostics,
+  OOS/bootstrap, multiple-testing, factor/options/futures tools). Quant+factor
+  test selection: 234 passed. `docs/quant-engine.md` and
+  `docs/backtesting-engine.md` updated.
+
 - **Production-readiness fixes for the Strategy SDK sandbox.** Added a shippable
   container image (`python/Dockerfile.quantsdk` + `python/requirements-quant-sdk.txt`
   — numpy/pydantic/PyYAML only) so the optional Docker isolation path
