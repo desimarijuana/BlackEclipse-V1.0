@@ -8,6 +8,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-10
 
+- **Strategy Development Engine (lifecycle close-out): governance, source
+  inspection, multi-file projects, deeper validation.** Added
+  `quant/ops_tools.py` and store tables on `agent-memory.db`:
+  `QuantStrategyApproval` (review gate) and `QuantStrategyDeployment` (governed
+  **paper-only** records — `live` raises `LIVE_TRADING_DISABLED`, no path routes
+  an order); tools `inspect_python_strategy` (static AST inspection — advisory),
+  `request/decide/list_strategy_approval`, `create/list/stop_strategy_deployment`,
+  and `run_python_project` (multi-file strategy project in the isolated worker,
+  sibling imports by name). Added static validation codes `AMBIGUOUS_FILL_TIMING`
+  (warning) and `INDICATOR_TF_UNORDERED`. Quant tools now **52**. Docs updated:
+  `docs/quant-engine.md`, `docs/NAVIGATION.md`, `docs/harness/decisions.md`
+  (ADR-H174). Tests: `python/tests/test_quant_ops.py`. Honest remaining gap:
+  container-grade isolation + pinned per-run dependencies (process isolation
+  today).
+
 - **Strategy Development Engine (chatbot-only): expression DSL, expanded
   indicators, benchmark metrics; the dedicated strategy UI was removed.** The
   feature is now driven entirely from the chatbot (agent tools) per direction —

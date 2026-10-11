@@ -89,19 +89,28 @@ def run_strategy_source(
     strategy_id: Optional[str] = None,
     timeout_s: float = 60.0,
     max_output_bytes: int = 12 * 1024 * 1024,
+    extra_files: Optional[dict[str, str]] = None,
+    entry: str = "strategy.py",
 ) -> tuple[Optional[BacktestResult], Optional[dict[str, Any]]]:
-    """Run `source` over `rows`. Returns `(result, error)` — exactly one is set."""
+    """Run `source` (plus optional sibling `extra_files`) over `rows`.
+
+    Returns `(result, error)` — exactly one is set. `entry` is the module file the
+    worker loads; sibling modules in `extra_files` are importable by name.
+    """
     if not source.strip():
         return None, {"code": "SDK_EMPTY_SOURCE", "message": "strategy source is empty"}
     if not rows:
         return None, {"code": "SDK_NO_DATA", "message": "no market data provided"}
 
     with tempfile.TemporaryDirectory(prefix="be-sdk-") as tmp:
-        src_path = os.path.join(tmp, "strategy.py")
+        src_path = os.path.join(tmp, entry)
         in_path = os.path.join(tmp, "input.json")
         out_path = os.path.join(tmp, "output.json")
         with open(src_path, "w", encoding="utf-8") as fh:
             fh.write(source)
+        for name, text in (extra_files or {}).items():
+            with open(os.path.join(tmp, name), "w", encoding="utf-8") as fh:
+                fh.write(text)
         payload = {
             "sourcePath": src_path, "className": class_name,
             "symbols": symbols or sorted(rows.keys()), "interval": interval,

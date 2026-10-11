@@ -31,6 +31,10 @@ if _PY_ROOT not in sys.path:
 
 
 def _load_module(path: str) -> Any:
+    # Make sibling project modules importable by name.
+    source_dir = os.path.dirname(os.path.abspath(path))
+    if source_dir not in sys.path:
+        sys.path.insert(0, source_dir)
     spec = importlib.util.spec_from_file_location("user_strategy", path)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load strategy module from {path!r}")

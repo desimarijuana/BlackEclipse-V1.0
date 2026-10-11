@@ -75,6 +75,20 @@ class StrategyBundleError(QuantError):
     code = "STRATEGY_BUNDLE_ERROR"
 
 
+class ApprovalRequired(QuantError):
+    """An action needs an approved version (e.g. deploying to paper)."""
+
+    code = "APPROVAL_REQUIRED"
+    http_status = 409
+
+
+class LiveTradingDisabled(QuantError):
+    """Live order routing is not available and is never auto-enabled."""
+
+    code = "LIVE_TRADING_DISABLED"
+    http_status = 403
+
+
 # ── Data errors ──────────────────────────────────────────────────────────────
 
 class DataError(QuantError):
@@ -168,6 +182,8 @@ __all__ = [
     "StrategyVersionImmutable",
     "UnsupportedSchemaVersion",
     "StrategyBundleError",
+    "ApprovalRequired",
+    "LiveTradingDisabled",
     "DataError",
     "MissingData",
     "InvalidSymbol",

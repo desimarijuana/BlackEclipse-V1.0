@@ -21,7 +21,10 @@ import uuid
 from typing import Any, Optional
 
 from .errors import (
+    ApprovalRequired,
     ExperimentNotFound,
+    LiveTradingDisabled,
+    QuantError,
     StrategyNotFound,
     StrategyVersionImmutable,
     StrategyVersionNotFound,
@@ -81,6 +84,28 @@ CREATE TABLE IF NOT EXISTS QuantExperiment (
 );
 CREATE INDEX IF NOT EXISTS idx_qexp_strategy ON QuantExperiment(strategyId);
 CREATE INDEX IF NOT EXISTS idx_qexp_created ON QuantExperiment(createdAt);
+CREATE TABLE IF NOT EXISTS QuantStrategyApproval (
+  id TEXT PRIMARY KEY,
+  strategyId TEXT NOT NULL,
+  version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  actor TEXT,
+  note TEXT,
+  createdAt TEXT NOT NULL,
+  decidedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_qappr_strategy ON QuantStrategyApproval(strategyId, version);
+CREATE TABLE IF NOT EXISTS QuantStrategyDeployment (
+  id TEXT PRIMARY KEY,
+  strategyId TEXT NOT NULL,
+  version TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  note TEXT,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qdeploy_strategy ON QuantStrategyDeployment(strategyId);
 """
 
 
@@ -321,6 +346,118 @@ class QuantStore:
         if cur.rowcount == 0:
             raise StrategyNotFound(f"strategy {strategy_id!r} not found")
         self._db.commit()
+
+    # ── Approvals & deployments (governance; NO live order routing) ──────────
+    def request_approval(self, strategy_id: str, version: str, *, actor: Optional[str] = None,
+                         note: Optional[str] = None) -> dict:
+        self.get_strategy(strategy_id, version)  # 404 if missing
+        appr_id = f"appr_{uuid.uuid4().hex[:16]}"
+        now = _iso_now()
+        self._db.execute(
+            "INSERT INTO QuantStrategyApproval "
+            "(id,strategyId,version,status,actor,note,createdAt,decidedAt) "
+            "VALUES (?,?,?,'requested',?,?,?,NULL)",
+            (appr_id, strategy_id, version, actor, note, now))
+        self._db.commit()
+        return self._approval_row(self._db.execute(
+            "SELECT * FROM QuantStrategyApproval WHERE id=?", (appr_id,)).fetchone())
+
+    @staticmethod
+    def _approval_row(row) -> dict:
+        return {
+            "id": row["id"], "strategyId": row["strategyId"], "version": row["version"],
+            "status": row["status"], "actor": row["actor"], "note": row["note"],
+            "createdAt": row["createdAt"], "decidedAt": row["decidedAt"],
+        }
+
+    def decide_approval(self, approval_id: str, *, approve: bool,
+                        actor: Optional[str] = None, note: Optional[str] = None) -> dict:
+        row = self._db.execute("SELECT * FROM QuantStrategyApproval WHERE id=?",
+                               (approval_id,)).fetchone()
+        if row is None:
+            raise StrategyNotFound(f"approval {approval_id!r} not found",
+                                   detail={"approvalId": approval_id})
+        self._db.execute(
+            "UPDATE QuantStrategyApproval SET status=?, actor=COALESCE(?,actor), "
+            "note=COALESCE(?,note), decidedAt=? WHERE id=?",
+            ("approved" if approve else "rejected", actor, note, _iso_now(), approval_id))
+        self._db.commit()
+        return self._approval_row(self._db.execute(
+            "SELECT * FROM QuantStrategyApproval WHERE id=?", (approval_id,)).fetchone())
+
+    def list_approvals(self, strategy_id: Optional[str] = None) -> list[dict]:
+        if strategy_id:
+            rows = self._db.execute(
+                "SELECT * FROM QuantStrategyApproval WHERE strategyId=? ORDER BY createdAt DESC",
+                (strategy_id,)).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM QuantStrategyApproval ORDER BY createdAt DESC").fetchall()
+        return [self._approval_row(r) for r in rows]
+
+    def is_approved(self, strategy_id: str, version: str) -> bool:
+        row = self._db.execute(
+            "SELECT 1 FROM QuantStrategyApproval WHERE strategyId=? AND version=? AND "
+            "status='approved' LIMIT 1", (strategy_id, version)).fetchone()
+        return row is not None
+
+    def create_deployment(self, strategy_id: str, version: str, *, mode: str = "paper",
+                          note: Optional[str] = None, require_approval: bool = True) -> dict:
+        """Record a deployment. `paper` is a record only; `live` is refused."""
+        if mode not in ("paper", "live"):
+            raise QuantError(f"unknown deployment mode {mode!r}",
+                             detail={"mode": mode})
+        if mode == "live":
+            raise LiveTradingDisabled(
+                "live trading is not available; Eclipse never auto-enables live order routing",
+                detail={"strategyId": strategy_id, "version": version})
+        self.get_strategy(strategy_id, version)
+        if require_approval and not self.is_approved(strategy_id, version):
+            raise ApprovalRequired(
+                "this strategy version has no approved approval record",
+                detail={"strategyId": strategy_id, "version": version})
+        dep_id = f"dep_{uuid.uuid4().hex[:16]}"
+        now = _iso_now()
+        self._db.execute(
+            "INSERT INTO QuantStrategyDeployment "
+            "(id,strategyId,version,mode,status,note,createdAt,updatedAt) "
+            "VALUES (?,?,?,?,'active',?,?,?)",
+            (dep_id, strategy_id, version, mode, note, now, now))
+        self._db.commit()
+        return self._deployment_row(self._db.execute(
+            "SELECT * FROM QuantStrategyDeployment WHERE id=?", (dep_id,)).fetchone())
+
+    @staticmethod
+    def _deployment_row(row) -> dict:
+        return {
+            "id": row["id"], "strategyId": row["strategyId"], "version": row["version"],
+            "mode": row["mode"], "status": row["status"], "note": row["note"],
+            "createdAt": row["createdAt"], "updatedAt": row["updatedAt"],
+            "liveExecution": False,
+        }
+
+    def list_deployments(self, strategy_id: Optional[str] = None) -> list[dict]:
+        if strategy_id:
+            rows = self._db.execute(
+                "SELECT * FROM QuantStrategyDeployment WHERE strategyId=? ORDER BY createdAt DESC",
+                (strategy_id,)).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM QuantStrategyDeployment ORDER BY createdAt DESC").fetchall()
+        return [self._deployment_row(r) for r in rows]
+
+    def stop_deployment(self, deployment_id: str) -> dict:
+        row = self._db.execute("SELECT * FROM QuantStrategyDeployment WHERE id=?",
+                               (deployment_id,)).fetchone()
+        if row is None:
+            raise QuantError(f"deployment {deployment_id!r} not found",
+                             detail={"deploymentId": deployment_id})
+        self._db.execute(
+            "UPDATE QuantStrategyDeployment SET status='stopped', updatedAt=? WHERE id=?",
+            (_iso_now(), deployment_id))
+        self._db.commit()
+        return self._deployment_row(self._db.execute(
+            "SELECT * FROM QuantStrategyDeployment WHERE id=?", (deployment_id,)).fetchone())
 
     # ── Experiments ──────────────────────────────────────────────────────────
     def save_experiment(

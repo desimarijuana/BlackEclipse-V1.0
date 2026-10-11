@@ -5901,3 +5901,41 @@ non-Turing-complete. Benchmark comparison requires fetching the benchmark series
 and aligning timestamps; it never fabricates a value when alignment is thin.
 Owner doc: `docs/quant-engine.md`. Tests: `test_quant_expressions.py`,
 `test_quant_indicators_ext.py`, `test_quant_copilot.py`.
+
+## ADR-H174 - Governance, source inspection and multi-file projects close the strategy lifecycle — but live order routing is structurally refused
+
+**Context.** The strategy spec's remaining backend items were: a governed path
+from a reviewed strategy to a deployable one, the paper-trading boundary, source
+safety inspection, and multi-file strategy projects — all without a dedicated UI
+and without ever enabling live trading.
+
+**Decision.**
+1. **Governance** (`store.py`): `QuantStrategyApproval` and
+   `QuantStrategyDeployment` tables on the ONE `agent-memory.db`. Approvals move
+   `requested ? approved|rejected`. A deployment **requires an approved record**
+   for that exact version (`APPROVAL_REQUIRED`) and supports `paper` only;
+   `live` raises `LIVE_TRADING_DISABLED` and no path routes an order. A
+   deployment is a **record** (`liveExecution: false`), never an execution.
+2. **Source inspection** (`ops_tools.inspect_source`): a static AST pass reports
+   imports, third-party dependencies, restricted modules and dangerous calls.
+   It is explicitly **advisory** — the isolated worker process is the security
+   boundary — so it never pretends to be a sandbox.
+3. **Multi-file projects**: `run_strategy_source` accepts sibling `extra_files`
+   + an `entry` module; the worker adds the project dir to `sys.path`, so a
+   strategy can `import` its own helper modules inside the same isolated,
+   env-scrubbed, time-limited process.
+4. **Static validation depth** (`strategy.py`): `AMBIGUOUS_FILL_TIMING`
+   (warning: `fill_at=close` with zero latency can fill on the signal bar) and
+   `INDICATOR_TF_UNORDERED` (an indicator timeframe that is neither the primary
+   nor a declared confirmation).
+
+**Why.** A strategy lifecycle needs an auditable review gate and a paper boundary
+that cannot silently become live. Making `live` a hard, typed refusal (not a flag)
+means the safe behavior is the only reachable one; inspection and richer
+validation are honesty aids layered on top of real process isolation.
+
+**Consequences.** Paper deployments are bookkeeping records today; wiring them to
+a market-data-driven shadow loop is a future step. Container-grade filesystem/
+network isolation and pinned per-run dependencies remain the one honest gap
+(process isolation only). Owner doc: `docs/quant-engine.md`. Tests:
+`test_quant_ops.py`.

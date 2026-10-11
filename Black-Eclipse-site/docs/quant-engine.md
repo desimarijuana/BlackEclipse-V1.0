@@ -41,6 +41,7 @@ market data → indicator context → signal (rules) → risk → order
 | AI copilot support (signals, research plan, report, rule/sizing helpers) | `quant/copilot.py` |
 | AI copilot agent tools | `quant/copilot_tools.py` |
 | Benchmark-relative metrics (alpha/beta/IR/tracking error) | `quant/benchmark.py` |
+| Governance, source inspection, multi-file projects | `quant/ops_tools.py` |
 | Rule evaluation over arrays | `quant/rules.py` |
 | Causal indicators (EMA/SMA/RSI/ATR/MACD/Bollinger/…) | `quant/indicators.py` |
 | Market-data adapter, point-in-time dataset, quality checks, MTF alignment | `quant/data.py` |
@@ -240,6 +241,29 @@ reference the experiment id / strategy version / seed they were built from.
   total/excess return from an experiment's equity curve vs a real benchmark
   series; fewer than 3 aligned observations returns `available: false` with a
   reason (never a fabricated number).
+
+## Governance, inspection & multi-file projects
+
+- **Approvals** (`store.request_approval`/`decide_approval`): a review gate per
+  strategy version (`requested → approved|rejected`), recorded on
+  `agent-memory.db` (`QuantStrategyApproval`).
+- **Deployments** (`store.create_deployment`): a governed, **paper-only** record
+  (`QuantStrategyDeployment`). It requires an approved version
+  (`APPROVAL_REQUIRED`); `mode="live"` is refused with `LIVE_TRADING_DISABLED`
+  and **no code path routes an order** — a deployment is bookkeeping, never an
+  execution (`liveExecution: false`).
+- **Source inspection** (`inspect_python_strategy`): a static AST pass over
+  imports/third-party modules/restricted modules/dangerous calls. Explicitly
+  advisory — the isolated worker is the security boundary.
+- **Multi-file projects** (`run_python_project`): a `{entry, files}` project runs
+  in the same isolated, env-scrubbed, time-limited worker; sibling modules import
+  by name.
+- **Static validation depth**: `AMBIGUOUS_FILL_TIMING` (warning) and
+  `INDICATOR_TF_UNORDERED` (error) join the existing checks.
+
+Honest remaining gap: **container-grade** filesystem/network isolation and pinned
+per-run dependency resolution; today the runtime is process isolation + scrubbed
+env + timeout + output cap + POSIX rlimits (`pythonStrategies` = `partial`).
 
 ## Capability state (never overclaimed)
 

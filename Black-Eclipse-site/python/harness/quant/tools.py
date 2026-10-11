@@ -29,6 +29,7 @@ from .compiler import compile_graph
 from .copilot_tools import COPILOT_TOOLS, register_copilot_tools
 from .datasets import dataset_from_strategy, resolve_dataset
 from .nodes import REGISTRY
+from .ops_tools import OPS_TOOLS, register_strategy_ops_tools
 from .engine import BacktestConfig, BacktestResult, run_backtest, run_portfolio_backtest
 from .errors import QuantError, StoreUnavailable
 from .montecarlo import MonteCarloConfig, MonteCarloEngine
@@ -1139,6 +1140,7 @@ def register_quant_tools(registry: Any) -> list[str]:
              "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
              "required": ["strategyId", "paramRanges"]}, 120_000, long_running=True)
     register_copilot_tools(registry)
+    register_strategy_ops_tools(registry)
 
     _def("run_robustness_analysis",
          "Combine sensitivity, cost sensitivity, trade concentration, sample size and regime "
@@ -1169,6 +1171,7 @@ QUANT_TOOLS: tuple[str, ...] = (
     "optimize_parameters", "run_walk_forward", "run_monte_carlo",
     "run_sensitivity_analysis", "run_robustness_analysis",
     *COPILOT_TOOLS,
+    *OPS_TOOLS,
 )
 
 

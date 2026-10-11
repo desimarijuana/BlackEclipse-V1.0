@@ -605,6 +605,22 @@ def validate_strategy(spec: StrategySpec) -> list[ValidationIssue]:
     if spec.execution.latency_bars < 0:
         issues.append(ValidationIssue("BAD_LATENCY", "latency_bars cannot be negative",
                                       "execution.latency_bars"))
+    if spec.execution.fill_at == "close" and spec.execution.latency_bars == 0:
+        issues.append(ValidationIssue(
+            "AMBIGUOUS_FILL_TIMING",
+            "fill_at='close' with latency_bars=0 can fill on the same bar the signal is "
+            "computed; set latency_bars>=1 or fill_at='next_open'",
+            "execution.fill_at", severity="warning"))
+
+    # Indicator timeframe ordering (a higher timeframe must be declared).
+    valid_tfs = {None, spec.timeframes.primary} | set(spec.timeframes.confirmation)
+    for i, decl in enumerate(spec.indicators):
+        if decl.timeframe is not None and decl.timeframe not in valid_tfs:
+            issues.append(ValidationIssue(
+                "INDICATOR_TF_UNORDERED",
+                f"indicator timeframe {decl.timeframe!r} is neither the primary nor a "
+                "declared confirmation timeframe",
+                f"indicators[{i}].timeframe"))
     return issues
 
 
