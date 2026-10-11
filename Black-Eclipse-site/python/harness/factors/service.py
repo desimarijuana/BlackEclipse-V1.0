@@ -199,13 +199,26 @@ def evaluate(
     expression: str, series_by_symbol: dict[str, dict[str, list[float]]], symbols: list[str],
     *, horizons: list[int], method: str = "pearson", min_obs: int = 5,
     periods_per_year: Optional[int] = None, expected_direction: Optional[str] = None,
+    membership: Optional[Any] = None,
 ) -> dict[str, Any]:
-    """Compute IC, Rank IC and decay for a factor against forward returns."""
+    """Compute IC, Rank IC and decay for a factor against forward returns.
+
+    ``membership`` is an optional ``(T, N)`` bool mask from
+    `factors.universe.membership_mask`; non-member cells are excluded so a factor
+    is never evaluated over names that were not in the universe on that date.
+    """
     factor_panel, warnings = build_factor_panel(expression, series_by_symbol, symbols)
     prices = series_panel(series_by_symbol, symbols, "close")
     T = min(factor_panel.shape[0] if factor_panel.size else 0, prices.shape[0])
     factor_panel = factor_panel[:T]
     prices = prices[:T]
+    universe_coverage = 1.0
+    if membership is not None:
+        from .universe import apply_membership  # noqa: PLC0415
+
+        m = np.asarray(membership, dtype=bool)[:T]
+        universe_coverage = float(m.mean()) if m.size else 0.0
+        factor_panel = apply_membership(factor_panel, m)
     if T < min_obs + max(horizons, default=1):
         raise StatsError("INSUFFICIENT_DATA", "not enough observations for the requested horizons", 422)
 
@@ -235,6 +248,7 @@ def evaluate(
         },
         "decay": decay,
         "coverage": coverage,
+        "universeCoverage": universe_coverage,
         "observations": int(T),
         "warnings": warnings,
     }
@@ -244,12 +258,17 @@ def quantile_portfolio(
     expression: str, series_by_symbol: dict[str, dict[str, list[float]]], symbols: list[str],
     *, quantiles: int = 5, weighting: str = "equal", long_short: bool = True, rebalance: int = 1,
     cost_bps: float = 0.0, min_obs: int = 5, periods_per_year: int = 252, risk_free: float = 0.0,
+    membership: Optional[Any] = None,
 ) -> dict[str, Any]:
     factor_panel, warnings = build_factor_panel(expression, series_by_symbol, symbols)
     prices = series_panel(series_by_symbol, symbols, "close")
     T = min(factor_panel.shape[0] if factor_panel.size else 0, prices.shape[0])
     factor_panel = factor_panel[:T]
     prices = prices[:T]
+    if membership is not None:
+        from .universe import apply_membership  # noqa: PLC0415
+
+        factor_panel = apply_membership(factor_panel, np.asarray(membership, dtype=bool)[:T])
     returns = prices.copy()
     with np.errstate(divide="ignore", invalid="ignore"):
         fwd = np.full_like(prices, np.nan)
@@ -310,9 +329,28 @@ def get_builtin_spec(name: str) -> Optional[dict[str, Any]]:
     return get_builtin(name)
 
 
+def _mm():
+    from ..quant import multiple_testing  # noqa: PLC0415
+
+    return multiple_testing
+
+
+def deflated_sharpe_for(returns: list[float], *, trial_sharpes: Optional[list[float]] = None,
+                        trial_count: Optional[int] = None,
+                        sr_variance: Optional[float] = None) -> dict[str, Any]:
+    """Deflated Sharpe Ratio (reuses the quant engine — no second implementation)."""
+    return _mm().deflated_sharpe(returns, trial_sharpes=trial_sharpes, trial_count=trial_count,
+                                 sr_variance=sr_variance)
+
+
+def overfitting_pbo(candidate_returns: list[list[float]], *, n_splits: int = 16) -> dict[str, Any]:
+    """Probability of Backtest Overfitting via CSCV (reuses the quant engine)."""
+    return _mm().pbo_cscv(candidate_returns, n_splits=n_splits)
+
+
 __all__ = [
     "set_factor_store", "get_factor_store", "validate_expression", "save_factor", "list_factors",
     "get_factor", "get_factor_version", "build_factor_panel", "series_panel", "evaluate",
     "quantile_portfolio", "compose", "analyze_redundancy", "list_library", "install_builtins",
-    "get_builtin_spec",
+    "get_builtin_spec", "deflated_sharpe_for", "overfitting_pbo",
 ]

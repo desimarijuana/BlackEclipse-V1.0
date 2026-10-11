@@ -370,6 +370,14 @@ async def portfolio_optimize(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 
 
 async def portfolio_attribution(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    if args.get("periods"):
+        from .attribution import multi_period_attribution
+
+        outcome = multi_period_attribution(args["periods"], method=args.get("method", "fachler"))
+        if not outcome.get("available"):
+            return _fail(PortfolioError("ATTRIBUTION_UNAVAILABLE", outcome.get("reason", "unavailable")))
+        return (f"Multi-period attribution active return {outcome['activeReturn']}, "
+                f"reconciles={outcome['reconciles']}.", outcome)
     service = _service(ctx)
     try:
         outcome = await service.attribution(args["portfolio_id"], args, actor_id=_actor(ctx))
@@ -408,6 +416,211 @@ async def portfolio_aggregate(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
     outcome = await service.aggregate({**args, "owner_id": args.get("owner_id") or _actor(ctx)},
                                       actor_id=_actor(ctx))
     return f"Aggregate: {outcome['totalValue']} {outcome['baseCurrency']} across {outcome['portfolioCount']} portfolio(s).", outcome
+
+
+async def portfolio_estimate_inputs(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Deterministic expected-return and covariance estimation from returns."""
+    from .estimation import (align_returns, estimate_covariance,
+                             estimate_expected_returns)
+
+    returns = args.get("returns")
+    if returns is None and args.get("series"):
+        aligned = align_returns(args["series"])
+        if not aligned.get("available"):
+            return (f"Estimation unavailable: {aligned.get('reason')}",
+                    {"status": "UNAVAILABLE", "reason": aligned.get("reason")})
+        returns = aligned["returns"]
+        returns_symbols = aligned["symbols"]
+    else:
+        returns_symbols = sorted(returns or {})
+    if not returns:
+        return ("Estimation unavailable: supply per-symbol returns or dated price series.",
+                {"status": "UNAVAILABLE", "reason": "no returns supplied"})
+    er = estimate_expected_returns(
+        returns, method=args.get("expected_returns_method", "arithmetic"),
+        half_life=float(args.get("half_life") or 60.0), shrinkage=args.get("shrinkage"),
+        user=args.get("user_expected_returns"))
+    cov = estimate_covariance(
+        returns, method=args.get("covariance_method", "sample"),
+        half_life=float(args.get("half_life") or 60.0), shrinkage=args.get("shrinkage"),
+        annualize=bool(args.get("annualize", False)))
+    payload = {
+        "symbols": sorted(returns), "expectedReturns": er, "covariance": cov,
+        "diagnostics": {"expectedReturns": er.get("meta"), "covariance": cov.get("diagnostics"),
+                        "warnings": cov.get("warnings")},
+    }
+    text = (f"Estimated inputs for {len(returns_symbols) or len(returns)} assets: "
+            f"expected returns ({er.get('method') or 'unavailable'}), covariance "
+            f"({cov.get('method') or 'unavailable'}; PSD={cov.get('diagnostics', {}).get('positiveSemidefinite')}).")
+    return text, payload
+
+
+async def portfolio_construct(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    service = _service(ctx)
+    payload = dict(args)
+    if ctx is not None and getattr(ctx, "market_gateway", None) is not None:
+        service.gateway = service.gateway or getattr(ctx, "market_gateway")
+    result = await service.construct(payload, actor_id=_actor(ctx))
+    if result.get("available") is False:
+        return (f"Construction unavailable ({result.get('status')}): {result.get('reason')}", result)
+    if result.get("status") == "INFEASIBLE":
+        return (f"Requested constraints are INFEASIBLE: {result.get('reason')}. "
+                "No allocation was produced.", result)
+    n = len(result.get("weights", {}))
+    status = result.get("status")
+    anchor = f"Construction ({result.get('method')}) -> {status}; {n} asset(s) allocated."
+    if status == "OPTIMAL_INACCURATE":
+        anchor += " Result failed independent validation of some constraint(s)."
+    if not result.get("validation", {}).get("satisfied", True):
+        failed = [c["name"] for c in result.get("validation", {}).get("violations", [])]
+        anchor += f" Constraint issues: {failed}."
+    anchor += " Proposal only — no trades placed."
+    return anchor, result
+
+
+async def portfolio_risk_contributions(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .risk_engine import risk_contributions as _rc
+
+    weights = args.get("weights")
+    if weights is None and args.get("portfolio_id"):
+        service = _service(ctx)
+        reading = await service.read(args["portfolio_id"], include=["positions"],
+                                     gateway=getattr(ctx, "market_gateway", None), actor_id=_actor(ctx))
+        weights = service._weight_map([
+            {"symbol": p["symbol"], "marketValueBase": p.get("marketValueBase")} for p in reading["positions"]
+        ])
+    if not weights:
+        return ("Risk contributions unavailable: supply weights or a portfolio.",
+                {"available": False, "reason": "no weights"})
+    result = _rc(weights, args["covariance"], names=args.get("names"), groups=args.get("groups"))
+    if not result.get("available"):
+        return (f"Risk contributions unavailable: {result.get('reason')}", result)
+    top = sorted(result["riskContributions"].items(), key=lambda kv: -abs(kv[1]["component"]))[:3]
+    text = (f"Portfolio volatility {result['portfolioVolatility']}; largest risk contributors: "
+            + ", ".join(f"{k} ({v['component']})" for k, v in top)
+            + f"; reconciles={result['reconciliation']['reconciles']}.")
+    return text, result
+
+
+async def portfolio_stress_test(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .risk_engine import stress_test as _stress
+
+    weights = args.get("weights") or {}
+    if not weights:
+        return ("Stress test unavailable: supply weights.", {"available": False, "reason": "no weights"})
+    result = _stress(weights, scenarios=args.get("scenarios") or [], covariance=args.get("covariance"))
+    lines = []
+    for s in result["scenarios"]:
+        if s.get("type") == "monte_carlo":
+            lines.append(f"{s['name']}: VaR {s.get('var')}, CVaR {s.get('cvar')}")
+        elif s.get("available"):
+            lines.append(f"{s['name']}: portfolio return {s.get('portfolioReturn', s.get('cumulativeReturn'))}")
+        else:
+            lines.append(f"{s['name']}: unavailable ({s.get('reason')})")
+    return "Stress test: " + "; ".join(lines) + ".", result
+
+
+async def portfolio_transaction_costs(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .costs import transaction_costs, turnover
+
+    current = args.get("current_weights") or {}
+    target = args.get("target_weights") or {}
+    to = turnover(current, target)
+    trades = to["deltas"]
+    costs = transaction_costs(
+        trades, commission_rate=float(args.get("commission_rate") or 0.0),
+        half_spread=(float(args["half_spread"]) if args.get("half_spread") is not None else None),
+        impact_coefficient=float(args.get("impact_coefficient") or 0.0),
+        min_commission=float(args.get("min_commission") or 0.0),
+        fx_rate=float(args.get("fx_rate") or 1.0),
+    )
+    return (f"Turnover (one-way) {to['oneWayTurnover']}; estimated cost "
+            f"{costs['totalCostBps']} bps.", {"turnover": to, "costs": costs})
+
+
+async def portfolio_compare_allocations(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .construction import compare_allocations as _compare
+
+    covariance = args.get("covariance")
+    if not args.get("symbols") or covariance is None:
+        return ("Comparison unavailable: `symbols` and `covariance` are required.",
+                {"available": False, "reason": "symbols and covariance are required"})
+    result = _compare(
+        symbols=args["symbols"], covariance=covariance,
+        expected_returns=args.get("expected_returns"),
+        methods=args.get("methods"),
+        constraints_payload=args.get("constraints") or {},
+        benchmark_weights=args.get("benchmark_weights"),
+        market_weights=args.get("market_weights"),
+        risk_budgets=args.get("risk_budgets"),
+        target_volatility=args.get("target_volatility"),
+        risk_aversion=float(args.get("risk_aversion") or 1.0),
+        views=args.get("views"), factor_loadings=args.get("factor_loadings"),
+        factor_constraints=args.get("factor_constraints"),
+    )
+    rows = result.get("comparison", [])
+    text = "Compared " + ", ".join(f"{r['method']} ({r.get('status')})" for r in rows) + "."
+    return text, result
+
+
+async def portfolio_estimate_factor_loadings(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .estimation import estimate_factor_loadings
+
+    result = estimate_factor_loadings(args.get("asset_returns") or {},
+                                      args.get("factor_returns") or {})
+    if not result.get("available"):
+        return (f"Factor loadings unavailable: {result.get('reason')}", result)
+    return (f"Estimated loadings for {len(result['loadings'])} asset(s) on "
+            f"{len(result['factors'])} factor(s).", result)
+
+
+async def portfolio_simulate_rebalancing(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    if str(args.get("mode") or "").upper() == "BACKGROUND":
+        from .fabric import submit_simulation
+
+        try:
+            handle = await submit_simulation({
+                "price_series": args.get("price_series"), "schedule": args.get("schedule"),
+                "method": args.get("method"), "constraints": args.get("constraints"),
+                "lookback": args.get("lookback"), "initial_capital": args.get("initial_capital"),
+                "cost_rate": args.get("cost_rate"),
+            })
+            job_id = handle.get("jobId") or handle.get("id")
+            return (f"Rebalancing simulation submitted as background job {job_id}.",
+                    {"status": "SUBMITTED", "jobId": job_id, "job": handle})
+        except RuntimeError as exc:  # fabric unavailable -> run inline, honestly
+            if not args.get("price_series"):
+                return (f"Simulation unavailable: {exc}", {"available": False, "reason": str(exc)})
+
+    from .simulation import rebalancing_simulation
+
+    result = rebalancing_simulation(
+        args.get("price_series") or {}, schedule=args.get("schedule") or "quarterly",
+        method=args.get("method") or "risk_parity",
+        constraints_payload=args.get("constraints") or {},
+        lookback=int(args.get("lookback") or 252),
+        initial_capital=float(args.get("initial_capital") or 1.0),
+        cost_rate=float(args.get("cost_rate") or 0.0),
+    )
+    if not result.get("available"):
+        return (f"Rebalancing simulation unavailable: {result.get('reason')}", result)
+    return (f"{result['schedule']} rebalancing ({result['method']}): total return "
+            f"{result['totalReturn']}, vol {result['annualizedVolatility']}, "
+            f"{result['rebalances']} rebalance(s), cost {result['totalCostFraction']}.", result)
+
+
+async def portfolio_list_runs(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    service = _service(ctx)
+    rows = service.store.list_construction_runs(args["portfolio_id"], args.get("limit", 50))
+    return f"{len(rows)} construction run(s).", {"runs": rows}
+
+
+async def portfolio_get_run(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    service = _service(ctx)
+    run = service.store.get_construction_run(args["run_id"])
+    if run is None:
+        return _fail(PortfolioError("RUN_NOT_FOUND", f"construction run {args['run_id']} not found"))
+    return (f"Construction run {run['id']} ({run['method']}, {run['status']}).", run)
 
 
 def _error_from(outcome: dict[str, Any]) -> PortfolioError:
@@ -638,10 +851,12 @@ def register_portfolio_tools(registry: Any) -> None:
          {"type": "object", "properties": {
              **pid, "dimension": {"type": "string"},
              "segments": {"type": "array", "items": {"type": "object"}},
+             "periods": {"type": "array", "items": {"type": "object"},
+                         "description": "Multi-period: [{name, segments:[...]}] (Carino-linked)."},
              "benchmark_weights": {"type": "object"}, "portfolio_returns": {"type": "object"},
              "benchmark_returns": {"type": "object"},
              "method": {"type": "string", "enum": ["fachler", "bhb"]}},
-          "required": ["portfolio_id"]},
+           "required": []},
          READ)
     _def("portfolio_factor_exposure",
          "Portfolio exposure to named factors given caller-supplied per-symbol factor loadings.",
@@ -664,6 +879,140 @@ def register_portfolio_tools(registry: Any) -> None:
              "portfolio_ids": {"type": "array", "items": {"type": "string"}},
              "owner_id": {"type": "string"}}},
          READ)
+    _def("portfolio_estimate_inputs",
+         "Deterministic estimation layer: expected returns (arithmetic/geometric/ewma/shrinkage/"
+         "user) and covariance (sample/ewma/shrinkage/diagonal) with PSD/symmetry/condition "
+         "diagnostics. Accepts per-symbol `returns` or dated `series`.",
+         portfolio_estimate_inputs,
+         {"type": "object", "properties": {
+             "returns": {"type": "object", "description": "symbol -> list of per-period returns"},
+             "series": {"type": "object", "description": "symbol -> [{date,timestamp,close,value}]"},
+             "covariance_method": {"type": "string", "enum": ["sample", "ewma", "shrinkage", "diagonal"]},
+             "expected_returns_method": {"type": "string",
+                                         "enum": ["arithmetic", "geometric", "ewma", "shrinkage", "user"]},
+             "half_life": {"type": "number"}, "shrinkage": {"type": "number"},
+             "annualize": {"type": "boolean"},
+             "user_expected_returns": {"type": "object"}}},
+         READ)
+    _def("portfolio_construct",
+         "Portfolio construction engine. Methods: equal_weight, benchmark_weight, min_variance, "
+         "mean_variance, risk_parity, volatility_target, black_litterman, factor_constrained, "
+         "efficient_frontier. Enforces hard constraints (budget, long-only, per-asset bounds, "
+         "sector/group caps, factor caps, turnover) and INDEPENDENTLY validates the result. "
+         "Supply covariance/expected_returns or returns/symbols (estimated via the gateway). "
+         "Proposal only — never places trades.",
+         portfolio_construct,
+         {"type": "object", "properties": {
+             "portfolio_id": {"type": "string"},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "method": {"type": "string", "enum": [
+                 "equal_weight", "benchmark_weight", "min_variance", "mean_variance",
+                 "risk_parity", "volatility_target", "black_litterman", "factor_constrained",
+                 "efficient_frontier"]},
+             "covariance": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+             "expected_returns": {"type": "array", "items": {"type": "number"}},
+             "returns": {"type": "object"}, "covariance_method": {"type": "string"},
+             "expected_returns_method": {"type": "string"},
+             "constraints": {"type": "object"},
+             "min_weights": {"type": "object"}, "max_weights": {"type": "object"},
+             "groups": {"type": "array", "items": {"type": "object"}},
+             "group_caps": {"type": "object"}, "group_membership": {"type": "object"},
+             "factor_loadings": {"type": "object"},
+             "factor_constraints": {"type": "array", "items": {"type": "object"}},
+             "benchmark_weights": {"type": "object"}, "market_weights": {"type": "array",
+                                                                        "items": {"type": "number"}},
+             "risk_budgets": {"type": "array", "items": {"type": "number"}},
+             "risk_aversion": {"type": "number"}, "target_volatility": {"type": "number"},
+             "tau": {"type": "number"}, "views": {"type": "array", "items": {"type": "object"}},
+             "turnover_cap": {"type": "number"}, "current_weights": {"type": "object"},
+             "annualize": {"type": "boolean"}},
+          "required": ["method"]},
+         WRITE, "portfolio.rebalance_proposal", timeout=40_000)
+    _def("portfolio_risk_contributions",
+         "Euler risk decomposition of a portfolio's volatility across holdings and optional "
+         "groups; reconciles Σ components to portfolio volatility. Preserves short-position signs.",
+         portfolio_risk_contributions,
+         {"type": "object", "properties": {
+             "weights": {"type": "object"}, "portfolio_id": {"type": "string"},
+             "names": {"type": "array", "items": {"type": "string"}},
+             "groups": {"type": "object"},
+             "covariance": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}}},
+          "required": ["covariance"]},
+         READ)
+    _def("portfolio_stress_test",
+         "Scenario/stress testing: hypothetical symbol/factor shocks, historical window replay "
+         "and seeded Monte-Carlo (VaR/CVaR). Names assumptions and limitations.",
+         portfolio_stress_test,
+         {"type": "object", "properties": {
+             "weights": {"type": "object"}, "covariance": {"type": "array",
+                                                           "items": {"type": "array",
+                                                                     "items": {"type": "number"}}},
+             "scenarios": {"type": "array", "items": {"type": "object"}}},
+          "required": ["weights", "scenarios"]},
+         READ, timeout=40_000)
+    _def("portfolio_transaction_costs",
+         "Turnover (one-way and gross) and a configurable transaction-cost estimate "
+         "(commission, half-spread, impact, FX) for a rebalance.",
+         portfolio_transaction_costs,
+         {"type": "object", "properties": {
+             "current_weights": {"type": "object"}, "target_weights": {"type": "object"},
+             "commission_rate": {"type": "number"},
+             "half_spread": {"type": "number"}, "impact_coefficient": {"type": "number"},
+             "min_commission": {"type": "number"}, "fx_rate": {"type": "number"}}},
+         READ)
+    _def("portfolio_compare_allocations",
+         "Run several construction methods over the SAME inputs and compare expected return, "
+         "volatility, concentration, turnover and constraint satisfaction. Does not pick a winner.",
+         portfolio_compare_allocations,
+         {"type": "object", "properties": {
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "covariance": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+             "expected_returns": {"type": "array", "items": {"type": "number"}},
+             "methods": {"type": "array", "items": {"type": "string"}},
+             "constraints": {"type": "object"}, "benchmark_weights": {"type": "object"},
+             "market_weights": {"type": "array", "items": {"type": "number"}},
+             "risk_budgets": {"type": "array", "items": {"type": "number"}},
+             "target_volatility": {"type": "number"}, "risk_aversion": {"type": "number"},
+             "views": {"type": "array", "items": {"type": "object"}},
+             "factor_loadings": {"type": "object"},
+             "factor_constraints": {"type": "array", "items": {"type": "object"}}},
+          "required": ["symbols", "covariance"]},
+         READ, timeout=40_000)
+    _def("portfolio_estimate_factor_loadings",
+         "Estimate per-asset factor loadings by OLS from asset and factor return series "
+         "(loadings, alpha, residual variance, R²).",
+         portfolio_estimate_factor_loadings,
+         {"type": "object", "properties": {
+             "asset_returns": {"type": "object"}, "factor_returns": {"type": "object"}},
+          "required": ["asset_returns", "factor_returns"]},
+         READ)
+    _def("portfolio_simulate_rebalancing",
+         "Point-in-time rebalancing / walk-forward simulation: re-estimates inputs from the "
+         "trailing window at each scheduled rebalance (monthly/quarterly/semiannual/annual), "
+         "applies turnover and costs, drifts holdings, and reports net performance and risk. "
+         "No look-ahead.",
+         portfolio_simulate_rebalancing,
+         {"type": "object", "properties": {
+             "price_series": {"type": "object"}, "schedule": {"type": "string"},
+             "method": {"type": "string"}, "constraints": {"type": "object"},
+             "lookback": {"type": "integer"}, "initial_capital": {"type": "number"},
+             "cost_rate": {"type": "number"},
+             "mode": {"type": "string", "enum": ["inline", "BACKGROUND"]}},
+          "required": ["price_series"]},
+         READ, timeout=60_000)
+    _def("portfolio_list_runs",
+         "List immutable construction/optimization runs for a portfolio (method, status, "
+         "target, input data version).",
+         portfolio_list_runs,
+         {"type": "object", "properties": {**pid, "limit": {"type": "integer"}},
+          "required": ["portfolio_id"]},
+         READ)
+    _def("portfolio_get_run",
+         "Retrieve one immutable construction run by id (exact inputs, constraints, validated "
+         "target weights, reproducibility metadata).",
+         portfolio_get_run,
+         {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]},
+         READ)
 
 
 PORTFOLIO_READ_TOOLS = [
@@ -671,6 +1020,10 @@ PORTFOLIO_READ_TOOLS = [
     "portfolio_calculate_allocation", "portfolio_calculate_risk", "portfolio_calculate_tax_lots",
     "portfolio_reconcile", "portfolio_list_reconciliations", "portfolio_attribution",
     "portfolio_factor_exposure", "portfolio_hedge", "portfolio_aggregate",
+    "portfolio_estimate_inputs", "portfolio_risk_contributions", "portfolio_stress_test",
+    "portfolio_transaction_costs", "portfolio_compare_allocations",
+    "portfolio_estimate_factor_loadings", "portfolio_simulate_rebalancing",
+    "portfolio_list_runs", "portfolio_get_run",
 ]
 PORTFOLIO_WRITE_TOOLS = [
     "portfolio_create", "portfolio_add_position", "portfolio_remove_position",
@@ -679,7 +1032,7 @@ PORTFOLIO_WRITE_TOOLS = [
     "portfolio_record_reward", "portfolio_apply_staking", "portfolio_rebuild",
     "portfolio_apply_slashing", "portfolio_record_funding",
 ]
-PORTFOLIO_CONSEQUENTIAL_TOOLS = ["portfolio_rebalance", "portfolio_optimize"]
+PORTFOLIO_CONSEQUENTIAL_TOOLS = ["portfolio_rebalance", "portfolio_optimize", "portfolio_construct"]
 PORTFOLIO_TOOLS = PORTFOLIO_READ_TOOLS + PORTFOLIO_WRITE_TOOLS + PORTFOLIO_CONSEQUENTIAL_TOOLS
 
 

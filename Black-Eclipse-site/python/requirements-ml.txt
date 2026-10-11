@@ -1,0 +1,27 @@
+# BlackEclipse ML Research Lab — OPTIONAL model backends.
+#
+# These are NOT part of the default runtime (`python/requirements.txt`) so that
+# `npm install && npm run dev` stays lightweight and zero-config keeps working.
+# The ML engine ships a complete, dependency-free NumPy core (dummy, ridge,
+# logistic regression and a CART random forest) that covers the default
+# workflows. Installing this file ADDS the optional adapters; each adapter uses
+# its library when present and otherwise reports an honest MODEL_UNAVAILABLE
+# (it never silently substitutes a different model).
+#
+# Install into the runtime the app uses:
+#
+#   scripts/vendor/python/python.exe -m pip install -r python/requirements-ml.txt
+#
+# (or the interpreter resolved by scripts/setup-python.js). Version bounds are
+# pinned to the majors verified against this runtime (Python 3.12, NumPy 2.x).
+
+scikit-learn>=1.4,<1.7
+lightgbm>=4.3,<5
+xgboost>=2.1,<4
+
+# Explainability (Phase 8) — only needed for SHAP-based explanations.
+# shap>=0.46,<1
+
+# Hyperparameter optimisation (Phase 6) — optional; the native engine currently
+# exposes deterministic grid/random search without it.
+# optuna>=4,<5

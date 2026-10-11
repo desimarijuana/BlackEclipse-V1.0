@@ -58,7 +58,6 @@ from .routers.eval_gates import router as eval_gates_router
 from .routers.evolution import router as evolution_router
 from .routers.execution import router as execution_router
 from .routers.fabric import router as fabric_router
-from .routers.factors import router as factors_router
 from .routers.financial import router as financial_router
 from .routers.git import router as git_router
 from .routers.grants import router as grants_router
@@ -66,13 +65,13 @@ from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.market import router as market_router
 from .routers.memory import router as memory_router
+from .routers.ml import router as ml_router
 from .routers.observability import router as observability_router
 from .routers.orchestration import router as orchestration_router
 from .routers.plugins import router as plugins_router
 from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.research import router as research_router
-from .routers.research_data import router as research_data_router
 from .routers.research_data import router as research_data_router
 from .routers.search import router as search_router
 from .routers.security import router as security_router
@@ -112,7 +111,6 @@ app.include_router(eval_gates_router)
 app.include_router(evolution_router)
 app.include_router(execution_router)
 app.include_router(fabric_router)
-app.include_router(factors_router)
 app.include_router(financial_router)
 app.include_router(git_router)
 app.include_router(grants_router)
@@ -120,6 +118,7 @@ app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(market_router)
 app.include_router(memory_router)
+app.include_router(ml_router)
 app.include_router(observability_router)
 app.include_router(orchestration_router)
 app.include_router(plugins_router)

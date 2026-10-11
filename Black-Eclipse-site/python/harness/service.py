@@ -156,6 +156,12 @@ class AgenticService:
         from .factors.bootstrap import install_factor_layer  # noqa: PLC0415
 
         install_factor_layer(self)
+        # ML Research Lab: immutable datasets, temporal splits, model adapters,
+        # experiment store and a versioned model registry. Wiring in
+        # `ml/bootstrap.py`; registered on the SAME registry.
+        from .ml.bootstrap import install_ml_layer  # noqa: PLC0415
+
+        install_ml_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.

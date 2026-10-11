@@ -256,6 +256,27 @@ CREATE TABLE IF NOT EXISTS PortfolioAuditEvent (
   FOREIGN KEY (portfolioId) REFERENCES Portfolio(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_portfolio_audit ON PortfolioAuditEvent(portfolioId, createdAt);
+
+-- Immutable construction/optimization run record (§38): the exact inputs,
+-- constraints, solver status, independently-validated target weights, input
+-- snapshot reference and reproducibility metadata for one construction run.
+-- portfolioId is nullable so universe-only research runs are captured too.
+CREATE TABLE IF NOT EXISTS PortfolioConstructionRun (
+  id           TEXT PRIMARY KEY,
+  portfolioId  TEXT,
+  method       TEXT NOT NULL,
+  status       TEXT NOT NULL,
+  symbols      TEXT NOT NULL DEFAULT '[]',
+  target       TEXT NOT NULL DEFAULT '{}',
+  constraints  TEXT,
+  validation   TEXT,
+  payload      TEXT,
+  dataVersion  TEXT,
+  engineVersion TEXT,
+  createdBy    TEXT,
+  createdAt    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_construction_run ON PortfolioConstructionRun(portfolioId, createdAt);
 """
 
 
@@ -270,6 +291,13 @@ def _loads(value: Any) -> Any:
 
 def _dumps(value: Any) -> str:
     return json.dumps(value, default=str)
+
+
+def _construction_row(row: Any) -> dict[str, Any]:
+    data = dict(row)
+    for key in ("symbols", "target", "constraints", "validation", "payload"):
+        data[key] = _loads(data.get(key))
+    return data
 
 
 class PortfolioStore:
@@ -832,6 +860,40 @@ class PortfolioStore:
             data["after"] = _loads(data.get("after"))
             out.append(data)
         return out
+
+    # ── Construction / optimization runs ─────────────────────────────────────
+    def save_construction_run(
+        self, run_id: str, portfolio_id: Optional[str], *, method: str, status: str,
+        symbols: Sequence[str], target: dict[str, Any], constraints: Any, validation: Any,
+        payload: dict[str, Any], data_version: Optional[str] = None,
+        engine_version: Optional[str] = None, created_by: Optional[str] = None,
+    ) -> None:
+        self._db.execute(
+            """INSERT INTO PortfolioConstructionRun
+               (id, portfolioId, method, status, symbols, target, constraints, validation,
+                payload, dataVersion, engineVersion, createdBy, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_id, portfolio_id, method, status, _dumps(list(symbols)), _dumps(target),
+                None if constraints is None else _dumps(constraints),
+                None if validation is None else _dumps(validation),
+                _dumps(payload), data_version, engine_version, created_by, now_iso(),
+            ),
+        )
+        self._db.commit()
+
+    def get_construction_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM PortfolioConstructionRun WHERE id=?", (run_id,)
+        ).fetchone()
+        return _construction_row(row) if row is not None else None
+
+    def list_construction_runs(self, portfolio_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM PortfolioConstructionRun WHERE portfolioId=? ORDER BY createdAt DESC LIMIT ?",
+            (portfolio_id, max(1, int(limit))),
+        ).fetchall()
+        return [_construction_row(r) for r in rows]
 
     # ── Health ───────────────────────────────────────────────────────────────
     def count_transactions(self, portfolio_id: str) -> int:

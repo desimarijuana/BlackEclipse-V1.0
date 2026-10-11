@@ -24,6 +24,7 @@ cancellation and observability around it.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -32,6 +33,8 @@ from typing import Any, Callable, Optional
 from .config import FabricConfig
 from .models import WorkerKind, WorkerOutcome
 from .workers import BaseWorker, FunctionWorker, WorkerContext
+
+log = logging.getLogger("harness.fabric.builtin_workers")
 
 
 def _payload(ctx: WorkerContext) -> dict[str, Any]:
@@ -101,10 +104,24 @@ def _tool_context(service: Any, ctx: WorkerContext) -> Any:
         market_gateway=getattr(service, "market_gateway", None),
         market_store=getattr(service, "market_store", None),
         portfolio_service=getattr(service, "portfolio", None),
+        quant_store=getattr(service, "quant_store", None),
+        dataset_store=getattr(service, "dataset_store", None),
         search=getattr(service, "search", None),
         plugin_manager=getattr(service, "plugins", None),
         evidence_store=getattr(service, "evidence_store", None),
+        data_bridge=_server_bridge(service),
     )
+
+
+def _server_bridge(service: Any) -> Any:
+    """The market DataBridge for market-fetching tools, or None. Best-effort."""
+    factory = getattr(service, "server_bridge", None)
+    if not callable(factory):
+        return None
+    try:
+        return factory()
+    except Exception:  # noqa: BLE001 - an unavailable bridge must not break a job
+        return None
 
 
 async def _run_tool(service: Any, ctx: WorkerContext, tool: str, args: dict[str, Any]) -> WorkerOutcome:
@@ -443,7 +460,7 @@ def build_default_workers(service: Any, config: Optional[FabricConfig] = None) -
     async def event_handler(ctx: WorkerContext) -> WorkerOutcome:
         return await _event_worker(service, ctx)
 
-    return [
+    workers = [
         _mk(WorkerKind.AGENT.value, ["agent", "user"], agent_handler, service, cfg),
         _mk(WorkerKind.TOOL.value, ["user"], tool_handler, service, cfg),
         _mk(WorkerKind.RESEARCH.value, ["research"], research_handler, service, cfg),
@@ -458,6 +475,28 @@ def build_default_workers(service: Any, config: Optional[FabricConfig] = None) -
         _mk(WorkerKind.AUTOMATION.value, ["automation"], automation_handler, service, cfg),
         _mk(WorkerKind.EVENT.value, ["event"], event_handler, service, cfg),
     ]
+    # The ML Research Lab's dedicated worker (isolated, timeout-bounded,
+    # cancellable, resource-limited). Wiring lives in `ml/fabric.py`; absence is
+    # honest — ML background jobs then report WORKER_UNAVAILABLE rather than
+    # silently running inline.
+    try:
+        from ..ml.fabric import build_ml_worker
+
+        ml_worker = build_ml_worker(service)
+        if ml_worker is not None:
+            workers.append(ml_worker)
+    except Exception:  # noqa: BLE001 - ML must never block the fabric
+        log.warning("ML worker unavailable", exc_info=True)
+    # Portfolio walk-forward simulations: long, cancellable, time-bounded. Wiring
+    # lives in `portfolio/fabric.py`; absence is honest (jobs report
+    # WORKER_UNAVAILABLE rather than silently running inline).
+    try:
+        from ..portfolio.fabric import build_portfolio_worker
+
+        workers.append(build_portfolio_worker(service))
+    except Exception:  # noqa: BLE001 - portfolio must never block the fabric
+        log.warning("portfolio worker unavailable", exc_info=True)
+    return workers
 
 
 __all__ = ["build_default_workers"]

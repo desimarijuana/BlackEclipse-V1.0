@@ -121,6 +121,10 @@ const FactorLabScreen = dynamic(
   () => import('@/components/screens/factors/factor-lab-screen').then((m) => m.FactorLabScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const MlLabScreen = dynamic(
+  () => import('@/components/screens/ml-lab/ml-lab-screen').then((m) => m.MlLabScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -1256,6 +1260,12 @@ function StockChatContent() {
           {visited.has('factor-lab') && (
             <div className={cn('w-full h-full', activeTab === 'factor-lab' ? '' : 'hidden')}>
               <FactorLabScreen />
+            </div>
+          )}
+
+          {visited.has('ml-lab') && (
+            <div className={cn('w-full h-full', activeTab === 'ml-lab' ? '' : 'hidden')}>
+              <MlLabScreen />
             </div>
           )}
 

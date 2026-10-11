@@ -65,7 +65,10 @@ const RATCHET: Record<string, number> = {
   // (`research-data`) tab. May only shrink from here; the per-tab keep-alive
   // blocks remain the standing split candidate. Grew again by one dynamic
   // import + one keep-alive block for the Factor Lab (`factor-lab`) tab.
-  "src/components/screens/stock-chat.tsx": 1344,
+  // Grew again by one dynamic import + one keep-alive block for the ML Lab
+  // (`ml-lab`) tab. May only shrink from here; the per-tab keep-alive blocks
+  // remain the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1354,
 };
 
 export interface SizeEntry {

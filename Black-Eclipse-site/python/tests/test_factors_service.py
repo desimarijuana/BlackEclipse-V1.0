@@ -88,6 +88,18 @@ def test_build_factor_panel_and_evaluate(store):
     assert len(ev["decay"]["curve"]) == 2
 
 
+def test_deflated_sharpe_and_pbo_helpers(store):
+    rng = np.random.default_rng(1)
+    rets = rng.normal(0.001, 0.01, size=300).tolist()
+    dsr = S.deflated_sharpe_for(rets, trial_count=20, sr_variance=0.0001)
+    assert dsr["available"] is True
+    assert 0.0 <= dsr["deflatedSharpeRatio"] <= 1.0
+    matrix = [rng.normal(0.0005 * i, 0.01, size=200).tolist() for i in range(6)]
+    pbo = S.overfitting_pbo(matrix, n_splits=8)
+    assert pbo["available"] is True
+    assert 0.0 <= pbo["probabilityOfBacktestOverfitting"] <= 1.0
+
+
 def test_quantile_portfolio_service(store):
     rng = np.random.default_rng(11)
     series = {}

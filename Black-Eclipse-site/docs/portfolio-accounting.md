@@ -1,7 +1,7 @@
 ---
 title: Portfolio Accounting Engine
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-11
 ---
 
 # Portfolio Accounting Engine
@@ -124,6 +124,72 @@ All money is `Decimal` (`money.py`); no binary float touches a balance.
 beta, correlation and concentration (HHI). Requires price history; returns
 `UNAVAILABLE` with reasons when inputs are insufficient.
 
+## Portfolio Construction & Risk Engine
+
+Beyond the accounting core, the package carries a full construction and risk
+layer. Everything is deterministic, validated and proposal-only.
+
+- **Estimation** (`estimation.py`): expected returns (arithmetic / geometric /
+  EWMA / shrinkage / user) and covariance (sample / EWMA / shrinkage /
+  diagonal) computed over date-aligned returns. A covariance result carries
+  symmetry / finiteness / positive-semidefiniteness / condition diagnostics and
+  a documented eigenvalue-floor regularizer — an invalid matrix is reported,
+  never silently replaced. Missing dates are dropped, never forward-filled to a
+  fabricated zero return.
+- **Construction** (`construction.py`): a shared solver path (projected gradient
+  with an exact Dykstra projection onto the constraint polytope) and an
+  **independent validator** that re-checks the budget, per-asset bounds,
+  long-only, group/sector caps, factor caps and turnover from scratch. Methods:
+  equal-weight, benchmark-weight, min-variance, mean-variance (+ efficient
+  frontier), risk-parity (exact ERC via cyclical coordinate descent; custom
+  risk budgets), volatility-target, Black–Litterman (Π = δΣw_mkt; absolute and
+  relative views with confidence → view covariance), and factor-constrained.
+  Solver status is a closed vocabulary (`OPTIMAL` … `INFEASIBLE`,
+  `NUMERICAL_FAILURE`, `SOLVER_ERROR`); a result that fails independent
+  validation is downgraded to `OPTIMAL_INACCURATE` and an infeasible constraint
+  set returns `INFEASIBLE` with no weights — hard constraints are never silently
+  relaxed.
+- **Risk engine** (`risk_engine.py`): Euler risk contributions (asset- and
+  group-level; Σ components = portfolio volatility; short-position signs
+  preserved), plus scenario/stress testing — hypothetical symbol and factor
+  shocks, historical window replay (caller-supplied point-in-time returns) and a
+  seeded Monte-Carlo (VaR/CVaR). Each scenario names its assumptions.
+- **Turnover & costs** (`costs.py`): one-way (`0.5·Σ|Δw|`) and gross-traded
+  turnover, and a configurable cost model (commission, half-spread, impact, FX,
+  minimum) that reports a missing component rather than assuming zero. A linear
+  transaction-cost rate can be folded into the mean-variance / min-variance
+  objective (a `transaction_cost` in the constraints payload with `current_weights`).
+- **Factor-model estimation** (`estimation.estimate_factor_loadings`): per-asset
+  factor loadings by OLS (with alpha, residual variance, R²). `construct` uses it
+  automatically for `factor_constrained` when `factor_returns` are supplied and
+  loadings are absent.
+- **Strategy comparison** (`construction.compare_allocations`): several methods
+  run over the SAME inputs and scored on the same covariance/expected-return
+  yardstick (return, volatility, concentration, turnover, validation). It reports
+  trade-offs; it never declares a winner.
+- **Multi-period attribution** (`attribution.multi_period_attribution`): exact
+  proportional geometric linking so linked effects reconcile to
+  `(1+Rp)/(1+Rb) − 1`.
+- **Rebalancing / walk-forward simulation** (`simulation.rebalancing_simulation`):
+  a scheduled (monthly/quarterly/semiannual/annual) point-in-time simulation that
+  re-estimates inputs from the trailing window at each rebalance (no look-ahead),
+  drifts holdings, charges turnover and costs, and reports net performance/risk.
+- **Run persistence** (`store.PortfolioConstructionRun`): every construction run
+  is an immutable record — method, status, symbols, target, constraints,
+  independent validation, a content-hash `dataVersion` and the engine version —
+  retrievable by `runId` for reproducibility after market data changes.
+
+`PortfolioService.construct` (thin facade; flow in `construct_service.py`) can
+estimate inputs from gateway history through the shared Market Data Gateway, or
+accept explicit covariance/expected returns. A successful proposal is persisted
+as a `PROPOSED` rebalance plan and as an immutable construction run, and always
+reports `"proposal-only: no trades are placed"`.
+
+Long simulations can run on the **Execution Fabric** (`portfolio/fabric.py`
+registers a dedicated `portfolio` worker: timeout, bounded concurrency,
+cancellation, progress) — submitting with `mode: "BACKGROUND"` returns a job id
+rather than blocking the request.
+
 ## Performance
 
 `performance.py`: time-weighted return, money-weighted return (IRR), CAGR,
@@ -156,10 +222,12 @@ names):
 | `portfolio_calculate_pnl` / `_exposure` / `_allocation` / `_risk` / `_tax_lots` | read | — |
 | `portfolio_reconcile`, `portfolio_list_reconciliations` | read | — |
 | `portfolio_attribution`, `portfolio_factor_exposure`, `portfolio_hedge`, `portfolio_aggregate` | read | — |
+| `portfolio_estimate_inputs`, `portfolio_risk_contributions`, `portfolio_stress_test`, `portfolio_transaction_costs` | read | — |
+| `portfolio_compare_allocations`, `portfolio_estimate_factor_loadings`, `portfolio_simulate_rebalancing`, `portfolio_list_runs`, `portfolio_get_run` | read | — |
 | `portfolio_create` | mutating | `portfolio.write` |
 | `portfolio_add_position`, `portfolio_remove_position`, `portfolio_update_position`, `portfolio_set_metadata` | mutating | `portfolio.write` |
 | `portfolio_apply_corporate_action`, `portfolio_record_swap`, `portfolio_record_bridge`, `portfolio_record_reward`, `portfolio_apply_staking`, `portfolio_rebuild`, `portfolio_apply_slashing`, `portfolio_record_funding` | mutating | `portfolio.write` |
-| `portfolio_rebalance`, `portfolio_optimize` | consequential | `portfolio.rebalance_proposal` |
+| `portfolio_rebalance`, `portfolio_optimize`, `portfolio_construct` | consequential | `portfolio.rebalance_proposal` |
 
 Read tools run freely. Mutating and consequential tools go through the run's
 effect authorizer (a single-use, digest-bound operator approval) — with no
@@ -180,6 +248,12 @@ operator-gated (loopback or the runtime token).
 `GET …/rebalance/plans`, `POST …/snapshot`, `GET …/snapshots`,
 `GET …/history`. All operator-gated; tenant scope via the
 `X-Harness-User` header (403 on mismatch).
+
+Construction & risk routes: `POST …/construct`, `GET …/construction-runs`,
+`GET /portfolio/runs/{run_id}`, `POST /portfolio/estimate-inputs`,
+`POST …/stress-test`, `POST …/transaction-costs`, `POST …/compare`,
+`POST …/simulate-rebalancing` (inline or `mode:"BACKGROUND"` →
+`GET`/`DELETE /portfolio/simulations/{job_id}`).
 
 ## Backtesting reuse
 

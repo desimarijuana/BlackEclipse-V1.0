@@ -8,6 +8,138 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-11
 
+- **Portfolio Construction & Risk Engine - Round 2: persistence, costs, factor
+  models, simulation, comparison, routes, background jobs, E2E.** Closed the
+  remaining gaps from the first slice. `estimation.estimate_factor_loadings` (OLS
+  loadings/alpha/residual/R²; auto-used by `factor_constrained` when
+  `factor_returns` are supplied). `construction.compare_allocations` (same-input
+  multi-method comparison) and a linear transaction-cost term folded into the
+  mean-variance/min-variance objective. `attribution.multi_period_attribution`
+  with exact proportional geometric linking. `simulation.rebalancing_simulation`
+  (point-in-time scheduled rebalancing/walk-forward with turnover+costs, no
+  look-ahead). Immutable run persistence (`PortfolioConstructionRun` in
+  `PortfolioStore`; `runId`/`dataVersion`/`engineVersion`). Execution-Fabric
+  `portfolio` worker (`portfolio/fabric.py`) for cancellable, time-bounded
+  background simulations. Five new tools (`portfolio_compare_allocations`,
+  `portfolio_estimate_factor_loadings`, `portfolio_simulate_rebalancing`,
+  `portfolio_list_runs`, `portfolio_get_run`) and REST routes (`…/construct`,
+  `…/construction-runs`, `/portfolio/runs/{id}`, `/portfolio/estimate-inputs`,
+  `…/stress-test`, `…/transaction-costs`, `…/compare`, `…/simulate-rebalancing`,
+  `/portfolio/simulations/{id}`). E2E tests now drive the REAL chat run graph
+  (`python/tests/test_portfolio_chat_e2e.py`) plus
+  `test_portfolio_construction_ext.py`. Full Python suite 5705 passed / 16
+  skipped. docs updated: `docs/portfolio-accounting.md`, `docs/NAVIGATION.md`.
+- **ML Research Lab - production-hardening slice (reliability/isolation core of
+  Phase 12 + Phases 13/18 gates).** Training now runs as a durable, cancellable,
+  resource-bounded Execution Fabric job on a dedicated ML worker
+  (`WorkerKind.ML`/`QueueName.ML`, `python/harness/ml/fabric.py`, wired in
+  `fabric/{models,policies,builtin_workers}.py`): `background:true` on
+  `POST /ml/v1/experiments` (or the `ml_run_experiment` tool) returns a job id
+  immediately; the worker invokes the same `service.run_experiment_job` pipeline
+  with a wall-clock timeout, hard cancellation (polled between folds; the
+  `CancelledError` path never leaves a run stuck "running") and progress events.
+  Job output is a compact summary - the full result stays a hash-addressed ML
+  artifact (the Fabric output column is bounded). Added `HARNESS_ML_*` guardrails
+  (`ml/config.py`: max rows/folds/seconds/concurrency/artifact-size/enabled) and a
+  `TIME_BUDGET_EXCEEDED` stop. Installed and verified the real optional model
+  backends - scikit-learn 1.6, LightGBM 4.7, XGBoost 3.4 (plus
+  sklearn-forest/extra-trees) all train end-to-end, serialized with joblib and
+  loaded only after SHA-256 verification. New surfaces: `GET /ml/v1/jobs`,
+  `GET /ml/v1/jobs/{id}`, `POST /ml/v1/jobs/{id}/cancel`, tools `ml_job_status`
+  /`ml_list_jobs`/`ml_cancel_job`; UI background toggle + job polling. New tests
+  `test_ml_{models_ext,leakage,fabric,acceptance}.py` (leakage suite + E2E
+  acceptance over SYNTHETIC fixtures); `tsc --noEmit` clean. Docs:
+  `docs/ml-lab/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
+
+- **Factor & Alpha Research Lab — production controls (point-in-time universe,
+  multiple-testing, persisted validation, performance bound).** Added
+  `python/harness/factors/universe.py` (`membership_mask`/`apply_membership`):
+  factor evaluation and quantile portfolios now exclude non-member cells using
+  the effective-dated universe history (`UniverseStore.members_as_of`), so a name
+  that joined late or was delisted is never measured in cross-sections it did not
+  belong to; `universeId` is accepted by the tools and `/factors/v1`. The
+  validation gate now enforces the Deflated Sharpe Ratio and Probability of
+  Backtest Overfitting (reusing `quant/multiple_testing.py`) when trial
+  variance / candidate returns are supplied, and every gate run is persisted as a
+  first-class `FactorValidation` row. The portfolio engine now also returns the
+  net/gross long-short return series (needed for deflation without
+  recomputation). Tests: `test_factors_universe.py`,
+  `test_factors_performance.py` + gate/DSR/PBO additions — 44 factor tests pass.
+  Docs: `docs/quant-research/FACTOR_LAB.md`.
+
+- **Portfolio Construction & Risk Engine — native Eclipse capability.** Added the
+  construction/risk vertical to the existing portfolio package (reusing the
+  accounting core, the shared Market Data Gateway and the ONE tool registry).
+  `estimation.py`: expected returns (arithmetic/geometric/EWMA/shrinkage/user) and
+  covariance (sample/EWMA/shrinkage/diagonal) with symmetry/finite/PSD/condition
+  diagnostics and a documented eigenvalue-floor regularizer; date-aligned returns
+  that drop missing dates rather than zero-filling them. `construction.py`: a
+  shared projected-gradient solver with an exact Dykstra projection onto the
+  constraint polytope, an INDEPENDENT `validate_constraints`, a `SolverStatus`
+  vocabulary, and all required methods (equal-weight, benchmark-weight,
+  min-variance, mean-variance + efficient frontier, risk-parity via exact ERC
+  cyclical coordinate descent, volatility-target, Black–Litterman, and
+  factor-constrained). `risk_engine.py`: Euler risk contributions (asset- and
+  group-level, sign-preserving) and hypothetical/factor/historical/seeded-
+  Monte-Carlo stress testing. `costs.py`: one-way/gross turnover and a
+  configurable transaction-cost model. Wired via `construct_service.py` +
+  `PortfolioService.construct`; registered five tools (`portfolio_estimate_inputs`,
+  `portfolio_construct`, `portfolio_risk_contributions`, `portfolio_stress_test`,
+  `portfolio_transaction_costs`) and — fixing a real integration gap — added
+  `*PORTFOLIO_TOOLS` to the Eclipse agent allowlist so the chatbot can reach the
+  portfolio capability. Results are independently validated and proposal-only.
+  Fixed a defect where the risk-parity log-barrier solver returned a non-ERC
+  allocation (replaced by the exact CCD first-order solution) and corrected
+  share-of-variance in the decomposition. Tests
+  `python/tests/test_portfolio_construction.py` (28 deterministic numerical tests).
+  Full Python suite 5664 passed / 16 skipped; `tsc --noEmit` clean.
+  docs updated: `docs/portfolio-accounting.md`, `docs/NAVIGATION.md`.
+- **ML Research Lab — foundation vertical slice (Phases 0–5).** Added a new
+  quantitative ML research vertical built on the SAME NumPy core, persistence and
+  market gateway as the stats/quant/factors engines. Backend
+  `python/harness/ml/`: `models.py` (versioned contracts: `DatasetSpec`,
+  `TargetSpec`, `SplitSpec`, `ExperimentConfig`), `datasets.py` (immutable dataset
+  builder over `stats.datasets.resolve_frame` + built-in and registered Feature
+  Registry features), `quality.py` (severity-graded quality engine),
+  `targets.py` (forward-return/binary/multiclass/neutral-zone/volatility/
+  cross-sectional-rank labels with explicit label start/end), `splits.py`
+  (chronological / walk-forward / purged-K-fold with purge + embargo and an
+  independent `assert_no_leakage` gate), `features.py` (fit-on-train-only
+  selection), `metrics.py`, `adapters.py` (pure-NumPy dummy/ridge/logistic/CART
+  random-forest + honest optional scikit-learn/LightGBM/XGBoost adapters that
+  report `MODEL_UNAVAILABLE` when the wheel is absent), `training.py` (fold-fit
+  preprocessing + selection, out-of-fold predictions, final holdout model),
+  `store.py` (`MLStore` on `agent-memory.db`; datasets/splits/experiments/runs/
+  folds/models/artifacts/predictions/approvals, SHA-256 artifact integrity),
+  `service.py`, `tools.py` (12 `ml_*` agent tools), `bootstrap.py`. REST
+  `python/harness/routers/ml.py` (`/ml/v1`, operator-gated) mounted in `main.py`;
+  boot wiring `install_ml_layer` in `service.py`. Front door
+  `src/app/api/ml/[[...path]]/route.ts` + `src/lib/ml-client.ts`; UI
+  `src/components/screens/ml-lab/ml-lab-screen.tsx` (AppTab `ml-lab`, command-
+  palette page). Tests `python/tests/test_ml_{core,store}.py` (29) +
+  `src/lib/ml-client.test.ts` (4); `tsc --noEmit` clean. The heavy ML wheels
+  could not be installed here (PyPI unreachable), so their adapters are honest
+  and unit-tested for the unavailable path; install instructions are recorded in
+  `python/requirements-ml.txt`. Docs: `docs/ml-lab/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`.
+
+- **Factor & Alpha Research Lab — background execution, pluggable regimes and an
+  end-to-end test.** Added durable background promotion through the Execution
+  Fabric `quant` queue (`submit_factor_promotion` tool + `POST
+  /factors/v1/promote/background`; the fabric tool context now carries the
+  `quant_store`/`dataset_store` and the market `DataBridge`). Added the pluggable
+  regime provider `engine.classify_regimes` (quantile buckets over any scalar
+  driver, NaN-safe) wired into `analyze_factor_stability`
+  (`regimeSeries`/`nRegimes`/`regimeMethod`). Added
+  `python/tests/test_factors_e2e.py` (full create→evaluate→portfolio→validate→
+  promote workflow through the real tool handlers) and
+  `test_factors_background.py` (fabric job) — 99 factor/fabric tests pass. The
+  factors router is now mounted through `routers/quant.py` (alongside the stats
+  router) so `main.py` stays under its non-ratcheted hard ceiling; a duplicate
+  `research_data_router` import in `main.py` was removed and the `service.py`
+  size budget re-pinned for the concurrent ML Research Lab wiring. Docs:
+  `docs/quant-research/FACTOR_LAB.md`.
+
 - **Factor & Alpha Research Lab — Phase 10 promotion bridge + Phase 12
   hardening.** Added `python/harness/factors/promotion.py`
   (`promote_to_strategy`): a validated factor version is promoted into a

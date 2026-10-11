@@ -1249,6 +1249,17 @@ class PortfolioService:
             result["planId"] = plan_id
         return result
 
+    async def construct(self, payload: dict[str, Any], *,
+                        actor_id: Optional[str] = None) -> dict[str, Any]:
+        """Portfolio construction & risk engine (§11–§22) — proposal only.
+
+        Thin delegate; the data-prep/estimate/dispatch/persist flow lives in
+        `construct_service.construct_payload` so this facade stays within budget.
+        """
+        from .construct_service import construct_payload
+
+        return await construct_payload(self, payload, actor_id=actor_id)
+
     async def attribution(self, portfolio_id: str, payload: dict[str, Any],
                           *, actor_id: Optional[str] = None) -> dict[str, Any]:
         from .attribution import brinson_attribution

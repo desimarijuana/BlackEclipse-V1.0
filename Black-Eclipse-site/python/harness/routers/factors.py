@@ -58,6 +58,7 @@ class FactorBody(BaseModel):
 class ComputeBody(BaseModel):
     expression: str
     symbols: list[str] = Field(default_factory=list)
+    universeId: Optional[str] = None
     interval: str = "1d"
     start: Optional[str] = None
     end: Optional[str] = None
@@ -109,6 +110,18 @@ async def _series(body: ComputeBody):
     if not body.symbols:
         raise StatsError("INVALID_INPUT", "symbols are required")
     return await _fetch(_market_gateway(), body.symbols, body.interval, body.start, body.end)
+
+
+def _universe_mask(universe_id: Optional[str], symbols: list[str], dates: list[str]) -> Any:
+    if not universe_id:
+        return None
+    market_store = getattr(service, "market_store", None)
+    if market_store is None:
+        raise StatsError("DEPENDENCY_MISSING", "the universe store is unavailable in this runtime", 503)
+    from ..factors.universe import membership_mask  # noqa: PLC0415
+    from ..market.universe_store import UniverseStore  # noqa: PLC0415
+
+    return membership_mask(UniverseStore(market_store), str(universe_id), symbols, dates)
 
 
 @router.get("/capabilities")
@@ -167,9 +180,10 @@ async def factor_validate(body: dict[str, Any], _: bool = Depends(require_operat
 async def factor_evaluate(body: ComputeBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         syms, dates, series = await _series(body)
+        membership = _universe_mask(body.universeId, syms, dates)
         result = S.evaluate(body.expression, series, syms, horizons=body.horizons, method=body.method,
                             min_obs=body.minObs, periods_per_year=body.periodsPerYear,
-                            expected_direction=body.expectedDirection)
+                            expected_direction=body.expectedDirection, membership=membership)
         result["symbols"] = syms
         result["dates"] = dates
         return result
@@ -181,10 +195,11 @@ async def factor_evaluate(body: ComputeBody, _: bool = Depends(require_operator)
 async def factor_portfolio(body: PortfolioBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         syms, dates, series = await _series(body)
+        membership = _universe_mask(body.universeId, syms, dates)
         result = S.quantile_portfolio(body.expression, series, syms, quantiles=body.quantiles,
                                       weighting=body.weighting, long_short=body.longShort,
                                       rebalance=body.rebalance, cost_bps=body.costBps,
-                                      min_obs=body.minObs)
+                                      min_obs=body.minObs, membership=membership)
         result["dates"] = dates
         return result
     except Exception as exc:  # noqa: BLE001
@@ -228,6 +243,26 @@ async def factor_promote(body: PromoteBody, _: bool = Depends(require_operator))
         return promote_to_strategy(factor_id=body.factorId, version=body.version, config=config,
                                    symbols=syms, series_by_symbol=series, quant_store=quant_store,
                                    actor=body.actor, request_approval=body.requestApproval)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/promote/background")
+async def factor_promote_background(body: PromoteBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    fabric = getattr(service, "fabric", None)
+    if fabric is None:
+        raise HTTPException(status_code=503, detail={"code": "UNAVAILABLE",
+                                                     "message": "the execution fabric is unavailable"})
+    try:
+        job = await fabric.submit(
+            "quant", {"tool": "promote_factor_to_strategy",
+                      "args": {k: getattr(body, k) for k in (
+                          "factorId", "version", "symbols", "interval", "start", "end",
+                          "quantiles", "weighting", "longShort", "rebalance", "costBps",
+                          "actor", "requestApproval")}},
+            mode="background",
+        )
+        return {"job": job}
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
 

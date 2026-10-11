@@ -1099,5 +1099,11 @@ from .stats import router as _stats_router  # noqa: E402
 
 router.include_router(_stats_router)
 
+# The Factor & Alpha Research Lab router owns its own `/factors/v1` prefix; it is
+# mounted here for the same reason (keep `main.py` under its hard ceiling).
+from .factors import router as _factors_router  # noqa: E402
+
+router.include_router(_factors_router)
+
 
 __all__ = ["router"]

@@ -134,6 +134,17 @@ def test_redundancy_detects_correlated_pair():
     assert (0, 2) in pairs
 
 
+def test_classify_regimes_quantile_buckets_and_nan():
+    labels = E.classify_regimes([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], n_regimes=2)
+    assert set(labels) == {"R1", "R2"}
+    assert labels[0] == "R1" and labels[-1] == "R2"
+    withnan = E.classify_regimes([1.0, float("nan"), 3.0, 4.0], n_regimes=2)
+    assert withnan[1] == "unknown"
+    assert withnan[0] == "R1" and withnan[-1] == "R2"
+    # too few finite points -> everything unknown (never invents a regime)
+    assert set(E.classify_regimes([1.0, 2.0], n_regimes=3)) == {"unknown"}
+
+
 def test_validation_gate_fails_on_insignificant_ic():
     gate = E.validation_gate(ic_mean=0.01, ic_pvalue=0.4, expected_direction="positive",
                              average_cross_section=50, net_cumulative=0.02, average_turnover=0.2,
@@ -172,3 +183,23 @@ def test_validation_gate_passes_when_checks_pass():
                              quantile_returns=[-0.01, 0.0, 0.01, 0.02, 0.03])
     assert gate["outcome"] == "passed"
     assert gate["validated"] is True
+
+
+def test_validation_gate_multiple_testing_controls():
+    base = dict(ic_mean=0.05, ic_pvalue=0.001, expected_direction="positive",
+                average_cross_section=80, net_cumulative=0.3, average_turnover=0.3,
+                quantile_returns=[-0.01, 0.0, 0.01, 0.02, 0.03])
+    names = {"multiple_testing_deflated_sharpe", "multiple_testing_pbo"}
+
+    # omitted -> not_evaluated (never silently passed)
+    gate = E.validation_gate(**base)
+    assert names <= {c["name"] for c in gate["checks"]}
+    assert all(c["status"] == "not_evaluated" for c in gate["checks"] if c["name"] in names)
+
+    # supplied and failing -> gate fails (high severity)
+    failing = E.validation_gate(**base, deflated_sharpe=0.4, pbo=0.7)
+    assert failing["outcome"] == "failed"
+
+    # supplied and passing -> gate passes
+    passing = E.validation_gate(**base, deflated_sharpe=0.99, pbo=0.1)
+    assert passing["outcome"] == "passed"

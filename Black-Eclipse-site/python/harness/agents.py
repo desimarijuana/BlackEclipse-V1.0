@@ -36,6 +36,11 @@ from .market.research_tools import RESEARCH_DATA_TOOLS
 # The Factor & Alpha Research Lab tools. Registered by `factors/bootstrap.py`;
 # imported as the ONE canonical list so the allowlist cannot drift.
 from .factors.tools import FACTOR_TOOLS
+# The Portfolio Accounting + Portfolio Construction & Risk Engine tools
+# (`portfolio_*`). Registered by `portfolio/bootstrap.py` on the SAME registry;
+# imported as the ONE canonical list so the allowlist cannot drift. A `portfolio_`
+# name whose layer failed to install is simply unregistered and never advertised.
+from .portfolio.tools import PORTFOLIO_TOOLS
 
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
@@ -294,6 +299,14 @@ ECLIPSE_AGENT = AgentConfig(
         # quantile portfolios, alpha composition, redundancy, stability and the
         # research-validation gate.
         *FACTOR_TOOLS,
+        # Portfolio Accounting Engine + Portfolio Construction & Risk Engine:
+        # ledger/positions/P&L/tax lots, exposure/allocation, deterministic risk,
+        # estimation, constrained construction (equal/min-variance/mean-variance/
+        # risk-parity/vol-target/Black-Litterman/factor-constrained), risk
+        # contributions, stress testing, turnover/costs and rebalance proposals.
+        # Read/compute tools are always available; the rebalance/optimize/construct
+        # proposals are effect-gated (they never place trades).
+        *PORTFOLIO_TOOLS,
         # Phase-1 JDdS tools (still available)
         "get_market_snapshot",
         "get_fundamentals",

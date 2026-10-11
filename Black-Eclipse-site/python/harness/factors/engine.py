@@ -357,6 +357,30 @@ def group_ic(
     return out
 
 
+def classify_regimes(values: Any, *, n_regimes: int = 2, method: str = "quantile") -> np.ndarray:
+    """Label each timestamp by a scalar regime driver into quantile buckets.
+
+    The driver is any per-date series (realised market volatility, a benchmark's
+    rolling vol, a trend oscillator, …). Labels are ``R1`` (lowest) … ``Rn``;
+    NaN/missing driver values are labelled ``unknown`` and never assigned to a
+    bucket. This is the pluggable regime provider — callers supply the driver.
+    """
+    if n_regimes < 2:
+        raise StatsError(INVALID_INPUT, "n_regimes must be >= 2")
+    if method != "quantile":
+        raise StatsError(INVALID_INPUT, f"unsupported regime method: {method}")
+    x = np.asarray(values, dtype=float).ravel()
+    labels = np.array(["unknown"] * x.size, dtype=object)
+    idx = np.where(np.isfinite(x))[0]
+    if idx.size < n_regimes:
+        return labels
+    edges = np.quantile(x[idx], np.linspace(0.0, 1.0, n_regimes + 1)[1:-1])
+    buckets = np.digitize(x[idx], edges)
+    for pos, label_i in zip(idx, buckets):
+        labels[pos] = f"R{int(label_i) + 1}"
+    return labels
+
+
 def regime_ic(factor: Any, forward: Any, regime_labels: Sequence[Any], *, method: str = "pearson",
               min_obs: int = 5) -> dict[str, Any]:
     """IC split by a per-date regime label supplied by the caller (e.g. vol regime)."""
@@ -502,6 +526,10 @@ def quantile_portfolio(
                                                        risk_free=risk_free)
         result["grossLongShortMetrics"] = portfolio_metrics(ls_gross, periods_per_year=periods_per_year,
                                                             risk_free=risk_free)
+        # The aligned net/gross long-short return series (needed for deflated
+        # Sharpe / overfitting diagnostics without recomputing the simulation).
+        result["longShortReturns"] = _list(ls_net)
+        result["grossLongShortReturns"] = _list(ls_gross)
     return result
 
 
@@ -655,8 +683,16 @@ def validation_gate(
     average_cross_section: Optional[float], net_cumulative: Optional[float],
     average_turnover: Optional[float], quantile_returns: Optional[Sequence[float]],
     min_cross_section: int = 20, max_turnover: float = 1.0, alpha: float = 0.05,
+    deflated_sharpe: Optional[float] = None, dsr_threshold: float = 0.95,
+    pbo: Optional[float] = None, pbo_threshold: float = 0.5,
 ) -> dict[str, Any]:
-    """The structured research-validation gate. Failures are never downgraded."""
+    """The structured research-validation gate. Failures are never downgraded.
+
+    ``deflated_sharpe`` (probability the true Sharpe exceeds the best-of-N) and
+    ``pbo`` (probability of backtest overfitting) are OPTIONAL selection-bias
+    controls: when supplied they are enforced; when omitted the check is
+    ``not_evaluated`` (never silently passed).
+    """
     checks: list[dict[str, Any]] = []
 
     def add(name, status, method, params, result, failure=None, severity="high"):
@@ -712,6 +748,30 @@ def validation_gate(
             "monotonicity of quantile mean returns", {}, {"means": seq},
             None if mono else "quantile returns are not monotonic", "medium")
 
+    if deflated_sharpe is None:
+        add("multiple_testing_deflated_sharpe", "not_evaluated",
+            "Deflated Sharpe Ratio (Bailey & López de Prado 2014)", {"threshold": dsr_threshold},
+            None, "trial count / Sharpe variance not supplied", "high")
+    else:
+        ok = deflated_sharpe >= dsr_threshold
+        add("multiple_testing_deflated_sharpe", "passed" if ok else "failed",
+            "Deflated Sharpe Ratio (Bailey & López de Prado 2014)",
+            {"threshold": dsr_threshold}, {"deflatedSharpe": deflated_sharpe},
+            None if ok else "performance is not distinguishable from selection luck after "
+                            "multiple-testing deflation", "high")
+
+    if pbo is None:
+        add("multiple_testing_pbo", "not_evaluated",
+            "Probability of Backtest Overfitting (CSCV)", {"threshold": pbo_threshold},
+            None, "candidate return matrix not supplied", "high")
+    else:
+        ok = pbo <= pbo_threshold
+        add("multiple_testing_pbo", "passed" if ok else "failed",
+            "Probability of Backtest Overfitting (CSCV)", {"threshold": pbo_threshold},
+            {"probabilityOfBacktestOverfitting": pbo},
+            None if ok else "high overfitting probability: the in-sample best does not "
+                            "generalise out-of-sample", "high")
+
     statuses = {c["status"] for c in checks}
     critical_failed = any(c["status"] == "failed" and c["severity"] == "high" for c in checks)
     outcome = "failed" if critical_failed else ("warning" if "warning" in statuses else "passed")
@@ -727,7 +787,7 @@ def validation_gate(
 __all__ = [
     "FACTOR_ENGINE_VERSION", "FactorError", "forward_returns", "cross_sectional_ic",
     "ic_summary", "newey_west_mean", "factor_decay", "rolling_mean_ic", "group_ic",
-    "regime_ic", "percentile_rank", "zscore", "winsorize", "demean_by_group",
+    "regime_ic", "classify_regimes", "percentile_rank", "zscore", "winsorize", "demean_by_group",
     "neutralize", "quantile_portfolio", "portfolio_metrics", "combine_factors",
     "factor_correlation", "detect_redundancy", "validation_gate",
 ]

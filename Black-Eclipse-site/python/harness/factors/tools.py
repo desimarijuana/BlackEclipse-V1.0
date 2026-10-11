@@ -31,6 +31,7 @@ FACTOR_TOOLS: tuple[str, ...] = (
     "compare_factor_experiments",
     "validate_alpha_experiment",
     "promote_factor_to_strategy",
+    "submit_factor_promotion",
     "factor_capabilities",
 )
 
@@ -69,6 +70,19 @@ async def _fetch(gateway: Any, symbols: list[str], interval: str, start: Optiona
     except Exception:  # noqa: BLE001 - volume is optional
         pass
     return syms, [str(t) for t in ts], series
+
+
+def _universe_mask(ctx: Any, universe_id: Any, symbols: list[str], dates: list[str]) -> Optional[np.ndarray]:
+    """Build a PIT membership mask from the recorded universe, or None."""
+    if not universe_id:
+        return None
+    market_store = getattr(ctx, "market_store", None)
+    if market_store is None:
+        raise StatsError("DEPENDENCY_MISSING", "the universe store is unavailable in this runtime", 503)
+    from ..market.universe_store import UniverseStore  # noqa: PLC0415
+    from .universe import membership_mask  # noqa: PLC0415
+
+    return membership_mask(UniverseStore(market_store), str(universe_id), symbols, dates)
 
 
 def _panel_from_args(args: dict[str, Any], key: str) -> Optional[np.ndarray]:
@@ -157,11 +171,13 @@ async def run_factor_evaluation(args: dict[str, Any], ctx: Any) -> tuple[str, An
         syms, dates, series = await _fetch(_gateway(ctx), symbols,
                                            str(args.get("interval") or "1d"),
                                            args.get("start"), args.get("end"))
+        membership = _universe_mask(ctx, args.get("universeId"), syms, dates)
         horizons = [int(h) for h in (args.get("horizons") or [1, 5, 21])]
         result = S.evaluate(
             str(args["expression"]), series, syms, horizons=horizons,
             method=str(args.get("method") or "pearson"), min_obs=int(args.get("minObs") or 5),
             periods_per_year=args.get("periodsPerYear"), expected_direction=args.get("expectedDirection"),
+            membership=membership,
         )
         result["symbols"] = syms
         result["dates"] = dates
@@ -180,13 +196,14 @@ async def run_quantile_portfolio(args: dict[str, Any], ctx: Any) -> tuple[str, A
         syms, dates, series = await _fetch(_gateway(ctx), symbols,
                                            str(args.get("interval") or "1d"),
                                            args.get("start"), args.get("end"))
+        membership = _universe_mask(ctx, args.get("universeId"), syms, dates)
         result = S.quantile_portfolio(
             str(args["expression"]), series, syms, quantiles=int(args.get("quantiles") or 5),
             weighting=str(args.get("weighting") or "equal"),
             long_short=bool(args.get("longShort", True)), rebalance=int(args.get("rebalance") or 1),
             cost_bps=float(args.get("costBps") or 0.0), min_obs=int(args.get("minObs") or 5),
             periods_per_year=int(args.get("periodsPerYear") or 252),
-            risk_free=float(args.get("riskFree") or 0.0),
+            risk_free=float(args.get("riskFree") or 0.0), membership=membership,
         )
         result["dates"] = dates
         ls = result.get("longShortMetrics", {})
@@ -233,18 +250,21 @@ async def analyze_factor_stability(args: dict[str, Any], ctx: Any) -> tuple[str,
         fwd = E.forward_returns(prices[:T], horizon)
         ic, counts = E.cross_sectional_ic(panel[:T], fwd, min_obs=int(args.get("minObs") or 5))
         rolling = E.rolling_mean_ic(ic, window)
-        # regime split by realised cross-sectional dispersion of factor values
-        dispersion = np.nanstd(panel[:T], axis=1)
-        finite = np.isfinite(dispersion)
-        labels = np.array(["unknown"] * T, dtype=object)
-        if finite.sum() >= 4:
-            med = float(np.nanmedian(dispersion))
-            labels[finite] = np.where(dispersion[finite] >= med, "high_dispersion", "low_dispersion")
+        # Pluggable regime driver: an explicit per-date series if supplied, else the
+        # realised cross-sectional dispersion of factor values (a symmetric proxy).
+        driver = args.get("regimeSeries")
+        if driver is None:
+            driver = np.nanstd(panel[:T], axis=1)
+        n_regimes = int(args.get("nRegimes") or 2)
+        labels = E.classify_regimes(np.asarray(driver, dtype=float)[:T], n_regimes=n_regimes,
+                                    method=str(args.get("regimeMethod") or "quantile"))
         regimes = E.regime_ic(panel[:T], fwd, labels, min_obs=int(args.get("minObs") or 5))
         return (f"stability: {len(rolling)} rolling IC points; regimes={list(regimes)}",
                 {"status": "ok", "stability": {
                     "rollingIC": E._list(rolling),  # noqa: SLF001
-                    "window": window, "regimes": regimes, "warnings": warnings,
+                    "window": window, "regimes": regimes,
+                    "regimeMethod": str(args.get("regimeMethod") or "quantile"),
+                    "nRegimes": n_regimes, "warnings": warnings,
                 }})
     except Exception as exc:  # noqa: BLE001
         return _error("analyze_factor_stability", args, exc)
@@ -314,6 +334,28 @@ async def validate_alpha_experiment(args: dict[str, Any], ctx: Any) -> tuple[str
             ls = portfolio.get("longShortMetrics", {})
             net_cum = ls.get("totalReturn")
             avg_turn = (portfolio.get("turnover") or {}).get("average")
+
+        # Selection-bias controls (reused from the quant engine). DSR is computed
+        # from the realised net long-short series; PBO from a candidate matrix.
+        multiple_testing: dict[str, Any] = {}
+        dsr_value = None
+        pbo_value = None
+        returns = (portfolio or {}).get("longShortReturns")
+        if returns:
+            dsr = S.deflated_sharpe_for(
+                [r for r in returns if r is not None],
+                trial_sharpes=args.get("trialSharpes"), trial_count=args.get("trialCount"),
+                sr_variance=args.get("srVariance"))
+            multiple_testing["deflatedSharpe"] = dsr
+            if dsr.get("available"):
+                dsr_value = dsr.get("deflatedSharpeRatio")
+        candidate_returns = args.get("candidateReturns")
+        if candidate_returns:
+            pbo = S.overfitting_pbo(candidate_returns, n_splits=int(args.get("pboSplits") or 16))
+            multiple_testing["pbo"] = pbo
+            if pbo.get("available"):
+                pbo_value = pbo.get("probabilityOfBacktestOverfitting")
+
         gate = E.validation_gate(
             ic_mean=ic_sum.get("meanIC"), ic_pvalue=hac.get("pValue"),
             expected_direction=args.get("expectedDirection"),
@@ -322,9 +364,27 @@ async def validate_alpha_experiment(args: dict[str, Any], ctx: Any) -> tuple[str
             min_cross_section=int(args.get("minCrossSection") or 20),
             max_turnover=float(args.get("maxTurnover") or 1.0),
             alpha=float(args.get("alpha") or 0.05),
+            deflated_sharpe=dsr_value, dsr_threshold=float(args.get("dsrThreshold") or 0.95),
+            pbo=pbo_value, pbo_threshold=float(args.get("pboThreshold") or 0.5),
         )
+
+        # Persist the validation outcome as a first-class, auditable record.
+        validation_id = None
+        store = S.get_factor_store()
+        if store is not None:
+            factor_ref = None
+            if args.get("factorId"):
+                factor_ref = f"{args['factorId']}@{args.get('version') or 'latest'}"
+            try:
+                validation_id = store.record_validation(
+                    experiment_id=args.get("experimentId"), factor_ref=factor_ref,
+                    status=gate["outcome"], detail=gate)
+            except Exception:  # noqa: BLE001 - persistence must not mask the result
+                validation_id = None
+
         return (f"validation: {gate['outcome']} ({len(gate['checks'])} checks)",
-                {"status": "ok", "validation": gate})
+                {"status": "ok", "validation": gate, "multipleTesting": multiple_testing,
+                 "validationId": validation_id})
     except Exception as exc:  # noqa: BLE001
         return _error("validate_alpha_experiment", args, exc)
 
@@ -358,6 +418,30 @@ async def promote_factor_to_strategy(args: dict[str, Any], ctx: Any) -> tuple[st
                 {"status": "ok", "promotion": result})
     except Exception as exc:  # noqa: BLE001
         return _error("promote_factor_to_strategy", args, exc)
+
+
+async def submit_factor_promotion(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Submit a factor→strategy promotion as a durable Execution Fabric job."""
+    try:
+        from ..fabric.tools import get_fabric_manager  # noqa: PLC0415
+
+        manager = get_fabric_manager()
+        if manager is None:
+            raise StatsError("DEPENDENCY_MISSING", "the execution fabric is unavailable in this runtime", 503)
+        if not args.get("symbols"):
+            raise StatsError("INVALID_INPUT", "symbols are required", 422)
+        job = await manager.submit(
+            "quant", {"tool": "promote_factor_to_strategy",
+                      "args": {k: args[k] for k in (
+                          "factorId", "version", "symbols", "interval", "start", "end",
+                          "quantiles", "weighting", "longShort", "rebalance", "costBps",
+                          "actor", "requestApproval") if k in args}},
+            mode="background",
+        )
+        return (f"factor promotion submitted as job {job.get('jobId')}",
+                {"status": "ok", "job": job})
+    except Exception as exc:  # noqa: BLE001
+        return _error("submit_factor_promotion", args, exc)
 
 
 async def factor_capabilities(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -407,7 +491,8 @@ def register_factor_tools(registry: Any) -> list[str]:
              "expression": {"type": "string"}, "symbols": {"type": "array", "items": {"type": "string"}},
              "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
              "horizons": {"type": "array", "items": {"type": "integer"}}, "method": {"type": "string"},
-             "minObs": {"type": "integer"}, "expectedDirection": {"type": "string"}},
+             "minObs": {"type": "integer"}, "expectedDirection": {"type": "string"},
+             "universeId": {"type": "string"}},
              "required": ["expression", "symbols"]}, 120_000, long_running=True)
     _def("run_quantile_portfolio", "Simulate factor quantile portfolios with cost-aware accounting.",
          run_quantile_portfolio, {"type": "object", "properties": {
@@ -415,7 +500,8 @@ def register_factor_tools(registry: Any) -> list[str]:
              "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
              "quantiles": {"type": "integer"}, "weighting": {"type": "string"},
              "longShort": {"type": "boolean"}, "rebalance": {"type": "integer"},
-             "costBps": {"type": "number"}, "periodsPerYear": {"type": "integer"}},
+             "costBps": {"type": "number"}, "periodsPerYear": {"type": "integer"},
+             "universeId": {"type": "string"}},
              "required": ["expression", "symbols"]}, 120_000, long_running=True)
     _def("analyze_factor_redundancy", "Detect highly correlated factor pairs.",
          analyze_factor_redundancy, {"type": "object", "properties": {
@@ -426,7 +512,10 @@ def register_factor_tools(registry: Any) -> list[str]:
          analyze_factor_stability, {"type": "object", "properties": {
              "expression": {"type": "string"}, "symbols": {"type": "array", "items": {"type": "string"}},
              "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
-             "horizon": {"type": "integer"}, "window": {"type": "integer"}},
+             "horizon": {"type": "integer"}, "window": {"type": "integer"},
+             "regimeSeries": {"type": "array", "items": {"type": "number"}},
+             "nRegimes": {"type": "integer"}, "regimeMethod": {"type": "string"},
+             "minObs": {"type": "integer"}},
              "required": ["expression", "symbols"]}, 120_000, long_running=True)
     _def("compose_alpha_model", "Combine factor panels into a versioned composite alpha.",
          compose_alpha_model, {"type": "object", "properties": {
@@ -444,7 +533,14 @@ def register_factor_tools(registry: Any) -> list[str]:
              "evaluation": {"type": "object"}, "portfolio": {"type": "object"},
              "expression": {"type": "string"}, "symbols": {"type": "array", "items": {"type": "string"}},
              "expectedDirection": {"type": "string"}, "alpha": {"type": "number"},
-             "minCrossSection": {"type": "integer"}, "maxTurnover": {"type": "number"}},
+             "minCrossSection": {"type": "integer"}, "maxTurnover": {"type": "number"},
+             "trialCount": {"type": "integer"}, "srVariance": {"type": "number"},
+             "trialSharpes": {"type": "array", "items": {"type": "number"}},
+             "candidateReturns": {"type": "array"},
+             "dsrThreshold": {"type": "number"}, "pboThreshold": {"type": "number"},
+             "pboSplits": {"type": "integer"},
+             "experimentId": {"type": "string"}, "factorId": {"type": "string"},
+             "version": {"type": "string"}},
              "required": []}, 120_000, long_running=True)
     _def("promote_factor_to_strategy",
          "Promote a validated factor into a persisted, approval-gated quant strategy and run "
@@ -458,6 +554,16 @@ def register_factor_tools(registry: Any) -> list[str]:
              "costBps": {"type": "number"}, "actor": {"type": "string"},
              "requestApproval": {"type": "boolean"}}, "required": ["factorId", "symbols"]},
          120_000, long_running=True)
+    _def("submit_factor_promotion",
+         "Submit a factor→strategy promotion as a durable Execution Fabric job (returns a job id).",
+         submit_factor_promotion, {"type": "object", "properties": {
+             "factorId": {"type": "string"}, "version": {"type": "string"},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
+             "quantiles": {"type": "integer"}, "weighting": {"type": "string"},
+             "longShort": {"type": "boolean"}, "rebalance": {"type": "integer"},
+             "costBps": {"type": "number"}, "actor": {"type": "string"},
+             "requestApproval": {"type": "boolean"}}, "required": ["factorId", "symbols"]}, 15_000)
     _def("factor_capabilities", "Report Factor Lab capabilities.",
          factor_capabilities, {"type": "object", "properties": {}}, 5_000)
     return list(FACTOR_TOOLS)

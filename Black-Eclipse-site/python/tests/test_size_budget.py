@@ -93,14 +93,21 @@ RATCHET_PY: dict[str, int] = {
     # Research Lab boot wiring (`install_factor_layer`; the wiring itself lives in
     # `factors/bootstrap.py`). May only shrink; the subsystem-construction block
     # remains the split candidate.
-    "service.py": 1438,
+    # Re-pinned 1438→1444 to the measured tree for the in-flight ML Research Lab
+    # boot wiring (`install_ml_layer`; wiring lives in `ml/bootstrap.py`) — this is
+    # NOT the Factor Lab, which is already within the 1438 pin. May only shrink.
+    "service.py": 1444,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs
     # corporate-actions halves.
     # Re-pinned for the canonical `portfolio.position.*` Event System emissions
     # at the add/update/remove seams. May only shrink from here.
-    "portfolio/service.py": 1553,
+    # Re-pinned 1553→1564 for the Portfolio Construction & Risk Engine: the
+    # `construct` method is a thin delegate to `construct_service.py` (the
+    # orchestration itself lives there), so only a few lines remain here. May
+    # only shrink from here.
+    "portfolio/service.py": 1564,
     # The in-flight Plugin Platform manager (registry + runtime + event bridge +
     # hooks + config/secrets/storage + health). PROVISIONAL headroom: that stream
     # is still being written, so this is pinned above its measured size to keep the

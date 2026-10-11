@@ -103,6 +103,9 @@ DEFAULT_POLICIES: dict[str, ExecutionPolicy] = {
     "event": ExecutionPolicy(mode=ExecutionMode.BACKGROUND, queue=QueueName.EVENT.value,
                              worker_kind=WorkerKind.EVENT.value, priority=JobPriority.AGENT_INTERACTIVE.weight,
                              timeout_ms=300_000, max_attempts=2),
+    "ml": ExecutionPolicy(mode=ExecutionMode.BACKGROUND, queue=QueueName.ML.value,
+                          worker_kind=WorkerKind.ML.value, priority=JobPriority.RESEARCH.weight,
+                          timeout_ms=1_860_000, max_attempts=1, resources={"code": 1}),
 }
 
 

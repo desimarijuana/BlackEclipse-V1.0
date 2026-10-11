@@ -269,6 +269,124 @@ async def portfolio_history(portfolio_id: str, request: Request, limit: int = 20
     return _engine().history(portfolio_id, limit, actor_id=_actor(request))
 
 
+# ── Construction & risk engine ──────────────────────────────────────────────
+
+@router.post("/portfolio/{portfolio_id}/construct")
+async def portfolio_construct(portfolio_id: str, request: Request,
+                              body: dict[str, Any] = Body(default={}),
+                              _: bool = Depends(require_operator)) -> dict[str, Any]:
+    return await _engine().construct({**body, "portfolio_id": portfolio_id},
+                                     actor_id=_actor(request, body))
+
+
+@router.get("/portfolio/{portfolio_id}/construction-runs")
+async def portfolio_construction_runs(portfolio_id: str, request: Request, limit: int = 50,
+                                      _: bool = Depends(require_operator)) -> dict[str, Any]:
+    return {"runs": _engine().store.list_construction_runs(portfolio_id, limit)}
+
+
+@router.get("/portfolio/runs/{run_id}")
+async def portfolio_get_run(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    run = _engine().store.get_construction_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"construction run {run_id} not found")
+    return run
+
+
+@router.post("/portfolio/estimate-inputs")
+async def portfolio_estimate_inputs(body: dict[str, Any] = Body(default={}),
+                                    _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from ..portfolio.estimation import (align_returns, estimate_covariance,
+                                        estimate_expected_returns)
+
+    returns = body.get("returns")
+    if returns is None and body.get("series"):
+        aligned = align_returns(body["series"])
+        if not aligned.get("available"):
+            return {"available": False, "reason": aligned.get("reason")}
+        returns = aligned["returns"]
+    if not returns:
+        return {"available": False, "reason": "supply `returns` or `series`"}
+    return {
+        "symbols": sorted(returns),
+        "expectedReturns": estimate_expected_returns(
+            returns, method=body.get("expected_returns_method", "arithmetic")),
+        "covariance": estimate_covariance(
+            returns, method=body.get("covariance_method", "sample"),
+            annualize=bool(body.get("annualize", False))),
+    }
+
+
+@router.post("/portfolio/{portfolio_id}/stress-test")
+async def portfolio_stress_test(portfolio_id: str, body: dict[str, Any] = Body(...),
+                                _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from ..portfolio.risk_engine import stress_test
+
+    return stress_test(body.get("weights") or {}, scenarios=body.get("scenarios") or [],
+                       covariance=body.get("covariance"))
+
+
+@router.post("/portfolio/{portfolio_id}/transaction-costs")
+async def portfolio_transaction_costs(portfolio_id: str, body: dict[str, Any] = Body(default={}),
+                                      _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from ..portfolio.costs import transaction_costs, turnover
+
+    to = turnover(body.get("current_weights") or {}, body.get("target_weights") or {})
+    costs = transaction_costs(
+        to["deltas"], commission_rate=float(body.get("commission_rate") or 0.0),
+        half_spread=body.get("half_spread"), impact_coefficient=float(body.get("impact_coefficient") or 0.0),
+        min_commission=float(body.get("min_commission") or 0.0), fx_rate=float(body.get("fx_rate") or 1.0))
+    return {"turnover": to, "costs": costs}
+
+
+@router.post("/portfolio/{portfolio_id}/compare")
+async def portfolio_compare(portfolio_id: str, body: dict[str, Any] = Body(...),
+                            _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from ..portfolio.construction import compare_allocations
+
+    return compare_allocations(
+        symbols=body.get("symbols") or [], covariance=body.get("covariance") or [],
+        expected_returns=body.get("expected_returns"), methods=body.get("methods"),
+        constraints_payload=body.get("constraints") or {}, benchmark_weights=body.get("benchmark_weights"),
+        market_weights=body.get("market_weights"), risk_budgets=body.get("risk_budgets"),
+        target_volatility=body.get("target_volatility"), risk_aversion=float(body.get("risk_aversion") or 1.0),
+        views=body.get("views"), factor_loadings=body.get("factor_loadings"),
+        factor_constraints=body.get("factor_constraints"))
+
+
+@router.post("/portfolio/{portfolio_id}/simulate-rebalancing")
+async def portfolio_simulate_rebalancing(portfolio_id: str, body: dict[str, Any] = Body(...),
+                                         _: bool = Depends(require_operator)) -> dict[str, Any]:
+    if str(body.get("mode") or "").upper() == "BACKGROUND":
+        from ..portfolio.fabric import submit_simulation
+
+        return await submit_simulation(body)
+    from ..portfolio.simulation import rebalancing_simulation
+
+    return rebalancing_simulation(
+        body.get("price_series") or {}, schedule=body.get("schedule") or "quarterly",
+        method=body.get("method") or "risk_parity", constraints_payload=body.get("constraints") or {},
+        lookback=int(body.get("lookback") or 252), initial_capital=float(body.get("initial_capital") or 1.0),
+        cost_rate=float(body.get("cost_rate") or 0.0))
+
+
+@router.get("/portfolio/simulations/{job_id}")
+async def portfolio_simulation_status(job_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from ..portfolio.fabric import get_simulation_job
+
+    job = get_simulation_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"simulation job {job_id} not found")
+    return job
+
+
+@router.delete("/portfolio/simulations/{job_id}")
+async def portfolio_simulation_cancel(job_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from ..portfolio.fabric import cancel_simulation
+
+    return await cancel_simulation(job_id)
+
+
 def _http_error(exc: Exception) -> HTTPException:
     code = getattr(exc, "code", None)
     if code == "PORTFOLIO_NOT_FOUND":
