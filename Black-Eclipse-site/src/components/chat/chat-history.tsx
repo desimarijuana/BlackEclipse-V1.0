@@ -1,11 +1,14 @@
 'use client';
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowDown, Cpu, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
+import { ResponseView } from '@/components/response/response-view';
+import { hasResponseFence } from '@/lib/response/parse';
+import { planMarkdown, plannerUpgraded } from '@/lib/response/planner';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
 import { ResearchEvidencePanel } from './research-evidence-panel';
@@ -34,6 +37,8 @@ interface ChatHistoryProps {
   onRetryMessage?: (id: string) => void;
   /** Rate an assistant turn. The caller persists the choice on the message. */
   onFeedback?: (id: string, feedback: 'up' | 'down') => void;
+  /** Run a follow-up agent turn (used by response `controls` blocks). */
+  onFollowup?: (prompt: string) => void;
 }
 
 /** How close to the bottom counts as "following the stream". */
@@ -43,18 +48,37 @@ const NEAR_BOTTOM_PX = 96;
  * Assistant prose is the expensive part to render (full Markdown parse). It only
  * changes when its text does, so memoizing it stops a streaming turn from
  * re-parsing every *other* turn in the transcript.
+ *
+ * When a settled answer contains a structured response fence, `Markdown` renders
+ * it inline. When it does not, the deterministic planner re-presents plain
+ * Markdown (tables → interactive tables, source lists → citations) without
+ * changing the words. While streaming, it falls back to raw Markdown so a
+ * half-written block never flickers into a structured render.
  */
 const AssistantContent = memo(function AssistantContent({
   content,
   compact,
+  streaming,
+  onFollowup,
 }: {
   content: string;
   compact: boolean;
+  streaming: boolean;
+  onFollowup?: (prompt: string) => void;
 }) {
-  return <Markdown content={content} compact={compact} className="w-full" />;
+  const planned = useMemo(() => {
+    if (streaming || hasResponseFence(content)) return null;
+    const response = planMarkdown(content);
+    return plannerUpgraded(response) ? response : null;
+  }, [content, streaming]);
+
+  if (planned) {
+    return <ResponseView response={planned} compact={compact} onFollowup={onFollowup} />;
+  }
+  return <Markdown content={content} compact={compact} streaming={streaming} onFollowup={onFollowup} className="w-full" />;
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onRetryMessage, onFeedback }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onRetryMessage, onFeedback, onFollowup }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -246,7 +270,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                       )}
                     </div>
                   )}
-                  {msg.content && <AssistantContent content={msg.content} compact={compact} />}
+                  {msg.content && <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />}
                   <ChatCapabilityPanel
                     autonomy={msg.autonomy}
                     verification={msg.codeVerification}

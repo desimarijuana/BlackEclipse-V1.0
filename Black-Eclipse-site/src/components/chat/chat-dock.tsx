@@ -433,6 +433,14 @@ export function ChatDock({
     await startTurn(history, text);
   };
 
+  /** Run a follow-up turn from a response `controls` block (same path as send). */
+  const handleFollowup = async (prompt: string) => {
+    const text = prompt.trim();
+    if (!text || busy) return;
+    const history = messagesRef.current.map(m => ({ role: m.role, content: m.content }));
+    await startTurn(history, text);
+  };
+
   const cancel = () => {
     agentRun.cancel();
   };
@@ -578,6 +586,7 @@ export function ChatDock({
                 }}
                 onRetryMessage={retryMessage}
                 onFeedback={feedbackMessage}
+                onFollowup={handleFollowup}
               />
             )}
           </div>

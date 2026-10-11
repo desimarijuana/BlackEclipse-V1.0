@@ -41,9 +41,10 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # HEAD's ceiling was 23300; Phase S.2 lowered it to 23025. The Task / Plan
     # runtime raised it to 23725 for its one guidance paragraph (a genuine new
     # capability); the Eclipse UI authoring capability (`ui_*` tools) raised it to
-    # 25217 for its one guidance paragraph. It is re-pinned there and may only
-    # shrink from here.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 25217
+    # 25217 for its one guidance paragraph; the Interactive Response Engine raised
+    # it to 26410 for its `eclipse-response` guidance paragraph. It is re-pinned
+    # there and may only shrink from here.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 26410
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

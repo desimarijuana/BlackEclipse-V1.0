@@ -1195,6 +1195,5 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
                              "BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1 to acknowledge the risk.")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
-
 if __name__ == "__main__":
     main()

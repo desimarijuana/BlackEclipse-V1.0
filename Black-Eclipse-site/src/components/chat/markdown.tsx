@@ -17,12 +17,21 @@ import {
   tableToTsv,
 } from '@/lib/chat/markdown';
 import { CopyButton } from './copy-button';
+import { ResponseFence } from '@/components/response/response-fence';
+import { RESPONSE_FENCE_LANGUAGE } from '@/lib/response/contract';
 
 interface MarkdownProps {
   content: string;
   className?: string;
   /** Tighter spacing + smaller type for the floating ChatDock. */
   compact?: boolean;
+  /**
+   * True while the assistant turn is still streaming. Lets an in-progress
+   * `eclipse-response` fence show a composing placeholder rather than an error.
+   */
+  streaming?: boolean;
+  /** Called when a response `controls` block submits — re-enters the agent loop. */
+  onFollowup?: (prompt: string) => void;
 }
 
 
@@ -98,7 +107,7 @@ function renderInline(nodes: InlineNode[]): ReactNode[] {
  * with the frosted-glass tokens and generous vertical rhythm so full-width
  * agent replies read like a document rather than a bubble.
  */
-export function Markdown({ content, className, compact = false }: MarkdownProps) {
+export function Markdown({ content, className, compact = false, streaming = false, onFollowup }: MarkdownProps) {
   const blocks = parseMarkdown(content);
 
   return (
@@ -110,13 +119,23 @@ export function Markdown({ content, className, compact = false }: MarkdownProps)
       )}
     >
       {blocks.map((block, i) => (
-        <Block key={i} block={block} compact={compact} />
+        <Block key={i} block={block} compact={compact} streaming={streaming} onFollowup={onFollowup} />
       ))}
     </div>
   );
 }
 
-function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
+function Block({
+  block,
+  compact,
+  streaming,
+  onFollowup,
+}: {
+  block: BlockNode;
+  compact: boolean;
+  streaming: boolean;
+  onFollowup?: (prompt: string) => void;
+}) {
   switch (block.type) {
     case 'paragraph':
       return <p className="whitespace-pre-wrap">{renderInline(block.children)}</p>;
@@ -147,6 +166,11 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
     }
 
     case 'code':
+      // An `eclipse-response` fence is not code — it is the structured response
+      // engine's entry point. Everything else is a normal code block.
+      if (block.language === RESPONSE_FENCE_LANGUAGE) {
+        return <ResponseFence source={block.value} streaming={streaming} compact={compact} onFollowup={onFollowup} />;
+      }
       return (
         <div className="group/code relative">
           <pre className="glass-card-subtle overflow-x-auto rounded-xl border border-white/10 dark:border-white/5 p-3 text-[0.85em] scrollbar-hide">
@@ -182,7 +206,7 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
       return (
         <blockquote className="border-l-2 border-primary/40 pl-3 text-muted-foreground">
           {block.children.map((child, i) => (
-            <Block key={i} block={child} compact={compact} />
+            <Block key={i} block={child} compact={compact} streaming={streaming} onFollowup={onFollowup} />
           ))}
         </blockquote>
       );

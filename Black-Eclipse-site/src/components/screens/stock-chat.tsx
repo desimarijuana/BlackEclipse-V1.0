@@ -804,6 +804,15 @@ function StockChatContent() {
     await runAgent(chatId, userText, userMsg);
   };
 
+  /** Run a follow-up turn from a response `controls` block (same path as send). */
+  const handleFollowup = (prompt: string) => {
+    const text = prompt.trim();
+    if (!text || agentBusy) return;
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text };
+    const chatId = addMessageToActiveChat(userMsg);
+    void runAgent(chatId, text, userMsg);
+  };
+
   const handleInjectPrompt = (ticker: string, promptType: 'research' | 'discuss', customContext?: string) => {
     setActiveTab('chat');
 
@@ -1040,6 +1049,7 @@ function StockChatContent() {
                       onEditMessage={handleEditMessage}
                       onRetryMessage={handleRetryMessage}
                       onFeedback={handleFeedback}
+                      onFollowup={handleFollowup}
                     />
                     <div className={cn(
                       'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 transition-[max-width] duration-500 ease-out',
