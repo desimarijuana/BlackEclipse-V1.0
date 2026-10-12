@@ -244,6 +244,137 @@ describe('mixed response ordering and isolation', () => {
   });
 });
 
+describe('workflow block (icon-driven connected process)', () => {
+  it('renders each stage with its title and description through the registry', () => {
+    const out = view({
+      blocks: [
+        {
+          type: 'workflow',
+          title: 'How HFT works',
+          stages: [
+            { icon: 'radio', title: 'Market data', description: 'Live prices' },
+            { icon: 'brain-circuit', title: 'Strategy engine', description: 'Detects opportunities' },
+            { icon: 'zap', title: 'Execution engine', description: 'Routes orders' },
+            { icon: 'combined-chart', title: 'Monitoring and risk', description: 'Tracks fills' },
+          ],
+        },
+      ],
+    });
+    for (const t of ['How HFT works', 'Market data', 'Strategy engine', 'Execution engine', 'Monitoring and risk', 'Detects opportunities']) {
+      expect(out).toContain(t);
+    }
+    expect(out).not.toContain('Unsupported block type');
+  });
+
+  it('offers expand-all only when a stage has detail, and starts collapsed', () => {
+    const withDetail = view({ blocks: [{ type: 'workflow', stages: [{ title: 'A', detail: 'deeper' }] }] });
+    expect(withDetail).toContain('Expand all');
+    expect(withDetail).toContain('aria-expanded="false"');
+
+    const noDetail = view({ blocks: [{ type: 'workflow', stages: [{ title: 'A' }, { title: 'B' }] }] });
+    expect(noDetail).not.toContain('Expand all');
+  });
+
+  it('uses a horizontal-capable flow for <=4 stages and stacks vertically for many', () => {
+    const four = view({ blocks: [{ type: 'workflow', stages: [{ title: 'a' }, { title: 'b' }, { title: 'c' }, { title: 'd' }] }] });
+    expect(four).toContain('sm:flex-row');
+    const many = view({ blocks: [{ type: 'workflow', stages: Array.from({ length: 6 }, (_, i) => ({ title: `s${i}` })) }] });
+    expect(many).not.toContain('sm:flex-row');
+  });
+
+  it('does not crash on an unknown icon key', () => {
+    const out = view({ blocks: [{ type: 'workflow', stages: [{ icon: 'not-real', title: 'Fallback stage' }] }] });
+    expect(out).toContain('Fallback stage');
+  });
+});
+
+describe('response layout cohesion (blocks read as one document)', () => {
+  // Regression: every sibling block used to get the same `space-y-4` gap, so a
+  // valid multi-block answer looked like a stack of detached cards. Adjacent
+  // prose must flow tightly; a visual surface must keep a clear gap.
+  it('flows adjacent prose blocks tightly, with no leading gap on the first', () => {
+    const out = view({
+      blocks: [
+        { type: 'markdown', markdown: 'FIRST' },
+        { type: 'markdown', markdown: 'SECOND' },
+      ],
+    });
+    expect(out).toContain('<div class="mt-0">');
+    expect(out).toContain('<div class="mt-2.5">');
+    expect(out).not.toContain('mt-4');
+  });
+
+  it('separates a prose block from a visual surface block', () => {
+    const out = view({
+      blocks: [
+        { type: 'markdown', markdown: 'PROSE' },
+        { type: 'data_table', columns: [{ key: 'a', label: 'A' }], rows: [{ a: 'SURFACE' }] },
+      ],
+    });
+    expect(out).toContain('<div class="mt-4">');
+    expect(out).not.toContain('mt-2.5');
+  });
+
+  it('keeps a five-block callout/table answer cohesive (no detached-card stacking)', () => {
+    const out = view({
+      blocks: [
+        { type: 'callout', markdown: 'CALLOUT text' },
+        { type: 'markdown', markdown: 'CONTENT text' },
+        { type: 'data_table', columns: [{ key: 'a', label: 'A' }], rows: [{ a: 'ROW1' }] },
+        { type: 'data_table', columns: [{ key: 'b', label: 'B' }], rows: [{ b: 'ROW2' }] },
+        { type: 'markdown', markdown: 'CLOSING text' },
+      ],
+    });
+    // All content survives …
+    for (const t of ['CALLOUT text', 'CONTENT text', 'ROW1', 'ROW2', 'CLOSING text']) {
+      expect(out).toContain(t);
+    }
+    // … and the rhythm groups prose while separating the two table surfaces.
+    expect(out).toContain('<div class="mt-2.5">'); // callout → markdown
+    expect(out).toContain('<div class="mt-4">'); // markdown → table
+  });
+
+  it('applies the same rhythm inside nested report blocks', () => {
+    const out = view({
+      blocks: [
+        {
+          type: 'report',
+          sections: [
+            {
+              heading: 'S',
+              blocks: [
+                { type: 'markdown', markdown: 'NESTED one' },
+                { type: 'markdown', markdown: 'NESTED two' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(out).toContain('<div class="mt-2.5">');
+  });
+});
+
+describe('real producer payload regression (text/code field names)', () => {
+  // Reproduces a real answer where the model used `text` for prose/callout bodies
+  // and `code` for mermaid. Before the fix, the markdown + callout blocks were
+  // dropped as "Unsupported block type" and the answer was gutted.
+  it('renders markdown(text) + mermaid(code) + callout(text) without unsupported blocks', () => {
+    const out = view({
+      blocks: [
+        { type: 'markdown', text: '## What HFT is\n\nSpeed, not strategy.' },
+        { type: 'mermaid', code: 'sequenceDiagram\n A->>B: hi' },
+        { type: 'callout', variant: 'warning', title: 'Material limits', text: 'Could not verify current share.' },
+      ],
+    });
+    expect(out).not.toContain('Unsupported block type');
+    expect(out).toContain('What HFT is');
+    expect(out).toContain('Speed, not strategy.');
+    expect(out).toContain('Material limits');
+    expect(out).toContain('Could not verify current share.');
+  });
+});
+
 describe('markdown integration (chat surface)', () => {
   it('renders a settled ```mermaid fence as a diagram, not a code block', () => {
     const out = html(<Markdown content={'```mermaid\ngraph TD\n  A-->B\n```'} />);

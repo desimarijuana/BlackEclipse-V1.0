@@ -388,6 +388,7 @@ export const en = {
   'workspace.panel.changes': 'Changes',
   'workspace.panel.permissions': 'Approvals',
   'workspace.panel.history': 'History',
+  'workspace.panel.explain': 'Influences',
   'workspace.pin': 'Pin panel',
   'workspace.unpin': 'Unpin panel',
   'workspace.notAvailable': 'Not available',

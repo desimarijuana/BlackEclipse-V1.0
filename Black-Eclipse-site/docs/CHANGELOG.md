@@ -8,6 +8,174 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-12
 
+- **Added the icon-driven `workflow` block (connected process diagrams).** The
+  engine already rendered markdown, callouts, metrics, charts, tables, diagrams,
+  Mermaid, node graphs, timelines, steppers, infographics, reports, citations,
+  actions and artifacts — but had no dedicated **icon-driven, connected process**
+  block, so "explain how HFT works" could not produce the required staged flow.
+  New `workflow` block: ordered `stages` (icon + title + description, optional
+  `detail`/`inputs`/`outputs`/`status`/`tone`) joined by directional connectors,
+  with `layout: vertical|horizontal|auto` (auto = horizontal for ≤4 stages,
+  stacking to a column on narrow screens). `WorkflowBlock` (`rich-blocks.tsx`) is
+  a real, keyboard-accessible disclosure (button + `aria-expanded`), offers
+  Expand all / Collapse all and Copy, and an "Ask Eclipse about this stage"
+  control that re-enters the EXISTING agent loop. Wired into the registry
+  (`response-view.tsx`), the icon allowlist (`icons.ts`: `radio`,
+  `brain-circuit`, `combined-chart`, `cpu`, `server`, `gears`), and the producer
+  prompt (`prompts.py`, kept under its 26410-char ratchet at 26408; `steps`→`stages`
+  field synonym added in `contract.ts`). Tests: +4 contract (`contract-blocks.test.ts`)
+  and +4 render (`render.test.tsx`). Checks: `npx tsc --noEmit` clean; lint 0
+  errors; response suites 106 passed; prompt-ceiling Python tests 30 passed.
+  docs updated: `docs/interactive-response-engine.md`.
+
+- **Response charts were broken and off-brand; now smooth, theme-aware and
+  frosted.** The ECharts binding lost the design system entirely: `buildChartOption`
+  returned its own bare `tooltip` object that **overwrote** the frosted-glass
+  tooltip recipe from `baseChartOption()` (translucent tint, `appendTo: 'body'`,
+  18px blur, rounded shadow), so charts showed a flat default tooltip. Extracted
+  `mergeChartOption()` so the base chrome and the block's trigger/formatter are
+  combined, never clobbered. Also made charts consistent with the app: theme-aware
+  axis/legend ink via the new shared `hooks/use-dark-scheme.ts` (zrender can't parse
+  `oklch`, so ink is concrete rgba for light/dark), `cubicOut` animation, smooth
+  lines, rounded/capped bars, gradient area fills, soft dashed gridlines, rounded
+  pie/heatmap cells, and no more `confine` (which fought `appendTo:'body'`).
+  Every visual surface (chart canvas, Mermaid/diagram/node-graph SVGs, loading
+  skeletons) now sits in a `.glass-card-subtle` container instead of a flat
+  `border + bg-accent` fill, per the UI skill. Tests: +5 in
+  `chart-option.test.ts` (tooltip-chrome survives the merge, theme ink differs,
+  smooth/rounded/animated). Checks: `npx tsc --noEmit` clean; lint 0 errors;
+  vitest 2676 passed; python 5749 passed (one earlier run had a flaky failure that
+  reran green; no Python changed). docs updated: `docs/interactive-response-engine.md`.
+
+- **"What influenced this run" moved from the chat turn into the right
+  sidebar.** The memory/skill observability that rendered as a collapsed panel
+  under every completed assistant answer is now a docked Agent Workspace tab
+  (**Influences**, a 3-dots icon), so it reads like the other run panels
+  (Context/Output/Changes/Approvals/History). It is offered **only while the
+  ChatBot tab is in front** (`AgentWorkspace` gained a `showExplain` prop;
+  `stock-chat.tsx` passes `activeTab === 'chat'`). The panel fetches
+  `GET /api/harness/runs/{id}/explain` for the workspace's bound run and renders
+  the same stat tiles, excluded-memory groups, memory budget, workflow/lineage
+  and prompt-shaping sections using the workspace UI primitives. Selecting a
+  past run in the History tab (which rebinds the workspace run) shows that
+  run's explanation, so the per-run capability is preserved. New files:
+  `src/components/agent-workspace/explain-panel.tsx`; retired
+  `src/components/chat/run-explanation-panel.tsx` (no remaining importers).
+  New store panel id `explain` + `workspace.panel.explain` copy. Checks:
+  `npx tsc --noEmit` clean; vitest 2676 passed; Python 5749 passed; eval gates
+  ALL PASS. docs updated: `docs/agent-workspace.md`, `docs/NAVIGATION.md`.
+
+- **The Agent Workspace wraps at narrow widths instead of hiding elements.**
+  Dragging the right sidebar to half its default width used to clip content; the
+  panel-tab bar was `overflow-x-auto scrollbar-hide`, so tabs past the visible
+  width were simply cut off. The nav is now `flex-wrap`, so the tabs flow onto a
+  second row when they no longer fit, and the Influences panel keeps wrapping its
+  chips and long lines (`break-words`) rather than truncating them. Nothing is
+  hidden at narrow widths — elements move down. Checks: `npx tsc --noEmit` clean;
+  vitest 2676 passed; lint 0 errors. no doc change — presentation-only responsive
+  tweak (the panel is already described in `docs/agent-workspace.md`).
+
+- **Real `eclipse-response` answers no longer lose blocks or show scary render
+  errors.** A live "explain HFT visually" answer exposed two defects. (1) The
+  model used `text` — the same word as the `text`→`markdown` *type* alias — as the
+  body *field* on `markdown` and `callout` blocks; the normalizer only mapped
+  `content`→`markdown`, so those blocks failed and rendered as "Unsupported block
+  type". `normalizeBlockFields` now also maps a scalar `text`→`markdown` for the
+  prose body types (`markdown`/`callout`/`details`), scoped so it never steals
+  `heading`'s own `text` field. (2) Both `mermaid` blocks (correctly written with
+  `code`, which already normalizes to `diagram`) validated but failed at *render*
+  with "Could not render this mermaid block" — a `BlockBoundary` error caused by
+  the **redundant** outer `next/dynamic` wrapper around `mermaid-block`, which
+  already lazy-imports the heavy `mermaid` package inside its effect. Removed that
+  wrapper in `response-view.tsx` and `markdown.tsx` (static import of the tiny
+  component; the library stays lazy), and serialised Mermaid renders through one
+  module-level chain so two diagrams in one answer can't clobber Mermaid's global
+  config. All mermaid failures now degrade to the inline card, never the boundary.
+  Tests: +3 synonym/regression cases in `contract-blocks.test.ts`, +1 end-to-end
+  payload case in `render.test.tsx`. Checks: `npx tsc --noEmit` clean; response
+  suites 94 passed. docs updated: `docs/interactive-response-engine.md`.
+
+- **The bot-chat header is now a compact banner.** `bot-chat.tsx`'s identity
+  row was too tall: `p-4` → `px-3 py-2`, avatar 52 → 36, name `text-base` →
+  `text-sm`, description clamped to one line at `text-[11px]`, and the
+  schedule/last-run meta row tightened to `text-[10px]`. Checks:
+  `npx tsc --noEmit` clean; lint 0 errors; size budget passes. no doc change —
+  presentation-only restyle.
+
+- **Bots mode hides the app header on desktop, for a full-bleed chat.**
+  `top-bar.tsx` now applies `md:hidden` to its own root when
+  `activeTab === 'bots'` (it already receives the active tab), so the price
+  ribbon / search / terminal bar no longer sits above the bot conversation. It
+  stays visible on small screens, where its menu button is the only way to open
+  the sidebar. Focus mode still hides it entirely. Implemented without growing
+  `stock-chat.tsx` (a ratcheted file pinned at 1366 lines). Checks:
+  `npx tsc --noEmit` clean; size-budget + lint pass. no doc change —
+  presentation-only shell tweak.
+
+- **Bot-mode replies now read as a full-width document, not a floating glass
+  card.** In the Bots workspace (`bot-chat.tsx` and `group-chat-room.tsx`) a
+  non-error bot reply dropped the `glass-card-subtle` surface and the
+  `max-w-[80%]` bubble; it now spans the full width (avatar + name + Markdown +
+  timestamp), so a long structured answer reads like the main chat transcript.
+  User turns and honest error turns keep their framed bubbles. Checks:
+  `npx tsc --noEmit` clean; lint 0 errors. no doc change — presentation-only
+  restyle of the existing bot surfaces.
+
+- **Rich-response blocks are now light/dark theme-aware, and `metadata` is
+  bounded.** An audit of the Interactive Response Engine confirmed the feature is
+  fully implemented (versioned contract, block registry, mermaid/ECharts/icons,
+  auto-selection via the agent prompt, persistence, tests); three real gaps were
+  closed. (1) `mermaid-block.tsx` hardcoded `theme: 'dark'`, so diagrams were
+  unreadable in light mode — it now observes the app's `dark` class (same signal
+  as `eclipse-provider.ts`) and re-renders with `'dark'`/`'default'`;
+  `diagram-block.tsx` and `node-graph-block.tsx` now draw node text with
+  `currentColor` instead of a hardcoded `#e5e7eb`. (2) The envelope `metadata`
+  field was an uncapped `z.record` — it now has a `maxMetadataKeys` (40) + size
+  ceiling and is *dropped, not fatal* on overflow (`.catch(undefined)`) so
+  over-limit bookkeeping can never cost the user their answer; 3 new tests in
+  `contract.test.ts`. (3) Corrected the doc's AGENT-001 traceability (it pointed
+  at `test_prompt_segments.py`, which has no `eclipse-response` coverage; real
+  coverage is the prompt-ceiling pins in `test_memory_tools.py` /
+  `test_phase_s_stabilization.py`). Checks: `npx tsc --noEmit` clean; response
+  suites 90 passed. docs updated: `docs/interactive-response-engine.md`.
+
+- **Bot and group chat no longer die as "Failed to fetch" on a real research
+  turn.** The Bots workspace (`bot-chat.tsx`, `group-chat-room.tsx`) sent each
+  turn through the one-shot `POST /api/harness/chat`, whose front door aborts
+  every run at a 180s cap (`python-client.ts` default `timeoutMs`); a
+  tool-heavy turn (reproduced: "find me a good psx stock" → 8 model steps / 36
+  tool calls / ~243s) was killed mid-run and surfaced as a raw browser
+  "Failed to fetch". Both surfaces now run turns through the shared streaming
+  agent provider (`getAgentProvider().chat`, background run + SSE) — the same
+  path the main chat uses — so a run is observed live and survives its full
+  duration, with per-token updates and abort-on-unmount. Replies are also
+  rendered with the shared `Markdown` component instead of raw pre-wrapped
+  text, so structured/`eclipse-response` answers read correctly. `chat-store.ts`
+  and `groups-store.ts` gained an in-place `update`/`updateMessage` action to
+  fill the streaming bubble. Checks: `npx tsc --noEmit` clean; targeted vitest
+  (213 tests across bots/agent/response/chat-route) + lint pass. no doc change —
+  bug fix reusing the existing streaming provider; contracts unchanged.
+
+- **A structured `eclipse-response` answer now reads as one document instead of
+  a stack of detached cards.** Every sibling block got the same `space-y-4` gap,
+  so a valid five-block answer (callout + markdown + two tables + markdown)
+  looked like five separate components. `response-view.tsx` now assigns the
+  between-block gap by adjacency: two adjacent prose blocks (markdown, heading,
+  callout, details, key_value, citations, timeline) get a tight `mt-2.5` so they
+  flow, while a visual "surface" block (chart, table, metric grid, diagram, …)
+  keeps a clear `mt-4` so it reads as its own figure; compact spacing stays
+  tighter. The same helper drives the nested `renderBlocks` (tabs/report) path.
+  The producer guidance in `python/harness/prompts.py` was also tightened to say
+  the `blocks` array is ONE document, not separate cards — keep connected prose
+  in a single markdown block and do not repeat the fence's text outside it
+  (net-neutral rewrite; prompt stays under its 26410-char ratchet at 26406).
+  Locked by the new "response layout cohesion" tests in `render.test.tsx` (prose
+  flows tight, surfaces separate, five-block answer stays intact, nested report
+  rhythm), and the invariant is documented in the engine doc's new "Layout
+  cohesion" subsection. Checks: `npx tsc --noEmit` clean; `npm run test` all pass
+  (5749 python + vitest + eval gates); lint 0 errors. docs updated:
+  `docs/interactive-response-engine.md`.
+
 - **The site no longer freezes / times out during startup or background
   refreshes.** Root causes found and fixed, all in the single Node web process
   (synchronous `better-sqlite3` writes block the event loop):

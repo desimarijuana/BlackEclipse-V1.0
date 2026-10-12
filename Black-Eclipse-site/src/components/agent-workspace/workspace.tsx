@@ -25,22 +25,26 @@ import { ContextPanel } from './context-panel';
 import { ChangesPanel } from './changes-panel';
 import { PermissionsPanel } from './permissions-panel';
 import { HistoryPanel } from './history-panel';
+import { ExplainPanel } from './explain-panel';
 import { ArtifactViewer, type LoadedContent } from './viewer';
 import { PANEL_ICONS, statusIcon } from './ui';
 
 // The sidebar is deliberately minimal: what the agent did (Output), how full the
 // model's context window is (Context), what it changed (Changes), what it needs
 // (Approvals) and past runs (History). The other telemetry/tasks/browser/computer
-// detail views were removed â€” they read as noise here; the Output feed carries
+// detail views were removed — they read as noise here; the Output feed carries
 // the useful signal.
-const SIDEBAR_PANELS: readonly WorkspacePanel[] = ['context', 'output', 'changes', 'permissions', 'history'];
+const BASE_PANELS: readonly WorkspacePanel[] = ['context', 'output', 'changes', 'permissions', 'history'];
 
-const PANEL_KEY: Record<(typeof SIDEBAR_PANELS)[number], TranslationKey> = {
+// "Influences" (memory/skill observability) is chat-run specific, so it is only
+// offered while the ChatBot tab is in front (the caller passes `showExplain`).
+const PANEL_KEY: Record<WorkspacePanel, TranslationKey> = {
   output: 'workspace.panel.output',
   context: 'workspace.panel.context',
   changes: 'workspace.panel.changes',
   permissions: 'workspace.panel.permissions',
   history: 'workspace.panel.history',
+  explain: 'workspace.panel.explain',
 };
 
 const STATUS_KEY: Record<import('@/lib/agent-workspace/types').AgentStatus, TranslationKey> = {
@@ -84,7 +88,7 @@ function panelAttention(panel: WorkspacePanel, state: AgentWorkspaceState): bool
   return false;
 }
 
-export function AgentWorkspace() {
+export function AgentWorkspace({ showExplain = false }: { showExplain?: boolean }) {
   const open = useWorkspaceStore((s) => s.open);
   const state = useWorkspaceStore((s) => s.state);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
@@ -178,6 +182,9 @@ export function AgentWorkspace() {
 
   if (!mounted || !open) return null;
 
+  const panels: readonly WorkspacePanel[] = showExplain ? [...BASE_PANELS, 'explain'] : BASE_PANELS;
+  const shownPanel = panels.includes(activePanel) ? activePanel : panels[0];
+
   const statusKey = STATUS_KEY[state.execution.status];
 
   return (
@@ -214,8 +221,8 @@ export function AgentWorkspace() {
         </button>
       </header>
 
-      <nav aria-label={t('workspace.title')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto px-2 py-1.5 scrollbar-hide">
-        {SIDEBAR_PANELS.map((panel) => {
+      <nav aria-label={t('workspace.title')} className="flex shrink-0 flex-wrap items-center gap-0.5 px-2 py-1.5">
+        {panels.map((panel) => {
           const attention = panelAttention(panel, state);
           const Icon = PANEL_ICONS[panel];
           return (
@@ -223,10 +230,10 @@ export function AgentWorkspace() {
               key={panel}
               type="button"
               onClick={() => setActivePanel(panel)}
-              aria-pressed={activePanel === panel}
+              aria-pressed={shownPanel === panel}
               className={cn(
                 'relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] transition-colors',
-                activePanel === panel ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/[0.05] hover:text-foreground',
+                shownPanel === panel ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/[0.05] hover:text-foreground',
               )}
             >
               <Icon size={12} className="shrink-0" />
@@ -238,14 +245,14 @@ export function AgentWorkspace() {
       </nav>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col p-3">
-        {!state.runId && state.activity.length === 0 && activePanel !== 'history' ? (
+        {!state.runId && state.activity.length === 0 && shownPanel !== 'history' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
             <Sparkles size={20} className="text-muted-foreground/30" />
             <p className="text-[12px] leading-relaxed text-muted-foreground/50">{t('workspace.empty')}</p>
           </div>
         ) : (
           <PanelBody
-            panel={activePanel}
+            panel={shownPanel}
             state={state}
             runId={runId}
             load={loadArtifact}
@@ -317,6 +324,8 @@ function PanelBody({
       return <PermissionsPanel permissions={state.permissions} onDecide={onDecide} />;
     case 'history':
       return <HistoryPanel onOpenRun={onOpenRun} activeRunId={runId} />;
+    case 'explain':
+      return <ExplainPanel runId={runId} />;
     default:
       return null;
   }

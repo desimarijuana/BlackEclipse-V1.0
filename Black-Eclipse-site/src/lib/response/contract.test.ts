@@ -3,6 +3,7 @@ import {
   parseResponsePayload,
   validateBlock,
   RESPONSE_SCHEMA_VERSION,
+  RESPONSE_LIMITS,
 } from './contract';
 
 describe('response contract', () => {
@@ -103,5 +104,35 @@ describe('response contract', () => {
     expect(validateBlock(null).block.type).toBe('unknown');
     expect(validateBlock(42).block.type).toBe('unknown');
     expect(validateBlock({ type: 7 }).block.type).toBe('unknown');
+  });
+
+  it('keeps bounded metadata through a valid envelope', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'markdown', markdown: 'ok' }],
+      metadata: { model: 'x', latencyMs: 12 },
+    });
+    expect(parsed.blocks).toHaveLength(1);
+    expect(parsed.metadata).toEqual({ model: 'x', latencyMs: 12 });
+  });
+
+  it('drops oversized metadata instead of failing the whole answer', () => {
+    const tooManyKeys: Record<string, number> = {};
+    for (let i = 0; i < RESPONSE_LIMITS.maxMetadataKeys + 1; i += 1) tooManyKeys[`k${i}`] = i;
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'markdown', markdown: 'survivor' }],
+      metadata: tooManyKeys,
+    });
+    // The answer is preserved; only the unbounded bookkeeping is dropped.
+    expect(parsed.blocks).toHaveLength(1);
+    expect(parsed.metadata).toBeUndefined();
+  });
+
+  it('drops a metadata value larger than the string ceiling', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'markdown', markdown: 'survivor' }],
+      metadata: { blob: 'x'.repeat(RESPONSE_LIMITS.maxStringLength + 1) },
+    });
+    expect(parsed.blocks).toHaveLength(1);
+    expect(parsed.metadata).toBeUndefined();
   });
 });

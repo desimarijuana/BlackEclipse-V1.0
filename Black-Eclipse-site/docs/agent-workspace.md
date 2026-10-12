@@ -42,7 +42,7 @@ a tool-heavy run readable.
 | Display formatting (pure) | `src/lib/agent-workspace/format.ts` |
 | Context-usage math (pure) | `src/lib/agent-workspace/context-usage.ts` |
 | Reopen a past chat → load its last run | `src/lib/agent-workspace/restore.ts` |
-| UI (docked sidebar + 5 panels + Viewer) | `src/components/agent-workspace/**` |
+| UI (docked sidebar + panels + Viewer) | `src/components/agent-workspace/**` |
 | Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />` — or, in Bots mode, `<BotSchedulerDock />` — a sibling of the main column) + top-bar toggle + `workspace-keybind.tsx` (mounted in `app/layout.tsx`) |
 
 ## It is a docked right sidebar
@@ -64,6 +64,16 @@ under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
   it?", mirroring the OpenCode session sidebar. It reads the already-normalized
   `state.context` + `state.contextSources` + `state.telemetry` and resolves the
   window from the declared model catalog (`context-usage.ts`).
+- **Influences (chat-only):** a sixth tab, **Influences** (a 3-dots icon),
+  surfaces the run's memory/skill observability — which facts were injected,
+  which were filtered out and why, the memory budget, workflow/lineage, and the
+  prompt-shaping profile/skills. It is the former inline chat "What influenced
+  this run" panel (`run-explanation-panel.tsx`), relocated into the dock and
+  rendered with the workspace primitives (`explain-panel.tsx`). It is offered
+  **only while the ChatBot tab is frontmost**: `stock-chat.tsx` passes
+  `showExplain={activeTab === 'chat'}` to `<AgentWorkspace />`. It reads the
+  workspace's bound run and fetches `GET /api/harness/runs/{id}/explain`; the
+  History tab rebinds that run, so a past run's explanation is reachable.
 - **Toggle:** **Ctrl/Cmd + Shift + E** (the VS Code "toggle Explorer" chord). A
   dedicated capture-phase listener (`src/components/agent-workspace/workspace-keybind.tsx`)
   is mounted in `app/layout.tsx` beside the terminal keybind, so it works whether

@@ -6,6 +6,12 @@
 //
 // It never invents data: missing categories/series render an empty-state, and
 // a malformed point set is surfaced by the caller's empty() check.
+//
+// Presentation follows the Eclipse frosted-glass system: transparent canvas,
+// theme-aware ink, soft dashed gridlines, rounded bars, smooth lines and a
+// translucent gradient under area series. The tooltip is intentionally left
+// minimal here — the glass recipe (blur, `appendTo: 'body'`, shadow) lives in
+// `baseChartOption()` and is merged by the caller, so it is never clobbered.
 
 import type { EChartsOption } from 'echarts';
 import type { ChartBlock } from './contract';
@@ -15,7 +21,43 @@ export interface ChartPaletteColors {
   series: string[];
 }
 
-const GRID_AXIS_COLOR = '#7a7a7a';
+/**
+ * Merge a block's built option over the shared base option, keeping the base's
+ * frosted-glass tooltip chrome (translucent tint, `appendTo: 'body'`, blur,
+ * rounded shadow) while honoring the block's own `trigger`/`valueFormatter`.
+ * A plain `{ ...base, ...built }` spread would let the built (bare) tooltip
+ * clobber the glass recipe — this is the bug this helper exists to prevent.
+ */
+export function mergeChartOption(base: EChartsOption, built: EChartsOption): EChartsOption {
+  const baseTooltip = (base as { tooltip?: Record<string, unknown> }).tooltip ?? {};
+  const builtTooltip = (built as { tooltip?: Record<string, unknown> }).tooltip ?? {};
+  return { ...base, ...built, tooltip: { ...baseTooltip, ...builtTooltip } };
+}
+
+/** Theme-aware chart ink. ECharts/zrender cannot parse CSS `oklch`, so these
+ *  are concrete rgba strings chosen to match the app's light/dark tokens. */
+interface ChartInk {
+  axis: string;
+  label: string;
+  split: string;
+  pointer: string;
+}
+
+function chartInk(isDark: boolean): ChartInk {
+  return isDark
+    ? {
+        axis: 'rgba(226,232,240,0.9)',
+        label: 'rgba(148,163,184,0.85)',
+        split: 'rgba(255,255,255,0.07)',
+        pointer: 'rgba(148,163,184,0.45)',
+      }
+    : {
+        axis: 'rgba(63,63,70,0.85)',
+        label: 'rgba(82,82,91,0.8)',
+        split: 'rgba(0,0,0,0.07)',
+        pointer: 'rgba(82,82,91,0.4)',
+      };
+}
 
 /** True when the block has enough data to be worth drawing. */
 export function chartHasData(block: ChartBlock): boolean {
@@ -33,6 +75,17 @@ function isTriple(p: unknown): p is [number, number, number] {
 function colorAt(palette: ChartPaletteColors, index: number): string {
   if (index === 0) return palette.primary;
   return palette.series[(index - 1) % palette.series.length] ?? palette.primary;
+}
+
+/** `#rrggbb` → `rgba(r,g,b,a)`. Anything unexpected is returned unchanged. */
+function withAlpha(color: string, alpha: number): string {
+  const hex = color.trim().replace(/^#/, '');
+  const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return color;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function valueFormatter(block: ChartBlock): (value: unknown) => string {
@@ -60,27 +113,50 @@ function seriesName(block: ChartBlock, index: number): string {
 /**
  * Build the ECharts option for a chart block. `isDark` only affects grid/axis
  * ink; colours come from the caller so the terminal palette is the single source
- * of truth.
+ * of truth. The caller merges the frosted tooltip from `baseChartOption()`.
  */
 export function buildChartOption(
   block: ChartBlock,
   palette: ChartPaletteColors,
-  _isDark = true,
+  isDark = true,
 ): EChartsOption {
+  const ink = chartInk(isDark);
+
+  const axisPointer = {
+    type: 'line' as const,
+    lineStyle: { color: ink.pointer, width: 1, type: 'dashed' as const },
+  };
+
   const base: EChartsOption = {
     backgroundColor: 'transparent',
     textStyle: { fontFamily: 'var(--font-sans, sans-serif)' },
     color: [palette.primary, ...palette.series],
+    animation: true,
+    animationDuration: 620,
+    animationEasing: 'cubicOut',
     tooltip: {
       trigger: block.chartType === 'pie' || block.chartType === 'scatter' || block.chartType === 'heatmap' ? 'item' : 'axis',
       valueFormatter: valueFormatter(block),
-      confine: true,
+      axisPointer,
     },
     legend:
       block.legend && block.series.length > 1
-        ? { bottom: 0, textStyle: { color: GRID_AXIS_COLOR, fontSize: 11 }, icon: 'roundRect' }
+        ? {
+            bottom: 0,
+            icon: 'circle',
+            itemWidth: 8,
+            itemHeight: 8,
+            itemGap: 16,
+            textStyle: { color: ink.label, fontSize: 11 },
+          }
         : undefined,
-    grid: { left: 6, right: 10, top: block.series.length > 1 && block.legend ? 24 : 12, bottom: block.legend && block.series.length > 1 ? 28 : 8, containLabel: true },
+    grid: {
+      left: 8,
+      right: 12,
+      top: block.series.length > 1 && block.legend ? 26 : 14,
+      bottom: block.legend && block.series.length > 1 ? 30 : 10,
+      containLabel: true,
+    },
   };
 
   if (block.chartType === 'pie') {
@@ -88,17 +164,21 @@ export function buildChartOption(
     const categories = block.categories ?? first.data.map((_, i) => String(i + 1));
     return {
       ...base,
-      tooltip: { ...base.tooltip, trigger: 'item' },
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
       series: [
         {
           type: 'pie',
-          radius: ['38%', '66%'],
+          radius: ['42%', '68%'],
           center: ['50%', '46%'],
+          padAngle: 1.5,
+          itemStyle: { borderColor: 'transparent', borderWidth: 2, borderRadius: 6 },
           data: first.data.map((value, i) => ({
             name: String(categories[i] ?? i + 1),
             value: typeof value === 'number' ? value : Array.isArray(value) ? value[value.length - 1] : 0,
           })),
-          label: { color: GRID_AXIS_COLOR, fontSize: 10 },
+          label: { color: ink.label, fontSize: 10 },
+          labelLine: { lineStyle: { color: ink.split } },
+          emphasis: { scale: true, scaleSize: 6 },
         },
       ],
     } as EChartsOption;
@@ -107,15 +187,34 @@ export function buildChartOption(
   if (block.chartType === 'scatter') {
     return {
       ...base,
-      xAxis: { type: 'value', name: block.xLabel, axisLabel: { color: GRID_AXIS_COLOR, fontSize: 10 }, splitLine: { show: false } },
-      yAxis: { type: 'value', name: block.yLabel, scale: true, axisLabel: { color: GRID_AXIS_COLOR, fontSize: 10 }, splitLine: { show: false } },
-      series: block.series.map((s, i) => ({
-        type: 'scatter',
-        name: s.name,
-        data: s.data.filter(isPair),
-        symbolSize: 8,
-        itemStyle: { color: s.color ?? colorAt(palette, i), opacity: 0.75 },
-      })),
+      xAxis: {
+        type: 'value',
+        name: block.xLabel,
+        nameTextStyle: { color: ink.label, fontSize: 10 },
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { lineStyle: { color: ink.split } },
+        splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
+      },
+      yAxis: {
+        type: 'value',
+        name: block.yLabel,
+        scale: true,
+        nameTextStyle: { color: ink.label, fontSize: 10 },
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { show: false },
+        splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
+      },
+      series: block.series.map((s, i) => {
+        const color = s.color ?? colorAt(palette, i);
+        return {
+          type: 'scatter',
+          name: s.name,
+          data: s.data.filter(isPair),
+          symbolSize: 9,
+          itemStyle: { color, opacity: 0.8, borderColor: withAlpha(color, 0.5), borderWidth: 1 },
+          emphasis: { focus: 'series' as const },
+        };
+      }),
     } as EChartsOption;
   }
 
@@ -127,10 +226,22 @@ export function buildChartOption(
     );
     return {
       ...base,
-      tooltip: { ...base.tooltip, trigger: 'item' },
-      grid: { left: 6, right: 10, top: 12, bottom: 40, containLabel: true },
-      xAxis: { type: 'category', data: xCats, axisLabel: { color: GRID_AXIS_COLOR, fontSize: 10 }, splitLine: { show: false } },
-      yAxis: { type: 'category', data: yCats, axisLabel: { color: GRID_AXIS_COLOR, fontSize: 10 }, splitLine: { show: false } },
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
+      grid: { left: 6, right: 10, top: 12, bottom: 44, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: xCats,
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { lineStyle: { color: ink.split } },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        type: 'category',
+        data: yCats,
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { show: false },
+        splitLine: { show: false },
+      },
       visualMap: {
         min: Math.min(...data.map((d) => d[2] ?? 0)),
         max: Math.max(...data.map((d) => d[2] ?? 0)),
@@ -138,10 +249,12 @@ export function buildChartOption(
         orient: 'horizontal',
         left: 'center',
         bottom: 0,
-        textStyle: { color: GRID_AXIS_COLOR, fontSize: 10 },
-        inRange: { color: ['#1e293b', palette.primary] },
+        itemWidth: 12,
+        itemHeight: 120,
+        textStyle: { color: ink.label, fontSize: 10 },
+        inRange: { color: [withAlpha(palette.primary, 0.12), palette.primary] },
       },
-      series: [{ type: 'heatmap', data, label: { show: false } }],
+      series: [{ type: 'heatmap', data, itemStyle: { borderRadius: 3, borderColor: 'transparent', borderWidth: 2 }, label: { show: false } }],
     } as EChartsOption;
   }
 
@@ -153,6 +266,7 @@ export function buildChartOption(
   const xType = hasCategoryAxis ? 'category' : block.series.some((s) => s.data.some(isPair)) ? 'value' : 'category';
 
   const series = block.series.map((s, i) => {
+    const color = s.color ?? colorAt(palette, i);
     const data = hasCategoryAxis || xType === 'category'
       ? s.data.map((p) => (typeof p === 'number' ? p : isPair(p) ? p[1] : p != null && isTriple(p) ? p[2] : null))
       : s.data;
@@ -161,17 +275,41 @@ export function buildChartOption(
       type: isBar ? 'bar' : 'line',
       data,
       stack: stacked ? 'total' : undefined,
-      smooth: block.smooth && !isBar,
-      areaStyle: block.chartType === 'area' ? { opacity: 0.18 } : undefined,
+      smooth: !isBar,
+      symbol: 'circle',
       showSymbol: false,
-      itemStyle: { color: s.color ?? colorAt(palette, i) },
-      lineStyle: { width: 2 },
-      barMaxWidth: 36,
+      symbolSize: 6,
+      emphasis: { focus: 'series' as const },
+      itemStyle: {
+        color,
+        borderRadius: isBar ? [5, 5, 0, 0] : undefined,
+      },
+      lineStyle: { width: 2.4, cap: 'round' as const, join: 'round' as const },
+      areaStyle:
+        block.chartType === 'area'
+          ? {
+              color: {
+                type: 'linear' as const,
+                x: 0,
+                y: 0,
+                x2: 0,
+                y2: 1,
+                colorStops: [
+                  { offset: 0, color: withAlpha(color, 0.34) },
+                  { offset: 1, color: withAlpha(color, 0.02) },
+                ],
+              },
+            }
+          : undefined,
+      barMaxWidth: 34,
     };
   });
 
   const zoom = block.zoom
-    ? [{ type: 'inside' as const }, { type: 'slider' as const, height: 16, bottom: 2, textStyle: { color: GRID_AXIS_COLOR, fontSize: 9 } }]
+    ? [
+        { type: 'inside' as const },
+        { type: 'slider' as const, height: 16, bottom: 2, textStyle: { color: ink.label, fontSize: 9 } },
+      ]
     : undefined;
 
   return {
@@ -180,9 +318,10 @@ export function buildChartOption(
       type: xType as 'category' | 'value',
       data: hasCategoryAxis ? categories!.map(String) : undefined,
       name: block.xLabel,
+      nameTextStyle: { color: ink.label, fontSize: 10 },
       boundaryGap: isBar,
-      axisLabel: { color: GRID_AXIS_COLOR, fontSize: 10 },
-      axisLine: { show: false },
+      axisLabel: { color: ink.label, fontSize: 10, hideOverlap: true },
+      axisLine: { show: true, lineStyle: { color: ink.split } },
       axisTick: { show: false },
       splitLine: { show: false },
     },
@@ -190,10 +329,11 @@ export function buildChartOption(
       type: 'value',
       name: block.yLabel,
       scale: true,
-      axisLabel: { color: GRID_AXIS_COLOR, fontSize: 10 },
+      nameTextStyle: { color: ink.label, fontSize: 10 },
+      axisLabel: { color: ink.label, fontSize: 10 },
       axisLine: { show: false },
       axisTick: { show: false },
-      splitLine: { show: false },
+      splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
     },
     dataZoom: zoom,
     series,

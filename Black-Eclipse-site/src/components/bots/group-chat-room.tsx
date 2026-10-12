@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { ArrowUp, Loader2, Trash2, Users } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
+import { Markdown } from '@/components/chat/markdown';
+import { getAgentProvider } from '@/lib/agent/registry';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
@@ -39,6 +41,7 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
   const avatars = useBotAvatarStore((s) => s.avatars);
   const messages = useBotGroupsStore((s) => s.byGroup[group.id] ?? NO_MESSAGES);
   const append = useBotGroupsStore((s) => s.appendMessage);
+  const updateMessage = useBotGroupsStore((s) => s.updateMessage);
   const clearMessages = useBotGroupsStore((s) => s.clearMessages);
   const deleteGroup = useBotGroupsStore((s) => s.deleteGroup);
 
@@ -46,6 +49,10 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
   const [sending, setSending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Stop the in-flight run if the room unmounts so the stream is not orphaned.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const members = useMemo(
     () => group.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is AutomationView => Boolean(b)),
@@ -77,36 +84,56 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
     const history = [
       { role: 'user' as const, content: persona },
       { role: 'assistant' as const, content: 'Understood — I am this room.' },
-      ...messages.filter((m) => !m.error).slice(-10).map((m) => ({ role: m.role, content: m.content })),
+      ...messages
+        .filter((m) => !m.error && m.content.trim().length > 0)
+        .slice(-10)
+        .map((m) => ({ role: m.role, content: m.content })),
     ];
+    const replyId = newId();
+    append(group.id, {
+      id: replyId, role: 'assistant', content: '', at: new Date().toISOString(), authorName: group.name,
+    });
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let streamed = '';
     try {
-      const res = await fetch('/api/harness/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history, chatId: `group-${group.id}` }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as { content?: string; error?: string };
-      if (!res.ok || !payload.content) {
-        append(group.id, {
-          id: newId(), role: 'assistant', at: new Date().toISOString(),
-          content: payload.error ?? `The room could not respond (${res.status}).`, error: true,
-          authorName: group.name,
-        });
+      // Streaming agent provider (background run + SSE), not the one-shot
+      // `/api/harness/chat` — the one-shot path aborts every run at the front
+      // door's 180s cap, which killed long rooms with "Failed to fetch".
+      const reply = await getAgentProvider().chat(
+        [...history, { role: 'user' as const, content: text }],
+        undefined,
+        {
+          chatId: `group-${group.id}`,
+          signal: controller.signal,
+          onDelta: (chunk) => {
+            streamed += chunk;
+            updateMessage(group.id, replyId, { content: streamed });
+          },
+        },
+      );
+      const final = reply || streamed;
+      updateMessage(
+        group.id,
+        replyId,
+        final
+          ? { content: final }
+          : { content: 'The room did not return a reply.', error: true },
+      );
+    } catch (err) {
+      if (controller.signal.aborted) {
+        updateMessage(group.id, replyId, streamed ? { content: streamed } : { content: '(cancelled)', error: true });
       } else {
-        append(group.id, {
-          id: newId(), role: 'assistant', content: payload.content, at: new Date().toISOString(),
-          authorName: group.name,
+        updateMessage(group.id, replyId, {
+          content: err instanceof Error ? err.message : 'network error', error: true,
         });
       }
-    } catch (err) {
-      append(group.id, {
-        id: newId(), role: 'assistant', at: new Date().toISOString(),
-        content: err instanceof Error ? err.message : 'network error', error: true, authorName: group.name,
-      });
     } finally {
+      abortRef.current = null;
       setSending(false);
     }
-  }, [input, sending, append, group.id, group.name, members, messages]);
+  }, [input, sending, append, updateMessage, group.id, group.name, members, messages]);
 
   return (
     <div className="glass-card flex h-full min-h-0 flex-col rounded-2xl">
@@ -177,9 +204,11 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
           </div>
         )}
 
-        {messages.map((m) => (
-          <GroupBubble key={m.id} message={m} groupName={group.name} groupSpec={groupSpec} groupImage={group.image} />
-        ))}
+        {messages.map((m) =>
+          !m.error && m.role === 'assistant' && !m.content ? null : (
+            <GroupBubble key={m.id} message={m} groupName={group.name} groupSpec={groupSpec} groupImage={group.image} />
+          ),
+        )}
 
         {sending && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -232,21 +261,32 @@ function GroupBubble({
   groupImage?: string;
 }) {
   const isUser = message.role === 'user';
+  const avatar = groupImage
+    ? <img src={groupImage} alt="" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
+    : <GhostAvatar spec={groupSpec} size={28} className="mt-0.5 shrink-0" />;
+  // A room reply reads as a full-width document with no glass surface; only the
+  // user's own turns (and honest error turns) are framed as bubbles.
+  if (!isUser && !message.error) {
+    return (
+      <div className="flex gap-2.5">
+        {avatar}
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>
+          <Markdown content={message.content} compact className="w-full" />
+          <div className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(message.at)}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
-      {!isUser && (
-        groupImage
-          ? <img src={groupImage} alt="" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
-          : <GhostAvatar spec={groupSpec} size={28} className="mt-0.5 shrink-0" />
-      )}
+      {!isUser && avatar}
       <div
         className={cn(
           'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm',
           isUser
             ? 'bg-white/[0.08] text-foreground'
-            : message.error
-              ? 'border border-rose-500/30 bg-rose-500/5 text-rose-200'
-              : 'glass-card-subtle text-foreground',
+            : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
         )}
       >
         {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>}

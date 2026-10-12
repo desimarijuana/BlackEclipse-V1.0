@@ -19,6 +19,7 @@ import {
   History,
   ListChecks,
   Monitor,
+  MoreHorizontal,
   ScrollText,
   ShieldAlert,
   SlidersHorizontal,
@@ -79,8 +80,8 @@ export function Section({
 }) {
   return (
     <section className="space-y-1.5">
-      <header className="flex items-center justify-between px-0.5">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{title}</h3>
+      <header className="flex items-center justify-between gap-2 px-0.5">
+        <h3 className="min-w-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{title}</h3>
         {count != null && count > 0 && (
           <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
             {count}
@@ -151,6 +152,7 @@ export const PANEL_ICONS = {
   changes: FileText,
   permissions: ShieldAlert,
   history: History,
+  explain: MoreHorizontal,
   overview: Activity,
   activity: Activity,
   tasks: ListChecks,

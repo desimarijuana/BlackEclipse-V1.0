@@ -1,7 +1,9 @@
 // ── Bot chat store ───────────────────────────────────────────────────────────
 // Per-bot conversation threads, persisted client-side (the repo's convention for
-// ephemeral chat UI state). Bots run real agent turns through
-// `/api/harness/chat`; these messages are the visible thread for each bot.
+// ephemeral chat UI state). Bots run real agent turns through the streaming
+// agent provider (`getAgentProvider`), so a long tool-heavy run is not bound by
+// the one-shot front door's 180s request cap; these messages are the visible
+// thread for each bot.
 
 'use client';
 
@@ -25,6 +27,8 @@ interface BotChatStore {
   hydrate: () => void;
   setMessages: (botId: string, messages: BotMessage[]) => void;
   append: (botId: string, message: BotMessage) => void;
+  /** Patch one message in place — used to fill the live streaming reply. */
+  update: (botId: string, id: string, patch: Partial<BotMessage>) => void;
   clear: (botId: string) => void;
 }
 
@@ -79,6 +83,14 @@ export const useBotChatStore = create<BotChatStore>((set, get) => ({
 
   append: (botId, message) => {
     const byBot = { ...get().byBot, [botId]: [...(get().byBot[botId] ?? []), message] };
+    persist(byBot);
+    set({ byBot });
+  },
+
+  update: (botId, id, patch) => {
+    const list = get().byBot[botId];
+    if (!list) return;
+    const byBot = { ...get().byBot, [botId]: list.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
     persist(byBot);
     set({ byBot });
   },

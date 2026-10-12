@@ -6,14 +6,17 @@
 // the existing agent loop (actions) or link to the existing Artifact Center
 // (artifacts) — no privileged backend calls.
 
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
+  ArrowRight,
   Check,
   ChevronRight,
+  Copy,
   Download,
   ExternalLink,
   FileText,
   Play,
+  Sparkles,
   type LucideIcon,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -26,6 +29,7 @@ import type {
   InfographicBlock as InfographicBlockType,
   ReportBlock as ReportBlockType,
   StepperBlock as StepperBlockType,
+  WorkflowBlock as WorkflowBlockType,
   ValidatedBlock,
 } from '@/lib/response/contract';
 
@@ -145,6 +149,201 @@ export function InfographicBlock({ block }: { block: InfographicBlockType }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Workflow (icon-driven connected process) ─────────────────────────────────────
+
+function FlowConnector({ horizontal }: { horizontal: boolean }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        'flex shrink-0 items-center justify-center text-muted-foreground/40',
+        horizontal ? 'py-0.5 sm:px-0.5 sm:py-0' : 'py-1',
+      )}
+    >
+      <ArrowRight size={14} className={cn('rotate-90', horizontal && 'sm:rotate-0')} />
+    </div>
+  );
+}
+
+function StageList({ label, items }: { label: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">{label}</p>
+      <ul className="space-y-0.5">
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-1.5 text-[11.5px] text-muted-foreground/90">
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * A connected, icon-driven process flow. Ordered stages are joined by directional
+ * connectors; a stage with `detail`/`inputs`/`outputs` expands on click (and on
+ * Enter/Space — it is a real button). The follow-up control re-enters the EXISTING
+ * agent loop exactly as if the user typed it; nothing runs by itself. Renders
+ * validated data only.
+ */
+export function WorkflowBlock({
+  block,
+  onFollowup,
+}: {
+  block: WorkflowBlockType;
+  onFollowup?: (prompt: string) => void;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [copied, setCopied] = useState(false);
+
+  const horizontal = block.layout === 'auto' ? block.stages.length <= 4 : block.layout === 'horizontal';
+  const keyOf = (stage: WorkflowBlockType['stages'][number], i: number) => stage.id ?? `stage-${i}`;
+  const hasDetail = (stage: WorkflowBlockType['stages'][number]) =>
+    Boolean(stage.detail || stage.inputs?.length || stage.outputs?.length);
+  const anyDetail = block.stages.some(hasDetail);
+  const allOpen = anyDetail && block.stages.every((s, i) => !hasDetail(s) || open[keyOf(s, i)]);
+
+  const toggle = (key: string) => setOpen((o) => ({ ...o, [key]: !o[key] }));
+  const toggleAll = () => {
+    if (allOpen) return setOpen({});
+    const next: Record<string, boolean> = {};
+    block.stages.forEach((s, i) => {
+      if (hasDetail(s)) next[keyOf(s, i)] = true;
+    });
+    setOpen(next);
+  };
+
+  const copyAll = async () => {
+    const text = [block.title, block.summary]
+      .filter(Boolean)
+      .concat(block.stages.map((s, i) => `${i + 1}. ${s.title}${s.description ? ` — ${s.description}` : ''}${s.detail ? `\n   ${s.detail}` : ''}`))
+      .join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — leave the button silent */
+    }
+  };
+
+  const iconBtn =
+    'inline-flex items-center gap-1 rounded-full border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground';
+
+  return (
+    <div className="glass-card w-full rounded-xl p-3.5">
+      <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          {block.title && <h4 className="text-sm font-semibold text-foreground">{block.title}</h4>}
+          {block.summary && <p className="mt-0.5 text-[12px] text-muted-foreground">{block.summary}</p>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {anyDetail && (
+            <button type="button" className={iconBtn} onClick={toggleAll} aria-pressed={allOpen}>
+              {allOpen ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
+          <button type="button" className={iconBtn} onClick={() => void copyAll()} aria-label="Copy workflow description">
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </div>
+
+      <ol className={cn('flex gap-1', horizontal ? 'flex-col sm:flex-row sm:items-stretch' : 'flex-col')}>
+        {block.stages.map((stage, i) => {
+          const Icon: LucideIcon = resolveResponseIcon(stage.icon);
+          const key = keyOf(stage, i);
+          const openable = hasDetail(stage);
+          const isOpen = !!open[key];
+          const status = stage.status ? STEP_STATUS[stage.status] : null;
+          const header = (
+            <>
+              <span
+                className={cn(
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/40 ring-1',
+                  status ? status.ring : TONE_RING[stage.tone],
+                )}
+                aria-hidden="true"
+              >
+                {stage.status === 'done' ? <Check size={15} /> : <Icon size={16} />}
+              </span>
+              <span className="min-w-0 flex-1 text-left">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[13px] font-medium text-foreground" title={stage.title}>
+                    {stage.title}
+                  </span>
+                  {status && <span className="sr-only">{status.label}</span>}
+                </span>
+                {stage.description && (
+                  <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground/85">
+                    {stage.description}
+                  </span>
+                )}
+              </span>
+              {openable && (
+                <ChevronRight
+                  size={14}
+                  className={cn('mt-1 shrink-0 text-muted-foreground/60 transition-transform', isOpen && 'rotate-90')}
+                  aria-hidden="true"
+                />
+              )}
+            </>
+          );
+          return (
+            <Fragment key={key}>
+              {i > 0 && <FlowConnector horizontal={horizontal} />}
+              <li className={cn('flex flex-col', horizontal ? 'w-full sm:min-w-0 sm:flex-1' : 'w-full')}>
+                {openable ? (
+                  <button
+                    type="button"
+                    onClick={() => toggle(key)}
+                    aria-expanded={isOpen}
+                    className={cn(
+                      'glass-card-subtle flex items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors',
+                      isOpen ? 'ring-1 ring-primary/30' : 'hover:bg-accent/40',
+                    )}
+                  >
+                    {header}
+                  </button>
+                ) : (
+                  <div className="glass-card-subtle flex items-start gap-2.5 rounded-xl px-3 py-2.5">{header}</div>
+                )}
+
+                {isOpen && openable && (
+                  <div className="mt-1.5 rounded-xl border border-border/40 bg-accent/20 px-3 py-2.5">
+                    {stage.detail && (
+                      <Markdown content={stage.detail} compact className="text-[12px] text-muted-foreground" />
+                    )}
+                    {(stage.inputs?.length || stage.outputs?.length) && (
+                      <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2', stage.detail && 'mt-2')}>
+                        {stage.inputs && <StageList label="Inputs" items={stage.inputs} />}
+                        {stage.outputs && <StageList label="Outputs" items={stage.outputs} />}
+                      </div>
+                    )}
+                    {onFollowup && (
+                      <button
+                        type="button"
+                        onClick={() => onFollowup(`Explain the "${stage.title}" stage of this workflow in more detail.`)}
+                        className={cn(iconBtn, 'mt-2')}
+                      >
+                        <Sparkles size={11} /> Ask Eclipse about this stage
+                      </button>
+                    )}
+                  </div>
+                )}
+              </li>
+            </Fragment>
+          );
+        })}
+      </ol>
     </div>
   );
 }

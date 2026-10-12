@@ -17,6 +17,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Markdown } from '@/components/chat/markdown';
+import { getAgentProvider } from '@/lib/agent/registry';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
 import { BreakerPill, LifecyclePill } from '@/components/bots/status-pill';
@@ -58,6 +60,7 @@ export function BotChat({
   const avatars = useBotAvatarStore((s) => s.avatars);
   const messages = useBotChatStore((s) => s.byBot[bot.id] ?? NO_MESSAGES);
   const append = useBotChatStore((s) => s.append);
+  const updateMessage = useBotChatStore((s) => s.update);
   const clearMessages = useBotChatStore((s) => s.clear);
 
   const [input, setInput] = useState('');
@@ -71,11 +74,15 @@ export function BotChat({
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setName(bot.name);
     setDescription(bot.description ?? '');
   }, [bot.id, bot.name, bot.description]);
+
+  // Stop the in-flight run if the surface goes away so the stream is not orphaned.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const instructions = bot.action.objective ?? bot.description ?? '';
   const dirty = name.trim() !== bot.name || description.trim() !== (bot.description ?? '');
@@ -138,42 +145,65 @@ export function BotChat({
       { role: 'user' as const, content: persona },
       { role: 'assistant' as const, content: 'Understood — I am this bot.' },
       ...messages
-        .filter((m) => !m.error)
+        .filter((m) => !m.error && m.content.trim().length > 0)
         .slice(-10)
         .map((m) => ({ role: m.role, content: m.content })),
     ];
+    // Placeholder the stream fills in place, so a long tool-heavy run shows the
+    // answer as it is written instead of a blank wait.
+    const replyId = newId();
+    append(bot.id, { id: replyId, role: 'assistant', content: '', at: new Date().toISOString() });
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let streamed = '';
     try {
-      const res = await fetch('/api/harness/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history, chatId: `bot-${bot.id}` }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as { content?: string; error?: string };
-      if (!res.ok || !payload.content) {
-        append(bot.id, {
-          id: newId(), role: 'assistant', at: new Date().toISOString(),
-          content: payload.error ?? `The bot could not respond (${res.status}).`, error: true,
-        });
-      } else {
-        append(bot.id, { id: newId(), role: 'assistant', content: payload.content, at: new Date().toISOString() });
-      }
+      // The streaming agent provider (background run + SSE), NOT the one-shot
+      // `/api/harness/chat`: that path aborts every run at the front door's
+      // 180s cap, so a real research turn (e.g. "find me a good psx stock",
+      // ~4 min, dozens of tool calls) died as "Failed to fetch". Here the run
+      // is observed live and survives its full duration.
+      const reply = await getAgentProvider().chat(
+        [...history, { role: 'user' as const, content: text }],
+        undefined,
+        {
+          chatId: `bot-${bot.id}`,
+          signal: controller.signal,
+          onDelta: (chunk) => {
+            streamed += chunk;
+            updateMessage(bot.id, replyId, { content: streamed });
+          },
+        },
+      );
+      const final = reply || streamed;
+      updateMessage(
+        bot.id,
+        replyId,
+        final
+          ? { content: final }
+          : { content: 'The bot did not return a reply.', error: true },
+      );
     } catch (err) {
-      append(bot.id, {
-        id: newId(), role: 'assistant', at: new Date().toISOString(),
-        content: err instanceof Error ? err.message : 'network error', error: true,
-      });
+      if (controller.signal.aborted) {
+        updateMessage(bot.id, replyId, streamed ? { content: streamed } : { content: '(cancelled)', error: true });
+      } else {
+        updateMessage(bot.id, replyId, {
+          content: err instanceof Error ? err.message : 'network error', error: true,
+        });
+      }
     } finally {
+      abortRef.current = null;
       setSending(false);
     }
-  }, [input, sending, append, bot.id, bot.name, bot.description, instructions, messages]);
+  }, [input, sending, append, updateMessage, bot.id, bot.name, bot.description, instructions, messages]);
 
   const lastRun = useMemo(() => bot.lastRunAt, [bot.lastRunAt]);
   const spec = avatarFor(avatars, bot.id);
 
   return (
     <div className="glass-card flex h-full min-h-0 flex-col rounded-2xl">
-      {/* Header — bot identity + autonomous controls */}
-      <div className="flex items-start gap-3 border-b border-border/10 p-4">
+      {/* Header — bot identity + autonomous controls (compact banner). */}
+      <div className="flex items-center gap-2.5 border-b border-border/10 px-3 py-2">
         <button
           type="button"
           onClick={onClose}
@@ -188,7 +218,7 @@ export function BotChat({
           title={t('bots.customize')}
           className="shrink-0 rounded-2xl transition-transform hover:scale-105"
         >
-          <BotAvatar botId={bot.id} spec={spec} size={52} title={bot.name} />
+          <BotAvatar botId={bot.id} spec={spec} size={36} title={bot.name} />
         </button>
 
         <div className="min-w-0 flex-1">
@@ -231,8 +261,8 @@ export function BotChat({
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-base font-semibold">{bot.name}</h2>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h2 className="truncate text-sm font-semibold">{bot.name}</h2>
                 <button
                   type="button"
                   onClick={() => setEditingIdentity(true)}
@@ -245,10 +275,10 @@ export function BotChat({
                 <LifecyclePill state={bot.state} />
                 {bot.breaker !== 'closed' && <BreakerPill state={bot.breaker} />}
               </div>
-              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+              <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
                 {bot.description || t('bots.emptyBody')}
               </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <CalendarDays size={11} /> {scheduleSummary(bot.trigger)}
                 </span>
@@ -326,9 +356,11 @@ export function BotChat({
           </div>
         )}
 
-        {messages.map((m) => (
-          <ChatBubble key={m.id} message={m} botId={bot.id} botName={bot.name} spec={spec} />
-        ))}
+        {messages.map((m) =>
+          !m.error && m.role === 'assistant' && !m.content ? null : (
+            <ChatBubble key={m.id} message={m} botId={bot.id} botName={bot.name} spec={spec} />
+          ),
+        )}
 
         {sending && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -419,6 +451,21 @@ function ChatBubble({
   spec: import('@/lib/bots/ghost').GhostSpec;
 }) {
   const isUser = message.role === 'user';
+  // A bot reply is the room's/main content: it reads as a full-width document
+  // with no glass surface. Only the user's own turns (and honest error turns)
+  // are framed as bubbles.
+  if (!isUser && !message.error) {
+    return (
+      <div className="flex gap-2.5">
+        <BotAvatar botId={botId} spec={spec} size={28} className="mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>
+          <Markdown content={message.content} compact className="w-full" />
+          <div className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(message.at)}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
       {!isUser && <BotAvatar botId={botId} spec={spec} size={28} className="mt-0.5 shrink-0" />}
@@ -427,9 +474,7 @@ function ChatBubble({
           'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm',
           isUser
             ? 'bg-white/[0.08] text-foreground'
-            : message.error
-              ? 'border border-rose-500/30 bg-rose-500/5 text-rose-200'
-              : 'glass-card-subtle text-foreground',
+            : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
         )}
       >
         {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>}

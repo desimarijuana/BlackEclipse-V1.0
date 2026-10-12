@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildChartOption, chartHasData } from './chart-option';
+import { buildChartOption, chartHasData, mergeChartOption } from './chart-option';
 import { validateBlock, type ChartBlock } from './contract';
 
 const palette = { primary: '#7aff78', series: ['#60a5fa', '#fbbf24'] };
@@ -60,5 +60,61 @@ describe('buildChartOption', () => {
   it('chartHasData is false for an all-null series', () => {
     const block = chart({ type: 'chart', chartType: 'line', categories: ['a'], series: [{ name: 's', data: [null] }] });
     expect(chartHasData(block)).toBe(false);
+  });
+
+  it('the built option carries no tooltip chrome of its own (base recipe survives a merge)', () => {
+    const option = buildChartOption(
+      chart({ type: 'chart', chartType: 'line', categories: ['a'], series: [{ name: 's', data: [1] }] }),
+      palette,
+    ) as any;
+    // The bare builder must NOT set the frosted chrome — that lives in the base.
+    expect(option.tooltip.backgroundColor).toBeUndefined();
+    expect(option.tooltip.appendTo).toBeUndefined();
+    // …but it must carry the block-specific trigger + formatter.
+    expect(option.tooltip.trigger).toBe('axis');
+    expect(typeof option.tooltip.valueFormatter).toBe('function');
+  });
+
+  it('mergeChartOption keeps the frosted tooltip chrome and the block trigger', () => {
+    const base = {
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(18,18,20,0.5)',
+        appendTo: 'body',
+        extraCssText: 'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px;',
+      },
+    } as any;
+    const built = buildChartOption(
+      chart({ type: 'chart', chartType: 'scatter', series: [{ name: 'p', data: [[1, 2]] }] }),
+      palette,
+    );
+    const merged = mergeChartOption(base, built) as any;
+    expect(merged.tooltip.trigger).toBe('item'); // block wins
+    expect(merged.tooltip.backgroundColor).toBe('rgba(18,18,20,0.5)'); // chrome survives
+    expect(merged.tooltip.appendTo).toBe('body');
+    expect(merged.tooltip.extraCssText).toContain('backdrop-filter');
+  });
+
+  it('uses light ink on a light scheme and dark ink on a dark scheme', () => {
+    const block = chart({ type: 'chart', chartType: 'line', categories: ['a'], series: [{ name: 's', data: [1] }] });
+    const dark = buildChartOption(block, palette, true) as any;
+    const light = buildChartOption(block, palette, false) as any;
+    expect(dark.yAxis.axisLabel.color).not.toBe(light.yAxis.axisLabel.color);
+    expect(dark.yAxis.splitLine.lineStyle.color).not.toBe(light.yAxis.splitLine.lineStyle.color);
+  });
+
+  it('draws smooth lines with rounded, width-capped bars and theme-aware animation', () => {
+    const line = buildChartOption(
+      chart({ type: 'chart', chartType: 'line', categories: ['a', 'b'], series: [{ name: 's', data: [1, 2] }] }),
+      palette,
+    ) as any;
+    expect(line.series[0].smooth).toBe(true);
+    expect(line.animation).toBe(true);
+    const bar = buildChartOption(
+      chart({ type: 'chart', chartType: 'bar', categories: ['a'], series: [{ name: 's', data: [1] }] }),
+      palette,
+    ) as any;
+    expect(bar.series[0].itemStyle.borderRadius).toEqual([5, 5, 0, 0]);
+    expect(bar.series[0].barMaxWidth).toBeGreaterThan(0);
   });
 });

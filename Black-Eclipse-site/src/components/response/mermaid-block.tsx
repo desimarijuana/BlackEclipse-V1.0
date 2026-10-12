@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from '@/lib/icons';
+import { useDarkScheme } from '@/hooks/use-dark-scheme';
 
 function useStableId(): string {
   const ref = useRef<string | null>(null);
@@ -22,34 +23,56 @@ export interface MermaidBlockProps {
   description?: string;
 }
 
+// Mermaid keeps the parsed configuration and theme in module-global state, so two
+// diagrams rendering at once (a multi-diagram answer) can clobber each other. All
+// renders are serialised through this one chain.
+let mermaidQueue: Promise<unknown> = Promise.resolve();
+function runMermaidSerial<T>(task: () => Promise<T>): Promise<T> {
+  const run = mermaidQueue.then(task, task);
+  mermaidQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export function MermaidBlock({ diagram, title, description }: MermaidBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const baseId = useStableId();
+  const isDark = useDarkScheme();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    (async () => {
-      try {
-        const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: 'dark',
-          fontFamily: 'var(--font-sans, sans-serif)',
-        });
-        const { svg } = await mermaid.render(`${baseId}-svg`, diagram);
+    const source = diagram?.trim();
+    if (!source) return;
+
+    runMermaidSerial(async () => {
+      const mermaid = (await import('mermaid')).default;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        // Mermaid has no light/dark auto mode; follow the app's `dark` class.
+        theme: isDark ? 'dark' : 'default',
+        fontFamily: 'var(--font-sans, sans-serif)',
+      });
+      return mermaid.render(`${baseId}-svg`, source);
+    })
+      .then(({ svg }) => {
         if (cancelled || !containerRef.current) return;
         containerRef.current.innerHTML = svg;
-      } catch (e) {
+      })
+      .catch((e: unknown) => {
+        // Everything — dynamic import, initialize and render — degrades to the
+        // inline card. A bad diagram must never escape to the error boundary.
         if (!cancelled) setError(e instanceof Error ? e.message : 'Invalid Mermaid diagram');
-      }
-    })();
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [diagram, baseId]);
+  }, [diagram, baseId, isDark]);
 
   return (
     <figure className="w-full">
@@ -62,7 +85,7 @@ export function MermaidBlock({ diagram, title, description }: MermaidBlockProps)
           <p className="mt-0.5 font-mono text-[10px] opacity-70">{error}</p>
         </div>
       ) : (
-        <div className="overflow-auto rounded-xl border border-white/10 bg-accent/10 p-2">
+        <div className="glass-card-subtle overflow-auto rounded-xl p-3">
           <div ref={containerRef} className="[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full" />
         </div>
       )}

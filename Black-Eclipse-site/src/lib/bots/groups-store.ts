@@ -49,6 +49,8 @@ interface BotGroupsStore {
   setGroupImage: (id: string, dataUrl: string | null) => void;
   deleteGroup: (id: string) => void;
   appendMessage: (groupId: string, message: GroupMessage) => void;
+  /** Patch one message in place — used to fill the live streaming reply. */
+  updateMessage: (groupId: string, id: string, patch: Partial<GroupMessage>) => void;
   clearMessages: (groupId: string) => void;
 }
 
@@ -157,6 +159,16 @@ export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
 
     appendMessage: (groupId, message) => {
       const byGroup = { ...get().byGroup, [groupId]: [...(get().byGroup[groupId] ?? []), message] };
+      commit(get().groups, byGroup);
+    },
+
+    updateMessage: (groupId, id, patch) => {
+      const list = get().byGroup[groupId];
+      if (!list) return;
+      const byGroup = {
+        ...get().byGroup,
+        [groupId]: list.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      };
       commit(get().groups, byGroup);
     },
 

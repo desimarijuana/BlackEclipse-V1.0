@@ -88,7 +88,9 @@ Envelope: `schemaVersion?`, `responseId?`, `responseType?`, `title?`, `summary?`
 4. **Hard limits** are enforced at parse (`RESPONSE_LIMITS`): blocks 80, nested
    depth 4, series 24, points/series 5000, table rows 2000, columns 40, metrics
    60, sources 100, diagram nodes 120, edges 300, timeline events 200, tabs 12,
-   string length 20 000.
+   string length 20 000, and free-form `metadata` 40 keys / 20 000 chars. An
+   over-limit `metadata` object is **dropped, not fatal** (`.catch(undefined)`) —
+   losing producer bookkeeping must never cost the user the answer.
 5. **Version handling.** Missing → 1.0. A newer *major* renders best-effort with
    a `SCHEMA_VERSION_FUTURE` warning. An unparsable version warns and falls back
    to 1.0.
@@ -114,6 +116,7 @@ diagnostic-backed empty response, never a throw.
 | | `citations` | numbered sources with host/timestamps (alias `source_list`) |
 | Process | `stepper` | numbered steps with per-step status (pending/active/done/error) |
 | | `infographic` | icon cards; `icon` is a semantic key resolved via `lib/response/icons.ts` |
+| | `workflow` | icon-driven **connected** process: ordered stages joined by directional connectors, each expandable to `detail` / `inputs` / `outputs`; a stage's follow-up re-enters the agent loop. Distinct from `stepper` (no icons/connectors) and `diagram`/`node_graph` (free-form graphs). `layout` is `vertical`/`horizontal`/`auto` (auto = horizontal when ≤4 stages, stacking to a column on narrow screens). |
 | | `report` | multi-section container; section `blocks` validated recursively |
 | Action | `action_group` | PROPOSED next steps; a click sends a follow-up prompt into the agent loop |
 | | `artifact` | a reference to the existing Artifact Center, linked to its download route |
@@ -127,12 +130,15 @@ types.
 
 **Field-name synonyms** are normalized the same way, *after* the type alias, so a
 producer is not punished for naming a field naturally. `normalizeBlockFields`
-rewrites: `content`→`markdown` (markdown/callout/details), `content`/`code`→
-`diagram` (mermaid), `variant`→`tone` (callout, when the value is a valid tone),
+rewrites: `content`→`markdown` (markdown/callout/details), a scalar `text`→
+`markdown` on those same prose types (observed producer output — scoped away from
+`heading`, which legitimately owns a `text` field), `content`/`code`→`diagram`
+(mermaid), `variant`→`tone` (callout, when the value is a valid tone),
 `items`→`sources` and `name`→`title` (citations), string `columns` + positional
 array `rows`→typed table columns/records (`data_table`), `note`→`hint`
 (metric cards), and common `timeframe` intervals (`1Y`, `YTD`, `MAX`, `1D`, …)
-onto a supported `financial_chart` timeframe. A value that is not itself valid is
+onto a supported `financial_chart` timeframe, and `steps`→`stages` for a
+`workflow`. A value that is not itself valid is
 left untouched, so an unknown tone still falls back to the schema default rather
 than hard-failing.
 
@@ -156,7 +162,63 @@ Every block is wrapped in `BlockBoundary` (a React error boundary), so a chart
 failure cannot destroy the surrounding answer. The chart component
 (`response-chart.tsx`) is the **only** place ECharts is imported, and it is loaded
 via `next/dynamic({ ssr: false })` so the ~1 MB library is fetched only when a
-chart actually renders.
+chart actually renders. `MermaidBlock` is imported **statically**: it lazy-loads
+the heavy `mermaid` package inside its own effect, so wrapping the tiny wrapper in
+its own `next/dynamic` only added a redundant chunk-load failure path that could
+surface a scary render error instead of the block's inline card. Mermaid renders
+are also **serialised** through one module-level chain, because Mermaid keeps its
+parsed theme/config in module-global state and two diagrams in one answer could
+otherwise clobber each other. Any failure — dynamic import, `initialize`, or
+`render` — degrades to the inline "Diagram could not be rendered" card and never
+reaches `BlockBoundary`.
+
+### Layout cohesion (one document, not a stack of cards)
+
+`blocks[]` is a list of **components**, not a document wrapper — so a producer
+that puts one idea per entry (a callout, then a paragraph, then a table …) is
+structurally valid. The renderer must therefore make any block count read as
+**one answer**, never as N detached cards. `ResponseView` assigns the gap between
+siblings by **adjacency** (`blockGapClass`): two adjacent *prose* blocks
+(`markdown`, `heading`, `callout`, `details`, `key_value`, `citations`,
+`timeline`) get a tight `mt-2.5` so they flow, while a *surface* block (`chart`,
+`data_table`, `metric_grid`, `diagram`, `mermaid`, `node_graph`, `tabs`,
+`stepper`, `infographic`, `report`, `action_group`, `artifact`, `controls`, and
+`unknown` diagnostics) keeps a clear `mt-4` so it reads as its own figure. The
+first block carries no leading gap, and the same helper drives the nested
+`renderBlocks` used by `tabs` and `report`. The invariant — *fragmentation by the
+model must never degrade into a detached-card layout* — is locked by the
+"response layout cohesion" tests in `render.test.tsx`. The producer prompt also
+states the array is one document, so the model is steered toward a single
+`markdown`/`report` block for connected prose.
+
+### Theming (light and dark)
+
+Blocks are theme-aware. The app switches scheme by toggling the `dark` class on
+`<html>`, and the block renderers follow the **same signal** the charts already
+use (`lib/chart/providers/eclipse-provider.ts`), via the shared
+`hooks/use-dark-scheme.ts` hook. `mermaid-block.tsx` observes that class and
+re-initialises Mermaid with `theme: 'dark'` or `'default'` so a diagram is never
+rendered on a mismatched background; `response-chart.tsx` rebuilds its ECharts
+option when the scheme flips so axis/legend ink stays legible;
+`diagram-block.tsx` and `node-graph-block.tsx` draw node labels with
+`currentColor` so they inherit the active foreground instead of a hardcoded
+light-mode fill.
+
+### Chart & diagram presentation
+
+Every visual surface uses the frosted-glass system: the ECharts canvas, the
+Mermaid/diagram/node-graph SVGs and the loading skeletons all sit in
+`.glass-card-subtle` containers rather than flat `border + bg-accent` fills.
+Charts are **smooth and consistent**: `chart-option.ts` sets `animation` with a
+`cubicOut` easing, smooth lines, `borderRadius` rounded bars, a translucent
+gradient under area series, soft dashed gridlines and theme-aware axis/legend
+ink (zrender cannot parse `oklch`, so ink is concrete `rgba`).
+
+The frosted **tooltip** recipe (translucent tint, `appendTo: 'body'`, 18px blur,
+rounded shadow) lives once in `baseChartOption()`; `mergeChartOption()` combines
+it with the block's own `trigger`/`valueFormatter`. A plain spread would let the
+bare block tooltip clobber the glass chrome — that regression is why the merge is
+a named, tested helper.
 
 ### Integration point
 
@@ -225,7 +287,7 @@ composing placeholder.
 | DATA-001 | Interactive data table | `data-table-block.tsx` | tsc | Verified |
 | DATA-002 | Metric grid + unavailable state | `blocks.tsx` | contract.test.ts | Verified |
 | STREAM-001 | Streaming-aware partial decode | `parse.ts` | parse.test.ts | Verified |
-| AGENT-001 | Producer contract (prompt guidance) | `python/harness/prompts.py` | test_prompt_segments.py | Verified |
+| AGENT-001 | Producer contract (prompt guidance) | `python/harness/prompts.py` | prompt-ceiling pins in `test_memory_tools.py` + `test_phase_s_stabilization.py` | Verified |
 | SEC-001 | No code execution from model output | whole engine | code review | Verified |
 | INT-001 | Both chat surfaces render blocks | `markdown.tsx` + `chat-history.tsx` | tsc | Verified |
 | INT-002 | Persistence/reopen via existing message store | `Message.content` | by construction | Verified |
@@ -239,6 +301,7 @@ composing placeholder.
 | BLOCK-001 | `stepper`, `infographic`, `report`, `action_group`, `artifact` blocks | `contract.ts` + `rich-blocks.tsx` | contract-blocks.test.ts | Verified |
 | BLOCK-002 | `node_graph` selectable graph (reuses layout engine) | `node-graph-block.tsx` | build/tsc | Verified |
 | BLOCK-003 | Spec-name aliases normalized to canonical blocks | `contract.ts` `normalizeBlockAlias` | contract-blocks.test.ts | Verified |
+| BLOCK-004 | Icon-driven connected `workflow` block (expandable stages, follow-up) | `contract.ts` + `rich-blocks.tsx` (`WorkflowBlock`) | contract-blocks.test.ts + render.test.tsx | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
 | SEC-003 | Semantic icon allowlist (no component/import from model) | `lib/response/icons.ts` | contract-blocks.test.ts | Verified |
 

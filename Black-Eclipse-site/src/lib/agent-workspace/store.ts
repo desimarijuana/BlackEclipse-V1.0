@@ -21,7 +21,7 @@ import { applyWorkspaceEvents, initialWorkspaceState } from './reducer';
 import type { AgentWorkspaceState, WorkspaceEvent } from './types';
 
 /** Panel ids for the right sidebar. `context` is the first/default panel. */
-export type WorkspacePanel = 'output' | 'context' | 'changes' | 'permissions' | 'history';
+export type WorkspacePanel = 'output' | 'context' | 'changes' | 'permissions' | 'history' | 'explain';
 
 const OPEN_KEY = 'black-eclipse:workspace-open';
 const PANEL_KEY = 'black-eclipse:workspace-panel';
@@ -29,7 +29,7 @@ const PANEL_KEY = 'black-eclipse:workspace-panel';
 const FLUSH_MS = 150;
 const MAX_SEEN_FRAMES = 100_000;
 
-const ALL_PANELS: readonly WorkspacePanel[] = ['output', 'context', 'changes', 'permissions', 'history'];
+const ALL_PANELS: readonly WorkspacePanel[] = ['output', 'context', 'changes', 'permissions', 'history', 'explain'];
 
 function isPanel(value: unknown): value is WorkspacePanel {
   return typeof value === 'string' && (ALL_PANELS as readonly string[]).includes(value);

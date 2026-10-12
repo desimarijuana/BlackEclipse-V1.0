@@ -63,7 +63,7 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
   if (hidden) return null;
 
   return (
-    <div className="w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0">
+    <div className={cn('w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0', activeTab === 'bots' && 'md:hidden')}>
        {/* Mobile Logo & Menu Toggle */}
        <div className="flex items-center gap-2 shrink-0">
          {onToggleMenu && (

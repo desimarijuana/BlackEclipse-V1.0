@@ -15,7 +15,6 @@ import { ResearchEvidencePanel } from './research-evidence-panel';
 import { VisionPanel } from './vision-panel';
 import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
-import { RunExplanationPanel } from './run-explanation-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
 import { MessageRail } from './message-rail';
 
@@ -288,9 +287,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   ) : null}
                   {msg.memory ? (
                     <MemoryActionPanel memory={msg.memory} runId={msg.runId} compact={compact} />
-                  ) : null}
-                  {!working && msg.content && msg.runId ? (
-                    <RunExplanationPanel runId={msg.runId} compact={compact} />
                   ) : null}
                   {!working && msg.content && (
                     <div className="hover-reveal mt-1 flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

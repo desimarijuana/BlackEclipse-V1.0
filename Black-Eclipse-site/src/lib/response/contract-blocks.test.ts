@@ -72,6 +72,50 @@ describe('producer field-name synonyms are normalized (not dropped)', () => {
     if (mermaid.type === 'mermaid') expect(mermaid.diagram).toContain('flowchart');
   });
 
+  it('accepts `text` for the prose body of markdown/callout/details (observed producer output)', () => {
+    // Reproduces a real answer: the model used `text` (the same word as the
+    // `text`→`markdown` type alias) as the body field, which previously lost the
+    // markdown and callout blocks as "Invalid input".
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'markdown', text: '## Heading\n\nBody prose.' },
+        { type: 'callout', variant: 'warning', title: 'Limits', text: 'Could not verify.' },
+        { type: 'details', summary: 'More', text: 'HIDDEN' },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const [md, callout, details] = parsed.blocks;
+    expect(md.type).toBe('markdown');
+    if (md.type === 'markdown') expect(md.markdown).toContain('Body prose.');
+    expect(callout.type).toBe('callout');
+    if (callout.type === 'callout') {
+      expect(callout.tone).toBe('warning');
+      expect(callout.markdown).toBe('Could not verify.');
+    }
+    expect(details.type).toBe('details');
+    if (details.type === 'details') expect(details.markdown).toBe('HIDDEN');
+  });
+
+  it('does not steal `text` from a heading (heading legitimately owns `text`)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'heading', text: 'Section title', level: 2 }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('heading');
+    if (block.type === 'heading') expect(block.text).toBe('Section title');
+    expect(parsed.diagnostics).toHaveLength(0);
+  });
+
+  it('accepts `code` as the mermaid body (observed producer output)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'mermaid', code: 'sequenceDiagram\n A->>B: hi' }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('mermaid');
+    if (block.type === 'mermaid') expect(block.diagram).toContain('sequenceDiagram');
+    expect(parsed.diagnostics).toHaveLength(0);
+  });
+
   it('accepts `items` for citations and `name` for the source title', () => {
     const parsed = parseResponsePayload({
       blocks: [{ type: 'citations', items: [{ name: 'WFE release', url: 'https://example.com/a' }] }],
@@ -219,6 +263,55 @@ describe('new rich blocks', () => {
     expect(parsed.blocks[0].type).toBe('unknown');
     expect(parsed.blocks[1].type).toBe('markdown');
   });
+
+  it('validates an icon-driven workflow and defaults layout to auto', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'workflow',
+          title: 'How HFT works',
+          stages: [
+            { id: 'market-data', icon: 'radio', title: 'Market data', description: 'Live prices and order books' },
+            { id: 'strategy', icon: 'brain-circuit', title: 'Strategy engine', description: 'Detects opportunities', detail: 'More', inputs: ['feeds'], outputs: ['signals'] },
+            { icon: 'zap', title: 'Execution engine', description: 'Routes orders' },
+            { icon: 'combined-chart', title: 'Monitoring and risk', description: 'Tracks fills and exposure' },
+          ],
+        },
+      ],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('workflow');
+    if (block.type === 'workflow') {
+      expect(block.layout).toBe('auto');
+      expect(block.stages).toHaveLength(4);
+      expect(block.stages[1].inputs).toEqual(['feeds']);
+    }
+    expect(parsed.diagnostics).toHaveLength(0);
+  });
+
+  it('accepts `steps` as a synonym for workflow `stages` (observed producer output)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'workflow', steps: [{ title: 'Step one' }, { title: 'Step two' }] }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('workflow');
+    if (block.type === 'workflow') {
+      expect(block.stages).toHaveLength(2);
+      expect(block.stages[0].title).toBe('Step one');
+    }
+    expect(parsed.diagnostics).toHaveLength(0);
+  });
+
+  it('rejects an oversized workflow without losing sibling blocks', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'workflow', stages: Array.from({ length: RESPONSE_LIMITS.maxWorkflowStages + 1 }, (_, i) => ({ title: `s${i}` })) },
+        { type: 'markdown', markdown: 'survivor' },
+      ],
+    });
+    expect(parsed.blocks[0].type).toBe('unknown');
+    expect(parsed.blocks[1].type).toBe('markdown');
+  });
 });
 
 describe('link scheme safety', () => {
@@ -250,6 +343,12 @@ describe('icon registry', () => {
     expect(isResponseIconKey('nope')).toBe(false);
     expect(resolveResponseIcon('trend-up')).toBe(RESPONSE_ICONS['trend-up']);
     expect(resolveResponseIcon('nope')).toBe(resolveResponseIcon(undefined));
+  });
+
+  it('allowlists the workflow icon vocabulary', () => {
+    for (const key of ['workflow', 'radio', 'brain-circuit', 'combined-chart', 'cpu', 'server', 'gears']) {
+      expect(isResponseIconKey(key)).toBe(true);
+    }
   });
 });
 

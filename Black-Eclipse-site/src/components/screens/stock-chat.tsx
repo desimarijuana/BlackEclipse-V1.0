@@ -1321,7 +1321,7 @@ function StockChatContent() {
         </div>
         {/* The right-docked column: the execution Agent Workspace everywhere,
             except in Bots mode where it carries the scheduled-jobs scheduler. */}
-        {activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace />}
+        {activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />}
         <TerminalDock slot="right" />
       </div>
 

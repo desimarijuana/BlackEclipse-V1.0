@@ -30,7 +30,7 @@ export function DiagramBlock({ block, className }: DiagramBlockProps) {
   return (
     <figure className={cn('w-full', className)}>
       {block.title && <figcaption className="mb-2 text-sm font-semibold text-foreground">{block.title}</figcaption>}
-      <div className="overflow-auto rounded-xl border border-white/10 bg-accent/10 p-2">
+      <div className="glass-card-subtle overflow-auto rounded-xl p-3">
         <svg
           role="img"
           aria-describedby={describedBy}
@@ -75,7 +75,7 @@ export function DiagramBlock({ block, className }: DiagramBlockProps) {
                   stroke={tone.stroke}
                   strokeWidth={1.25}
                 />
-                <text x={node.x + node.width / 2} y={node.y + node.height / 2} dominantBaseline="middle" textAnchor="middle" fontSize={12} fill="#e5e7eb">
+                <text x={node.x + node.width / 2} y={node.y + node.height / 2} dominantBaseline="middle" textAnchor="middle" fontSize={12} fill={tone.text}>
                   {node.label}
                 </text>
               </g>

@@ -42,6 +42,8 @@ export const RESPONSE_LIMITS = {
   maxSections: 40,
   maxActions: 12,
   maxArtifacts: 24,
+  maxWorkflowStages: 40,
+  maxMetadataKeys: 40,
   maxStringLength: 20000,
 } as const;
 
@@ -137,8 +139,13 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
   const type = typeof raw.type === 'string' ? raw.type : '';
   const out: Record<string, unknown> = { ...raw };
 
-  if (PROSE_FIELD_TYPES.has(type) && out.markdown === undefined && out.content !== undefined) {
-    out.markdown = out.content;
+  if (PROSE_FIELD_TYPES.has(type) && out.markdown === undefined) {
+    // Producers name the body `content` or, as often observed, `text` (the same
+    // word as the `text`→`markdown` type alias). Neither is the canonical field;
+    // both are accepted so the block is not lost. `heading` legitimately owns a
+    // `text` field, so this rewrite is scoped to the prose body types only.
+    if (out.content !== undefined) out.markdown = out.content;
+    else if (typeof out.text === 'string') out.markdown = out.text;
   }
 
   if (type === 'mermaid' && out.diagram === undefined) {
@@ -168,6 +175,11 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
   if (type === 'financial_chart' && typeof out.timeframe === 'string') {
     const mapped = TIMEFRAME_ALIASES[out.timeframe.trim().toLowerCase()];
     if (mapped) out.timeframe = mapped;
+  }
+
+  if (type === 'workflow' && out.stages === undefined && Array.isArray(out.steps)) {
+    // The natural word for a workflow's stages is `steps`; accept it.
+    out.stages = out.steps;
   }
 
   if (type === 'metric_grid' && Array.isArray(out.metrics)) {
@@ -554,6 +566,32 @@ const infographicBlock = z.object({
   cards: z.array(infographicCardSchema).min(1).max(RESPONSE_LIMITS.maxCards),
 });
 
+const workflowStageSchema = z.object({
+  id: idString.optional(),
+  icon: shortString.optional(),
+  title: shortString,
+  description: boundedString.optional(),
+  detail: boundedString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  status: z.enum(['pending', 'active', 'done', 'error']).optional(),
+  inputs: z.array(shortString).max(12).optional(),
+  outputs: z.array(shortString).max(12).optional(),
+});
+
+// An icon-driven, CONNECTED process flow: ordered stages joined by directional
+// connectors, each expandable to reveal `detail` / inputs / outputs. Distinct
+// from `stepper` (a numbered status list with no icons or connectors) and from
+// `diagram`/`node_graph` (free-form node/edge graphs). The producer returns
+// structured stages only — never an image, SVG, HTML or code.
+const workflowBlock = z.object({
+  type: z.literal('workflow'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  summary: boundedString.optional(),
+  layout: z.enum(['vertical', 'horizontal', 'auto']).default('auto'),
+  stages: z.array(workflowStageSchema).min(1).max(RESPONSE_LIMITS.maxWorkflowStages),
+});
+
 const reportSectionSchema = z.object({
   heading: shortString.optional(),
   markdown: boundedString.optional(),
@@ -659,11 +697,34 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   controlsBlock,
   stepperBlock,
   infographicBlock,
+  workflowBlock,
   reportBlock,
   nodeGraphBlock,
   actionGroupBlock,
   artifactBlock,
 ]);
+
+/**
+ * `metadata` is free-form producer bookkeeping. It is bounded here (key count +
+ * serialized size) so it can never become an unbounded payload. A metadata value
+ * that exceeds the bound is dropped via `.catch`, NOT allowed to fail the whole
+ * envelope — losing bookkeeping must never cost the user their answer.
+ */
+const metadataSchema = z
+  .record(z.string(), z.unknown())
+  .refine((value) => Object.keys(value).length <= RESPONSE_LIMITS.maxMetadataKeys, {
+    message: `metadata has too many keys (max ${RESPONSE_LIMITS.maxMetadataKeys})`,
+  })
+  .refine(
+    (value) => {
+      try {
+        return JSON.stringify(value).length <= RESPONSE_LIMITS.maxStringLength;
+      } catch {
+        return false;
+      }
+    },
+    { message: `metadata is too large (max ${RESPONSE_LIMITS.maxStringLength} chars)` },
+  );
 
 export const ResponseEnvelopeSchema = z.object({
   schemaVersion: z.string().max(20).optional(),
@@ -672,7 +733,7 @@ export const ResponseEnvelopeSchema = z.object({
   title: shortString.optional(),
   summary: boundedString.optional(),
   blocks: z.array(z.unknown()).max(RESPONSE_LIMITS.maxBlocks),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: metadataSchema.optional().catch(undefined),
 });
 
 export type ResponseBlock = z.infer<typeof ResponseBlockSchema>;
@@ -694,6 +755,8 @@ export type Control = z.infer<typeof controlSchema>;
 export type StepperBlock = z.infer<typeof stepperBlock>;
 export type InfographicBlock = z.infer<typeof infographicBlock>;
 export type InfographicCard = z.infer<typeof infographicCardSchema>;
+export type WorkflowBlock = z.infer<typeof workflowBlock>;
+export type WorkflowStage = z.infer<typeof workflowStageSchema>;
 export type ReportBlock = z.infer<typeof reportBlock>;
 export type ReportSection = z.infer<typeof reportSectionSchema>;
 export type NodeGraphBlock = z.infer<typeof nodeGraphBlock>;

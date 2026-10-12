@@ -14,11 +14,11 @@ import { layoutDiagram } from '@/lib/response/diagram-layout';
 import type { DiagramBlock, NodeGraphBlock as NodeGraphBlockType, NodeGraphNode } from '@/lib/response/contract';
 
 const TONE: Record<NodeGraphNode['tone'], { fill: string; stroke: string; text: string }> = {
-  neutral: { fill: 'rgba(148,163,184,0.10)', stroke: 'rgba(148,163,184,0.45)', text: '#e5e7eb' },
-  info: { fill: 'rgba(96,165,250,0.14)', stroke: 'rgba(96,165,250,0.6)', text: '#e5e7eb' },
-  success: { fill: 'rgba(34,197,94,0.14)', stroke: 'rgba(34,197,94,0.6)', text: '#e5e7eb' },
-  warning: { fill: 'rgba(251,191,36,0.14)', stroke: 'rgba(251,191,36,0.6)', text: '#e5e7eb' },
-  danger: { fill: 'rgba(244,63,94,0.14)', stroke: 'rgba(244,63,94,0.6)', text: '#e5e7eb' },
+  neutral: { fill: 'rgba(148,163,184,0.10)', stroke: 'rgba(148,163,184,0.45)', text: 'currentColor' },
+  info: { fill: 'rgba(96,165,250,0.14)', stroke: 'rgba(96,165,250,0.6)', text: 'currentColor' },
+  success: { fill: 'rgba(34,197,94,0.14)', stroke: 'rgba(34,197,94,0.6)', text: 'currentColor' },
+  warning: { fill: 'rgba(251,191,36,0.14)', stroke: 'rgba(251,191,36,0.6)', text: 'currentColor' },
+  danger: { fill: 'rgba(244,63,94,0.14)', stroke: 'rgba(244,63,94,0.6)', text: 'currentColor' },
 };
 
 const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 2];
@@ -73,7 +73,7 @@ export function NodeGraphBlock({ block }: { block: NodeGraphBlockType }) {
       </figcaption>}
 
       <div
-        className="overflow-auto rounded-xl border border-white/10 bg-accent/10 p-2"
+        className="glass-card-subtle overflow-auto rounded-xl p-3"
         style={{ maxHeight: block.height ?? DEFAULT_HEIGHT }}
       >
         <svg

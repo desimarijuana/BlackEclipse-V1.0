@@ -23,7 +23,7 @@ describe('Agent Workspace reachability', () => {
   it('is mounted once in the app shell row', () => {
     const shell = readShell();
     expect(shell).toContain('components/agent-workspace/workspace');
-    expect(shell).toContain('<AgentWorkspace />');
+    expect(shell).toContain('<AgentWorkspace');
   });
 
   it('has a header toggle so it is reachable from every screen', () => {

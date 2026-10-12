@@ -33,7 +33,8 @@ import { DataTableBlock } from './data-table-block';
 import { DiagramBlock } from './diagram-block';
 import { ControlsBlock } from './controls-block';
 import { NodeGraphBlock } from './node-graph-block';
-import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock } from './rich-blocks';
+import { MermaidBlock } from './mermaid-block';
+import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock, WorkflowBlock } from './rich-blocks';
 import { ResponseActions } from './response-actions';
 
 // ECharts is ~1MB; only fetched when a chart block actually renders.
@@ -42,11 +43,11 @@ const ResponseChart = dynamic(() => import('./response-chart'), {
   loading: () => <BlockSkeleton height={260} />,
 });
 
-// Mermaid and the financial chart provider stack are both heavy; lazy-loaded.
-const MermaidBlock = dynamic(() => import('./mermaid-block'), {
-  ssr: false,
-  loading: () => <BlockSkeleton height={220} />,
-});
+// `mermaid-block` lazy-imports the heavy `mermaid` package inside its own effect,
+// so the component itself is tiny and is imported statically. Wrapping it in its
+// own `next/dynamic` added a redundant chunk-load failure path that surfaced a
+// scary render error (via `BlockBoundary`) instead of the block's inline
+// "Diagram could not be rendered" card.
 
 const ResponseFinancialChart = dynamic(() => import('./financial-chart'), {
   ssr: false,
@@ -55,7 +56,7 @@ const ResponseFinancialChart = dynamic(() => import('./financial-chart'), {
 
 function BlockSkeleton({ height }: { height: number }) {
   return (
-    <div className="flex items-center justify-center rounded-xl border border-white/10 bg-accent/10" style={{ height }}>
+    <div className="glass-card-subtle flex items-center justify-center rounded-xl" style={{ height }}>
       <span className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
     </div>
   );
@@ -138,6 +139,7 @@ const REGISTRY = {
   controls: (b: BlockOf<'controls'>, ctx: RenderContext) => <ControlsBlock block={b} onFollowup={ctx.onFollowup} />,
   stepper: (b: BlockOf<'stepper'>) => <StepperBlock block={b} />,
   infographic: (b: BlockOf<'infographic'>) => <InfographicBlock block={b} />,
+  workflow: (b: BlockOf<'workflow'>, ctx: RenderContext) => <WorkflowBlock block={b} onFollowup={ctx.onFollowup} />,
   report: (b: BlockOf<'report'>, ctx: RenderContext) => <ReportBlock block={b} renderBlocks={ctx.renderBlocks} />,
   node_graph: (b: BlockOf<'node_graph'>) => <NodeGraphBlock block={b} />,
   action_group: (b: BlockOf<'action_group'>, ctx: RenderContext) => <ActionGroupBlock block={b} onFollowup={ctx.onFollowup} />,
@@ -183,6 +185,32 @@ class BlockBoundary extends React.Component<BoundaryProps, { error: string | nul
   }
 }
 
+// Blocks that read as flowing prose. Two adjacent prose blocks get a tight
+// rhythm so a heading + paragraph + callout reads as one document; a visual
+// "surface" block (chart, table, metric grid, diagram, …) keeps a clear gap so
+// it reads as its own figure. Without this every sibling block got the same
+// 16px gap and an answer of five blocks looked like five detached cards.
+const PROSE_BLOCK_TYPES = new Set<ValidatedBlock['type']>([
+  'markdown',
+  'heading',
+  'callout',
+  'details',
+  'key_value',
+  'citations',
+  'timeline',
+]);
+
+function blockGapClass(
+  type: ValidatedBlock['type'],
+  prev: ValidatedBlock['type'] | null,
+  compact: boolean,
+): string {
+  if (prev === null) return 'mt-0';
+  const bothProse = PROSE_BLOCK_TYPES.has(type) && PROSE_BLOCK_TYPES.has(prev);
+  if (bothProse) return compact ? 'mt-2' : 'mt-2.5';
+  return compact ? 'mt-3' : 'mt-4';
+}
+
 function renderBlock(block: ValidatedBlock, ctx: RenderContext, index: number): ReactNode {
   if (block.type === 'unknown') {
     return (
@@ -216,9 +244,13 @@ export interface ResponseViewProps {
 
 export function ResponseView({ response, compact = false, className, onFollowup }: ResponseViewProps) {
   const renderBlocks = (blocks: ValidatedBlock[]): ReactNode => (
-    <div className="space-y-3">
-      {blocks.map((block, i) => renderBlock(block, { compact, renderBlocks, onFollowup }, i))}
-    </div>
+    <>
+      {blocks.map((block, i) => (
+        <div key={i} className={blockGapClass(block.type, i > 0 ? blocks[i - 1].type : null, compact)}>
+          {renderBlock(block, { compact, renderBlocks, onFollowup }, i)}
+        </div>
+      ))}
+    </>
   );
 
   if (response.blocks.length === 0) {
@@ -235,8 +267,8 @@ export function ResponseView({ response, compact = false, className, onFollowup 
         <ResponseHeader response={response} />
         <ResponseActions response={response} />
       </div>
-      <div className={cn('space-y-4', compact && 'space-y-3')}>
-        {response.blocks.map((b, i) => renderBlock(b, { compact, renderBlocks, onFollowup }, i))}
+      <div>
+        {renderBlocks(response.blocks)}
       </div>
       <div className="mt-2">
         <DiagnosticsPanel diagnostics={response.diagnostics} />
