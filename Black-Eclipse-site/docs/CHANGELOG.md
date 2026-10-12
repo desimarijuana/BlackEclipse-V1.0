@@ -42,6 +42,40 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `skills/ARCHITECT.md` (ADR-043 amendment), `docs/NAVIGATION.md`,
   `docs/CHANGELOG.md`.
 
+- **Interactive Response Engine: server-rendered DOM tests + lint hygiene.** Added
+  `src/components/response/render.test.tsx` (21 tests) that server-render the real
+  components via `react-dom/server` in the node test env — covering block content,
+  mixed-response ordering, unknown-block isolation, `report` nesting, the
+  streaming/malformed fences, action-group proposal semantics, safe citation
+  links, and the `mermaid`-fence-vs-code-block classification. No new dependency
+  (no jsdom/testing-library). `vitest.config.ts` disables the oxc transformer
+  (`oxc: false`) and enables the automatic JSX runtime so TSX components transform
+  under vitest, leaving the Next build (tsconfig `jsx: preserve`) untouched.
+  `eslint.config.mjs` now ignores disposable root-level `_*.cjs`/`_*.mjs` scratch
+  scripts (the recurring lint breakage). docs updated:
+  `docs/interactive-response-engine.md` (§6), `docs/CHANGELOG.md`.
+
+- **Interactive Response Engine: full rich-block family + link hardening.** Added
+  the remaining structured block types — `stepper`, `infographic`, `report`,
+  `node_graph` (selectable; reuses the deterministic `diagram-layout` engine
+  rather than a second graph library), `action_group` (PROPOSED next steps that
+  only compose a follow-up prompt into the existing agent loop), and `artifact`
+  (a reference to the existing Artifact Center) — plus spec-name aliases
+  (`text`→`markdown`, `table`→`data_table`, `source_list`→`citations`,
+  `interactive_form`→`controls`, `execution_timeline`→`timeline`). Citation and
+  artifact links are now **scheme-restricted to `http(s)`** — bare
+  `z.string().url()` accepts `javascript:`/`data:`, which becomes an XSS vector
+  once rendered as an anchor. Infographic/action icons resolve through a semantic
+  allowlist (`src/lib/response/icons.ts`), so the model never names a component or
+  import path. The agent "Structured answers" guidance in `prompts.py` was
+  rewritten to be more directive and to list the new blocks, staying **within the
+  unchanged 26410-char prompt ceiling**. Every new block renders through the same
+  registry + `BlockBoundary` and is represented in PDF export. Tests:
+  `src/lib/response/contract-blocks.test.ts` (17 new). docs updated:
+  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md` (ADR-043 amendment), `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+
 - **Chat: render ` ```mermaid ` fences as diagrams.** A model that emitted a
   plain fenced `mermaid` block (rather than an `eclipse-response` JSON block) got
   its raw source shown as a copyable code block — the chat Markdown renderer had
