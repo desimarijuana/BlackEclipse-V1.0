@@ -268,6 +268,70 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
       case 'controls':
         missing.push('interactive controls are omitted from PDF');
         break;
+      case 'stepper':
+        if (block.title) heading(block.title, 12);
+        block.steps.forEach((step, i) => {
+          paragraph(`${i + 1}. ${step.title} (${step.status})`);
+          if (step.description) paragraph(`   ${markdownToPlainText(step.description)}`);
+        });
+        y += 4;
+        break;
+      case 'infographic':
+        if (block.title) heading(block.title, 12);
+        autoTable(doc, {
+          head: [['Card', 'Value', 'Detail']],
+          body: block.cards.map((c) => [
+            c.label,
+            c.unavailable ? 'UNAVAILABLE' : `${String(c.value ?? '')}${c.unit ?? ''}`,
+            c.description ?? '',
+          ]),
+          startY: y,
+          margin: { left: margin, right: margin },
+          styles: { fontSize: 9, cellPadding: 4 },
+          headStyles: { fillColor: accentColor(), textColor: 255 },
+          theme: 'striped',
+        });
+        y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+        break;
+      case 'report':
+        if (block.title) heading(block.title, 16);
+        if (block.summary) paragraph(markdownToPlainText(block.summary));
+        block.sections.forEach((section) => {
+          if (section.heading) heading(section.heading, 12);
+          if (section.markdown) paragraph(markdownToPlainText(section.markdown));
+          if (section.blocks && section.blocks.length) {
+            missing.push('a report section contains nested blocks; open the app for the full render');
+          }
+          y += 4;
+        });
+        break;
+      case 'node_graph':
+        if (block.title) heading(block.title, 12);
+        paragraph(`Interactive graph with ${block.nodes.length} nodes and ${block.edges.length} edges.`);
+        block.nodes.forEach((n) => {
+          paragraph(`- ${n.label}${n.group ? ` (${n.group})` : ''}${n.detail ? `: ${n.detail}` : ''}`);
+        });
+        y += 6;
+        break;
+      case 'action_group':
+        if (block.title) heading(block.title, 12);
+        paragraph('Proposed next steps:');
+        block.actions.forEach((action) => paragraph(`- ${action.label}${action.description ? ` — ${action.description}` : ''}`));
+        y += 6;
+        break;
+      case 'artifact':
+        if (block.title) heading(block.title, 12);
+        autoTable(doc, {
+          head: [['Artifact', 'Category', 'Size']],
+          body: block.artifacts.map((a) => [a.name, a.category ?? '', a.sizeBytes != null ? `${a.sizeBytes} B` : '']),
+          startY: y,
+          margin: { left: margin, right: margin },
+          styles: { fontSize: 9, cellPadding: 4 },
+          headStyles: { fillColor: accentColor(), textColor: 255 },
+          theme: 'striped',
+        });
+        y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+        break;
       default:
         missing.push(`block "${(block as { type: string }).type}" has no PDF representation`);
     }

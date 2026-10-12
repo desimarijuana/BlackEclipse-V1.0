@@ -18,6 +18,7 @@ import {
   ChartPie,
   ScanSearch,
   Globe,
+  Ghost,
   Search,
   CornerDownLeft,
   Loader2,
@@ -75,6 +76,7 @@ const NAME_ICON: Record<string, LucideIcon> = {
   settings: Settings,
   skills: Blocks,
   memory: Brain,
+  ghost: Ghost,
   activity: Activity,
 };
 
@@ -101,6 +103,7 @@ const TOP_LEVEL_PAGE_IDS = [
   'page-alerts',
   'page-skills',
   'page-memory',
+  'page-bots',
 ];
 
 const KIND_ICON: Record<EntityKind, LucideIcon> = {

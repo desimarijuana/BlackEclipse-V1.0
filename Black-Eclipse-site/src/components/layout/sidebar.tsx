@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from '@/lib/icons';
+import { X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { useT, navLabelKey } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
+import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
 import type { ChatOrganizationApi, Conversation } from '@/lib/chat/chat-organization';
 
 // The conversation + folder shapes live in `lib/chat/chat-organization` (alongside
@@ -18,10 +19,14 @@ export type { ChatFolder, Conversation } from '@/lib/chat/chat-organization';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-/** The two top-level menu modes and the icon each switcher button shows. */
-const NAV_MODES: Array<{ id: NavGroup; labelKey: 'sidebar.terminal' | 'sidebar.agentic'; icon: typeof SquareTerminal }> = [
+/** The top-level menu switcher. Terminal and Agentic choose a nav MODE; Bots is
+ *  a direct tab that sits beside them so the bot workspace is always one click
+ *  away regardless of the current mode. */
+type NavSwitcherId = NavGroup | 'bots';
+const NAV_MODES: Array<{ id: NavSwitcherId; labelKey: 'sidebar.terminal' | 'sidebar.agentic' | 'nav.bots'; icon: LucideIcon }> = [
   { id: 'terminal', labelKey: 'sidebar.terminal', icon: SquareTerminal },
   { id: 'agentic', labelKey: 'sidebar.agentic', icon: BrainCircuit },
+  { id: 'bots', labelKey: 'nav.bots', icon: Ghost },
 ];
 
 // The tab vocabulary lives ONCE in `lib/app-tabs.ts`; this shell re-exports it so
@@ -103,7 +108,7 @@ export function Sidebar({
   // Otherwise a manual switch would be immediately reverted by this effect while
   // sitting on a screen belonging to the other mode. The last-synced tab is kept
   // in a ref so choosing the other mode for the same screen is respected.
-  const lastSyncedTabRef = useRef(activeTab);
+  const lastSyncedTabRef = useRef<AppTab | null>(null);
   useEffect(() => {
     if (lastSyncedTabRef.current === activeTab) return;
     lastSyncedTabRef.current = activeTab;
@@ -187,7 +192,7 @@ export function Sidebar({
           <div
             role="tablist"
             aria-label={t('sidebar.modeSwitcher')}
-            className="shrink-0 grid grid-cols-2 gap-1 rounded-2xl glass-card-subtle p-1 w-full"
+            className="shrink-0 grid grid-cols-3 gap-1 rounded-2xl glass-card-subtle p-1 w-full"
           >
             {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
               const isActive = navMode === id;
@@ -198,7 +203,12 @@ export function Sidebar({
                   role="tab"
                   aria-selected={isActive}
                   data-sound="tick"
-                  onClick={() => setNavMode(id)}
+                  onClick={() => {
+                    // Bots is its own mode; also open the workspace so the panel
+                    // and the page never disagree.
+                    setNavMode(id);
+                    if (id === 'bots') onChangeTab('bots');
+                  }}
                   title={label}
                   className={`flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-bold transition-all cursor-pointer ${
                     isActive
@@ -226,13 +236,23 @@ export function Sidebar({
           />
         )}
 
-        {/* Navigation list (divider line on top of icons) */}
-        <nav
-          aria-label={t('a11y.mainNavigation')}
-          className={`flex flex-col gap-1.5 pt-4 border-t border-border/10 w-full ${
-            isCollapsed ? 'items-center px-2' : ''
-          }`}
-        >
+        {/* In the Bots mode the sidebar lists the user's actual bots (the bot
+            panel), not a generic nav link; other modes show the nav list. */}
+        {navMode === 'bots' ? (
+          <BotsSidebarPanel
+            collapsed={isCollapsed}
+            onActivate={() => {
+              onChangeTab('bots');
+              onCloseMobile?.();
+            }}
+          />
+        ) : (
+          <nav
+            aria-label={t('a11y.mainNavigation')}
+            className={`flex flex-col gap-1.5 pt-4 border-t border-border/10 w-full ${
+              isCollapsed ? 'items-center px-2' : ''
+            }`}
+          >
           {navItems.map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
@@ -268,7 +288,8 @@ export function Sidebar({
               </a>
             );
           })}
-        </nav>
+          </nav>
+        )}
       </div>
 
       {/* Footer */}

@@ -32,6 +32,8 @@ import {
 import { DataTableBlock } from './data-table-block';
 import { DiagramBlock } from './diagram-block';
 import { ControlsBlock } from './controls-block';
+import { NodeGraphBlock } from './node-graph-block';
+import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock } from './rich-blocks';
 import { ResponseActions } from './response-actions';
 
 // ECharts is ~1MB; only fetched when a chart block actually renders.
@@ -134,6 +136,12 @@ const REGISTRY = {
     <TabsBlock tabs={b.tabs as { label: string; blocks: ValidatedBlock[] }[]} renderBlocks={ctx.renderBlocks} />
   ),
   controls: (b: BlockOf<'controls'>, ctx: RenderContext) => <ControlsBlock block={b} onFollowup={ctx.onFollowup} />,
+  stepper: (b: BlockOf<'stepper'>) => <StepperBlock block={b} />,
+  infographic: (b: BlockOf<'infographic'>) => <InfographicBlock block={b} />,
+  report: (b: BlockOf<'report'>, ctx: RenderContext) => <ReportBlock block={b} renderBlocks={ctx.renderBlocks} />,
+  node_graph: (b: BlockOf<'node_graph'>) => <NodeGraphBlock block={b} />,
+  action_group: (b: BlockOf<'action_group'>, ctx: RenderContext) => <ActionGroupBlock block={b} onFollowup={ctx.onFollowup} />,
+  artifact: (b: BlockOf<'artifact'>) => <ArtifactBlock block={b} />,
 } as const;
 
 type RegistryKey = keyof typeof REGISTRY;

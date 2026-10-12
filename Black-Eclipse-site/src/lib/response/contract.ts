@@ -37,14 +37,72 @@ export const RESPONSE_LIMITS = {
   maxDiagramEdges: 300,
   maxTimelineEvents: 200,
   maxTabs: 12,
+  maxSteps: 100,
+  maxCards: 40,
+  maxSections: 40,
+  maxActions: 12,
+  maxArtifacts: 24,
   maxStringLength: 20000,
 } as const;
+
+/**
+ * Spec-name → canonical-type aliases. The producer contract (see prompts.py)
+ * documents one vocabulary, but the wider ecosystem names some blocks slightly
+ * differently (`text`, `table`, `source_list`, `interactive_form`,
+ * `execution_timeline`). Those names are normalized to their canonical block here
+ * so a producer is never punished for a synonym; the renderer only ever sees the
+ * canonical type.
+ */
+const BLOCK_TYPE_ALIASES: Record<string, string> = {
+  text: 'markdown',
+  table: 'data_table',
+  source_list: 'citations',
+  interactive_form: 'controls',
+  execution_timeline: 'timeline',
+};
+
+/**
+ * Rewrite a raw block whose `type` is a documented alias into its canonical
+ * shape. Pure and total: a non-object or non-aliased block is returned unchanged.
+ * `text` additionally accepts `content` for the prose body.
+ */
+export function normalizeBlockAlias(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  const declared = obj.type;
+  if (typeof declared !== 'string') return raw;
+  const canonical = BLOCK_TYPE_ALIASES[declared];
+  if (!canonical) return raw;
+  if (declared === 'text' && obj.markdown === undefined && obj.content !== undefined) {
+    const { content, ...rest } = obj;
+    return { ...rest, type: canonical, markdown: content };
+  }
+  return { ...obj, type: canonical };
+}
 
 const boundedString = z.string().max(RESPONSE_LIMITS.maxStringLength);
 const shortString = z.string().max(500);
 const idString = z.string().min(1).max(120);
 
 const numberOrNumericString = z.union([z.number().finite(), z.string().max(120)]);
+
+// Only absolute http(s) URLs may become links. `z.string().url()` alone accepts
+// `javascript:`/`data:` schemes, which would be an XSS vector once rendered as an
+// anchor href — so every model-supplied link is scheme-restricted here.
+const httpUrl = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      try {
+        const protocol = new URL(value).protocol;
+        return protocol === 'http:' || protocol === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    { message: 'Only http(s) URLs are allowed' },
+  );
 
 // A chart/timeline point may be a scalar, an [x, y] pair or a [x, y, v] triple.
 const pointSchema = z.union([
@@ -231,7 +289,7 @@ const timelineBlock = z.object({
 
 const citationSourceSchema = z.object({
   title: shortString,
-  url: z.string().url().optional(),
+  url: httpUrl.optional(),
   source: shortString.optional(),
   snippet: boundedString.optional(),
   retrievedAt: shortString.optional(),
@@ -339,6 +397,130 @@ const controlsBlock = z.object({
   promptTemplate: boundedString.optional(),
 });
 
+// ── Process / report / action blocks ───────────────────────────────────────────
+
+const stepSchema = z.object({
+  title: shortString,
+  description: boundedString.optional(),
+  status: z.enum(['pending', 'active', 'done', 'error']).default('pending'),
+  hint: shortString.optional(),
+});
+
+// A numbered process: ordered, each step carry a status. Distinct from
+// `timeline` (which is time-stamped events); a stepper is procedural.
+const stepperBlock = z.object({
+  type: z.literal('stepper'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  steps: z.array(stepSchema).min(1).max(RESPONSE_LIMITS.maxSteps),
+});
+
+const infographicCardSchema = z.object({
+  icon: shortString.optional(),
+  label: shortString,
+  value: numberOrNumericString.optional(),
+  unit: shortString.optional(),
+  description: boundedString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  unavailable: z.boolean().optional(),
+});
+
+// Icon-based cards composed of native components (never a generated image). The
+// `icon` key is resolved against an allowlist at render; an unknown key degrades
+// to a neutral default — the model never names a component or import path.
+const infographicBlock = z.object({
+  type: z.literal('infographic'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  columns: z.number().int().min(1).max(4).optional(),
+  cards: z.array(infographicCardSchema).min(1).max(RESPONSE_LIMITS.maxCards),
+});
+
+const reportSectionSchema = z.object({
+  heading: shortString.optional(),
+  markdown: boundedString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  // Nested blocks are validated recursively by the parser (depth-bounded), like
+  // `tabs`, so a section may contain its own table/chart/diagram.
+  blocks: z.array(z.unknown()).optional(),
+});
+
+// A readable multi-section report: the natural container for a long
+// evidence-backed answer that mixes prose, tables and charts.
+const reportBlock = z.object({
+  type: z.literal('report'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  summary: boundedString.optional(),
+  sections: z.array(reportSectionSchema).min(1).max(RESPONSE_LIMITS.maxSections),
+});
+
+const nodeGraphNodeSchema = z.object({
+  id: idString,
+  label: shortString,
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  group: shortString.optional(),
+  detail: boundedString.optional(),
+});
+
+// Unlike `diagram` (a static picture of relationships), a `node_graph` is a
+// SELECTABLE graph: clicking a node reveals its `detail`. The same layered
+// layout engine drives both.
+const nodeGraphBlock = z.object({
+  type: z.literal('node_graph'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  direction: z.enum(['TB', 'LR']).default('LR'),
+  height: z.number().int().min(200).max(800).optional(),
+  nodes: z.array(nodeGraphNodeSchema).min(1).max(RESPONSE_LIMITS.maxDiagramNodes),
+  edges: z.array(diagramEdgeSchema).max(RESPONSE_LIMITS.maxDiagramEdges).default([]),
+});
+
+const actionSchema = z.object({
+  id: idString,
+  label: shortString,
+  description: shortString.optional(),
+  icon: shortString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  // The follow-up prompt this action sends. It re-enters the EXISTING agent loop
+  // and is exactly as capable as the user typing it — no privileged backend call.
+  prompt: boundedString,
+});
+
+// Proposed next steps. These are PROPOSALS, not executions: clicking one sends
+// its `prompt` as a new user turn (and the card says so), so the model can never
+// trigger an unauthorized backend action through this block.
+const actionGroupBlock = z.object({
+  type: z.literal('action_group'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: boundedString.optional(),
+  actions: z.array(actionSchema).min(1).max(RESPONSE_LIMITS.maxActions),
+});
+
+const artifactRefSchema = z.object({
+  artifactId: idString.optional(),
+  name: shortString,
+  description: boundedString.optional(),
+  category: shortString.optional(),
+  mimeType: shortString.optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  version: z.number().int().positive().optional(),
+  url: httpUrl.optional(),
+});
+
+// A reference to a real record in the existing Artifact Center. It links to the
+// artifact's own download route; it never inlines large content into the message.
+const artifactBlock = z.object({
+  type: z.literal('artifact'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  artifacts: z.array(artifactRefSchema).min(1).max(RESPONSE_LIMITS.maxArtifacts),
+});
+
 /**
  * The discriminated union of every registered block type. Unknown `type` values
  * do NOT parse; the parser catches that and emits an `unknown` diagnostic block.
@@ -359,6 +541,12 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   financialChartBlock,
   mermaidBlock,
   controlsBlock,
+  stepperBlock,
+  infographicBlock,
+  reportBlock,
+  nodeGraphBlock,
+  actionGroupBlock,
+  artifactBlock,
 ]);
 
 export const ResponseEnvelopeSchema = z.object({
@@ -387,6 +575,17 @@ export type FinancialChartBlock = z.infer<typeof financialChartBlock>;
 export type MermaidBlock = z.infer<typeof mermaidBlock>;
 export type ControlsBlock = z.infer<typeof controlsBlock>;
 export type Control = z.infer<typeof controlSchema>;
+export type StepperBlock = z.infer<typeof stepperBlock>;
+export type InfographicBlock = z.infer<typeof infographicBlock>;
+export type InfographicCard = z.infer<typeof infographicCardSchema>;
+export type ReportBlock = z.infer<typeof reportBlock>;
+export type ReportSection = z.infer<typeof reportSectionSchema>;
+export type NodeGraphBlock = z.infer<typeof nodeGraphBlock>;
+export type NodeGraphNode = z.infer<typeof nodeGraphNodeSchema>;
+export type ActionGroupBlock = z.infer<typeof actionGroupBlock>;
+export type ResponseAction = z.infer<typeof actionSchema>;
+export type ArtifactBlock = z.infer<typeof artifactBlock>;
+export type ArtifactRef = z.infer<typeof artifactRefSchema>;
 
 /** A block whose type is not registered. Rendered as a readable diagnostic —
  *  never executed, never discarded silently. */
@@ -434,12 +633,13 @@ function declaredTypeOf(raw: unknown): string {
  * a diagnostic. Never throws.
  */
 export function validateBlock(raw: unknown): { block: ValidatedBlock; diagnostic?: ResponseDiagnostic } {
-  const result = ResponseBlockSchema.safeParse(raw);
+  const candidate = normalizeBlockAlias(raw);
+  const result = ResponseBlockSchema.safeParse(candidate);
   if (!result.success) {
     const declaredType = declaredTypeOf(raw);
     const first = result.error.issues[0];
     return {
-      block: asUnknownBlock(raw, declaredType),
+      block: asUnknownBlock(candidate, declaredType),
       diagnostic: {
         severity: 'error',
         code: 'BLOCK_INVALID',
@@ -520,6 +720,12 @@ export function parseResponsePayload(input: unknown): ParsedResponse {
         blocks: parseNestedBlocks(tab.blocks, 1, diagnostics),
       }));
     }
+    if (block.type === 'report') {
+      block.sections = block.sections.map((section) => ({
+        ...section,
+        blocks: section.blocks ? parseNestedBlocks(section.blocks, 1, diagnostics) : undefined,
+      }));
+    }
     blocks.push(block);
   });
 
@@ -566,6 +772,12 @@ export function parseNestedBlocks(
       nested.tabs = nested.tabs.map((tab) => ({
         ...tab,
         blocks: parseNestedBlocks(tab.blocks, depth + 1, out),
+      }));
+    }
+    if (block.type === 'report') {
+      block.sections = block.sections.map((section) => ({
+        ...section,
+        blocks: section.blocks ? parseNestedBlocks(section.blocks, depth + 1, out) : undefined,
       }));
     }
     return block;

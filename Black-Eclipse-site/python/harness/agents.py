@@ -45,6 +45,12 @@ from .portfolio.tools import PORTFOLIO_TOOLS
 # registry; imported as the ONE canonical list so the allowlist cannot drift.
 from .ml.tools import ML_TOOLS
 
+# The Bot / Automation tools (`bot_*`): the chat agent creates, inspects and
+# steers the SAME persistent bots the Bots workspace shows. Registered by
+# `service.py` on the SAME registry; imported as the ONE canonical list so the
+# allowlist cannot drift.
+from .automation.tools import TOOL_NAMES as AUTOMATION_TOOLS
+
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
 # registry only registers them when the capability is enabled AND Playwright is
@@ -349,6 +355,10 @@ ECLIPSE_AGENT = AgentConfig(
         # retries). The scheduler dispatches runnable tasks through the normal run
         # path; the tools only create/steer, never execute.
         *TASK_TOOLS,
+        # Persistent bots: create / list / inspect / steer the durable scheduled
+        # agents the Bots workspace shows. Thin wrappers over the ONE automation
+        # service, so a bot made in chat and one made in the UI are the same object.
+        *AUTOMATION_TOOLS,
         # Agent-to-Agent: delegate to / spawn / message specialist agents, merge
         # their structured results, and request review or approval. Read-permission
         # orchestration over the durable task + message bus. Real-world effects a

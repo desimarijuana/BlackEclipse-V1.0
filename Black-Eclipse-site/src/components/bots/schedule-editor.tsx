@@ -1,0 +1,134 @@
+'use client';
+
+// Shared schedule builder used by both the creation flow and the detail editor.
+// Exposes only trigger kinds the backend implements (manual, one-time, cron via
+// daily/weekday/weekly presets, interval, raw cron). No browser-only scheduling:
+// the persisted trigger drives the durable backend scheduler.
+
+import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
+import type { TranslationKey } from '@/lib/i18n';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { localTimezone, type BotDraft, type ScheduleChoice } from '@/lib/bots/state';
+
+const WEEKDAY_KEYS: TranslationKey[] = [
+  'bots.weekday.0', 'bots.weekday.1', 'bots.weekday.2',
+  'bots.weekday.3', 'bots.weekday.4', 'bots.weekday.5', 'bots.weekday.6',
+];
+
+export interface ScheduleEditorProps {
+  draft: BotDraft;
+  onChange: (patch: Partial<BotDraft>) => void;
+  className?: string;
+}
+
+export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorProps) {
+  const t = useT();
+  const choices: ScheduleChoice[] = ['manual', 'once', 'daily', 'weekdays', 'weekly', 'interval', 'cron'];
+  return (
+    <div className={cn('space-y-3', className)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={draft.schedule}
+          onValueChange={(v) => onChange({ schedule: (v ?? draft.schedule) as ScheduleChoice })}
+        >
+          <SelectTrigger className="w-[13rem]" aria-label={t('bots.schedule')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {choices.map((c) => (
+              <SelectItem key={c} value={c}>
+                {t(`bots.sched.${c}` as TranslationKey)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {(draft.schedule === 'daily' || draft.schedule === 'weekdays' || draft.schedule === 'weekly') && (
+          <>
+            {draft.schedule === 'weekly' && (
+              <Select
+                value={String(draft.weekday)}
+                onValueChange={(v) => onChange({ weekday: Number(v ?? draft.weekday) })}
+              >
+                <SelectTrigger className="w-[9rem]" aria-label={t('bots.sched.onDay')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WEEKDAY_KEYS.map((key, i) => (
+                    <SelectItem key={key} value={String(i)}>{t(key)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <span className="text-sm text-muted-foreground">{t('bots.sched.at')}</span>
+            <Input
+              type="time"
+              value={draft.time}
+              onChange={(e) => onChange({ time: e.target.value })}
+              className="w-auto"
+            />
+          </>
+        )}
+
+        {draft.schedule === 'once' && (
+          <Input
+            type="datetime-local"
+            value={draft.runAt}
+            onChange={(e) => onChange({ runAt: e.target.value })}
+            className="w-auto"
+            aria-label={t('bots.runAt')}
+          />
+        )}
+
+        {draft.schedule === 'interval' && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">{t('bots.every')}</span>
+            <Input
+              type="number"
+              min={1}
+              value={draft.intervalValue}
+              onChange={(e) => onChange({ intervalValue: Math.max(1, Number(e.target.value) || 1) })}
+              className="w-20"
+            />
+            <Select
+              value={draft.intervalUnit}
+              onValueChange={(v) => onChange({ intervalUnit: (v ?? draft.intervalUnit) as BotDraft['intervalUnit'] })}
+            >
+              <SelectTrigger className="w-[7rem]" aria-label={t('bots.every')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="minutes">{t('bots.minutes')}</SelectItem>
+                <SelectItem value="hours">{t('bots.hours')}</SelectItem>
+                <SelectItem value="days">{t('bots.days')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {draft.schedule === 'cron' && (
+          <Input
+            value={draft.cron}
+            onChange={(e) => onChange({ cron: e.target.value })}
+            placeholder="0 8 * * 1-5"
+            className="min-w-[12rem] flex-1 font-mono"
+            aria-label={t('bots.cronExpression')}
+          />
+        )}
+      </div>
+      {draft.schedule !== 'manual' && (
+        <p className="text-xs text-muted-foreground">
+          {t('bots.timezone')}: {localTimezone()}
+        </p>
+      )}
+    </div>
+  );
+}

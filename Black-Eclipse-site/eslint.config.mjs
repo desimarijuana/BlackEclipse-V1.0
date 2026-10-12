@@ -37,6 +37,11 @@ const eslintConfig = [
       // One-off Node import/utility scripts (plain JS, not part of the app).
       "scripts/**",
       "bin/**",
+      // Disposable root-level Node scratch scripts (Playwright probes, ad-hoc
+      // verification). The `_` prefix marks them throwaway, mirroring the
+      // unused-var convention; they are never app source and must not gate lint.
+      "_*.cjs",
+      "_*.mjs",
       // Disposable agent artifacts: isolated code workspaces, the code index and
       // workspace index. These are machine-generated, may be mid-delete, and are
       // never source. Linting them crashes on a partially-removed worktree.

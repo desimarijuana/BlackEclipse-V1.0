@@ -15,8 +15,9 @@ import {
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
 
-/** The two top-level sidebar modes. A section belongs to one, or to both. */
-export type NavGroup = 'terminal' | 'agentic';
+/** The top-level sidebar modes. A section belongs to one, or to both. `bots` is
+ *  a mode with no nav SECTIONS — it renders the bot list panel instead. */
+export type NavGroup = 'terminal' | 'agentic' | 'bots';
 
 export interface SidebarSectionDef {
   /** Matches an AppTab id. */
@@ -33,10 +34,12 @@ export interface SidebarSectionDef {
 /** The primary navigation menu, in the shipped default order. ChatBot (the
  *  harness) leads by default, but the order is fully user-customizable.
  *
- *  The Agentic mode lists ChatBot, Skills, Eclipse Memory and Artifacts. The
- *  other agentic capabilities (Code, Editor, Jobs, Tasks, Pages, UI Builder,
- *  Plugins, Model Control Center, Search, Research, Backtest) are deliberately
- *  NOT sidebar tabs — ChatBot reaches them through its tools. */
+ *  The Agentic mode lists ChatBot, Skills, Eclipse Memory and Artifacts. Bots is
+ *  its own mode (a switcher tab) that lists the user's actual bots in the panel,
+ *  so it is deliberately NOT a static nav section. The other agentic capabilities
+ *  (Code, Editor, Jobs, Tasks, Pages, UI Builder, Plugins, Model Control Center,
+ *  Search, Research, Backtest) are deliberately NOT sidebar tabs — ChatBot
+ *  reaches them through its tools. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'chat', label: 'ChatBot', icon: Bot, group: 'both' },
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard, group: 'terminal' },
@@ -60,8 +63,10 @@ export function navGroupsFor(def: SidebarSectionDef): NavGroup[] {
 }
 
 /** The mode a tab id belongs to, for syncing the switcher to the active tab.
- *  `'both'` tabs (ChatBot) never force a switch — the user's choice stands. */
+ *  `'both'` tabs (ChatBot) never force a switch — the user's choice stands.
+ *  Bots is a mode of its own even though it has no static nav section. */
 export function modeForTab(id: AppTab): NavGroup | null {
+  if (id === 'bots') return 'bots';
   const def = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === id);
   return def && def.group !== 'both' ? def.group : null;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { ExternalLink } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import {
@@ -19,6 +20,18 @@ import {
 import { CopyButton } from './copy-button';
 import { ResponseFence } from '@/components/response/response-fence';
 import { RESPONSE_FENCE_LANGUAGE } from '@/lib/response/contract';
+
+// A ```mermaid fence is a diagram, not code. Mermaid is heavy, so it is only
+// fetched when such a fence actually appears — same lazy component the
+// structured-response engine uses.
+const MermaidBlock = dynamic(() => import('@/components/response/mermaid-block'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center rounded-xl border border-white/10 bg-accent/10" style={{ height: 160 }}>
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+    </div>
+  ),
+});
 
 interface MarkdownProps {
   content: string;
@@ -170,6 +183,12 @@ function Block({
       // engine's entry point. Everything else is a normal code block.
       if (block.language === RESPONSE_FENCE_LANGUAGE) {
         return <ResponseFence source={block.value} streaming={streaming} compact={compact} onFollowup={onFollowup} />;
+      }
+      // A ```mermaid fence is a diagram, not code. Render it once the turn has
+      // settled; while streaming, leave the fence as text so a half-written
+      // definition never flashes a parse error.
+      if (block.language === 'mermaid' && !streaming && block.value.trim()) {
+        return <MermaidBlock diagram={block.value} />;
       }
       return (
         <div className="group/code relative">

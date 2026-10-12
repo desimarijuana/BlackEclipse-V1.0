@@ -184,4 +184,9 @@ describe('nav groups (Terminal / Agentic)', () => {
     const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
     expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'skills']);
   });
+
+  it('treats Bots as its own mode with no static nav section', () => {
+    expect(modeForTab('bots')).toBe('bots');
+    expect(DEFAULT_SIDEBAR_SECTIONS.some((s) => s.id === 'bots')).toBe(false);
+  });
 });

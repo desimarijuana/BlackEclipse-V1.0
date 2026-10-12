@@ -101,6 +101,10 @@ const TasksScreen = dynamic(
   () => import('@/components/screens/tasks/tasks-screen').then((m) => m.TasksScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const BotsScreen = dynamic(
+  () => import('@/components/screens/bots/bots-screen').then((m) => m.BotsScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 const UiBuilderScreen = dynamic(
   () => import('@/components/screens/ui-builder/ui-builder-screen').then((m) => m.UiBuilderScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -1221,6 +1225,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'tasks' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <TasksScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('bots') && (
+            <div className={cn('w-full h-full', activeTab === 'bots' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <BotsScreen />
               </div>
             </div>
           )}

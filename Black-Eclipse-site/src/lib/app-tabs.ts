@@ -31,4 +31,5 @@ export type AppTab =
   | 'backtest'
   | 'research-data'
   | 'factor-lab'
-  | 'ml-lab';
+  | 'ml-lab'
+  | 'bots';

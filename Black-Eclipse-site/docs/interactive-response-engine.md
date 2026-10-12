@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-10
+last-verified: 2026-10-11
 ---
 
 # Interactive Response Engine
@@ -108,10 +108,22 @@ diagnostic-backed empty response, never a throw.
 | Data | `metric_grid` | KPI cards; `unavailable: true` renders an explicit chip |
 | | `data_table` | sort + filter + paginate + TSV copy (all local) |
 | Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, histogram, heatmap |
-| | `diagram` | flowchart, dependency, state — native SVG |
-| | `timeline` | ordered events with tone dots |
-| | `citations` | numbered sources with host/timestamps |
+| | `diagram` | flowchart, dependency, state — native SVG, read-only |
+| | `node_graph` | selectable node/edge graph — same layout engine; a node's `detail` shows on selection |
+| | `timeline` | ordered events with tone dots (alias `execution_timeline`) |
+| | `citations` | numbered sources with host/timestamps (alias `source_list`) |
+| Process | `stepper` | numbered steps with per-step status (pending/active/done/error) |
+| | `infographic` | icon cards; `icon` is a semantic key resolved via `lib/response/icons.ts` |
+| | `report` | multi-section container; section `blocks` validated recursively |
+| Action | `action_group` | PROPOSED next steps; a click sends a follow-up prompt into the agent loop |
+| | `artifact` | a reference to the existing Artifact Center, linked to its download route |
 | Layout | `tabs` | local tab switch; nested blocks validated recursively |
+
+**Aliases.** For producer convenience the documented synonyms `text`→`markdown`,
+`table`→`data_table`, `source_list`→`citations`, `interactive_form`→`controls`
+and `execution_timeline`→`timeline` are normalized to their canonical block in
+`normalizeBlockAlias` before validation, so the renderer only ever sees canonical
+types.
 
 ### Parsing (`src/lib/response/parse.ts`)
 
@@ -148,9 +160,16 @@ composing placeholder.
 - **No execution.** Blocks are structured JSON only. There is no path from a
   model response to `eval`, `Function`, raw HTML, or a dynamic component import.
 - **Registry allowlist.** Only registered types render; unknown types degrade.
-- **URL safety.** Citations use the same external-link policy as Markdown
-  (`noopener noreferrer`, no `javascript:` schemes — the contract rejects
-  non-URL `url` values).
+- **URL safety.** Citations and artifact links use the same external-link policy
+  as Markdown (`noopener noreferrer`) and are **scheme-restricted to `http(s)`**
+  in the contract — bare `z.string().url()` accepts `javascript:`/`data:`, which
+  would be an XSS vector once rendered as an `href`.
+- **Icon allowlist.** Infographic/action `icon` values are semantic keys resolved
+  against `lib/response/icons.ts`; an unknown key degrades to a neutral default.
+  The model never names a component or an import path.
+- **Actions are proposals.** `action_group` only composes a follow-up prompt and
+  re-enters the existing agent loop; it cannot call a backend function, and the
+  card is labeled "Proposed" until the user runs one.
 - **Resource limits** bound render cost (see §3).
 - **No fabricated data.** The contract has an explicit `unavailable` state; the
   renderer shows it as a chip rather than a value. The engine never fills gaps.
@@ -159,12 +178,22 @@ composing placeholder.
 
 - `src/lib/response/contract.test.ts` — envelope, per-block degradation, unknown
   types, version warnings, nesting, totals.
+- `src/lib/response/contract-blocks.test.ts` — the new block types, the spec-name
+  aliases, link scheme restrictions, the icon allowlist.
 - `src/lib/response/parse.test.ts` — segmentation, streaming vs. settled decode.
 - `src/lib/response/chart-option.test.ts` — option building per chart type.
 - `src/lib/response/diagram-layout.test.ts` — layering, unknown-edge handling,
   cycles.
-- Full suite: `npx vitest run` (2563 passing at time of writing), `npx tsc
-  --noEmit` clean, `python -m pytest tests/test_prompt_segments.py` passing.
+- `src/components/response/render.test.tsx` — server-renders the **real**
+  components (`react-dom/server`) to verify registry dispatch, mixed-block
+  ordering, unknown-block isolation, `report` nesting, the streaming/malformed
+  fences, action-group proposal semantics, safe citation links, and the
+  `mermaid` fence rendering as a diagram (not a `<pre>` code block). Client-only
+  canvas/interaction paths (ECharts, Mermaid's async render, click handlers) are
+  exercised by the option/layout tests and the production build, not here.
+- Full suite: `npx vitest run`, `npx tsc --noEmit`, `npm run build`, and the
+  Prompt/ceiling Python tests (`test_memory_tools.py`,
+  `test_phase_s_stabilization.py`).
 
 ## 7. Requirement traceability
 
@@ -193,17 +222,25 @@ composing placeholder.
 | INT-003 | Backend-driven interaction controls | `controls-block.tsx` + `onFollowup` in both surfaces | contract-extended.test.ts + tsc | Verified |
 | ART-001 | Artifact persistence (existing Artifact Center) | `response-actions.tsx` → `registerArtifact` | build/tsc | Verified |
 | EXP-001 | JSON / CSV / PNG / PDF export | `lib/response/export.ts`, `response-actions.tsx`, `data-table-block.tsx` | export.test.ts | Verified |
-| DIAG-002 | Mermaid (sequence/ER/class/gantt/…) | `mermaid-block.tsx` (lazy, strict) | build | Verified |
+| DIAG-002 | Mermaid (sequence/ER/class/gantt/…) | `mermaid-block.tsx` (lazy, strict) — via `mermaid` block and chat ```mermaid fence | build | Verified |
 | CHART-003 | Financial (candlestick/OHLCV) chart block | `financial-chart.tsx` (reuses `ChartWidget`) | build/tsc | Verified |
 | REND-005 | Per-response export + save actions | `response-actions.tsx` | build/tsc | Verified |
+| BLOCK-001 | `stepper`, `infographic`, `report`, `action_group`, `artifact` blocks | `contract.ts` + `rich-blocks.tsx` | contract-blocks.test.ts | Verified |
+| BLOCK-002 | `node_graph` selectable graph (reuses layout engine) | `node-graph-block.tsx` | build/tsc | Verified |
+| BLOCK-003 | Spec-name aliases normalized to canonical blocks | `contract.ts` `normalizeBlockAlias` | contract-blocks.test.ts | Verified |
+| SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
+| SEC-003 | Semantic icon allowlist (no component/import from model) | `lib/response/icons.ts` | contract-blocks.test.ts | Verified |
 
 ## 8. Known limitations (honest)
 
 These remain true of the shipped system:
 
-1. **React Flow / editable graphs** — diagrams are read-only by design (`diagram`,
-   `mermaid`). Node-graph *editing* is not offered; the contract does not declare
-   it and the spec says editing must be explicitly authorized.
+1. **Graph editing — not offered.** `diagram`, `mermaid` and `node_graph` are
+   read-only visualizations (a `node_graph` is *selectable* — a node reveals its
+   `detail` and the view zooms/pans — but the contract declares no edit
+   operations, so there is no graph editor). React Flow is deliberately not a
+   dependency; the deterministic `diagram-layout` engine drives both `diagram`
+   and `node_graph`. Editing is out of scope until explicitly authorized.
 2. **PDF chart embedding** — the PDF embeds charts that are currently mounted
    (captured via the ECharts instance registry). A chart that is scrolled away /
    unmounted, or a `financial_chart`, is listed in an "Export notes" appendix

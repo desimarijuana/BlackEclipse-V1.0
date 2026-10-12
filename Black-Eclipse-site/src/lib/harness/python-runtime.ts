@@ -241,10 +241,30 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       return false;
     }
 
+    // Autonomous runs (automations/bots, jobs, tasks, fabric) execute inside the
+    // runtime with no per-run model override — so they fall back to the runtime's
+    // env default (`HARNESS_JOB_MODEL`, historically "llama3.1"). Interactive chat
+    // passes the operator's saved model per run, which is why chat worked while a
+    // scheduled bot failed with "model not found". Publish the SAME saved model
+    // config into the child env so a bot uses the operator's configured provider
+    // and model. A real env var always wins; this only fills the gaps.
+    const extraEnv: Record<string, string> = {};
+    try {
+      const { getLLMConfig } = await import("@/lib/settings");
+      const cfg = await getLLMConfig();
+      const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
+      if (provider && !process.env.HARNESS_JOB_PROVIDER) extraEnv.HARNESS_JOB_PROVIDER = provider;
+      if (cfg.model && !process.env.HARNESS_JOB_MODEL) extraEnv.HARNESS_JOB_MODEL = cfg.model;
+      if (cfg.baseUrl && !process.env.HARNESS_JOB_BASE_URL) extraEnv.HARNESS_JOB_BASE_URL = cfg.baseUrl;
+      if (cfg.apiKey && !process.env.HARNESS_JOB_API_KEY) extraEnv.HARNESS_JOB_API_KEY = cfg.apiKey;
+    } catch (err) {
+      console.warn("[harness] could not resolve saved model config for the runtime:", err);
+    }
+
     const proc = spawn(
       py.cmd,
       ["-m", "uvicorn", "harness.main:app", "--host", HARNESS_PY_HOST, "--port", String(HARNESS_PY_PORT), "--app-dir", appDir],
-      { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PYTHONPATH: appDir } }
+      { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...extraEnv, PYTHONPATH: appDir } }
     );
     g.__harnessPyProc = proc;
 

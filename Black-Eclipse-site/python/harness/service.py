@@ -431,6 +431,16 @@ class AgenticService:
         from .plugins.bootstrap import install_plugin_layer  # noqa: PLC0415
 
         install_plugin_layer(self)
+        # Bot / Automation tools: the chat agent manages the SAME bots the Bots
+        # workspace shows. Thin wrappers over `self.automation_service()` on the
+        # ONE tool registry — never a second scheduler. A failure never blocks boot.
+        try:
+            from .automation.tools import register_automation_tools, set_automation_service  # noqa: PLC0415
+
+            set_automation_service(self.automation_service())
+            register_automation_tools(self.registry)
+        except Exception:  # noqa: BLE001 - bot tools are optional; never block boot
+            log.warning("automation tools wiring skipped", exc_info=True)
         # Observability platform: ONE process-wide hub fed by this service's
         # universal event bus (runs, models, tools, jobs, plugins, A2A, events)
         # and the model-runtime observer. It is fail-open: a telemetry backend

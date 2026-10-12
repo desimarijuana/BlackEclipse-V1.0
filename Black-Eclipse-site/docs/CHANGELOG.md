@@ -8,6 +8,49 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-11
 
+- **Interactive Response Engine: server-rendered DOM tests + lint hygiene.** Added
+  `src/components/response/render.test.tsx` (21 tests) that server-render the real
+  components via `react-dom/server` in the node test env — covering block content,
+  mixed-response ordering, unknown-block isolation, `report` nesting, the
+  streaming/malformed fences, action-group proposal semantics, safe citation
+  links, and the `mermaid`-fence-vs-code-block classification. No new dependency
+  (no jsdom/testing-library). `vitest.config.ts` disables the oxc transformer
+  (`oxc: false`) and enables the automatic JSX runtime so TSX components transform
+  under vitest, leaving the Next build (tsconfig `jsx: preserve`) untouched.
+  `eslint.config.mjs` now ignores disposable root-level `_*.cjs`/`_*.mjs` scratch
+  scripts (the recurring lint breakage). docs updated:
+  `docs/interactive-response-engine.md` (§6), `docs/CHANGELOG.md`.
+
+- **Interactive Response Engine: full rich-block family + link hardening.** Added
+  the remaining structured block types — `stepper`, `infographic`, `report`,
+  `node_graph` (selectable; reuses the deterministic `diagram-layout` engine
+  rather than a second graph library), `action_group` (PROPOSED next steps that
+  only compose a follow-up prompt into the existing agent loop), and `artifact`
+  (a reference to the existing Artifact Center) — plus spec-name aliases
+  (`text`→`markdown`, `table`→`data_table`, `source_list`→`citations`,
+  `interactive_form`→`controls`, `execution_timeline`→`timeline`). Citation and
+  artifact links are now **scheme-restricted to `http(s)`** — bare
+  `z.string().url()` accepts `javascript:`/`data:`, which becomes an XSS vector
+  once rendered as an anchor. Infographic/action icons resolve through a semantic
+  allowlist (`src/lib/response/icons.ts`), so the model never names a component or
+  import path. The agent "Structured answers" guidance in `prompts.py` was
+  rewritten to be more directive and to list the new blocks, staying **within the
+  unchanged 26410-char prompt ceiling**. Every new block renders through the same
+  registry + `BlockBoundary` and is represented in PDF export. Tests:
+  `src/lib/response/contract-blocks.test.ts` (17 new). docs updated:
+  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md` (ADR-043 amendment), `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+
+- **Chat: render ` ```mermaid ` fences as diagrams.** A model that emitted a
+  plain fenced `mermaid` block (rather than an `eclipse-response` JSON block) got
+  its raw source shown as a copyable code block — the chat Markdown renderer had
+  no case for it, so diagrams never appeared. `components/chat/markdown.tsx` now
+  routes a settled `mermaid` fence through the existing lazy `MermaidBlock`
+  (`securityLevel: 'strict'`), while a streaming fence stays text so a
+  half-written definition never flashes a parse error. Bug fix, contract
+  unchanged. docs updated: `docs/interactive-response-engine.md` (DIAG-002 row),
+  `docs/CHANGELOG.md`.
 - **Deployment hardening: thread-safe `agent-memory.db` connections.** The store
   was one `sqlite3.Connection` shared across FastAPI's worker threads and async
   tasks (`check_same_thread=False`, no lock), which intermittently raised
@@ -313,6 +356,78 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`changelog-guard` test). Bug fixes + doc rotation — `docs/CHANGELOG.md`,
   `docs/changelog/2026-10.md`.
 
+- **Bots tab: scheduled autonomous agents with ghost faces.** Added a `bots`
+  AppTab to the Agentic menu (`src/lib/sidebar/config.ts`, `src/lib/app-tabs.ts`,
+  `src/lib/i18n/nav.ts`, deep-link `APP_TABS`, command-palette page registration).
+  The new `src/components/screens/bots/bots-screen.tsx` lists, creates, runs,
+  pauses, resumes, enables, disables and deletes bots through the EXISTING
+  Automation Engine (`/api/automations`; a bot is a `run_agent` automation on a
+  manual/interval/cron/one-time trigger, so it runs in the persistent background
+  engine with no browser open). Each bot gets a ghost face: `src/lib/bots/ghost.ts`
+  (serializable `GhostSpec`, closed option sets, deterministic `ghostSpecFromId`,
+  seeded `randomGhostSpec`), rendered by `src/components/bots/ghost-avatar.tsx`
+  (parametric inline SVG) and edited by `src/components/bots/ghost-customizer.tsx`
+  (per-part option strips + color pickers + randomize/reset). Faces persist
+  client-side per bot id (`src/lib/bots/avatar-store.ts`, the repo's
+  appearance-settings convention, mirroring `lib/sidebar/store.ts`). No new
+  backend/agent runtime was introduced. Tests: `src/lib/bots/ghost.test.ts`;
+  `src/lib/sidebar/config.test.ts` updated for the new section and the
+  `stock-chat.tsx` size ratchet re-pinned. Verified: `npx tsc --noEmit` clean,
+  vitest 2602 passed, `npm run test:smoke` reachable, `npm run build` and
+  `npm run check:all` clean. Follow-up polish: the create form now uses the
+  shared frosted `Select`/`Input`/`Button` primitives (dark-mode-correct
+  dropdown popups) instead of native controls, and `GhostAvatar` uses a
+  per-instance `useId` clip id so multiple ghosts never collide. Bots is
+  `group: 'both'` so, like ChatBot, it stays visible in the sidebar regardless
+  of the Terminal/Agentic toggle (it was agentic-only and therefore hidden for
+  users parked on Terminal). docs updated:
+  `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
+
+- **Proper Bot Workspace: discovery, guided creation, detail, execution
+  visibility, and real chat tools.** Replaced the one-screen bot list with a
+  cohesive workspace over the EXISTING Automation Engine (no new backend store or
+  runtime). Nav: Bots is now a third tab beside Terminal/Agentic in the sidebar
+  switcher (`src/components/layout/sidebar.tsx`), always one click away. UI split
+  into focused modules under `src/components/bots/` (`status-pill`, `bot-card`,
+  `schedule-editor`, `create-bot`, `run-history`, `bot-detail`) plus the
+  orchestrator `src/components/screens/bots/bots-screen.tsx` and pure logic
+  `src/lib/bots/state.ts` (backend→UI state mapping, real filters, search,
+  human schedule summaries, draft→trigger translation, all unit-tested). The
+  workspace has a compact header + search + status filters (All/Active/Paused/
+  Running/Needs attention, all computed from real fields), a scannable bot
+  collection with contextual menus, an honest empty state with example prompts,
+  a master/detail layout with deep linking (`?tab=bots&bot=<id>`), and a detail
+  view organized into Overview / Instructions / Schedule / Capabilities / Memory
+  / Run history / Settings with inline edits that call the real API. Run history
+  shows real executions, durations, errors, activity timeline and deliveries, and
+  polls ONLY while a run is live (stopping at terminal). **Chat-first:** new
+  Python agent tools `bot_*` (`python/harness/automation/tools.py`) register on
+  the ONE tool registry, are wired in `service.py`, and are added to the Eclipse
+  agent allowlist (`agents.py`), so chat can create/list/inspect/run/pause/
+  resume/update/delete bots and inspect runs — the same objects the UI shows.
+  Tests: `src/lib/bots/state.test.ts`, `python/tests/test_automation_tools.py`,
+  updated `src/lib/sidebar/config.test.ts`. Verified: `npx tsc --noEmit` clean,
+  `npx vitest run` 2616 passed, `npm run lint` 0 errors, `npm run build` clean,
+  targeted Python suites (automation + code-agent + surface-honesty) 91 passed.
+  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
+
+- **Bots mode now lists your bots in the sidebar (not a generic nav link).**
+  When the Bots mode is active, the sidebar renders the user's actual bots in a
+  panel (avatars, name, live/lifecycle status dot, active highlight) instead of a
+  static "Bots" nav item — mirroring how chat history sits under ChatBot. Bots is
+  now a first-class sidebar MODE (`NavGroup = 'terminal' | 'agentic' | 'bots'`)
+  with no static section; the switcher's Bots tab selects it and opens the
+  workspace. New shared `src/lib/bots/bots-store.ts` (zustand) is the single
+  source of bots + selected bot for BOTH the sidebar panel and the workspace, so
+  they never drift; selection is reflected in `?tab=bots&bot=<id>`. Added
+  `src/components/bots/bots-sidebar-panel.tsx`; `src/components/layout/sidebar.tsx`
+  renders it in Bots mode and syncs the mode on first mount (deep-link safe).
+  Updated `src/lib/sidebar/config.ts` + `config.test.ts`. Verified: `npx tsc
+  --noEmit` clean, `npx vitest run` 2617 passed, `npm run lint` 0 errors,
+  `npm run build` clean (after clearing a stale `.next` from a concurrent dev
+  server), dev server restarted and serving. docs updated: `docs/CHANGELOG.md`,
+  `docs/NAVIGATION.md`.
+
 - **Confirmed promotion: Eclipse can now put a reviewed change into its own
   code (Phase 15 promotion slice, ADR-H176).** Previously a code run's change
   lived in a disposable copy and nothing ever copied it back, so "Eclipse changed
@@ -335,6 +450,57 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `service.py` ratchet 1444→1454 for the in-flight Bots/Automation wiring already
   in the tree (additive `bot_*` registration; not this change). docs updated:
   `docs/CHANGELOG.md`, `docs/harness/decisions.md` (ADR-H176), `docs/NAVIGATION.md`.
+
+- **Bot page is now a conversation (Grok/Hermes-style).** Opening a bot no longer
+  shows an admin tab panel; it opens a chat with the bot. New
+  `src/components/bots/bot-chat.tsx`: header with the bot's avatar, inline-editable
+  name + purpose, status pills, next/last run, and controls (Run now, Pause/Resume,
+  Details); a real message thread; and a composer. Each message runs the REAL
+  Eclipse agent via `POST /api/harness/chat`, with the bot's identity + standing
+  instructions as leading context, so replies are grounded, not fabricated;
+  failures render an honest error bubble. Threads persist per bot
+  (`src/lib/bots/chat-store.ts`). The previous detail sections (Overview /
+  Instructions / Schedule / Capabilities / Memory / Run history / Settings) are
+  preserved behind a **Details** drawer (`BotDetail` in a `Sheet`), so no
+  functionality was removed. Updated `bots-screen.tsx` to mount `BotChat`.
+  Verified: `npx tsc --noEmit` clean, `npx vitest run` 2617 passed, `npm run
+  lint` 0 errors, `npm run build` clean, dev server restarted and serving.
+  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
+
+- **Fix: autonomous bot runs failed with "model not found".** A scheduled/`Run
+  now` bot executes inside the Python runtime with no per-run model override, so
+  it fell back to the runtime's env default (`HARNESS_JOB_MODEL`, historically
+  `llama3.1`) — while interactive chat worked because the front door passes the
+  operator's saved model per run. The launcher now resolves the saved LLM config
+  (`getLLMConfig()`) and publishes it into the spawned runtime's env as
+  `HARNESS_JOB_PROVIDER` / `HARNESS_JOB_MODEL` / `HARNESS_JOB_BASE_URL` /
+  `HARNESS_JOB_API_KEY` (a real env var still wins), so automations, jobs, tasks
+  and fabric use the same configured model as chat. Verified end-to-end: a
+  `run_agent` bot that previously failed now completes (`state=completed`).
+  `src/lib/harness/python-runtime.ts` only. Verified: `npx tsc --noEmit` clean,
+  `npx vitest run` 2617 passed, `npm run lint` 0 errors, dev server restarted.
+  docs updated: `docs/CHANGELOG.md`.
+
+- **Fix: bot chat crashed with "Maximum update depth exceeded" + create never
+  opened.** (1) `bot-chat.tsx` selected messages with
+  `useBotChatStore((s) => s.byBot[bot.id] ?? [])`; the inline `?? []` returned a
+  NEW array every render, breaking zustand/useSyncExternalStore snapshot caching
+  and throwing an infinite render loop that the error boundary surfaced as
+  "Something went wrong". Now uses a module-level `NO_MESSAGES` constant, so the
+  snapshot is stable. (2) The header **Create bot** button and the sidebar **+**
+  called `openBot(null)`, which forced `createOpen` back to false, so the guided
+  creation flow never appeared. Creation state now lives in the shared
+  `bots-store` (`createOpen` + `openCreate`), so both the header and the sidebar
+  "+" open it. Verified in a real browser: sidebar "+" opens the create panel,
+  a bot is created and persists, and sending a message returns an in-character
+  reply from the real agent. (3) The recurring "Invalid or unexpected token"
+  console error was a corrupt `next dev` chunk in `.next-dev`; clearing the dev
+  cache resolved it (dev and prod already use separate dirs). Files:
+  `src/components/bots/bot-chat.tsx`, `src/lib/bots/bots-store.ts`,
+  `src/components/bots/bots-sidebar-panel.tsx`,
+  `src/components/screens/bots/bots-screen.tsx`. Verified: `npx tsc --noEmit`
+  clean, `npx vitest run` 2634 passed, `npm run lint` 0 errors, `npm run build`
+  clean, dev server restarted and serving. docs updated: `docs/CHANGELOG.md`.
 
 ## 2026-10-10
 
