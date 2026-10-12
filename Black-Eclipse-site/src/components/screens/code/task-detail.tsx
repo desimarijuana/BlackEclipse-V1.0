@@ -10,6 +10,7 @@ import { CheckResults } from './check-results';
 import { DiffViewer } from './diff-viewer';
 import { PlanReview } from './plan-review';
 import { WorktreeActions } from './worktree-actions';
+import { PromoteChange } from '@/components/chat/promote-change';
 
 export interface TaskDetailProps {
   task: CodeTask;
@@ -44,6 +45,7 @@ export function TaskDetail({
         <DiffViewer files={diffFiles} unified={diffUnified} digest={diffDigest} />
       )}
       <CheckResults verification={task.verification} />
+      {task.autonomy !== 'plan_only' && <PromoteChange runId={task.id} />}
       <WorktreeActions autonomy={task.autonomy} onResume={onResume} onCancel={onCancel} onDiscard={onDiscard} />
     </div>
   );

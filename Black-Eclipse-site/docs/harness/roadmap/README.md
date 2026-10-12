@@ -36,7 +36,7 @@ file, not here.
 | 12 — Evaluation harness and standing gate | [phase-12](./phase-12-evaluation-gate.md) ✅ Done | all | — | §15.3 **7F** |
 | 13 — Source authority and freshness arbitration | [phase-13](./phase-13-source-authority.md) ✅ Done | 0, 2 | 16, 20 | new |
 | 14 — The code capability, reachable from chat | [phase-14](./phase-14-reachable-code-capability.md) ✅ Done | 5, 12 | 15, 18 | new |
-| 15 — Documents in, files out, landing a change | [phase-15](./phase-15-attachments-and-artifacts.md) ⬜ Not started | 14 | 18, 20 | new |
+| 15 — Documents in, files out, landing a change | [phase-15](./phase-15-attachments-and-artifacts.md) 🟡 In progress (promotion slice Done — ADR-H176; attachments/artifacts Not started) | 14 | 18, 20 | new |
 | 16 — Bounded bulk acquisition | [phase-16](./phase-16-bulk-acquisition.md) ⬜ Not started | 13, 15 | 18, 20 | new |
 | 17 — Working on a cadence | [phase-17](./phase-17-working-on-a-cadence.md) ⬜ Not started | 6, 14 | 20 | new |
 | 18 — Visual output | [phase-18](./phase-18-visual-output.md) ⬜ Not started | 15, 16 | 19, 20 | new |

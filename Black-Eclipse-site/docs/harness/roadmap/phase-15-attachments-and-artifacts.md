@@ -1,11 +1,18 @@
 ---
 title: "Phase 15 — Documents In, Files Out, and Landing a Change"
-status: Not started
+status: In progress
 phase: 15
 depends_on: [14]
 unlocks: [18, 20]
-last-verified: 2026-10-02
+last-verified: 2026-10-11
 ---
+
+> **Progress (2026-10-11).** The **promotion slice is Done** under **ADR-H176**
+> (`python/harness/code/promotion.py`, `POST /code/tasks/{id}/promote/preview` +
+> `.../promote`, the additive `patch.py` `overwrite` op, the chat/Code-Tasks
+> control, `python/tests/test_code_promotion.py`). The document extractors
+> (§6.1–§6.2, docx/xlsx/pptx), the artifact serving routes/renderer (§6.3) and the
+> raised caps remain **Not started**.
 
 # Phase 15 — Documents In, Files Out, and Landing a Change
 

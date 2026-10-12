@@ -98,7 +98,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1438→1444 to the measured tree for the in-flight ML Research Lab
     # boot wiring (`install_ml_layer`; wiring lives in `ml/bootstrap.py`) — this is
     # NOT the Factor Lab, which is already within the 1438 pin. May only shrink.
-    "service.py": 1444,
+    # Re-pinned 1444→1454 for the in-flight Bots/Automation wiring already in the
+    # tree (the `bot_*` tool registration block; the tools live in
+    # `automation/tools.py`). Additive registration only. May only shrink.
+    "service.py": 1454,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

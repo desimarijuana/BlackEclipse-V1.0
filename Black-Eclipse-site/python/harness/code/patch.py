@@ -28,7 +28,7 @@ from typing import Any, Optional
 from . import policy
 from .workspace import ResolvedWorkspace, WorkspaceDenial, confine
 
-ALLOWED_OPS = frozenset({"create", "replace", "delete", "move"})
+ALLOWED_OPS = frozenset({"create", "replace", "delete", "move", "overwrite"})
 
 MAX_OPERATIONS = 50
 MAX_FILE_BYTES = 1_000_000        # per created/replaced file
@@ -174,6 +174,14 @@ def _parse_op(raw: Any) -> PatchOp:
             raise PatchError("PATCH_TOO_LARGE", "the span to replace is too large")
         if len(str(new).encode("utf-8")) > MAX_FILE_BYTES:
             raise PatchError("PATCH_TOO_LARGE", "the replacement is too large")
+    elif op == "overwrite":
+        # A whole-file replacement (additive, for the promotion path): the exact
+        # previous content need not be supplied — the base is proven with
+        # `expectHash` instead. A file that did not exist at all is a `create`.
+        if content is None:
+            raise PatchError("PATCH_MALFORMED", "overwrite requires content")
+        if len(str(content).encode("utf-8")) > MAX_FILE_BYTES:
+            raise PatchError("PATCH_TOO_LARGE", "the new file is too large")
     elif op == "move":
         from_path = str(from_path or "")
         if not from_path:
@@ -305,6 +313,20 @@ def _plan_one(ws: ResolvedWorkspace, binding: Any, actor: Any, op: PatchOp, scop
             raise PatchError("PATCH_FILE_MISSING", f"{rel!r} does not exist")
         return _Planned(op, target, before, None, 0, False, True)
 
+    if op.op == "overwrite":
+        # Whole-file replacement. The base is proven by `expectHash` (checked
+        # above); the previous text is recorded as `old` so the op is reversible.
+        text = op.content or ""
+        before_text = _read_text(target) if before is not None else None
+        replacement = PatchOp(
+            op="overwrite", path=op.path, reason=op.reason, content=text,
+            old=before_text, new=text, expect_hash=op.expect_hash,
+        )
+        return _Planned(
+            replacement, target, before, text, len(text.encode("utf-8")),
+            before is None, False,
+        )
+
     # move
     source = _confined(ws, op.from_path or "")
     source_rel = source.relative_to(ws.root).as_posix()
@@ -434,6 +456,8 @@ def revert(ws: ResolvedWorkspace, applied: list[dict[str, Any]], *, binding: Any
             if current.count(old) != 1:
                 raise PatchError("PATCH_SPAN_NOT_FOUND", "the change can no longer be undone cleanly")
             _write_atomic(target, current.replace(old, new, 1))
+        elif op == "overwrite":
+            _write_atomic(target, str(record.get("old") or ""))
         elif op == "move":
             source_rel = str(record.get("movedFrom") or "")
             source = _confined(ws, source_rel)

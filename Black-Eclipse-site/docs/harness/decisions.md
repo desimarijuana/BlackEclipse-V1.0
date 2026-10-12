@@ -5973,3 +5973,45 @@ harness + approved deps; without it, process isolation + rlimits is the active
 mode (stated). Live order routing remains absent everywhere � the only reachable
 deployment mode is `paper`. Owner doc: `docs/quant-engine.md`. Tests:
 `test_quant_ops.py`, `test_quant_sdk_runtime.py`.
+
+## ADR-H176 - A change lands only through an explicit, single-use, digest-bound promotion; the disposable copy stays the default and the frozen authorities stay frozen
+
+**Decision.** A code run writes into a DISPOSABLE copy (`worktree.allocate`,
+strategy `worktree`/`snapshot`). Nothing copies that change back. Landing it is a
+new `code/promotion.py` path, reached only from two operator-gated routes
+(`POST /code/tasks/{id}/promote/preview` and `.../promote`):
+
+  1. the PREVIEW names the exact file set the change would put into the real
+     folder (path, op `create`/`overwrite`/`delete`, and the before/after content
+     hashes) and a `previewDigest` over that set;
+  2. the runtime records a SINGLE-USE approval of kind `code_promote`
+     (`mcp/approvals.py` `request_kind`/`consume_kind`), digest-bound to the set;
+  3. the apply route consumes the approval, RE-DERIVES the preview (a changed set
+     is `PROMOTION_PREVIEW_STALE`), and writes through the existing
+     `code/patch.py` engine against the server-resolved checkout root � reusing
+     path confinement, protected paths, base hashes and plan-then-commit
+     atomicity. A `patch.py` `overwrite` op (whole-file replace, base-checked) is
+     additive for this.
+
+It is reachable from the conversation (a "Put this change into my project"
+control on an `edit_verify` turn) and from the Code Tasks screen. The target is
+always `workspace.default_root()`; a protected path � `code/policy.py`,
+`skills/permissions.py`, `mcp/approvals.py`, `scripts/check-all.js`, `.git`,
+`.env`, the databases, keys, migrations � is refused in the preview and again at
+apply time; no git write happens in the runtime.
+
+**Why.** The user's complaint � "it can't modify its own code" � is false until a
+change can LEAVE the copy. But the fix cannot be the model's call: a change to the
+user's own project is exactly the single-use, operator-confirmed decision ADR-H92
+already models, and the base-hash guard already exists in `patch.py`. Reusing
+those authorities keeps ONE writer and ONE definition of "already approved",
+rather than a second write path with its own rules.
+
+**Consequences.** `RunRequest`/chat are unchanged (promotion is a post-run,
+operator-driven action, not a tool the model holds � the chat code profile still
+excludes external actions). The four existing code-action tools stay recorded
+approvals with no runtime effect; promotion is the real, separate effect. Frozen
+files mean a promoted change can never disable its own gate. Owner doc:
+`docs/harness/roadmap/phase-15-attachments-and-artifacts.md` (attachments/artifacts
+remain Not started; the promotion slice is Done). Tests:
+`python/tests/test_code_promotion.py`.

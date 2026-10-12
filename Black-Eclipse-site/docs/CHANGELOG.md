@@ -313,6 +313,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`changelog-guard` test). Bug fixes + doc rotation — `docs/CHANGELOG.md`,
   `docs/changelog/2026-10.md`.
 
+- **Confirmed promotion: Eclipse can now put a reviewed change into its own
+  code (Phase 15 promotion slice, ADR-H176).** Previously a code run's change
+  lived in a disposable copy and nothing ever copied it back, so "Eclipse changed
+  the API" was a diff in a scratch folder that got deleted. Added the ONE landing
+  path: `python/harness/code/promotion.py` (preview → single-use `code_promote`
+  approval → apply), two operator-gated routes (`POST /code/tasks/{id}/promote/
+  preview` and `.../promote`) that reuse the existing `mcp/approvals.py` decision
+  and the `code/patch.py` engine (base-hash + protected-path + atomic), and an
+  additive `patch.py` `overwrite` op (whole-file, base-checked). A protected path
+  (`code/policy.py` and the other frozen authorities, `.git`, `.env`, databases,
+  keys, migrations) is refused in the preview and again at apply; the target is
+  always the server-resolved checkout root; no git write happens in the runtime.
+  Reached from the conversation via a "Put this change into my project" control on
+  a coding turn (`src/components/chat/promote-change.tsx`, wired through
+  `ChatCapabilityPanel` + `chat-history`) and from the Code Tasks screen
+  (`task-detail.tsx`); front door `code-client.ts`/`code-browser.ts` + the two
+  Next proxies. Tests `python/tests/test_code_promotion.py` (11 pass; unit + route
+  seam) + full `-k code` sweep (393 pass); `npx tsc --noEmit` clean; the `code.promote.*`
+  copy is under the plain-language gate. Also re-pinned the `test_size_budget.py`
+  `service.py` ratchet 1444→1454 for the in-flight Bots/Automation wiring already
+  in the tree (additive `bot_*` registration; not this change). docs updated:
+  `docs/CHANGELOG.md`, `docs/harness/decisions.md` (ADR-H176), `docs/NAVIGATION.md`.
+
 ## 2026-10-10
 
 - **Factor Lab, options and futures quant surfaces + advanced engine/route

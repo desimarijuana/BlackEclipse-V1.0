@@ -144,6 +144,67 @@ export async function resumeCodeTask(id: string): Promise<unknown> {
   return request(`/code/tasks/${encodeURIComponent(id)}/resume`, { method: "POST" });
 }
 
+// ─── Promotion: put a reviewed change into the real project (Phase 15) ──────
+// A task's change lives in a disposable copy. `previewPromotion` names exactly
+// which files would change in the user's real folder and records a single-use
+// approval; `applyPromotion` writes them — only if neither copy changed since the
+// preview. The runtime owns the decision; this module only carries it.
+
+export interface PromotionFile {
+  path: string;
+  op: "create" | "overwrite" | "delete";
+  beforeHash: string | null;
+  afterHash: string | null;
+}
+
+export interface PromotionPreview {
+  workspaceId: string;
+  runId: string;
+  checkoutRoot: string;
+  strategy: string;
+  files: PromotionFile[];
+  filesChanged: number;
+  added: number;
+  modified: number;
+  deleted: number;
+  previewDigest: string;
+  unified: string;
+  truncated: boolean;
+}
+
+export interface PromotionApproval {
+  id: string;
+  status: string;
+  actionSummary: string | null;
+}
+
+/** Preview exactly what a task's change would put into the real project. */
+export async function previewPromotion(
+  taskId: string,
+): Promise<{ preview: PromotionPreview; approval: PromotionApproval | null }> {
+  return request(`/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, {
+    method: "POST",
+    timeoutMs: 60_000,
+  });
+}
+
+/** Confirm a previewed change and put it into the real project. */
+export async function applyPromotion(
+  taskId: string,
+  approvalId: string,
+  previewDigest: string,
+): Promise<{ ok: boolean; filesChanged: number; previewDigest: string }> {
+  const body = await request<{ promotion: { ok: boolean; filesChanged: number; previewDigest: string } }>(
+    `/code/tasks/${encodeURIComponent(taskId)}/promote`,
+    {
+      method: "POST",
+      body: JSON.stringify({ approvalId, previewDigest }),
+      timeoutMs: 120_000,
+    },
+  );
+  return body.promotion;
+}
+
 export async function listCodeApprovals(): Promise<CodeApproval[]> {
   const body = await request<{ approvals: CodeApproval[] }>("/code/approvals", { method: "GET" });
   return body.approvals ?? [];

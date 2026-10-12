@@ -274,6 +274,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   <ChatCapabilityPanel
                     autonomy={msg.autonomy}
                     verification={msg.codeVerification}
+                    runId={msg.runId}
                     compact={compact}
                   />
                   {msg.research ? (

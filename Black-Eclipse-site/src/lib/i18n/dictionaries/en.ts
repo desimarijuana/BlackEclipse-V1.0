@@ -489,6 +489,26 @@ export const en = {
   'code.chat.scheduleStarted': 'Scheduled. It stays off until you turn it on.',
   'code.chat.actionFailed': 'I couldn’t start that just now. Try again in a moment.',
 
+  // Promotion (Phase 15) — the user's own decision to put a made change into
+  // their real project. The user sees the job ("put this change in"), never a
+  // patch, a diff, a repository or an approval mechanism.
+  'code.promote.review': 'Put this change into my project',
+  'code.promote.reviewing': 'Checking what would change…',
+  'code.promote.title': 'Here’s what would change in your project',
+  'code.promote.fileNew': 'New: {name}',
+  'code.promote.fileEdited': 'Edited: {name}',
+  'code.promote.fileRemoved': 'Removed: {name}',
+  'code.promote.more': 'and {count} more',
+  'code.promote.confirm': 'Yes, put it in',
+  'code.promote.cancel': 'Not now',
+  'code.promote.working': 'Putting the change in…',
+  'code.promote.done': 'Done — your project now has the change.',
+  'code.promote.empty': 'There’s no change to put in.',
+  'code.promote.error.base': 'Your project changed since you looked. Look it over again.',
+  'code.promote.error.scope': 'That change can’t be put into your project.',
+  'code.promote.error.stale': 'The change changed after you looked. Look it over again.',
+  'code.promote.error.generic': 'I couldn’t put the change in just now. Try again in a moment.',
+
   // ── Editor / workspace folders ───────────────────────────────────────────
   'editor.heading': 'Editor',
   'editor.openFolder': 'Open a folder',

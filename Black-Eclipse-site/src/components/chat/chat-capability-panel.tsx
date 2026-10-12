@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import { coerceChatCapability, headlineKey } from '@/lib/harness/chat-capability-view';
 import { CodeVerificationPanel } from './code-verification-panel';
+import { PromoteChange } from './promote-change';
 
 export interface ChatCapabilityPanelProps {
   /** The narrow profile the turn was bound to, when it was a coding request. */
@@ -25,10 +26,12 @@ export interface ChatCapabilityPanelProps {
   verification?: unknown;
   /** Phase 14 §6.4: the runtime-derived view; when present it wins. */
   capability?: unknown;
+  /** The run id, so a made change can be put into the real project (Phase 15). */
+  runId?: string;
   compact?: boolean;
 }
 
-export function ChatCapabilityPanel({ autonomy, verification, capability, compact = false }: ChatCapabilityPanelProps) {
+export function ChatCapabilityPanel({ autonomy, verification, capability, runId, compact = false }: ChatCapabilityPanelProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   // Prefer the runtime-derived view; fall back to the flat fields (an older row
@@ -64,6 +67,9 @@ export function ChatCapabilityPanel({ autonomy, verification, capability, compac
 
       {/* The proof it ran — the existing panel, composed. */}
       <CodeVerificationPanel verification={effectiveVerification} compact={compact} />
+
+      {/* Phase 15: the user's decision to put a made change into their project. */}
+      {editVerify && runId && <PromoteChange runId={runId} compact={compact} />}
 
       {open && key && (
         <dl className="mt-1 space-y-0.5 pl-3 font-mono text-[10.5px] text-muted-foreground/70">

@@ -66,6 +66,13 @@ class RequestActionRequest(BaseModel):
     headRef: str = Field("", max_length=200)  # noqa: N815
 
 
+class PromoteRequest(BaseModel):
+    """Confirm a previewed change: the single-use approval + the preview digest."""
+
+    approvalId: str = Field(min_length=1, max_length=64)  # noqa: N815
+    previewDigest: str = Field(min_length=8, max_length=128)  # noqa: N815
+
+
 def _resolve_autonomy(raw: Optional[str]) -> str:
     value = (raw or DEFAULT_AUTONOMY).strip()
     if value not in _AUTONOMY_PROFILES:
@@ -338,7 +345,7 @@ def list_workspaces(
 # authorizers created (e.g. `New-Item`). They MUST be listed here, or a pending
 # command approval is created but never shown — the agent reports "blocked" and
 # the user has no way to approve it.
-_REVIEWABLE_APPROVAL_KINDS = ("code_action", "terminal_command", "shell_command")
+_REVIEWABLE_APPROVAL_KINDS = ("code_action", "terminal_command", "shell_command", "code_promote")
 
 
 @router.get("/code/approvals")
@@ -391,6 +398,78 @@ def request_task_action(
     )
     approval = request_code_action(service.approvals, request)
     return {"success": True, "approval": approval}
+
+
+# ── Promotion: put a reviewed change into the user's real project (Phase 15) ──
+# A chat/code run edits a DISPOSABLE copy. Nothing reaches the user's real folder
+# until they preview the exact file set and confirm it through a single-use,
+# digest-bound approval (ADR-H119). The write itself reuses `code/patch.py`'s
+# atomic, base-hash-checked, protected-path-aware engine.
+
+
+@router.post("/code/tasks/{task_id}/promote/preview")
+def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Preview exactly what a task's change would put into the user's project."""
+    from ..code import promotion  # noqa: PLC0415
+
+    if service.get_run(task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    try:
+        preview = promotion.build_preview(task_id, code_store=service.code_store)
+    except promotion.PromotionError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    approval = None
+    if service.approvals is not None:
+        approval = service.approvals.request_kind(
+            kind=promotion.PROMOTION_KIND,
+            request_key=preview["workspaceId"],
+            digest=preview["previewDigest"],
+            effect="external_action",
+            run_id=task_id,
+            workspace_id=preview["workspaceId"],
+            action_summary=(
+                f"Put {preview['filesChanged']} change(s) into your project "
+                f"(+{preview['added']} new, {preview['modified']} edited, {preview['deleted']} removed)"
+            ),
+            risk="high",
+        )
+    view = {k: v for k, v in preview.items() if k != "worktreeRoot"}
+    return {"success": True, "preview": view, "approval": approval}
+
+
+@router.post("/code/tasks/{task_id}/promote")
+def promote_apply(
+    task_id: str, body: PromoteRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Confirm a previewed change and put it into the user's real project."""
+    from ..code import promotion  # noqa: PLC0415
+
+    if service.approvals is None:
+        raise HTTPException(status_code=503, detail="approvals unavailable")
+    current = service.approvals.get(body.approvalId)
+    if current is None or current.get("kind") != promotion.PROMOTION_KIND:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    # Re-derive the live preview: a change to either copy since the preview makes
+    # the confirmed set stale and the promotion is refused (nothing is written).
+    try:
+        preview = promotion.build_preview(task_id, code_store=service.code_store)
+    except promotion.PromotionError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    if preview["previewDigest"] != body.previewDigest:
+        raise HTTPException(status_code=409, detail="PROMOTION_PREVIEW_STALE")
+    claimed = service.approvals.consume_kind(
+        kind=promotion.PROMOTION_KIND,
+        request_key=preview["workspaceId"],
+        digest=body.previewDigest,
+        workspace_id=preview["workspaceId"],
+    )
+    if claimed is None:
+        raise HTTPException(status_code=403, detail="PROMOTION_NOT_APPROVED")
+    try:
+        result = promotion.apply_promotion(preview)
+    except promotion.PromotionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code) from exc
+    return {"success": True, "promotion": result}
 
 
 __all__ = ["router"]

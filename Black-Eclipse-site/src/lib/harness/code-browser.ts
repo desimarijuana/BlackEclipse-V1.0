@@ -6,11 +6,11 @@
 // component — importing the server client pulls `child_process` into the browser
 // bundle and the page fails to compile.
 
-import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput } from './code-client';
+import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview } from './code-client';
 
 // Re-export the wire types so a component imports everything from ONE client-safe
 // module (a type-only re-export is erased at compile time — no server code ships).
-export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput };
+export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -80,6 +80,30 @@ export async function getCodeTaskDiff(id: string): Promise<CodeTaskDiff | null> 
     // A task with no bound work area has no diff; that is not an error.
     return null;
   }
+}
+
+// ── Promotion: put a reviewed change into the real project (Phase 15) ───────
+// The client-safe path: the two Next.js routes proxy to the runtime, which owns
+// the preview and the single-use decision. This module only carries it.
+
+/** Preview exactly what a task's change would put into the real project. */
+export async function previewPromotion(
+  taskId: string,
+): Promise<{ preview: PromotionPreview; approval: { id: string; status: string } | null }> {
+  return api(`/api/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, { method: 'POST' });
+}
+
+/** Confirm a previewed change and put it into the real project. */
+export async function applyPromotion(
+  taskId: string,
+  approvalId: string,
+  previewDigest: string,
+): Promise<{ ok: boolean; filesChanged: number }> {
+  const body = await api<{ promotion: { ok: boolean; filesChanged: number } }>(
+    `/api/code/tasks/${encodeURIComponent(taskId)}/promote`,
+    { method: 'POST', body: JSON.stringify({ approvalId, previewDigest }) },
+  );
+  return body.promotion;
 }
 
 // ── Workspace folders + editor (client-safe) ─────────────────────────────────
