@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-11
+last-verified: 2026-10-12
 ---
 
 # Interactive Response Engine
@@ -124,6 +124,17 @@ diagnostic-backed empty response, never a throw.
 and `execution_timeline`→`timeline` are normalized to their canonical block in
 `normalizeBlockAlias` before validation, so the renderer only ever sees canonical
 types.
+
+**Field-name synonyms** are normalized the same way, *after* the type alias, so a
+producer is not punished for naming a field naturally. `normalizeBlockFields`
+rewrites: `content`→`markdown` (markdown/callout/details), `content`/`code`→
+`diagram` (mermaid), `variant`→`tone` (callout, when the value is a valid tone),
+`items`→`sources` and `name`→`title` (citations), string `columns` + positional
+array `rows`→typed table columns/records (`data_table`), `note`→`hint`
+(metric cards), and common `timeframe` intervals (`1Y`, `YTD`, `MAX`, `1D`, …)
+onto a supported `financial_chart` timeframe. A value that is not itself valid is
+left untouched, so an unknown tone still falls back to the schema default rather
+than hard-failing.
 
 ### Parsing (`src/lib/response/parse.ts`)
 

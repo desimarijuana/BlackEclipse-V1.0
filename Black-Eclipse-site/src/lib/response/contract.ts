@@ -62,22 +62,138 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
 };
 
 /**
- * Rewrite a raw block whose `type` is a documented alias into its canonical
- * shape. Pure and total: a non-object or non-aliased block is returned unchanged.
- * `text` additionally accepts `content` for the prose body.
+ * Field-name synonyms a producer may plausibly use for the same canonical
+ * field. Like the type aliases above, these are normalized before validation so
+ * a model is never punished for naming a body `content` instead of `markdown`.
+ * Values that are not themselves valid are left untouched, so an unknown tone
+ * still falls back to the schema default rather than hard-failing.
+ */
+const PROSE_FIELD_TYPES = new Set(['markdown', 'callout', 'details']);
+const CALLOUT_TONES = new Set(['info', 'note', 'success', 'warning', 'danger']);
+
+// Non-ambiguous interval synonyms (lower-cased). A model often writes `1Y` for a
+// yearly view, which the `financial_chart` timeframe enum does not accept; map
+// the long/aliased forms onto the closest supported timeframe.
+const TIMEFRAME_ALIASES: Record<string, string> = {
+  '1y': '1M', '2y': '1M', '3y': '1M', '5y': '1M', '10y': '1M',
+  ytd: '1M', max: '1M', all: '1M',
+  '1d': '1D', day: '1D',
+  '1w': '1W', '1wk': '1W', week: '1W',
+  '1mo': '1M', month: '1M',
+  '1h': '1H', hour: '1H',
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** `items`/`sources` entries may spell the label `name`; the contract wants `title`. */
+function normalizeCitationSources(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!isRecord(item)) return item;
+    if (item.title === undefined && typeof item.name === 'string') return { ...item, title: item.name };
+    return item;
+  });
+}
+
+/** A table may supply `columns` as bare strings; the contract wants `{ key, label }`. */
+function normalizeTableColumns(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((col, i) => {
+    if (typeof col === 'string') return { key: `c${i}`, label: col || `Column ${i + 1}` };
+    if (isRecord(col)) {
+      const key = typeof col.key === 'string' && col.key ? col.key : `c${i}`;
+      const label =
+        typeof col.label === 'string' && col.label
+          ? col.label
+          : typeof col.key === 'string' && col.key
+            ? col.key
+            : `Column ${i + 1}`;
+      return { ...col, key, label };
+    }
+    return col;
+  });
+}
+
+/** A table may supply `rows` as positional arrays; the contract wants records keyed by column. */
+function normalizeTableRows(value: unknown, columns: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  const keys = Array.isArray(columns)
+    ? columns.map((c) => (isRecord(c) && typeof c.key === 'string' ? c.key : undefined))
+    : [];
+  return value.map((row) => {
+    if (!Array.isArray(row)) return row;
+    const record: Record<string, unknown> = {};
+    row.forEach((cell, i) => {
+      record[keys[i] ?? `c${i}`] = cell;
+    });
+    return record;
+  });
+}
+
+/** Normalize the field-level synonyms of an already-canonically-typed block. */
+function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unknown> {
+  const type = typeof raw.type === 'string' ? raw.type : '';
+  const out: Record<string, unknown> = { ...raw };
+
+  if (PROSE_FIELD_TYPES.has(type) && out.markdown === undefined && out.content !== undefined) {
+    out.markdown = out.content;
+  }
+
+  if (type === 'mermaid' && out.diagram === undefined) {
+    if (out.content !== undefined) out.diagram = out.content;
+    else if (out.code !== undefined) out.diagram = out.code;
+  }
+
+  if (
+    type === 'callout' &&
+    out.tone === undefined &&
+    typeof out.variant === 'string' &&
+    CALLOUT_TONES.has(out.variant)
+  ) {
+    out.tone = out.variant;
+  }
+
+  if (type === 'citations') {
+    if (out.sources === undefined && out.items !== undefined) out.sources = out.items;
+    out.sources = normalizeCitationSources(out.sources);
+  }
+
+  if (type === 'data_table') {
+    out.columns = normalizeTableColumns(out.columns);
+    out.rows = normalizeTableRows(out.rows, out.columns);
+  }
+
+  if (type === 'financial_chart' && typeof out.timeframe === 'string') {
+    const mapped = TIMEFRAME_ALIASES[out.timeframe.trim().toLowerCase()];
+    if (mapped) out.timeframe = mapped;
+  }
+
+  if (type === 'metric_grid' && Array.isArray(out.metrics)) {
+    out.metrics = out.metrics.map((m) => {
+      if (isRecord(m) && m.hint === undefined && m.note !== undefined) return { ...m, hint: m.note };
+      return m;
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Rewrite a raw block into its canonical shape before validation: first the
+ * documented `type` aliases (`text`, `table`, `source_list`, …), then the
+ * field-level synonyms (`content`→`markdown`, `variant`→`tone`,
+ * `items`→`sources`, string table columns / positional rows, interval aliases).
+ * Pure and total: a non-object block is returned unchanged.
  */
 export function normalizeBlockAlias(raw: unknown): unknown {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const obj = raw as Record<string, unknown>;
-  const declared = obj.type;
+  if (!isRecord(raw)) return raw;
+  const declared = raw.type;
   if (typeof declared !== 'string') return raw;
   const canonical = BLOCK_TYPE_ALIASES[declared];
-  if (!canonical) return raw;
-  if (declared === 'text' && obj.markdown === undefined && obj.content !== undefined) {
-    const { content, ...rest } = obj;
-    return { ...rest, type: canonical, markdown: content };
-  }
-  return { ...obj, type: canonical };
+  const renamed = canonical ? { ...raw, type: canonical } : raw;
+  return normalizeBlockFields(renamed);
 }
 
 const boundedString = z.string().max(RESPONSE_LIMITS.maxStringLength);

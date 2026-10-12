@@ -1,8 +1,8 @@
 // ── Bots workspace store ─────────────────────────────────────────────────────
-// One client-side source of truth for the bot list and the selected bot, shared
-// by the Bots workspace AND the sidebar's bot panel so the two can never drift.
-// All reads go through the real automation API; mutations call `hydrate()` to
-// refresh from the server (no optimistic invention).
+// One client-side source of truth for the bot list and the selected bot/group,
+// shared by the Bots workspace AND the sidebar's bot panel so the two can never
+// drift. All reads go through the real automation API; mutations call `hydrate()`
+// to refresh from the server (no optimistic invention).
 
 'use client';
 
@@ -21,17 +21,35 @@ interface BotsStore {
   statusById: Record<string, AutomationStatusView>;
   loading: boolean;
   error: string | null;
+  /** The selected bot, or null. Mutual exclusive with `selectedGroupId`. */
   selectedId: string | null;
-  /** Whether the guided creation panel is open (driven by the header button AND
-   *  the sidebar "+"). */
+  /** The selected group chat room, or null. */
+  selectedGroupId: string | null;
+  /** Whether the New bot dialog is open (driven by the header button AND the
+   *  sidebar "+"). */
   createOpen: boolean;
+  /** Whether the New group chat dialog is open. */
+  groupCreateOpen: boolean;
   /** Fetch bots + their statuses from the runtime. */
   hydrate: () => Promise<void>;
   /** Select a bot and reflect it in the URL (`?tab=bots&bot=<id>`). */
   select: (id: string | null) => void;
-  /** Open the creation panel and clear any selection. */
+  /** Select a group room and reflect it in the URL (`?tab=bots&group=<id>`). */
+  selectGroup: (id: string | null) => void;
+  /** Open the New bot dialog and clear any selection. */
   openCreate: () => void;
   setCreateOpen: (open: boolean) => void;
+  /** Open the New group dialog and clear any selection. */
+  openGroupCreate: () => void;
+  setGroupCreateOpen: (open: boolean) => void;
+}
+
+function setUrlParam(key: string, value: string | null) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (value) url.searchParams.set(key, value);
+  else url.searchParams.delete(key);
+  window.history.replaceState(window.history.state, '', url.toString());
 }
 
 export const useBotsStore = create<BotsStore>((set, get) => ({
@@ -40,7 +58,9 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
   loading: true,
   error: null,
   selectedId: null,
+  selectedGroupId: null,
   createOpen: false,
+  groupCreateOpen: false,
 
   hydrate: async () => {
     try {
@@ -61,21 +81,30 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
   },
 
   select: (id) => {
-    set({ selectedId: id, ...(id ? { createOpen: false } : {}) });
-    if (typeof window === 'undefined') return;
-    const url = new URL(window.location.href);
-    if (id) url.searchParams.set('bot', id);
-    else url.searchParams.delete('bot');
-    window.history.replaceState(window.history.state, '', url.toString());
+    set({ selectedId: id, selectedGroupId: null, ...(id ? { createOpen: false, groupCreateOpen: false } : {}) });
+    setUrlParam('bot', id);
+    if (id) setUrlParam('group', null);
+  },
+
+  selectGroup: (id) => {
+    set({ selectedGroupId: id, selectedId: null, ...(id ? { createOpen: false, groupCreateOpen: false } : {}) });
+    setUrlParam('group', id);
+    if (id) setUrlParam('bot', null);
   },
 
   openCreate: () => {
-    set({ createOpen: true, selectedId: null });
-    if (typeof window === 'undefined') return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('bot');
-    window.history.replaceState(window.history.state, '', url.toString());
+    set({ createOpen: true, selectedId: null, selectedGroupId: null });
+    setUrlParam('bot', null);
+    setUrlParam('group', null);
   },
 
   setCreateOpen: (open) => set({ createOpen: open }),
+
+  openGroupCreate: () => {
+    set({ groupCreateOpen: true, selectedId: null, selectedGroupId: null });
+    setUrlParam('bot', null);
+    setUrlParam('group', null);
+  },
+
+  setGroupCreateOpen: (open) => set({ groupCreateOpen: open }),
 }));

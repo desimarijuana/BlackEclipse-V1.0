@@ -6,41 +6,101 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-12
+
+- **Bots scheduler is now the right-docked Agent Workspace slot; page is pure chat.**
+  In Bots mode the right dock renders a new `components/bots/scheduler-dock.tsx`
+  (hosting `scheduled-jobs-panel.tsx`) instead of the run observability panels; it
+  reuses the shared `useWorkspaceStore.open`, so the top-bar toggle, the
+  Ctrl/Cmd+Shift+E chord and the new left-sidebar **Open scheduler** button
+  (`bots-sidebar-panel.tsx`) are all one control. Removed the Bots page's own
+  right rail, so the conversation truly fills the page. `agent-workspace.md`
+  updated to document the Bots-mode content swap. Checks: `npx tsc --noEmit` clean;
+  `vitest` 2661 passed. docs updated: `docs/NAVIGATION.md`, `docs/agent-workspace.md`,
+  `docs/CHANGELOG.md`.
+
+- **Bots page: full-page chat + collapsible right scheduler rail.** Dropped the
+  page header (title/subtitle + New group/New bot buttons — creation now lives in
+  the left sidebar panel). The conversation now fills the whole page, and the
+  scheduled-jobs scheduler is a rail docked to the RIGHT: collapsed it is a thin
+  clickable strip (`CalendarDays` + vertical "Scheduled jobs"), expanded it shows
+  `scheduled-jobs-panel.tsx` with a chevron to tuck it away. The `stock-chat` Bots
+  wrapper no longer adds padding/scroll so the page is truly full-height. Checks:
+  `npx tsc --noEmit` clean; `vitest` 2661 passed. docs updated: `docs/NAVIGATION.md`
+  (Bots trigger row), `docs/CHANGELOG.md`.
+
+- **Bots page: bot list moved to the left sidebar; the conversation is the page.**
+  The Bots page no longer renders its own bot list — the left app sidebar (Bots
+  mode) is the ONE list, now covering bots AND group chats via
+  `bots-sidebar-panel.tsx`. The page is just the full-height conversation
+  (`bot-chat` / `group-chat-room`) with the scheduled-jobs rail on the right.
+  Group selection/creation now flows through the shared `bots-store` (`selectGroup`
+  / `openGroupCreate`, deep link `?tab=bots&group=<id>`). Checks: `npx tsc --noEmit`
+  clean; lint 0 errors. docs updated: `docs/NAVIGATION.md` (Bots trigger row),
+  `docs/CHANGELOG.md`.
+
+- **Structured `eclipse-response` blocks no longer degrade to raw text on a
+  plausible producer payload.** The contract now normalizes field-name synonyms
+  (not just block `type` aliases) before per-block validation: `content`→
+  `markdown` (markdown/callout/details) and `content`/`code`→`diagram` (mermaid),
+  `variant`→`tone` (callout), `items`→`sources` + `name`→`title` (citations),
+  string `columns` + positional array `rows`→typed table columns/records
+  (`data_table`), `note`→`hint` (metric cards), and common intervals
+  (`1Y`/`YTD`/`MAX`/`1D`…) onto a supported `financial_chart` timeframe. An
+  observed answer that previously produced 15 `unknown` blocks out of 23 now
+  validates with zero diagnostics. `normalizeBlockFields` in
+  `src/lib/response/contract.ts`; tests in `contract-blocks.test.ts`. docs
+  updated: `docs/interactive-response-engine.md`.
+- **Fixed US-equity "no provider supports 'quote' for unknown".** Because
+  provider routing is keyed on asset class, the bridge's `market_snapshot` now
+  returns the resolved `identity.assetClass` (derived from `securityType` via
+  `toAssetClass`) instead of the raw vault column, which is null for most equity
+  rows (`assetClass = null`, `securityType = "Stock"`). The Python
+  `_asset_type_from` fallback was hardened to classify a recognised
+  `securityType` alone as that type (or `equity`), leaving only a fully
+  unclassified request as `unknown`. `src/lib/harness/data-bridge.ts`,
+  `python/harness/market/instruments.py`; test in `test_market_unit.py`. docs
+  updated: `docs/harness/market-data.md`.
+- **Assistant tables wrap their text and render inline Markdown.** Table cells
+  were forced `whitespace-nowrap`, and `data_table` cells (which the
+  deterministic planner fills verbatim from GFM table cells) were rendered as
+  plain text, so `**bold**`/`*italic*` showed as literal markers. Markdown-table
+  th/td and `DataTableBlock` th/td now wrap (`break-words`); `DataTableBlock`
+  renders headers and cells through the shared `renderInline`, so bold/italic/
+  code/links are real elements, while filter/sort/TSV use the stripped plain text.
+  `src/components/chat/markdown.tsx` (exports `renderInline`),
+  `src/components/response/data-table-block.tsx`; test in
+  `src/components/response/render.test.tsx`. no doc change — bug fix (no
+  contract/architecture change).
+
 ## 2026-10-11
 
-- **Interactive Response Engine: server-rendered DOM tests + lint hygiene.** Added
-  `src/components/response/render.test.tsx` (21 tests) that server-render the real
-  components via `react-dom/server` in the node test env — covering block content,
-  mixed-response ordering, unknown-block isolation, `report` nesting, the
-  streaming/malformed fences, action-group proposal semantics, safe citation
-  links, and the `mermaid`-fence-vs-code-block classification. No new dependency
-  (no jsdom/testing-library). `vitest.config.ts` disables the oxc transformer
-  (`oxc: false`) and enables the automatic JSX runtime so TSX components transform
-  under vitest, leaving the Next build (tsconfig `jsx: preserve`) untouched.
-  `eslint.config.mjs` now ignores disposable root-level `_*.cjs`/`_*.mjs` scratch
-  scripts (the recurring lint breakage). docs updated:
-  `docs/interactive-response-engine.md` (§6), `docs/CHANGELOG.md`.
+- **Bots workspace: chat-first redesign.** Reworked the Bots page to read like the
+  ChatBot page but for bots — the left admin panel (search box, filter pills,
+  large collection cards, a boxed "Group chats" block) is gone. The left rail is
+  now a compact conversation list (avatar + name + status/description subtitle +
+  live dot, with a hover per-bot menu; group chats listed beneath), the
+  conversation fills the centre, and the scheduled-jobs rail stays on the right.
+  Removed the now-unused `components/bots/bot-card.tsx` and the superseded inline
+  `components/bots/create-bot.tsx` (the New bot modal replaced it). Checks:
+  `npx tsc --noEmit` clean; lint 0 errors (only image warnings). docs updated:
+  `docs/NAVIGATION.md` (Bots trigger row), `docs/CHANGELOG.md`.
 
-- **Interactive Response Engine: full rich-block family + link hardening.** Added
-  the remaining structured block types — `stepper`, `infographic`, `report`,
-  `node_graph` (selectable; reuses the deterministic `diagram-layout` engine
-  rather than a second graph library), `action_group` (PROPOSED next steps that
-  only compose a follow-up prompt into the existing agent loop), and `artifact`
-  (a reference to the existing Artifact Center) — plus spec-name aliases
-  (`text`→`markdown`, `table`→`data_table`, `source_list`→`citations`,
-  `interactive_form`→`controls`, `execution_timeline`→`timeline`). Citation and
-  artifact links are now **scheme-restricted to `http(s)`** — bare
-  `z.string().url()` accepts `javascript:`/`data:`, which becomes an XSS vector
-  once rendered as an anchor. Infographic/action icons resolve through a semantic
-  allowlist (`src/lib/response/icons.ts`), so the model never names a component or
-  import path. The agent "Structured answers" guidance in `prompts.py` was
-  rewritten to be more directive and to list the new blocks, staying **within the
-  unchanged 26410-char prompt ceiling**. Every new block renders through the same
-  registry + `BlockBoundary` and is represented in PDF export. Tests:
-  `src/lib/response/contract-blocks.test.ts` (17 new). docs updated:
-  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` +
-  `skills/ARCHITECT.md` (ADR-043 amendment), `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
+- **Bots workspace redesign + nav dropdown.** Turned the Bots workspace into a
+  three-column layout — bot list + group chats (left), the conversation (centre,
+  `bot-chat` or the new `group-chat-room`), and a scheduled-jobs rail (right,
+  `scheduled-jobs-panel.tsx`, reading the SAME automation list). Replaced the
+  inline two-step `create-bot.tsx` with a `create-bot-dialog.tsx` modal (face
+  picker with Bot/Generate/Upload/Pet tabs, Randomize/Lock face, "face follows the
+  name", Name/Title/Description, and a collapsed Advanced schedule builder). Added
+  group chats (2–6 bots, `lib/bots/groups-store.ts`, `group-chat-dialog.tsx`) and
+  uploaded-photo avatars (`lib/bots/image.ts` + the shared `bot-avatar.tsx`, used
+  by the list, chat, sidebar panel and jobs rail). The sidebar's Terminal/Agentic/
+  Bots switcher is now a glass **dropdown** instead of a three-tab pill. All new
+  surfaces use the frosted-glass tiers; replies still come from the real harness
+  (`/api/harness/chat`) and bots from the existing Automation API — nothing is
+  fabricated. Checks: `npx tsc --noEmit` clean; `vitest run` 2655 passed. docs
+  updated: `docs/NAVIGATION.md` (Bots trigger row), `docs/CHANGELOG.md`.
 
 - **Interactive Response Engine: server-rendered DOM tests + lint hygiene.** Added
   `src/components/response/render.test.tsx` (21 tests) that server-render the real
@@ -3898,697 +3958,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   passed; `npx tsc --noEmit` clean.
   docs updated: `docs/harness/architecture.md`, `docs/harness/code-filesystem.md`
   (new), `docs/NAVIGATION.md`.
-
-## 2026-10-05
-
-- **AI settings: added a reasoning-effort ("model variant") control, and fixed
-  the Manage-models action + widened its dialog.** Settings â€º AI â€º Active setup
-  now has an **Auto / Minimal / Standard / High / Ultra** selector
-  (`src/lib/agent/reasoning.ts`): Auto (the default) sends no override and the
-  runtime's task profile keeps choosing; the four levels map to the runtime's
-  `low`/`medium`/`high`/`very_high`. It persists as `LLMConfig.reasoningEffort`
-  (`setLLMConfig`, `null` = Auto; masked-into `/api/settings`) and is forwarded as
-  `input.context.reasoning`, which the router honors as a requirement and
-  `prepare_model` applies to a native reasoning control only â€” never to an
-  OpenAI-compatible endpoint that lacks one. Fixes: the composer's per-provider
-  **Manage** button opened the dialog behind the still-open `z-[110]` dropdown
-  (now the menu closes first, and the dialog is `z-[130]`); the no-arg "Manage
-  modelsâ€¦" path could resolve to `undefined` and render nothing (now falls back
-  to the active/first usable provider); the dialog was `max-w-2xl` (now `max-w-3xl`
-  with a roomier, 3-column model grid).
-  `npx tsc --noEmit` clean; `vitest` 2151 passed, `pytest` model-runtime 64 passed.
-  docs updated: `docs/ARCHITECTURE.md` (composer model picker: Manage-models fix +
-  reasoning-effort note).
-
-- **Reorganised the CFA Level I knowledge skills by exam topic (Equities and
-  Portfolio Construction first).** The repo-root `.black-eclipse/skills/` now
-  holds **twelve** topic-organised skills instead of ten process-organised ones:
-  `cfa.00.curriculum-map` (index), `cfa.01.equities`,
-  `cfa.02.portfolio-construction`, `cfa.03.financial-statement-analysis`,
-  `cfa.04.quantitative-methods`, `cfa.05.fixed-income`, `cfa.06.ethics`,
-  `cfa.07.economics`, `cfa.08.corporate-finance`, `cfa.09.derivatives`,
-  `cfa.10.alternative-investments`, and `cfa.99.exam-preparation` (the
-  cross-cutting plan/calculator/formulas/mocks/resources that applies to every
-  topic). One skill per exam topic, in study order, each carrying the official
-  2027 learning modules, Tier 1/Tier 2 formulas, common traps, question patterns,
-  free resources, a practice target and its dependencies. `requiredSkills` form a
-  real dependency graph (Equities -> Portfolio Construction -> Fixed Income ->
-  Derivatives). All twelve validate against `harness.skills.manifest.SkillManifest`
-  and load through `_load_project_skills` with no dangling dependency or prose
-  cross-reference; the bundled 13-entry library is unchanged. Every skill ships
-  `status: disabled` and the root stays untrusted until an operator grants both.
-  Verified with the vendored interpreter (`./scripts/vendor/python/python.exe`).
-  docs updated: `docs/NAVIGATION.md` (project skill root row + CFA task row).
-  no source-contract change â€” data-only skill folders; no app or harness code
-  touched.
-
-- **Renamed the "Market Screener" page to "Market Discover"; aligned the Skills
-  header icon with the sidebar.** Every user-facing string was updated â€” the
-  sidebar/i18n nav label (`nav.discovery`), the page `<h1>`, the search registry
-  page + "Open â€¦" action, market-result subtitles, the workspace panel
-  label/title, the settings section + provider-registry copy (`providers/
-  directory.ts` `usedBy` labels), and the "Back to â€¦" buttons. The Skills
-  Library header now uses the same `Blocks` (Phosphor `SquaresFour`) glyph as
-  the sidebar's Skills item, replacing a mismatched `Sparkles`. Internal
-  symbol/function names (`useScreenerFilters`, `StockScreenerWidget`, the
-  `screener` panel id) are unchanged â€” the page id/tab stays `discovery`.
-  `npx tsc --noEmit` clean; search/sidebar/i18n tests (149) pass; `next build`
-  compiles.
-  no doc change â€” UI naming/icon consistency only; no contract change.
-
-- **Fix: the approval card could not be reached from the two most important
-  paths â€” patching code and the streaming chat.** Three defects: (1) the code
-  authorizer's `workspace_patch_apply` branch created a PENDING request but
-  returned without pausing, so a code write was refused with no card; it now
-  blocks on the shared `pause_for_decision` gate and re-claims on approval
-  (deny/timeout still refuses). (2) `approvalMode` was set only in the streaming
-  chat payload; it is now a per-call-site opt-in on `run-service.ts` (`startRun`
-  gains `approvalMode?`), set by the streaming chat path and deliberately UNSET
-  for the synchronous `/api/harness/chat` and generic `/runs` callers â€” a pause
-  there would block the HTTP request with no card to resolve it. (3) The
-  `code_write`/`code_write_session` approval kinds were reviewable in the MCP
-  panel but a paused run needs the card, not that panel. Added: an end-to-end
-  graph test proving the run pauses (not finishes) on `approval.requested`,
-  resumes in place on approve, and refuses on deny
-  (`python/tests/test_approval_card_e2e.py`); authorizer-level tests for the code
-  write pause (`test_approval_pause.py`, +2); front-door assertions that the
-  streaming path sends `approvalMode: "ask"` and the sync path does not
-  (`run-service.test.ts`, +3). Also fixed the Python stale-runtime detector
-  (`python-runtime.ts` `harnessSourceMtimeMs`): it scanned ONLY top-level
-  `python/harness/*.py`, so edits in `code/`, `mcp/`, `terminal/`, `skills/` never
-  marked a running runtime stale â€” the runtime kept serving old code after a
-  change. It now walks the whole tree, so `npm run dev` picks up harness changes.
-  `npx tsc --noEmit` clean; full `vitest` 2144 passed, `pytest` 2653 passed, eval
-  gates pass.
-  docs updated: `docs/harness/architecture.md` (approval cards: code-write path,
-  streaming-only opt-in).
-
-- **Settings: organized the Intelligence-section pages to match the AI page's
-  clarity, and fixed a duplicate-provider bug.** AI: the "Show more providers"
-  list now excludes anything already shown under Connected/Popular, so a
-  connected non-popular provider (e.g. xAI) or an active keyless local server no
-  longer renders twice. Shared `ProviderRegistry` (Economics / Market / News) now
-  groups rows by state â€” **Configured**, **Available** (built-in/keyless),
-  **Needs a key** â€” with the key-gated list collapsed past 6 and a filter, and
-  keeps the Economics by-kind sub-grouping. News feeds moved out of the flat
-  74-row wall into a new `news-feeds-panel.tsx`: grouped Live/Paused, searchable,
-  with inline add/remove. Market and Investor Eye pages gained consistent
-  `SubSection` headings (Markets, Providers, Priority, Custom sources / Feature
-  map, Event sources). No contract change: `NewsFeed` shape and `/api/settings`
-  payload unchanged. `npx tsc --noEmit` clean; `vitest` 2141 passed, `pytest`
-  2649 passed.
-  no doc change â€” UI organization only; data contracts unchanged.
-
-- **Approval cards: Eclipse now asks before any effectful step, and pauses the
-  run until you answer.** Effectful actions (MCP write/action, external
-  actions, and `ask`-classified commands) previously refused the call and let the
-  model retry after you approved in Settings. A chat run now sends
-  `approvalMode: "ask"`: the effect authorizer creates the single-use PENDING
-  request, emits `approval.requested`, and PAUSES the in-flight run on an
-  in-process gate (`_GATES`/`notify_decision` in `python/harness/mcp/approvals.py`,
-  shared `pause_for_decision`/`_await_then_reclaim`). Approve resumes the run in
-  place and runs exactly that one step; deny/timeout refuses as before. The
-  decision is still the single-use, digest-bound approval â€” pause only changes how
-  long the run waits, never whether a call is authorized; the wait is bounded
-  below the run deadline and a runtime restart falls back to deny-and-retry. New
-  frosted-glass `ApprovalCard` (`src/components/chat/approval-card.tsx`, portaled
-  to `<body>`) floats above the composer in both chat surfaces, theme-adaptive,
-  with Approve/Deny; wired via `HarnessUiEvent.approval_request`/`approval_resolved`,
-  the `awaiting_approval` status, and `useAgentRun.decide`. `RunRequest.approvalMode`
-  + `ToolContext.pause_for_approval`/`approval_timeout_s` are additive; the
-  deny-and-retry path is unchanged. Tests: `python/tests/test_approval_pause.py`
-  (+8). `npx tsc --noEmit` clean; full `vitest` 2141 passed, `pytest` 2649 passed,
-  eval gates pass.
-  docs updated: `docs/harness/architecture.md` (approval cards section).
-
-- **Settings modal now opens instantly and no longer hangs on a slow market
-  fetch.** Four causes fixed: (1) `/api/markets` and `/api/settings` were
-  fetched in `Promise.all`, so a cold JDDS market build blocked the whole modal
-  until it resolved â€” they now load independently and settings paints the moment
-  it lands; (2) the settings dialog is unmounted on close, so every open
-  re-fetched behind a skeleton â€” a module-level snapshot now paints cached
-  values instantly and revalidates quietly; (3) the code-split `Settings` chunk
-  was only ever fetched on first open â€” it is now warmed during idle and has a
-  loading fallback; (4) `GET /api/settings` now uses the same in-memory SWR cache
-  as `/api/markets`, so reads are instant even while the startup WarmUp/NewsIngest
-  jobs hold SQLite (POST keeps the cache coherent). Measured with a production
-  build + Playwright: modal open **510 ms** (fixed) vs the old build failing to
-  appear within 15 s; `/api/settings` warm **22â€“28 ms** (fixed) vs old spikes of
-  **17â€“30 s** under startup IO load. NOTE: the running dev server was serving a
-  stale production build, so the fix only takes effect after a rebuild
-  (`npm run up`). `npx tsc --noEmit` clean; full `vitest` 2140 passed,
-  `pytest` 2642 passed.
-  no doc change â€” load-path/perf fix only, no contract change.
-
-- **Investor Eye Trade layer: hovering a country isolates ITS trade routes.**
-  With the Trade layer on, the map showed every route, so hovering a country
-  told you nothing about that country. Now the pointer answers "what does THIS
-  country trade?": entering a country region isolates the routes that touch it
-  (its links draw full-strength, every other route is hidden) and leaving
-  restores the full web. Wired on both projections â€” the 2D geo map via new
-  `mouseover`/`mouseout` region hooks in `bindLayerEvents`, the globe via the
-  existing raycast pick â€” through a new `hoveredCountryIso` option. A
-  click-selection still wins over hover. Isolated routes are marked `silent` so
-  they cannot steal the pointer from the region and make the layer flicker. A
-  country with no route honestly shows none. Tests: `map-echarts.test.ts` (+6).
-  `npx tsc --noEmit` clean; investor-eye tests pass.
-  no doc change â€” behaviour within the existing `lines` layer contract.
-
-- **Dark sidebars are always black/charcoal (never neutral grey).** The shipped
-  default sidebar moved from grey `#2a2a2e` to charcoal `#141416`, and the
-  `SIDEBAR_PRESETS` list dropped its `Grey` entry in favour of black/charcoal
-  options (`Black`, `Charcoal`, `Slate`, `Smoke`, `Crystal` â€” the last two keep
-  only a faint cool/warm cast). Every dark-scheme preset's rail is now under
-  luminance 0.011. Verified with `npx tsc --noEmit` and the theme tests (54 pass).
-  no doc change â€” preset/default tweak; contracts unchanged.
-
-- **White presets listed after the dark ones + Electric Blue Crystal sidebar.**
-  The four white-background presets (`White`, `Paper`, `Snow`, `Ivory`) now sit
-  at the END of `THEME_PRESETS` so the preset buttons read all dark looks first,
-  then go light â€” instead of interrupting the dark grid at the top. Electric Blue
-  now uses the translucent Crystal sidebar recipe (`#26262c` @ 0.55 / blur 34)
-  rather than the default neutral Grey, so the cold blue brand carries into the
-  rail. Verified with `npx tsc --noEmit` and the theme tests.
-  no doc change â€” preset list/ordering tweak; contracts unchanged.
-
-- **Added white-background theme presets (`White`, `Paper`, `Snow`, `Ivory`).**
-  A new internal `scheme: 'dark' | 'light'` token on `EclipseTheme` lets a
-  preset switch the whole app to a light look in one click â€” selectable from the
-  normal preset grid, no separate mode toggle. `applyThemeToDocument` owns the
-  `dark` class (was hardcoded in `layout.tsx`, which now only seeds the dark
-  default plus a pre-paint script to avoid a flash) and scopes color vars to
-  `html.dark` / `html:not(.dark)` by scheme; light presets carry dark ink text,
-  white surfaces, a light landing and a dark wordmark. Charts resolve
-  grid/axis/tooltip chrome from the scheme (`eclipse-provider.ts`), and a scoped
-  compatibility layer in `globals.css` remaps hardcoded dark neutral utilities
-  (`border-white/*`, `bg-black/*`, `bg-white/*`, `text-white/*`, near-black
-  hexes, aurora glow) when light. Verified with `npx tsc --noEmit`,
-  `npm run test` (188 files, all pass) and `npm run build`.
-  docs updated: `ARCHITECTURE.md`, `NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Settings: removed the yellow "providers need a key" attention dots.** The
-  rail and mobile pill indicators (and the `ATTENTION` map / `useProviderHealth`
-  wiring behind them) are gone (`settings.tsx`). `npx tsc --noEmit` clean.
-  no doc change â€” UI-surface removal only.
-
-- **General settings: folded the full-screen preview launcher into the sticky
-  Live-preview/Apply card, and fixed the rail item text alignment.** The
-  "Preview on the real app" row is now a section inside the sticky card
-  (`customization-settings.tsx` / `customization-preview.tsx`) instead of a
-  separate card below it. The left-nav buttons inherited browser-default
-  `text-align: center`, so wrapped description lines centered under the icon;
-  added `text-left` (`settings.tsx`). `npx tsc --noEmit` clean.
-  no doc change â€” UI-surface layout fix only.
-
-- **Settings cleanup: removed the provider-count status banner and the footer
-  "N/M feeds live" readout.** Dropped the `SettingsStatusHeader` component
-  (`provider-registry-panel.tsx`) and its render in `settings.tsx`; the footer
-  keeps only the save-state line and the Reload button. `npx tsc --noEmit`
-  clean; `vitest` green apart from a pre-existing `stock-chat.tsx` size-budget
-  failure (unrelated, file not touched).
-  no doc change â€” copy/UI-surface removal only.
-
-- **Restored a green size-budget guard after the terminal/model work grew the
-  SPA shell.** `stock-chat.tsx` reached 1237 lines (terminal-dock plumbing plus
-  the focus-mode "tuck the terminal" effect) while its ratchet stayed pinned at
-  1212, so `size-budget.test.ts` failed on `main`. Bumped the ratchet to 1237
-  with a note; the file may still only shrink from here. `npx tsc --noEmit`
-  clean; `vitest` size-budget suite passes.
-  no doc change â€” test budget bookkeeping only.
-
-- **Market Screener / Market Bubbles "Ask AI" runs no longer fail on an
-  uninstalled default model.** The buttons themselves were correctly wired (they
-  navigate to ChatBot and start a real harness run); the run failed with a raw
-  `404 model 'llama3.1' not found` because the active config pointed at a
-  keyless-local placeholder the installed server does not serve (this box's
-  Ollama only has cloud models). Fix makes the default resolve to a model the
-  provider ACTUALLY serves, without inventing one: the model runtime now exposes
-  the provider's raw served ids (`discover_served`; the discover endpoint returns
-  `served` alongside the merged registry view), the front door records that set
-  in the `discovered_models_v1` snapshot (`served` map, replaced per probe, not
-  merged), `GET /api/harness/chat/models` reports it per provider, and
-  `useChatModel` auto-probes a keyless local provider and adopts the first served
-  model â€” VISIBLY (the composer selector updates) and persisted to the vault. An
-  explicit user pick is never overridden; nothing changes when the provider
-  serves nothing known. Added `pickServableModel` (+5 vitest), discover `served`
-  tests in `route.test.ts` (+3) and `model-runtime-browser.test.ts` (+1), and a
-  Python API test for `served` separately from the merged list. `vitest` 2122
-  passed; `pytest` 2642 passed; `npx tsc --noEmit` clean. docs updated:
-  `docs/CHANGELOG.md`, `docs/harness/architecture.md`.
-
-- **Theme colors fixed: Surface now recolors the glass surfaces, and the dead
-  "Accent" token is wired up.** Two real bugs in the customization system.
-  (1) Every frosted-glass tier (`.glass-card`, `-strong`, `-subtle`, `.glass-tooltip`,
-  `.glass-button`, `.glass-drawer`, tab/command/ws strips) used a **hardcoded**
-  `rgba(18,18,20,â€¦)` tint, so the theme's "Surface" color only recolored flat
-  `bg-card` blocks â€” editing Surface barely changed the UI. `themeCssVars` now
-  emits `--card-rgb` (the Surface as an `r g b` triplet) and every glass recipe
-  builds its tint as `rgb(var(--card-rgb, <fallback>) / Î±)`. (2) The theme's
-  "Accent" color was emitted as `--brand-accent` / `--brand-accent-rgb` but
-  consumed **nowhere**, so editing Accent did nothing visible. The shared
-  `TabBar` active pill now carries a primaryâ†’accent gradient + accent hairline,
-  giving the token a real consumer. Verified with pixel diffs: changing Surface
-  went from ~1.4% to ~8.7% of the viewport, and Accent visibly tints the active
-  tab. Tests: `theme/tokens.test.ts` (+1 for `--card-rgb`). `vitest` 2113 passed;
-  `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
-
-- **Icon set switched from Lucide to Phosphor behind one aliased module.** Every
-  icon now renders Phosphor (`@phosphor-icons/react`) via a new central surface
-  `src/lib/icons/index.ts`, which re-exports each glyph under its original Lucide
-  name (plus `LucideIcon`), so all ~165 importing modules keep their existing call
-  sites and only the import specifier changed (`lucide-react` â†’ `@/lib/icons`).
-  This gives the dark glass UI a distinctive shape language and Phosphor weights
-  (fill/duotone). Selected/active states were converted from `fill="currentColor"`
-  to `weight="fill"` (Phosphor outlines are filled paths, so `fill="none"` would
-  erase the glyph). `components/chat/{chat-history,markdown}.tsx` and
-  `components/screens/portfolio/fund-store.ts` gained a `'use client'` boundary
-  because Phosphor icons read `useContext`. `lucide-react` removed. `npx tsc
-  --noEmit` clean; `next build` succeeded; `vitest` 187 files / 2112 tests passed.
-  docs updated: `docs/NAVIGATION.md`, `docs/DECISIONS.md`, `skills/ARCHITECT.md`
-  (ADR-041).
-
-- **Investor Eye Trade layer: selecting a route now isolates it.** Clicking a
-  trade line selected the event but left every route on the map equally loud, so
-  you could not see *which* link the click referred to or what it connected. The
-  selected route now draws full-strength (thicker, opaque) while every other
-  route dims to 10% opacity, the flow animation stops (a moving target cannot be
-  "the one"), and the two endpoint countries get glowing labelled markers â€” so
-  "what is traded between X and Y" reads straight off the map. The line datum now
-  carries `fromName`/`toName`/`fromIso`/`toIso`/`eventKey`, and a dedicated
-  `tradeTooltip` leads with the ROUTE and the traded goods instead of a generic
-  event blurb. `selectedEventKey` is threaded `WorldMap` â†’ `buildMapOption` on
-  the main screen, full-page map, and dashboard widget. Tests:
-  `layers.test.ts` (+1), `map-echarts.test.ts` (+3). `npx tsc --noEmit` clean;
-  `vitest` 2106 passed (the 1 failing `pytest` test is in the model-runtime area
-  from concurrent work, untouched by this change).
-  no doc change â€” behaviour within the existing `lines` layer contract.
-
-- **Restored the sidebar width to its original `w-60` (was shrunk to `w-52`).**
-  A prior commit narrowed the desktop sidebar and the Settings rail from `w-60`
-  to `w-52`; both are back to `w-60` (`sidebar.tsx` collapse/expanded/mobile and
-  `settings.tsx` rail). no doc change â€” layout fix; no contract change.
-
-- **Terminal command approvals now actually surface; agent steered to auto-allowed
-  `mkdir`.** An agent asked to "create a folder on my Desktop" reported it was
-  blocked. Two causes, both fixed. (1) A terminal `ask` command (`New-Item â€¦`)
-  creates a pending approval, but `/code/approvals` only listed `kind='code_action'`,
-  so the request was invisible in the UI â€” the user could never approve it and the
-  agent looped. The route now lists and decides `code_action` + `terminal_command`
-  + `shell_command`. (2) `mkdir`/`md` is already `allow` (runs with no approval;
-  verified it creates the folder), but the code-agent prompt did not say so, so the
-  agent chose the long `New-Item` form. The prompt now tells it to prefer the short
-  auto-allowed form, not to retry the same refused tool in a loop, and to state
-  plainly when a requested path is outside the bound folder. Tests: `test_code_api.py`
-  green; Vitest unchanged; Python suite green.
-  docs updated: `docs/harness/terminal-architecture.md`.
-
-- **Terminal: the "dock back" icon is now an inward-corners glyph, not a download
-  arrow.** `ArrowDownToLine` read as a download button, so the detached pop-out's
-  "dock back" control now uses `CornersIn` (a dock/restore glyph), matching the
-  restore control on the docked panel. no doc change â€” icon swap only.
-
-- **Terminal: the `[?1;2c` prompt garbage is gone.** Root cause: the shell asks
-  the terminal "what are you?" (Device Attributes, `ESC[c`); xterm auto-replies
-  `ESC[?1;2c`; because every keystroke is forwarded to the PTY, that reply reached
-  PowerShell, which cannot interpret it and ECHOED the literal text at the prompt.
-  Filtering the output could not fix it (the shell had already echoed the bytes).
-  The reply is now dropped from the INPUT stream (`filterTerminalInput` in
-  `xterm-terminal.tsx`) before it reaches the PTY â€” the shell never needs it â€” with
-  the output-side strip kept as a fallback for a session that echoed it earlier.
-  Verified in-browser: no `?1;2c`, typing unchanged. Vitest **2140 passed**; Python
-  **2642 passed**; eval gates ALL PASS; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/terminal-architecture.md`.
-
-- **Terminal: instant open, accurate icons, frosted glass, real resize.** Four
-  phases. (1) Speed: the dock now starts the shell on the server IN PARALLEL with
-  the xterm JS download (`Promise.all`), the runtime is prewarmed from the root
-  layout, and the service pre-opens one idle shell at boot (`TerminalManager.warm_shell`
-  + `WARM_OWNER`, adopted by the first UI open). Measured: open-to-prompt went from
-  ~24s to ~1.1s. Also fixed the warm path's undefined `WARM_OWNER`/unwired boot call.
-  (2) Icons: replaced the inaccurate set with semantic Phosphor icons â€” `Rows3`
-  (dock bottom), `Columns3` (dock right), `CornersOut`/`CornersIn` (full/restore),
-  `Export` (detach), `AppWindow` (new window), `Cpu` (processes) â€” added to
-  `src/lib/icons`. (3) Glass: the dock and the pop-out use `glass-card-strong`
-  (measured `backdrop-filter: blur(22px) saturate(1.4)`); the xterm host is
-  transparent so the frost shows through, and the pop-out is portaled to `document.body`
-  so its blur samples the real page. (4) Resize: the docked bottom/right panels have
-  a pointer-drag handle that resizes them and pushes the new rows/cols to the PTY
-  (`/terminal/sessions/{id}/resize`); the pop-out is drag + resize by pointer (its
-  native CSS `resize` handle was unusable). Tests: Vitest **2140 passed**; full
-  Python suite green; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/terminal-architecture.md`.
-
-- **Terminal: narrow-screen overlap fix, detach pop-out, and a new-window terminal.**
-  Three fixes/features. (1) Overlap in sidebar/narrow mode: the right dock was a
-  fixed-width column at every width, so on a narrow viewport it covered the main
-  panel; it now collapses to a bottom strip below `md` (`md:w-[24rem] lg:w-[26rem]`,
-  else full-width strip) and the header wraps instead of crowding, so nothing
-  overlaps. (2) The stray `?1;2c` in the terminal: xterm answers the shell's
-  Device-Attributes query (`ESC[c`) with `ESC[?1;2c`; we forward every keystroke to
-  the PTY, so PowerShell echoed it literally. The answer and its echo are now
-  filtered from the DISPLAY stream (`stripTerminalNoise`); terminal output is
-  otherwise untouched. (3) Detach + new window: a detach control turns the docked
-  terminal into a draggable floating pop-out sharing the same session, and a
-  new-window control opens `/terminal?session=<id>`, a standalone page
-  (`terminal-window.tsx`) that ATTACHES to the running shell (or opens its own if
-  no id). Added `terminalOwnerId()` so the dock, pop-out and window share one owner.
-  Added `ArrowDownToLine`/`SquareArrowOutUpRight` to the icon surface. Full Python
-  suite green; Vitest **2139 passed**; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/terminal-architecture.md`.
-
-- **Terminal is now a real docked region, not a floating overlay.** It no longer
-  overlaps the app (including the ChatBot). The app shell reserves the space: docked
-  **bottom** the terminal is a strip inside the shell below the main content, docked
-  **right** it is a full-height column beside the main panel (which shrinks), and
-  **full page** it covers the window. Sidebar + main column + right dock are one flex
-  row, with the bottom dock below it; the terminal is no longer `fixed` in the root
-  layout (the floating `terminal-panel.tsx` is deleted). Placement is persisted and
-  the shell hydrates it on mount (`useTerminalShell`), so the docked region reserves
-  its space on first paint. The terminal refits and the PTY resizes on every
-  placement change, and the shell is preserved across placement switches (bottom â†’
-  right keeps history). Fixed a latent `api-guard` same-origin check in the same
-  change (see above). Extracted `useTerminalShell` to keep `stock-chat.tsx` within its
-  size ratchet. docs updated: `docs/harness/terminal-architecture.md`.
-
-- **Terminal: fix typing and add bottom / right / full-page placement.** Three real
-  bugs fixed. (1) Typing did nothing: the mutation guard compared `Origin`
-  (`http://127.0.0.1:3000`) against the request host (`localhost`) byte-for-byte,
-  so every browser mutation â€” including opening a session â€” got a 403
-  "Cross-origin requests are not allowed". Loopback aliases are now normalized to
-  one origin (`normalizeHost`), so same-machine requests are allowed while a real
-  cross-site request is still blocked. (2) The terminal rendered but received no
-  output: React StrictMode double-mounts the effect and the first cleanup's
-  `stopRef` was never reset, so the stream loop exited immediately â€” now reset on
-  every mount (and the terminal auto-focuses so typing works without a click).
-  (3) Typed commands ran jumbled ("terminal" â†’ "terimnal"): one HTTP request per
-  keystroke let concurrent writes interleave. Writes are now serialized with a
-  per-session lock in the runtime, and the client drains an ordered input queue
-  (one in-flight request, coalescing keystrokes without reordering). Added a
-  placement control â€” **dock bottom / dock right (full height) / full page** â€” with
-  the choice persisted; the terminal refits and the PTY resizes on every placement
-  change. Tests: `api-guard.test.ts` (+2 loopback-origin), `terminal-keybind.test.ts`
-  (+3 placement, +2 ordered-queue). Full Python suite **2642 passed**; Vitest
-  **2127 passed**; `npx tsc --noEmit` clean; `npm run test:evals` ALL PASS.
-  docs updated: `docs/harness/terminal-architecture.md`.
-
-- **Terminal: header button + a reliable Ctrl/Cmd + ` toggle.** The terminal is now
-  opened from a button at the header's right edge (next to the search bar) and by
-  Ctrl/Cmd + `, both driving one shared `useTerminalStore`. The shortcut previously
-  lived in local panel state and only bound while the panel was open (so it could
-  not open the panel), and matched on `event.key`, which varies by keyboard layout.
-  It now listens in the CAPTURE phase on `window` in the root layout (`TerminalKeybind`),
-  matches `event.code === 'Backquote'` (layout-independent) with a `key` fallback,
-  and calls `preventDefault`/`stopPropagation` so the browser or a focused xterm
-  cannot swallow it. Also added an expand/restore control and a "New" shell action,
-  persisted the open state, and hardened the shortcut matcher with unit tests.
-  Fixed a concurrent duplicated-block syntax error in `src/lib/investor-eye/map-echarts.ts`
-  that broke `tsc`/vitest. Tests: `terminal-keybind.test.ts` (+9).
-  docs updated: `docs/harness/terminal-architecture.md` (Terminal UI section).
-
-- **Real interactive terminal UI (xterm.js over a live PTY).** The Terminal tab was
-  a fake one-shot command box: line-based, no streaming, no interactive programs.
-  It is now a genuine terminal â€” xterm.js
-  (`src/components/terminal/xterm-terminal.tsx`) rendering a live PTY-backed shell
-  in the runtime. Keystrokes go straight to the PTY
-  (`POST /terminal/sessions/{id}/raw`), output arrives over a low-latency long-poll
-  stream (`GET /terminal/sessions/{id}/stream`, ~0.06 s) with ANSI preserved, and
-  the window is resized to fit. The session lives in the runtime, so closing the
-  panel or reloading does not kill the shell; the panel passes a durable `owner` id
-  and reattaches (`attach_or_open_shell`), with "New shell" to open a fresh one.
-  Added `@xterm/xterm` + `@xterm/addon-fit`. Backend: a per-session output
-  `Condition` wakes the stream the instant output lands, `wait_for_output`,
-  `stream_shell_output`, `send_shell_raw`, and an `owner` filter on session listing.
-  Tests: `test_terminal_api.py` +2 (owner reattach, raw-inputâ†’stream round trip).
-  Full Python suite **2639 passed**; Vitest **2093 passed**; `npx tsc --noEmit`
-  clean. docs updated: `docs/harness/terminal-architecture.md` (UI section).
-
-- **Terminal follow-up: real PTY, Docker/SSH runtimes, resource/runaway protection.**
-  Closed the four known limitations of the terminal subsystem. (1) A real PTY
-  (`pywinpty` on Windows, `ptyprocess` elsewhere) is now installed by default via
-  platform markers in `python/requirements.txt`, so persistent shells are genuine
-  ConPTYs (`pty: true`); agent-facing session text strips ANSI while the UI buffer
-  keeps it for rendering, and a `cd`/`export` is sent to the real shell and its
-  resulting cwd read back via the sentinel then workspace-confined (a command that
-  leaves the workspace is refused and the shell returned to the root). (2/3)
-  `DockerRuntime` and `SSHRuntime` are implemented for command execution and
-  background processes behind operator config (`HARNESS_TERMINAL_DOCKER_CONTAINER`
-  / `_WORKDIR`, `HARNESS_TERMINAL_SSH_HOST`); interactive sessions for them refuse
-  `NOT_IMPLEMENTED`; SSH uses the host's own OpenSSH config/agent and never reads a
-  key. New `runtime.extra_env()` forwards only non-secret host vars
-  (`DOCKER_HOST`, `SSH_AUTH_SOCK`). (4) `terminal/resources.py` adds CPU/memory
-  telemetry (no `psutil`) plus `ResourceLimits` â€” a start past `maxProcesses` is
-  refused `PROCESS_LIMIT`, and a process over its output/lifetime bound is FLAGGED
-  `runaway` (never auto-killed) with a `terminal.process.runaway` event; surfaced
-  by `resource_report`/`system_info` and `/terminal/resources`. Also made the
-  sandbox orphan test precise: it now asserts on the test process's own python
-  descendants (`proctree.descendant_pids_matching`), not a machine-wide process
-  count, so an unrelated python process can no longer perturb it. Tests: 11 new
-  `test_terminal_resources.py` cases plus Docker/SSH unit tests and the PTY session
-  coverage (86 terminal tests total). Full Python suite **2637 passed**; Vitest
-  **2093 passed**; `npx tsc --noEmit` clean; `npm run test:evals` ALL PASS.
-  docs updated: `docs/harness/terminal-architecture.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (`ADR-H127`).
-
-- **Terminal/Shell/Process execution subsystem â€” the execution backbone.**
-  Added `python/harness/terminal/` (one `TerminalManager` shared by agent tools and
-  the UI): persistent shells (`open_shell`/`run_shell_command`/`write_shell_input`/
-  `read_shell_output`/`resize_shell`/`send_shell_control`), background process
-  management (`start_process`/`stop_process`/`restart_process`/`kill_process`/
-  `read_process_output`/`write_process_input`/`send_signal`/`process_tree`),
-  `execute_command` foreground execution, `list_ports`, `terminal_capabilities`,
-  `system_info`; a sequenced/bounded output `RingBuffer` with cursor polling;
-  secret redaction; a deterministic process state machine with crash detection; a
-  Windows Job-Object / POSIX-group per-process isolation backend; OS process-tree
-  and port attribution; `TerminalSession`/`ProcessRecord`/`TerminalCommand` rows on
-  the one `agent-memory.db`; boot `RecoveryManager`; operator-gated `/terminal/*`
-  routes; front-door `src/lib/harness/terminal-{client,browser}.ts` + `/api/terminal/**`;
-  and Processes/Ports views in the terminal panel. The tools are removed at
-  `plan_only` (`code/policy.py`) and classified allow/ask/deny by the effect
-  authorizer composed into the graph. Docker/SSH runtimes refuse honestly
-  (`NOT_IMPLEMENTED`). Also fixed a latent env-scrub gap: `PATHEXT` was missing
-  from `SECRET_ENV_ALLOWLIST`, so a shell with a scrubbed environment could not
-  resolve an executable by name. Tests: `python/tests/test_terminal_*.py` (72),
-  incl. `test_terminal_e2e.py`. Full Python suite green (2550 passed);
-  `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/terminal-architecture.md` (new),
-  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (`ADR-H126`).
-
-- **Investor Eye Heatmap button now matches the surrounding controls.** The
-  standalone `HeatmapToggle` was styled differently from the buttons beside it
-  and sat alone on the map surface. It now sits in the Investor Eye header
-  toolbar directly beside Map/skin/stars/names and Full page / Ask the map /
-  Refresh, and uses the identical `glass-button` recipe; the dashboard widget
-  gets an `accent` variant that matches its own `bg-accent/30` header buttons.
-  `npx tsc --noEmit` clean; investor-eye tests pass.
-  no doc change â€” control styling/placement only; no contract change.
-
-- **Investor Eye heatmap: scope its visualMap (event dots no longer turn purple
-  and stick) + coarser density grid.** Two regressions in the `event-heatmap`
-  layer. (1) A continuous ECharts `visualMap` defaults to `seriesIndex: 'all'`,
-  so it recoloured EVERY series from its `value` â€” the event pins (value = a
-  0.2â€“1 severity weight) were re-tinted to the low/violet end, and because the
-  update path only `replaceMerge`d `series`, the mapping (and the purple) stayed
-  after the heatmap was switched off. The `visualMap` is now scoped with
-  `seriesId: 'event-heatmap'`, and `world-map.tsx` replaces `visualMap` too, so
-  turning the layer off REMOVES the mapping and every layer reverts to its own
-  colouring. (2) The heatmap reused the pin-cluster grid (0.1Â° at high counts),
-  so every event was its own faint speck instead of a regional hotspot. It now
-  aggregates on a coarse `heatmapCellDegrees()` grid (1.5â€“8Â° by count), so
-  neighbouring events accumulate into one hotspot the way a heatmap should.
-  Tests: `map-echarts.test.ts` (+2 visualMap-scoping cases).
-  `npx tsc --noEmit` clean.
-  no doc change â€” bug fix to heatmap rendering; `MapLayerType`/contract unchanged.
-
-
-- **Fixed the composer model dropdown crashing on open (Base UI error #31).**
-  `ModelSelector` in `chat-input.tsx` rendered `DropdownMenuLabel` (Base UI
-  `Menu.GroupLabel`) as a direct child of `DropdownMenuContent`, but a group
-  label requires a `<Menu.Group>` ancestor â€” clicking the pill threw
-  `Base UI error #31` and the menu never appeared. Wrapped the label + model
-  list in `DropdownMenuGroup`. Verified with a Playwright probe: menu opens,
-  lists all providers/models, no console errors. `vitest` 2085 passed;
-  `npx tsc --noEmit` clean. no doc change â€” bug fix; no contract change.
-
-- **Model menu restyled to frosted glass.** The composer model dropdown and its
-  Provider submenu used the opaque `bg-popover` fill, so it read as a flat solid
-  panel over the dark page. Both surfaces now use the shared `.glass-tooltip`
-  tier (translucent tint `rgba(18,18,20,0.5)` + `backdrop-filter: blur(18px)
-  saturate(1.35)` + inset highlight), matching the UI system's popover recipe;
-  the solid `bg-popover` + `ring` fill and shadow were removed from
-  `dropdown-menu.tsx`. The dropdown is already portaled by Base UI, so the blur
-  samples the real page (verified with a Playwright high-contrast backdrop:
-  background is visibly blurred through the panel and submenu, no console
-  errors). This changes every consumer of the shared `DropdownMenuContent`
-  (composer model selector is the only one today). `vitest` 2087 passed;
-  `npx tsc --noEmit` clean. no doc change â€” visual-only restyle using the
-  existing glass system; no architecture/contract change.
-
-- **Scrollbar + provider-status colour toned down (professional, neutral).** The
-  global scrollbar was brand-tinted, and on hover it turned bright brand green
-  (`#7aff78`) â€” a loud yellow-green streak on dark glass. Both global scrollbar
-  blocks in `globals.css` (the early brand block + the late `#262626`/`var(--brand)`
-  cascade layer) now use a neutral translucent-white thumb
-  (`rgba(255,255,255,0.16)`, `0.30` hover) on a transparent track, so no theme can
-  turn the scrollbar a saturated colour. In the composer model dropdown's Provider
-  submenu, the `needs key` / `no key` labels were saturated amber/green; they are
-  now muted (`text-muted-foreground/50`; `key set` at `text-emerald-400/70`), so
-  the menu reads as chrome rather than a traffic-light. `vitest` 2087 passed;
-  `npx tsc --noEmit` clean. no doc change â€” visual-only; no contract change.
-
-- **Composer model menu: fixed dead item handlers + made "Discover" list and keep
-  every installed model.** Three compounding bugs. (1) The shadcn-style wrapper
-  `dropdown-menu.tsx` exposed Radix's `onSelect` API, but Base UI's `Menu.Item`
-  only fires `onClick` â€” so **every** menu item (`setModel`, provider switch,
-  Discover, Custom) silently did nothing. All items now use `onClick`, with
-  `closeOnClick={false}` where the menu must stay open (Discover, Custom id).
-  (2) `ModelRegistry.discover_models` returned only the *newly registered* models,
-  so a second "Discover" click returned an empty list; it now returns the
-  provider's full registered set (idempotent) â€” Python test added.
-  (3) The composer catalog (`GET /api/harness/chat/models`) read only the static
-  preset (`llama3.1`, â€¦), never the runtime's discovered registry, so installed
-  Ollama models vanished on reload. The route now merges `listRuntimeModels()`
-  (best-effort, server-side) per provider. Result: an Ollama "Discover" now shows
-  ALL installed models and they persist across reloads. Tests: `models/route.test.ts`
-  (+2), `test_model_runtime.py` (+1). `vitest` 2089 passed; `pytest` green;
-  `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
-
-- **Model menu: providers that need a key now link straight to Settings â€º AI.**
-  Clicking a provider whose key is missing previously selected it and then failed
-  at run time. The Provider submenu item now detects `!keyless && !available` and
-  dispatches the command bus to `settings.ai`
-  (`useCommandStore.getState().dispatch({ tab: "settings", subroute: "settings.ai" })`)
-  â€” the established modal-navigation idiom â€” so the user lands on the AI/LLM page
-  to paste the key. The label changed from "needs key" to a primary "Add key" with
-  a key icon. Keyless/configured providers still select normally. `vitest` 2089
-  passed; `npx tsc --noEmit` clean. no doc change â€” small navigation affordance;
-  no architecture/contract change.
-
-- **Settings â€º AI redesigned: grouped providers, connect/disconnect, readable
-  active model.** The old surface dumped every provider into one two-column grid
-  beside a duplicate config form, so it was unclear what was selected or how to
-  add/remove a key. New `ai-provider-settings.tsx` groups it: (1) **Active setup**
-  â€” the current provider + model echoed prominently, with model picker, base URL,
-  context window, key editor and Test, in one card; (2) **Connected providers**
-  â€” those that work (key set, or keyless local), each with **Disconnect**
-  (deletes the vault key) or **Use**; (3) **Popular providers** â€” one click to
-  **Connect** (reveals the key field) or select; (4) **Show more providers** â€”
-  the rest, collapsed. Provider state is derived honestly (Active / Connected /
-  Ready / Not connected). `ProviderKeyEditor` gained an `onChanged` callback.
-  The model picker (`model-picker.tsx`) no longer shows a raw `__custom__`
-  sentinel â€” the current id is always in the Select, with a separate "Custom
-  model idâ€¦" toggle. `GET /api/harness/models` now merges runtime-discovered
-  models, so the Settings picker reads the operator's installed Ollama models
-  too. Tests: `api/harness/models/route.test.ts` (+3). `vitest` 2092 passed;
-  `pytest` green; `npx tsc --noEmit` clean. docs updated: `docs/CHANGELOG.md`.
-
-- **Settings â€º AI: removed themed (blue) borders, provider cards now full-width.**
-  The provider cards and section icon used `border-primary/*` / `border-emerald-*`,
-  which resolve to the active theme's brand colour â€” so under a blue theme
-  ("Electric Blue", "Blueprint") every card had a blue outline. They now use
-  neutral white-alpha borders, so no theme can tint the chrome. The catalog
-  grids also changed from two columns (`sm:grid-cols-2`) to a single full-width
-  column. `vitest` 2092 passed; `npx tsc --noEmit` clean. no doc change â€”
-  visual-only; no contract change.
-
-- **Site sidebars unified to one neutral grey, accent-free look; rows shortened.**
-  The main app sidebar (`layout/sidebar.tsx`) and the Settings screen's own left
-  rail (`screens/settings.tsx`) are now the same surface: both carry `sidebar-root`
-  + `glass-card-strong`, so Settings no longer renders a rounded, accent-tinted
-  `glass-card-subtle` panel that drifted from the shell rail. Green `primary`
-  accents (active mode button, active nav row/icon, shortcut badge, settings gear,
-  Settings header/chevron/nav pills) were replaced with neutral white-wash
-  (`bg-white/[0.08]`, `text-foreground`). Nav rows shrank `h-10` â†’ `h-9`. The
-  shipped sidebar tint moved `#1a1a1c` â†’ `#2a2a2e` (clearly grey) and
-  `SIDEBAR_PRESETS` gained a `Grey` default preset (`charcoal` retained). Tests
-  updated in `lib/theme/tokens.test.ts`. no doc change â€” surface styling only; no
-  architecture/contract change.
-
-- **ChatBot transcript rail de-accented; default sidebar width reduced.** The chat
-  page's right-edge `MessageRail` ticks no longer use the green brand accent â€”
-  idle ticks are `bg-muted-foreground/50`, hover/active brighten to a neutral
-  `bg-foreground/70â€“80` with no glow. The default sidebar width dropped `w-60`
-  (15rem) â†’ `w-52` (13rem) on the shell rail (`layout/sidebar.tsx`), its mobile
-  drawer, and the Settings rail (`screens/settings.tsx`) so the default chrome is
-  less dominant. `npx tsc --noEmit` clean; `vitest` 2092 passed.
-  no doc change â€” surface styling only; no architecture/contract change.
-
-- **Chat scrollbars de-accented to neutral grey.** The chat transcript's visible
-  scrollbar (`.chat-transcript-scroll`) was still brand-green â€” after scrolling
-  up it rendered as a bright vertical streak on the right edge of the ChatBot
-  page. It (plus `.chat-composer-scroll` and `.tv-metrics-rail`) now uses the
-  same neutral `rgba(255,255,255,0.16)` thumb / `0.30` hover as the global bar,
-  and the transcript/composer bars slimmed 8/10px â†’ 6px. `npx tsc --noEmit`
-  clean; `vitest` 2092 passed. no doc change â€” styling only.
-
-- **Chat transcript scrollbar replaced with a short capped thumb.** The native
-  transcript bar always spans the full scroll-container height (it ran down the
-  right edge and under the header, looking like a long band). `ChatHistory` now
-  hides the native bar (`scrollbar-hide`) and renders a compact custom thumb
-  capped at ~28% of the track, inset 6px from the top/bottom, tracking the
-  reading position via a ResizeObserver + scroll listener. The unused
-  `.chat-transcript-scroll` CSS was removed. `npx tsc --noEmit` clean;
-  `vitest` 2092 passed. no doc change â€” styling only.
-
-- **Settings model dropdown no longer renders behind the modal; discovered
-  models persist; all connected providers usable from chat.** Three fixes:
-  (1) `SelectContent` and `DropdownMenuContent` were portaled at `z-50` while the
-  Settings `Dialog` popup/overlay sit at `z-[100]`, so the model list painted
-  behind the modal â€” both moved to `z-[110]` (same for `TooltipContent`, which
-  has the identical class of bug). Verified live with Playwright against a fresh
-  dev server: the popup now computes `z-110` and sits above the dialog at
-  `z-100`. (2) "Discover installed models"
-  results lived only in the Python runtime's in-memory registry (lost on reload /
-  restart), so discovery had to be re-run every time; the discover route now
-  merges found ids into a durable `SystemConfig` snapshot
-  (`src/lib/agent/discovered-models.ts`, key `discovered_models_v1`) that both
-  catalog routes merge ahead of the runtime registry. (3) The chat composer's
-  model menu listed only the active provider's models; it now groups the models
-  of EVERY provider usable right now (keyless locals + any provider with a
-  resolving key), active first, and selecting one switches the active provider to
-  that model's provider. Also fixed a pre-existing CRLF/LF mix in
-  `python/harness/terminal/runtimes.py` flagged by the gitignore-guard test.
-  `npx tsc --noEmit` clean; `vitest` 2093 passed. docs updated:
-  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
-
-- **`Select` dropdown restyled to frosted glass.** The select popup used a flat
-  opaque `bg-popover` panel with a generic `ring`/`shadow-md` â€” visually a plain
-  system menu, and the odd one out next to the `DropdownMenu` (which already uses
-  `.glass-tooltip`). It now uses the same `.glass-tooltip` frosted recipe
-  (translucent tint + backdrop blur + saturation, rounded-2xl, soft shadow +
-  inset highlight), with roomier rounded items, a neutral white-wash
-  hover/selected state, a primary-tinted check indicator, and gradient scroll
-  affordances instead of opaque `bg-popover` strips. `npx tsc --noEmit` clean;
-  `vitest` 2093 passed. no doc change â€” styling only.
-
-- **Every provider can enumerate its live models (OpenRouter, OpenAI, Groq, â€¦).**
-  Previously only local servers + routers (Ollama/LM Studio/OpenRouter) offered
-  "Discover installed models"; a hosted API showed only its declared sample, so
-  you could not pull e.g. OpenRouter's catalog. Fixes: `ProviderSpec.dynamic_discovery`
-  is now true for OpenAI, Anthropic, Gemini, Mistral, Groq, DeepSeek, xAI,
-  Together, Perplexity, Fireworks; the probe is protocol-generic
-  (`python/harness/model_runtime/providers/openai.py` `probe_openai_models` =
-  `GET {base}/models` with a `Bearer` key for every OpenAI-protocol family;
-  `AnthropicAdapter`/`GoogleAdapter` override `discover_models` for their own
-  list shapes); and the Next discover route now resolves the provider key
-  server-side from the env/vault (`resolveProviderKey`) with a preset base-URL
-  fallback, since the browser never holds it â€” so a private endpoint that would
-  401 keyless now enumerates. Discovered ids are cached in the durable snapshot
-  added earlier. Tests: `python/tests/test_model_runtime.py` (catalog flags +
-  adapter probes + parser). `npx tsc --noEmit` clean; vitest 2093 passed;
-  Python model-runtime 71 passed. docs updated: `docs/ARCHITECTURE.md`,
-  `docs/NAVIGATION.md`.
-
-- **Model lists are now curated via a "Manage models" dialog (no more flooded
-  dropdowns).** A provider can enumerate hundreds of models (OpenRouter: 466),
-  which is unusable in a picker. Discovery now opens a searchable,
-  checkbox enable/disable dialog (`src/components/screens/manage-models-dialog.tsx`)
-  showing the full catalog; the enabled subset is what the compact pickers show,
-  persisted per provider in `src/lib/agent/enabled-models.ts` (`be_enabled_models_v1`,
-  shared zustand store + pure `compactModels()` with `MODEL_LIST_SOFT_LIMIT`=40).
-  Both Settings â†’ AI (`model-picker.tsx`) and the chat composer
-  (`chat-input.tsx` `ModelSelector`) gained a "Manage" affordance and render the
-  same dialog, so curation is reflected everywhere. It is a client-side filter,
-  never an allowlist (the runtime accepts any id; "Custom model idâ€¦" still
-  works). `npx tsc --noEmit` clean; vitest 2112 passed (incl.
-  `enabled-models.test.ts`). docs updated: `docs/ARCHITECTURE.md`,
-  `docs/NAVIGATION.md`.

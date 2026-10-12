@@ -69,6 +69,19 @@ describe('block rendering', () => {
     expect(out).toContain('2 rows');
   });
 
+  it('renders inline Markdown in table cells and headers (bold is never literal)', () => {
+    const out = html(
+      <DataTableBlock
+        columns={[{ key: 'a', label: '**Asset**' }]}
+        rows={[{ a: '**BTC** with *risk*' }]}
+      />,
+    );
+    expect(out).toContain('<strong');
+    expect(out).toContain('<em');
+    expect(out).not.toContain('**BTC**');
+    expect(out).not.toContain('**Asset**');
+  });
+
   it('renders a layered diagram with its nodes and an edge path', () => {
     const out = html(
       <DiagramBlock

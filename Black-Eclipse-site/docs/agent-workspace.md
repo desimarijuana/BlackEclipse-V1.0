@@ -1,7 +1,7 @@
 ---
 title: Agent Workspace — Execution Observability
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-12
 ---
 
 # Agent Workspace — Execution Observability
@@ -43,7 +43,7 @@ a tool-heavy run readable.
 | Context-usage math (pure) | `src/lib/agent-workspace/context-usage.ts` |
 | Reopen a past chat → load its last run | `src/lib/agent-workspace/restore.ts` |
 | UI (docked sidebar + 5 panels + Viewer) | `src/components/agent-workspace/**` |
-| Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />`, a sibling of the main column) + top-bar toggle + `workspace-keybind.tsx` (mounted in `app/layout.tsx`) |
+| Mount point | `src/components/screens/stock-chat.tsx` (`<AgentWorkspace />` — or, in Bots mode, `<BotSchedulerDock />` — a sibling of the main column) + top-bar toggle + `workspace-keybind.tsx` (mounted in `app/layout.tsx`) |
 
 ## It is a docked right sidebar
 
@@ -78,6 +78,11 @@ under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
   frosted-glass edge is the separation.
 - On narrow screens it becomes a full-width strip below the content (never an
   overlay).
+- **Bots mode swaps the dock's content to the scheduler.** On the Bots tab the
+  right dock renders `src/components/bots/scheduler-dock.tsx` (hosting
+  `scheduled-jobs-panel.tsx`) instead of the run observability panels. It shares
+  the SAME `useWorkspaceStore.open` state, so the left-sidebar **Open scheduler**
+  button, the top-bar toggle and **Ctrl/Cmd + Shift + E** are all one control.
 - Its store uses its own persistence keys
   (`black-eclipse:workspace-{open,panel,width}`) — never the `be_sidebar_*` keys
   or the `--sidebar-*` CSS tokens.

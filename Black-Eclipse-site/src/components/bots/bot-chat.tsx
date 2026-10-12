@@ -17,7 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
 import { BreakerPill, LifecyclePill } from '@/components/bots/status-pill';
 import {
@@ -188,7 +188,7 @@ export function BotChat({
           title={t('bots.customize')}
           className="shrink-0 rounded-2xl transition-transform hover:scale-105"
         >
-          <GhostAvatar spec={spec} size={52} title={bot.name} />
+          <BotAvatar botId={bot.id} spec={spec} size={52} title={bot.name} />
         </button>
 
         <div className="min-w-0 flex-1">
@@ -313,7 +313,7 @@ export function BotChat({
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5">
         {messages.length === 0 && (
           <div className="mx-auto max-w-md py-8 text-center">
-            <GhostAvatar spec={spec} size={64} className="mx-auto" />
+            <BotAvatar botId={bot.id} spec={spec} size={64} className="mx-auto" />
             <p className="mt-3 text-sm font-medium">{bot.name}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {instructions || t('bots.emptyBody')}
@@ -327,7 +327,7 @@ export function BotChat({
         )}
 
         {messages.map((m) => (
-          <ChatBubble key={m.id} message={m} botName={bot.name} spec={spec} />
+          <ChatBubble key={m.id} message={m} botId={bot.id} botName={bot.name} spec={spec} />
         ))}
 
         {sending && (
@@ -409,17 +409,19 @@ function SuggestionChip({ label, onPick }: { label: string; onPick: (v: string) 
 
 function ChatBubble({
   message,
+  botId,
   botName,
   spec,
 }: {
   message: BotMessage;
+  botId: string;
   botName: string;
   spec: import('@/lib/bots/ghost').GhostSpec;
 }) {
   const isUser = message.role === 'user';
   return (
     <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
-      {!isUser && <GhostAvatar spec={spec} size={28} className="mt-0.5 shrink-0" />}
+      {!isUser && <BotAvatar botId={botId} spec={spec} size={28} className="mt-0.5 shrink-0" />}
       <div
         className={cn(
           'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm',

@@ -50,6 +50,79 @@ describe('response block aliases', () => {
   });
 });
 
+describe('producer field-name synonyms are normalized (not dropped)', () => {
+  it('accepts `content` for the prose body of markdown/callout/details/mermaid', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'markdown', content: 'PROSE' },
+        { type: 'callout', variant: 'warning', title: 'Heads up', content: 'CAREFUL' },
+        { type: 'details', summary: 'More', content: 'HIDDEN' },
+        { type: 'mermaid', content: 'flowchart LR\n A-->B' },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const [md, callout, details, mermaid] = parsed.blocks;
+    expect(md.type).toBe('markdown');
+    if (md.type === 'markdown') expect(md.markdown).toBe('PROSE');
+    expect(callout.type).toBe('callout');
+    if (callout.type === 'callout') expect(callout.tone).toBe('warning');
+    expect(details.type).toBe('details');
+    if (details.type === 'details') expect(details.markdown).toBe('HIDDEN');
+    expect(mermaid.type).toBe('mermaid');
+    if (mermaid.type === 'mermaid') expect(mermaid.diagram).toContain('flowchart');
+  });
+
+  it('accepts `items` for citations and `name` for the source title', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'citations', items: [{ name: 'WFE release', url: 'https://example.com/a' }] }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('citations');
+    if (block.type === 'citations') expect(block.sources[0].title).toBe('WFE release');
+    expect(parsed.diagnostics).toHaveLength(0);
+  });
+
+  it('accepts string table columns and positional array rows', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'data_table',
+          columns: ['Region', 'Growth'],
+          rows: [
+            ['Americas', '+20.3%'],
+            ['EMEA', '+4.4%'],
+          ],
+        },
+      ],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('data_table');
+    if (block.type === 'data_table') {
+      expect(block.columns.map((c) => c.label)).toEqual(['Region', 'Growth']);
+      expect(block.rows[0][block.columns[0].key]).toBe('Americas');
+      expect(block.rows[1][block.columns[1].key]).toBe('+4.4%');
+    }
+  });
+
+  it('maps a yearly `financial_chart` timeframe onto a supported one', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'financial_chart', symbol: 'NVDA', market: 'US', timeframe: '1Y' }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('financial_chart');
+    if (block.type === 'financial_chart') expect(block.timeframe).toBe('1M');
+  });
+
+  it('preserves a metric card `note` as its `hint`', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'metric_grid', metrics: [{ label: 'Cap', value: '1.2tr', note: 'WFE' }] }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('metric_grid');
+    if (block.type === 'metric_grid') expect(block.metrics[0].hint).toBe('WFE');
+  });
+});
+
 describe('new rich blocks', () => {
   it('validates a stepper and defaults step status', () => {
     const parsed = parseResponsePayload({

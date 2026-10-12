@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { destinationToHref } from '@/lib/search/deep-link';
@@ -9,6 +9,12 @@ import { useT, navLabelKey } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
 import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import type { ChatOrganizationApi, Conversation } from '@/lib/chat/chat-organization';
 
 // The conversation + folder shapes live in `lib/chat/chat-organization` (alongside
@@ -85,6 +91,8 @@ export function Sidebar({
   const sidebarConfig = useSidebarConfigStore((s) => s.config);
   const navMode = useSidebarConfigStore((s) => s.mode);
   const setNavMode = useSidebarConfigStore((s) => s.setMode);
+  const activeMode = NAV_MODES.find((m) => m.id === navMode) ?? NAV_MODES[0];
+  const ActiveModeIcon = activeMode.icon;
   const cfgMap = configMap(sidebarConfig);
   const navItems = sidebarConfig.sections
     .filter((s) => cfgMap.get(s.id)?.enabled !== false)
@@ -184,44 +192,51 @@ export function Sidebar({
         isCollapsed ? 'items-center' : ''
       }`}>
 
-        {/* Top-level mode switcher: Terminal (market tools) vs Agentic
-            (chat, skills, memory). ChatBot appears in both. Hidden while the
-            sidebar is collapsed — there is no room for labels and the menu
-            already collapses to icons only. */}
+        {/* Top-level mode switcher: Terminal (market tools), Agentic (chat,
+            skills, memory) or Bots. A glass dropdown keeps the three top-level
+            menus in one place without crowding the sidebar with a tab strip.
+            Hidden while the sidebar is collapsed — there is no room for labels
+            and the menu already collapses to icons only. */}
         {!isCollapsed && (
-          <div
-            role="tablist"
-            aria-label={t('sidebar.modeSwitcher')}
-            className="shrink-0 grid grid-cols-3 gap-1 rounded-2xl glass-card-subtle p-1 w-full"
-          >
-            {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
-              const isActive = navMode === id;
-              const label = t(labelKey);
-              return (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
                 <button
-                  key={id}
-                  role="tab"
-                  aria-selected={isActive}
-                  data-sound="tick"
-                  onClick={() => {
-                    // Bots is its own mode; also open the workspace so the panel
-                    // and the page never disagree.
-                    setNavMode(id);
-                    if (id === 'bots') onChangeTab('bots');
-                  }}
-                  title={label}
-                  className={`flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-bold transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-white/[0.08] text-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <Icon size={13} className="shrink-0" />
-                  <span className="whitespace-nowrap">{label}</span>
-                </button>
-              );
-            })}
-          </div>
+                  type="button"
+                  aria-label={t('sidebar.modeSwitcher')}
+                  title={t('sidebar.modeSwitcher')}
+                  className="shrink-0 flex w-full items-center justify-between gap-2 rounded-2xl glass-card-subtle px-3 py-2 text-xs font-bold text-foreground transition-colors hover:bg-white/[0.04] cursor-pointer"
+                />
+              }
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <ActiveModeIcon size={14} className="shrink-0" />
+                <span className="truncate">{t(activeMode.labelKey)}</span>
+              </span>
+              <ChevronDown size={14} className="shrink-0 opacity-70" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-(--anchor-width)">
+              {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
+                const isActive = navMode === id;
+                return (
+                  <DropdownMenuItem
+                    key={id}
+                    onClick={() => {
+                      // Bots is its own mode; also open the workspace so the
+                      // panel and the page never disagree.
+                      setNavMode(id);
+                      if (id === 'bots') onChangeTab('bots');
+                    }}
+                    className="gap-2"
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="flex-1">{t(labelKey)}</span>
+                    {isActive && <Check size={13} className="shrink-0 opacity-70" />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
 
         {/* Chat History Panel on Top of the menu list */}

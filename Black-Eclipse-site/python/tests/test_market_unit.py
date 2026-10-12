@@ -82,6 +82,21 @@ def test_provider_symbols_from_bridge_payload():
     assert inst.provider_symbols["coingecko"] == "btc"
 
 
+def test_asset_type_from_security_type_without_asset_class():
+    # Most JDdS equity rows store assetClass = null and only a securityType;
+    # a known security type must never classify as "unknown" (that left US
+    # equities with no provider route: "no provider supports 'quote' for unknown").
+    from harness.market.instruments import _asset_type_from
+
+    assert _asset_type_from("", "Stock") == "equity"
+    assert _asset_type_from("", "Common Stock") == "equity"
+    assert _asset_type_from("Equity", None) == "equity"
+    assert _asset_type_from("", "ETF") == "etf"
+    assert _asset_type_from("", "Mutual Fund") == "fund"
+    # Genuinely unclassified: no asset class AND no security type.
+    assert _asset_type_from("", None) == "unknown"
+
+
 # ── Quality ─────────────────────────────────────────────────────────────────
 
 def test_quote_quality_flags_negative_and_crossed():

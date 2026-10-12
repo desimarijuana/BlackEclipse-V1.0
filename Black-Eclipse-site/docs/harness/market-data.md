@@ -1,7 +1,7 @@
 ---
 title: Market Data Layer
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-12
 ---
 
 # Market Data Layer
@@ -107,6 +107,17 @@ breaker is `mcp/circuit.CircuitBreaker` (reused verbatim). The gateway tries up
 to `HARNESS_MARKET_MAX_PROVIDERS` providers in order; a provider-level failure
 falls through to the next. Health counters are mirrored to
 `MarketProviderHealth`.
+
+Because routing is keyed on asset class, the asset class the identity carries is
+**load-bearing**: a null/`unknown` asset class yields no provider order at all
+and surfaces as `no provider supports '<capability>' for unknown`. The bridge's
+`market_snapshot` therefore returns the RESOLVED coarse asset class
+(`identity.assetClass`, derived from `securityType`/`assetClass` via
+`toAssetClass`), never the raw vault column — most JDdS equity rows store
+`assetClass = null` with only a `securityType` (e.g. `"Stock"`). The Python
+`_asset_type_from` fallback mirrors this: a recognised non-empty `securityType`
+with no asset class classifies as that type (or `equity`), and only a fully
+unclassified request (no asset class AND no security type) is `unknown`.
 
 Errors use the closed vocabulary in `errors.py`
 (`PROVIDER_UNAVAILABLE`, `RATE_LIMITED`, `AUTHENTICATION_FAILED`,

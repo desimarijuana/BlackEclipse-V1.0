@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TerminalDock } from '@/components/terminal/terminal-dock';
 import { AgentWorkspace } from '@/components/agent-workspace/workspace';
-import { useTerminalShell } from '@/hooks/use-terminal-shell';
+import { BotSchedulerDock } from '@/components/bots/scheduler-dock';import { useTerminalShell } from '@/hooks/use-terminal-shell';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
@@ -1231,9 +1231,7 @@ function StockChatContent() {
 
           {visited.has('bots') && (
             <div className={cn('w-full h-full', activeTab === 'bots' ? '' : 'hidden')}>
-              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
-                <BotsScreen />
-              </div>
+              <BotsScreen />
             </div>
           )}
 
@@ -1321,7 +1319,9 @@ function StockChatContent() {
         {/* Close the main column, then place the right dock as a SIBLING column
             in the row, so the main panel shrinks instead of being overlapped. */}
         </div>
-        <AgentWorkspace />
+        {/* The right-docked column: the execution Agent Workspace everywhere,
+            except in Bots mode where it carries the scheduled-jobs scheduler. */}
+        {activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace />}
         <TerminalDock slot="right" />
       </div>
 

@@ -48,7 +48,7 @@ interface MarkdownProps {
 }
 
 
-function renderInline(nodes: InlineNode[]): ReactNode[] {
+export function renderInline(nodes: InlineNode[]): ReactNode[] {
   return nodes.map((node, i) => {
     switch (node.type) {
       case 'text': {
@@ -245,7 +245,7 @@ function Block({
                   {block.header.map((cell, ci) => (
                     <th
                       key={ci}
-                      className="whitespace-nowrap border-b border-white/15 px-3 pb-2 pt-3 text-[1.05em] font-medium tracking-tight text-foreground dark:border-white/15"
+                      className="border-b border-white/15 px-3 pb-2 pt-3 text-[1.05em] font-medium tracking-tight text-foreground dark:border-white/15"
                       style={{ textAlign: block.align[ci] ?? undefined }}
                     >
                       {renderInline(cell)}
@@ -266,7 +266,7 @@ function Block({
                         <td
                           key={ci}
                           className={cn(
-                            'whitespace-nowrap px-3 py-2.5 align-top',
+                            'px-3 py-2.5 align-top break-words',
                             negative ? 'text-rose-400/90' : 'text-foreground/80',
                             numeric && 'tabular-nums',
                           )}

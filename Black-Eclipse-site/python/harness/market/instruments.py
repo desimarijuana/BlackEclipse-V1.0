@@ -356,11 +356,29 @@ def _asset_type_from(asset_class: str, security_type: Optional[str]) -> AssetTyp
     st = (security_type or "").lower()
     if "etf" in st:
         return "etf"
-    if "bond" in st or "note" in st:
+    if "bond" in st or "note" in st or "debt" in st:
         return "bond"
     if "option" in st:
         return "option"
-    return "equity" if ac else "unknown"
+    if "future" in st:
+        return "future"
+    if "crypto" in st or "token" in st or "coin" in st:
+        return "crypto"
+    if "fund" in st or "reit" in st or "trust" in st:
+        return "fund"
+    if "index" in st:
+        return "index"
+    if "currency" in st or "forex" in st:
+        return "fx"
+    # A non-empty security type in the vault's equity/fund universe that matched
+    # nothing above is an equity (e.g. "Stock", "Common Stock", "ADR"). Only an
+    # entirely unclassified request — no asset class AND no security type — is
+    # genuinely "unknown"; returning "unknown" for a known security type left
+    # US equity rows (assetClass null + securityType "Stock") with no provider
+    # route, surfacing as "no provider supports 'quote' for unknown".
+    if st or ac:
+        return "equity"
+    return "unknown"
 
 
 __all__ = [
