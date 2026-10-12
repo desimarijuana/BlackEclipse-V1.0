@@ -46,6 +46,12 @@ from .envelope import (
     from_dict,
     load_envelope,
 )
+from .execution import (
+    RunRecovery,
+    TaskRunFailed,
+    classify_run_exception,
+    run_with_recovery,
+)
 from .executor import RecoveryRunResult, recover_operation
 from .learning import incident_to_candidate, promote_incidents
 from .operations import OperationLedger
@@ -97,10 +103,13 @@ __all__ = [
     "RecurrenceTracker",
     "RecurrenceVerdict",
     "Retryability",
+    "RunRecovery",
+    "TaskRunFailed",
     "acquisition_plan",
     "budget_from_env",
     "build_default_index",
     "classify",
+    "classify_run_exception",
     "compensate_pending",
     "default_envelope",
     "failure_signature",
@@ -112,6 +121,7 @@ __all__ = [
     "promote_incidents",
     "recover_operation",
     "recovery_enabled",
+    "run_with_recovery",
     "register_default_probes",
     "reject_reason",
     "ReproducerRegistry",

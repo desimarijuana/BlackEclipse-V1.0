@@ -19,6 +19,19 @@ from typing import Any
 
 from ..persistence import now_iso
 from ..schemas import ModelSettings, RunInput, RunRequest
+
+# The recovery wiring is optional: if the recovery package cannot be imported in a
+# degraded environment, the task layer must still work. A guarded import means a
+# recovery problem degrades to the pre-recovery single-attempt behavior, never to
+# a disabled task layer.
+try:  # noqa: SIM105 - explicit fallback is clearer than contextlib here
+    from ..recovery.execution import TaskRunFailed, run_with_recovery
+
+    _RECOVERY_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    TaskRunFailed = None  # type: ignore[assignment]
+    run_with_recovery = None  # type: ignore[assignment]
+    _RECOVERY_AVAILABLE = False
 from .context import TaskContext, render_task_query
 from .manager import TaskManager
 from .model import Plan, Task
@@ -127,44 +140,130 @@ def _extract_artifacts(result: dict[str, Any], service: Any = None) -> list[dict
     return out
 
 
+def _dump(result: Any) -> dict[str, Any]:
+    return result.model_dump() if hasattr(result, "model_dump") else dict(result)
+
+
+def _outcome_from_dump(
+    dumped: dict[str, Any], base_run_id: str, service: Any
+) -> TaskRunOutcome:
+    """Build the honest task-run outcome from a run result dump."""
+    status = str(dumped.get("status") or "failed")
+    error = dumped.get("error")
+    return TaskRunOutcome(
+        status="completed" if status == "completed" else status,
+        output=str(dumped.get("output") or ""),
+        error=(error.get("message") if isinstance(error, dict) else None) or "",
+        error_class=(error.get("code") if isinstance(error, dict) else None) or "",
+        run_id=str(dumped.get("runId") or base_run_id),
+        artifacts=_extract_artifacts(dumped, service),
+        metrics={
+            "modelSteps": dumped.get("modelSteps", 0),
+            "toolCalls": dumped.get("toolCalls", 0),
+            "toolErrors": dumped.get("toolErrors", 0),
+            "totalTokens": dumped.get("totalTokens", 0),
+        },
+    )
+
+
+def _recovery_metrics(recovery: Any) -> dict[str, Any]:
+    """The recovery trail attached to a task-run outcome (observability)."""
+    if recovery is None:
+        return {}
+    out: dict[str, Any] = {
+        "recoveryAttempts": getattr(recovery, "attempts", None),
+        "recoveryIncidentId": getattr(recovery, "incident_id", None),
+    }
+    stopped = getattr(recovery, "stopped_reason", None)
+    if stopped:
+        out["recoveryStoppedReason"] = stopped
+    decision = getattr(recovery, "decision", None)
+    if isinstance(decision, dict):
+        out["recoveryStrategy"] = decision.get("strategy")
+    return out
+
+
 def build_task_executor(service: Any, manager: TaskManager):
-    """The production executor: dispatch one task through `service.run`."""
+    """The production executor: dispatch one task through `service.run`.
+
+    The run is driven THROUGH the bounded recovery executor (`recovery.execution`)
+    when the recovery engine is installed, so a transient run failure is
+    classified, diagnosed and retried with the controller's backoff before the
+    scheduler's own retry policy applies, and every failure carries a durable
+    incident id. With the engine absent or disabled, the run is attempted once,
+    exactly as before — the pre-recovery behavior is preserved.
+    """
+    recovery_service = getattr(service, "recovery", None)
 
     async def executor(task: Task, context: TaskContext, run_id: str) -> TaskRunOutcome:
         settings = _task_model_settings(manager, task)
         agent_id = task.assigned_agent_id or _plan_agent(manager, task)
-        request = RunRequest(
-            runId=run_id,
-            input=RunInput(
-                query=render_task_query(context)[:4000],
-                context={
-                    "source": "task-scheduler", "taskId": task.id,
-                    "planId": task.plan_id, "taskTitle": task.title,
-                },
-            ),
-            agentId=agent_id,
-            modelSettings=settings,
-            callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
-            callbackToken=os.environ.get("HARNESS_CALLBACK_TOKEN") or None,
-        )
-        result = await service.run(request)
-        dumped = result.model_dump() if hasattr(result, "model_dump") else dict(result)
-        status = str(dumped.get("status") or "failed")
-        error = dumped.get("error")
-        return TaskRunOutcome(
-            status="completed" if status == "completed" else status,
-            output=str(dumped.get("output") or ""),
-            error=(error.get("message") if isinstance(error, dict) else None) or "",
-            error_class=(error.get("code") if isinstance(error, dict) else None) or "",
-            run_id=str(dumped.get("runId") or run_id),
-            artifacts=_extract_artifacts(dumped, service),
-            metrics={
-                "modelSteps": dumped.get("modelSteps", 0),
-                "toolCalls": dumped.get("toolCalls", 0),
-                "toolErrors": dumped.get("toolErrors", 0),
-                "totalTokens": dumped.get("totalTokens", 0),
-            },
-        )
+
+        def build_request(attempt: int, attempt_run_id: str) -> RunRequest:
+            return RunRequest(
+                runId=attempt_run_id or run_id,
+                input=RunInput(
+                    query=render_task_query(context)[:4000],
+                    context={
+                        "source": "task-scheduler", "taskId": task.id,
+                        "planId": task.plan_id, "taskTitle": task.title,
+                        "taskAttempt": attempt,
+                    },
+                ),
+                agentId=agent_id,
+                modelSettings=settings,
+                callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
+                callbackToken=os.environ.get("HARNESS_CALLBACK_TOKEN") or None,
+            )
+
+        # Pre-recovery behavior: one attempt, the run's own outcome reported as-is.
+        if not _RECOVERY_AVAILABLE or recovery_service is None:
+            dumped = _dump(await service.run(build_request(1, run_id)))
+            return _outcome_from_dump(dumped, run_id, service)
+
+        last: dict[str, Any] = {"dumped": {}, "code": "TASK_RUN_FAILED", "message": ""}
+
+        async def run_once(attempt: int, attempt_run_id: str) -> dict[str, Any]:
+            dumped = _dump(await service.run(build_request(attempt, attempt_run_id)))
+            status = str(dumped.get("status") or "failed")
+            if status != "completed":
+                error = dumped.get("error")
+                code = (error.get("code") if isinstance(error, dict) else None) or "RUN_FAILED"
+                message = (error.get("message") if isinstance(error, dict) else None) or ""
+                last.update({"dumped": dumped, "code": str(code), "message": str(message)})
+                raise TaskRunFailed(str(code), str(message), result=dumped)
+            last["dumped"] = dumped
+            return dumped
+
+        try:
+            recovery = await run_with_recovery(
+                recovery_service,
+                run_once,
+                base_run_id=run_id,
+                task_id=task.id,
+                details={"taskId": task.id, "planId": task.plan_id, "agentId": agent_id},
+            )
+        except TaskRunFailed as exc:
+            dumped = exc.result if isinstance(exc.result, dict) else {}
+            outcome = _outcome_from_dump(dumped, run_id, service)
+            outcome.status = "failed"
+            outcome.error = exc.message or outcome.error
+            outcome.error_class = exc.code or outcome.error_class
+            return outcome
+
+        if not recovery.ok:
+            outcome = _outcome_from_dump(last["dumped"], run_id, service)
+            outcome.status = "failed"
+            if last["code"]:
+                outcome.error_class = last["code"]
+            if last["message"]:
+                outcome.error = last["message"]
+            outcome.metrics.update(_recovery_metrics(recovery))
+            return outcome
+
+        outcome = _outcome_from_dump(recovery.value, run_id, service)
+        outcome.metrics.update(_recovery_metrics(recovery))
+        return outcome
 
     return executor
 

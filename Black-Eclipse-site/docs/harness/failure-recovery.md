@@ -1,7 +1,7 @@
 ---
 title: Failure Intelligence & Adaptive Recovery
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-12
 ---
 
 # Failure Intelligence & Adaptive Recovery
@@ -31,6 +31,7 @@ no shared identity.
 | Decision controller | `python/harness/recovery/controller.py` | `RecoveryController.decide()` → `RecoveryDecision` (`recover`/`suspend`/`stop`), bounded backoff. PURE. |
 | Root-cause diagnosis | `python/harness/recovery/diagnosis.py` | `DiagnosisEngine.diagnose()` → evidence-ranked `Hypothesis`es + `Diagnosis` (`selected` only when decisive). PURE + optional `Probe`s. |
 | Automatic execution | `python/harness/recovery/executor.py` | `recover_operation(service, op, verify=…)` — a bounded async retry/verify loop driving the controller and recording real outcomes; strategy handlers for repair-type strategies. |
+| **Production run wiring** | `python/harness/recovery/execution.py` | `run_with_recovery(service, run_once, …)` — drives a production run THROUGH the bounded loop (classify → diagnose → retry → record). `tasks/bootstrap.build_task_executor` uses it, so a task run is *actively recovered*, not merely observed after the fact. Absent/disabled engine → one attempt, unchanged. Per-attempt run ids; the recovery trail (`recoveryIncidentId`/`recoveryAttempts`/`recoveryStrategy`) rides the task execution metrics. |
 | **Autonomy envelope** | `python/harness/recovery/envelope.py` | `AutonomyEnvelope` — pre-committed, scoped, expiring permission by action class + risk/reversibility/cost/files/network caps; kill switch `HARNESS_AUTONOMY=0`. Durable (migration 29 `AutonomyEnvelope`). The executor acts unattended ONLY inside it. |
 | **Compensation** | `python/harness/recovery/compensation.py` | `compensate_pending()` — runs registered compensation handlers for pending operations, envelope-gated (`COMPENSATE`). |
 | **Auto-reproduction** | `python/harness/recovery/reproduction.py` | `ReproducerRegistry` + `reproduce()` — runs a caller-registered reproducer per failure kind under a hard timeout; a successful reproduction makes the diagnosis decisive and is recorded as evidence. |
@@ -119,15 +120,22 @@ cause at once. An action outside the envelope is returned to the caller as
   runtime itself is single-process async, so writes are effectively serialized.
 - **CI.** `.github/workflows/ci.yml` runs typecheck → lint → vitest + Python → eval
   gates on `ubuntu-latest` for every push/PR.
-- **What full autonomy still needs.** Wiring the install/build *acquisition* rungs
-  and the *delegation* roles into the executor — both are large subsystem
-  integrations. The envelope, executor, ledger and approval path are already the
-  safe sockets for them.
+- **What full autonomy still needs.** The executor is now driven by the production
+  task executor (a failing task run is classified, diagnosed and retried with
+  backoff before the scheduler's own retry policy applies, and every failure
+  carries a durable incident id — `recovery/execution.py`). What remains is wiring
+  the install/build *acquisition* rungs and the *delegation* roles into the
+  executor — both are large subsystem integrations. The envelope, executor, ledger
+  and approval path are already the safe sockets for them; an unhandled repair
+  strategy is returned to the caller as `strategy_requires_caller`.
 
 ## Tests
 
 `python/tests/test_recovery_{taxonomy,signature,policy,store,integration,api,diagnosis,executor,discovery,learning,envelope,probes,operations,compensation,reproduction,safety,concurrency}.py`
-— 115 cases: classification/signature purity, recurrence, strategy selection and
+plus `test_recovery_task_execution.py` (the production run wiring: transient
+fail-2-then-succeed, auth never retried, budget exhaustion partial, verification
+failure, caller-handback for a repair strategy, and the disabled/absent-engine
+no-op) — 134 cases: classification/signature purity, recurrence, strategy selection and
 reject rules, controller bounds/backoff, durable upsert + attempts + summary +
 diagnosis, root-cause ranking, the bounded executor (retry/verify/suspend/
 envelope-gated handler/lease/approval), the autonomy envelope (kill switch/expiry/
@@ -147,7 +155,9 @@ auto-reproduce under a timeout to make a diagnosis decisive, bound-and-retry wit
 backoff, verify before claiming success, run approved repair handlers with
 idempotency + per-signature leasing, compensate recorded side effects, discover
 existing capabilities, persist the envelope and incidents, and turn validated
-repairs into inert skill candidates.
+repairs into inert skill candidates. A production task run is now **driven through
+this loop** (`recovery/execution.py`), so a transient run failure is actively
+recovered with a recorded reason and backoff rather than only observed.
 
 **Cannot yet (noted, not hidden):** auto-acquire a *missing* capability (the plan is
 approval-flagged; the install/build rungs are not wired); auto-promote a skill

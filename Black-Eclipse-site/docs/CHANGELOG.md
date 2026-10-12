@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-12
 
+- **Task runs are now actively recovered, not merely observed.** Added
+  `python/harness/recovery/execution.py` (`run_with_recovery` / `TaskRunFailed` /
+  `classify_run_exception`), which drives a production run THROUGH the existing
+  bounded recovery executor (`recover_operation`): a transient run failure is
+  classified by the shared taxonomy, diagnosed, retried with the controller's
+  backoff, and recorded as a durable incident before the scheduler's own retry
+  policy applies. Wired into the ONE production seam
+  (`tasks/bootstrap.build_task_executor`); each attempt gets a distinct run id, and
+  the recovery trail rides the task execution metrics. A repair strategy with no
+  caller handler is handed back as `strategy_requires_caller` (never invented). With
+  the engine absent or `HARNESS_RECOVERY_ENABLED=0`, behavior is exactly as before:
+  one attempt, exception propagates. The recovery import is guarded, so a degraded
+  environment degrades to the single-attempt path rather than disabling the task
+  layer. New tests
+  `python/tests/test_recovery_task_execution.py` (10 cases: transient retry,
+  auth no-retry, budget partial, verification failure, caller-handback, disabled
+  no-op, production-executor integration). Checks: `pytest` recovery+tasks suites
+  224 passed. docs updated: `docs/harness/failure-recovery.md`, `docs/CHANGELOG.md`.
+
 - **Bots scheduler is now the right-docked Agent Workspace slot; page is pure chat.**
   In Bots mode the right dock renders a new `components/bots/scheduler-dock.tsx`
   (hosting `scheduled-jobs-panel.tsx`) instead of the run observability panels; it
