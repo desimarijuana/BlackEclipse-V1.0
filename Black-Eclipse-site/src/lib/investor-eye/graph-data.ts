@@ -204,6 +204,23 @@ export async function persistEdges(edges: RelationshipEdge[]): Promise<{ written
  */
 export async function persistEventEntities(events: NormalizedEvent[]): Promise<{ written: number }> {
   let written = 0;
+
+  // Pre-load the existing (eventId, kind, entityId) keys in ONE query instead of
+  // a findFirst per ref. The old per-ref existence check measured ~50s for a
+  // window of ~800 events — thousands of round-trips that pinned the single
+  // Node event loop and froze every HTTP request during the graph rebuild.
+  const eventIds = events.map((e) => e.id).filter((id): id is string => Boolean(id));
+  const have = new Set<string>();
+  const CHUNK = 500;
+  for (let i = 0; i < eventIds.length; i += CHUNK) {
+    const chunk = eventIds.slice(i, i + CHUNK);
+    const existing = await prisma.eventEntity.findMany({
+      where: { eventId: { in: chunk } },
+      select: { eventId: true, kind: true, entityId: true },
+    });
+    for (const r of existing) have.add(`${r.eventId}|${r.kind}|${r.entityId}`);
+  }
+
   for (const e of events) {
     if (!e.id) continue; // must be a persisted row
     const refs: Array<{ kind: string; entityId: string; name: string; lon?: number; lat?: number }> = [];
@@ -217,14 +234,11 @@ export async function persistEventEntities(events: NormalizedEvent[]): Promise<{
     for (const security of e.securities) refs.push({ kind: 'security', entityId: security, name: security });
 
     for (const ref of refs) {
+      const key = `${e.id}|${ref.kind}|${ref.entityId}`;
+      if (have.has(key)) continue;
       try {
-        // Deterministic per (event, kind, entity) — delete-then-create keeps it
-        // idempotent without a dedicated unique constraint.
-        const existing = await prisma.eventEntity.findFirst({
-          where: { eventId: e.id, kind: ref.kind, entityId: ref.entityId },
-          select: { id: true },
-        });
-        if (existing) continue;
+        // Deterministic per (event, kind, entity) — the in-memory `have` set
+        // makes this idempotent without a dedicated unique constraint.
         await prisma.eventEntity.create({
           data: {
             eventId: e.id,
@@ -235,12 +249,13 @@ export async function persistEventEntities(events: NormalizedEvent[]): Promise<{
             lat: ref.lat,
           },
         });
+        have.add(key);
         written++;
       } catch (err) {
         console.warn('[investor-eye] persist event entity failed:', err instanceof Error ? err.message : err);
       }
+      if (written > 0 && written % 50 === 0) await yieldToEventLoop();
     }
-    if (written % 50 === 0) await yieldToEventLoop();
   }
   return { written };
 }

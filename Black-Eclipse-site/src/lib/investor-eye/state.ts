@@ -32,6 +32,11 @@ import type {
   NormalizedEvent, Provenance, SourceRunSummary, SourceStatus,
 } from './types';
 
+// The relationship-graph rebuild is best-effort derived data, so it runs in the
+// background and at most this often — never on the world-state response path.
+let lastGraphRebuildAt = 0;
+const GRAPH_REBUILD_MIN_INTERVAL_MS = 10 * 60 * 1000;
+
 /** Index universes — MUST match `/api/indices` so the market layer is the same
  *  data, not a second market system. Kept to capital-market countries. */
 const MARKET_INDEX: Record<string, { symbol: string; name: string }> = {
@@ -542,15 +547,24 @@ async function runAssembly(hours: number, options: AssembleOptions): Promise<Inv
     })();
 
     // Rebuild the relationship graph (spec §41). Best-effort — a graph failure
-    // must never break the world state. Company nodes come from the JDDS Asset
-    // universe via the Phase 2 builder.
-    try {
-      const { refreshGraph } = await import('./graph-data');
-      const { buildCompanies } = await import('./phase2');
-      const companies = await buildCompanies(120);
-      await refreshGraph({ events: windowEvents, countries, markets, companies });
-    } catch (err) {
-      console.warn('[investor-eye] graph rebuild skipped:', err instanceof Error ? err.message : err);
+    // must never break the world state. DELIBERATELY FIRE-AND-FORGET and
+    // throttled: building it does bulk synchronous SQLite writes that used to
+    // block the world-state response and starve every other HTTP request on the
+    // single Node event loop (the map said "loading" and the rest of the app
+    // timed out). The graph is derived data that appears on the next cycle.
+    if (Date.now() - lastGraphRebuildAt > GRAPH_REBUILD_MIN_INTERVAL_MS) {
+      lastGraphRebuildAt = Date.now();
+      void (async () => {
+        try {
+          const { refreshGraph } = await import('./graph-data');
+          const { buildCompanies } = await import('./phase2');
+          const companies = await buildCompanies(120);
+          const r = await refreshGraph({ events: windowEvents, countries, markets, companies });
+          console.log(`[investor-eye] graph rebuilt: ${r.edges} edges, ${r.entities} entities`);
+        } catch (err) {
+          console.warn('[investor-eye] graph rebuild skipped:', err instanceof Error ? err.message : err);
+        }
+      })();
     }
 
     // Provenance: events available if ANY source succeeded (even with zero

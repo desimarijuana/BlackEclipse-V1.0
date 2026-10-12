@@ -8,11 +8,16 @@
 // one-time install step.
 
 import { useEffect } from 'react';
-import { syncCoreCatalog } from '@/lib/harness/ui-sync';
 
 export function UiCatalogSync() {
   useEffect(() => {
-    void syncCoreCatalog();
+    // Lazy-load the sync so its dependency chain (the dashboard widget
+    // registry → full ECharts) stays OUT of the initial route bundle. A static
+    // import here pulled the entire ECharts library into the root `/` graph,
+    // defeating the code-splitting in stock-chat.tsx and inflating dev compile
+    // time and server memory. It is fire-and-forget, so loading it after mount
+    // is equivalent.
+    void import('@/lib/harness/ui-sync').then((m) => m.syncCoreCatalog());
   }, []);
   return null;
 }

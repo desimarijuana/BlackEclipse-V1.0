@@ -63,6 +63,21 @@ export function significantTokens(title: string): Set<string> {
   return new Set(tokens);
 }
 
+// Token sets are expensive (normalize + regex + split) and `clusterEvents` is
+// O(events × clusters), calling significantTokens on both sides of every
+// comparison. Without caching that was millions of redundant regex passes over
+// the same titles — measured at ~20s of 100% CPU, which blocked the single Node
+// event loop and made every HTTP request time out during an investor-eye
+// refresh. Memoize per event object so each title is tokenized once.
+const TOKEN_CACHE = new WeakMap<NormalizedEvent, Set<string>>();
+function tokensOf(e: NormalizedEvent): Set<string> {
+  const cached = TOKEN_CACHE.get(e);
+  if (cached) return cached;
+  const tokens = significantTokens(e.title);
+  TOKEN_CACHE.set(e, tokens);
+  return tokens;
+}
+
 /** Jaccard similarity of two token sets (0..1). */
 export function tokenSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
@@ -124,7 +139,7 @@ export function shouldCluster(existing: NormalizedEvent, candidate: NormalizedEv
       );
     }
     if (hoursBetween(existing.publishedAt, candidate.publishedAt) > CLUSTER_WINDOW_HOURS) return false;
-    const urlSim = tokenSimilarity(significantTokens(existing.title), significantTokens(candidate.title));
+    const urlSim = tokenSimilarity(tokensOf(existing), tokensOf(candidate));
     return shareCountry(existing.countries, candidate.countries)
       ? urlSim >= SAME_COUNTRY_SIMILARITY_THRESHOLD
       : urlSim >= TITLE_SIMILARITY_THRESHOLD;
@@ -141,7 +156,7 @@ export function shouldCluster(existing: NormalizedEvent, candidate: NormalizedEv
 
   // 3. Fuzzy (articles with no URL).
   if (hoursBetween(existing.publishedAt, candidate.publishedAt) > CLUSTER_WINDOW_HOURS) return false;
-  const sim = tokenSimilarity(significantTokens(existing.title), significantTokens(candidate.title));
+  const sim = tokenSimilarity(tokensOf(existing), tokensOf(candidate));
   if (sim >= TITLE_SIMILARITY_THRESHOLD) return true;
   const sameCountry = shareCountry(existing.countries, candidate.countries);
   return sameCountry && sim >= SAME_COUNTRY_SIMILARITY_THRESHOLD;
@@ -272,8 +287,8 @@ export function clusterEvents(events: NormalizedEvent[]): NormalizedEvent[] {
     for (let i = 0; i < clusters.length; i++) {
       if (!shouldCluster(clusters[i], event)) continue;
       const score = tokenSimilarity(
-        significantTokens(clusters[i].title),
-        significantTokens(event.title),
+        tokensOf(clusters[i]),
+        tokensOf(event),
       );
       if (score >= bestScore) {
         bestScore = score;

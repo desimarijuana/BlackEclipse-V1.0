@@ -8,6 +8,31 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-12
 
+- **The site no longer freezes / times out during startup or background
+  refreshes.** Root causes found and fixed, all in the single Node web process
+  (synchronous `better-sqlite3` writes block the event loop):
+  - `investor-eye/graph-data.ts` `persistEventEntities` did a `findFirst` per
+    entity reference — ~50 s for an ~800-event window. It now pre-loads the
+    existing `(eventId, kind, entityId)` keys in one (chunked) query: 50,400 ms →
+    231 ms; `refreshGraph` 51,273 ms → 1,214 ms.
+  - The relationship-graph rebuild is now **fire-and-forget and throttled**
+    (10 min) in `investor-eye/state.ts` instead of awaited on the world-state
+    path.
+  - `instrumentation.ts` now runs its boot pipeline **once per process** (Next
+    invokes `register()` more than once), and the `db-guard` `VACUUM INTO`
+    backup (hundreds of MB) runs **once per day** instead of on every boot — the
+    old code re-ran a 200 MB+ write storm at each startup.
+  - `scraper/price-scraper.ts` `seedUniverse` no longer aborts the whole seed on
+    a transient SQLite lock (P1008) and yields between writes.
+  - `cluster.ts` memoizes per-event title tokens, removing millions of redundant
+    regex passes in `clusterEvents`.
+  - `components/layout/ui-catalog-sync.tsx` lazy-loads its sync so the dashboard
+    widget registry + full ECharts stay out of the root `/` bundle.
+  Verified: production boot 0 request failures over 170 s (was ~20 s of timeouts
+  mid-boot); `npx tsc --noEmit` clean; `npm run test` all pass (2661 vitest +
+  python + eval gates). docs updated: `docs/investor-eye-architecture.md`,
+  `docs/CHANGELOG.md`.
+
 - **Task runs are now actively recovered, not merely observed.** Added
   `python/harness/recovery/execution.py` (`run_with_recovery` / `TaskRunFailed` /
   `classify_run_exception`), which drives a production run THROUGH the existing

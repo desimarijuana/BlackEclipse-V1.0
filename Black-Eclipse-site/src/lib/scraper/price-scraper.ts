@@ -38,18 +38,29 @@ export async function seedUniverse(markets: string[] = ["US", "CRYPTO"]) {
       },
     });
 
+    // Best-effort per symbol: a transient SQLite lock (Prisma P1008) on one
+    // row must not abort the entire seed. The seed is idempotent and runs on
+    // every boot and every scrape cycle, so a later pass heals any skips.
     for (const s of seed.symbols) {
-      await prisma.asset.upsert({
-        where: { marketId_symbol: { marketId: market.id, symbol: s.symbol } },
-        update: { name: s.name, sector: s.sector, industry: s.industry, isActive: true },
-        create: {
-          symbol: s.symbol,
-          name: s.name,
-          sector: s.sector,
-          industry: s.industry,
-          marketId: market.id,
-        },
-      });
+      try {
+        await prisma.asset.upsert({
+          where: { marketId_symbol: { marketId: market.id, symbol: s.symbol } },
+          update: { name: s.name, sector: s.sector, industry: s.industry, isActive: true },
+          create: {
+            symbol: s.symbol,
+            name: s.name,
+            sector: s.sector,
+            industry: s.industry,
+            marketId: market.id,
+          },
+        });
+      } catch (err) {
+        console.warn(`[seedUniverse] skipping ${market.id}:${s.symbol} — ${(err as Error).message}`);
+        break; // DB is busy; stop this market and let a later pass finish it.
+      }
+      // Let queued HTTP requests run between writes — seeding is a bulk,
+      // synchronous-SQLite write path that must never starve the web server.
+      if (seed.symbols.length > 40) await yieldToEventLoop();
     }
   }
 }

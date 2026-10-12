@@ -2,9 +2,22 @@
 // Starts the price_scraper scheduler and pre-warms every market's universe so
 // users get instant, fully-priced tables the moment they click a country.
 
+const globalForBoot = globalThis as unknown as { __beInstrumentationRan?: boolean };
+
 export async function register() {
   console.log("[startup] instrumentation register() running");
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Next.js can invoke register() more than once in the same process (the app
+    // server and the router worker both load instrumentation). Without this
+    // guard that meant TWO schedulers, TWO `seedUniverse` passes and two boot
+    // warm-ups all writing to the same SQLite file at once — the lock contention
+    // produced P1008 timeouts and starved the event loop for minutes, so page
+    // loads timed out during startup. Run the boot pipeline exactly once.
+    if (globalForBoot.__beInstrumentationRan) {
+      console.log("[startup] instrumentation already ran — skipping duplicate boot");
+      return;
+    }
+    globalForBoot.__beInstrumentationRan = true;
     // Deployment guard: this app is single-user local with no authentication or
     // tenancy isolation. Log the exposure assessment at boot so a public bind or
     // a missing CRON_SECRET is visible rather than silently mistaken as secure.
@@ -54,15 +67,36 @@ export async function register() {
       const { promisify } = await import("util");
       const execFileP = promisify(execFile);
       const path = await import("path");
+      const fs = await import("fs");
       const guardScript = path.join(process.cwd(), "scripts", "db-guard.js");
       // Set durability PRAGMAs on the live DB (idempotent, quick).
       void execFileP(process.execPath, [guardScript, "check"]).catch((err) =>
         console.error("[db-guard] durability check failed:", err?.message)
       );
-      // Rolling local backup once per day.
-      void execFileP(process.execPath, [guardScript, "backup"]).catch((err) =>
-        console.error("[db-guard] daily backup failed:", err?.message)
-      );
+      // Rolling local backup ONCE per day. The backup does `VACUUM INTO` on the
+      // whole DB (hundreds of MB); running it on every boot spawned a heavy
+      // 200 MB+ write storm at startup that contended for SQLite and starved
+      // the event loop while the first page loads were compiling. Skip unless
+      // the newest rolling backup is older than BACKUP_MIN_AGE_MS.
+      const BACKUP_MIN_AGE_MS = 20 * 60 * 60 * 1000;
+      const backupsDir = path.join(process.cwd(), "backups");
+      let backupDue = true;
+      try {
+        const stamps = fs
+          .readdirSync(backupsDir)
+          .filter((f) => /^jdds-.*\.db$/.test(f))
+          .map((f) => fs.statSync(path.join(backupsDir, f)).mtimeMs);
+        if (stamps.length > 0 && Date.now() - Math.max(...stamps) < BACKUP_MIN_AGE_MS) {
+          backupDue = false;
+        }
+      } catch {
+        // No backups dir yet → back up on this boot.
+      }
+      if (backupDue) {
+        void execFileP(process.execPath, [guardScript, "backup"]).catch((err) =>
+          console.error("[db-guard] daily backup failed:", err?.message)
+        );
+      }
     } catch (err) {
       console.error("[db-guard] failed to schedule:", err);
     }

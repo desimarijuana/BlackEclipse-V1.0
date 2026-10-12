@@ -1,7 +1,7 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-12
 ---
 
 # Investor Eye — Architecture & Audit
@@ -329,6 +329,12 @@ The deterministic foundation is extended — **no AI is required for any of it**
 - **2.10** — `graph-data.ts` derives edges from events (co-mention → OBSERVED),
   stored entity attributes (company→sector, company→country, country→market →
   OBSERVED) and persists them plus `EventEntity` rows during ingestion.
+  The rebuild is **fire-and-forget and throttled** (`state.ts`, once per 10 min)
+  and never runs on the world-state response path: awaiting it froze every HTTP
+  request on the single Node event loop. `persistEventEntities` also pre-loads
+  the existing `(eventId, kind, entityId)` keys in one query rather than a
+  `findFirst` per reference — the per-ref check measured ~50 s for an ~800-event
+  window and starved the loop.
   `graph.ts` aggregates edges into bounded nodes/links (per-kind caps keep the
   geopolitical structure readable). `GET /api/investor-eye/graph` serves it;
   `GraphPanel` renders it with an ECharts force layout where edge colour and
