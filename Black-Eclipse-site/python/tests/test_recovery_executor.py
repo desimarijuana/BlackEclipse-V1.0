@@ -174,6 +174,22 @@ def test_operator_approval_authorizes_a_one_off_action(tmp_path):
     assert handled["n"] == 1  # the approval let the handler run
 
 
+def test_operator_approval_is_single_use(tmp_path):
+    """R3-03: claiming a one-off approval consumes it — it can never authorize a
+    second recovery action."""
+    svc = _service(tmp_path)
+    rec = svc.record_failure(
+        code="RuntimeError", message="ModuleNotFoundError: no module named 'x'",
+        subsystem="execution", source="tool", task_id="t1",
+    )
+    incident_id = rec["incidentId"]
+    svc.approve(incident_id, "fix_dependency", approved_by="alice")
+    assert svc.has_approval(incident_id, "fix_dependency") is True
+    assert svc.consume_approval(incident_id, "fix_dependency") is True
+    assert svc.consume_approval(incident_id, "fix_dependency") is False
+    assert svc.has_approval(incident_id, "fix_dependency") is False
+
+
 def test_repair_lease_prevents_duplicate_repair(tmp_path):
     svc = _service(tmp_path)
     pre = svc.record_failure(

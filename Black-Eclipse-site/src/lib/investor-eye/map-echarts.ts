@@ -76,7 +76,7 @@ const GLASS_TOOLTIP = {
   backgroundColor: 'rgba(18,18,20,0.5)',
   borderColor: 'rgba(255,255,255,0.12)',
   borderWidth: 1,
-  padding: [10, 12] as [number, number],
+  padding: [8, 10] as [number, number],
   textStyle: { color: '#e5e7eb', fontSize: 11 },
   extraCssText:
     'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; ' +
@@ -89,6 +89,17 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Clamp a tooltip string to a single line. The map tooltip is a glance surface,
+ * not a dossier — a long event title (e.g. a full wire headline) used to wrap to
+ * two or three lines and cover the very map it describes. Values are truncated
+ * with an ellipsis; the panel holds the full text on click.
+ */
+function clampText(s: string, max: number): string {
+  const t = s.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
 /**
@@ -117,21 +128,21 @@ function tooltipFormatter(layer: MapLayer) {
     const rows = content.rows
       .map(
         (r) =>
-          `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:3px">` +
-          `<span style="color:#9ca3af">${escapeHtml(r.label)}</span>` +
-          `<span style="color:#e5e7eb;font-weight:600;text-align:right">${escapeHtml(r.value)}</span>` +
+          `<div style="display:flex;justify-content:space-between;gap:12px;margin-top:2px">` +
+          `<span style="color:#9ca3af;flex:0 0 auto">${escapeHtml(r.label)}</span>` +
+          `<span style="color:#e5e7eb;font-weight:600;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">${escapeHtml(clampText(r.value, 44))}</span>` +
           `</div>`,
       )
       .join('');
     const subtitle = content.subtitle
-      ? `<div style="color:#9ca3af;margin-top:4px;max-width:280px;white-space:normal">${escapeHtml(content.subtitle)}</div>`
+      ? `<div style="color:#9ca3af;margin-top:3px;max-width:240px;white-space:normal">${escapeHtml(clampText(content.subtitle, 96))}</div>`
       : '';
     const note = content.note
-      ? `<div style="color:#6b7280;font-size:10px;margin-top:6px;max-width:280px;white-space:normal;border-top:1px solid rgba(255,255,255,0.08);padding-top:5px">${escapeHtml(content.note)}</div>`
+      ? `<div style="color:#6b7280;font-size:10px;margin-top:5px;max-width:240px;white-space:normal;border-top:1px solid rgba(255,255,255,0.08);padding-top:4px">${escapeHtml(clampText(content.note, 140))}</div>`
       : '';
     return (
-      `<div style="min-width:180px;max-width:300px">` +
-      `<div style="font-weight:700;font-size:12px;line-height:1.35;white-space:normal">${escapeHtml(content.title)}</div>` +
+      `<div style="min-width:160px;max-width:250px">` +
+      `<div style="font-weight:700;font-size:12px;line-height:1.3;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(clampText(content.title, 64))}</div>` +
       subtitle + rows + note +
       `</div>`
     );

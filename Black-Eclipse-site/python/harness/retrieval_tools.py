@@ -221,8 +221,10 @@ def _summarize(result: Any, analysis: Any = None) -> str:
     if result.status == "UNAVAILABLE":
         lines.append("")
         lines.append(
-            "No data was fabricated. If this is a precise quantitative request, "
-            "an explicit UNAVAILABLE is the correct answer rather than a web guess."
+            "No data was fabricated. Before concluding, try the other eligible routes the "
+            "bound tools offer — another provider, the official filing, bounded web search, "
+            "web_scrape for one page's structured data, or the browser for a rendered page. "
+            "Only once those routes are exhausted is an explicit UNAVAILABLE the correct answer."
         )
     # Universal-financial-fact analysis (additive, §1/§3/§4/§12/§26): name the
     # accounting-definition ambiguity, the business type, any cross-source

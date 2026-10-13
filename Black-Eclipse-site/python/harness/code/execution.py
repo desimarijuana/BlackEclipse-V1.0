@@ -54,6 +54,10 @@ DEFAULT_TIMEOUT_S: int = 120
 DEFAULT_MEMORY_MB: int = 2048
 MAX_OUTPUT_BYTES: int = 200_000
 MAX_SOURCE_CHARS: int = 20_000
+# Resource limits applied to every analysis run (R3-02). The wall-clock timeout
+# is always enforced; these bound a runaway analysis in cpu/memory/processes.
+MAX_PROCESSES: int = 64
+MAX_CPU_SECONDS: int = 600
 
 # Refusal codes (stable, testable). `SANDBOX_UNAVAILABLE` is Phase 3's.
 SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
@@ -230,13 +234,25 @@ def _bounded_outputs(outputs: dict[str, Any]) -> dict[str, Any]:
 
 # ── Import inspection (AST, never eval) ──────────────────────────────────────
 
+# Calls refused by NAME. Defense in depth with the restricted builtin set: each
+# name is absent at runtime AND refused statically. `__import__` is kept in the
+# builtin set only so an ALLOWLISTED `import` statement can execute.
+_FORBIDDEN_CALL_NAMES = frozenset((
+    "__import__", "importlib", "eval", "exec", "compile", "open", "os", "sys",
+    "globals", "locals", "vars", "getattr", "setattr", "delattr", "dir",
+    "breakpoint", "input",
+))
+
 
 def check_imports(source: str) -> list[str]:
-    """Walk the source's imports with ``ast``; return the modules NOT allowed.
+    """Walk the source's imports with ``ast``; return what is NOT allowed.
 
-    A syntax error raises ``AnalysisError(SOURCE_INVALID)``. Dynamic imports
-    (``__import__``, ``importlib``) are refused by name because they can defeat a
-    static allowlist.
+    A syntax error raises ``AnalysisError(SOURCE_INVALID)``. Beyond the module
+    allowlist this refuses: dynamic-import and reflection calls by name
+    (``__import__``, ``eval``, ``getattr``, …), any dunder attribute access
+    (``__class__``/``__globals__``/``__subclasses__`` escape chains), the bare
+    name ``__builtins__``, and http(s) URL literals (which would let an allowed
+    module like pandas fetch over the network).
     """
     try:
         tree = ast.parse(source)
@@ -259,8 +275,17 @@ def check_imports(source: str) -> list[str]:
         elif isinstance(node, ast.Call):
             func = node.func
             name = getattr(func, "id", None) or getattr(func, "attr", None)
-            if name in ("__import__", "importlib", "eval", "exec", "compile", "open", "os", "sys"):
+            if name in _FORBIDDEN_CALL_NAMES:
                 offenders.append(str(name))
+        elif isinstance(node, ast.Attribute):
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                offenders.append(f"{node.attr} (attribute)")
+        elif isinstance(node, ast.Name):
+            if node.id == "__builtins__":
+                offenders.append("__builtins__")
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, str) and "://" in node.value:
+                offenders.append("URL literal (network)")
     # De-duplicate, stable order.
     seen: list[str] = []
     for name in offenders:
@@ -310,7 +335,34 @@ def interpreter_path() -> str:
 # ── The runner ───────────────────────────────────────────────────────────────
 
 _RUNNER_SOURCE = """\
-import json, os, sys
+import builtins, json, os, sys
+
+# The analysis program runs with a RESTRICTED builtin set: no open/eval/exec/
+# compile/input and no reflection helpers. `__import__` stays because `import`
+# statements need it; the AST allowlist decides which imports are legal. This is
+# what makes "no network" true by construction: no module that can open a socket
+# is reachable, and reflection cannot rebuild one.
+_ALLOWED_BUILTINS = (
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
+    "callable", "chr", "complex", "dict", "divmod", "enumerate", "filter",
+    "float", "format", "frozenset", "hasattr", "hash", "hex", "id", "int",
+    "isinstance", "issubclass", "iter", "len", "list", "map", "max", "min",
+    "next", "object", "oct", "ord", "pow", "print", "range", "repr",
+    "reversed", "round", "set", "slice", "sorted", "str", "sum", "tuple",
+    "type", "zip", "__import__", "__build_class__", "NotImplemented", "Ellipsis",
+)
+
+def _safe_builtins():
+    allowed = {}
+    for name in _ALLOWED_BUILTINS:
+        value = getattr(builtins, name, None)
+        if value is not None:
+            allowed[name] = value
+    for name in dir(builtins):
+        value = getattr(builtins, name)
+        if isinstance(value, type) and issubclass(value, BaseException):
+            allowed.setdefault(name, value)
+    return allowed
 
 def _load_inputs(path):
     with open(path, "r", encoding="utf-8") as handle:
@@ -330,7 +382,12 @@ def _write_artifact(name, data):
 
 def main():
     payload = _load_inputs(sys.argv[1])
-    g = {"__name__": "__analysis__", "inputs": payload["inputs"], "write_artifact": _write_artifact}
+    g = {
+        "__name__": "__analysis__",
+        "__builtins__": _safe_builtins(),
+        "inputs": payload["inputs"],
+        "write_artifact": _write_artifact,
+    }
     src = payload["source"]
     code = compile(src, "<analysis>", "exec")
     exec(code, g)
@@ -348,9 +405,10 @@ def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None)
     """Run one analysis in the Phase 3 sandbox. Records enough to re-derive it.
 
     The program runs in an ISOLATED staging directory (never the repo): its inputs
-    arrive as DATA on stdin/file, its relative writes land in staging, and only
-    files it declares as artefacts are collected. It has no path into the user's
-    files, and no network.
+    arrive as DATA on file, its relative writes land in staging, and only files it
+    declares as artefacts are collected. It has no path into the user's files, and
+    no network by construction (module allowlist + restricted builtins + no URL
+    literals), enforced on top of the OS process bounds.
     """
     t0 = time.monotonic()
     source_digest = _digest_text(request.source)
@@ -361,7 +419,7 @@ def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None)
         return AnalysisResult(
             status="refused", code=IMPORT_NOT_ALLOWED, source_digest=source_digest,
             duration_ms=int((time.monotonic() - t0) * 1000),
-            stderr=f"disallowed import(s): {', '.join(offenders)}",
+            stderr=f"disallowed source element(s): {', '.join(offenders)}",
         )
 
     # 2. Inputs validated against their declared kind (DATA, never source).
@@ -410,6 +468,13 @@ def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None)
             argv=[interpreter, str(runner_path), str(payload_path), str(out_path)],
             cwd=stage, env=sandbox_mod.build_env(),
             timeout_s=request.timeout_s, output_cap_bytes=MAX_OUTPUT_BYTES, network=False,
+            # R3-02: the declared limits are now ENFORCED, not just declared.
+            # CPU is a TOTAL-burn guard across the process tree, deliberately
+            # above the wall-clock timeout so the wall clock stays the primary
+            # bound for a single process.
+            cpu_seconds=MAX_CPU_SECONDS,
+            memory_mb=DEFAULT_MEMORY_MB,
+            process_limit=MAX_PROCESSES,
         )
         raw = sandbox_mod.run(spec)
 

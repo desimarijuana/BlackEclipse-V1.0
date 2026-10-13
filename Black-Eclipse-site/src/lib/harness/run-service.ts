@@ -106,7 +106,7 @@ export async function chatWithAgent(
     // The chat workspace id is the session id, so a chat turn belongs to a
     // long-lived session and shows up in the Sessions tab (M3).
     sessionId,
-    ...(capability ? { autonomy: capability.autonomy } : {}),
+    ...(capability?.autonomy ? { autonomy: capability.autonomy } : {}),
     ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
     ...(identityHeaders ? { identityHeaders } : {}),
   });
@@ -261,7 +261,8 @@ export async function startChatRun(
   } catch {
     capability = null;
   }
-  const autonomy = capability ? assertChatAutonomy(capability.autonomy) : undefined;
+  // `null` autonomy = a data task: no profile switch, analysis sandbox only.
+  const autonomy = capability?.autonomy ? assertChatAutonomy(capability.autonomy) : undefined;
   const payload: RunRequestPayload = {
     runId: id,
     input,

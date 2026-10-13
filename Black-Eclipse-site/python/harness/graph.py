@@ -807,9 +807,7 @@ def build_graph(
                 continue
 
             tool_calls += 1
-            # A safe, bounded "what" for the live stream (the command, the file
-            # path, the changed paths) — never file content. Derived by a pure
-            # function so the event carries display metadata only.
+            # A safe, bounded "what" for the live stream — never file content.
             from .code.activity import tool_detail  # noqa: PLC0415
 
             detail = tool_detail(name, args if isinstance(args, dict) else {})
@@ -862,8 +860,10 @@ def build_graph(
                         text=f"Tool {name!r} was blocked by a plugin hook: {veto}",
                     )
                 else:
-                    result = await registry.execute(
-                        name, call_id, args, ctx, allowed=allowed, timeout_ms=tool_timeout_ms
+                    from .recovery.hotpath import run_tool_with_recovery  # noqa: PLC0415
+
+                    result = await run_tool_with_recovery(
+                        registry, name, call_id, args, ctx, allowed, tool_timeout_ms, request,
                     )
                 result_text = result.text
                 await _run_plugin_hook(

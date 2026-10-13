@@ -334,6 +334,16 @@ def code_grants(autonomy: str) -> frozenset[str]:
 # it — not "shouldn't", cannot. This is the ONE place a write/external tool is
 # removed; `graph.effective_allowlist` calls it before building the model tools.
 
+# The execution layer's own write/execute family. It is part of WRITE_TOOLS, but
+# named separately because the runtime authorizer's admission branch covers
+# exactly this family plus APP_RUNTIME_WRITE_TOOLS (R3-02).
+EXECUTION_WRITE_TOOLS: tuple[str, ...] = (
+    "execute_code", "execute_python", "execute_javascript", "execute_typescript",
+    "execute_sql", "execute_shell", "build_project", "test_project",
+    "run_verification", "start_service", "stop_service", "restart_service",
+    "cancel_execution",
+)
+
 # Effectful code-write / execute tools (the REAL names Phases 1–9 registered).
 WRITE_TOOLS: tuple[str, ...] = (
     "workspace_patch_apply", "workspace_revert",   # code.write
@@ -341,12 +351,9 @@ WRITE_TOOLS: tuple[str, ...] = (
     "terminal_run",                                 # command.execute (generic, gated)
     "shell_run", "shell_spawn", "process_kill",     # command.execute (real shell)
     "scaffold_kit",                                 # code.write (Phase 9)
-    # The Code Execution & Verification Layer (Phase EX). These RUN code / build /
-    # test / start services, so they are code-write tools removed at `plan_only`.
-    "execute_code", "execute_python", "execute_javascript", "execute_typescript",
-    "execute_sql", "execute_shell", "build_project", "test_project",
-    "run_verification", "start_service", "stop_service", "restart_service",
-    "cancel_execution",
+    # The Code Execution & Verification Layer (Phase EX); named as its own tuple
+    # above so the runtime authorizer can admit exactly this family.
+    *EXECUTION_WRITE_TOOLS,
 )
 
 # The execution layer's read-only tools: always available to an allowlisted run.

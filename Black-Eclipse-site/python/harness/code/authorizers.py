@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from . import policy
+
 
 def build_effect_authorizer(
     approvals: Optional[Any],
@@ -40,6 +42,17 @@ def build_effect_authorizer(
 
         mcp_authorizer = make_effect_authorizer(approvals, run_id, emitter)
     code_authorizer = make_code_authorizer(mcp_authorizer)
+
+    # The execution + LOCAL application-runtime families (execute_*, build/test/
+    # verify, service control, package/container/compose/runtime starts) run
+    # bounded programs and manage local processes. Admitted at this seam exactly
+    # like `command_run`: the HANDLER enforces the binding and the `code.execute`
+    # grant, and the security gateway still classifies every call. Without this
+    # branch they fell through to the MCP authorizer, which refuses any tool
+    # without an MCP server id — leaving the tools advertised to code profiles
+    # but dead (measured 2026-10-12: execute_python / execute_code /
+    # build_project / start_service / package_install all False).
+    code_authorizer = _admit_runtime_tools(code_authorizer)
 
     # Generic terminal: an `allow` command runs, an `ask` command needs a
     # single-use workspace-bound approval, a `deny` is refused.
@@ -94,6 +107,23 @@ def build_effect_authorizer(
         return bool(await code_authorizer(tool, args, ctx))
 
     return _wrap_with_security(authorize, run_id, workspace_id)
+
+
+def _admit_runtime_tools(inner: Any) -> Any:
+    """Admit the execution + LOCAL application-runtime families at this seam.
+
+    The handlers enforce the workspace binding and the `code.execute` grant.
+    K8s / Helm / Terraform / deploy mutations are deliberately NOT admitted here:
+    they are approval-gated per action and stay on the approval path.
+    """
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name in policy.EXECUTION_WRITE_TOOLS or name in policy.APP_RUNTIME_WRITE_TOOLS:
+            return True
+        return bool(await inner(tool, args, ctx))
+
+    return authorize
 
 
 def _wrap_with_security(inner: Any, run_id: str, workspace_id: Optional[str]) -> Any:

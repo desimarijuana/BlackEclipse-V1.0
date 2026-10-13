@@ -8,6 +8,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-12
 
+- **Scheduler button relocated to the BotChat header (follow-up).** The prior
+  move put "Open scheduler" in the left sidebar footer; it belongs on the bot
+  chat page itself, top-right beside the bot's Settings gear. Reverted
+  `src/components/layout/sidebar.tsx` (and the earlier
+  `bots-sidebar-panel.tsx` removal stands — no scheduler in the left nav).
+  Added the toggle to `src/components/bots/bot-chat.tsx` header cluster,
+  adjacent to Settings, sharing `useWorkspaceStore` with the top-bar toggle.
+  no doc change — UI placement only.
+
+- **Scheduler button moved next to Settings.** The Bots-mode "Open scheduler"
+  control lived in the left nav panel (`BotsSidebarPanel`), competing with the
+  bot list. It now sits in the sidebar footer directly beside the Settings gear,
+  shown only while the Bots mode is active, in both the expanded and collapsed
+  sidebar variants. Removed the button + now-unused `useWorkspaceStore`/
+  `CalendarDays` wiring from `src/components/bots/bots-sidebar-panel.tsx`; added
+  it to `src/components/layout/sidebar.tsx`, sharing the same
+  `useWorkspaceStore.toggle` as the top-bar toggle and Ctrl/Cmd+Shift+E keybind.
+  no doc change — UI placement only, no contract/architecture change.
+
+- **Compact map tooltips.** Hover cards on the Investor Eye map were covering
+  the map with text: long titles/summaries wrapped to several lines, and the
+  aggregated-events card carried an Example headline, a Countries row and a
+  two-sentence note. `tooltipFormatter` in
+  `src/lib/investor-eye/map-echarts.ts` now clamps title (64) / subtitle (96) /
+  row value (44) / note (140) to a single line with an ellipsis, narrows the
+  card (160–250px) and tightens padding. In `src/lib/investor-eye/layers.ts` the
+  cluster card drops the redundant Example row and shortens its note; the
+  event, trade and heatmap notes are trimmed (kept the "potential"/"observed"
+  provenance wording). no doc change — UI copy/style only, contracts intact.
+
 - **Website-style visual blocks in chat.** Six new `eclipse-response` block
   types give an answer the rhythm of a data website: `stat_hero` (oversized
   headline numbers), `gauge` (progress meters), `comparison_grid`
@@ -361,6 +391,97 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   the agent writes through). Tests: `test_learning_{engine,store,tools}.py`,
   `education-connectors.test.ts`, `contract-blocks.test.ts`. docs updated:
   `docs/harness/learning-research-engine.md`, `docs/NAVIGATION.md`.
+
+- **Construction-First Audit — Phase 0 ground truth and repo-mapped phase plan.**
+  Read-only audit of the real execution paths (six parallel sweeps: front-door
+  routing, registry/allowlists, execution substrate, acquisition/retrieval,
+  recovery/permissions/evals, response/rendering/artifacts) plus a full baseline
+  run: `tsc` clean, vitest 259 files / 2749 tests pass, Python 5780 passed /
+  16 opt-in skips / 0 failed, eval gates ALL PASS. New
+  `docs/harness/construction-first-audit.md` records: the as-built architecture
+  map, the capability inventory (≈886 registered tools; recovery/artifact/
+  orchestration/fabric families registered but in no allowlist), eight verified
+  root causes (classifier lexical gaps; the default agent cannot see code tools;
+  the inert `RunSpec.network` + 17-module import allowlist; closed-capability
+  acquisition; the "UNAVAILABLE is a complete answer" doctrine; diagnostics-panel
+  visual errors; and a **verified streaming bug** — `service.run_background`
+  drops the portfolio/quant/ui bundles that `service.run` passes, so advertised
+  quant/portfolio tools fail at call time), the contradictions with existing
+  records, the repo-mapped round-3 phase plan, and a risk register. docs updated:
+  `docs/harness/construction-first-audit.md`, `docs/harness/roadmap/README.md`
+  (stale claims marked, not deleted). no code change.
+
+- **R3-01 construction-first routing.** "Scrape this site", "clean this CSV" and
+  "run a Monte Carlo" no longer fall through the deterministic classifier to
+  `not_code`: a new `data_task` verdict (a data verb + a data object in one
+  clause, plus "run a Monte Carlo") sends NO autonomy and turns the analysis
+  sandbox on, leaving the ordinary finance surface unchanged — so Eclipse
+  computes/cleans/extracts instead of refusing. `python/harness/code/
+  request_intent.py` (vocabularies + verdict union + follow-ups), front door
+  `chat-capability.ts`/`code-client.ts` (`autonomy: null` handling) and
+  `run-service.ts`; prompt doctrine rewritten construction-first in `prompts.py`
+  (length-neutral; ceiling stays 27769). Also fixes the verified streaming bug:
+  `AgenticService.run_background` dropped the portfolio/quant/ui bundles that
+  `run` passes, so advertised quant/portfolio tools failed at call time
+  (`StoreUnavailable`). Tests: 19 classifier cases, 2 payload cases
+  (`run-service.test.ts`), new `test_service_background_parity.py`. docs
+  updated: ADR-H177 in `docs/harness/decisions.md`, phase-14 §6.1/§6.3,
+  `docs/harness/construction-first-audit.md`.
+
+- **R3-02 execution substrate, honestly tiered.** Fixed the measured dead-gate:
+  `execute_python` / `execute_code` / `build_project` / `start_service` /
+  `package_install` were refused by the composed effect authorizer (they fell to
+  the MCP authorizer, which has no server id for them) while still advertised to
+  `edit_verify` profiles — the registry-level fix is
+  `code/authorizers.py::_admit_runtime_tools`, which admits exactly
+  `policy.EXECUTION_WRITE_TOOLS` + `APP_RUNTIME_WRITE_TOOLS` and leaves
+  cluster/infra/remote actions on their approval path. The analysis sandbox now
+  enforces its declared limits (cpu 600s total-burn guard, memory 2048 MB, 64
+  processes). Its "no network" claim is true by construction: the exec namespace
+  runs with a restricted builtin set and the AST guard refuses dunder attribute
+  access, `__builtins__`, reflection call names and http(s) URL literals (which
+  would let pandas fetch). Persistent shells no longer inherit the host
+  environment (`terminal/session.py` now uses `sandbox.build_env`). The `local`
+  backend's capability declaration in `code/backends.py` states the real posture
+  (no OS filesystem/network isolation; policy + construction). New tests:
+  `test_authorizer_runtime_admission.py`, analysis escape/limit cases in
+  `test_analysis_execution.py`, the shell-secret case in
+  `test_terminal_session.py`. docs updated: ADR-H178 in
+  `docs/harness/decisions.md`, `docs/harness/execution-architecture.md`,
+  `docs/harness/construction-first-audit.md` (R3-02 done; Q1 fixed, Q2 verified,
+  Docker absent on this machine).
+
+- **R3-03 bounded recovery in the run hot path.** The graph's tool loop now runs
+  every call through `recovery/hotpath.py::run_tool_with_recovery`: on failure
+  the recovery engine classifies and decides; a READ-ONLY tool with a
+  retry/backoff decision is retried once (in-loop backoff capped at 1.5s), and
+  every other failure gets the strategy appended to its result as a next-step
+  directive ("do NOT repeat the same call; use a different route"). Per-run
+  counters are supplied via `record_failure(recovery_state=…)`, so a failure
+  seen in a past session cannot exhaust a fresh run; `max_total_ms` is enforced
+  when elapsed is supplied; recovery approvals are now single-use
+  (`consume_approval`, claimed by the executor rather than merely checked).
+  Fail-open: no engine or any error returns the original result unchanged, and
+  `graph.py` stays exactly at its size ratchet. Tests:
+  `test_recovery_hotpath.py`, single-use approval in `test_recovery_executor.py`.
+  docs updated: ADR-H179 in `docs/harness/decisions.md`,
+  `docs/harness/failure-recovery.md`, `docs/harness/construction-first-audit.md`.
+
+- **R3-04 bounded page collection (`web_scrape`).** The agent can now scrape one
+  page deterministically: a new `web_collect` bridge capability fetches through
+  the SAME SSRF-hardened transport as `web_fetch` (https-only, DNS-pinned,
+  redirects re-validated, 4 MB / 8 s caps) and extracts repeated records with a
+  CSS selector (optional field→sub-selector map or attribute) or the page's own
+  tables (caps 500 rows / 5 tables / 40 columns / 20 k text). Exposed as the
+  read-only `web_scrape` tool on the ONE registry and the default agent's
+  allowlist; results are COLLECTED untrusted page data with the page as source.
+  Honest zero-vs-unavailable: no selector matches is a confirmed zero on the
+  delivered page (client-rendered pages point at the browser tools); a failed
+  fetch is UNAVAILABLE. The retrieval layer's UNAVAILABLE text now names the
+  eligible next routes before concluding. Tests: `data-bridge-collect.test.ts`
+  (9), `test_web_collect.py` (6). docs updated: ADR-H180 in
+  `docs/harness/decisions.md`, `docs/harness/web-research-engine.md`,
+  `docs/harness/construction-first-audit.md`.
 
 ## 2026-10-11
 

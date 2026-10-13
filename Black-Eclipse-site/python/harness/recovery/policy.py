@@ -73,6 +73,16 @@ class RecoveryBudget:
             return "delegations"
         return None
 
+    def total_exceeded(self, elapsed_ms: int) -> Optional[str]:
+        """The wall-clock recovery budget, enforced when the caller supplies it.
+
+        A caller that tracks elapsed time (the run hot path) passes it in; a
+        caller that does not (batch/task repair loops) leaves it 0 = not timed.
+        """
+        if elapsed_ms and elapsed_ms >= max(0, int(self.max_total_ms)):
+            return "time"
+        return None
+
 
 @dataclass(frozen=True)
 class CandidateStrategy:

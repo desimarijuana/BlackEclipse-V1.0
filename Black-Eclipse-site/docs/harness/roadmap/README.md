@@ -173,6 +173,16 @@ cause. Evidence was gathered by reading the tree and running the commands named.
 
 Round 2 (phases 13–20) closes exactly these, in this order, and phase 20 measures it.
 
+> **Stale as of 2026-10-12 — verified in code, kept as history.** Parts of this
+> table and §2 predate phases 13–14: the front door **does** send
+> `autonomy`/`analysisEnabled` (`src/lib/harness/run-service.ts:264-272`,
+> consumed at `python/harness/graph.py:1186`), chat **does** reach the code
+> profile via `chat_code_allowlist` (`graph.py:267-287`), and `code.execute` is
+> **grantable at `edit_verify`** (`python/harness/code/policy.py:40`) — the
+> current ADR-025 is about skills (`docs/DECISIONS.md:480`). The implemented
+> resolver is `resolve_surface`, not `resolve_run_policy`. Current ground truth
+> and the repo-mapped round-3 plan: `docs/harness/construction-first-audit.md`.
+
 ## 2. The four structural gaps (round 1 — closed by phases 0–12)
 
 > **Superseded by §1.2 for anything still open.** All four gaps below were closed in

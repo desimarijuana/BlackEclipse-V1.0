@@ -16,7 +16,8 @@ export { headlineKey } from "./chat-capability-view";
 export type { ChatCapability } from "./chat-capability-view";
 
 export interface ChatCapabilityProfile {
-  autonomy: "plan_only" | "edit_verify";
+  // `null` = no profile switch: the ordinary finance surface is unchanged.
+  autonomy: "plan_only" | "edit_verify" | null;
   analysisEnabled: boolean;
   verdict: CodeIntentVerdict;
 }
@@ -26,12 +27,14 @@ export interface ChatCapabilityProfile {
  *
  * `code_change` → `edit_verify` (write + execute, no external action).
  * `code_question` → `plan_only` (read-only).
+ * `data_task` → no profile switch, analysis sandbox ON: the ordinary finance
+ *   surface is unchanged and Eclipse may compute the result instead of
+ *   refusing. Additive — a data task never widens the tool surface.
  * `not_code` → null: the ordinary finance surface is unchanged.
  *
- * A `code_change` turn also enables the analysis sandbox for that turn, so
- * Eclipse can *compute* (a drawdown, a backtest) rather than only describe it.
- * Phase 15 owns the richer quantitative classifier; this is deliberately narrow
- * — the sandbox is on only for a turn that already asked for a code change.
+ * A `code_change` or `data_task` turn also enables the analysis sandbox for
+ * that turn, so Eclipse can *compute* (a drawdown, a cleaned dataset) rather
+ * than only describe it.
  */
 export async function resolveChatCodeProfile(
   query: string,
@@ -40,10 +43,13 @@ export async function resolveChatCodeProfile(
   const intent = await classifyCodeIntent(query, history);
   if (intent.verdict === "not_code") return null;
 
-  const autonomy = intent.verdict === "code_change" ? "edit_verify" : "plan_only";
+  const autonomy =
+    intent.verdict === "code_change" ? "edit_verify"
+    : intent.verdict === "code_question" ? "plan_only"
+    : null;
   return {
     autonomy,
-    analysisEnabled: intent.verdict === "code_change",
+    analysisEnabled: intent.verdict === "code_change" || intent.verdict === "data_task",
     verdict: intent.verdict,
   };
 }

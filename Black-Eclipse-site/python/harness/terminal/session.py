@@ -166,9 +166,12 @@ class ShellSession:
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
     def _spawn(self, *, use_pty: bool) -> None:
-        env = dict(os.environ)
-        env.update(self.env_profile)
-        env["PYTHONIOENCODING"] = "utf-8"
+        # The child env is the SAME scrubbed allowlist every command gets: host
+        # secrets (provider keys, the callback token, vault values) are absent by
+        # construction — a persistent shell cannot leak what it never received.
+        from ..code.sandbox import build_env  # noqa: PLC0415
+
+        env = build_env(self.env_profile)
         argv = list(self.shell.argv_prefix) + ["-"] if self._supports_stdio_dash() else list(self.shell.argv_prefix) + [""]
         if use_pty:
             self._live.pty = PseudoTerminal()

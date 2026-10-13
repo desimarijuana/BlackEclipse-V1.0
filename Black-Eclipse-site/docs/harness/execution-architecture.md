@@ -209,6 +209,16 @@ service tools are `permission="write"` + `effect="external_action"` and are remo
 at `plan_only`. The retrieval tools are prefixed `execution_`/`service_` (not
 `get_`) so they do not collide with the code-agent's finance-tool guard.
 
+**Admission (R3-02, ADR-H178).** The write/execute half is admitted by
+`code/authorizers.py::_admit_runtime_tools` — the same seam that admits
+`command_run` — so the handler's binding + `code.execute` checks are what gate
+each call. Before the fix these tools fell through to the MCP authorizer, which
+has no server id for them and refused every call while the schemas stayed
+advertised. Cluster/infra/deploy mutations are not admitted there (single-use
+approval path). The analysis profile also passes enforced cpu/memory/process
+limits into `RunSpec`, and its "no network" holds by construction (module
+allowlist, restricted builtins, no URL literals).
+
 ## Configuration
 
 Environment (all read at call time):

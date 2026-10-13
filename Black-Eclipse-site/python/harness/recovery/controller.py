@@ -95,8 +95,12 @@ class RecoveryController:
         delegations: int = 0,
         recurrent: bool = False,
         allow_provider_substitution: bool = True,
+        elapsed_ms: int = 0,
     ) -> RecoveryDecision:
         """The one decision for this failure under the configured budget."""
+        reason = self.budget.total_exceeded(elapsed_ms)
+        if reason is not None:
+            return self._stop(failure, f"recovery budget exhausted ({reason})", exhausted=True)
         reason = self.budget.attempt_exceeded(attempts)
         if reason is not None:
             return self._stop(failure, f"recovery budget exhausted ({reason})", exhausted=True)

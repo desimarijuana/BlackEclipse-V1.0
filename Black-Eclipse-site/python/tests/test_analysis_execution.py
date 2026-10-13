@@ -153,3 +153,62 @@ def test_timeout_is_reported():
 def test_input_digest_is_stable():
     assert input_digest([1, 2, 3]) == input_digest([1, 2, 3])
     assert input_digest([1, 2, 3]) != input_digest([3, 2, 1])
+
+
+# ── R3-02: reflection/network escapes and the declared limits ────────────────
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "x = ().__class__.__bases__[0].__subclasses__()\nresult = {}",
+        "result = (lambda: 0).__globals__",
+        "result = getattr(inputs, '__class__')",
+        "result = globals()",
+        "result = __builtins__",
+        "import pandas as pd\nresult = pd.read_csv('https://example.com/x.csv')",
+    ],
+)
+def test_escape_and_network_vectors_are_flagged(source: str) -> None:
+    assert check_imports(source), source
+
+
+def test_normal_analysis_source_is_clean() -> None:
+    source = (
+        "import numpy as np\n"
+        "values = np.array(inputs['returns'])\n"
+        "result = {'mean': float(values.mean())}\n"
+    )
+    assert check_imports(source) == []
+
+
+def test_analysis_run_spec_enforces_the_declared_limits(monkeypatch):
+    from harness.code import execution as ex
+
+    captured = {}
+
+    def fake_run(spec, *, cancel_event=None):
+        captured["spec"] = spec
+        from pathlib import Path as _Path
+
+        _Path(spec.argv[3]).write_text('{"ok": true, "outputs": {}}', encoding="utf-8")
+        return sandbox_mod.RawResult(
+            exit_code=0, timed_out=False, killed=False, cancelled=False,
+            output="", truncated=False, total_chars=0, duration_ms=1, backend="test",
+        )
+
+    monkeypatch.setattr(ex.sandbox_mod, "run", fake_run)
+    monkeypatch.setattr(ex, "interpreter_path", lambda: "python")
+
+    result = ex.run_analysis(
+        ex.AnalysisRequest(source="result = {}", purpose="limits", timeout_s=30)
+    )
+    assert result.status == "ok"
+    spec = captured["spec"]
+    # The declared limits are ENFORCED (passed to the one sandbox primitive).
+    assert spec.network is False
+    assert spec.memory_mb == ex.DEFAULT_MEMORY_MB
+    assert spec.process_limit == ex.MAX_PROCESSES
+    # CPU is a total-burn guard ABOVE the wall clock (600s), so a single process
+    # is still stopped by its timeout first.
+    assert spec.cpu_seconds == ex.MAX_CPU_SECONDS

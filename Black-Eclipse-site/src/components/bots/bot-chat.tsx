@@ -28,6 +28,7 @@ import {
 } from '@/lib/harness/automation-browser';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/chat-store';
+import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { formatDateTime, formatRelative, scheduleSummary } from '@/lib/bots/state';
 
 export interface BotChatProps {
@@ -62,6 +63,11 @@ export function BotChat({
   const append = useBotChatStore((s) => s.append);
   const updateMessage = useBotChatStore((s) => s.update);
   const clearMessages = useBotChatStore((s) => s.clear);
+  // The scheduler sits beside the bot's Settings gear in the header, opening the
+  // right-docked Agent Workspace (its scheduled jobs rail). Shared state with the
+  // top-bar toggle and Ctrl/Cmd+Shift+E keybind keeps them in sync.
+  const schedulerOpen = useWorkspaceStore((s) => s.open);
+  const toggleScheduler = useWorkspaceStore((s) => s.toggle);
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -325,6 +331,17 @@ export function BotChat({
                 <Play size={14} />
               </Button>
             ) : null}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title={t('bots.jobsPanel.open')}
+              aria-label={t('bots.jobsPanel.open')}
+              aria-pressed={schedulerOpen}
+              onClick={toggleScheduler}
+              className={schedulerOpen ? 'text-primary bg-white/[0.08]' : ''}
+            >
+              <CalendarDays size={14} />
+            </Button>
             <Button
               size="icon-sm"
               variant="ghost"

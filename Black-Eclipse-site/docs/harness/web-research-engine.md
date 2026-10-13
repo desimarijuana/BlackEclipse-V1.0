@@ -286,6 +286,23 @@ collide. `list_evidence` coerces NULL/partial legacy columns to honest defaults,
 execute). `continue_research`/`update_research` clear the cancel event first, so a
 resume after a cancel is not instantly cancelled again.
 
+## Bounded collection (`web_scrape`, R3-04)
+
+`web_scrape` is the agent-shaped acquisition route: it fetches ONE page through
+the same SSRF-hardened bridge transport (`web_collect` capability) and extracts
+structure **deterministically** with cheerio — a CSS `selector` (optional
+field→sub-selector map, or an attribute) or the page's own `<table>`s. Caps per
+call: 8 s timeout, 4 MB download, 4 redirects, 500 rows / 5 tables / 40 columns /
+20 k text chars. It is read-only, allowlisted on the default agent, and never
+models the page.
+
+Honesty rules: a selector with no matches is a **confirmed zero on the delivered
+page** (with a note that a client-rendered page needs the browser tools); a
+failed fetch is `UNAVAILABLE`, not proof the content is absent; and everything
+returned is **COLLECTED, untrusted page data** — the page is the source, never
+Eclipse. This is one page, one request, one answer: bulk/scheduled acquisition
+remains the phase-16 capability and is deliberately not built here.
+
 ## What is deliberately NOT here
 
 - No second search-provider chain: `web_providers` wraps the existing bridge

@@ -243,16 +243,15 @@ function eventTooltip(event: NormalizedEvent): TooltipContent {
   if (event.channels.length > 0) rows.push({ label: 'Affected channels', value: event.channels.join(', ') });
   if (event.commodities.length > 0) rows.push({ label: 'Commodities', value: event.commodities.join(', ') });
   // Separate what is observed from what is potential.
-  const why = event.relevanceReasons?.length ? `Why it matters: ${event.relevanceReasons.join(', ')}. ` : '';
   // Explain an approximate marker, so a hollow ring is never read as an exact fix.
   const geo = event.geoMethod === 'centroid'
-    ? 'Location is the country centre only (shown hollow) — not a confirmed position. '
+    ? 'Location is the country centre only (shown hollow). '
     : '';
   return {
     title: event.title,
     subtitle: event.summary,
     rows,
-    note: `${geo}${why}Event and entities are observed from source data. Channels and exposure are potential, not causal.`,
+    note: `${geo}Observed from source data; channels and exposure are potential, not causal.`,
   };
 }
 
@@ -305,10 +304,9 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
         title: `${payload.cluster.count} nearby events`,
         rows: [
           { label: 'Highest severity', value: payload.cluster.maxSeverity },
-          { label: 'Example', value: payload.representative.title },
           { label: 'Countries', value: payload.representative.countries.join(', ') || '—' },
         ],
-        note: 'Aggregated for performance. Zoom in or scrub the timeline to separate events.',
+        note: 'Aggregated — zoom in or scrub to separate.',
       };
     },
     onClick: (datum) => {
@@ -394,7 +392,7 @@ export function buildEventHeatmapLayer(events: NormalizedEvent[], onSelect?: (e:
           { label: 'Highest severity', value: c.maxSeverity },
           { label: 'Density weight', value: c.weight.toFixed(2) },
         ],
-        note: 'Aggregated severity-weighted density. Zoom in to separate events.',
+        note: 'Aggregated density — zoom in to separate.',
       };
     },
     // The heatmap is ON by default and its cells cover a wide area, so it was
@@ -673,7 +671,7 @@ function tradeTooltip(event: NormalizedEvent, fromName?: string, toName?: string
     subtitle: event.summary,
     rows,
     note:
-      'A link is drawn only when the same event names both countries — an observed co-mention, not a confirmed trade flow.',
+      'Drawn only when one event names both countries — an observed co-mention, not a trade flow.',
   };
 }
 

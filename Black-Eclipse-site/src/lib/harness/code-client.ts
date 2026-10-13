@@ -221,7 +221,7 @@ export async function decideCodeApproval(id: string, approve: boolean, reason = 
 // The classifier lives in the runtime; the front door calls it rather than
 // re-implementing the rules (one runtime, ADR-H117). Both routes are read-only.
 
-export type CodeIntentVerdict = "code_change" | "code_question" | "not_code";
+export type CodeIntentVerdict = "code_change" | "code_question" | "data_task" | "not_code";
 
 export interface CodeIntent {
   verdict: CodeIntentVerdict;

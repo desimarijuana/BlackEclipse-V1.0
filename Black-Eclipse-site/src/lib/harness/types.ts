@@ -561,6 +561,7 @@ export type DataCapability =
   | "macro_resolve"
   | "web_search"
   | "web_fetch"
+  | "web_collect"
   | "academic_search"
   | "news_search"
   | "image_search"

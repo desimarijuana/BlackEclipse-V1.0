@@ -32,6 +32,7 @@ no shared identity.
 | Root-cause diagnosis | `python/harness/recovery/diagnosis.py` | `DiagnosisEngine.diagnose()` → evidence-ranked `Hypothesis`es + `Diagnosis` (`selected` only when decisive). PURE + optional `Probe`s. |
 | Automatic execution | `python/harness/recovery/executor.py` | `recover_operation(service, op, verify=…)` — a bounded async retry/verify loop driving the controller and recording real outcomes; strategy handlers for repair-type strategies. |
 | **Production run wiring** | `python/harness/recovery/execution.py` | `run_with_recovery(service, run_once, …)` — drives a production run THROUGH the bounded loop (classify → diagnose → retry → record). `tasks/bootstrap.build_task_executor` uses it, so a task run is *actively recovered*, not merely observed after the fact. Absent/disabled engine → one attempt, unchanged. Per-attempt run ids; the recovery trail (`recoveryIncidentId`/`recoveryAttempts`/`recoveryStrategy`) rides the task execution metrics. |
+| **Run hot path (chat/tools, R3-03)** | `python/harness/recovery/hotpath.py` | `run_tool_with_recovery` wraps every tool call in the graph loop: on failure the engine classifies + decides, then the loop retries ONCE — only a READ-ONLY tool, only a `retry`/`rate_limit_backoff` decision, backoff capped at 1.5 s — or appends the strategy directive to the failed result so the next attempt is a different route. Per-run counters (`record_failure(recovery_state=…)`); `max_total_ms` enforced when elapsed is supplied; fail-open (no engine → original result). |
 | **Autonomy envelope** | `python/harness/recovery/envelope.py` | `AutonomyEnvelope` — pre-committed, scoped, expiring permission by action class + risk/reversibility/cost/files/network caps; kill switch `HARNESS_AUTONOMY=0`. Durable (migration 29 `AutonomyEnvelope`). The executor acts unattended ONLY inside it. |
 | **Compensation** | `python/harness/recovery/compensation.py` | `compensate_pending()` — runs registered compensation handlers for pending operations, envelope-gated (`COMPENSATE`). |
 | **Auto-reproduction** | `python/harness/recovery/reproduction.py` | `ReproducerRegistry` + `reproduce()` — runs a caller-registered reproducer per failure kind under a hard timeout; a successful reproduction makes the diagnosis decisive and is recorded as evidence. |
@@ -157,7 +158,10 @@ idempotency + per-signature leasing, compensate recorded side effects, discover
 existing capabilities, persist the envelope and incidents, and turn validated
 repairs into inert skill candidates. A production task run is now **driven through
 this loop** (`recovery/execution.py`), so a transient run failure is actively
-recovered with a recorded reason and backoff rather than only observed.
+recovered with a recorded reason and backoff rather than only observed. The run
+HOT PATH is covered too (`recovery/hotpath.py`, R3-03): a read-only tool failure
+may retry once inside the budget, and every other failure returns the engine's
+decision to the model as a route directive.
 
 **Cannot yet (noted, not hidden):** auto-acquire a *missing* capability (the plan is
 approval-flagged; the install/build rungs are not wired); auto-promote a skill

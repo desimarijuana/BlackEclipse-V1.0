@@ -209,7 +209,7 @@ obligation is at its sharpest. The surface names the **job**:
 
 ```python
 # python/harness/code/request_intent.py
-IntentVerdict = Literal["code_change", "code_question", "not_code"]
+IntentVerdict = Literal["code_change", "code_question", "data_task", "not_code"]
 
 @dataclass(frozen=True)
 class CodeIntent:
@@ -231,7 +231,10 @@ def classify_code_request(query: str, history: list[dict] | None = None) -> Code
         (build/create/add/fix/refactor/rename/delete/test/run + file/function/
         component/endpoint/test/script/feature/bug/type error)
       * a pasted path or a stack trace
+      * data work (a data verb + a data object) ⇒ `data_task`, which activates
+        the analysis sandbox on the ordinary finance surface — additive
       * a follow-up ("do it", "yes go ahead") whose PREVIOUS turn was code_change
+        or data_task
       * a question ("how would you…", "what's wrong with…") ⇒ code_question
     """
 ```
@@ -279,8 +282,14 @@ const PROFILES = ["plan_only", "edit_verify"] as const;   // NOT approve_externa
 ```
 
 `startChatRun` sends `autonomy: "edit_verify"` only when the classifier returned
-`code_change`, `"plan_only"` for `code_question`, and `analysisEnabled: true` for a
-quantitative request (Phase 15 owns that classifier's cases).
+`code_change`, `"plan_only"` for `code_question`, **no autonomy + 
+`analysisEnabled: true` for `data_task`** (the finance surface is unchanged),
+and `analysisEnabled: true` with the code profile for a quantitative request
+(Phase 15 owns that classifier's cases).
+
+> **Extended 2026-10-12 (ADR-H177, R3-01).** The verdict union, the bias rule
+> and the front-door mapping above now include `data_task`; the excerpts were
+> updated to match the code. See `docs/harness/construction-first-audit.md`.
 
 ### 6.4 The wire shape of the new panel
 

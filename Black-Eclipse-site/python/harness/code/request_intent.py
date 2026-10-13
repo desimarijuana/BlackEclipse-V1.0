@@ -1,14 +1,17 @@
 """The deterministic chat code-request classifier (Phase 14 §6.1).
 
-Decides whether an ordinary chat turn is a request to CHANGE software, so the
-front door can hand the turn the narrow chat code profile. It is pure,
+Decides whether an ordinary chat turn is a request to CHANGE software or to
+work on DATA (or a question about either), so the front door can hand the turn
+the narrow chat code profile or activate the analysis sandbox. It is pure,
 deterministic code with NO model call — a model's opinion cannot grant a
 capability (ADR-H117, roadmap §3.1/§3.2).
 
 Bias: a wrong `code_change` hands the turn a narrow, workspace-confined tool set;
-a wrong `not_code` answers a code request with finance tools and refuses honestly.
-Both are visible, so an ambiguous turn is `not_code` — the refusal path is the
-safe failure.
+a wrong `data_task` only ACTIVATES the analysis sandbox on the ordinary finance
+surface (additive, no widening), and a wrong `not_code` answers a constructible
+request with finance tools and refuses honestly. An ambiguous turn is still
+`not_code` — the refusal path remains the safe failure — but an explicit data
+signal routes to `data_task`, so Eclipse computes instead of refusing.
 
 This module imports nothing from `graph.py` (it is a leaf), so it can be tested
 and called independently of the run loop.
@@ -20,7 +23,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-IntentVerdict = Literal["code_change", "code_question", "not_code"]
+IntentVerdict = Literal["code_change", "code_question", "data_task", "not_code"]
 Confidence = Literal["certain", "likely"]
 
 # A directive verb. It must sit in the SAME clause as a software object.
@@ -57,11 +60,41 @@ _SOFTWARE_OBJECTS = (
     "pipeline", "backtest", "simulator", "simulation", "bot", "cli",
     "screener", "screen", "indicator", "automation", "integration",
     "plugin", "extension", "backend", "frontend", "ui", "report generator",
-    "tracker", "chart",
+    "tracker", "chart", "scraper",
     # places a user asks the agent to read/write in
     "desktop", "desktop folder", "folder", "directory", "files", "file system",
-    "filesystem", "path",
+    "filesystem", "path", "website", "web site",
 )
+
+# A data-work verb names work on DATA — extracting, cleaning, transforming,
+# computing — rather than on software. Kept separate from `_DIRECTIVE_VERBS` so
+# "show the data" stays an ordinary retrieval ask. This verdict does NOT widen
+# the tool surface: it activates the analysis sandbox for the turn.
+_DATA_VERBS = (
+    "scrape", "crawl", "extract", "clean", "cleanse", "transform", "convert",
+    "parse", "collect", "download", "export", "import", "merge", "join",
+    "dedupe", "deduplicate", "normalize", "normalise", "wrangle", "resample",
+    "simulate", "compute", "calculate", "aggregate", "reconcile",
+    "plot", "chart", "visualize", "visualise",
+)
+
+# A data object — a thing data work acts on. Deliberately narrower than every
+# finance noun: "report", "portfolio" and "watchlist" are NOT here, so
+# "run a report on my portfolio" stays `not_code`.
+_DATA_OBJECTS = (
+    "data", "dataset", "datasets", "data set", "csv", "excel", "xlsx", "xls",
+    "spreadsheet", "sheet", "workbook", "json", "xml", "parquet", "dataframe",
+    "table", "tables", "file", "files", "records", "entries", "rows", "columns",
+    "series", "time series", "history", "prices", "price history", "ohlcv",
+    "candles", "ticks", "returns", "drawdown", "correlation", "covariance",
+    "volatility", "ratio", "ratios", "metric", "metrics", "sharpe", "sortino",
+    "number", "numbers", "value", "values",
+    "site", "website", "web site", "webpage", "web page", "url", "page",
+)
+
+# Distinctive phrases that are data work on their own, with any directive
+# ("run a Monte Carlo" is not a software object, but it is work to construct).
+_DATA_PHRASES = ("monte carlo", "monte-carlo")
 
 # A question ABOUT code is read-only. These openers plus a software object (or a
 # pasted path) classify as `code_question`.
@@ -163,6 +196,23 @@ def _has_directive_and_object(clause: str) -> bool:
     return bool(objects - verbs)
 
 
+def _has_data_work(clause: str) -> bool:
+    """Data work in ONE clause: a data verb + a data object (or distinctive
+    phrase); or a distinctive phrase + any directive verb ("run a Monte Carlo").
+    A bare data verb with no object ("clean it up") is too vague — `not_code`.
+    """
+    verbs = _matched_terms(clause, _DATA_VERBS)
+    if verbs and (
+        _matched_terms(clause, _DATA_OBJECTS)
+        or _matched_terms(clause, _DATA_PHRASES)
+    ):
+        return True
+    return bool(
+        _matched_terms(clause, _DATA_PHRASES)
+        and _matched_terms(clause, _DIRECTIVE_VERBS)
+    )
+
+
 def _last_user_turn(history: Optional[list[dict]]) -> Optional[str]:
     if not history:
         return None
@@ -211,7 +261,10 @@ def classify_code_request(
     Rules (deterministic, no model call):
       * a directive verb + a software object in the SAME clause
       * a pasted path or a stack trace
-      * a follow-up ("do it") whose PREVIOUS user turn was `code_change`
+      * data work (a data verb + a data object) ⇒ `data_task`, which activates
+        the analysis sandbox on the ordinary finance surface — additive
+      * a follow-up ("do it") whose PREVIOUS user turn was `code_change` or
+        `data_task`
       * a question ("how would you…", "what's wrong with…") ⇒ `code_question`
     """
     text = (query or "").strip()
@@ -275,8 +328,19 @@ def classify_code_request(
             ("symptom",),
         )
 
-    # A follow-up to a prior coding turn. The previous USER turn is classified
-    # recursively (bounded depth) so a chain of "do it" stays correct.
+    # Data work — extracting, scraping, cleaning, transforming, computing. The
+    # verdict does NOT widen the tool surface: it activates the analysis sandbox
+    # for the turn, so Eclipse can construct the result instead of refusing.
+    for clause in clauses:
+        if _has_data_work(clause):
+            return _verdict(
+                "data_task", "certain",
+                "The turn asks for work on data, so the analysis sandbox is available.",
+                ("data_work",),
+            )
+
+    # A follow-up to a prior coding or data turn. The previous USER turn is
+    # classified recursively (bounded depth) so a chain of "do it" stays correct.
     if _has_word(text, _FOLLOW_UPS):
         previous = _last_user_turn(history)
         if previous:
@@ -285,6 +349,12 @@ def classify_code_request(
                 return _verdict(
                     "code_change", "likely",
                     "This continues an earlier request to change software.",
+                    ("follow_up",),
+                )
+            if prior.verdict == "data_task":
+                return _verdict(
+                    "data_task", "likely",
+                    "This continues an earlier request to work on data.",
                     ("follow_up",),
                 )
         return _verdict("not_code", "certain", "The turn alone does not ask to change software.", ("follow_up",))

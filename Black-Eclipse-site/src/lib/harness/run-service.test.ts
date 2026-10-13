@@ -278,6 +278,32 @@ describe("chatWithAgent code profile (Phase 14)", () => {
     expect("analysisEnabled" in payload).toBe(false);
   });
 
+  it("sends analysis without an autonomy for a data task", async () => {
+    resolveChatCodeProfile.mockResolvedValue({
+      autonomy: null,
+      analysisEnabled: true,
+      verdict: "data_task",
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_data", status: "completed", output: "done", modelSteps: 2, toolCalls: 1, toolErrors: 0 });
+    await chatWithAgent("clean this CSV file for me");
+    const [payload] = runViaRuntime.mock.calls[0];
+    // No profile switch: the finance surface is unchanged, the sandbox is on.
+    expect("autonomy" in payload).toBe(false);
+    expect(payload.analysisEnabled).toBe(true);
+  });
+
+  it("forwards the data-task analysis flag through the streaming path too", async () => {
+    resolveChatCodeProfile.mockResolvedValue({
+      autonomy: null,
+      analysisEnabled: true,
+      verdict: "data_task",
+    });
+    await startChatRun("clean this CSV file for me", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
+    expect(payload.analysisEnabled).toBe(true);
+  });
+
   it("treats a classifier failure as an ordinary turn", async () => {
     resolveChatCodeProfile.mockRejectedValue(new Error("runtime unavailable"));
     runViaRuntime.mockResolvedValue({ runId: "run_e", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });

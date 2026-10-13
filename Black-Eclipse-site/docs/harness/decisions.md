@@ -6015,3 +6015,143 @@ files mean a promoted change can never disable its own gate. Owner doc:
 `docs/harness/roadmap/phase-15-attachments-and-artifacts.md` (attachments/artifacts
 remain Not started; the promotion slice is Done). Tests:
 `python/tests/test_code_promotion.py`.
+
+## ADR-H177 — Construction-first chat routing: a data task activates the analysis sandbox without widening the surface
+
+**Decision.** The deterministic chat classifier gains a fourth verdict,
+`data_task` (a data verb + a data object in the same clause —
+scrape/clean/extract/merge/compute over csv/dataset/series/prices/… — plus
+"run a Monte Carlo"). `code_change` and `code_question` are unchanged. The front
+door maps `data_task` to **no autonomy** and `analysisEnabled: true`: the
+ordinary finance surface is untouched and only the analysis sandbox switches on,
+so Eclipse computes, cleans or extracts instead of refusing. The prompt doctrine
+moves from "UNAVAILABLE plus the routes you tried is a complete answer" to
+construction-first: when a route fails or returns nothing, try a materially
+different one — including the execution tools when the run carries them — and
+treat "outside my tools" as true only after that ladder. Never-fabricate is
+unchanged; `computed ≠ retrieved` (ADR-H110) is unchanged, and a data task never
+receives `code.write`, the terminal or an external action.
+
+**Why.** The measured complaint: "scrape this site", "clean this CSV" and
+"run a Monte Carlo" fell through the lexical classifier to `not_code`, so the
+sandbox stayed off (`analysis_run` refused) and the model answered UNAVAILABLE —
+a constructible task refused by ROUTING, not by capability. A data verdict is
+additive (it widens nothing), so an explicit data signal can safely route there;
+ambiguity still stays `not_code` — the refusal path remains the safe failure.
+
+**Consequences.** `code/request_intent.py` vocabulary + verdict union; front-door
+`code-client.ts`/`chat-capability.ts` types and `run-service.ts` null-autonomy
+handling; prompt doctrine in `prompts.py` (length-neutral, ceiling unchanged at
+27769); new classifier + payload tests (`test_code_request_intent.py`,
+`run-service.test.ts`). The streaming parity bug it exposed —
+`run_background` dropping the portfolio/quant/ui bundles that `run` passes — is
+fixed in the same change (`test_service_background_parity.py`). Owner docs:
+`docs/harness/roadmap/phase-14-reachable-code-capability.md` §6.1/§6.3,
+`docs/harness/construction-first-audit.md` R3-01.
+
+## ADR-H178 — The execution substrate is honest and reachable: runtime tools admitted at the authorizer seam, analysis limits enforced, "no network" true by construction
+
+**Decision.** Four changes to one contract:
+
+  1. The composed effect authorizer gains an admission branch for the execution
+     (`EXECUTION_WRITE_TOOLS`) and LOCAL application-runtime
+     (`APP_RUNTIME_WRITE_TOOLS`) families. They are admitted exactly like
+     `command_run`: the HANDLER enforces the workspace binding and the
+     `code.execute` grant, and the security gateway still classifies every call.
+     Cluster/infra/deploy mutations are deliberately NOT admitted — they stay on
+     the approval path (R3-07 sweeps their missing branch).
+  2. The analysis sandbox ENFORCES its declared limits: cpu (a total-burn guard
+     of 600 s, above the wall clock), memory (2048 MB) and process count (64) are
+     passed to the one `RunSpec`, whose backends already enforce them.
+  3. "No network" in the analysis profile is true BY CONSTRUCTION: the exec
+     namespace gets a restricted builtin set (no open/eval/exec/compile/input or
+     reflection helpers), and the AST guard refuses dunder attribute access,
+     the bare `__builtins__`, the reflection call names, and http(s) URL
+     literals (which would let an allowed module like pandas fetch).
+  4. Persistent shells stop inheriting the host environment: the session child
+     env is the same scrubbed allowlist every command gets. `code/backends.py`'s
+     local declaration is corrected to say what is actually true (no OS-level
+     filesystem/network isolation; enforcement is policy + construction).
+
+**Why.** Measured 2026-10-12: `execute_python` / `execute_code` / `build_project`
+/ `start_service` / `package_install` were all refused by the authorizer chain —
+they fell through to the MCP authorizer, which has no server id for them — while
+still advertised to `edit_verify` profiles, so "build, run and test" was hollow.
+The analysis sandbox declared limits it never applied and claimed "no network"
+that nothing enforced; a persistent shell inherited the full host environment,
+so a host secret was readable from inside it.
+
+**Consequences.** `code/policy.py` names `EXECUTION_WRITE_TOOLS`;
+`code/authorizers.py` owns `_admit_runtime_tools`; `code/execution.py` owns the
+restricted runner, the AST rules and the limits; `terminal/session.py` uses
+`build_env`. Docker is neither required nor present on the current machine: the
+sandbox refuses honestly when no primitive exists, and a container tier for a
+future network-enabled collect profile stays unwired by design until its real
+consumer lands (R3-04). Tests: `test_authorizer_runtime_admission.py`,
+`test_analysis_execution.py`, `test_terminal_session.py`. Owner docs:
+`docs/harness/execution-architecture.md`.
+
+## ADR-H179 — Recovery is applied in the run hot path: a bounded retry for read-only tools, a route directive for everything else
+
+**Decision.** The run's tool loop calls
+`recovery/hotpath.py::run_tool_with_recovery` for every tool call. On failure the
+recovery ENGINE (unchanged: pure controller + durable store) classifies and
+decides; the loop then:
+
+  * retries the SAME call once — only a READ-ONLY tool, only a `retry` /
+    `rate_limit_backoff` decision, only inside the recovery budget, with the
+    in-loop backoff capped at 1.5 s; or
+  * appends the decision to the failed tool result as a next-step directive
+    ("do NOT repeat the same call; <strategy guidance>"), so the model's next
+    attempt is a justified, DIFFERENT route.
+
+The hot path supplies PER-RUN counters (`recovery_state`) so a failure seen in a
+past session cannot exhaust a fresh run's allowance; durable persistence and the
+recorded decision are unchanged.
+`RecoveryBudget.max_total_ms` is enforced when the caller supplies elapsed time
+(the hot path does). Recovery approvals become single-use (`consume_approval`),
+exactly like every other approval store in the harness, and the executor now
+claims rather than merely checks them.
+
+**Why.** Chat runs had NO recovery: the engine only observed (incidents were
+recorded off the event bus) while the loop blindly re-tried or gave up. The
+task-executor path had recovery, but the path the complaints come from did not.
+The engine's own invariant ("not a second execution loop") is kept: the registry
+still executes the tool; the engine only decides.
+
+**Consequences.** No new execution loop, and `graph.py` stays exactly at its size
+ratchet — `run_tool_with_recovery` replaces the `registry.execute` call in the
+tool loop. Fail-open by construction: no engine, disabled recovery, or any error
+returns the original result unchanged, so existing tests and zero-config are
+unaffected. The reproducer registry is deliberately NOT seeded: `reproduce()` is
+a caller-registered probe by design and a generic one would guess. Tests:
+`test_recovery_hotpath.py`, `test_recovery_executor.py` (single-use approval).
+Owner doc: `docs/harness/failure-recovery.md`.
+
+## ADR-H180 — One bounded collect route at the single egress point: deterministic page extraction the agent can drive
+
+**Decision.** A new bridge capability `web_collect` (TS) fetches ONE page through
+the existing SSRF-hardened transport (`safeGet`: https-only, DNS-pinned, every
+redirect re-validated, streamed 4 MB cap, 8 s timeout) and extracts structure
+with cheerio, deterministically: a CSS `selector` (with an optional
+field→sub-selector map or a single attribute) or the page's own `<table>`s.
+Caps: 500 rows / 5 tables / 40 columns / 20 k text. It is exposed to the runtime
+as the read-only tool `web_scrape`, registered on the ONE registry, allowlisted
+on the default agent, and wrapped as untrusted COLLECTED data with the page as
+the source. The retrieval layer's UNAVAILABLE text now names the eligible next
+routes before concluding.
+
+**Why.** The measured gap (audit RC-4): the agent could not author a fetcher —
+the TS scraper chain was reachable only through fixed quote/price capabilities,
+and Python may not open its own transport, so "scrape this site" ended in
+UNAVAILABLE unless the page happened to contain one named field.
+
+**Consequences.** No second egress: the capability rides the SAME
+`/api/harness/data` allowlist and transport as `web_fetch`; no new permission
+noun is invented (the tool is `read`, like every web tool — `data.collect`
+remains the phase-16 bulk noun, ADR-H121). Empty ≠ zero: a selector with no
+matches is a confirmed zero on the delivered page (with a note pointing at the
+browser tools for client-rendered pages), while a fetch failure is UNAVAILABLE.
+Everything returned is COLLECTED page data, never a verified source. Tests:
+`data-bridge-collect.test.ts`, `test_web_collect.py`. Owner doc:
+`docs/harness/web-research-engine.md`.

@@ -296,6 +296,20 @@ class RecoveryStore:
         ).fetchone()
         return row is not None
 
+    def consume_approval(self, incident_id: str, strategy: str) -> bool:
+        """Claim a one-off operator approval EXACTLY once, then delete it.
+
+        Reports whether a row was consumed, so the same approval can never
+        authorize a second recovery action — the same single-use discipline every
+        other approval store in the harness uses.
+        """
+        cursor = self._db.execute(
+            "DELETE FROM RecoveryApproval WHERE incidentId = ? AND strategy = ?",
+            (incident_id, strategy),
+        )
+        self._db.commit()
+        return int(cursor.rowcount or 0) == 1
+
     def list_approvals(self, incident_id: str) -> list[dict[str, Any]]:
         rows = self._db.execute(
             "SELECT incidentId, strategy, approvedBy, approvedAt FROM RecoveryApproval WHERE incidentId = ?",

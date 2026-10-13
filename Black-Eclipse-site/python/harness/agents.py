@@ -170,6 +170,9 @@ WEB_RESEARCH_TOOLS = [
     "page_extract",
     "pdf_extract",
     "structured_extract",
+    # Bounded page collection: fetch ONE page and extract repeated records with a
+    # CSS selector (or its tables). The agent-shaped acquisition route (R3-04).
+    "web_scrape",
     "research_plan",
     "research_query",
     "research_start",

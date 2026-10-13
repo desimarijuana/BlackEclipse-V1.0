@@ -77,8 +77,17 @@ class RecoveryService:
         details: Optional[dict[str, Any]] = None,
         allow_provider_substitution: bool = True,
         record_attempt: bool = True,
+        recovery_state: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Classify, decide, persist and return — the recovery entry point."""
+        """Classify, decide, persist and return — the recovery entry point.
+
+        `recovery_state` lets a caller supply ITS OWN bounded counters
+        (`attempts`, `signature_attempts`, `recurrent`, `delegations`,
+        `elapsed_ms`) instead of the durable, cross-run counts. The run hot path
+        (R3-03) uses this so a failure seen in a past session cannot exhaust a
+        fresh run's allowance; persistence and the recorded decision are
+        unchanged.
+        """
         failure = normalize_failure(
             code=code, message=message, subsystem=subsystem, source=source,
             location=location, details=details,
@@ -87,12 +96,15 @@ class RecoveryService:
         prior_incident = self.store.find_incident(failure.signature, task_id=task_id)
         prior_attempts = int(prior_incident["attempts"]) if prior_incident else 0
 
+        state = recovery_state or {}
         decision = self.controller.decide(
             failure,
-            attempts=prior_attempts,
-            signature_attempts=prior,
-            recurrent=prior >= 1,
+            attempts=int(state.get("attempts", prior_attempts)),
+            signature_attempts=int(state.get("signature_attempts", prior)),
+            delegations=int(state.get("delegations", 0)),
+            recurrent=bool(state.get("recurrent", prior >= 1)),
             allow_provider_substitution=allow_provider_substitution,
+            elapsed_ms=int(state.get("elapsed_ms", 0)),
         )
         diagnosis = self.diagnosis.diagnose(failure, evidence=details)
         incident = self.store.record_failure(
@@ -204,6 +216,14 @@ class RecoveryService:
 
     def has_approval(self, incident_id: str, strategy: str) -> bool:
         return self.store.has_approval(incident_id, strategy)
+
+    def consume_approval(self, incident_id: str, strategy: str) -> bool:
+        """Claim a one-off approval EXACTLY once (single-use).
+
+        The executor uses THIS rather than `has_approval`, so the same operator
+        approval can never authorize a second recovery action.
+        """
+        return self.store.consume_approval(incident_id, strategy)
 
     # ── auto-reproduction ────────────────────────────────────────────────────
 

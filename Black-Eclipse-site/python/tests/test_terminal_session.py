@@ -84,6 +84,23 @@ def test_persistent_shell_keeps_working_directory_and_env(manager):
     manager.close_shell(sid)
 
 
+def test_persistent_shell_does_not_inherit_host_secrets(manager, monkeypatch):
+    """The shell child env is the SAME scrubbed allowlist every command gets.
+
+    R3-02: the session used to be spawned with a full `os.environ` copy, so a
+    host secret was readable from inside a persistent shell. It must be absent
+    by construction.
+    """
+    monkeypatch.setenv("BLACK_ECLIPSE_TEST_SECRET", "sekret-value")
+    info = manager.open_shell(cwd=os.getcwd())
+    sid = info["sessionId"]
+    out = manager.run_in_shell(
+        sid, read_env_cmd("BLACK_ECLIPSE_TEST_SECRET"), workspace_root=os.getcwd()
+    )
+    assert "sekret-value" not in out["text"]
+    manager.close_shell(sid)
+
+
 def test_session_cd_builtin_moves_within_workspace_only(manager, tmp_path):
     sub = tmp_path / "subdir"
     sub.mkdir()

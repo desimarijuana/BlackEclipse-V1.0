@@ -118,6 +118,9 @@ class AgenticService:
 
             self.evidence_store = EvidenceStore(self.store)
             register_research_engine_tools(self.registry)
+            from .research.web_collect import register_web_collect_tool  # noqa: PLC0415
+
+            register_web_collect_tool(self.registry)
         except Exception:  # noqa: BLE001 - the research engine must never block boot
             self.evidence_store = None
             log.warning("web research engine unavailable", exc_info=True)
@@ -1107,23 +1110,29 @@ class AgenticService:
         # run context (so its events reach the emitter); only the shared cache is
         # passed here.
         result = await execute_run(
-            request, self.registry, bridge, self.store, self.bus,
-            retrieval_cache=self.retrieval_cache,
-            memory_service=self.memory, skill_registry=self.skill_registry,
-            approvals=self.approvals, memory_router=self.memory_router,
-            mcp_manager=self.mcp, code_store=self.code_store,
-            code_intel_runtime=getattr(self, "code_intel", None),
-            evidence_store=getattr(self, "evidence_store", None),
-            learning_store=getattr(self, "learning_store", None),
-            market=self._market_bundle(),
-            portfolio=self._portfolio_bundle(),
-            quant=self._quant_bundle(),
-            search=getattr(self, "search", None),
-            artifact_service=getattr(self, "artifacts", None),
-            ui_service=getattr(self, "ui", None),
+            request, self.registry, bridge, self.store, self.bus, **self._run_kwargs(),
         )
         await self._schedule_review(request.runId, result.status)
         return result
+
+    def _run_kwargs(self) -> dict[str, Any]:
+        """The ONE subsystem-bundle set `execute_run` receives, shared by both
+        run paths so the streaming path can never drop a bundle."""
+        return {
+            "retrieval_cache": self.retrieval_cache,
+            "memory_service": self.memory, "skill_registry": self.skill_registry,
+            "approvals": self.approvals, "memory_router": self.memory_router,
+            "mcp_manager": self.mcp, "code_store": self.code_store,
+            "market": self._market_bundle(),
+            "portfolio": self._portfolio_bundle(),
+            "quant": self._quant_bundle(),
+            "code_intel_runtime": getattr(self, "code_intel", None),
+            "evidence_store": getattr(self, "evidence_store", None),
+            "learning_store": getattr(self, "learning_store", None),
+            "search": getattr(self, "search", None),
+            "artifact_service": getattr(self, "artifacts", None),
+            "ui_service": getattr(self, "ui", None),
+        }
 
     def _quant_bundle(self) -> Any:
         """The Quant Engine subsystem handed to each run (store)."""
@@ -1392,17 +1401,7 @@ class AgenticService:
         async def _task() -> None:
             try:
                 result = await execute_run(
-                    request, self.registry, bridge, self.store, self.bus,
-                    retrieval_cache=self.retrieval_cache,
-                    memory_service=self.memory, skill_registry=self.skill_registry,
-                    approvals=self.approvals, memory_router=self.memory_router,
-                    mcp_manager=self.mcp, code_store=self.code_store,
-                    code_intel_runtime=getattr(self, "code_intel", None),
-                    evidence_store=getattr(self, "evidence_store", None),
-                    learning_store=getattr(self, "learning_store", None),
-                    market=self._market_bundle(),
-                    search=getattr(self, "search", None),
-                    artifact_service=getattr(self, "artifacts", None),
+                    request, self.registry, bridge, self.store, self.bus, **self._run_kwargs(),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

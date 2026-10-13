@@ -9,12 +9,11 @@
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import { CalendarDays, Plus, RefreshCw, Users } from '@/lib/icons';
+import { Plus, RefreshCw, Users } from '@/lib/icons';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { lifecycleTone } from '@/components/bots/status-pill';
 import { useBotsStore } from '@/lib/bots/bots-store';
-import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
@@ -50,8 +49,6 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const openGroupCreate = useBotsStore((s) => s.openGroupCreate);
   const avatars = useBotAvatarStore((s) => s.avatars);
   const groups = useBotGroupsStore((s) => s.groups);
-  const schedulerOpen = useWorkspaceStore((s) => s.open);
-  const toggleScheduler = useWorkspaceStore((s) => s.toggle);
 
   useEffect(() => {
     void hydrate();
@@ -130,19 +127,6 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
             )}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={toggleScheduler}
-          title={t('bots.jobsPanel.open')}
-          aria-label={t('bots.jobsPanel.open')}
-          aria-pressed={schedulerOpen}
-          className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
-            schedulerOpen ? 'bg-white/[0.08] text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-          )}
-        >
-          <CalendarDays size={16} />
-        </button>
       </div>
     );
   }
@@ -276,23 +260,6 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
           </ul>
         )}
       </div>
-
-      {/* Open the scheduler — the right-docked Agent Workspace slot, which shows
-          the scheduled jobs while in Bots mode. */}
-      <button
-        type="button"
-        onClick={toggleScheduler}
-        aria-pressed={schedulerOpen}
-        className={cn(
-          'mt-3 flex w-full shrink-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-[11px] font-medium transition-colors',
-          schedulerOpen
-            ? 'border-border/30 bg-white/[0.08] text-foreground'
-            : 'border-border/20 text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-        )}
-      >
-        <CalendarDays size={14} className="shrink-0" />
-        <span className="flex-1 text-left">{t('bots.jobsPanel.open')}</span>
-      </button>
     </div>
   );
 }

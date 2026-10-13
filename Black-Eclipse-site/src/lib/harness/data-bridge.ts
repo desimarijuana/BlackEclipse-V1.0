@@ -462,12 +462,13 @@ async function dispatchCapability(
       return mcpOauthTokenSet(params);
     case "mcp_oauth_token_clear":
       return mcpOauthTokenClear(params);
-    case "market_data":
-      // Market Data Layer provider adapters (routing/fallback/health live in Python).
+    case "market_data": // provider adapters; routing/fallback/health live in Python
       return (await import("./market/bridge")).fetchMarketData(params);
     case "market_stream_config":
       return (await import("./market/stream-config")).marketStreamConfig(params);
     case "world_events": return (await import("./world-events")).worldEvents(params);
+    case "web_collect": // bounded page → records (SSRF-hardened + cheerio; R3-04)
+      return (await import("./data-bridge-collect")).webCollectCapability(params);
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }
@@ -1435,9 +1436,7 @@ async function webFetchCapability(params: Record<string, unknown>): Promise<Data
     return {
       status: "UNAVAILABLE",
       failureClass: cls,
-      // The category (unsupported_document / javascript_only / parse_failure …)
-      // is surfaced so the caller can escalate to a different route rather than
-      // treating every miss the same.
+      // The category (javascript_only / paywalled / …) tells the caller how to escalate.
       error: d.detail || "page could not be retrieved",
       diagnostics: [d],
     };

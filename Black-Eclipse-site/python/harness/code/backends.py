@@ -128,14 +128,24 @@ def _local_guarantees() -> SandboxGuarantees:
     is enforced changes the declaration with it, so the app can never claim a
     guarantee it does not hold.
     """
-    network = "network denied by policy" if not policy.NETWORK_DEFAULT else "network policy allows it"
+    network = (
+        "network is denied by policy for analysis runs (blocked by construction: "
+        "a fixed module list, restricted builtins, no URL literals); commands "
+        "that declare network run with host network"
+        if not policy.NETWORK_DEFAULT else "network policy allows it"
+    )
     return SandboxGuarantees(
         filesystem=(
-            "paths confined to the task's own folder; "
-            f"{len(policy.PROTECTED_PATHS)} protected locations are never touched"
+            "no OS-level filesystem isolation — a launched program can read the "
+            "host as the user; write paths are confined to the task's own folder "
+            f"by policy and {len(policy.PROTECTED_PATHS)} protected locations are "
+            "never touched by the tools"
         ),
         network=network,
-        resources="no cpu/memory limits (process-level bounds only)",
+        resources=(
+            "process-level bounds only for commands; the analysis profile sets "
+            "cpu/memory/process limits per run"
+        ),
         wall_clock="a wall-clock limit stops a run that takes too long",
         process_tree="the whole process tree is killed on timeout or cancel",
         env=(

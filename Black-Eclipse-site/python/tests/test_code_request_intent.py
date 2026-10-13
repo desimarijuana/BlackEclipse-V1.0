@@ -148,11 +148,68 @@ def test_directive_without_a_software_object_is_not_code() -> None:
         "make me a tool to analyse filings",
         "create an app that tracks my portfolio",
         "build a finance app",
+        "build a website",
+        "write a scraper for this site",
     ],
 )
 def test_the_create_an_application_wish_is_a_change(query: str) -> None:
     # This is the complaint the phase exists for; it must not be `not_code`.
     assert classify_code_request(query).verdict == "code_change", query
+
+
+# ── data work activates the analysis sandbox WITHOUT widening the surface ────
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "scrape this site and give me the data as CSV",
+        "clean this CSV file for me",
+        "convert this spreadsheet to CSV",
+        "merge these two datasets",
+        "get BTC history and run a Monte Carlo",
+        "calculate the Sharpe ratio from this series",
+        "parse the JSON and plot the returns",
+        "download the prices and compute the drawdown",
+    ],
+)
+def test_data_work_is_a_data_task(query: str) -> None:
+    intent = classify_code_request(query)
+    assert intent.verdict == "data_task", (query, intent)
+    assert "data_work" in intent.signals
+
+
+def test_a_data_task_does_not_claim_a_software_change() -> None:
+    # The front door hands a data task NO autonomy — the finance surface is
+    # unchanged and only the analysis sandbox switches on. The verdict must not
+    # be code_change.
+    assert classify_code_request("clean this CSV file for me").verdict != "code_change"
+
+
+def test_a_broken_scraper_is_a_code_change_not_a_data_task() -> None:
+    assert classify_code_request("the scraper crashes").verdict == "code_change"
+
+
+def test_follow_up_after_a_data_task_stays_a_data_task() -> None:
+    history = [{"role": "user", "content": "clean this CSV file for me"}]
+    intent = classify_code_request("do it", history=history)
+    assert intent.verdict == "data_task"
+    assert "follow_up" in intent.signals
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "show me the data",
+        "run a report on my portfolio",
+        "create a report of my holdings",
+        "what's the price of AAPL",
+        "summarize the earnings call",
+        "clean up my portfolio",
+    ],
+)
+def test_ordinary_asks_stay_not_code(query: str) -> None:
+    assert classify_code_request(query).verdict == "not_code", query
 
 
 # ── reported symptoms and named errors ───────────────────────────────────────

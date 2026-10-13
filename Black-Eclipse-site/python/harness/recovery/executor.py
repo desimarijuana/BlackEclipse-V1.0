@@ -181,10 +181,11 @@ async def recover_operation(
                     risk="medium" if candidate.get("requiresApproval") else "low",
                 ) if strategy_enum is not None else None
                 if env_decision is None or not env_decision.allowed:
-                    # A one-off operator approval authorizes exactly this incident.
+                    # A one-off operator approval authorizes exactly this incident,
+                    # EXACTLY once (claiming it consumes it — single-use).
                     approved = False
                     try:
-                        approved = service.has_approval(incident_id, str(strategy))
+                        approved = service.consume_approval(incident_id, str(strategy))
                     except Exception:  # noqa: BLE001 - absence of approval store is not approval
                         approved = False
                     if not approved:
