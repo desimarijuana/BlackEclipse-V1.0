@@ -273,10 +273,24 @@ export function ResponseView({ response, compact = false, className, onFollowup 
     </>
   );
 
+  // Severity split (R3-06): only REAL problems raise the amber diagnostics panel.
+  // A non-fatal note (a future schema version, an empty envelope) must not make
+  // an otherwise-fine answer look broken.
+  const errors = response.diagnostics.filter((d) => d.severity === 'error');
+
   if (response.blocks.length === 0) {
+    if (errors.length > 0) {
+      return (
+        <div className={cn('w-full', className)}>
+          <DiagnosticsPanel diagnostics={errors} />
+        </div>
+      );
+    }
+    // Nothing renderable and nothing wrong: say so quietly instead of an empty
+    // region (the first note carries the honest reason when there is one).
     return (
-      <div className={cn('w-full', className)}>
-        <DiagnosticsPanel diagnostics={response.diagnostics} />
+      <div className={cn('w-full text-[12px] text-muted-foreground/80', className)}>
+        {response.diagnostics[0]?.message ?? 'No structured content was produced.'}
       </div>
     );
   }
@@ -291,7 +305,7 @@ export function ResponseView({ response, compact = false, className, onFollowup 
         {renderBlocks(response.blocks)}
       </div>
       <div className="mt-2">
-        <DiagnosticsPanel diagnostics={response.diagnostics} />
+        <DiagnosticsPanel diagnostics={errors} />
       </div>
     </section>
   );

@@ -107,6 +107,14 @@ const launcher = [
   "_es = run_offline_gate()",
   "[print('  ' + l) for l in format_gate_report(_es)]",
   "failed += [] if _es.passed else ['evaluation']",
+  // R3-08: the construction benchmark — the 16 master-plan scenarios, graded
+  // through the same real runtime. It is inside the merged gate above; this
+  // line pins it as its own named gate so the construction floor can never be
+  // dropped from the chain silently.
+  "from harness.evaluation.gate import run_offline_gate as run_construction_gate",
+  "_cs = run_construction_gate(dataset_name='construction_v1')",
+  "print('  construction gate:', 'PASS' if _cs.passed else 'FAIL', 'tasks=' + str(len(_cs.tasks)), 'task_success=' + str(_cs.aggregates.get('task_success')), 'recovery_success=' + str(_cs.aggregates.get('recovery_success')))",
+  "failed += [] if _cs.passed else ['construction']",
   "print('eval gates:', 'ALL PASS' if not failed else 'FAILED: ' + ','.join(failed))",
   "sys.exit(0 if not failed else 1)",
 ].join("\n");

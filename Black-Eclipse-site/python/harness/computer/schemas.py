@@ -164,7 +164,7 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "computer_pause": {"risk": "low", "timeout": 15_000, "desc": "Pause a session."},
     "computer_resume": {"risk": "low", "timeout": 15_000, "desc": "Resume a paused/human-held session."},
     "computer_release": {"risk": "low", "timeout": 15_000, "desc": "Release the control lease back to the agent."},
-    "computer_record_export": {"risk": "low", "timeout": 20_000, "desc": "Export the session's recorded trajectory to a JSON file for inspection/replay."},
+    "computer_record_export": {"risk": "low", "timeout": 20_000, "effect": "write", "desc": "Export the session's recorded trajectory to a JSON file for inspection/replay."},
     "computer_remember": {"risk": "low", "timeout": 20_000, "desc":
         "Store a learned desktop fact (application layout, a successful workflow, a recovery path) in Eclipse-Memory. "
         "Explicit and inspectable — never screenshots, never automatic."},
@@ -186,6 +186,9 @@ EFFECTFUL_TOOLS: tuple[str, ...] = (
     "computer_finance_prepare",
     "computer_takeover",
     "computer_request_human",
+    # Writes a JSON export file (R3-07): effectful, admitted by the computer
+    # authorizer, removed at `plan_only`.
+    "computer_record_export",
 )
 
 ALL_TOOL_NAMES: tuple[str, ...] = tuple(INPUT_SCHEMAS.keys())

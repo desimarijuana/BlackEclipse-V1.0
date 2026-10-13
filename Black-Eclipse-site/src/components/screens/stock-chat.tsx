@@ -678,9 +678,7 @@ function StockChatContent() {
       .filter((m) => m.content.trim().length > 0)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // A placeholder assistant turn. Its fields are filled by the shared run
-    // hook (status, streamed text, activities); until the first event the turn
-    // reads as "the agent is working on this reply".
+    // A placeholder assistant turn; the shared run hook fills its fields.
     const placeholderId = (Date.now() + 1).toString();
     appendAssistantReply(chatId, {
       id: placeholderId,
@@ -702,7 +700,9 @@ function StockChatContent() {
         status: turn.status,
         activities: turn.activities,
         research: turn.research, vision: turn.vision, images: turn.images,
-        memory: turn.memory,
+        documents: turn.documents, memory: turn.memory,
+        codeVerification: turn.codeVerification, autonomy: turn.autonomy,
+        capability: turn.capability, analysis: turn.analysis,
         runId: turn.runId,
         model: turn.model,
         error: turn.error,
@@ -1309,11 +1309,12 @@ function StockChatContent() {
           )}
 
           {/* App-wide floating assistant — present on every tab except the
-              ChatBot (it would be a second composer next to the full chat) and
-              while the Settings modal is open. Mounted once here rather than
-              per-screen; the dock gates on this panel's own display so it never
-              floats over an inactive keep-alive tab. */}
-          <ChatDock visible={activeTab !== 'chat' && !settingsOpen} />
+              ChatBot and Bots (each already has its own composer, so the dock
+              would be a second, competing input) and while the Settings modal
+              is open. Mounted once here rather than per-screen; the dock gates
+              on this panel's own display so it never floats over an inactive
+              keep-alive tab. */}
+          <ChatDock visible={activeTab !== 'chat' && activeTab !== 'bots' && !settingsOpen} />
         </div>
         {/* Close the main column, then place the right dock as a SIBLING column
             in the row, so the main panel shrinks instead of being overlapped. */}

@@ -68,6 +68,12 @@ jobs:
       - name: Lint
         run: npx eslint .
 
+      # The deploy-time security checklist, same as check-all.js. On this CI
+      # runner the posture is loopback/dev, so the checks are advisory (exit 0);
+      # an exposed misconfiguration fails instead of shipping.
+      - name: Security preflight
+        run: node scripts/security-preflight.js
+
       - name: Tests (Vitest + Python)
         run: npm test
 

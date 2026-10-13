@@ -55,3 +55,32 @@ def test_patch_summary_counts_changes():
 def test_unrecognised_result_has_no_summary():
     assert activity.tool_result_summary("market_get_quote", {"price": 123}) is None
     assert activity.tool_result_summary("terminal_run", {}) is None
+
+
+# ── R3-06: the computed / collected result lines ─────────────────────────────
+
+
+def test_analysis_summary_counts_values_and_saved_files():
+    data = {"status": "ok", "outputs": {"sharpe": 1.4}, "artifacts": [{"name": "s.csv"}]}
+    assert activity.tool_result_summary("analysis_run", data) == "worked out 1 value(s), 1 saved"
+
+
+def test_analysis_summary_reports_a_refusal_code():
+    assert (
+        activity.tool_result_summary("analysis_run", {"status": "refused", "code": "INPUT_INVALID"})
+        == "refused (INPUT_INVALID)"
+    )
+
+
+def test_scrape_summary_reports_records_or_tables_never_content():
+    assert (
+        activity.tool_result_summary("web_scrape", {"rows": [{"a": "SECRET"}]})
+        == "1 record(s) collected"
+    )
+    assert (
+        activity.tool_result_summary("web_scrape", {"tables": [{"rows": []}], "text": "SECRET"})
+        == "1 table(s) collected"
+    )
+    assert activity.tool_result_summary("web_scrape", {"collected": True, "rows": []}) == (
+        "no matching records on the page"
+    )

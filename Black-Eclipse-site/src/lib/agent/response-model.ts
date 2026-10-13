@@ -164,6 +164,13 @@ export interface AssistantTurn {
    */
   images?: unknown;
   /**
+   * A computed result the runtime worked out this turn (`analysis.completed`):
+   * outputs, artifacts and provenance. `undefined` when the turn computed
+   * nothing; narrowed by the chat surface via `coerceComputedResult`, which
+   * renders a provenance-less value as UNAVAILABLE — never as retrieved data.
+   */
+  analysis?: unknown;
+  /**
    * The action the agent is currently blocked on pending an operator decision,
    * or undefined when it is not waiting. Set from `approval.requested`, cleared
    * by `approval.resolved` or the decision POST.

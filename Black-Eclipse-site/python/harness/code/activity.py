@@ -187,6 +187,28 @@ def tool_result_summary(tool_name: str, data: Any) -> Optional[str]:
     if name == "workspace_list":
         count = data.get("count")
         return f"{count} entries" if isinstance(count, int) else None
+    if name == "analysis_run":
+        # A computation: report the value count and what was saved, never the
+        # values themselves (they belong in the computed-result panel).
+        if data.get("status") != "ok":
+            return f"refused ({data.get('code') or 'FAILED'})" if data.get("code") else None
+        outputs = data.get("outputs")
+        count = len(outputs) if isinstance(outputs, dict) else 0
+        artifacts = data.get("artifacts")
+        saved = len(artifacts) if isinstance(artifacts, list) else 0
+        suffix = f", {saved} saved" if saved else ""
+        return f"worked out {count} value(s){suffix}" if count or saved else None
+    if name == "web_scrape":
+        # A bounded collection: rows matched / tables found (never the content).
+        rows = data.get("rows")
+        if isinstance(rows, list) and rows:
+            return f"{len(rows)} record(s) collected"
+        tables = data.get("tables")
+        if isinstance(tables, list) and tables:
+            return f"{len(tables)} table(s) collected"
+        if data.get("collected") is True:
+            return "no matching records on the page"
+        return None
     if name.startswith("code_"):
         # CIUE tools all return a `count` and an `engine`; the summary names how
         # many results and which kind of tool answered (never file content).

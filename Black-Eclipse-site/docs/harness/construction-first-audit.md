@@ -1,7 +1,7 @@
 ---
 title: Construction-First Audit — ground truth and repo-mapped phase plan
 status: Current
-last-verified: 2026-10-12
+last-verified: 2026-10-13
 ---
 
 # Construction-First Audit — ground truth and repo-mapped phase plan
@@ -284,12 +284,12 @@ The repository already completed round 1 (phase-00…12) and part of round 2
 | P2 Secure execution substrate | sandbox exists; network inert; Docker defined-unused | **R3-02 ✅ done 2026-10-12** | R3-01 |
 | P3 Adaptive recovery + construction | deep engine; unwired in production; chat has none | **R3-03 ✅ done 2026-10-12** | R3-02 |
 | P4 Data acquisition routing | phase-13 done; phase-16 not started; closed capabilities | **R3-04 ✅ done 2026-10-12** (bounded collect; bulk still phase-16) | R3-02, R3-03 |
-| P5 Utility building | phases 5/9/14 done; promotion stuck in 15 | **R3-05** (finish phase-15 + reach) | R3-01, R3-04 |
-| P6 Visual + artifact delivery | renderer robust; artifacts E2E; no plotting; dead result panel | **R3-06** (= phase-18 + UI mapping) | R3-04 |
+| P5 Utility building | phases 5/9/14 done; promotion shipped (ADR-H176) and chat-reachable — plan corrected by recon | **R3-05 ✅ done 2026-10-12** | R3-01, R3-04 |
+| P6 Visual + artifact delivery | renderer robust; artifacts E2E; no plotting; dead result panel | **R3-06 ✅ done 2026-10-12** (computed results + severity split; plotting deferred to phase-18) | R3-04 |
 | P7 Evidence + deterministic computation | exists (`finance_facts`, receipts, validation) | extend to collected data inside R3-04/05 | R3-04 |
 | P8 Memory / skills / learning | done (memory-skills evolution landed) | none — keep | — |
-| P9 Permissions / approvals / audit | model exists; holes (RC-8) | **R3-07** (hardening slice) | R3-02 |
-| P10 E2E benchmark + release gate | deep harness; **zero construction scenarios**; `task_success` measured-not-gated | **R3-08** (= phases 19/20 + the 16 master scenarios) | R3-01…07 |
+| P9 Permissions / approvals / audit | model exists; holes (RC-8) | **R3-07 ✅ done 2026-10-12** (schedule approvals, metadata drift, LFS/terminal sets; registry-visibility scan deferred) | R3-02 |
+| P10 E2E benchmark + release gate | deep harness; **zero construction scenarios**; `task_success` measured-not-gated | **R3-08 ✅ done 2026-10-13** (= phases 19/20 + the 16 master scenarios) | R3-01…07 |
 
 ### R3-01 — Construction-first routing (smallest user-visible fix)
 
@@ -392,10 +392,14 @@ next routes. Deviations, recorded: bulk/scheduled acquisition stays phase-16
 (`data.collect` noun not invented here); the six catalogue-only providers
 (FMP/POLYGON/FINNHUB/ALPHAVANTAGE/COINGECKO/COINMARKETCAP) stay honestly marked
 `implemented=False` in the retrieval registry rather than being deleted or
-faked; the `priceHistory` second-transport fallback is deferred until the
-ratcheted `data-bridge.ts` is split (a standing split candidate). Still open:
-egress stays at the bridge by design; scanned-PDF OCR on the web path remains an
-unrelated gap.
+faked; the `priceHistory` second-transport fallback **landed after this phase**
+(ADR-H185): the ratcheted `data-bridge.ts` was split (1710→1377; health →
+`data-bridge-health.ts`, education → `data-bridge-education.ts`, result helpers
+→ `data-bridge-result.ts`) and `price_history` now falls back to the direct
+Yahoo chart transport (`data-bridge-history.ts`) when the Python bridge is off —
+provider stays `yfinance`, transport named separately, ≥2 real bars required.
+Still open: egress stays at the bridge by design; scanned-PDF OCR on the web
+path remains an unrelated gap.
 
 ### R3-05 — Utility building that lands
 
@@ -407,6 +411,21 @@ unrelated gap.
 - **Acceptance:** "build me X" produces a validated deliverable the user can
   open; failed generated code is corrected or replaced; nothing silently
   becomes a runtime capability.
+
+**R3-05 status — done 2026-10-12 (recon correction + prompt honesty clause).**
+Verified already shipped: the promotion path (`code/promotion.py`;
+`/code/tasks/{runId}/promote/preview|promote`, single-use digest-bound approval)
+is chat-reachable — `PromoteChange` renders on `edit_verify` turns and the route
+resolves a chat run id via `_recent_workspace`; `scaffold_kit` enforces the
+worktree binding + `code.write` and runs the kit's check; `decide_write` has
+exactly two call sites (`patch.py`, `fs/permissions.py`), both fed by the
+worktree-bound actor; `ui_register_engineered_component` touches only Eclipse's
+own UI config (permission `read` by design). The one real gap found and closed:
+the chat prompt never said edits sit in a REVIEW COPY, so the model could claim
+"your file is updated" while nothing had landed. `prompts.py` now states it
+(ceiling held; measured 27768/27769), pinned by a clause test in
+`test_chat_code_profile.py`. Acceptance evidence: `test_code_promotion.py`,
+`test_kits_scaffold.py`, `test_code_eval*`, `test_ui_agent_e2e.py` — green.
 
 ### R3-06 — Visual and artifact delivery
 
@@ -420,6 +439,18 @@ unrelated gap.
   produced artifacts are reachable and authorized; a broken visual never
   destroys the answer; text fallback exists.
 
+**R3-06 status — done 2026-10-12 (ADR-H181).** Shipped: `analysis.completed`
+carries the bounded computed blob; the client maps it to a first-class turn field
+and renders the (formerly dead) `ComputedResultPanel` on BOTH chat surfaces — and
+the main ChatBot surface now maps the full turn, fixing a delivery bug where
+`codeVerification`/`autonomy`/`capability`/`documents` were dropped (the promotion
+control never appeared there). Diagnostics are split by severity: errors raise
+the amber panel, warnings render quietly, an empty envelope gets one muted line.
+Activity lines now summarize `analysis_run` ("worked out N value(s), M saved")
+and `web_scrape` ("N record(s) collected") without leaking content. Deferred to
+phase-18 by design: plotting/figures in the sandbox. Tests: `events.test.ts`,
+`render.test.tsx`, `test_code_activity.py`.
+
 ### R3-07 — Permission hardening (slice, runs beside R3-02…06)
 
 - **Work:** give `bot_create` and `computer_record_export` correct effect
@@ -430,6 +461,25 @@ unrelated gap.
 - **Acceptance:** unauthorized actions blocked by runtime controls, not
   absence; approvals cannot be bypassed through generated code; destructive
   operations have rollback/preview; adversarial tests updated.
+
+**R3-07 status — done 2026-10-12 (ADR-H182).** Shipped: autonomous schedules
+(`bot_create`/`bot_update` with a cron/interval/one_time trigger, `bot_enable`,
+`bot_resume`) are effectful, admitted by the new bot authorizer, and require a
+single-use operator approval (`bot_schedule`) in the handler — declined by
+default, removed entirely at `plan_only`; `computer_record_export` states
+`effect="write"` and joined `COMPUTER_EFFECTFUL_TOOLS`; `git_lfs_fetch/pull` moved
+to `GIT_EXTERNAL_TOOLS` and out of the chat profile's declared set;
+`policy.TERMINAL_READ_TOOLS` now names the real tools. The R3-02 execution/
+app-runtime admission and R3-03 single-use recovery approvals already closed the
+other two RC-8 items. Deliberately visible-but-ungated: `bot_run` and the
+lifecycle-safe pause/disable/delete; deliberately invisible (documented, not a
+bug): recovery/artifact/orchestration/fabric read tools, `get_world_events`,
+`search_context` — none is in an agent allowlist by design (operator/console
+surfaces). Still open: cluster/infra mutations (k8s/helm/terraform/deploy) have no
+admission branch or approval kind — refused outside Code Tasks for now. The
+registry-visibility scan test landed after R3-08
+(`test_registry_visibility.py`, ADR-H184). Tests:
+`test_automation_authorizer.py` (+7), updated `test_chat_code_profile.py`.
 
 ### R3-08 — The construction benchmark
 
@@ -443,6 +493,32 @@ unrelated gap.
   recovery/redundant-retries/latency/cost/visual/safety/false-success; critical
   safety blocks release; no completion gains by weakening security or hiding
   failures.
+
+**R3-08 status — done 2026-10-13 (ADR-H183).** Shipped:
+`evaluation/datasets/construction_v1.json` — the 16 scenarios (ids
+`construction.<name>.001`), each a deterministic scripted trace through the REAL
+`execute_run` graph with real registry/authorization/events; five new graders
+(`recovery`, `honesty`, `provenance`, `artifact`, `response`) registered like the
+original twelve; `scoring.py` gains the `recovery_success` / `provenance` /
+`honesty` / `artifact_delivery` / `visual_delivery` dimensions and GATES
+`task_success >= 0.9` and `recovery_success >= 0.85` (safety/hallucination
+unchanged); eval tools now record a failed environment operation as a failed
+tool call and add bounded `eval_run` (killed on timeout) + `eval_response_check`;
+`scripts/test-evals.js` runs the suite as a named gate.
+
+**Measured 2026-10-13 (offline, scripted):** full gate **tasks=47**,
+`task_success=1.0`, `recovery_success=1.0`, `provenance=1.0`, `honesty=1.0`,
+`artifact_delivery=1.0`, `visual_delivery=1.0`, `safety_score=1.0`,
+`hallucination_rate=0.0`, `financial_accuracy=1.0`, `citation_accuracy=1.0`;
+construction suite alone tasks=16 all measured 100%. Before this phase the same
+gate ran tasks=31 with `task_success` measured-not-gated and no construction
+task. `tool_accuracy` 0.99→0.9647 and `planning_quality`→0.868 move down because
+the new scenarios deliberately contain failures and retries — recorded, not a
+regression. Open (recorded, not silently fixed): latency/cost/tokens are
+measured per trial but not gated; the registry-visibility scan test landed as
+`test_registry_visibility.py` (ADR-H184, 36 deliberate operator-only names pinned,
+5 accidental invisibles allowlisted); bulk acquisition (phase-16), sandbox
+plotting (phase-18) and attachments (phase-15 remainder) unchanged.
 
 ---
 

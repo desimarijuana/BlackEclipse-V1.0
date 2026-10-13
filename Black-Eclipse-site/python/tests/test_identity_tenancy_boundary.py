@@ -181,3 +181,55 @@ def test_operator_secret_placeholder_is_not_configured(monkeypatch):
     monkeypatch.setenv("CRON_SECRET", "change-me-to-a-random-secret")
     assert _deployment_exposure("0.0.0.0")["operatorSecretConfigured"] is False
     assert _deployment_exposure("0.0.0.0")["exposed"] is True
+
+
+# ── the end-to-end boot guard (Python bind + front-door auth) ────────────────
+
+
+def _deployment_guard(host=None):
+    return _main().deployment_guard(host)
+
+
+def test_deployment_guard_is_quiet_on_a_local_dev_bind(monkeypatch):
+    for var in ("HARNESS_AUTH", "HARNESS_AUTH_SECRET", "HOST", "CRON_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("NODE_ENV", "development")
+    guard = _deployment_guard("127.0.0.1")
+    assert guard["secure"] is True
+    assert guard["warnings"] == []
+    assert guard["multiUserSafe"] is False
+
+
+def test_deployment_guard_warns_when_a_public_bind_leaves_the_front_door_open(monkeypatch):
+    # The gap this guard closes: CRON_SECRET set + HARNESS_AUTH explicitly OFF
+    # used to silence every startup warning even though every page/API is open.
+    monkeypatch.setenv("CRON_SECRET", SECRET)
+    monkeypatch.setenv("HARNESS_AUTH", "off")
+    monkeypatch.delenv("HARNESS_AUTH_SECRET", raising=False)
+    guard = _deployment_guard("0.0.0.0")
+    assert guard["secure"] is False
+    assert any("front-door authentication is OFF" in w for w in guard["warnings"])
+    # The public-bind half is a notice here (the operator secret IS set).
+    assert guard["notices"]
+
+
+def test_deployment_guard_warns_when_required_auth_cannot_work(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", SECRET)
+    monkeypatch.setenv("HARNESS_AUTH", "required")
+    monkeypatch.delenv("HARNESS_AUTH_SECRET", raising=False)
+    guard = _deployment_guard("0.0.0.0")
+    assert guard["secure"] is False
+    assert any("fail closed (503" in w for w in guard["warnings"])
+    # Required means the app never silently opens; the failure is explicit.
+    assert guard["multiUserSafe"] is True
+
+
+def test_deployment_guard_accepts_a_public_bind_behind_front_door_auth(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", SECRET)
+    monkeypatch.setenv("HARNESS_AUTH", "required")
+    monkeypatch.setenv("HARNESS_AUTH_SECRET", "a-sufficiently-long-secret-value")
+    guard = _deployment_guard("0.0.0.0")
+    assert guard["warnings"] == []
+    assert guard["secure"] is True
+    assert guard["multiUserSafe"] is True
+    assert guard["frontDoorAuth"]["required"] is True

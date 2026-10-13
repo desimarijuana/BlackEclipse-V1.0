@@ -118,10 +118,14 @@ EXPECTED = (
     'runtime_logs',
     'runtime_diagnose',
     'runtime_metrics',
+    'runtime_metrics_history',
+    'workspace_graph',
     'runtime_start',
     'runtime_stop',
     'runtime_restart',
     'runtime_recover',
+    'workspace_start',
+    'workspace_stop',
     'package_detect',
     'package_version',
     'package_list',
@@ -219,6 +223,7 @@ EXPECTED = (
     'git_stash_list',
     'git_stash_show',
     'git_tag_list',
+    'git_tag_show',
     'git_remote_list',
     'git_worktree_list',
     'git_submodule_list',
@@ -285,8 +290,6 @@ EXPECTED = (
     'git_worktree_move',
     'git_submodule_init',
     'git_submodule_sync',
-    'git_lfs_fetch',
-    'git_lfs_pull',
     'memory',
     'skill_list',
     'skill_view',
@@ -369,3 +372,12 @@ def test_unknown_profile_yields_nothing_the_classifier_would_send() -> None:
     # ever passed the external actions still cannot be present because the
     # profile's declared set excludes them.
     assert not (set(EXTERNAL_ACTION_TOOLS) & set(allowed or ()))
+
+def test_the_chat_code_prompt_states_changes_stay_in_a_review_copy() -> None:
+    """The chat code profile must not let the model claim a file is in the user's
+    project: its edits live in a review copy until the user accepts them (R3-05)."""
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT
+
+    lowered = ECLIPSE_AGENT_SYSTEM_PROMPT.lower()
+    assert "review copy" in lowered
+    assert "never claim a file is there" in lowered

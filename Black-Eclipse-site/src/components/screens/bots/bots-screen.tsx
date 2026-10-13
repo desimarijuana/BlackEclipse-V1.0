@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n';
-import { Ghost, Plus, Users } from '@/lib/icons';
+import { Ghost, Loader2, Plus, Sparkles, Users } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -25,6 +25,7 @@ import {
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
+import { useSeedFinancePack } from '@/lib/bots/finance-bots';
 
 export function BotsScreen() {
   const t = useT();
@@ -52,6 +53,7 @@ export function BotsScreen() {
   const [deleteTarget, setDeleteTarget] = useState<AutomationView | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { seed: seedFinance, busy: seedingFinance } = useSeedFinancePack();
 
   // Initial load + a slow refresh so the list stays current across tabs.
   useEffect(() => {
@@ -142,6 +144,7 @@ export function BotsScreen() {
             group={selectedGroup}
             bots={bots}
             onDeleted={() => selectGroup(null)}
+            onChanged={() => void hydrate()}
           />
         ) : selectedBot ? (
           <BotChat
@@ -155,7 +158,12 @@ export function BotsScreen() {
             onDelete={(bot) => setDeleteTarget(bot)}
           />
         ) : (
-          <CenterEmpty onCreate={openCreate} onCreateGroup={openGroupCreate} />
+          <CenterEmpty
+            onCreate={openCreate}
+            onCreateGroup={openGroupCreate}
+            onSeed={() => void seedFinance()}
+            seedBusy={seedingFinance}
+          />
         )}
       </div>
 
@@ -217,7 +225,14 @@ async function duplicateBot(bot: AutomationView): Promise<AutomationView> {
   });
 }
 
-function CenterEmpty({ onCreate, onCreateGroup }: { onCreate: () => void; onCreateGroup: () => void }) {
+function CenterEmpty({
+  onCreate, onCreateGroup, onSeed, seedBusy,
+}: {
+  onCreate: () => void;
+  onCreateGroup: () => void;
+  onSeed: () => void;
+  seedBusy: boolean;
+}) {
   const t = useT();
   return (
     <div className="glass-card flex h-full min-h-[20rem] flex-col items-center justify-center rounded-2xl px-6 text-center">
@@ -226,13 +241,18 @@ function CenterEmpty({ onCreate, onCreateGroup }: { onCreate: () => void; onCrea
       </div>
       <p className="mt-4 max-w-sm text-sm text-muted-foreground">{t('bots.workspace.selectPrompt')}</p>
       <div className="mt-4 flex flex-wrap justify-center gap-2">
-        <Button onClick={onCreate}>
+        <Button onClick={onSeed} disabled={seedBusy}>
+          {seedBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          {seedBusy ? t('bots.finance.seeding') : t('bots.finance.seed')}
+        </Button>
+        <Button variant="outline" onClick={onCreate}>
           <Plus size={14} /> {t('bots.dialog.title')}
         </Button>
         <Button variant="outline" onClick={onCreateGroup}>
           <Users size={14} /> {t('bots.groups.new')}
         </Button>
       </div>
+      <p className="mt-3 max-w-xs text-[11px] text-muted-foreground">{t('bots.finance.hint')}</p>
     </div>
   );
 }

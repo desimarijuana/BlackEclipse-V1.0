@@ -348,3 +348,25 @@ describe('response-model helpers', () => {
     expect(sourceLabel('custom-vendor')).toBe('custom-vendor');
   });
 });
+
+describe('analysis.completed (R3-06 computed results)', () => {
+  it('maps a completed computation to an analysis event with the result blob', () => {
+    const result = {
+      status: 'ok',
+      outputs: { sharpe: 1.42 },
+      artifacts: [{ name: 's.csv', sha256: 'abc123', bytes: 10, mediaType: 'text/csv' }],
+      provenance: { kind: 'computed', label: 'Worked out by Eclipse', detail: 'Sharpe' },
+    };
+    const e = normalizeHarnessEvent('analysis.completed', {
+      type: 'analysis.completed',
+      data: { status: 'ok', result },
+    });
+    expect(e).toEqual({ kind: 'analysis', result });
+  });
+
+  it('ignores a completion without a result blob', () => {
+    expect(
+      normalizeHarnessEvent('analysis.completed', { type: 'analysis.completed', data: { status: 'ok' } }),
+    ).toBeNull();
+  });
+});

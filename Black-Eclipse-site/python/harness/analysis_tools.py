@@ -210,6 +210,10 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         "status": result.status, "code": result.code,
         "artifacts": len(result.artifacts),
         "durationMs": result.duration_ms,
+        # The bounded result blob (outputs, artifacts, provenance) rides the event
+        # so the chat can show what Eclipse WORKED OUT — the same shape that is
+        # persisted to `AnalysisRecord`, never a second rendering contract (R3-06).
+        "result": result.to_blob(),
     })
 
     # A missing-input refusal ASKS; it never substitutes a default.

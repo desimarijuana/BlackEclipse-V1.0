@@ -401,6 +401,7 @@ ECLIPSE_AGENT = AgentConfig(
         # profile) so the write tools are NOT declared here.
         "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
         "runtime_health", "runtime_logs", "runtime_diagnose", "runtime_metrics",
+        "runtime_metrics_history",
         "package_detect", "package_version", "package_list",
         "container_list", "container_logs", "container_inspect", "container_health",
         "compose_validate", "compose_config", "compose_ps", "compose_logs",
@@ -527,8 +528,9 @@ CODE_AGENT_TOOLS = [
     # The write half is removed at `plan_only` by `code.policy.allowed_tools`.
     "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
     "runtime_health", "runtime_logs", "runtime_reconcile", "runtime_diagnose",
-    "runtime_metrics", "runtime_start", "runtime_stop", "runtime_restart",
-    "runtime_cleanup", "runtime_recover",
+    "runtime_metrics", "runtime_metrics_history", "workspace_graph",
+    "runtime_start", "runtime_stop", "runtime_restart",
+    "runtime_cleanup", "runtime_recover", "workspace_start", "workspace_stop",
     "package_detect", "package_version", "package_list", "package_audit",
     "package_install", "package_add", "package_remove", "package_update",
     "package_run", "package_build", "package_test",
@@ -579,6 +581,7 @@ CODE_AGENT_TOOLS = [
     "git_diff_cached", "git_diff_range", "git_log", "git_show", "git_commit_info",
     "git_blame", "git_reflog", "git_branch_list", "git_conflicts",
     "git_operation_state", "git_stash_list", "git_stash_show", "git_tag_list",
+    "git_tag_show",
     "git_remote_list", "git_worktree_list", "git_submodule_list", "git_config_get",
     "git_config_list", "git_hooks", "git_lfs_status", "git_clean_preview",
     "git_ignore_check", "git_generate_commit_message", "git_recovery_options", "git_list_hunks",
@@ -696,7 +699,9 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     # only the read-only surface.
     "runtime_detect", "runtime_capabilities", "runtime_inspect", "runtime_status",
     "runtime_health", "runtime_logs", "runtime_diagnose", "runtime_metrics",
+    "runtime_metrics_history", "workspace_graph",
     "runtime_start", "runtime_stop", "runtime_restart", "runtime_recover",
+    "workspace_start", "workspace_stop",
     "package_detect", "package_version", "package_list",
     "package_install", "package_run", "package_build", "package_test",
     "container_logs", "container_inspect", "container_list", "container_health",
@@ -735,6 +740,7 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "git_diff_cached", "git_diff_range", "git_log", "git_show", "git_commit_info",
     "git_blame", "git_reflog", "git_branch_list", "git_conflicts",
     "git_operation_state", "git_stash_list", "git_stash_show", "git_tag_list",
+    "git_tag_show",
     "git_remote_list", "git_worktree_list", "git_submodule_list", "git_config_get",
     "git_config_list", "git_hooks", "git_lfs_status", "git_clean_preview",
     "git_ignore_check", "git_generate_commit_message", "git_recovery_options", "git_list_hunks",
@@ -752,7 +758,7 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "git_clean", "git_config_set",
     "git_move_path", "git_remove_paths", "git_restore", "git_unset_upstream",
     "git_stash_branch", "git_stash_clear", "git_worktree_prune", "git_worktree_move",
-    "git_submodule_init", "git_submodule_sync", "git_lfs_fetch", "git_lfs_pull",
+    "git_submodule_init", "git_submodule_sync",
     # read-only context, unchanged from ECLIPSE_AGENT
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     # finance tools stay available: a code change may need the vault for a fixture

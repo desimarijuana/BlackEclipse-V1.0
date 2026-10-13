@@ -6,6 +6,198 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-13
+
+- **Bot-mode UI fixes (six issues).** `src/components/bots/bot-chat.tsx`:
+  "Run now" now gives visible feedback (a run-status note that says the run was
+  queued, auto-clearing) instead of silently enqueuing, and shows a reason in the
+  tooltip when the bot is not active; the pencil edit button got a proper 24px
+  hit target with cursor + press feedback; the composer no longer draws a
+  focus-visible highlight ring; message date/time now appears only on hover or
+  keyboard focus instead of always. `src/components/bots/bot-detail.tsx`: the
+  Overview tab is regrouped into Identity and Activity & health cards, the header
+  actions collapse behind a "More" menu (duplicate/disable/delete) leaving one
+  primary Run now path, and Memory renders as a card.
+  `src/components/screens/stock-chat.tsx`: the floating Assistant dock is now
+  hidden on the bots tab (it already has its own composer) in addition to the
+  chat tab. Added i18n keys (`bots.runQueued`, `bots.runNowBlocked`,
+  `bots.detail.identity`, `bots.detail.activity`, `bots.successRate`).
+  `npm run test` (vitest) and `npx tsc --noEmit` pass.
+  no doc change — UI behavior/style fix with contracts intact.
+
+- **Bot detail: purpose text no longer collapses into one blob.** A bot whose
+  purpose/objective is a long multi-line brief rendered as a single run-on
+  paragraph under the name (HTML whitespace collapsing). `bot-detail.tsx` now
+  clamps the header description to two lines, and the Overview tab's Purpose is
+  a full-width block with `whitespace-pre-wrap` so its line breaks survive.
+  no doc change — UI formatting only.
+
+- **Bot detail: tabs replaced by one scrollable column.** The drawer's seven
+  tabs felt cramped, so `bot-detail.tsx` now stacks every section (Overview,
+  Instructions, Schedule, Capabilities, Memory, Run history, Settings) in a
+  single scrolling column with a titled divider between sections. Removed the
+  `TabBar` usage and the tab state. no doc change — UI layout only.
+
+- **Bot detail: sections are now collapsible; run-history text wraps.** Each
+  `SectionBlock` in `bot-detail.tsx` is a dropdown (chevron header, Overview open
+  by default). `run-history.tsx` gained `min-w-0` / `break-words` / `flex-wrap`
+  on run labels, outcome reasons, timeline events and deliveries so long text no
+  longer overflows or breaks mid-layout. `npx tsc --noEmit` clean.
+  no doc change — UI layout only.
+
+- **Run history reworked to a stacked layout.** The two-column run
+  list + detail grid could crush text inside the narrow drawer. `run-history.tsx`
+  now stacks the list above the detail, rows are full-width with plain borders
+  (no nested glass blur), and every value wraps. `npx tsc --noEmit` clean.
+  no doc change — UI layout only.
+
+- **Bot chat bubble slimmer; timestamp moved below.** The user/error bubble had
+  the timestamp inside it, reserving a second line and making the bubble tall.
+  `bot-chat.tsx` `ChatBubble` now wraps the bubble in a column and puts the time
+  below the bubble (aligned to its edge), revealed on hover/focus. The bubble
+  hugs its text. `npx tsc --noEmit` clean. no doc change — UI layout only.
+
+- **Editing a bot opens a proper dialog.** The bot-chat pencil used to swap the
+  header into an inline name/purpose form; it now opens a modal `Dialog` (name +
+  purpose fields, Save/Cancel) in `bot-chat.tsx`, and the header stays as the
+  static identity banner. `npx tsc --noEmit` clean.
+  no doc change — UI layout only.
+
+- **Bot composer upgrade: stop / edit / regenerate / copy / auto-grow.**
+  `bot-chat.tsx`'s bare textarea is now a real composer. While a reply streams,
+  send becomes **Stop** (aborts via the run's AbortController, keeping the partial
+  text). Hovering any message reveals actions: **Copy** everywhere, **Edit** on
+  user messages (truncates the thread there and loads the text back into the
+  composer), and **Regenerate** on the last bot reply. The textarea auto-grows to
+  200px, sends on Enter (Shift+Enter for newline, IME-safe), and the footer shows
+  a keyboard hint. Added i18n keys `bots.chat.{stop,hint,copy,copied,regenerate}`.
+  `npx tsc --noEmit` clean; i18n + bots vitest pass.
+  no doc change — UI behavior only.
+
+- **Finance starter pack: six bots + a "Markets Desk" group room.** New
+  `src/lib/bots/finance-bots.ts` defines six scheduled finance bots (Market
+  Brief, Watchlist Sentinel, Portfolio Risk Review, Earnings Radar, Macro Pulse,
+  Data Quality Auditor) with real instructions (cite sources / UNAVAILABLE, never
+  fabricate). `seedFinancePack()` creates any missing bots through the real
+  `/api/automations` API (idempotent by name) and writes a client-side group of
+  all six; `useSeedFinancePack()` powers an "Add finance starter pack" button in
+  the Bots empty workspace (`bots-screen.tsx`) and the Bots sidebar header.
+  Added i18n keys `bots.finance.*` and a unit test (`finance-bots.test.ts`).
+  `npx tsc --noEmit` clean; vitest pass. no doc change — new feature module, no
+  contract/architecture change.
+
+- **Finance starter pack: discoverability fix.** The labeled seed button only
+  lived in the empty workspace, so once a user had any bot it never appeared and
+  the pack looked broken. `bots-sidebar-panel.tsx` now shows a labeled "Add
+  finance starter pack" button (both expanded and collapsed) that hides only once
+  the group room exists. Also seeded the six finance bots into the local runtime
+  so they appear on refresh. `npx tsc --noEmit` clean.
+  no doc change — UI discoverability fix.
+
+- **Group chat: each bot answers separately; composer gains stop + targeting.**
+  `group-chat-room.tsx` no longer produces one merged "room" reply — a send now
+  runs one agent turn PER targeted member with that bot's own persona/instructions
+  (parallel, each streaming into its own message tagged with `authorId`/
+  `authorName` and the member's own avatar), so replies are never combined.
+  Composer: **Stop** aborts every in-flight member run, textarea auto-grows,
+  Enter sends (Shift+Enter newline, IME-safe), and a **"Who answers"** dropdown
+  targets Everyone or a single bot. Per-message Copy added; timestamps now
+  hover-only. New i18n keys `bots.groups.{answering,stop,audience,audienceHint,everyone}`.
+  `npx tsc --noEmit` clean; i18n + bots vitest pass.
+  no doc change — UI behavior only.
+
+- **Group chat header gains Run / Pause-All / Scheduler / Settings.** The group
+  room only had Delete; the per-bot controls had no group equivalent. The header
+  now mirrors BotChat: **Run now** runs every member's automation, a
+  Pause-All/Resume-All toggle pauses or resumes all members (state-aware), a
+  **Scheduler** button opens the right-docked scheduled-jobs rail (shared
+  `useWorkspaceStore`), and **Settings** opens a new
+  `group-settings-dialog.tsx` (rename, photo, add/remove members 2–6, each member
+  showing its real state + schedule). Added `setMembers` to the groups store and
+  i18n keys `bots.groups.{settings,settingsTitle,settingsHint,removeImage,pauseAll,resumeAll,ranAll,pausedAll,resumedAll}`.
+  `npx tsc --noEmit` clean; i18n + bots vitest pass.
+  no doc change — UI feature, no contract change.
+
+- **Construction benchmark R3-08 — the 16 master scenarios, with completion and
+  recovery now gated (ADR-H183).** New
+  `python/harness/evaluation/datasets/construction_v1.json` runs all 16
+  construction scenarios (working API, alternative route, missing fields,
+  alternative acquisition route, confirmed zero, fixable script error, missing
+  dependency, dirty records, wrong calculation caught, stale conflict, invalid
+  chart payload, delivery failure, unauthorized attempt, budget kill, partial
+  completion, end-to-end chat) through the REAL `execute_run` graph as
+  deterministic scripted traces. Five new graders — `recovery`, `honesty`,
+  `provenance`, `artifact`, `response` — measure recovery success + redundant
+  retries, false-success/unsupported claims + named gaps, source use+citation
+  with `collected ≠ verified`, artifact delivered-or-honestly-failed, and a
+  surviving answer with a decodable chart fence. `scoring.py` now gates
+  `task_success >= 0.9` and `recovery_success >= 0.85` (safety/hallucination
+  unchanged; measured offline: full gate tasks=47, `task_success=1.0`,
+  `recovery_success=1.0`, `safety_score=1.0`, `hallucination_rate=0.0`; the
+  construction suite alone 16/16). Eval tools now record an environment error as
+  a FAILED tool call and add bounded `eval_run` (killed on timeout) +
+  `eval_response_check`; `scripts/test-evals.js` runs the construction suite as
+  a named gate. docs updated: `docs/harness/decisions.md` (ADR-H183),
+  `docs/harness/agent-evaluation.md`, `docs/harness/construction-first-audit.md`
+  (R3-08 ✅ with measured numbers), `docs/NAVIGATION.md`.
+
+- **Registry-visibility scan — every registered tool is reachable or deliberately
+  operator-only (ADR-H184).** New `python/tests/test_registry_visibility.py`
+  builds the production registry (service constructor + boot-only
+  recovery/orchestration/a2a/fabric registrations into a throwaway registry),
+  mirrors the resolver's dynamic MCP/plugin expansion, and asserts the invisible
+  set equals a pinned 36-name `DELIBERATE_INVISIBLE` set (recovery/artifact/fabric
+  admin, parallel-execution primitives, operator context, cluster/infra
+  mutations) with **zero ghosts** (no allowlisted-but-unregistered tool). The
+  scan found 5 accidentally-invisible tools, now allowlisted beside their
+  siblings: `git_tag_show` (`CODE_AGENT_TOOLS` + chat profile),
+  `runtime_metrics_history` (`ECLIPSE_AGENT` + `CODE_AGENT_TOOLS` + chat),
+  `workspace_graph`/`workspace_start`/`workspace_stop` (`CODE_AGENT_TOOLS` +
+  chat, the writes narrowed at `plan_only` like `runtime_start/stop`). The exact
+  `CHAT_CODE_TOOLS` pin in `test_chat_code_profile.py` was updated.
+  docs updated: `docs/harness/decisions.md` (ADR-H184),
+  `docs/harness/construction-first-audit.md` (R3-07/R3-08 statuses),
+  `docs/CHANGELOG.md`.
+
+- **Price history: direct-chart fallback + `data-bridge.ts` split (ADR-H185).**
+  The bridge's deferred second transport landed: when the batched Python
+  yfinance bridge is off or returns no series, `price_history` now falls back to
+  the DIRECT Yahoo v8 chart request already used by `/api/price-history`
+  (new `src/lib/harness/data-bridge-history.ts`, walking the per-market
+  `yahooChartCandidates` chain, ≥2 real bars required — never a single point).
+  Provider stays `yfinance`; a new `transport` field (`yfinance-bridge` |
+  `yahoo-chart`) names the code path and `providerSymbol` echoes the ticker the
+  direct transport answered for. To land it without growing the ratcheted
+  dispatcher, `data-bridge.ts` was split: health/diagnostics →
+  `data-bridge-health.ts`, education/media → `data-bridge-education.ts`, shared
+  unavailable helpers → `data-bridge-result.ts`; ratchet re-pinned 1710 → 1377
+  (may only shrink). Tests: `data-bridge-history.test.ts` (+3), extended
+  `data-bridge-phase2.test.ts` (bridge-first / fallback / both-down); full
+  vitest 262 files / 2773 tests, tsc clean.
+  docs updated: `docs/harness/decisions.md` (ADR-H185),
+  `docs/harness/construction-first-audit.md` (R3-04 status),
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Production readiness closed: end-to-end boot guard + preflight in the
+  release gate (ADR-H186).** `deps.deployment_guard()` composes the Python
+  bind with the front door's auth mode for the startup log; the harness now
+  warns when a public bind is reachable without a login (`HARNESS_AUTH=off` with
+  `CRON_SECRET` set — the one combination that used to be silent), when a public
+  bind has no operator secret, or when required auth cannot work
+  (`HARNESS_AUTH_SECRET` missing → every request 503s); a public bind behind
+  front-door auth is an informational notice. The stale "this app has NO
+  authentication" boot comment and the contradicting exposure warning text are
+  corrected. `scripts/security-preflight.js` joined `check-all.js` and CI
+  (advisory on loopback, failing on an exposed misconfiguration; verified:
+  local WARN/exit 0, production-without-secrets FAIL/exit 1, production-with-
+  secrets OK/exit 0). Verified on this tree: `npm run build` passes (Next.js
+  production compile + type check). Tests:
+  `test_identity_tenancy_boundary.py` (+4). Explicitly not included: cluster/infra
+  deploy mutations stay refused by design, roadmap phases 16–20 remain features,
+  container build unverified here (no Docker), live-model eval stays opt-in.
+  docs updated: `docs/harness/decisions.md` (ADR-H186),
+  `docs/harness/authentication.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+
 ## 2026-10-12
 
 - **Scheduler button relocated to the BotChat header (follow-up).** The prior
@@ -480,8 +672,52 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   fetch is UNAVAILABLE. The retrieval layer's UNAVAILABLE text now names the
   eligible next routes before concluding. Tests: `data-bridge-collect.test.ts`
   (9), `test_web_collect.py` (6). docs updated: ADR-H180 in
-  `docs/harness/decisions.md`, `docs/harness/web-research-engine.md`,
+  `docs/harness/decisions.md`,   `docs/harness/web-research-engine.md`,
   `docs/harness/construction-first-audit.md`.
+
+- **R3-05 utility building — verified shipped; chat review-copy honesty clause.**
+  Recon corrected the plan: the phase-15 promotion path already shipped
+  (ADR-H176) and is chat-reachable (`PromoteChange` on `edit_verify` turns:
+  preview → single-use digest-bound approval → apply), `scaffold_kit` enforces
+  the worktree binding + `code.write`, and both `decide_write` call sites are fed
+  the worktree-bound actor. The one real gap found: the chat prompt never said
+  edits sit in a review copy, so the model could claim a file was in the user's
+  project. `prompts.py` now states "build them in a review copy … never claim a
+  file is there" (ceiling 27769 held; measured 27768) with a pinning test in
+  `test_chat_code_profile.py`. docs updated:
+  `docs/harness/construction-first-audit.md`.
+
+- **R3-06 computed results surface in chat; diagnostics split by severity.**
+  `analysis.completed` now carries the bounded result blob (outputs, artifacts,
+  provenance), the client maps it to a first-class `analysis` turn field, and the
+  (formerly dead) `ComputedResultPanel` renders it under the assistant message on
+  both chat surfaces — a provenance-less value still shows UNAVAILABLE. The same
+  change fixes a delivery bug: the main ChatBot surface was dropping
+  `codeVerification`/`autonomy`/`capability`/`documents` from the turn, so the
+  code-capability panel (with the promotion control) and the document panel never
+  appeared there. Response diagnostics are now split by severity: only errors
+  raise the amber panel; warning-only answers render quietly and an empty-but-
+  valid envelope gets one muted line. Activity lines summarize `analysis_run`
+  ("worked out N value(s), M saved") and `web_scrape` ("N record(s) collected")
+  without leaking content. Tests: mapping cases in `events.test.ts`, severity
+  cases in `render.test.tsx`, summary cases in `test_code_activity.py`. docs
+  updated: ADR-H181 in `docs/harness/decisions.md`,
+  `docs/interactive-response-engine.md`, `docs/harness/construction-first-audit.md`.
+
+- **R3-07 permission hardening: schedules need a go-ahead; metadata states the
+  real effect.** An agent can no longer put itself on a cadence unattended:
+  `bot_create`/`bot_update` (autonomous trigger) and `bot_enable`/`bot_resume` are
+  now `write` + `external_action`, admitted by the new bot authorizer, and the
+  handler claims (or requests + pauses for) a single-use `bot_schedule` operator
+  approval before creating/starting a schedule; the whole set is removed at
+  `plan_only`. `computer_record_export` admits it writes a file
+  (`effect="write"`, joined `COMPUTER_EFFECTFUL_TOOLS`); `git_lfs_fetch/pull`
+  moved to `GIT_EXTERNAL_TOOLS` and out of the chat profile's declared set;
+  `policy.TERMINAL_READ_TOOLS` now names the tools that exist. Deliberately
+  ungated: `bot_run`, pause/disable/delete, manual bots. Tests:
+  `test_automation_authorizer.py` (+7 cases), updated
+  `test_chat_code_profile.py`. docs updated: ADR-H182 in
+  `docs/harness/decisions.md`, `docs/harness/construction-first-audit.md`.
 
 ## 2026-10-11
 
@@ -3834,537 +4070,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   mirror of the `/api/harness/grants/**` front door, type-only re-export of
   `StandingGrant`), matching the existing browser/server split. No doc change —
   bug fix keeping the client/server contract intact.
-
-## 2026-10-06
-
-- **Application Runtime — the remaining limitations closed (production hardening
-  + the last capabilities).** (1) **Provider readiness gate** — `provisioning.py`
-  reports (non-secret) which orchestration/infra/cloud tools are installed AND
-  signed in, with a plain next step per gap; surfaced on `/health`
-  (`runtimeProviders`), `GET /runtime/providers`, `eclipse providers`. A provider
-  whose credentials are unknown reports `null`, never a fabricated `true`.
-  (2) **Metric history** — `AppRuntimeMetric` on `agent-memory.db`, a trend summary
-  (`rising`/`falling`/`flat`/`unknown`, never a false `flat`), `runtime_metrics_history`
-  + `GET /runtime/{id}/metrics/history` + `eclipse runtime metrics-history`.
-  (3) **Long-running CLI ops as managed processes** — `managed_cli.py` starts
-  `kubectl port-forward` / `kubectl logs -f` through the EXISTING terminal process
-  manager (tree-killed, cancellable, streamed); tools `k8s_port_forward` /
-  `k8s_logs_follow`. (4) **Deployment promotion** — `DeploymentEngine.promote()` +
-  `deploy_promote`: staging → (authorization) → production with a health-gated
-  ROLLBACK; a staging failure never touches production. (5) **Cross-application
-  graph** — `app_graph.py` + `workspace_ops.py`: order several apps by declared
-  dependency (`.black-eclipse/app.json`) or a monorepo heuristic, with
-  `workspace_graph` / `workspace_start` / `workspace_stop` and `eclipse workspace`.
-  (6) **Compose-config fallback** — when the tolerant reader finds no services,
-  `docker compose config` resolves anchors/merges/includes for the graph via the
-  SAME `ComposeAdapter`. (7) **Auto-deploy job templates** — two Application Runtime
-  templates (`deploy-app-on-schedule`, `deploy-app-on-webhook`) wired to the jobs
-  scheduler, shipping disabled and still subject to per-action authorization.
-  (8) **UI** — a Providers tab (readiness + workspace graph) in the terminal dock.
-  (9) **Opt-in live provider tests** (`test_application_provider_live.py`,
-  `BLACK_ECLIPSE_PROVIDER_IT=1`). 103 application-runtime tools total. Docs:
-  `docs/harness/application-runtime.md`; ADR-H133. Tests:
-  `test_application_{provisioning,workspace}.py` + expanded deploy/orchestration.
-
-- **Git UI now uses the ONE engine (no second implementation).** Corrected an
-  architecture violation: the Settings Git panel used a standalone TypeScript Git
-  wrapper (`src/lib/git/service.ts`) that spawned git from Node, bypassing the
-  Python engine entirely (no journal, no operation state, no risk engine, no lock,
-  only a filename secret check). `/api/git` is now a THIN proxy over the runtime's
-  `/git/*` routes — the same service the agent uses; `src/lib/git/service.ts`
-  forwards and holds no Git logic, browser types moved to the client-safe
-  `src/lib/git/types.ts`, and the route returns 503 honestly when the runtime is
-  unavailable rather than falling back. Added engine routes `/git/draft-message`,
-  `/git/unstage`, `/git/push`, and `cached=1` on `/git/diff`; the push result now
-  carries the branch. Tests: `test_git_api.py` extended. docs updated:
-  `docs/harness/git-version-control.md`.
-
-- **Size-budget guard green again after the Application Runtime commit.** The
-  Git/Application-Runtime change (146f6d5) left `main.py` (1220 lines) above the
-  1200-line hard ceiling — together with `execution/application/manager.py`
-  (1239) at the time — so `test_size_budget.py` failed. `manager.py` was split
-  under the ceiling by the follow-up work; `main.py` got a justified `RATCHET_PY`
-  entry pinned to 1220 (route-group extraction noted as the split candidate; may
-  only shrink from here). Full Python suite green. no doc change — test-only
-  ratchet bookkeeping.
-
-- **Backup: consistent snapshot of all runtime SQLite state.** Took `VACUUM INTO`
-  copies (WAL-safe while the app runs) of `jdds.db`, `agent-memory.db`,
-  `eclipse-memory.db`, and the `python/` copies into
-  `_backups/2026-10-07-03-56-42/` with a `MANIFEST.json` of sizes + SHA-256, each
-  verified `quick_check=ok`. `_backups/` stays gitignored; no code or contract
-  changed. no doc change — operational backup artifact, no architecture/data-shape/setup change.
-
-- **Application Runtime â€” the future tiers are now real, and the layer is
-  production-hardened.** (1) **Orchestration:** `KubernetesAdapter`,
-  `HelmAdapter`, `KustomizeAdapter` (a closed operation table, validated args,
-  JSON output parsed), behind one shared `CliAdapter` base. (2) **Infrastructure:**
-  `TerraformAdapter` (init/validate/fmt/plan/apply/destroy/output/state; apply and
-  destroy are CRITICAL). (3) **Cloud:** `AwsAdapter`/`AzureAdapter`/`GcpAdapter`/
-  `CloudflareAdapter`/`VercelAdapter`/`RailwayAdapter`/`RenderAdapter` â€” the common
-  `deploy`/`status`/`logs`/`rollback`/`delete` surface, credentials read only
-  through each provider's own ambient mechanism. (4) **`DeploymentEngine`**:
-  validateâ†’buildâ†’testâ†’packageâ†’deployâ†’verify; a production deploy requires
-  authorization; a deployment is never claimed live from a status call alone.
-  (5) **29 new agent tools** (`k8s_*`, `helm_*`, `kustomize_*`, `terraform_*`,
-  `cloud_providers`, `deploy_*`) â€” 96 application-runtime tools total â€” with the
-  cluster/infra/cloud mutations removed at `edit_verify`/`plan_only` and each
-  destructive one requiring authorization. (6) **A real CLI** (`python -m
-  harness.cli`, `eclipse` bin, `npm run eclipse`): `runtime|package|environment|
-  port|container|compose|k8s|terraform|deploy` over the SAME manager the agent
-  uses, JSON output, `--authorized` for destructive commands. (7) **Production
-  hardening:** an mtime-keyed `DiscoveryCache` (invalidated on any manifest/
-  lockfile/compose/.env change), health-check exponential backoff, and bounded/
-  filtered runtime logs (substring/severity/errors-only + line cap). (8) HTTP
-  routes (`/runtime/orchestrator/*`, `/runtime/terraform/*`, `/runtime/deploy`,
-  `/runtime/orchestrators`) and the Applications-tab provider footer. Docs:
-  `docs/harness/application-runtime.md`; ADR-H132. Tests:
-  `test_application_{orchestration,deploy}.py` + expanded unit/security/reachability.
-
-- **Git subsystem â€” interactive Git made limitless (no TTY).** Removed the two
-  "needs a terminal" limitations. (1) **Selective hunk staging**: new
-  `git/diffs.py` parses a unified diff into files/hunks and re-renders a chosen
-  subset, which `git apply --cached` stages â€” tools `git_list_hunks`,
-  `git_stage_hunks`, `git_unstage_hunks`, `git_apply_patch` (git's `add -p` is no
-  longer needed). (2) **Automated interactive rebase**: new `git/rebase_plan.py`
-  + machine `_sequence_editor.py`/`_message_editor.py` drive `git rebase -i`
-  through env vars so `git_rebase_plan` performs pick/reword/edit/squash/fixup/
-  drop/reorder from a structured plan; a partial plan never reorders or drops an
-  unnamed commit. (3) **Long-tail capabilities** now exposed in
-  `git/tools_extra.py`: `git_move_path`, `git_remove_paths`, `git_restore`,
-  `git_unset_upstream`, `git_stash_branch`, `git_stash_clear`, `git_tag_show`,
-  `git_worktree_prune`, `git_worktree_move`, `git_submodule_init`,
-  `git_submodule_sync`, `git_lfs_fetch`, `git_lfs_pull` (115 git/vcs tools total).
-  (4) **Opt-in live provider tests** (`test_git_provider_live.py`) exercise a real
-  GitHub/GitLab/Bitbucket account (skipped unless `BLACK_ECLIPSE_PROVIDER_IT=1` +
-  a token + `BLACK_ECLIPSE_PROVIDER_REPO`; never in `npm test`). New tests in
-  `test_git_advanced.py` (20 tests). `interactive=True` was dropped from the plain
-  rebase op (the planned op is the only path to `-i`). docs updated:
-  `docs/harness/git-version-control.md`.
-
-- **Execution layer â€” every caveat closed: extra languages, DB dialects and OS
-  resource limits are now verified end-to-end, not just unit-tested.** (1) **Seven
-  toolchains executed for real** (Go, Java, PHP, C, C++, C#, Rust) against a
-  portable toolchain set fetched into `%TEMP%` (no admin, nothing installed
-  globally). Fixes found and made: Go needed a real `GOCACHE`/`GOTMPDIR` (the
-  sandbox scrubs the env); C/C++ now actually compile a standalone source into a
-  runnable binary (previously only drove `make`/`cmake`, so a bare `.c`/`.cpp`
-  could never run); the .NET adapter needed `DOTNET_CLI_HOME`/`NUGET_PACKAGES` plus
-  a curated non-secret Windows platform env (real `%APPDATA%`, `%PROGRAMFILES%`,
-  `%USERPROFILE%`, â€¦) because NuGet/MSBuild resolve paths the sandbox allowlist
-  strips. (2) **SQL dialects**: DuckDB runs embedded end-to-end (create/insert/
-  select + cross-execution persistence); PostgreSQL now selects `psycopg`/
-  `psycopg2`/`pg8000` â€” with a libpqâ†’pg8000 keyword translation (`dbname`â†’
-  `database`) â€” and a *connection* failure is reported as `SQL_CONNECT_FAILED`
-  (previously mis-labelled `SQL_DRIVER_MISSING`), while an absent driver still
-  refuses honestly; `pg8000` and `duckdb` were added to `python/requirements.txt`
-  as optional-but-default. (3) **OS resource limits enforced + classified**: the
-  sandbox now kills the process tree and reports `RESOURCE_LIMIT` for memory,
-  cumulative-CPU and process-count breaches â€” both when the parent monitor samples
-  a peak and when the kernel (Windows Job Object / POSIX `RLIMIT_AS`) DENIES an
-  operation at the limit (`MemoryError`, `WinError 1816`). `ResourceLimits` gains
-  `cpu_seconds`; `ErrorClass.RESOURCE_LIMIT` is new. A latent bug was fixed where
-  `from_env` clamped an unset `cpu_seconds` to `1`, imposing a 1-second CPU
-  ceiling on every execution. Tests `python/tests/test_execution_resources.py`.
-  Full Python suite green (3203); tsc clean; eval gates PASS. docs updated:
-  `docs/harness/execution-architecture.md`, `docs/harness/decisions.md`
-  (ADR-H129 consequences), `docs/NAVIGATION.md` (trigger row).
-
-- **Git subsystem hardening pass (production review fixes).** (1) **Worktree
-  escape** â€” `git_worktree_add`/`git_worktree_remove`/`git_worktree_move` accepted
-  a `../â€¦` or absolute filesystem path, so a working tree (and a later
-  `worktree remove --force`) could land outside the project; a path is now
-  realpath-confined to the repository root or a sibling under its parent (a
-  sibling worktree is the normal `git worktree` layout; a climb above the parent
-  or a system path is refused). (2) **Global git-config escalation** â€” a
-  `git_config_set --global` write (machine-wide: `core.hooksPath`, `core.sshCommand`,
-  â€¦) was only `caution`/no-approval; it is now `dangerous` and requires a
-  single-use operator approval. (3) **Refspec force** â€” a leading-`+` refspec (a
-  force push that bypasses `--force-with-lease`) is now rejected by a dedicated
-  `refspec` validator. (4) **Cross-host credential leak** â€” the VCS HTTP client now
-  drops the `Authorization` header on a redirect to a different host (urllib
-  otherwise re-sends it); a CI job log is also passed through the shared
-  redaction before it reaches the model. Regression tests added to
-  `test_git_security.py` (worktree confinement, global-config risk, `+refspec`);
-  150 Git tests pass. docs updated: `docs/harness/git-version-control.md`.
-
-- **New Application Runtime / DevOps subsystem.** Eclipse now understands
-  *applications*, not shell commands. New package
-  `python/harness/execution/application/`: a provider-agnostic `RuntimeRegistry`
-  (package managers, container runtimes, compose, and empty-but-live Kubernetes/
-  Terraform/cloud seams); `ApplicationDiscovery` (framework/language/package
-  manager/lockfile, install-build-dev-start-test-lint commands, Docker/Compose,
-  env files, required vars, databases/caches, services, ports, service graph);
-  `EnvironmentDetector` + `EnvironmentManager` (secret values masked as
-  `[SECRET]`, never returned); 11 package-manager adapters
-  (npm/pnpm/yarn/bun/pip/uv/poetry/cargo/go/maven/gradle, declared manager is
-  authoritative â€” no silent npm switch); `DockerAdapter`/`PodmanAdapter` behind
-  one `ContainerRuntimeAdapter`; `DockerComposeAdapter`/`PodmanComposeAdapter`;
-  `PortManager`; `HealthCheckEngine` (process/tcp/http/container/database/custom
-  â€” `RUNNING` is never `HEALTHY`); `RuntimeDiagnosticsEngine` (structured
-  category + a `{file,line,column}` location linking runtime errors to code
-  intelligence); `RecoveryEngine` (bounded diagnoseâ†’actâ†’verify, never a loop);
-  `ApplicationRuntimeStore` on `agent-memory.db`; a closed event vocabulary;
-  `ApplicationRuntimeManager` (the ONE lifecycle) with boot reconciliation.
-  67 agent tools (`runtime_*`, `package_*`, `container_*`, `compose_*`,
-  `environment_*`, `port_*`, `health_*`) on the SAME registry, the write half
-  removed at `plan_only`; route group `/runtime/*` (operator-gated); front door
-  `application-{client,browser}.ts` + `/api/runtime/**` + an Applications tab in
-  the terminal dock. No new dependency; every argv runs through the ONE sandbox.
-  Docs: `docs/harness/application-runtime.md`; ADR-H131. Tests:
-  `python/tests/test_application_{unit,runtime,security,tools,api,e2e}.py`
-  (+ `test_size_budget.py` split of `application/tools.py`).
-
-- **New Git / Version-Control subsystem.** A production-grade Git engine + VCS
-  provider layer for the agentic coding environment â€” not a wrapper. New package
-  `python/harness/git/`: repository discovery (normal/`.git`-file/bare/nested/
-  worktree/submodule), a CLOSED operation table (`catalog.py`) with strict value
-  validation, the ONE controlled executor (absolute argv, no shell, scrubbed env,
-  `GIT_EDITOR=true`/`GIT_MERGE_AUTOEDIT=no` so a merge never blocks on an editor,
-  timeout + output cap), machine-readable parsers, a structured error model, the
-  multi-step operation state machine + conflict-marker parser, a risk/safety
-  engine (secret + large-file scans reusing the ONE `session_index` pattern set,
-  protected branches, `.black-eclipse/git.json` policy, untrusted-repo inspection
-  that never runs a hook), an operation journal + active-operation store on
-  `agent-memory.db`, a per-repository mutating lock, recovery/reconcile, and a
-  per-repository mutating lock. Local Git is separate from the remote VCS layer
-  (`git/vcs/`: `VCSProvider` + `GitHubProvider`/`GitLabProvider`/
-  `BitbucketProvider`, a normalized PR=MR model, and a stdlib-only HTTP client;
-  tokens come from operator-declared env-var NAMES and are never exposed). The
-  full tool surface (`git_*` reads + local mutations + `vcs_*` remote actions) is
-  registered on the SAME registry via `register_git_subsystem`; the ONE policy
-  authority narrows it by autonomy (`GIT_READ_TOOLS`/`GIT_WRITE_TOOLS`/
-  `GIT_EXTERNAL_TOOLS`), and the Git effect authorizer requires a single-use
-  operator approval for every dangerous/destructive operation and every remote
-  action (a force push is `critical`, never the default). Routes `/git/*` serve
-  the UI from the same service. Tests: `test_git_{engine,mutations,security,tools,
-  integration,api}.py` (163 tests, isolated temp repos). The fs subsystem's older
-  read `git_status` tool was removed in favour of the one richer engine tool (the
-  `FileSystemService.git_status` method and `file_metadata` git awareness stay).
-  docs updated: `docs/harness/git-version-control.md` (new), `docs/NAVIGATION.md`.
-
-- **Execution-layer build/test fixes found by an autonomous buildâ†’testâ†’fixâ†’
-  retest run on Windows.** (1) **Bare program names could not be spawned** â€” the
-  JS/TS adapters emitted `['npm', ...]`/`['npx', ...]`/`['tsc', ...]`, which
-  `subprocess` cannot run on Windows (`npm`/`npx`/`tsc` are `.CMD`/`.cmd` shims;
-  `FileNotFoundError [WinError 2]`), so `build_project`/`test_project` reported
-  `exitCode=null`, empty output. Every adapter now emits an ABSOLUTE executable
-  path (`base._require_program`/`_program`), matching `code/commands.py`.
-  (2) **Toolchain resolution / offline** â€” a project with no local `node_modules`
-  now resolves `tsc` and the test runner from Eclipse's OWN bundled
-  `node_modules/.bin` (via `_app_bin` + `_node_env`, which prepends the node bin
-  dirs to the scrubbed `PATH`), so `npm run build`/`vitest` work without a network
-  install and without fetching a different version. (3) **UTF-8 BOM manifests** â€”
-  `package.json`/`tsconfig.json` saved with a BOM (Windows editors, PowerShell)
-  failed to parse, so the test framework/scripts were missed and the engine fell
-  back to `node --test`; `projects.read_json`/`_read_text` now read `utf-8-sig`
-  and the TS adapter uses it. (4) **ANSI color codes broke result parsing** â€”
-  vitest color-codes its summary, so a PASSING run reported `parsed:false`/0 tests
-  and colored compiler errors produced no diagnostics; `testing._parse_summary`
-  and `diagnostics.normalize` now strip ANSI first (reusing the terminal
-  subsystem's `strip_ansi`). (5) vitest/jest now run with a machine-readable
-  reporter (`--reporter=json`/`--json`) so per-test failures (name, file,
-  expected/actual) are extracted structurally. Verified end-to-end: build PASS â†’
-  tests fail (`add` expected 5, got -1) â†’ structured diagnostic â†’ agent fixes
-  `a - b`â†’`a + b` (tests untouched) â†’ rebuild PASS â†’ **2 passed / 0 failed**.
-  Regression tests in `python/tests/test_execution_capabilities.py`. docs updated:
-  `docs/harness/execution-architecture.md`.
-
-- **Execution-layer bug fixes found by an end-to-end verification pass (TypeScript
-  and SQL).** (1) `TypeScriptRuntime.prepare_run` built `['npx', '<file.ts>']` â€” it
-  dropped the `tsx`/`ts-node` program for the `npx` runner, so every TypeScript
-  execution failed with `[WinError 2]`. Rewritten as a `_runner_prefix()` that
-  always emits an invocable program followed by the file, preferring the project's
-  declared `tsx`/`ts-node`, then the app's own bundled `tsx` (`<repo>/node_modules/
-  .bin`, offline), then `npx`. (2) `SqlRuntime` rejected multi-statement scripts
-  ("You can only execute one statement at a time") and never committed DML, so
-  `INSERT`s reported COMPLETED but a later `SELECT` returned 0 rows â€” a fake
-  success. The runner now splits a script into statements (quote/comment aware),
-  executes each, and **commits** (rolls back on error); it returns per-statement
-  results plus the last result set. (3) A database filename matching the index
-  ignore-globs (`*.db`/`*.sqlite`) was refused as `IGNORED_PATH`, so a real DB could
-  not be opened; `policy.resolve_within` gains an explicit `allow_ignored=False`
-  opt-in that the SQL runtime uses â€” traversal, symlink, outside-root and
-  PROTECTED checks are unchanged. Regression tests added to
-  `python/tests/test_execution_capabilities.py`. docs updated:
-  `docs/harness/execution-architecture.md` (SQL/TypeScript notes).
-
-- **Execution layer hardening â€” every earlier limitation closed.** (1) The
-  sandbox now measures REAL resource usage with no `psutil`: a new
-  `execution/telemetry.py` samples CPU time (`GetProcessTimes` on Windows;
-  `/proc/<pid>/stat` on Linux) and peak RSS (`GetProcessMemoryInfo` /
-  `/proc/<pid>/statm`) across the whole process tree, and the values flow into
-  `RawResult` â†’ `ResourceUsage` â†’ the `ExecutionMetric` rows (`cpuMs`/
-  `memoryPeakMb`/`processCount`); an unmeasurable value stays `None`, never a
-  fabricated zero. (2) `SqlRuntime` connects PostgreSQL through any installed
-  PEP-249 driver (`psycopg`, `psycopg2`, pure-Python `pg8000`), plus MySQL
-  (`pymysql`/`MySQLdb`) and DuckDB, refusing with a stable `SQL_DRIVER_MISSING`
-  when none is present â€” never pretending to connect. (3) Eight more real
-  runtime adapters ship: Go, Rust, Java, C#, C, C++, PHP, Ruby (inline where the
-  language supports it â€” Go/Java/PHP/Ruby â€” and honest `UNAVAILABLE`/refusal
-  otherwise); `build`/`test` wired for `go`/`cargo`/`maven`/`gradle`/`dotnet`/
-  `cmake`/`make`. (4) `run_verification` can now fix code IN-PROCESS: a new
-  `execution/autofix.py` (opt-in via `HARNESS_EXEC_AUTOFIX=1`) asks the RUN's own
-  model for one schema-validated, diagnostic-driven, workspace-confined edit and
-  applies it through the filesystem service; it never touches a
-  security/infrastructure failure and never retries blindly. (5) An intermittent
-  CIUE index flake (`fileCount == 0`) was root-caused and fixed: the shared
-  `check_same_thread=False` `CodeIndex` connection now serializes EVERY mutation
-  (`IncrementalIndexer._mutate_lock` + `CodeIndex._write_lock`), so the background
-  watcher and a synchronous index trigger can no longer interleave
-  delete/insert transactions and lose rows; regression test
-  `python/tests/test_intel_index_concurrency.py` (25/25 stable). Tests
-  `python/tests/test_execution_capabilities.py` + the reachability case in
-  `test_execution_e2e.py`. Full Python suite green; docs updated:
-  `docs/harness/execution-architecture.md`, `docs/harness/decisions.md`
-  (ADR-H129 consequences), `docs/NAVIGATION.md` (trigger row).
-
-- **Code Execution & Verification Layer â€” Eclipse can now run, build, test,
-  diagnose and VERIFY software autonomously.** New subsystem
-  `python/harness/execution/`: a strict `ExecutionState` machine (validated
-  transitions, `execution/state.py`), strongly-typed domain models
-  (`models.py`), a `RuntimeRegistry` with `PythonRuntime`/`JavaScriptRuntime`/
-  `TypeScriptRuntime`/`SqlRuntime`/`ShellRuntime` adapters (`runtimes/`), a
-  `ProjectDetector` + language detection in the spec's priority order
-  (`projects.py`), a `DiagnosticEngine` normalizing `tsc`/Python-traceback/V8/
-  ESLint/pytest/generic compiler output (`diagnostics.py`), a `BuildEngine` and
-  `TestEngine` (vitest/jest JSON + summary parsers, `build.py`/`testing.py`), an
-  `ExecutionPolicyEngine` (risk bands, network/filesystem narrowing, secret
-  isolation, `policy.py`), an `ArtifactManager` (`artifacts.py`), a synchronous
-  `ExecutionOrchestrator` with guaranteed cleanup and a `finally` that always
-  lands on a terminal state (`orchestrator.py`), an `ExecutionStore` for history
-  and evidence on the ONE `agent-memory.db` connection (`store.py`), an
-  `ExecutionScheduler`/`ExecutionWorkflow`/`RetryPolicy` (`scheduler.py`/
-  `workflow.py`), a `ExecutionVerifier` bounded buildâ†’testâ†’fix loop
-  (`verify_loop.py`), and a `ServiceManager`/`PortManager`/`HealthChecker` built
-  on the EXISTING terminal process manager   (`services.py`). It reuses
-  `code/sandbox.py` as the ONE execution primitive (no second spawn path), the
-  terminal subsystem for long-running services, `code/policy.py` for the
-  autonomy/binding boundary, and `code/workspace.py` for confinement; it does
-  NOT touch the terminal subsystem. The sandbox primitive gains OPTIONAL OS-level
-  `RunSpec` limit fields (`cpu_seconds`/`memory_mb`/`process_limit`), applied via
-  POSIX `setrlimit` (RLIMIT_CPU/AS/NPROC) and Windows Job Object limits, with the
-  wall-clock timeout always enforced; entrypoints and SQLite databases are
-  confined with `resolve_within`. 21 agent tools registered on the SAME
-  registry (`execution/tools.py`): `execute_python`/`execute_javascript`/
-  `execute_typescript`/`execute_sql`/`execute_shell`/`execute_code`,
-  `build_project`/`test_project`/`discover_tests`/`run_verification`,
-  `start_service`/`stop_service`/`restart_service`/`service_status`/
-  `service_logs`/`list_services`, `execution_get`/`execution_logs`/
-  `execution_result`/`execution_artifacts`/`cancel_execution` (retrieval tools
-  prefixed `execution_`/`service_` to keep the code-agent's finance-tool guard).
-  Write/execute tools added to `policy.WRITE_TOOLS` (removed at `plan_only`);
-  read tools to `READ_ONLY_TOOLS`. Service wiring in `service.py`
-  (`AgenticService.execution` + `stop_execution`), lifespan in `main.py`, routes
-  `python/harness/routers/execution.py` (`/execution/*`, operator-gated). Tests
-  `python/tests/test_execution_{unit,runtime,security,e2e,tools}.py` (state
-  machine, diagnostics, policy, real Python/JS/SQL/shell runs, timeout/cancel/
-  traversal/secret attacks, the buildâ†’testâ†’fixâ†’retest acceptance loop). Full
-  Python suite green (2930); Vitest 2169; tsc clean. docs updated:
-  `docs/harness/execution-architecture.md` (new),
-  `docs/harness/decisions.md` (ADR-H129), `docs/NAVIGATION.md` (trigger row).
-
-- **CIUE hardcore torture test: 14 real bugs fixed, verified against a live
-  `typescript-language-server` and a 220-file multi-language monorepo.** Running
-  the engine end-to-end (real subprocess LSP, edits, diagnostics, watcher,
-  concurrency) surfaced and fixed: (1) `lsp.client.uri_to_path` now percent-decodes
-  before the Windows drive-letter fix, so `file:///c%3A/â€¦` LSP results match the
-  workspace; (2) `manager._normalize_locations` understands the `LocationLink`
-  (`targetUri`/`targetRange`) shape; (3) `get_definition`/`get_references` send the
-  symbol's real name column (`_symbol_position`) not the indentation column;
-  (4) `_resolve_symbols` scopes by file first, so a same-named symbol in another
-  file/language is not resolved; (5) LSP `find_references` marks the declaration
-  site; (6) `get_implementations` returns the union of the semantic (LSP) and
-  structural (index heritage) results instead of one backend's view;
-  (7) `_js_heritage` captures `extends`/`implements` so inheritance is structural;
-  (8) the rename fallback is code-mask-aware (`_code_mask`) and never rewrites
-  strings/comments; (9) `rebase_edits` accepts workspace-relative paths, not only
-  absolute LSP paths; (10) `_enrich_location` returns a stable `location` object on
-  the LSP path too (one shape across engines); (11) `CodeIndex.integrity_ok` adds a
-  schema probe so non-database bytes are detected and recovered; (12)
-  `policy.IGNORED_DIRS` excludes `dist`/`build`/`target`/`coverage`/`generated`/â€¦;
-  (13) the context engine is prefix-aware (`authentication` reaches `Auth*`) and
-  bounded; (14) `CodeIntelRuntime` indexes asynchronously so the first query never
-  blocks on a full walk. New regression tests `python/tests/test_intel_regressions.py`.
-  Full Python suite green (2870); Vitest 2169; tsc clean. docs updated:
-  `docs/harness/code-intelligence.md` (unchanged â€” behaviour now matches the doc),
-  `docs/harness/decisions.md` (ADR-H128 already covers the design).
-
-- **Code Intelligence & Understanding Engine (CIUE): the agent now understands
-  software structurally and semantically.** New subsystem
-  `python/harness/code/intel/` â€” one `CodeIntelligenceManager` over an LSP manager
-  (`lsp/`), an AST engine (`ast.py`), an optional Tree-sitter layer
-  (`treesitter.py`), a DEDICATED incremental code index (`persistence/index.py`
-  under `.black-eclipse/code-index/`, never agent memory), a dependency graph, a
-  diagnostics engine, structural search, a project analyzer, a deterministic
-  context engine and safe semantic editing. It normalizes every backend into a
-  Unified Code Model (`models.py`) and always names the engine that answered
-  (`lsp`/`tree-sitter`/`ast`/`index`); a missing or crashed language server is a
-  structured fallback (`lsp.providers` ships nine real servers; adding one is a
-  `LanguageServerSpec`), never a crash. New `code_*` tools (26, read plus the
-  semantic `code_rename_symbol`) registered on the SAME registry via
-  `code/intel_tools.py`; write policy in `code/policy.py` (`INTEL_WRITE_TOOLS`); a
-  process-wide `CodeIntelRuntime` on `AgenticService` (lazy async indexing + a
-  reused fs watcher); routes `python/harness/routers/code_intel.py` (`/code/intel/*`,
-  operator-gated) and a content-free `codeIntel` block in `/health`; plain-language
-  labels in `src/lib/agent/response-model.ts`. Reuses the existing path authority,
-  fs reading/encoding/watching/extractors and tool/event/authorizer seams â€” no
-  second filesystem, registry or confinement. Tests `python/tests/test_intel{,_tools,
-  _lsp,_api}.py` + fixtures `python/tests/fixtures/intel/` + a fake language-server
-  subprocess; ADR-H128. docs updated: `docs/harness/code-intelligence.md` (new),
-  `docs/harness/decisions.md` (ADR-H128), `docs/NAVIGATION.md` (trigger row).
-
-- **Ultra effort: the fill now FLOWS as a real moving gradient (was a static
-  fill + thin beam).** The reported "gradient is not moving" was two things:
-  (a) the fill was a static Tailwind gradient with only a narrow beam sweeping
-  it, and (b) under the app's reduce-motion / "animations off" settings (or the
-  OS preference) a global rule froze *every* animation to 0.001ms, pinning the
-  beam at the left â€” a frozen band. Fix: `.effort-ultra-fill` animates the WHOLE
-  fill (`background-size: 200%` + `effortUltraFlow`) on both the slider and the
-  persistent pill, the beam is kept on top, and the Ultra energy is now
-  DELIBERATELY EXEMPT from the reduce-motion / animations-off kill switches (like
-  the price ticker) â€” each layer carries `--ultra-dur` so one rule restores its
-  timing. Verified with Playwright frame-diffs: the fill and beam both change
-  every frame under default, OS reduce-motion, AND the app's no-anim classes.
-  tests updated: `effort-control.test.ts`.
-  no doc change â€” visual-only; behavior unchanged (see the Ultra behavior entry).
-
-- **Ultra effort: fixed the "animation doesn't work" report (two real bugs).**
-  Diagnosed live with Playwright. (1) The brain SVG rendered muted GRAY, not the
-  accent: a global CSS remap forces `.text-primary` to gray with `!important`,
-  and its `.dark` variant out-specifies the `svg.text-primary { color: var(--brand) }`
-  green rule â€” a solid green icon must not rely on `text-primary`. Added a
-  dedicated `.effort-accent` class and used it for the brain (pill + core).
-  (2) The energy effect lived only INSIDE the popover, which closes the moment a
-  level is picked â€” so at rest the always-visible pill was static. Extracted the
-  core into a shared `EnergyCore` and put a live laser-beam sweep on the
-  persistent pill while Ultra is active. Verified by frame-diff (frames change)
-  and the computed brain color = `#7aff78`. Added tests.
-  no doc change â€” visual-only; behavior unchanged (see the Ultra behavior entry).
-
-- **Ultra effort thumb: an "energy core" animation.** Reworked the composer
-  slider's top-stop thumb (`effort-control.tsx` + `globals.css`) into a layered
-  energy effect â€” a pulsing outer glow, a rotating conic plasma ring, two
-  phase-offset expanding shockwaves, three orbiting sparks, and a throbbing
-  brain core â€” all in the theme `--primary` green and disabled by the global
-  `prefers-reduced-motion` rule (static, fully-lit fallback). Replaced the old
-  single pulse + static rays. The brain icon is now a SOLID accent fill (both
-  the trigger pill and the Ultra core), and the Ultra fill carries a laser beam
-  that sweeps the full bar (`effortUltraBeam`).
-  no doc change â€” visual-only; behavior unchanged (see the Ultra behavior entry).
-
-- **Composer effort slider: theme-consistent skin, animated Ultra, and a real
-  top stop.** Re-skinned `EffortControl` to the theme tokens (`--primary` green,
-  `--border`/`--accent` chrome) instead of a foreign violet/sky palette, and
-  matched the trigger pill to the model-selector chrome. The Ultra thumb now
-  animates (pulsing glow + slowly radiating rays, `globals.css`
-  `effortUltraPulse`/`effortUltraSpin`, reduced-motion safe). Made the top stop
-  actually strongest: `prepare_model` normalizes `very_high` â†’ the runtime's
-  `max` tier (was mapped to `high`, so Ultra == High), so Anthropic `thinking`
-  (16384) and Gemini `thinking_budget` (24576) deepen beyond High; native
-  OpenAI caps Ultra at `high` (its knob has no higher tier). `low`/Minimal stays
-  a no-op by design. Added Python + JS tests.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
-
-- **Chat composer: per-question "model intelligence" effort slider.** Added
-  `EffortControl` (`src/components/chat/effort-control.tsx`) â€” the Fasterâ†’Smarter
-  slider from the reference â€” beside the model selector in `ChatInput`, wired
-  through `EmptyState` and `stock-chat.tsx`. It is a PER-QUESTION override (not a
-  Settings edit): a new `useReasoningEffort` hook persists the choice client-side
-  (`be_reasoning_effort_v1`), and the level rides `ChatOptions.reasoningEffort` â†’
-  `/api/harness/chat[/stream]` â†’ `chatWithAgent`/`startChatRun` â†’
-  `input.context.reasoning`, where it OUTRANKS the saved
-  `LLMConfig.reasoningEffort` default; Auto sends nothing. Reuses the shared
-  vocabulary (`reasoning.ts`, extended with captions + skins and slider index
-  helpers); only native-reasoning models are affected, as before. Added tests
-  (reasoning mapping, run-service precedence, composer reachability).
-  docs updated: `docs/ARCHITECTURE.md` (reasoning-effort section).
-
-- **Settings â€º General: reorganized the preset/customization surface.** The
-  merged General section no longer reads as one long undifferentiated stack.
-  The General sub-tab is now four titled sections (Startup & Display, Live Data,
-  Behavior & Safety, Background) and finally exposes the previously-dead
-  **Start screen** control (`general-prefs.ts` already defined
-  `START_SCREEN_OPTIONS` but nothing rendered it). The Theme tab is now "Theme &
-  Presets": presets lead, the brand generator and token editors sit under a
-  "Fine-tune" group, and the duplicated Glass & Sidebar controls were removed
-  (surfaces now live only on the Glass & Surfaces tab â€” the sidebar card moved
-  there so no control was lost). Presets render as **miniature app screenshots**
-  built from each theme's own tokens (rail + glass cards + a chart line) rather
-  than flat gradient circles. The draft Live-preview/Apply/Discard toolbar is now
-  scoped to draft-backed tabs only (Theme/Glass/Aurora/Charts); General,
-  Background and Language & Access autosave instantly and no longer show it.
-  Extracted shared `Panel`/`Field`/`Toggle`/`SectionHeader`/`SubSection` into
-  `src/components/screens/settings-ui.tsx`, removing four sets of duplicates.
-  no doc change â€” UI layout/UX reorg; no architecture, contract, data-shape or
-  setup change.
-
-- **File System Toolset: full validation run; one correctness fix.**
-  A 141-check validation driven through the real registered tools (and verified
-  against on-disk state) found `find_references` trusted a stale workspace index:
-  a file created or changed after the last indexing pass was invisible â€” a Â§30
-  stale-information violation. Fixed: `find_references` now refreshes the index
-  incrementally before trusting it (`symbols.find_references(refresh_index=True)`),
-  and skips the extra walk when an active watcher already keeps it current
-  (`service.find_references`). Added a regression test. All 141 checks pass; full
-  Python suite 2809 passed; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/code-filesystem.md` (index-is-a-cache note).
-
-- **File System subsystem: added verification and Git awareness (the last two
-  spec deliverables), plus transaction/index events.** `code/fs/verify.py` is the
-  verification layer: `validate_syntax` (Python `ast`, JSON, TOML, and a bounded
-  string/comment-aware bracket-balance scan for JS/TS/Go/Rust/Java/C#/C/C++),
-  `validate_changes` (check proposed edits WITHOUT writing â€” the same
-  all-or-nothing rule `multi_file_patch` enforces), and a post-write verdict now
-  carried on every `write_file`/`create_file`/patch/insert/delete result
-  (`verification.verified`, syntax error + line). New tools `verify_file` and
-  `validate_changes`. `code/fs/git.py` adds additive Git awareness â€” normalized
-  `modified`/`untracked`/`staged`/`deleted`/`renamed`/`copied`/`conflicted` states
-  plus branch/HEAD, one fixed argument-free argv, never a hard dependency â€” via
-  the new `git_status` tool and a `git` field on `file_metadata`. `apply_diff`/
-  `multi_file_patch` now emit `fs.transaction.started|committed|rolled_back` and
-  `index_workspace` emits `fs.index.updated`. 20 new tests; full Python suite 2808
-  passed; `npx tsc --noEmit` clean; vitest 2151 passed.
-  docs updated: `docs/harness/code-filesystem.md`, `docs/NAVIGATION.md`.
-
-- **File System subsystem: closed the four stated limitations.** (1) Watchers now
-  use a NATIVE OS backend when available â€” Windows `ReadDirectoryChangesW` and
-  Linux `inotify`, built on `ctypes`/`libc` only (`code/fs/watch_native.py`) â€” with
-  transparent degradation to the portable polling watch (the fallback re-baselines
-  so it reports only future changes); `watcher.status()` reports the active
-  backend. (2) Symbol extraction is now parser-backed and broader: Python `ast`
-  distinguishes methods from functions and captures decorators; JS/TS use a
-  brace-depth scanner (classes, methods, arrow-function consts, interfaces, type
-  aliases); targeted patterns for Go/Rust/Java/C#/C/C++. (3) `find_references` marks
-  each hit `definition: true` at the declaration site (new additive `definitions`
-  column on the index, migrated in place) and names its engine. (4) `edit_file`
-  deterministically parses a plain instruction (`code/fs/intent.py`) into a
-  concrete minimal edit ("rename X to Y", "add X after Y", "delete X") and falls
-  back to the inspection packet â€” never a guess â€” for a vague one. 20 new tests;
-  full Python suite 2788 passed; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/code-filesystem.md`, `docs/NAVIGATION.md`.
-
-- **Added the File System subsystem (`python/harness/code/fs/`) and its tools
-  (`python/harness/code/fs_tools.py`).** A unified, deterministic filesystem
-  service layered under the existing code capability: workspace-bound path
-  security (delegated to the existing `code/policy.py` + `code/workspace.py`, not
-  re-implemented), a centralized capability permission system (read/write/create/
-  delete/move/copy/rename/watch/search; profile grants, config narrows only), the
-  basic operations (list/read/write/create/delete/move/copy/rename/mkdir/rmdir),
-  search (`search_text` via ripgrep with a bounded Python fallback, `search_files`,
-  `find_files`), symbol/reference search (Python `ast` + a regex fallback, an
-  extensible extractor table), the edit/patch engine (`patch_file`, `replace_text`,
-  `insert_text`, `delete_text`, `apply_diff`, `multi_file_patch`) with hash-guarded
-  optimistic concurrency, ambiguity refusal, atomic writes and byte-exact rollback,
-  metadata/hash/permissions, a SEPARATE incremental workspace index
-  (`<repo>/.black-eclipse/workspace-index/<id>.db` â€” never agent memory), portable
-  debounced file watchers with cache invalidation + incremental re-index, and the
-  high-level `edit_file` (inspect â†’ locate â†’ minimal patch â†’ verify). 28 tools
-  registered; the write half is removed at `plan_only` by the ONE policy authority
-  (`code/policy.py`), effects are admitted by the existing `make_code_authorizer`,
-  and every path is re-checked by `permissions.require` â†’ `decide_write`. Writes
-  land in the disposable code workspace (or the user's approved folder in direct
-  mode), never silently in the checkout. 115 new tests; full Python suite 2732
-  passed; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/architecture.md`, `docs/harness/code-filesystem.md`
-  (new), `docs/NAVIGATION.md`.

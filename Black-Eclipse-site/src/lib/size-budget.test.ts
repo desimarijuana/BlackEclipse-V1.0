@@ -38,8 +38,15 @@ const RATCHET: Record<string, number> = {
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
-  // only carries the import + case. May only shrink from here.
-  "src/lib/harness/data-bridge.ts": 1710,
+  // only carries the import + case. R3-04 split follow-up: the health/diagnostics
+  // group moved to `data-bridge-health.ts`, the education/media group to
+  // `data-bridge-education.ts`, the shared unavailable helpers to
+  // `data-bridge-result.ts`, and the direct price-history transport to
+  // `data-bridge-history.ts`. Re-pinned 1710→1377 to the measured tree; may only
+  // shrink from here. Next split candidate: the instrument-identity block
+  // (`resolveVaultInstrument`/`resolveAnyInstrument`/…), which would also free the
+  // statement/filings functions to move out.
+  "src/lib/harness/data-bridge.ts": 1377,
   "src/components/screens/market-bubbles.tsx": 1413,
   "src/components/chart/chart-widget.tsx": 1405,
   "src/lib/workspace/workspace-canvas.tsx": 1374,

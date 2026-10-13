@@ -8,24 +8,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import { ArrowUp, Loader2, Trash2, Users } from '@/lib/icons';
+import {
+  ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Copy, Loader2, Pause, Play, Settings, Trash2, Users,
+} from '@/lib/icons';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Markdown } from '@/components/chat/markdown';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { GroupSettingsDialog } from '@/components/bots/group-settings-dialog';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import {
   useBotGroupsStore, useHydrateBotGroups, type BotGroup, type GroupMessage,
 } from '@/lib/bots/groups-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
-import { formatDateTime } from '@/lib/bots/state';
-import type { AutomationView } from '@/lib/harness/automation-browser';
+import { formatDateTime, scheduleSummary } from '@/lib/bots/state';
+import {
+  pauseAutomation, resumeAutomation, runAutomationNow,
+  type AutomationView,
+} from '@/lib/harness/automation-browser';
 
 export interface GroupChatRoomProps {
   group: BotGroup;
   bots: AutomationView[];
   onDeleted: (id: string) => void;
+  /** Refresh the bot list after a group-wide run/pause/resume. */
+  onChanged?: () => void;
 }
 
 function newId(): string {
@@ -34,7 +46,7 @@ function newId(): string {
 
 const NO_MESSAGES: GroupMessage[] = [];
 
-export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
+export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRoomProps) {
   const t = useT();
   useHydrateBotAvatars();
   useHydrateBotGroups();
@@ -44,15 +56,24 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
   const updateMessage = useBotGroupsStore((s) => s.updateMessage);
   const clearMessages = useBotGroupsStore((s) => s.clearMessages);
   const deleteGroup = useBotGroupsStore((s) => s.deleteGroup);
+  // The right-docked scheduled-jobs rail is the shared Agent Workspace dock.
+  const schedulerOpen = useWorkspaceStore((s) => s.open);
+  const toggleScheduler = useWorkspaceStore((s) => s.toggle);
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [busyAll, setBusyAll] = useState(false);
+  const [groupNote, setGroupNote] = useState<string | null>(null);
+  /** Who answers: 'all' (every member) or a single member's bot id. */
+  const [audience, setAudience] = useState<string>('all');
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const controllersRef = useRef<AbortController[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Stop the in-flight run if the room unmounts so the stream is not orphaned.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Stop any in-flight runs if the room unmounts so streams are not orphaned.
+  useEffect(() => () => controllersRef.current.forEach((c) => c.abort()), []);
 
   const members = useMemo(
     () => group.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is AutomationView => Boolean(b)),
@@ -60,6 +81,45 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
   );
 
   const groupSpec = useMemo(() => ghostSpecFromId(group.id), [group.id]);
+
+  const allActive = members.length > 0 && members.every((b) => b.state === 'active');
+  useEffect(() => {
+    if (!groupNote) return;
+    const timer = setTimeout(() => setGroupNote(null), 6000);
+    return () => clearTimeout(timer);
+  }, [groupNote]);
+
+  // Run every member's automation right now.
+  const runAll = useCallback(async () => {
+    if (busyAll || members.length === 0) return;
+    setBusyAll(true);
+    setGroupNote(null);
+    try {
+      await Promise.all(members.map((b) => runAutomationNow(b.id)));
+      setGroupNote(t('bots.groups.ranAll'));
+      onChanged?.();
+    } catch (err) {
+      setGroupNote(err instanceof Error ? err.message : 'run failed');
+    } finally {
+      setBusyAll(false);
+    }
+  }, [busyAll, members, onChanged, t]);
+
+  // Pause/resume every member's automation.
+  const setAllPausedState = useCallback(async (pause: boolean) => {
+    if (busyAll || members.length === 0) return;
+    setBusyAll(true);
+    setGroupNote(null);
+    try {
+      await Promise.all(members.map((b) => (pause ? pauseAutomation(b.id) : resumeAutomation(b.id))));
+      setGroupNote(t(pause ? 'bots.groups.pausedAll' : 'bots.groups.resumedAll'));
+      onChanged?.();
+    } catch (err) {
+      setGroupNote(err instanceof Error ? err.message : 'action failed');
+    } finally {
+      setBusyAll(false);
+    }
+  }, [busyAll, members, onChanged, t]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -70,70 +130,104 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
 
   useEffect(() => { scrollToBottom(); }, [messages.length, sending, scrollToBottom]);
 
+  // Auto-grow the composer with its content, up to a cap, then scroll.
+  const resizeComposer = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, []);
+  useEffect(() => { resizeComposer(); }, [input, resizeComposer]);
+
+  /**
+   * One member bot answers in its OWN voice: a separate agent turn with that
+   * bot's identity + instructions, streamed into its own message. Members never
+   * share or merge a reply.
+   */
+  const runMember = useCallback(
+    async (bot: AutomationView, text: string, prior: GroupMessage[], controllers: AbortController[]) => {
+      const replyId = newId();
+      append(group.id, {
+        id: replyId, role: 'assistant', content: '', at: new Date().toISOString(),
+        authorId: bot.id, authorName: bot.name,
+      });
+      const persona =
+        `You are "${bot.name}", one member of the group chat "${group.name}". ` +
+        `Your role: ${bot.description || '—'}. Your standing instructions: ${bot.action.objective || '—'}. ` +
+        `Reply ONLY as ${bot.name}, in your own distinct voice. Do not speak for other ` +
+        `members and do not summarize the room. Use your tools when asked.`;
+      const history = [
+        { role: 'user' as const, content: persona },
+        { role: 'assistant' as const, content: `Understood — I am ${bot.name}.` },
+        ...prior
+          .filter((m) => !m.error && m.content.trim().length > 0)
+          .slice(-8)
+          .map((m) => ({
+            role: m.role,
+            // Prior room replies are labelled with their author so each bot can
+            // tell who said what, without blending them into one voice.
+            content: m.role === 'assistant' && m.authorName ? `${m.authorName}: ${m.content}` : m.content,
+          })),
+      ];
+      const controller = new AbortController();
+      controllers.push(controller);
+      let streamed = '';
+      try {
+        const reply = await getAgentProvider().chat(
+          [...history, { role: 'user' as const, content: text }],
+          undefined,
+          {
+            chatId: `group-${group.id}-${bot.id}`,
+            signal: controller.signal,
+            onDelta: (chunk) => {
+              streamed += chunk;
+              updateMessage(group.id, replyId, { content: streamed });
+            },
+          },
+        );
+        const final = reply || streamed;
+        updateMessage(
+          group.id,
+          replyId,
+          final ? { content: final } : { content: `${bot.name} did not return a reply.`, error: true },
+        );
+      } catch (err) {
+        if (controller.signal.aborted) {
+          updateMessage(group.id, replyId, streamed ? { content: streamed } : { content: '(stopped)', error: true });
+        } else {
+          updateMessage(group.id, replyId, {
+            content: err instanceof Error ? err.message : 'network error', error: true,
+          });
+        }
+      }
+    },
+    [append, updateMessage, group.id, group.name],
+  );
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || members.length === 0) return;
+    const prior = useBotGroupsStore.getState().byGroup[group.id] ?? [];
     append(group.id, { id: newId(), role: 'user', content: text, at: new Date().toISOString() });
     setInput('');
     setSending(true);
-    const roster = members.map((b) => `${b.name} (${b.description || 'no description'})`).join('; ');
-    const persona =
-      `You are the assistant for the group chat "${group.name}". ` +
-      `Its members are: ${roster || 'no bots yet'}. ` +
-      `Answer on behalf of the room, and use your tools to act when asked.`;
-    const history = [
-      { role: 'user' as const, content: persona },
-      { role: 'assistant' as const, content: 'Understood — I am this room.' },
-      ...messages
-        .filter((m) => !m.error && m.content.trim().length > 0)
-        .slice(-10)
-        .map((m) => ({ role: m.role, content: m.content })),
-    ];
-    const replyId = newId();
-    append(group.id, {
-      id: replyId, role: 'assistant', content: '', at: new Date().toISOString(), authorName: group.name,
-    });
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let streamed = '';
+    const targets = audience === 'all' ? members : members.filter((b) => b.id === audience);
+    const controllers: AbortController[] = [];
+    controllersRef.current = controllers;
     try {
-      // Streaming agent provider (background run + SSE), not the one-shot
-      // `/api/harness/chat` — the one-shot path aborts every run at the front
-      // door's 180s cap, which killed long rooms with "Failed to fetch".
-      const reply = await getAgentProvider().chat(
-        [...history, { role: 'user' as const, content: text }],
-        undefined,
-        {
-          chatId: `group-${group.id}`,
-          signal: controller.signal,
-          onDelta: (chunk) => {
-            streamed += chunk;
-            updateMessage(group.id, replyId, { content: streamed });
-          },
-        },
-      );
-      const final = reply || streamed;
-      updateMessage(
-        group.id,
-        replyId,
-        final
-          ? { content: final }
-          : { content: 'The room did not return a reply.', error: true },
-      );
-    } catch (err) {
-      if (controller.signal.aborted) {
-        updateMessage(group.id, replyId, streamed ? { content: streamed } : { content: '(cancelled)', error: true });
-      } else {
-        updateMessage(group.id, replyId, {
-          content: err instanceof Error ? err.message : 'network error', error: true,
-        });
-      }
+      // All targeted bots answer independently and in parallel; each streams
+      // into its own message so no reply is combined.
+      await Promise.all(targets.map((bot) => runMember(bot, text, prior, controllers)));
     } finally {
-      abortRef.current = null;
+      controllersRef.current = [];
       setSending(false);
     }
-  }, [input, sending, append, updateMessage, group.id, group.name, members, messages]);
+  }, [input, sending, members, audience, append, group.id, runMember]);
+
+  /** Stop every in-flight member reply, keeping whatever streamed so far. */
+  const stop = useCallback(() => {
+    controllersRef.current.forEach((c) => c.abort());
+  }, []);
 
   return (
     <div className="glass-card flex h-full min-h-0 flex-col rounded-2xl">
@@ -164,7 +258,53 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
             </span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button size="sm" disabled={busyAll || members.length === 0} onClick={() => void runAll()}>
+            {busyAll ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} {t('bots.runNow')}
+          </Button>
+          {allActive ? (
+            <Button
+              size="icon-sm"
+              variant="outline"
+              disabled={busyAll}
+              title={t('bots.groups.pauseAll')}
+              aria-label={t('bots.groups.pauseAll')}
+              onClick={() => void setAllPausedState(true)}
+            >
+              <Pause size={14} />
+            </Button>
+          ) : (
+            <Button
+              size="icon-sm"
+              variant="outline"
+              disabled={busyAll}
+              title={t('bots.groups.resumeAll')}
+              aria-label={t('bots.groups.resumeAll')}
+              onClick={() => void setAllPausedState(false)}
+            >
+              <Play size={14} />
+            </Button>
+          )}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            title={t('bots.jobsPanel.open')}
+            aria-label={t('bots.jobsPanel.open')}
+            aria-pressed={schedulerOpen}
+            onClick={toggleScheduler}
+            className={schedulerOpen ? 'bg-white/[0.08] text-primary' : ''}
+          >
+            <CalendarDays size={14} />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            title={t('bots.groups.settings')}
+            aria-label={t('bots.groups.settings')}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings size={14} />
+          </Button>
           {confirmDelete ? (
             <>
               <Button size="sm" variant="destructive" onClick={() => { deleteGroup(group.id); onDeleted(group.id); }}>
@@ -204,6 +344,12 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
           </div>
         )}
 
+        {groupNote && (
+          <div className="glass-card-subtle mx-auto w-fit rounded-full px-3 py-1 text-[11px] text-muted-foreground">
+            {groupNote}
+          </div>
+        )}
+
         {messages.map((m) =>
           !m.error && m.role === 'assistant' && !m.content ? null : (
             <GroupBubble key={m.id} message={m} groupName={group.name} groupSpec={groupSpec} groupImage={group.image} />
@@ -213,38 +359,81 @@ export function GroupChatRoom({ group, bots, onDeleted }: GroupChatRoomProps) {
         {sending && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 size={14} className="animate-spin" />
-            {t('bots.groups.thinking', { name: group.name })}
+            {t('bots.groups.answering')}
           </div>
         )}
       </div>
 
       {/* Composer */}
       <div className="border-t border-border/10 p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                  title={t('bots.groups.audience')}
+                  aria-label={t('bots.groups.audience')}
+                />
+              }
+            >
+              <Users size={12} />
+              <span>
+                {audience === 'all'
+                  ? t('bots.groups.everyone')
+                  : members.find((b) => b.id === audience)?.name ?? t('bots.groups.everyone')}
+              </span>
+              <ChevronDown size={12} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem onClick={() => setAudience('all')} className="gap-2">
+                <Users size={14} /> <span className="flex-1">{t('bots.groups.everyone')}</span>
+              </DropdownMenuItem>
+              {members.map((b) => (
+                <DropdownMenuItem key={b.id} onClick={() => setAudience(b.id)} className="gap-2">
+                  <BotAvatar botId={b.id} spec={avatarFor(avatars, b.id)} size={16} title={b.name} />
+                  <span className="flex-1 truncate">{b.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span className="truncate text-[10px] text-muted-foreground">{t('bots.groups.audienceHint')}</span>
+        </div>
         <div className="flex items-end gap-2">
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); }
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
             }}
             rows={1}
             placeholder={t('bots.groups.composer')}
             aria-label={t('bots.groups.composer')}
-            className="max-h-40 min-h-10 flex-1 resize-none rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            className="max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none dark:bg-input/30"
           />
-          <Button size="icon" onClick={() => void send()} disabled={sending || !input.trim()} aria-label={t('bots.groups.composer')}>
-            <ArrowUp size={15} />
-          </Button>
+          {sending ? (
+            <Button size="icon" variant="outline" onClick={stop} title={t('bots.groups.stop')} aria-label={t('bots.groups.stop')}>
+              <Pause size={15} />
+            </Button>
+          ) : (
+            <Button size="icon" onClick={() => void send()} disabled={!input.trim()} aria-label={t('bots.groups.composer')}>
+              <ArrowUp size={15} />
+            </Button>
+          )}
         </div>
-        <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>{t('bots.groups.membersTitle')}: {members.map((m) => m.name).join(', ') || '—'}</span>
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span className="truncate">{t('bots.groups.membersTitle')}: {members.map((m) => m.name).join(', ') || '—'}</span>
           {messages.length > 0 && (
-            <button type="button" onClick={() => clearMessages(group.id)} className="hover:text-foreground">
+            <button type="button" onClick={() => clearMessages(group.id)} className="shrink-0 hover:text-foreground">
               {t('bots.groups.clear')}
             </button>
           )}
         </div>
       </div>
+
+      <GroupSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} group={group} bots={bots} />
     </div>
   );
 }
@@ -260,38 +449,68 @@ function GroupBubble({
   groupSpec: import('@/lib/bots/ghost').GhostSpec;
   groupImage?: string;
 }) {
+  const t = useT();
+  const avatars = useBotAvatarStore((s) => s.avatars);
+  const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
-  const avatar = groupImage
-    ? <img src={groupImage} alt="" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
-    : <GhostAvatar spec={groupSpec} size={28} className="mt-0.5 shrink-0" />;
+  // Each reply is from a specific member now, so show ITS avatar; fall back to
+  // the room identity for older/user turns.
+  const avatar = message.authorId
+    ? <BotAvatar botId={message.authorId} spec={avatarFor(avatars, message.authorId)} size={28} className="mt-0.5 shrink-0" title={message.authorName} />
+    : groupImage
+      ? <img src={groupImage} alt="" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
+      : <GhostAvatar spec={groupSpec} size={28} className="mt-0.5 shrink-0" />;
+  const copy = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(message.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => { /* clipboard unavailable */ });
+  };
+  const timeRow = (
+    <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span>{formatDateTime(message.at)}</span>
+      <button
+        type="button"
+        onClick={copy}
+        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-md hover:bg-white/10 hover:text-foreground"
+        title={copied ? t('bots.chat.copied') : t('bots.chat.copy')}
+        aria-label={t('bots.chat.copy')}
+      >
+        {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+      </button>
+    </div>
+  );
   // A room reply reads as a full-width document with no glass surface; only the
   // user's own turns (and honest error turns) are framed as bubbles.
   if (!isUser && !message.error) {
     return (
-      <div className="flex gap-2.5">
+      <div className="group flex gap-2.5">
         {avatar}
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>
           <Markdown content={message.content} compact className="w-full" />
-          <div className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(message.at)}</div>
+          {timeRow}
         </div>
       </div>
     );
   }
   return (
-    <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
+    <div className={cn('group flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
       {!isUser && avatar}
-      <div
-        className={cn(
-          'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm',
-          isUser
-            ? 'bg-white/[0.08] text-foreground'
-            : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
-        )}
-      >
-        {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>}
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
-        <div className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(message.at)}</div>
+      <div className={cn('flex min-w-0 max-w-[80%] flex-col gap-1', isUser ? 'items-end' : 'items-start')}>
+        <div
+          className={cn(
+            'rounded-2xl px-3.5 py-2 text-sm',
+            isUser
+              ? 'bg-white/[0.08] text-foreground'
+              : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
+          )}
+        >
+          {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>}
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        </div>
+        {timeRow}
       </div>
     </div>
   );

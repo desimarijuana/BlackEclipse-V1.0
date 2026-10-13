@@ -9,13 +9,14 @@
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import { Plus, RefreshCw, Users } from '@/lib/icons';
+import { Loader2, Plus, RefreshCw, Sparkles, Users } from '@/lib/icons';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { lifecycleTone } from '@/components/bots/status-pill';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
+import { FINANCE_GROUP_NAME, useSeedFinancePack } from '@/lib/bots/finance-bots';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { executionLabel, isLiveExecution, type Tone } from '@/lib/bots/state';
 
@@ -49,6 +50,10 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const openGroupCreate = useBotsStore((s) => s.openGroupCreate);
   const avatars = useBotAvatarStore((s) => s.avatars);
   const groups = useBotGroupsStore((s) => s.groups);
+  const { seed: seedFinance, busy: seedingFinance } = useSeedFinancePack();
+  const hasFinanceGroup = groups.some(
+    (g) => g.name.trim().toLowerCase() === FINANCE_GROUP_NAME.toLowerCase(),
+  );
 
   useEffect(() => {
     void hydrate();
@@ -85,6 +90,16 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
           aria-label={t('bots.dialog.title')}
         >
           <Plus size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => void seedFinance()}
+          disabled={seedingFinance}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+          title={t('bots.finance.seed')}
+          aria-label={t('bots.finance.seed')}
+        >
+          {seedingFinance ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
         </button>
         {bots.slice(0, 12).map((bot) => {
           const live = statusById[bot.id]?.lastExecution;
@@ -138,6 +153,16 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
           {t('bots.title')} · {bots.length}
         </span>
         <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => void seedFinance()}
+            disabled={seedingFinance}
+            className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            title={t('bots.finance.seed')}
+            aria-label={t('bots.finance.seed')}
+          >
+            {seedingFinance ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+          </button>
           <button
             type="button"
             onClick={startCreate}
@@ -202,6 +227,20 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
             );
           })}
         </ul>
+      )}
+
+      {/* Finance starter pack — a labeled, always-findable entry point while the
+          group room does not exist yet. */}
+      {!hasFinanceGroup && (
+        <button
+          type="button"
+          onClick={() => void seedFinance()}
+          disabled={seedingFinance}
+          className="mx-1 mt-2 flex w-[calc(100%-0.5rem)] items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-2 py-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+        >
+          {seedingFinance ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          {seedingFinance ? t('bots.finance.seeding') : t('bots.finance.seed')}
+        </button>
       )}
 
       {/* Group chats */}

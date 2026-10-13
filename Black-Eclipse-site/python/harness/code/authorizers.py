@@ -93,6 +93,14 @@ def build_effect_authorizer(
 
     code_authorizer = make_computer_authorizer(code_authorizer)
 
+    # The Automation subsystem: the autonomous-schedule tools (bot_create/update/
+    # enable/resume) are admitted HERE; the HANDLER claims or requests a single-use
+    # operator approval (kind `bot_schedule`) before a schedule is created or
+    # started, so an agent cannot quietly put itself on a cadence (R3-07).
+    from ..automation.authorizers import make_bot_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_bot_authorizer(code_authorizer)
+
     if approvals is None or not workspace_id:
         return _wrap_with_security(code_authorizer, run_id, workspace_id)
 

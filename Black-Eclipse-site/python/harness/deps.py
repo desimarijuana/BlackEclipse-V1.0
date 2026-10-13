@@ -100,10 +100,10 @@ def deployment_exposure(host: Optional[str] = None) -> dict[str, Any]:
     elif public_bind:
         warning = (
             f"Runtime bound to non-loopback host {bind_host!r}. Mutations require the "
-            "operator secret, but this app still has NO authentication and NO tenancy "
-            "isolation: userId/scopeId are self-asserted labels and reads are not "
-            "identity-scoped. It must remain a single-operator deployment behind an "
-            "authenticated boundary."
+            "operator secret, but the Python runtime itself has NO authentication and NO "
+            "tenancy isolation: userId/scopeId are self-asserted labels and reads are not "
+            "identity-scoped. It must remain a single-operator deployment behind the "
+            "authenticated front door (HARNESS_AUTH) or an equivalent boundary."
         )
     return {
         "host": bind_host or None,
@@ -192,6 +192,55 @@ def identity_boundary(host: Optional[str] = None) -> dict[str, Any]:
     }
     boundary["exposure"] = deployment_exposure(host)
     return boundary
+
+
+def deployment_guard(host: Optional[str] = None) -> dict[str, Any]:
+    """The END-TO-END posture for the startup log.
+
+    The Python runtime's own bind guard knows only its half: a public bind with
+    a configured operator secret carries no `exposed` flag even when the FRONT
+    DOOR is explicitly wide open (`HARNESS_AUTH=off`), and a required-but-
+    misconfigured front door (no signing secret → every request 503s) is not a
+    Python-side concept either. This composes both so a deployment that is
+    reachable without a login — or that cannot log anyone in — is named at boot,
+    not discovered later.
+
+    `warnings` are unsafe configurations; `notices` are informational (a public
+    bind behind an authenticated front door is a legitimate single-operator
+    deployment, per `docs/DEPLOYMENT.md`).
+    """
+    front_door = _front_door_auth()
+    exposure = deployment_exposure(host)
+    warnings: list[str] = []
+    notices: list[str] = []
+
+    if exposure.get("exposed"):
+        warnings.append(str(exposure["warning"]))
+    elif exposure.get("warning"):
+        notices.append(str(exposure["warning"]))
+
+    if not exposure["loopback"] and not front_door["required"]:
+        warnings.append(
+            "front-door authentication is OFF "
+            f"(source={front_door['source']}) while the app is bound beyond loopback: "
+            "every page and API is reachable without a login. Set HARNESS_AUTH=required "
+            "with HARNESS_AUTH_SECRET, or bind loopback."
+        )
+    if front_door["required"] and front_door["misconfigured"]:
+        warnings.append(
+            "front-door authentication is REQUIRED but HARNESS_AUTH_SECRET is missing or "
+            "too short: every request will fail closed (503 AUTH_MISCONFIGURED)."
+        )
+
+    return {
+        "host": exposure["host"],
+        "loopback": exposure["loopback"],
+        "frontDoorAuth": front_door,
+        "multiUserSafe": bool(front_door["required"]),
+        "secure": not warnings,
+        "warnings": warnings,
+        "notices": notices,
+    }
 
 
 def _valid_operator_token(request: Request) -> bool:
@@ -293,6 +342,7 @@ __all__ = [
     "IDENTITY_BOUNDARY",
     "actor_for",
     "deployment_exposure",
+    "deployment_guard",
     "identity_boundary",
     "identity_for",
     "memory_available",

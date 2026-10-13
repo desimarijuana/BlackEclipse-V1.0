@@ -117,7 +117,7 @@ export function RunHistory({ botId, refreshKey = 0 }: RunHistoryProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,18rem)_1fr]">
+    <div className="flex min-w-0 flex-col gap-3">
       <ul className="space-y-1.5">
         {runs.slice(0, 30).map((run) => {
           const active = run.id === selectedId;
@@ -127,23 +127,24 @@ export function RunHistory({ botId, refreshKey = 0 }: RunHistoryProps) {
                 type="button"
                 onClick={() => setSelectedId(run.id)}
                 className={cn(
-                  'flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  active ? 'glass-card-subtle' : 'hover:bg-white/[0.04]',
+                  'flex w-full min-w-0 items-start gap-2 rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  active ? 'border-border/50 bg-white/[0.06]' : 'border-transparent hover:bg-white/[0.04]',
                 )}
               >
-                <span className="mt-0.5"><RunIcon state={run.state} /></span>
+                <span className="mt-0.5 shrink-0"><RunIcon state={run.state} /></span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs font-semibold capitalize">{run.state.replace('_', ' ')}</span>
+                  <span className="flex flex-wrap items-center gap-x-2">
+                    <span className="break-words text-xs font-semibold capitalize">{run.state.replace('_', ' ')}</span>
                     {run.attempt > 1 && (
                       <span className="text-[10px] text-muted-foreground">#{run.attempt}</span>
                     )}
                   </span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    {formatDateTime(run.startedAt)} · {run.triggerType}
+                  <span className="block break-words text-[11px] text-muted-foreground">
+                    {formatDateTime(run.startedAt)}
+                    {run.triggerType ? ` · ${run.triggerType}` : ''}
                   </span>
                   {run.errorClass && (
-                    <span className="block text-[11px] text-rose-300">{run.errorClass}</span>
+                    <span className="block break-words text-[11px] text-rose-300">{run.errorClass}</span>
                   )}
                 </span>
               </button>
@@ -181,7 +182,7 @@ function RunDetail({
   const events = run.events ?? [];
 
   return (
-    <div className="glass-card-subtle rounded-xl p-4">
+    <div className="glass-card-subtle min-w-0 rounded-xl p-4">
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <span>{t('bots.run.started')}: <span className="text-foreground">{formatDateTime(run.startedAt)}</span></span>
         <span>{t('bots.run.duration')}: <span className="text-foreground">{formatDuration(run.startedAt, run.finishedAt)}</span></span>
@@ -206,14 +207,14 @@ function RunDetail({
       {run.outcomeReason && (
         <div className="mb-3 rounded-lg border border-border/40 px-3 py-2 text-xs">
           <span className="font-semibold text-muted-foreground">{t('bots.run.outcome')}: </span>
-          <span className="text-foreground">{run.outcomeReason}</span>
+          <span className="break-words text-foreground">{run.outcomeReason}</span>
         </div>
       )}
 
       {run.errorClass && (
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>{run.errorClass}</span>
+          <span className="min-w-0 break-words">{run.errorClass}</span>
         </div>
       )}
 
@@ -227,8 +228,8 @@ function RunDetail({
           {events.map((ev) => (
             <li key={ev.seq} className="flex items-start gap-2 text-xs">
               <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-white/30" />
-              <span className="text-foreground/80">{ev.type.replace(/[._]/g, ' ')}</span>
-              <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{formatRelative(ev.at)}</span>
+              <span className="min-w-0 flex-1 break-words text-foreground/80">{ev.type.replace(/[._]/g, ' ')}</span>
+              <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground">{formatRelative(ev.at)}</span>
             </li>
           ))}
         </ol>
@@ -241,12 +242,12 @@ function RunDetail({
           </div>
           <ul className="space-y-1">
             {run.deliveries.map((d, i) => (
-              <li key={i} className="flex items-center gap-2 text-xs">
-                <span className={d.ok ? 'text-emerald-300' : 'text-rose-300'}>
+              <li key={i} className="flex flex-wrap items-start gap-x-2 text-xs">
+                <span className={cn('shrink-0', d.ok ? 'text-emerald-300' : 'text-rose-300')}>
                   {d.ok ? t('bots.delivery.ok') : t('bots.delivery.failed')}
                 </span>
-                <span className="text-muted-foreground">{d.adapter}{d.destination ? ` → ${d.destination}` : ''}</span>
-                {d.reason && <span className="text-[10px] text-muted-foreground">{d.reason}</span>}
+                <span className="min-w-0 break-words text-muted-foreground">{d.adapter}{d.destination ? ` → ${d.destination}` : ''}</span>
+                {d.reason && <span className="min-w-0 break-words text-[10px] text-muted-foreground">{d.reason}</span>}
               </li>
             ))}
           </ul>

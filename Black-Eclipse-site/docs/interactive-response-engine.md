@@ -246,6 +246,23 @@ model must never degrade into a detached-card layout* — is locked by the
 states the array is one document, so the model is steered toward a single
 `markdown`/`report` block for connected prose.
 
+### Computed results are NOT a block (R3-06)
+
+A result Eclipse *worked out* (`analysis_run`) does not travel through the
+`eclipse-response` contract at all: the runtime emits `analysis.completed`
+carrying the SAME bounded blob it persists (`AnalysisResult.to_blob()` — outputs,
+artifacts, provenance), the client maps it to the turn's `analysis` field, and
+`computed-result-panel.tsx` renders it under the assistant message with the
+always-visible "Worked out by Eclipse" label. A value without a provenance
+record renders UNAVAILABLE, never bare, and the panel is never a citation: a
+computed number is not retrieved evidence. Both chat surfaces map the full turn
+(chat-dock and stock-chat), so the panel, the code-capability panel and the
+document panel appear everywhere.
+
+Diagnostics are split by **severity**: only `error` diagnostics raise the amber
+panel; a warning-only answer renders quietly (an empty-but-valid envelope says so
+in one muted line instead of an alarm).
+
 ### Theming (light and dark)
 
 Blocks are theme-aware. The app switches scheme by toggling the `dark` class on

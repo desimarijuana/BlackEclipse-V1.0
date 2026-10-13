@@ -47,6 +47,8 @@ interface BotGroupsStore {
   createGroup: (input: { name: string; memberIds: string[]; image?: string }) => BotGroup;
   renameGroup: (id: string, name: string) => void;
   setGroupImage: (id: string, dataUrl: string | null) => void;
+  /** Replace the member set (clamped to 2–6). */
+  setMembers: (id: string, memberIds: string[]) => void;
   deleteGroup: (id: string) => void;
   appendMessage: (groupId: string, message: GroupMessage) => void;
   /** Patch one message in place — used to fill the live streaming reply. */
@@ -149,6 +151,12 @@ export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
         }),
         get().byGroup,
       );
+    },
+
+    setMembers: (id, memberIds) => {
+      const unique = [...new Set(memberIds)].slice(0, 6);
+      if (unique.length < 2) return;
+      commit(get().groups.map((g) => (g.id === id ? { ...g, memberIds: unique } : g)), get().byGroup);
     },
 
     deleteGroup: (id) => {

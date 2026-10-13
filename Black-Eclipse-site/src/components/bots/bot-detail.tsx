@@ -5,14 +5,17 @@
 // Settings. Every value comes from the persisted automation; edits call the real
 // API and never claim success before it is confirmed.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  AlertTriangle, ArrowLeft, CalendarDays, CheckCircle2, Eye, ListChecks,
-  Pause, Play, Settings, ShieldCheck, Sparkles, SquarePen, Trash2,
+  AlertTriangle, ArrowLeft, CalendarDays, CheckCircle2, ChevronDown, Eye, ListChecks,
+  MoreHorizontal, Pause, Play, Settings, ShieldCheck, Sparkles, SquarePen, Trash2,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
-import { TabBar } from '@/components/ui/tab-bar';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { GhostCustomizer } from '@/components/bots/ghost-customizer';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
@@ -34,8 +37,6 @@ import {
   scheduleSummary, triggerKindLabel, validateDraft, type BotDraft,
 } from '@/lib/bots/state';
 
-type SectionId = 'overview' | 'instructions' | 'schedule' | 'capabilities' | 'memory' | 'history' | 'settings';
-
 export interface BotDetailProps {
   bot: AutomationView;
   busy: boolean;
@@ -55,7 +56,6 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
   const randomize = useBotAvatarStore((s) => s.randomize);
   const resetAvatar = useBotAvatarStore((s) => s.resetAvatar);
 
-  const [section, setSection] = useState<SectionId>('overview');
   const [status, setStatus] = useState<AutomationStatusView | null>(null);
   const [editingAvatar, setEditingAvatar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,19 +106,6 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
   const spec = avatarFor(avatars, bot.id);
   const last = status?.lastExecution ?? null;
 
-  const tabs: Array<{ id: SectionId; label: string; icon: typeof Eye }> = useMemo(
-    () => [
-      { id: 'overview', label: t('bots.detail.overview'), icon: Eye },
-      { id: 'instructions', label: t('bots.detail.instructions'), icon: SquarePen },
-      { id: 'schedule', label: t('bots.detail.schedule'), icon: CalendarDays },
-      { id: 'capabilities', label: t('bots.detail.capabilities'), icon: ShieldCheck },
-      { id: 'memory', label: t('bots.detail.memory'), icon: Sparkles },
-      { id: 'history', label: t('bots.detail.history'), icon: ListChecks },
-      { id: 'settings', label: t('bots.detail.settings'), icon: Settings },
-    ],
-    [t],
-  );
-
   return (
     <div className="glass-card flex h-full min-h-0 flex-col rounded-2xl">
       {/* Header */}
@@ -147,7 +134,9 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
             {last && <ExecutionPill state={last.state} />}
             <BreakerPill state={bot.breaker} />
           </div>
-          {bot.description && <p className="mt-0.5 text-xs text-muted-foreground">{bot.description}</p>}
+          {bot.description && (
+            <p className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">{bot.description}</p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <Button size="sm" disabled={busy || busyAction || bot.state !== 'active'} onClick={() => onRunNow(bot)}>
               <Play size={13} /> {t('bots.runNow')}
@@ -167,17 +156,31 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
                 {t('bots.enable')}
               </Button>
             )}
-            {bot.state === 'active' && (
-              <Button size="sm" variant="ghost" disabled={busyAction} onClick={() => runAction(() => disableAutomation(bot.id))}>
-                {t('bots.disable')}
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" disabled={busyAction} onClick={() => onDuplicate(bot)}>
-              {t('bots.duplicate')}
-            </Button>
-            <Button size="sm" variant="ghost" className="text-rose-300" disabled={busyAction} onClick={() => onDelete(bot)}>
-              <Trash2 size={13} /> {t('bots.delete')}
-            </Button>
+
+            {/* Secondary/destructive actions live behind a menu so the header
+                keeps one clear primary path (Run now) instead of seven buttons. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button size="icon-sm" variant="ghost" aria-label={t('bots.more')} title={t('bots.more')} />}
+              >
+                <MoreHorizontal size={16} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {bot.state === 'active' && (
+                  <DropdownMenuItem onClick={() => runAction(() => disableAutomation(bot.id))}>
+                    {t('bots.disable')}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => onDuplicate(bot)}>
+                  {t('bots.duplicate')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => onDelete(bot)}>
+                  <Trash2 size={14} /> {t('bots.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <button
               type="button"
               onClick={() => onClose()}
@@ -207,38 +210,73 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
         </div>
       )}
 
-      {/* Sections */}
-      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <TabBar
-          variant="subtle"
-          wrap
-          className="mt-4 mb-4"
-          items={tabs.map((s) => ({ id: s.id, label: s.label, icon: s.icon }))}
-          activeId={section}
-          onChange={(id) => setSection(id as SectionId)}
-        />
-
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          {section === 'overview' && (
+      {/* Sections — collapsible dropdowns in one scrollable column. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+        <div className="divide-y divide-border/10">
+          <SectionBlock icon={Eye} title={t('bots.detail.overview')} defaultOpen>
             <OverviewSection bot={bot} status={status} />
-          )}
-          {section === 'instructions' && (
+          </SectionBlock>
+
+          <SectionBlock icon={SquarePen} title={t('bots.detail.instructions')}>
             <InstructionsSection bot={bot} onChanged={onChanged} />
-          )}
-          {section === 'schedule' && (
+          </SectionBlock>
+
+          <SectionBlock icon={CalendarDays} title={t('bots.detail.schedule')}>
             <ScheduleSection bot={bot} onChanged={onChanged} />
-          )}
-          {section === 'capabilities' && <CapabilitiesSection bot={bot} />}
-          {section === 'memory' && (
-            <p className="text-xs text-muted-foreground">{t('bots.memoryUnavailable')}</p>
-          )}
-          {section === 'history' && (
+          </SectionBlock>
+
+          <SectionBlock icon={ShieldCheck} title={t('bots.detail.capabilities')}>
+            <CapabilitiesSection bot={bot} />
+          </SectionBlock>
+
+          <SectionBlock icon={Sparkles} title={t('bots.detail.memory')}>
+            <div className="glass-card-subtle flex items-start gap-2.5 rounded-xl p-4 text-xs text-muted-foreground">
+              <Sparkles size={15} className="mt-0.5 shrink-0 text-primary/70" />
+              <p className="min-w-0 break-words">{t('bots.memoryUnavailable')}</p>
+            </div>
+          </SectionBlock>
+
+          <SectionBlock icon={ListChecks} title={t('bots.detail.history')}>
             <RunHistory botId={bot.id} refreshKey={refreshKey} />
-          )}
-          {section === 'settings' && <SettingsSection bot={bot} />}
+          </SectionBlock>
+
+          <SectionBlock icon={Settings} title={t('bots.detail.settings')}>
+            <SettingsSection bot={bot} />
+          </SectionBlock>
         </div>
       </div>
     </div>
+  );
+}
+
+function SectionBlock({
+  icon: Icon, title, defaultOpen = false, children,
+}: {
+  icon: typeof Eye;
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="group flex w-full cursor-pointer items-center gap-2 py-3 text-left"
+      >
+        <Icon size={14} className="shrink-0 text-primary/70" />
+        <span className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors group-hover:text-foreground">
+          {title}
+        </span>
+        <ChevronDown
+          size={14}
+          className={cn('shrink-0 text-muted-foreground transition-transform', !open && '-rotate-90')}
+        />
+      </button>
+      {open && <div className="pb-4">{children}</div>}
+    </section>
   );
 }
 
@@ -258,27 +296,51 @@ function OverviewSection({ bot, status }: { bot: AutomationView; status: Automat
   if (bot.breaker === 'open') warnings.push(t('bots.filter.attention'));
   if (bot.consecutiveFailures > 0) warnings.push(`${bot.consecutiveFailures} consecutive failures`);
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {warnings.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>{warnings.join(' · ')}</span>
         </div>
       )}
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label={t('bots.purpose')}>{bot.description || bot.action.objective || '—'}</Field>
-        <Field label={t('bots.status')}>{bot.state}</Field>
-        <Field label={t('bots.triggerLabel')}>{triggerKindLabel(bot.trigger.type)}</Field>
-        <Field label={t('bots.detail.schedule')}>{scheduleSummary(bot.trigger)}</Field>
-        <Field label={t('bots.nextRun')}>{bot.nextRunAt ? `${formatRelative(bot.nextRunAt)} · ${formatDateTime(bot.nextRunAt)}` : t('bots.never')}</Field>
-        <Field label={t('bots.lastRun')}>{bot.lastRunAt ? `${formatRelative(bot.lastRunAt)} · ${formatDateTime(bot.lastRunAt)}` : t('bots.never')}</Field>
-        <Field label={t('bots.lastOutcome')}>{last ? last.state.replace('_', ' ') : t('bots.noRunsYet')}</Field>
-        {status && (
-          <Field label="Success rate">
-            {status.successRate == null ? '—' : `${Math.round(status.successRate * 100)}% (${status.successCount}/${status.executionCount})`}
-          </Field>
-        )}
-      </dl>
+
+      <section className="glass-card-subtle rounded-xl p-4">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('bots.detail.identity')}
+        </h3>
+        {/* The purpose is often a multi-line brief — give it the full width and
+            preserve its line breaks instead of collapsing it into one blob in a
+            narrow grid cell. */}
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('bots.purpose')}</div>
+          <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+            {bot.description || bot.action.objective || '—'}
+          </div>
+        </div>
+        <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label={t('bots.create.agent')}>{bot.action.agentId ?? 'eclipse-agent'}</Field>
+          <Field label={t('bots.scope')}>{bot.scopeId ?? 'Personal'}</Field>
+          <Field label={t('bots.status')}>{bot.state}</Field>
+        </dl>
+      </section>
+
+      <section className="glass-card-subtle rounded-xl p-4">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('bots.detail.activity')}
+        </h3>
+        <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label={t('bots.triggerLabel')}>{triggerKindLabel(bot.trigger.type)}</Field>
+          <Field label={t('bots.detail.schedule')}>{scheduleSummary(bot.trigger)}</Field>
+          <Field label={t('bots.nextRun')}>{bot.nextRunAt ? `${formatRelative(bot.nextRunAt)} · ${formatDateTime(bot.nextRunAt)}` : t('bots.never')}</Field>
+          <Field label={t('bots.lastRun')}>{bot.lastRunAt ? `${formatRelative(bot.lastRunAt)} · ${formatDateTime(bot.lastRunAt)}` : t('bots.never')}</Field>
+          <Field label={t('bots.lastOutcome')}>{last ? last.state.replace('_', ' ') : t('bots.noRunsYet')}</Field>
+          {status && (
+            <Field label={t('bots.successRate')}>
+              {status.successRate == null ? '—' : `${Math.round(status.successRate * 100)}% (${status.successCount}/${status.executionCount})`}
+            </Field>
+          )}
+        </dl>
+      </section>
     </div>
   );
 }

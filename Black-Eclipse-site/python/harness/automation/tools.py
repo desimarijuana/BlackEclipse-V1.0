@@ -75,7 +75,74 @@ def _build_trigger(args: dict[str, Any]) -> dict[str, Any]:
     return trigger
 
 
-async def _create(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
+#: Trigger kinds that make a bot run BY ITSELF. A manual bot only runs when the
+#: user (or `bot_run`) asks, so it needs no schedule approval.
+_AUTONOMOUS_TRIGGERS = ("cron", "interval", "one_time")
+
+_SCHEDULE_NEEDS_APPROVAL = (
+    "This needs your go-ahead first: I've asked to set up (or start) a scheduled "
+    "task. Nothing runs on a schedule until you approve it."
+)
+
+
+async def _approve_autonomous_schedule(ctx: ToolContext, summary: str) -> bool:
+    """The operator's go-ahead for creating or starting an autonomous schedule.
+
+    Mirrors `workspace_patch_apply`'s single-use flow: a matching approval is
+    claimed and consumed; otherwise one is requested, the approval card is
+    emitted, and when the run asked to pause we block for the decision and
+    re-claim it. Without an approvals backend (tests / zero-config local runs) the
+    tool stays admitted — the run's profile and allowlist already gated it; WITH a
+    store, an autonomous schedule needs the operator's explicit yes (R3-07).
+    """
+    approvals = getattr(ctx, "approvals", None)
+    if approvals is None:
+        return True
+    import hashlib  # noqa: PLC0415
+
+    digest = hashlib.sha256(summary.encode("utf-8")).hexdigest()
+    key = str(getattr(ctx, "run_id", "") or "bot")
+    try:
+        if approvals.consume_kind(kind="bot_schedule", request_key=key, digest=digest) is not None:
+            return True
+        pending = approvals.request_kind(
+            kind="bot_schedule", request_key=key, digest=digest,
+            effect="external_action", run_id=key,
+            action_summary=summary, risk="medium",
+        )
+    except Exception:  # noqa: BLE001 - a store error is a refusal, never a bypass
+        return False
+    try:
+        from ..code.events import emit_code_event  # noqa: PLC0415
+
+        await emit_code_event(ctx, "approval.requested", {
+            "approvalId": (pending or {}).get("id"),
+            "kind": "bot_schedule",
+            "title": "Approve a scheduled task",
+            "summary": summary,
+            "effect": "external_action",
+            "risk": "medium",
+        })
+    except Exception:  # noqa: BLE001
+        pass
+    if pending is not None:
+        try:
+            from ..mcp.approvals import pause_for_decision  # noqa: PLC0415
+
+            if await pause_for_decision(
+                approvals, ctx, pending.get("id"),
+                lambda: approvals.consume_kind(kind="bot_schedule", request_key=key, digest=digest),
+                emitter=getattr(ctx, "emitter", None), digest=digest,
+                event_type="bot.schedule.approved",
+                approved_payload={"kind": "bot_schedule", "summary": summary},
+            ):
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+    return False
+
+
+async def _create(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     service = _require_service()
     objective = str(args.get("objective") or "").strip()
     name = str(args.get("name") or "").strip()
@@ -83,11 +150,16 @@ async def _create(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
         return "A bot needs an objective.", {"created": False, "reason": "objective required"}
     if not name:
         name = objective[:60]
+    trigger = _build_trigger(args)
+    if trigger.get("type") in _AUTONOMOUS_TRIGGERS:
+        summary = f"Create a scheduled task ({trigger.get('type')}): {objective[:120]}"
+        if not await _approve_autonomous_schedule(ctx, summary):
+            return _SCHEDULE_NEEDS_APPROVAL, {"created": False, "approved": False}
     payload: dict[str, Any] = {
         "name": name,
         "description": args.get("description") or objective,
         "state": str(args.get("state") or "active"),
-        "trigger": _build_trigger(args),
+        "trigger": trigger,
         "action": {
             "type": "run_agent",
             "objective": objective,
@@ -124,12 +196,17 @@ async def _get(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
     return _dumps(view), view
 
 
-async def _update(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
+async def _update(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     service = _require_service()
     bot_id = str(args.get("botId") or "")
     definition = service.get(bot_id)
     if definition is None:
         return f"No bot {bot_id!r}.", {"updated": False, "botId": bot_id}
+    trigger_change = str(args.get("triggerType") or "")
+    if trigger_change in _AUTONOMOUS_TRIGGERS:
+        summary = f"Put an existing task on a schedule ({trigger_change}): {bot_id}"
+        if not await _approve_autonomous_schedule(ctx, summary):
+            return _SCHEDULE_NEEDS_APPROVAL, {"updated": False, "approved": False, "botId": bot_id}
     patch: dict[str, Any] = {}
     if args.get("name") is not None:
         patch["name"] = str(args["name"])
@@ -218,7 +295,8 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
                 "cron": {"type": "string"}, "intervalSeconds": {"type": "integer"},
                 "runAt": {"type": "string"}, "timezone": {"type": "string"},
             }, ["objective"]),
-            handler=_create, permission="read", risk="medium", timeout_ms=30_000,
+            handler=_create, permission="write", risk="medium", timeout_ms=30_000,
+            effect="external_action",
         ),
         ToolDefinition(
             name="bot_list",
@@ -241,7 +319,8 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
                 "cron": {"type": "string"}, "intervalSeconds": {"type": "integer"},
                 "runAt": {"type": "string"}, "timezone": {"type": "string"},
             }, ["botId"]),
-            handler=_update, permission="read", risk="medium", timeout_ms=30_000,
+            handler=_update, permission="write", risk="medium", timeout_ms=30_000,
+            effect="external_action",
         ),
         ToolDefinition(
             name="bot_run",
@@ -257,12 +336,14 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
         ToolDefinition(
             name="bot_resume", description="Resume a paused bot.",
             input_schema=_obj({"botId": {"type": "string"}}, ["botId"]),
-            handler=_lifecycle_handler("resume"), permission="read", risk="low", timeout_ms=15_000,
+            handler=_lifecycle_handler("resume"), permission="write", risk="low",
+            timeout_ms=15_000, effect="external_action",
         ),
         ToolDefinition(
             name="bot_enable", description="Enable a draft/disabled bot so it becomes active.",
             input_schema=_obj({"botId": {"type": "string"}}, ["botId"]),
-            handler=_lifecycle_handler("enable"), permission="read", risk="low", timeout_ms=15_000,
+            handler=_lifecycle_handler("enable"), permission="write", risk="low",
+            timeout_ms=15_000, effect="external_action",
         ),
         ToolDefinition(
             name="bot_disable", description="Disable an active bot.",
@@ -300,9 +381,15 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
 
 def _lifecycle_handler(action: str):
     """Return a lifecycle handler. Kept sync-friendly for the definition table."""
-    async def handler(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
+    async def handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         service = _require_service()
         bot_id = str(args.get("botId") or "")
+        # Enabling or resuming starts a STORED schedule firing: same go-ahead as
+        # creating one. (Pause/disable/delete stop future work and need none.)
+        if action in ("enable", "resume"):
+            summary = f"{action.title()} a scheduled task: {bot_id}"
+            if not await _approve_autonomous_schedule(ctx, summary):
+                return _SCHEDULE_NEEDS_APPROVAL, {"ok": False, "approved": False, "botId": bot_id}
         try:
             definition = getattr(service, action)(bot_id, actor="agent")
         except Exception as exc:  # noqa: BLE001

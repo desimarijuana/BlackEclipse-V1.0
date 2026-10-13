@@ -67,6 +67,12 @@ export interface Message {
    */
   images?: unknown;
   /**
+   * A computed result the runtime worked out on this turn (`analysis.completed`):
+   * outputs, artifacts and provenance. Absent on user turns, computation-free
+   * runs and legacy rows. Narrowed by the chat surface via `coerceComputedResult`.
+   */
+  analysis?: unknown;
+  /**
    * The action the agent is blocked on pending an operator decision. Present
    * only while a run is paused on an approval card; set from the
    * `approval.requested` event and cleared when it resolves.

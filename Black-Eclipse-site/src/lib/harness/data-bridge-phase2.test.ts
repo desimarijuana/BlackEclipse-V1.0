@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const fetchQuoteWithFallback = vi.fn();
 const fetchYahooBatchRaw = vi.fn();
+const fetchYahooChartSeries = vi.fn();
+const yahooChartCandidates = vi.fn();
 const webSearch = vi.fn();
 const fetchWebPage = vi.fn();
 const searchWeb = vi.fn();
@@ -33,6 +35,12 @@ vi.mock("@/lib/scraper/fetchers", () => ({
 }));
 vi.mock("@/lib/scraper/fetchers/yfinance", () => ({
   fetchYahooBatchRaw: (...a: unknown[]) => fetchYahooBatchRaw(...a),
+}));
+// The DIRECT chart transport (the price-history fallback). Mocked like every
+// other provider so the suite is offline; `null` = the transport is down.
+vi.mock("@/lib/scraper/yahoo-chart", () => ({
+  fetchYahooChartSeries: (...a: unknown[]) => fetchYahooChartSeries(...a),
+  yahooChartCandidates: (...a: unknown[]) => yahooChartCandidates(...a),
 }));
 // Use the REAL normalizer so the test catches the { date, value } contract
 // between the macro sources and the normalizer (the FRED-analytics regression).
@@ -67,6 +75,10 @@ import { fetchCapability } from "./data-bridge";
 beforeEach(() => {
   fetchQuoteWithFallback.mockReset();
   fetchYahooBatchRaw.mockReset();
+  fetchYahooChartSeries.mockReset();
+  yahooChartCandidates.mockReset();
+  yahooChartCandidates.mockImplementation((sym: string) => [sym]);
+  fetchYahooChartSeries.mockResolvedValue(null);
   webSearch.mockReset();
   fetchWebPage.mockReset();
   searchWeb.mockReset();
@@ -148,13 +160,31 @@ describe("fetchCapability — price_history", () => {
     fetchYahooBatchRaw.mockResolvedValue({ history: { "AAPL": [{ date: "2026-09-18", close: 1 }, { date: "2026-09-19", close: 2 }] } });
     const result = await fetchCapability("price_history", { symbol: "AAPL", period: "1mo" });
     expect(result.status).toBe("OK");
+    expect(result.transport).toBe("yfinance-bridge");
+    expect((result.series as unknown[]).length).toBe(2);
+    // The bridge answered; the direct transport was never needed.
+    expect(fetchYahooChartSeries).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the direct chart transport when the bridge is off", async () => {
+    fetchYahooBatchRaw.mockRejectedValue(new Error("python missing"));
+    fetchYahooChartSeries.mockResolvedValue({
+      bars: [{ date: "2026-09-18", close: 1 }, { date: "2026-09-19", close: 2 }],
+      meta: { price: 2 },
+    });
+    const result = await fetchCapability("price_history", { symbol: "AAPL" });
+    expect(result.status).toBe("OK");
+    expect(result.transport).toBe("yahoo-chart");
+    expect(result.provider).toBe("yfinance");
+    expect(result.providerSymbol).toBe("AAPL");
     expect((result.series as unknown[]).length).toBe(2);
   });
 
-  it("returns UNAVAILABLE when no series is available", async () => {
+  it("returns UNAVAILABLE when neither transport has a series", async () => {
     fetchYahooBatchRaw.mockRejectedValue(new Error("offline"));
     const result = await fetchCapability("price_history", { symbol: "AAPL" });
     expect(result.status).toBe("UNAVAILABLE");
+    expect(fetchYahooChartSeries).toHaveBeenCalled();
   });
 });
 

@@ -11,7 +11,8 @@ from eval_helpers import make_ctx, make_task, make_trajectory, tool_call
 
 def test_registry_lists_builtins_and_rejects_unknown():
     for name in ("exact", "state", "tool", "research", "citation", "financial",
-                 "code", "browser", "memory", "safety", "semantic", "hallucination"):
+                 "code", "browser", "memory", "safety", "semantic", "hallucination",
+                 "recovery", "honesty", "provenance", "artifact", "response"):
         assert name in grader_names()
     with pytest.raises(KeyError):
         build_grader("does-not-exist")

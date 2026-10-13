@@ -202,6 +202,13 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           publish(true);
           break;
         }
+        case 'analysis': {
+          // The runtime worked something out: keep the computed result blob so the
+          // transcript can show it with its provenance (never as retrieved data).
+          t.analysis = event.result;
+          publish(true);
+          break;
+        }
       }
     },
     [publish],

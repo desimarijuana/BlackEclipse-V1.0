@@ -17,6 +17,7 @@ import { ImageGalleryPanel } from './image-gallery';
 import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
+import { ComputedResultPanel } from './computed-result-panel';
 import { MessageRail } from './message-rail';
 
 interface ChatHistoryProps {
@@ -277,6 +278,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                     runId={msg.runId}
                     compact={compact}
                   />
+                  {msg.analysis ? (
+                    <ComputedResultPanel result={msg.analysis} compact={compact} />
+                  ) : null}
                   {msg.research ? (
                     <ResearchEvidencePanel research={msg.research} compact={compact} />
                   ) : null}

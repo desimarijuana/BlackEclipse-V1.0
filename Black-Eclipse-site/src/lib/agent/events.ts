@@ -57,7 +57,13 @@ export type HarnessUiEvent =
   /** The run is blocked on an operator decision (approval card). */
   | { kind: 'approval_request'; approval: PendingApproval }
   /** A previously requested approval was decided (or expired/timed out). */
-  | { kind: 'approval_resolved'; id?: string; approved?: boolean };
+  | { kind: 'approval_resolved'; id?: string; approved?: boolean }
+  /**
+   * A completed computation (runtime `analysis.completed`): the bounded result
+   * blob (outputs, artifacts, provenance) the chat renders as "worked out by
+   * Eclipse". A computed result is never shown as retrieved data.
+   */
+  | { kind: 'analysis'; result: unknown };
 
 /**
  * Normalize a frame's payload.
@@ -272,6 +278,16 @@ export function normalizeHarnessEvent(
 
   if (event === 'approval.resolved') {
     return { kind: 'approval_resolved', id: str(payload.approvalId), approved: payload.approved === true };
+  }
+
+  // A completed computation (runtime `analysis.completed`). The payload carries
+  // the SAME bounded result blob the runtime persists (outputs, artifacts,
+  // provenance), so the chat can show what Eclipse worked out — clearly labelled
+  // as computed, never as retrieved data.
+  if (event === 'analysis.completed') {
+    const result = payload.result;
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+    return { kind: 'analysis', result };
   }
 
   // A standing grant short-circuited the prompt (runtime `approval.granted`).

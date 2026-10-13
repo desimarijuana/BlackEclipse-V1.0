@@ -1,7 +1,7 @@
 ---
 title: Authentication & multi-user mode
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-13
 ---
 
 # Authentication & multi-user mode
@@ -82,6 +82,23 @@ implemented": `authentication` is `true` only when the front door actually
 requires a signed-in user, plus a `frontDoorAuth` block
 (`required`/`source`/`secretConfigured`/`misconfigured`). The app is never
 presented as multi-user secure unless it is.
+
+## Boot-time posture (the startup log)
+
+The Python harness logs ONE posture line at boot and warns BEFORE serving when
+the deployment is unsafe: `deps.deployment_guard()` composes the runtime bind
+with the front door's mode (the same signals as `config.ts`), and warns when
+
+- a public bind has no `CRON_SECRET`,
+- a public bind runs with `HARNESS_AUTH=off` — the combination neither side used
+  to flag (a configured operator secret used to silence every warning while the
+  front door stayed wide open),
+- auth is required but `HARNESS_AUTH_SECRET` is missing/short (every request
+  fails closed with `503 AUTH_MISCONFIGURED`).
+
+A public bind behind front-door auth with both secrets is an informational
+notice, not a warning — that is a legitimate single-operator deployment
+(`docs/DEPLOYMENT.md`). Tests: `python/tests/test_identity_tenancy_boundary.py`.
 
 ## What is still true (do not over-claim)
 

@@ -1,7 +1,7 @@
 ---
 title: Deployment — Production Container
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-13
 ---
 
 # Deployment — Production Container
@@ -44,6 +44,21 @@ Generate each with `openssl rand -hex 32` (connector key: `openssl rand -base64 
 `NODE_ENV=production` makes auth **auto-require** a signed-in user
 (`HARNESS_AUTH` unset → `required`). Set `HARNESS_AUTH=off` only for a trusted,
 loopback-only instance.
+
+## Security preflight
+
+Run the deploy-time checklist before starting (and in the deploy pipeline):
+
+```sh
+npm run security:preflight
+```
+
+It **fails closed** when an exposed deployment is missing `HARNESS_AUTH_SECRET`
+or `CRON_SECRET`, and refuses a public bind with `HARNESS_AUTH=off`. On a
+loopback/dev bind every check is advisory (exit 0), so it is also part of
+`npm run check:all` and CI. The harness startup log additionally prints the
+end-to-end posture (bind + front-door auth) and warns on any unsafe combination
+(`docs/harness/authentication.md`).
 
 ## Persistence
 

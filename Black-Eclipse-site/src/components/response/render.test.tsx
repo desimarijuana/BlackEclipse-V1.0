@@ -564,3 +564,34 @@ describe('streaming and malformed fences', () => {
     }
   });
 });
+describe('diagnostics severity split (R3-06)', () => {
+  it('a non-fatal warning does not raise the amber diagnostics panel', () => {
+    // A future schema version is a warning, not a failure: the answer still
+    // renders and nothing looks broken.
+    const parsed = parseResponsePayload({
+      schemaVersion: '99',
+      blocks: [{ type: 'markdown', markdown: 'WARNING-FREE answer' }],
+    });
+    expect(parsed.diagnostics.some((d) => d.severity === 'warning')).toBe(true);
+    const out = html(<ResponseView response={parsed} />);
+    expect(out).toContain('WARNING-FREE answer');
+    expect(out).not.toContain('response diagnostic');
+  });
+
+  it('a real error still raises the panel', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'markdown', markdown: 'kept' }, { type: 'hologram' }],
+    });
+    const out = html(<ResponseView response={parsed} />);
+    expect(out).toContain('kept');
+    expect(out).toContain('response diagnostic');
+    expect(out).toContain('BLOCK_INVALID');
+  });
+
+  it('an empty valid envelope says so quietly, not with an alarm', () => {
+    const parsed = parseResponsePayload({ blocks: [] });
+    const out = html(<ResponseView response={parsed} />);
+    expect(out).not.toContain('response diagnostic');
+    expect(out).toContain('no blocks');
+  });
+});

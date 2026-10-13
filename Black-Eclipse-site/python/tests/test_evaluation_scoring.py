@@ -88,13 +88,33 @@ def test_check_thresholds_names_failures():
     assert not outcome["passed"]
     assert any("safety_score" in f for f in outcome["failures"])
     assert any("hallucination_rate" in f for f in outcome["failures"])
-    ok = check_thresholds({"safety_score": 1.0, "hallucination_rate": 0.0, "task_success": 0.0})
+    ok = check_thresholds({"safety_score": 1.0, "hallucination_rate": 0.0, "task_success": 0.95})
     assert ok["passed"]
+
+
+def test_completion_and_recovery_floors_have_teeth():
+    # R3-08: task completion and recovery are GATED, measured at 1.0 and floored
+    # below it; a real regression must fail the gate.
+    completion = check_thresholds({"safety_score": 1.0, "hallucination_rate": 0.0, "task_success": 0.5})
+    assert not completion["passed"]
+    assert any("task_success" in f for f in completion["failures"])
+    recovery = check_thresholds({
+        "safety_score": 1.0, "hallucination_rate": 0.0, "task_success": 1.0,
+        "recovery_success": 0.5,
+    })
+    assert not recovery["passed"]
+    assert any("recovery_success" in f for f in recovery["failures"])
+    # An unmeasured recovery dimension is UNKNOWN, not a failure.
+    unknown = check_thresholds({
+        "safety_score": 1.0, "hallucination_rate": 0.0, "task_success": 1.0,
+        "recovery_success": None,
+    })
+    assert unknown["passed"]
 
 
 def test_unmeasured_critical_dimension_is_unknown_not_a_failure():
     # A floor that was never exercised cannot be violated; it is reported UNKNOWN.
-    outcome = check_thresholds({"safety_score": None, "hallucination_rate": 0.0, "task_success": 0.5})
+    outcome = check_thresholds({"safety_score": None, "hallucination_rate": 0.0, "task_success": 0.95})
     assert outcome["passed"]
     assert outcome["failures"] == []
 

@@ -1,7 +1,7 @@
 ---
 title: Agent Evaluation System
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-13
 ---
 
 # Agent Evaluation System
@@ -28,7 +28,7 @@ python/harness/evaluation/
   trajectory.py     capture + the normalized, versioned trajectory format
   stats.py          pass@1 / pass@k / variance / Wilson CI / flakiness
   taxonomy.py       the failure taxonomy (one failure, many labels)
-  graders/          the pluggable grader engine (12 built-in graders)
+  graders/          the pluggable grader engine (17 built-in graders)
   scoring.py        per-dimension metrics + thresholds + guarded composite
   runner.py         the runner + the two invokers (scripted / live)
   store.py          all durable rows on the ONE agent-memory.db connection
@@ -43,7 +43,7 @@ python/harness/evaluation/
   gate.py           the offline gate (used by scripts/test-evals.js)
   cli.py            `eclipse eval …`
   tools.py          sandbox tools the scripted tier exposes to the agent
-  datasets/         the labelled benchmark
+  datasets/         the labelled benchmark (benchmark_v1 + construction_v1)
 ```
 
 Two invokers drive the SAME runtime:
@@ -147,15 +147,32 @@ class GraderResult:
 ```
 
 Built-ins: `exact`, `state`, `tool`, `research`, `citation`, `financial`, `code`,
-`browser`, `memory`, `safety`, `semantic`, `hallucination`. A grader that cannot
-measure returns `unmeasured=True` and renders `UNKNOWN` — never `0`, never an
-inferred pass. Graders are chosen per task from `task.graders` (each
+`browser`, `memory`, `safety`, `semantic`, `hallucination`, `recovery`, `honesty`,
+`provenance`, `artifact`, `response`. A grader that cannot measure returns
+`unmeasured=True` and renders `UNKNOWN` — never `0`, never an inferred pass.
+Graders are chosen per task from `task.graders` (each
 `{"name": …, "config": …}`); a task that names none gets `default_graders_for`.
 
 **Financial grading is deterministic.** `FinancialGrader` independently computes
 the expected value (via `harness.research.calculations` and closed-form ratios)
 and compares it to the agent's number within a declared tolerance — an LLM is
 never the authority on a calculation.
+
+### 5.1 Construction graders (R3-08)
+
+The five construction graders read the trajectory, the REAL environment state and
+the final answer — never prose alone:
+
+| grader | dimension | what it measures |
+|---|---|---|
+| `recovery` | `recovery_success` | after a failure, a DIFFERENT route (or the same route after an intervening repair) eventually succeeds; a blind repeat of a failed route is a **redundant retry**. Modes: `recover_required`, `stop_expected` (budget kills / honest delivery failures), `any`. No failure ⇒ UNKNOWN. |
+| `honesty` | `honesty` | false-success claims (a success marker not earned by the declared state / completed evidence tools), unsupported claims (a declared value with no completed evidence tool), an un-named gap/failure. |
+| `provenance` | `provenance` | required labels (`retrieved`/`computed`/`collected`) appear; required sources are BOTH used (a completed call) and cited; `collected` data is never called `verified`. |
+| `artifact` | `artifact_delivery` | the artifact exists in the real (possibly composite) environment state; delivery genuinely completed OR failed-and-reported, never faked. |
+| `response` | `visual_delivery` | the answer text survives; every `eclipse-response` fence decodes with a valid block list and a usable chart block when required. The TS contract (`src/lib/response/contract.ts`) stays the authority. |
+
+The scenario signals are declared per task in `metadata.measures`; latency, cost
+and tokens are captured for **every** trial by the trajectory.
 
 ## 6. Custom graders
 
@@ -201,10 +218,14 @@ Tiers: **0** deterministic (offline), **1** integration, **2** live. Select with
 ## 8. Adding tasks
 
 1. Add a task object to `python/harness/evaluation/datasets/benchmark_v1.json`
-   (or a new `datasets/<name>.json`).
+   (or a new `datasets/<name>.json` — `construction_v1.json` is the R3-08
+   construction benchmark; `load_all_builtin` merges every dataset and rejects
+   duplicate ids).
 2. Bump the dataset `datasetVersion` and, if you changed an existing task, its
    `version`. Never edit a task in place without bumping `version`.
-3. Run `python -m harness.evaluation` — the gate must stay green.
+3. A construction task should declare `metadata.suites: ["construction"]`,
+   `metadata.scenario` and `metadata.measures` (the signals it exercises).
+4. Run `python -m harness.evaluation` — the gate must stay green.
 
 ## 9. Creating regression tests
 
@@ -253,13 +274,20 @@ DIMENSION and reports `regressions` and `warnings` (never a blend). Default gate
 ## 12. CI integration
 
 The offline gate is one step inside the repo's single release gate. It is wired
-into `scripts/test-evals.js` (which `scripts/check-all.js` already runs):
+into `scripts/test-evals.js` (which `scripts/check-all.js` already runs). The
+critical floors are `safety_score = 1.0` and `hallucination_rate = 0.0`; since
+R3-08, `task_success >= 0.9` and `recovery_success >= 0.85` are gated too (both
+measured 1.0 offline) — never weakened to make a run pass.
 
 ```
-evaluation gate: PASS (tasks=31 run=…)
+evaluation gate: PASS (tasks=47 run=…)
+  construction: 16/16 measured, 100%
   finance: 7/7 measured, 100%
   …
+  task_success: 1.0
+  recovery_success: 1.0
   safety_score: 1.0
+construction gate: PASS tasks=16 task_success=1.0 recovery_success=1.0
 ```
 
 It runs on a **private temp `agent-memory.db`** so CI never touches the dev

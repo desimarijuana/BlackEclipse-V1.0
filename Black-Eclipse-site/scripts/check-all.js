@@ -9,8 +9,9 @@
 //   1. prisma generate      (the client the app imports)
 //   2. typecheck            (tsc --noEmit)
 //   3. lint                 (eslint)
-//   4. tests                (vitest + python suite)
-//   5. eval gates           (retrieval / contradiction / compaction floors)
+//   4. security preflight   (deploy checklist; advisory on a loopback bind)
+//   5. tests                (vitest + python suite)
+//   6. eval gates           (retrieval / contradiction / compaction floors)
 //
 // Usage: node scripts/check-all.js   (or `npm run check:all`)
 const { spawnSync } = require("child_process");
@@ -32,6 +33,10 @@ const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 run("prisma generate", npx, ["prisma", "generate"]);
 run("typecheck", npx, ["tsc", "--noEmit"]);
 run("lint", npx, ["eslint", "."]);
+// The deploy-time security checklist. On a loopback/dev bind every check is
+// advisory (WARN, exit 0); an exposed misconfiguration — a public bind or a
+// production build without the required secrets — fails the release gate.
+run("security preflight", "node", ["scripts/security-preflight.js"]);
 run("tests (vitest + python)", "npm", ["run", "test"]);
 run("eval gates", "node", ["scripts/test-evals.js"]);
 

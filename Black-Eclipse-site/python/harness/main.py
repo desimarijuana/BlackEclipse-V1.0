@@ -35,6 +35,7 @@ from .deps import (
     _operator_secret_configured,
     _valid_operator_token,
     deployment_exposure,
+    deployment_guard,
     identity_boundary,
     require_operator,
     service,

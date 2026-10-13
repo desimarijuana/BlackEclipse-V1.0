@@ -107,7 +107,7 @@ def default_graders_for(task: Any) -> list[str]:
     if category == "browser":
         return ["browser"]
     if category in ("planning", "long_horizon", "recovery", "parallel"):
-        return ["tool", "state"]
+        return ["tool", "state", "recovery"]
     if category == "regression":
         return ["tool", "state", "safety"]
     return ["exact"]
@@ -142,11 +142,18 @@ def _register_builtins() -> None:
     from .safety import SafetyGrader
     from .semantic import SemanticGrader
     from .hallucination import HallucinationGrader
+    from .recovery import RecoveryGrader
+    from .honesty import HonestyGrader
+    from .provenance import ProvenanceGrader
+    from .artifact import ArtifactGrader
+    from .response import ResponseGrader
 
     for cls in (
         ExactGrader, StateGrader, ToolGrader, ResearchGrader, CitationGrader,
         FinancialGrader, CodeGrader, BrowserGrader, MemoryGrader, SafetyGrader,
         SemanticGrader, HallucinationGrader,
+        RecoveryGrader, HonestyGrader, ProvenanceGrader, ArtifactGrader,
+        ResponseGrader,
     ):
         register_grader(cls.name, cls)
 

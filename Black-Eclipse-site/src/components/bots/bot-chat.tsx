@@ -11,11 +11,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  ArrowLeft, ArrowUp, CalendarDays, Loader2, Pause, Play,
-  Settings, SquarePen,
+  ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, Copy, Loader2, Pause, Play, RefreshCw, Settings, SquarePen,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -37,7 +39,7 @@ export interface BotChatProps {
   refreshKey?: number;
   onClose: () => void;
   onChanged: () => void;
-  onRunNow: (bot: AutomationView) => void;
+  onRunNow: (bot: AutomationView) => void | Promise<void>;
   onDuplicate: (bot: AutomationView) => void;
   onDelete: (bot: AutomationView) => void;
 }
@@ -63,6 +65,7 @@ export function BotChat({
   const append = useBotChatStore((s) => s.append);
   const updateMessage = useBotChatStore((s) => s.update);
   const clearMessages = useBotChatStore((s) => s.clear);
+  const setMessages = useBotChatStore((s) => s.setMessages);
   // The scheduler sits beside the bot's Settings gear in the header, opening the
   // right-docked Agent Workspace (its scheduled jobs rail). Shared state with the
   // top-bar toggle and Ctrl/Cmd+Shift+E keybind keeps them in sync.
@@ -72,15 +75,18 @@ export function BotChat({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [name, setName] = useState(bot.name);
   const [description, setDescription] = useState(bot.description ?? '');
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [runBusy, setRunBusy] = useState(false);
+  const [runNote, setRunNote] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     setName(bot.name);
@@ -92,6 +98,9 @@ export function BotChat({
 
   const instructions = bot.action.objective ?? bot.description ?? '';
   const dirty = name.trim() !== bot.name || description.trim() !== (bot.description ?? '');
+  // Run now only works on an active (enabled) automation, so we can explain the
+  // disabled state instead of leaving a dead button with no reason.
+  const canRun = bot.state === 'active';
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -111,7 +120,7 @@ export function BotChat({
     setIdentityError(null);
     try {
       await updateAutomation(bot.id, { name: name.trim(), description: description.trim() });
-      setEditingIdentity(false);
+      setEditOpen(false);
       onChanged();
     } catch (err) {
       setIdentityError(err instanceof Error ? err.message : 'save failed');
@@ -136,9 +145,45 @@ export function BotChat({
     [onChanged],
   );
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  // Queue a run and give visible feedback: the API only enqueues server-side, so
+  // without a note the click looked like it did nothing. Cleared automatically.
+  const handleRunNow = useCallback(async () => {
+    if (runBusy || busy || actionBusy || !canRun) return;
+    setRunBusy(true);
+    setRunNote(null);
+    try {
+      await onRunNow(bot);
+      setRunNote(t('bots.runQueued'));
+    } catch (err) {
+      setRunNote(err instanceof Error ? err.message : 'run failed');
+    } finally {
+      setRunBusy(false);
+    }
+  }, [runBusy, busy, actionBusy, canRun, onRunNow, bot, t]);
+
+  useEffect(() => {
+    if (!runNote) return;
+    const timer = setTimeout(() => setRunNote(null), 6000);
+    return () => clearTimeout(timer);
+  }, [runNote]);
+
+  // Auto-grow the composer with its content, up to a cap, then scroll.
+  const resizeComposer = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, []);
+  useEffect(() => {
+    resizeComposer();
+  }, [input, resizeComposer]);
+
+  const runTurn = useCallback(async (raw: string) => {
+    const text = raw.trim();
     if (!text || sending) return;
+    // Read the FRESH thread (not the render snapshot) so an edit/regenerate that
+    // truncated the store is respected, then append the new user turn.
+    const prior = useBotChatStore.getState().byBot[bot.id] ?? [];
     append(bot.id, { id: newId(), role: 'user', content: text, at: new Date().toISOString() });
     setInput('');
     setSending(true);
@@ -150,7 +195,7 @@ export function BotChat({
     const history = [
       { role: 'user' as const, content: persona },
       { role: 'assistant' as const, content: 'Understood — I am this bot.' },
-      ...messages
+      ...prior
         .filter((m) => !m.error && m.content.trim().length > 0)
         .slice(-10)
         .map((m) => ({ role: m.role, content: m.content })),
@@ -201,7 +246,41 @@ export function BotChat({
       abortRef.current = null;
       setSending(false);
     }
-  }, [input, sending, append, updateMessage, bot.id, bot.name, bot.description, instructions, messages]);
+  }, [sending, append, updateMessage, bot.id, bot.name, bot.description, instructions]);
+
+  const send = useCallback(() => {
+    void runTurn(input);
+  }, [runTurn, input]);
+
+  /** Stop the in-flight reply (keeps whatever streamed so far). */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  /** Edit a sent message: truncate the thread there and load it into the composer. */
+  const editMessage = useCallback(
+    (id: string) => {
+      const idx = messages.findIndex((m) => m.id === id);
+      if (idx < 0) return;
+      setMessages(bot.id, messages.slice(0, idx));
+      setInput(messages[idx].content);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [messages, setMessages, bot.id],
+  );
+
+  /** Re-run the last user prompt (drops the previous answer). */
+  const regenerate = useCallback(() => {
+    const msgs = useBotChatStore.getState().byBot[bot.id] ?? [];
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      if (msgs[i].role === 'user') {
+        const text = msgs[i].content;
+        setMessages(bot.id, msgs.slice(0, i));
+        void runTurn(text);
+        return;
+      }
+    }
+  }, [bot.id, setMessages, runTurn]);
 
   const lastRun = useMemo(() => bot.lastRunAt, [bot.lastRunAt]);
   const spec = avatarFor(avatars, bot.id);
@@ -228,85 +307,50 @@ export function BotChat({
         </button>
 
         <div className="min-w-0 flex-1">
-          {editingIdentity ? (
-            <div className="space-y-2">
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                aria-label={t('bots.create.name')}
-                placeholder={t('bots.namePlaceholder')}
-                className="h-9 text-sm font-semibold"
-                autoFocus
-              />
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                aria-label={t('bots.create.purpose')}
-                placeholder={t('bots.objectivePlaceholder')}
-                className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-              />
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={saveIdentity} disabled={savingIdentity || !name.trim() || !dirty}>
-                  {savingIdentity ? t('bots.saving') : t('bots.save')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setName(bot.name);
-                    setDescription(bot.description ?? '');
-                    setEditingIdentity(false);
-                    setIdentityError(null);
-                  }}
-                >
-                  {t('bots.cancelEdit')}
-                </Button>
-                {identityError && <span className="text-xs text-rose-300">{identityError}</span>}
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <h2 className="truncate text-sm font-semibold">{bot.name}</h2>
-                <button
-                  type="button"
-                  onClick={() => setEditingIdentity(true)}
-                  className="rounded-md p-0.5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
-                  aria-label={t('bots.edit')}
-                  title={t('bots.edit')}
-                >
-                  <SquarePen size={13} />
-                </button>
-                <LifecyclePill state={bot.state} />
-                {bot.breaker !== 'closed' && <BreakerPill state={bot.breaker} />}
-              </div>
-              <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                {bot.description || t('bots.emptyBody')}
-              </p>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-muted-foreground">
-                <span className="inline-flex items-center gap-1">
-                  <CalendarDays size={11} /> {scheduleSummary(bot.trigger)}
-                </span>
-                {bot.nextRunAt && (
-                  <span>{t('bots.nextRun')}: <span className="text-foreground/80">{formatRelative(bot.nextRunAt)}</span></span>
-                )}
-                <span>
-                  {t('bots.lastRun')}: {lastRun ? formatRelative(lastRun) : t('bots.never')}
-                </span>
-              </div>
-            </>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h2 className="truncate text-sm font-semibold">{bot.name}</h2>
+            <button
+              type="button"
+              onClick={() => {
+                setName(bot.name);
+                setDescription(bot.description ?? '');
+                setIdentityError(null);
+                setEditOpen(true);
+              }}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground active:scale-95"
+              aria-label={t('bots.edit')}
+              title={t('bots.edit')}
+            >
+              <SquarePen size={14} />
+            </button>
+            <LifecyclePill state={bot.state} />
+            {bot.breaker !== 'closed' && <BreakerPill state={bot.breaker} />}
+          </div>
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+            {bot.description || t('bots.emptyBody')}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <CalendarDays size={11} /> {scheduleSummary(bot.trigger)}
+            </span>
+            {bot.nextRunAt && (
+              <span>{t('bots.nextRun')}: <span className="text-foreground/80">{formatRelative(bot.nextRunAt)}</span></span>
+            )}
+            <span>
+              {t('bots.lastRun')}: {lastRun ? formatRelative(lastRun) : t('bots.never')}
+            </span>
+          </div>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <div className="flex items-center gap-1.5">
             <Button
               size="sm"
-              disabled={busy || actionBusy || bot.state !== 'active'}
-              onClick={() => onRunNow(bot)}
+              disabled={busy || actionBusy || runBusy || !canRun}
+              title={canRun ? undefined : t('bots.runNowBlocked')}
+              onClick={() => void handleRunNow()}
             >
-              <Play size={13} /> {t('bots.runNow')}
+              {runBusy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} {t('bots.runNow')}
             </Button>
             {bot.state === 'active' ? (
               <Button
@@ -373,9 +417,25 @@ export function BotChat({
           </div>
         )}
 
-        {messages.map((m) =>
+        {runNote && (
+          <div className="glass-card-subtle mx-auto w-fit rounded-full px-3 py-1 text-[11px] text-muted-foreground">
+            {runNote}
+          </div>
+        )}
+
+        {messages.map((m, i) =>
           !m.error && m.role === 'assistant' && !m.content ? null : (
-            <ChatBubble key={m.id} message={m} botId={bot.id} botName={bot.name} spec={spec} />
+            <ChatBubble
+              key={m.id}
+              message={m}
+              botId={bot.id}
+              botName={bot.name}
+              spec={spec}
+              onEdit={editMessage}
+              onRegenerate={
+                i === messages.length - 1 && m.role === 'assistant' && !m.error ? regenerate : undefined
+              }
+            />
           ),
         )}
 
@@ -391,26 +451,34 @@ export function BotChat({
       <div className="border-t border-border/10 p-3">
         <div className="flex items-end gap-2">
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                void send();
+                send();
               }
             }}
             rows={1}
             data-bot-composer="true"
             placeholder={`Message ${bot.name}…`}
             aria-label={`Message ${bot.name}`}
-            className="max-h-40 min-h-10 flex-1 resize-none rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            className="max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none dark:bg-input/30"
           />
-          <Button size="icon" onClick={() => void send()} disabled={sending || !input.trim()} aria-label={`Message ${bot.name}`}>
-            <ArrowUp size={15} />
-          </Button>
+          {sending ? (
+            <Button size="icon" variant="outline" onClick={stop} title={t('bots.chat.stop')} aria-label={t('bots.chat.stop')}>
+              <Pause size={15} />
+            </Button>
+          ) : (
+            <Button size="icon" onClick={send} disabled={!input.trim()} aria-label={`Message ${bot.name}`}>
+              <ArrowUp size={15} />
+            </Button>
+          )}
         </div>
-        <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>{t('bots.schedule')}: {scheduleSummary(bot.trigger)}</span>
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span className="truncate">{t('bots.schedule')}: {scheduleSummary(bot.trigger)}</span>
+          <span className="hidden shrink-0 sm:inline">{t('bots.chat.hint')}</span>
           {messages.length > 0 && (
             <button
               type="button"
@@ -440,6 +508,56 @@ export function BotChat({
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Edit bot — a proper dialog for identity, not an inline header form. */}
+      <Dialog open={editOpen} onOpenChange={(open) => { if (!savingIdentity) setEditOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('bots.edit')}</DialogTitle>
+            <DialogDescription>{t('bots.dialog.subtitle')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="bot-edit-name" className="mb-1 block text-xs font-medium text-muted-foreground">
+                {t('bots.create.name')}
+              </label>
+              <Input
+                id="bot-edit-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('bots.namePlaceholder')}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label htmlFor="bot-edit-description" className="mb-1 block text-xs font-medium text-muted-foreground">
+                {t('bots.create.purpose')}
+              </label>
+              <textarea
+                id="bot-edit-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={5}
+                placeholder={t('bots.objectivePlaceholder')}
+                className="min-h-24 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+              />
+            </div>
+            {identityError && <p className="text-xs text-rose-300">{identityError}</p>}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => { setEditOpen(false); setIdentityError(null); }}
+              disabled={savingIdentity}
+            >
+              {t('bots.cancelEdit')}
+            </Button>
+            <Button onClick={() => void saveIdentity()} disabled={savingIdentity || !name.trim() || !dirty}>
+              {savingIdentity ? t('bots.saving') : t('bots.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -461,11 +579,15 @@ function ChatBubble({
   botId,
   botName,
   spec,
+  onEdit,
+  onRegenerate,
 }: {
   message: BotMessage;
   botId: string;
   botName: string;
   spec: import('@/lib/bots/ghost').GhostSpec;
+  onEdit: (id: string) => void;
+  onRegenerate?: () => void;
 }) {
   const isUser = message.role === 'user';
   // A bot reply is the room's/main content: it reads as a full-width document
@@ -473,31 +595,98 @@ function ChatBubble({
   // are framed as bubbles.
   if (!isUser && !message.error) {
     return (
-      <div className="flex gap-2.5">
+      <div className="group flex gap-2.5">
         <BotAvatar botId={botId} spec={spec} size={28} className="mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>
           <Markdown content={message.content} compact className="w-full" />
-          <div className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(message.at)}</div>
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <span>{formatDateTime(message.at)}</span>
+            <MessageActions content={message.content} isUser={false} onRegenerate={onRegenerate} />
+          </div>
         </div>
       </div>
     );
   }
   return (
-    <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
+    <div className={cn('group flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
       {!isUser && <BotAvatar botId={botId} spec={spec} size={28} className="mt-0.5 shrink-0" />}
-      <div
-        className={cn(
-          'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm',
-          isUser
-            ? 'bg-white/[0.08] text-foreground'
-            : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
-        )}
-      >
-        {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>}
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
-        <div className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(message.at)}</div>
+      <div className={cn('flex min-w-0 max-w-[80%] flex-col gap-1', isUser ? 'items-end' : 'items-start')}>
+        <div
+          className={cn(
+            'rounded-2xl px-3.5 py-2 text-sm',
+            isUser
+              ? 'bg-white/[0.08] text-foreground'
+              : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
+          )}
+        >
+          {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>}
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        </div>
+        {/* Time + actions sit below the bubble (not inside it, which made the
+            bubble tall) and only appear on hover/focus. */}
+        <div className="flex items-center gap-2 px-1 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <span>{formatDateTime(message.at)}</span>
+          {isUser && !message.error ? (
+            <MessageActions content={message.content} isUser onEdit={() => onEdit(message.id)} />
+          ) : (
+            <MessageActions content={message.content} isUser={false} />
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+function MessageActions({
+  content,
+  isUser,
+  onEdit,
+  onRegenerate,
+}: {
+  content: string;
+  isUser: boolean;
+  onEdit?: () => void;
+  onRegenerate?: () => void;
+}) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const btn =
+    'flex h-5 w-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground';
+  const copy = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => { /* clipboard unavailable */ });
+  };
+  return (
+    <span className="flex items-center gap-0.5">
+      <button
+        type="button"
+        onClick={copy}
+        className={btn}
+        title={copied ? t('bots.chat.copied') : t('bots.chat.copy')}
+        aria-label={t('bots.chat.copy')}
+      >
+        {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+      </button>
+      {isUser && onEdit && (
+        <button type="button" onClick={onEdit} className={btn} title={t('bots.edit')} aria-label={t('bots.edit')}>
+          <SquarePen size={12} />
+        </button>
+      )}
+      {!isUser && onRegenerate && (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          className={btn}
+          title={t('bots.chat.regenerate')}
+          aria-label={t('bots.chat.regenerate')}
+        >
+          <RefreshCw size={12} />
+        </button>
+      )}
+    </span>
   );
 }

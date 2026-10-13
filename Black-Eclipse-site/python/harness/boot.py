@@ -18,7 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
-from .deps import deployment_exposure, service
+from .deps import deployment_guard, service
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -44,13 +44,24 @@ async def lifespan(_app: "FastAPI") -> AsyncIterator[None]:
 
 async def _boot() -> None:
     """Start every subsystem exactly once. Never a boot blocker."""
-    # Deployment guard: this app is single-user local with NO authentication or
-    # tenancy isolation. A non-loopback bind without an operator secret is flagged
-    # loudly so the configuration is never mistaken for multi-user secure. It does
-    # not block boot (a local dev bind is the normal case).
-    exposure = deployment_exposure()
-    if exposure.get("exposed"):
-        log.warning("[harness-py] DEPLOYMENT WARNING: %s", exposure["warning"])
+    # Deployment guard (end-to-end): the Python bind AND the front door's auth
+    # posture, so a public bind that is reachable without a login — or a required
+    # login that cannot work — is named here, not discovered later. A public bind
+    # behind an authenticated front door is a legitimate single-operator
+    # deployment (docs/DEPLOYMENT.md): a notice, not a warning. Never blocks boot
+    # (the local dev bind is the normal case).
+    guard = deployment_guard()
+    log.info(
+        "[harness-py] deployment: bind=%s frontDoorAuth=%s(%s) multiUserSafe=%s",
+        guard["host"] or "default",
+        guard["frontDoorAuth"]["required"],
+        guard["frontDoorAuth"]["source"],
+        guard["multiUserSafe"],
+    )
+    for notice in guard["notices"]:
+        log.info("[harness-py] DEPLOYMENT NOTICE: %s", notice)
+    for warning in guard["warnings"]:
+        log.warning("[harness-py] DEPLOYMENT WARNING: %s", warning)
     # Retention: mark due AUTOMATIC memories expired on startup. Idempotent and
     # best-effort.
     service.run_startup_maintenance()

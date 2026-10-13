@@ -526,12 +526,34 @@ COMPUTER_EFFECTFUL_TOOLS: tuple[str, ...] = (
     "computer_finance_prepare",
     "computer_takeover",
     "computer_request_human",
+    # Writes a JSON export file, so it is effectful (R3-07): admitted by the
+    # computer authorizer, removed at `plan_only`, never advertised as `read`.
+    "computer_record_export",
 )
 
 
 def is_computer_effect(name: str) -> bool:
     """Whether a tool name is an effectful Computer Use tool the authorizer admits."""
     return name in COMPUTER_EFFECTFUL_TOOLS
+
+# ── Automation / bots (the durable scheduled agents) ─────────────────────────
+#
+# The four tools that can CREATE OR KEEP autonomous work running are effectful:
+# `bot_create`/`bot_update` when the schedule is autonomous and `bot_enable`/
+# `bot_resume` because enabling a stored schedule starts firing it. The bot
+# authorizer admits them; the HANDLER requests a single-use operator approval
+# (kind `bot_schedule`) before the schedule is created or started, so an agent
+# cannot quietly put itself on a cadence (R3-07). Lifecycle-safe tools (pause,
+# disable, delete, run, reads) stay `read`: they stop future work or act once,
+# visibly in this conversation.
+AUTOMATION_EFFECT_TOOLS: tuple[str, ...] = (
+    "bot_create", "bot_update", "bot_enable", "bot_resume",
+)
+
+
+def is_automation_effect(name: str) -> bool:
+    """Whether a tool name is an autonomous-schedule tool the authorizer admits."""
+    return name in AUTOMATION_EFFECT_TOOLS
 
 # ── Git / Version-Control subsystem (the Git engine) ─────────────────────────
 #
@@ -574,15 +596,18 @@ GIT_WRITE_TOOLS: tuple[str, ...] = (
     "git_tag_create", "git_tag_delete", "git_worktree_add", "git_worktree_remove",
     "git_submodule_update",     "git_bisect_start", "git_bisect_mark", "git_bisect_reset",
     "git_clean", "git_config_set",
-    # Long-tail: path-level ops, stash/tag/worktree/submodule/LFS extras.
+    # Long-tail: path-level ops, stash/tag/worktree/submodule extras.
     "git_move_path", "git_remove_paths", "git_restore", "git_unset_upstream",
     "git_stash_branch", "git_stash_clear", "git_worktree_prune", "git_worktree_move",
-    "git_submodule_init", "git_submodule_sync", "git_lfs_fetch", "git_lfs_pull",
+    "git_submodule_init", "git_submodule_sync",
 )
 
 GIT_EXTERNAL_TOOLS: tuple[str, ...] = (
     "git_fetch", "git_pull", "git_push", "git_remote_add", "git_remote_remove",
     "git_remote_set_url", "git_tag_push",
+    # LFS fetch/pull download from a REMOTE (they were mis-filed as local writes;
+    # registration already declared them `external_action`). R3-07.
+    "git_lfs_fetch", "git_lfs_pull",
     "vcs_create_branch", "vcs_create_pull_request", "vcs_update_pull_request",
     "vcs_close_pull_request", "vcs_merge_pull_request", "vcs_request_review",
     "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
@@ -603,9 +628,10 @@ TERMINAL_WRITE_TOOLS: tuple[str, ...] = (
 
 # Terminal read-only tools: always available, regardless of profile.
 TERMINAL_READ_TOOLS: tuple[str, ...] = (
-    "list_terminal_sessions", "get_terminal_session", "read_shell_output",
-    "list_processes", "get_process_status", "read_process_output",
-    "get_process_tree", "list_ports", "get_terminal_capabilities", "get_system_info",
+    "list_terminal_sessions", "terminal_session_status", "read_shell_output",
+    "list_processes", "process_status", "read_process_output", "process_tree",
+    "process_health", "list_ports", "terminal_capabilities", "system_info",
+    "resource_report",
 )
 
 # Tools that are always available regardless of profile (read-only).
@@ -628,7 +654,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS)
     elif autonomy == "edit_verify":
         # Local container/process mutations stay; CLUSTER/INFRA/CLOUD mutations
         # (kubectl apply/delete/scale/exec, helm install/uninstall, terraform
@@ -641,7 +667,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 
@@ -730,6 +756,7 @@ __all__ = [
     "INTEL_READ_TOOLS",
     "INTEL_WRITE_TOOLS",
     "NETWORK_DEFAULT",
+    "AUTOMATION_EFFECT_TOOLS",
     "PLAIN_LANGUAGE_DENYLIST",
     "PROTECTED_PATHS",
     "READ_ONLY_TOOLS",
@@ -742,6 +769,7 @@ __all__ = [
     "code_grants",
     "decide_command",
     "decide_write",
+    "is_automation_effect",
     "is_code_write",
     "is_ignored",
     "is_protected",

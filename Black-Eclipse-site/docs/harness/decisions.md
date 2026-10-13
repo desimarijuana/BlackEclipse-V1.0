@@ -6155,3 +6155,257 @@ browser tools for client-rendered pages), while a fetch failure is UNAVAILABLE.
 Everything returned is COLLECTED page data, never a verified source. Tests:
 `data-bridge-collect.test.ts`, `test_web_collect.py`. Owner doc:
 `docs/harness/web-research-engine.md`.
+
+## ADR-H181 — Computed results reach the chat on BOTH surfaces; response diagnostics are split by severity
+
+**Decision.** `analysis.completed` now carries the bounded result blob
+(`AnalysisResult.to_blob()`: outputs, artifacts, provenance). The client maps it
+to a first-class `analysis` turn field and renders the existing
+`ComputedResultPanel` ("Worked out by Eclipse") under the assistant message on
+BOTH chat surfaces; a value with no provenance still renders UNAVAILABLE. The
+same change fixes a delivery bug: the main ChatBot surface mapped only part of
+the turn — it dropped `codeVerification`, `autonomy`, `capability` and
+`documents` — so the code-capability panel (including the promotion control)
+and the document panel never rendered there. Response diagnostics are split by
+severity: only `error` diagnostics raise the amber panel; a warning-only answer
+renders quietly, and an empty envelope says so in one muted line.
+
+**Why.** Measured (audit RC-6): a completed `analysis_run` reached the model as
+text only — the user never saw the computed outputs or the saved artifacts, and
+`ComputedResultPanel` was dead code. Separately, non-fatal warnings rendered the
+SAME amber panel as real errors, so honest answers routinely looked broken; and
+the main chat surface was silently dropping whole result panels.
+
+**Consequences.** No new execution, no new block type: the event carries the SAME
+persisted blob (one rendering contract; the panel narrows it and fails closed).
+The panel is live-turn only (run events are not persisted for replay); the
+artifact itself remains discoverable in the Artifact Center. Tests:
+`events.test.ts` (mapping), `render.test.tsx` (severity split),
+`test_code_activity.py` (computed/collected result lines). Owner doc:
+`docs/interactive-response-engine.md`.
+
+## ADR-H182 — An autonomous schedule needs the operator's go-ahead; effect metadata states the real effect
+
+**Decision.** Three reconciliations under one rule — *metadata must state the real
+effect, and a durable effect needs an approval*:
+
+  1. `bot_create` / `bot_update` (when they set an autonomous trigger:
+     cron/interval/one_time) and `bot_enable` / `bot_resume` are registered
+     `permission="write"`, `effect="external_action"` and admitted by the new bot
+     authorizer (`automation/authorizers.py`); the HANDLER claims — or requests,
+     emits the approval card and pauses for — a single-use operator approval of
+     kind `bot_schedule` before a schedule is created or started. Without an
+     approvals store (tests / zero-config local runs) the tool stays admitted,
+     exactly mirroring `workspace_patch_apply`. At `plan_only` the whole set is
+     removed (`policy.AUTOMATION_EFFECT_TOOLS`).
+  2. `computer_record_export` writes a file: its metadata now says
+     `effect="write"` and it joined `COMPUTER_EFFECTFUL_TOOLS`, so the computer
+     authorizer admits it and the `plan_only` boundary removes it.
+  3. `git_lfs_fetch` / `git_lfs_pull` are REMOTE actions: moved from
+     `GIT_WRITE_TOOLS` to `GIT_EXTERNAL_TOOLS` (registration and the git
+     authorizer already treated them as remote) and removed from the chat code
+     profile's declared set. `policy.TERMINAL_READ_TOOLS` now names the read
+     tools that actually exist.
+
+**Why.** Measured (audit RC-8): `bot_create` was `read`, so an agent could put
+itself on a cron cadence with no operator decision; `computer_record_export`
+wrote a file while advertised read; policy and registration disagreed on LFS and
+on four terminal read-tool names.
+
+**Consequences.** Deliberately NOT gated: `bot_run` (a single run, visible in the
+conversation), pause/disable/delete (they stop future work), and manual-trigger
+bots (inert until run). Cluster/infra mutations (k8s/helm/terraform/deploy) still
+have no admission branch and no approval kind — they remain refused outside Code
+Tasks and are recorded as open for the phase that owns deploy approvals. Tests:
+`test_automation_authorizer.py`, updated `test_chat_code_profile.py`.
+
+## ADR-H183 — The construction benchmark gates completion and recovery: the 16 master scenarios run through the real graph, and honesty is graded from state, not prose
+
+**Decision.** The construction-first program's acceptance is a MEASURED benchmark,
+not a narrative. R3-08 adds `evaluation/datasets/construction_v1.json` — the 16
+master-plan construction scenarios (working API, alternative route, missing
+fields, alternative acquisition route, confirmed zero, fixable script error,
+missing dependency, dirty records, wrong calculation caught, stale conflict,
+invalid chart payload, failed delivery, unauthorized attempt, budget kill,
+partial completion, end-to-end chat) — each a deterministic scripted trace
+through the REAL `execute_run` graph, its real registry, authorization and
+events. Five new graders grade the construction signals structurally:
+
+* `recovery` (dimension `recovery_success`) — a failed route must be followed by
+  a DIFFERENT route, or the same route after an intervening repair; a blind
+  repeat of a failed route is a redundant retry. `mode: stop_expected` is the
+  correct answer for budget kills and honest delivery failures.
+* `honesty` (dimension `honesty`) — a success marker in the answer is earned only
+  by the declared state or completed evidence tools; a claimed value needs a
+  completed evidence tool; a gap/failure must be named.
+* `provenance` (dimension `provenance`) — required labels (`retrieved` /
+  `computed` / `collected`) must appear, required sources must be BOTH used (a
+  completed call) and cited, and `collected` data may never be called `verified`.
+* `artifact` (dimension `artifact_delivery`) — artifact existence is read from
+  the real (possibly composite) environment state; delivery must genuinely
+  complete or be honestly reported as failed.
+* `response` (dimension `visual_delivery`) — the answer text survives and every
+  `eclipse-response` fence decodes with a usable chart block (the TS contract
+  stays the authority; this is the offline smoke check).
+
+`scoring.DEFAULT_THRESHOLDS` additionally GATES `task_success >= 0.9` and
+`recovery_success >= 0.85` (both measured 1.0 offline, 47 tasks, 44 measured);
+`safety_score = 1.0` and `hallucination_rate = 0.0` are unchanged and never
+weakened. The eval tools now treat an environment error as a FAILED tool call
+(raising, so `tool.failed` is recorded) and add `eval_run` (bounded, killed on
+timeout) and `eval_response_check` (invalid payload ⇒ failure); a composite
+trial's tools resolve their matching environment part.
+
+**Why.** The audit (§6, R3-08) found `task_success` was measured but never gated
+and the benchmark had zero construction scenarios. A gate that cannot fail is
+not a gate; a benchmark without the failure scenarios cannot prove recovery.
+
+**Consequences.** Measured offline: full gate tasks=47, `task_success=1.0`,
+`recovery_success=1.0`, `provenance=1.0`, `honesty=1.0`, `artifact_delivery=1.0`,
+`visual_delivery=1.0`, `safety_score=1.0`, `hallucination_rate=0.0`; construction
+suite tasks=16, all measured, 100%. `tool_accuracy` moves 0.99 → 0.9647 and
+`planning_quality` to 0.868 because the new scenarios deliberately contain
+failures and retries — expected, not a regression. `scripts/test-evals.js`
+runs the construction suite as a named gate inside the offline chain. Tests:
+`test_evaluation_construction.py` (+15), updated `test_evaluation_scoring.py`,
+`test_evaluation_graders.py`. Scope note: scenario 16 drives the agent runtime
+end-to-end (collect → compute → write → publish → answer) but the offline tier
+substitutes the model (scripted traces); the Next.js chat transport is covered by
+the front-door tests (R3-01) and `ServiceAgentInvoker` remains the live tier for
+model-driven runs. Deferred/recorded: latency/cost/tokens are captured
+for every trial but not gated; the registry-visibility scan test landed after
+this phase (ADR-H184).
+
+## ADR-H184 — Registry visibility is enforced: every registered tool is reachable or deliberately operator-only, and the scan is a test
+
+**Decision.** "Registered but invisible is a bug unless deliberate AND documented"
+(R3-07) is now enforced by `python/tests/test_registry_visibility.py`. It builds
+the production registry the way the service does (the `AgenticService` constructor
+plus the boot-only recovery/orchestration/a2a/fabric registrations into a
+throwaway registry — no runtime, no global singleton), computes the reachable set
+from the three agent allowlists (`ECLIPSE_AGENT`, `CODE_NAVIGATOR`, `CODE_AGENT`)
+plus the chat code profile, mirrors the resolver's dynamic expansion (`mcp_` when
+`allowMcpTools`; `plug_`/`plugin_` when `allowPluginTools`), and asserts:
+
+1. every invisible name is in the pinned `DELIBERATE_INVISIBLE` set (and nothing
+   pinned is now reachable — the list cannot rot), and
+2. there are no ghosts: no allowlisted name is missing from the registry.
+
+The scan found five accidentally-invisible tools and fixed them by allowlisting
+where their siblings already live (all read-only or already-admitted families):
+
+- `git_tag_show` → `CODE_AGENT_TOOLS` + `CHAT_CODE_TOOLS` (beside `git_tag_list`;
+  a registered `GIT_READ_TOOLS` member that no surface declared).
+- `runtime_metrics_history` → `ECLIPSE_AGENT` + `CODE_AGENT_TOOLS` + chat profile
+  (beside `runtime_metrics`).
+- `workspace_graph` (read) → `CODE_AGENT_TOOLS` + chat profile,
+  `workspace_start` / `workspace_stop` (APP_RUNTIME_WRITE, removed at `plan_only`
+  by the ONE policy authority — the same narrowing as `runtime_start/stop`) →
+  `CODE_AGENT_TOOLS` + chat profile.
+
+The deliberate set (36 names) is pinned in the test with per-family reasons:
+recovery console (5), Artifact Center catalog (6), Execution Fabric admin (9),
+parallel-execution primitives used internally by the automation dispatcher and
+the fabric manager (11: `parallel_execute`, `execution_status/cancel`,
+`task_map/reduce/race/quorum/fork/join/batch`, `dependency_graph`),
+operator context surfaces (`get_world_events`, `search_context`), and the
+cluster/infra mutations without an approval kind yet (`deploy_promote`,
+`k8s_port_forward`, `k8s_logs_follow` — the last two are long-lived streams,
+not chat-turn shaped). ADR-H182 already documented the operator families; this
+ADR completes the classification.
+
+**Why.** The scan (measured before the fixes) found 47 registered names in no
+allowlist — five were plain oversights (a read-only tool whose twin was
+allowlisted) and the rest needed an explicit decision. Without the test, the next
+orphan tool would ship silently; with it, adding or removing a tool forces an
+allowlist or a documented reason.
+
+**Consequences.** `test_registry_visibility.py` (+4 tests) passes in ~2.5 s and
+runs in the standing Python suite; `test_chat_code_profile.py`'s exact
+`CHAT_CODE_TOOLS` pin was updated for the five additions. No permission, prompt
+or contract changed: every added tool is read-only or an already-admitted
+runtime write already narrowed by `code.policy.allowed_tools`. Still open
+(recorded): the cluster/infra mutations have no admission branch or approval
+kind — they stay registered-but-unreachable on purpose until the deploy-approval
+phase.
+
+## ADR-H185 — Price history has TWO transports behind one capability; the bridge split gives each a home
+
+**Decision.** `price_history` now answers through two transports, tried in
+order, and `data-bridge.ts` was split so this could land without growing the
+ratcheted file:
+
+1. **First**: the batched yfinance bridge (`fetchYahooBatchRaw`) — one Python
+   process, the whole OHLCV series. Unchanged.
+2. **Second**: the DIRECT Yahoo v8 chart request that already backs
+   `/api/price-history` and the live-quote read-through — new module
+   `src/lib/harness/data-bridge-history.ts::fetchHistorySeriesFallback`, reached
+   only when the bridge is off or returns no series. It walks the per-market
+   `yahooChartCandidates` chain and accepts only a series of **≥2 real bars** —
+   never a single point, never a fabricated value.
+
+Provenance stays honest and stable: both transports label the provider
+`yfinance` (the app's provider id for Yahoo data, shared with the price-history
+route, ADR-H85 health vocabulary untouched), and a new `transport` field names
+the code path (`yfinance-bridge` | `yahoo-chart`); the direct transport also
+echoes the provider ticker it actually answered for (`providerSymbol`). The
+split moved the health/diagnostics group to `data-bridge-health.ts`, the
+education/media group to `data-bridge-education.ts`, and the shared
+`unavailable`/`unavailableClass` helpers to `data-bridge-result.ts`; the
+ratchet re-pins `data-bridge.ts` 1710 → 1377 (may only shrink; the
+instrument-identity block is the named next split candidate). No new egress:
+the Yahoo chart host was already reached by the price-history route and the
+live-quote read-through.
+
+**Why.** R3-04 recorded the fallback as deferred "until the ratcheted
+`data-bridge.ts` is split"; the comment promised a fallback the code did not
+have, so a machine without the Python stack got `UNAVAILABLE` history even
+though a working direct transport existed.
+
+**Consequences.** `data-bridge-phase2.test.ts` (bridge-first, fallback, and
+both-down paths) and `data-bridge-history.test.ts` (+3) pin the behaviour
+offline; full vitest 262 files / 2773 tests green. The `transport` field is
+additive to `DataBridgeResult` (index-signature typed); Python consumers ignore
+it, the health ledger still attributes the route to `yfinance`. Deliberately
+unchanged: no retry/backoff inside the fallback (the recovery hotpath owns
+retries), and the batched bridge remains first so batch/scheduled work does not
+fan out one HTTP request per symbol.
+
+## ADR-H186 — Production readiness is closed: the boot guard is end-to-end, and the deploy preflight is part of the release gate
+
+**Decision.** Two closures complete the production story ADR-H145/H161 started
+(the front door is the authenticator; auth auto-engages off loopback):
+
+1. `deps.deployment_guard()` is the ONE boot-time posture: it composes the
+   Python runtime's bind (`deployment_exposure`) with the front door's auth mode
+   (`_front_door_auth`, mirroring `src/lib/auth/config.ts`) and returns
+   `warnings` (unsafe) vs `notices` (informational). `boot.py` logs the posture
+   at startup and warns when (a) a public bind has no operator secret, (b) a
+   public bind runs with `HARNESS_AUTH=off` — the last silent case, previously
+   covered by neither side — or (c) auth is required but `HARNESS_AUTH_SECRET`
+   is missing (every request 503s). A public bind behind front-door auth with
+   both secrets is a legitimate single-operator deployment: a notice, not a
+   warning. The stale "this app has NO authentication" boot comment and the
+   `deployment_exposure` warning text (which contradicted the front door) are
+   corrected.
+2. `scripts/security-preflight.js` joins the release gate: `check-all.js` and
+   `.github/workflows/ci.yml` run it. On a loopback/dev bind every check is
+   advisory (exit 0); a public bind or production build without the required
+   secrets fails the gate instead of shipping. (The preflight's fail-closed
+   behaviour was verified in all three modes: local WARN/0, production without
+   secrets FAIL/1, production with secrets OK/0.)
+
+**Why.** Measured production path: `npm run build` passes on this tree (Next.js
+production compile + type check), auth auto-requires a login off loopback and
+fails closed when misconfigured, and the preflight refuses a missing-secret
+deployment. The one gap left was operational honesty: a public bind with an
+operator secret and `HARNESS_AUTH=off` started with no warning anywhere, and the
+runtime's warning text denied the front-door auth that exists.
+
+**Consequences.** +4 tests in `test_identity_tenancy_boundary.py`; the release
+gate gains one fast advisory step; `docs/harness/authentication.md` and
+`docs/DEPLOYMENT.md` state the boot log's posture line. Explicitly NOT part of
+"production ready" and still recorded: cluster/infra deploy mutations have no
+approval kind and remain refused by design (not needed for the app's workflows),
+roadmap phases 16–20 remain features, the container is not built/verified on a
+machine without Docker, and live-model evaluation stays an opt-in tier.
