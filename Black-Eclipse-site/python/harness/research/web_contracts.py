@@ -46,6 +46,7 @@ class ResearchIntent(str, Enum):
     COMPETITOR_RESEARCH = "competitor_research"
     ACADEMIC_RESEARCH = "academic_research"
     TECHNICAL_RESEARCH = "technical_research"
+    LEARNING = "learning"
     FINANCIAL_RESEARCH = "financial_research"
     LEGAL_RESEARCH = "legal_research"
     DOCUMENT_RESEARCH = "document_research"
@@ -75,6 +76,17 @@ class SourceType(str, Enum):
     NEWS = "news"
     INDUSTRY = "industry"
     ANALYST = "analyst"
+    # Learning-resource source types. A video is a first-class educational
+    # resource, not "social media": the classifier routes youtube.com and the
+    # established lecture channels to VIDEO so ranking can treat a coherent
+    # lecture series as authoritative for a learning objective.
+    VIDEO = "video"
+    COURSE = "course"
+    REPOSITORY = "repository"
+    DOCUMENTATION = "documentation"
+    TUTORIAL = "tutorial"
+    DATASET = "dataset"
+    PODCAST = "podcast"
     BLOG = "blog"
     SOCIAL = "social"
     FORUM = "forum"
@@ -105,10 +117,23 @@ SECONDARY_SOURCE_TYPES = frozenset(
         SourceType.ACADEMIC,
         SourceType.INDUSTRY,
         SourceType.ANALYST,
+        SourceType.DOCUMENTATION,
+        SourceType.COURSE,
+        SourceType.REPOSITORY,
     }
 )
 TERTIARY_SOURCE_TYPES = frozenset(
-    {SourceType.BLOG, SourceType.SOCIAL, SourceType.FORUM, SourceType.WIKI, SourceType.UNKNOWN}
+    {
+        SourceType.BLOG,
+        SourceType.SOCIAL,
+        SourceType.FORUM,
+        SourceType.WIKI,
+        SourceType.UNKNOWN,
+        SourceType.VIDEO,
+        SourceType.TUTORIAL,
+        SourceType.DATASET,
+        SourceType.PODCAST,
+    }
 )
 
 

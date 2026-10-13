@@ -8,6 +8,47 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-12
 
+- **Diagrams and charts render instead of failing.** Three producer-vs-renderer
+  mismatches were breaking real answers: (1) `key_value` items written with
+  `key`, `chart` series written with `points` (`{x,y}` objects) and
+  `financial_chart` written with `ticker`/`interval`/`90d` were rejected whole
+  by the zod contract and degraded to "Unsupported block type"; (2) Mermaid
+  definitions with unquoted labels holding `( ) → /`, HTML entities or a wrapped
+  `Note over …:` line hit a parse error; (3) the layered SVG layout used a fixed
+  200px LR column pitch narrower than its 240px max node width, so wide labels
+  overlapped the next column. Fixes: expanded field/interval aliases in
+  `src/lib/response/contract.ts` (`key`/`name`→item `label`, `points`/`values`→
+  chart `data` + point-object coercion, `ticker`/`instrument`→`symbol`,
+  `interval`/`range`→`timeframe`, day-count timeframes, chart-type synonyms,
+  `source`→mermaid `diagram`, node `name`/`title`→`label`, edge
+  `source`/`target`→`from`/`to`); new pure `src/lib/response/mermaid-repair.ts`
+  (entity decode, quote unquoted flowchart labels, join wrapped sequence notes)
+  wired into `mermaid-block.tsx`; per-layer column widths in
+  `src/lib/response/diagram-layout.ts`. No new block types, no contract
+  version bump, no producer-prompt change (the prompt is at its pinned
+  ceiling). Tests: `mermaid-repair.test.ts`, `contract-blocks.test.ts`,
+  `diagram-layout.test.ts`. docs updated: `docs/interactive-response-engine.md`,
+  `docs/NAVIGATION.md`.
+
+- **Internet image search with inline rendering.** "Show me images of X" now
+  searches the real internet and renders actual images in the chat instead of
+  listing links. New provider layer `src/lib/image-search.ts` (Brave Images when
+  `BRAVE_API_KEY` is set, else keyless Openverse → Wikimedia Commons, all over the
+  SSRF-hardened `safeGet`; per-query cache + in-flight coalescing + bounded
+  retries). The `image_search` bridge capability returns the normalized
+  `ImageSearchResult` contract (direct image URL, thumbnail, source page, domain,
+  dimensions, provider, retrievedAt, attribution); the Python
+  `image_search`/`validate_image_result`/`render_image_gallery` tools validate and
+  collect results into a run `images` blob (`research/image_contracts.py`,
+  `ImageCollector`, wired in `graph.py`; `RunResult.images` + a persisted
+  `HarnessRun.images` column) surfaced on `client.final` and rendered inline by
+  the new `ImageGallery`/`ImageGalleryPanel` (responsive grid, lazy loading,
+  lightbox, source attribution, broken-image fallback) and a new `gallery`
+  response block. Every image URL is http(s)-only. Tests: TS
+  `image-search.test.ts`, `image-gallery-view.test.ts`, `contract-gallery.test.ts`,
+  `gallery-render.test.tsx`; Python `test_image_search.py`. docs updated:
+  `docs/interactive-response-engine.md`; no doc change — CHANGELOG only.
+
 - **Added the icon-driven `workflow` block (connected process diagrams).** The
   engine already rendered markdown, callouts, metrics, charts, tables, diagrams,
   Mermaid, node graphs, timelines, steppers, infographics, reports, citations,
@@ -284,6 +325,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/components/response/data-table-block.tsx`; test in
   `src/components/response/render.test.tsx`. no doc change — bug fix (no
   contract/architecture change).
+
+- **Learning Research Engine: internet learning-resource discovery + interactive
+  roadmaps.** Eclipse can now search the live internet for YouTube videos,
+  playlists, courses, GitHub repos, official docs and academic papers, and build
+  a prerequisite-aware learning roadmap it renders inline in the chat. Adds the
+  learning domain vocabulary (`ResearchIntent.LEARNING`, `SourceType.VIDEO/COURSE/
+  REPOSITORY/DOCUMENTATION/DATASET/TUTORIAL/PODCAST` + a `learning` rank table);
+  real front-door connectors (`src/lib/education-connectors.ts`: YouTube Data API
+  v3 key-gated with a keyless media fallback, GitHub REST, an allowlisted course
+  search, and a permitted-only transcript path) wired as bridge capabilities; a
+  deterministic curriculum engine (`research/learning.py`: DAG validation,
+  resource ranking/verification, path assembly); 10 learning tools
+  (`research/education_tools.py`, in `WEB_RESEARCH_TOOLS`); durable progress in
+  `eclipse-memory.db` (migration 30 + `LearningStore`); operator-gated
+  `/learning/*` routes with an `/api/learning` proxy; and the interactive
+  `learning_map` response block (completion controls persist via the SAME store
+  the agent writes through). Tests: `test_learning_{engine,store,tools}.py`,
+  `education-connectors.test.ts`, `contract-blocks.test.ts`. docs updated:
+  `docs/harness/learning-research-engine.md`, `docs/NAVIGATION.md`.
 
 ## 2026-10-11
 

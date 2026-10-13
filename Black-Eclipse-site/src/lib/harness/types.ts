@@ -294,6 +294,34 @@ export interface DocumentRunInfo {
   failures?: Array<{ kind?: string; error?: unknown; warnings?: string[] }> | null;
 }
 
+/** One normalized internet image result (mirrors the Python `ImageSearchResult`). */
+export interface ImageResultInfo {
+  id: string;
+  imageUrl: string;
+  thumbnailUrl?: string | null;
+  sourceUrl?: string | null;
+  title: string;
+  altText?: string | null;
+  sourceDomain?: string;
+  width?: number | null;
+  height?: number | null;
+  mimeType?: string | null;
+  provider?: string;
+  retrievedAt?: string;
+  attribution?: string | null;
+  validationStatus?: string;
+}
+
+/** The run-level internet-image blob (mirrors `ImageCollector.to_blob()`). */
+export interface ImagesRunInfo {
+  type?: string;
+  schemaVersion?: string;
+  status: string;
+  count: number;
+  results: ImageResultInfo[];
+  failures?: Array<{ reason?: string }> | null;
+}
+
 export interface RunResult {
   runId: string;
   status: RunStatus;
@@ -346,6 +374,9 @@ export interface RunResult {
    * compatible.
    */
   documents?: DocumentRunInfo | null;
+  /** Internet Image Search (additive, optional): the run's validated image
+   *  results, rendered inline by the chat gallery. Absent when no image tool ran. */
+  images?: ImagesRunInfo | null;
 }
 
 export interface ContextBudgetInfo {
@@ -423,6 +454,8 @@ export interface RunRecord {
   vision?: VisionRunInfo | null;
   /** Document Intelligence: the run's collected document results (null otherwise). */
   documents?: DocumentRunInfo | null;
+  /** Internet Image Search: the run's validated image results (null otherwise). */
+  images?: ImagesRunInfo | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -532,6 +565,11 @@ export type DataCapability =
   | "news_search"
   | "image_search"
   | "video_search"
+  | "playlist_search"
+  | "video_metadata"
+  | "transcript_fetch"
+  | "course_search"
+  | "github_search"
   | "mcp_secret_resolve"
   | "mcp_oauth_token_get"
   | "mcp_oauth_token_set"

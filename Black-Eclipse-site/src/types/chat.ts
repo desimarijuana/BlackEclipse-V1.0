@@ -61,6 +61,12 @@ export interface Message {
    */
   documents?: unknown;
   /**
+   * Internet Image Search: the run's validated, normalized image results for the
+   * chat's inline gallery. Absent on user turns, non-image runs, and legacy rows.
+   * Narrowed by the chat surface via `coerceGalleryBlob`.
+   */
+  images?: unknown;
+  /**
    * The action the agent is blocked on pending an operator decision. Present
    * only while a run is paused on an approval card; set from the
    * `approval.requested` event and cleared when it resolves.

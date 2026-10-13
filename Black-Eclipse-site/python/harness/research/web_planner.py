@@ -63,6 +63,14 @@ _TEMPLATES: dict[ResearchIntent, list[tuple[str, str]]] = {
         ("papers", "{q} research paper"),
         ("review", "{q} systematic review evidence"),
     ],
+    ResearchIntent.LEARNING: [
+        ("overview", "{q} tutorial introduction"),
+        ("courses", "{q} course lecture series"),
+        ("videos", "{q} youtube tutorial playlist"),
+        ("documentation", "{q} official documentation guide"),
+        ("practice", "{q} exercises projects examples"),
+        ("books", "{q} recommended books reading list"),
+    ],
     ResearchIntent.TECHNICAL_RESEARCH: [
         ("overview", "{q}"),
         ("implementation", "{q} documentation"),

@@ -395,6 +395,7 @@ export function ChatDock({
               memory: turn.memory,
               vision: turn.vision,
               documents: turn.documents,
+              images: turn.images,
               codeVerification: turn.codeVerification,
               autonomy: turn.autonomy,
               capability: turn.capability,

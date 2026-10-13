@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from '@/lib/icons';
 import { useDarkScheme } from '@/hooks/use-dark-scheme';
+import { repairMermaid } from '@/lib/response/mermaid-repair';
 
 function useStableId(): string {
   const ref = useRef<string | null>(null);
@@ -45,7 +46,7 @@ export function MermaidBlock({ diagram, title, description }: MermaidBlockProps)
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    const source = diagram?.trim();
+    const source = repairMermaid(diagram?.trim() ?? '');
     if (!source) return;
 
     runMermaidSerial(async () => {

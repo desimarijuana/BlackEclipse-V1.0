@@ -157,6 +157,121 @@ describe('producer field-name synonyms are normalized (not dropped)', () => {
     if (block.type === 'financial_chart') expect(block.timeframe).toBe('1M');
   });
 
+  it('accepts `key` item labels for key_value (observed producer output)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'key_value',
+          title: 'Invariants',
+          items: [
+            { key: 'Plan ≠ execution', value: 'A mandate is not a run.' },
+            { key: 'Route health is per capability', value: 'web_search ok does not imply web_fetch ok.' },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('key_value');
+    if (block.type === 'key_value') {
+      expect(block.items[0].label).toBe('Plan ≠ execution');
+      expect(block.items[1].label).toBe('Route health is per capability');
+    }
+  });
+
+  it('accepts chart `series[].points` with {x,y} objects (observed scatter output)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'chart',
+          chartType: 'scatter',
+          xLabel: 'Volatility (%)',
+          yLabel: 'Return (%)',
+          series: [
+            {
+              name: 'Assets',
+              points: [
+                { x: 120.18, y: 28.32, label: 'BTC' },
+                { x: 173.45, y: 35.46, label: 'ETH' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('chart');
+    if (block.type === 'chart') {
+      expect(block.series[0].data).toEqual([
+        [120.18, 28.32],
+        [173.45, 35.46],
+      ]);
+    }
+  });
+
+  it('accepts labelled scalar chart points and `labels` for categories', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'chart',
+          chartType: 'bar',
+          labels: ['Q1', 'Q2'],
+          series: [{ name: 'Revenue', points: [{ value: 10 }, { value: 20 }] }],
+        },
+      ],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('chart');
+    if (block.type === 'chart') {
+      expect(block.categories).toEqual(['Q1', 'Q2']);
+      expect(block.series[0].data).toEqual([10, 20]);
+    }
+  });
+
+  it('accepts `ticker`/`interval` and a day-count timeframe for financial_chart', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'financial_chart', ticker: 'BTC-USD', market: 'crypto', interval: '90d', style: 'candles' }],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('financial_chart');
+    if (block.type === 'financial_chart') {
+      expect(block.symbol).toBe('BTC-USD');
+      expect(block.timeframe).toBe('1D');
+      expect(block.chartType).toBe('candlestick');
+    }
+  });
+
+  it('accepts `source` as the mermaid body', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'mermaid', source: 'flowchart LR\n A-->B' }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('mermaid');
+    if (block.type === 'mermaid') expect(block.diagram).toContain('flowchart');
+  });
+
+  it('accepts `name`/`title` node labels and `source`/`target` edges', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'node_graph',
+          nodes: [{ id: 'a', name: 'Ingest' }, { id: 'b', title: 'Train' }],
+          edges: [{ source: 'a', target: 'b' }],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('node_graph');
+    if (block.type === 'node_graph') {
+      expect(block.nodes[0].label).toBe('Ingest');
+      expect(block.nodes[1].label).toBe('Train');
+      expect(block.edges[0]).toMatchObject({ from: 'a', to: 'b' });
+    }
+  });
+
   it('preserves a metric card `note` as its `hint`', () => {
     const parsed = parseResponsePayload({
       blocks: [{ type: 'metric_grid', metrics: [{ label: 'Cap', value: '1.2tr', note: 'WFE' }] }],
@@ -357,5 +472,57 @@ describe('validateBlock total behavior', () => {
     for (const raw of [null, 5, { type: 'stepper' }, { type: 'artifact' }, { type: 'node_graph', nodes: [] }]) {
       expect(() => validateBlock(raw)).not.toThrow();
     }
+  });
+});
+
+describe('learning_map block', () => {
+  it('parses a prerequisite-aware curriculum with resources', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'learning_map',
+          title: 'Quant trading roadmap',
+          goal: 'quantitative trading',
+          pathId: 'path_abc',
+          nodes: [
+            { id: 'python', label: 'Python', level: 'beginner', resourceIds: ['r1'], objectives: ['write python'], assessment: 'script' },
+            { id: 'quant', label: 'Quant trading', requires: ['python'], resourceIds: ['r2'] },
+          ],
+          resources: [
+            { resourceId: 'r1', title: 'Python docs', url: 'https://docs.python.org/3/', type: 'documentation', durationSeconds: 120 },
+            { resourceId: 'r2', title: 'Course', url: 'https://www.youtube.com/playlist?list=abc', type: 'video', thumbnail: 'https://i.ytimg.com/x.jpg' },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('learning_map');
+    if (block.type === 'learning_map') {
+      expect(block.nodes).toHaveLength(2);
+      expect(block.nodes[0].status).toBe('pending');
+      expect(block.nodes[1].requires).toEqual(['python']);
+      expect(block.resources[0].cost ?? 'unknown').toBe('unknown');
+    }
+  });
+
+  it('rejects a non-http(s) resource URL (no javascript: vector)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'learning_map',
+          nodes: [{ id: 'a', label: 'A' }],
+          resources: [{ resourceId: 'r', title: 'x', url: 'javascript:alert(1)' }],
+        },
+      ],
+    });
+    expect(parsed.blocks[0].type).toBe('unknown');
+    expect(parsed.diagnostics.length).toBeGreaterThan(0);
+  });
+
+  it('degrades a malformed learning_map without throwing', () => {
+    expect(() => validateBlock({ type: 'learning_map', nodes: [] })).not.toThrow();
+    const parsed = parseResponsePayload({ blocks: [{ type: 'learning_map' }] });
+    expect(parsed.blocks[0].type).toBe('unknown');
   });
 });

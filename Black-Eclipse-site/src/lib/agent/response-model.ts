@@ -157,6 +157,13 @@ export interface AssistantTurn {
    */
   documents?: unknown;
   /**
+   * Internet Image Search: the run's validated, normalized image results
+   * (direct image URL, thumbnail, source page, dimensions) for the chat's inline
+   * gallery. `undefined` when the turn used no image tool; narrowed by the chat
+   * surface via `coerceGalleryBlob`.
+   */
+  images?: unknown;
+  /**
    * The action the agent is currently blocked on pending an operator decision,
    * or undefined when it is not waiting. Set from `approval.requested`, cleared
    * by `approval.resolved` or the decision POST.

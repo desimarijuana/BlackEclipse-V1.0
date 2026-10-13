@@ -168,6 +168,19 @@ class AgenticService:
         self.memory = EclipseMemoryService()
         self.memory_store = self.memory.store
         self.skill_store = self.memory_store  # same object — one persistence path
+        # Learning-research layer: a durable curriculum + progress store on the
+        # SAME eclipse-memory connection, plus the education tools on the SAME
+        # registry. A failure only leaves `self.learning_store` None, so it never
+        # blocks boot.
+        try:
+            from .research.education_tools import register_learning_tools  # noqa: PLC0415
+            from .research.learning_store import LearningStore  # noqa: PLC0415
+
+            self.learning_store = LearningStore(self.memory_store)
+            register_learning_tools(self.registry)
+        except Exception:  # noqa: BLE001 - learning layer must never block boot
+            self.learning_store = None
+            log.warning("learning research layer unavailable", exc_info=True)
         # One-time, non-destructive import of Phase-3 skill rows that previously
         # lived in agent-memory.db (a no-op on fresh installs / after import).
         try:
@@ -1101,6 +1114,7 @@ class AgenticService:
             mcp_manager=self.mcp, code_store=self.code_store,
             code_intel_runtime=getattr(self, "code_intel", None),
             evidence_store=getattr(self, "evidence_store", None),
+            learning_store=getattr(self, "learning_store", None),
             market=self._market_bundle(),
             portfolio=self._portfolio_bundle(),
             quant=self._quant_bundle(),
@@ -1385,6 +1399,7 @@ class AgenticService:
                     mcp_manager=self.mcp, code_store=self.code_store,
                     code_intel_runtime=getattr(self, "code_intel", None),
                     evidence_store=getattr(self, "evidence_store", None),
+                    learning_store=getattr(self, "learning_store", None),
                     market=self._market_bundle(),
                     search=getattr(self, "search", None),
                     artifact_service=getattr(self, "artifacts", None),

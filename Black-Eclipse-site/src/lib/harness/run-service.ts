@@ -79,6 +79,7 @@ export async function chatWithAgent(
   research?: import("./types").ResearchRunInfo;
   vision?: import("./types").VisionRunInfo | null;
   documents?: import("./types").DocumentRunInfo | null;
+  images?: import("./types").ImagesRunInfo | null;
 }> {
   // Phase 14: the non-streaming chat path must resolve the code profile too —
   // otherwise a coding request typed into `/api/harness/chat` reached the model
@@ -122,6 +123,7 @@ export async function chatWithAgent(
       research: runResult.research,
       vision: runResult.vision,
       documents: runResult.documents,
+      images: runResult.images,
     };
   }
   return {
@@ -132,6 +134,7 @@ export async function chatWithAgent(
     research: runResult.research,
     vision: runResult.vision,
     documents: runResult.documents,
+    images: runResult.images,
   };
 }
 

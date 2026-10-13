@@ -62,6 +62,7 @@ from .routers.financial import router as financial_router
 from .routers.git import router as git_router
 from .routers.grants import router as grants_router
 from .routers.jobs import router as jobs_router
+from .routers.learning import router as learning_router
 from .routers.mcp import router as mcp_router
 from .routers.market import router as market_router
 from .routers.memory import router as memory_router
@@ -86,12 +87,7 @@ from .schemas import ModelSettings, RunRequest, RunResult
 from .skills.draft import propose_draft
 from .skills.evaluation import evaluate_skill
 from .skills.learning import capture_from_run
-from .skills.lifecycle import (
-    approve_promotion,
-    reject_promotion,
-    request_promotion,
-    rollback,
-)
+from .skills.lifecycle import approve_promotion, reject_promotion, request_promotion, rollback
 from .skills.permissions import Actor
 from .skills.runtime import SkillExecutionRequest
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
@@ -115,6 +111,7 @@ app.include_router(financial_router)
 app.include_router(git_router)
 app.include_router(grants_router)
 app.include_router(jobs_router)
+app.include_router(learning_router)
 app.include_router(mcp_router)
 app.include_router(market_router)
 app.include_router(memory_router)

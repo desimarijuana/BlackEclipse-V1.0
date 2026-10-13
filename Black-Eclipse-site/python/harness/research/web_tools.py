@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry, dumps
+from .image_contracts import normalize_images, validate_image_result
 from .web_browser import browser_extract, needs_escalation
 from .web_contracts import ResearchDepth, ResearchRequest, SourceType
 from .web_engine import ResearchEngine, request_cancel, run_status, schedule_background_research
@@ -220,21 +221,139 @@ async def academic_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
 
 
 async def image_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Search the real internet for images and collect them for inline rendering.
+
+    Reuses the SSRF-hardened bridge (`image_search` capability), which runs the
+    provider chain (Brave Images → Openverse → Wikimedia Commons). Every return
+    carries a direct image URL and source attribution; a genuine miss is
+    `no_data`, a missing credential is reported honestly. Never fabricates.
+    """
     query = str(args.get("query") or "").strip()
     if not query:
         return "A query is required.", {"status": "ERROR", "error": "query is required"}
-    engine = _engine(ctx)
-    limit = int(args.get("limit") or 8)
-    response = await engine._registry.search(query, kind="image", limit=limit)
-    if response.status != "OK" or not response.results:
-        response = await engine._registry.search(f"{query} image", kind="web", limit=limit)
-    # We return image-looking results; we never download arbitrary images.
-    images = [
-        {"sourcePage": r.url, "title": r.title, "domain": r.domain, "provider": r.provider, "retrievedAt": r.retrievedAt}
-        for r in response.results
-    ]
-    payload = {"query": query, "status": response.status, "images": images, "note": "Image bytes are never downloaded unless explicitly requested."}
-    return f"{len(images)} image source(s) for {query!r}.", payload
+    bridge = getattr(ctx, "data_bridge", None)
+    if bridge is None:
+        return (
+            "Image search is unavailable: no data bridge is configured.",
+            {"status": "UNAVAILABLE", "query": query, "images": [], "error": "data bridge not configured"},
+        )
+    count = int(args.get("count") or args.get("limit") or 8)
+    payload_in = {
+        "query": query,
+        "count": max(1, min(count, 25)),
+        "image_type": args.get("image_type"),
+        "safe_search": args.get("safe_search"),
+        "language": args.get("language"),
+        "region": args.get("region"),
+        "freshness": args.get("freshness"),
+    }
+    try:
+        response = await bridge.fetch("image_search", payload_in)
+    except Exception as exc:  # noqa: BLE001 - a bridge error is an unavailable answer
+        return (
+            f"Image search failed for {query!r}: {exc}.",
+            {"status": "UNAVAILABLE", "query": query, "images": [], "error": str(exc)},
+        )
+    status = str(response.get("status") or "UNAVAILABLE")
+    images = normalize_images(response.get("images") or response.get("results") or [], provider=str(response.get("provider") or ""))
+    if status != "OK" or not images:
+        _push_images(ctx, [])
+        failure = str(response.get("error") or "the image providers returned no results")
+        return (
+            f"No internet images found for {query!r}: {failure}. This is an unavailable result, "
+            "not evidence that no such image exists.",
+            {"status": status, "query": query, "images": [], "diagnostics": response.get("diagnostics") or [], "error": failure},
+        )
+    _push_images(ctx, images)
+    payload = {
+        "status": "OK",
+        "query": query,
+        "provider": response.get("provider"),
+        "count": len(images),
+        "images": images,
+        "diagnostics": response.get("diagnostics") or [],
+        "note": "Images are validated and rendered inline from these results; source attribution is preserved.",
+    }
+    lines = [f"{len(images)} internet image(s) for {query!r} (provider: {response.get('provider') or 'unknown'}):"]
+    for img in images[:12]:
+        dims = f" {img['width']}x{img['height']}" if img.get("width") and img.get("height") else ""
+        lines.append(f"- {img['title']} — {img.get('sourceDomain') or 'unknown'}{dims}")
+    lines.append("These validated images are rendered directly in the chat; do not invent image URLs.")
+    return "\n".join(lines), payload
+
+
+def _push_images(ctx: ToolContext, images: list[dict[str, Any]]) -> None:
+    """Hand validated images to the run's collector so they reach the chat UI."""
+    sink = getattr(ctx, "image_sink", None)
+    if sink is None:
+        return
+    try:
+        if images:
+            sink(images)
+    except Exception:  # noqa: BLE001 - collection must never break the tool
+        pass
+
+
+async def validate_image(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Validate candidate image metadata before it is shown (no fabricated claim).
+
+    Performs offline validation of URL safety, dimension completeness and MIME
+    consistency. Reachability is NOT asserted — the UI's `<img>` load and
+    broken-image fallback handle the live transport.
+    """
+    candidate = args.get("image")
+    if not isinstance(candidate, dict):
+        candidate = {
+            "imageUrl": args.get("image_url") or args.get("url"),
+            "thumbnailUrl": args.get("thumbnail_url"),
+            "sourceUrl": args.get("source_url"),
+            "title": args.get("title"),
+            "width": args.get("width"),
+            "height": args.get("height"),
+            "mimeType": args.get("mime_type"),
+            "provider": args.get("provider"),
+        }
+    outcome = validate_image_result(candidate)
+    status = outcome.get("status")
+    if outcome.get("ok"):
+        return (
+            f"Image validated ({outcome['result'].get('sourceDomain') or 'unknown source'}).",
+            {"status": "OK", "validationStatus": status, "image": outcome.get("result")},
+        )
+    return (
+        f"Image rejected: {'; '.join(outcome.get('reasons') or [outcome.get('reason') or 'invalid'])}.",
+        {"status": "REJECTED", "validationStatus": status, "reasons": outcome.get("reasons") or [outcome.get("reason")]},
+    )
+
+
+async def render_image_gallery(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Normalize, validate and collect images for inline chat rendering.
+
+    Accepts either previously returned `images` (from `image_search`) OR a
+    `query` to run a fresh search. It NEVER invents an image URL: only validated
+    results with direct image URLs are collected. This is the deterministic
+    bridge to the chat's native gallery — the model does not emit raw HTML.
+    """
+    images = args.get("images")
+    if not isinstance(images, list) or not images:
+        query = str(args.get("query") or "").strip()
+        if not query:
+            return (
+                "Provide `images` (from image_search) or a `query` to render.",
+                {"status": "ERROR", "error": "images or query is required"},
+            )
+        return await image_search({"query": query, "count": args.get("count") or 8}, ctx)
+    normalized = normalize_images(images)
+    if not normalized:
+        return (
+            "None of the provided candidates had a safe direct image URL.",
+            {"status": "REJECTED", "images": []},
+        )
+    _push_images(ctx, normalized)
+    return (
+        f"Rendered {len(normalized)} validated image(s) inline.",
+        {"status": "OK", "count": len(normalized), "images": normalized},
+    )
 
 
 async def video_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -888,7 +1007,26 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
     "news_search": _obj({"query": _STR, "limit": _INT}, ["query"]),
     "company_search": _obj({"name": _STR}, ["name"]),
     "academic_search": _obj({"query": _STR, "limit": _INT}, ["query"]),
-    "image_search": _obj({"query": _STR, "limit": _INT}, ["query"]),
+    "image_search": _obj({
+        "query": {**_STR, "description": "The image search query."},
+        "count": {**_INT, "description": "Max images (1-25). Aliased by `limit`."},
+        "limit": _INT,
+        "image_type": {**_STR, "enum": ["any", "photo", "illustration", "diagram", "chart"], "description": "Preferred image type where the provider supports it."},
+        "safe_search": {**_STR, "enum": ["off", "moderate", "strict"], "description": "Safe-search level (default moderate)."},
+        "language": {**_STR, "description": "Optional language hint."},
+        "region": {**_STR, "description": "Optional region hint."},
+        "freshness": {**_STR, "description": "Optional freshness window where supported."},
+    }, ["query"]),
+    "validate_image_result": _obj({
+        "image": {"type": "object", "description": "A candidate image result (imageUrl, thumbnailUrl, sourceUrl, title, width, height, mimeType, provider)."},
+        "image_url": _STR, "thumbnail_url": _STR, "source_url": _STR, "title": _STR,
+        "width": _INT, "height": _INT, "mime_type": _STR, "provider": _STR,
+    }),
+    "render_image_gallery": _obj({
+        "images": {"type": "array", "items": {"type": "object"}, "description": "Image results to render (from image_search)."},
+        "query": {**_STR, "description": "Alternatively, run a fresh image search for this query."},
+        "count": _INT,
+    }),
     "video_search": _obj({"query": _STR, "limit": _INT}, ["query"]),
     "web_extract": _obj({
         "url": _STR, "entity": _STR, "published_at": _STR,
@@ -977,7 +1115,9 @@ _TOOLS: list[tuple[str, str, Any, int]] = [
     ("news_search", "Search news with publication metadata. Syndicated copies are grouped into source families, not counted as independent sources.", news_search, 20_000),
     ("company_search", "Resolve a company name/ticker/alias to one canonical entity (ticker, exchange, official and IR domains). Never invents identity.", company_search, 10_000),
     ("academic_search", "Search academic literature (arXiv/DOI/journals). Returns normalized pointers.", academic_search, 20_000),
-    ("image_search", "Search image sources. Returns source pages; image bytes are never downloaded unless explicitly requested.", image_search, 20_000),
+    ("image_search", "Search the real internet for images and return normalized results with direct image URLs, source-page attribution and dimensions. Results are rendered inline in the chat. Never fabricates image URLs.", image_search, 25_000),
+    ("validate_image_result", "Validate a candidate image result's metadata (URL safety, dimensions, MIME) before it is shown. Offline; reachability is handled by the UI.", validate_image, 10_000),
+    ("render_image_gallery", "Collect validated image results (from image_search, or a fresh query) for inline gallery rendering in the chat. Only direct, safe image URLs are rendered.", render_image_gallery, 25_000),
     ("video_search", "Search videos with title/url/platform/publisher metadata.", video_search, 20_000),
     ("web_extract", "Fetch a page, preserve raw text, and record provenance-carrying evidence. Escalates to the browser when normal extraction is insufficient. Untrusted content is wrapped as DATA.", web_extract, 60_000),
     ("page_extract", "Fetch a page and segment it into titled sections (preserving headings/tables) with source locations.", page_extract, 60_000),

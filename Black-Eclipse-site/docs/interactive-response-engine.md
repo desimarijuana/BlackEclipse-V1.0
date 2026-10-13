@@ -112,8 +112,10 @@ diagnostic-backed empty response, never a throw.
 | Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, histogram, heatmap |
 | | `diagram` | flowchart, dependency, state — native SVG, read-only |
 | | `node_graph` | selectable node/edge graph — same layout engine; a node's `detail` shows on selection |
+| Learning | `learning_map` | prerequisite-aware learning roadmap: skills as ordered stages (edges derived from `requires`), each with objectives/exercises/assessment, clickable resource links (type/duration/thumbnail), and a completion toggle that **persists** to `/api/learning/progress` when a `pathId` is present. An "alternatives" action re-enters the agent loop; a compact text outline is the fallback. Built by the Learning Research Engine — never a generated image. |
 | | `timeline` | ordered events with tone dots (alias `execution_timeline`) |
 | | `citations` | numbered sources with host/timestamps (alias `source_list`) |
+| Media | `gallery` | inline internet-image gallery: validated results with a **direct image URL**, responsive 2–4 column grid, lazy loading, larger-image lightbox, source-page attribution, and a broken-image fallback (no invented URLs). `images[].url` must be http(s) — enforced by the contract's `httpUrl` refinement. |
 | Process | `stepper` | numbered steps with per-step status (pending/active/done/error) |
 | | `infographic` | icon cards; `icon` is a semantic key resolved via `lib/response/icons.ts` |
 | | `workflow` | icon-driven **connected** process: ordered stages joined by directional connectors, each expandable to `detail` / `inputs` / `outputs`; a stage's follow-up re-enters the agent loop. Distinct from `stepper` (no icons/connectors) and `diagram`/`node_graph` (free-form graphs). `layout` is `vertical`/`horizontal`/`auto` (auto = horizontal when ≤4 stages, stacking to a column on narrow screens). |
@@ -132,17 +134,61 @@ types.
 producer is not punished for naming a field naturally. `normalizeBlockFields`
 rewrites: `content`→`markdown` (markdown/callout/details), a scalar `text`→
 `markdown` on those same prose types (observed producer output — scoped away from
-`heading`, which legitimately owns a `text` field), `content`/`code`→`diagram`
-(mermaid), `variant`→`tone` (callout, when the value is a valid tone),
+`heading`, which legitimately owns a `text` field), `content`/`code`/`source`→
+`diagram` (mermaid), `variant`→`tone` (callout, when the value is a valid tone),
 `items`→`sources` and `name`→`title` (citations), string `columns` + positional
 array `rows`→typed table columns/records (`data_table`), `note`→`hint`
-(metric cards), and common `timeframe` intervals (`1Y`, `YTD`, `MAX`, `1D`, …)
-onto a supported `financial_chart` timeframe, and `steps`→`stages` for a
-`workflow`. A value that is not itself valid is
+(metric cards), and common `timeframe` intervals (`1Y`, `YTD`, `MAX`, `1D`,
+`90d`, `3mo`, …) onto a supported `financial_chart` timeframe, and `steps`→
+`stages` for a `workflow`. It also coerces observed producer shapes that the
+strict schema would otherwise reject whole (each degrades only its own block):
+`key`/`name`→item `label` (`key_value`), `points`/`values`→chart `data` with
+`{x,y}` / `{value}` point objects coerced to tuples/scalars and `labels`→
+`categories` (`chart`), `ticker`/`instrument`→`symbol` and `interval`/`range`→
+`timeframe` plus chart-type synonyms (`financial_chart`), and node
+`name`/`title`→`label` / edge `source`/`target`→`from`/`to` (`diagram`,
+`node_graph`). A value that is not itself valid is
 left untouched, so an unknown tone still falls back to the schema default rather
 than hard-failing.
 
-### Parsing (`src/lib/response/parse.ts`)
+**Mermaid repair.** Mermaid is producer-authored text, and Mermaid v12 rejects
+small slips that a model makes routinely. Before rendering, `mermaid-repair.ts`
+(a pure, total, tested function) conservatively patches the observed cases — it
+decodes HTML entities once (`&gt;`→`>`), quotes an unquoted flowchart/state node
+label only when it holds a reserved character (`( ) [ ] { } < > | / \ →`), and
+joins a sequence statement that wrapped onto the next line (a lowercase fragment
+with no `:` or arrow, following a line that has one). It never invents content
+and leaves anything it does not recognise untouched; a diagram that still fails
+parses to the existing honest inline card rather than the error boundary.
+
+### Internet image search and the gallery block
+
+A user asking to "show/find images of X" must produce **actual images**, not links.
+Two deterministic paths feed the `gallery` block, and the model never invents an
+image URL:
+
+1. **Runtime-collected gallery (primary).** The `image_search` tool searches the
+   real internet (providers in `src/lib/image-search.ts`: Brave Images when
+   `BRAVE_API_KEY` is set, else the keyless Openverse and Wikimedia Commons
+   chains, all reached through the SSRF-hardened `safeGet` transport) and returns
+   normalized `ImageSearchResult`s. Validated results are handed to the run's
+   `ImageCollector` (`python/harness/research/image_contracts.py`) and surfaced on
+   the run as an `images` blob. The chat renders it with `ImageGalleryPanel`
+   (`components/chat/image-gallery.tsx`) directly beneath the answer and persists
+   it on the message, so a reload keeps the gallery. This needs **no** model
+   round-trip and cannot be hallucinated.
+2. **Producer `gallery` block.** For mixed answers the model may emit a `gallery`
+   block inside an `eclipse-response` fence; it renders through the same shared
+   `ImageGallery` component.
+
+Every image URL — from either path — is scheme-restricted to http(s) (the
+contract's `httpUrl` refinement server-side; `_safe_image_url` and
+`image-gallery-view.ts` client-side), so `javascript:`/`data:` URLs can never
+reach an `<img src>`. Images load directly (plain `<img>`, `loading="lazy"`,
+`referrerPolicy="no-referrer"`); a fetch failure degrades to a labeled
+"Image unavailable" card rather than a broken box or a crash.
+
+
 
 `splitResponseSegments` splits prose vs. `eclipse-response` fences.
 `decodeResponseFence(source, settled)` distinguishes:

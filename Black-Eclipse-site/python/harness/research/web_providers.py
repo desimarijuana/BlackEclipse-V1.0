@@ -127,11 +127,14 @@ def _normalize_results(raw: list[dict[str, Any]], *, provider: str, query: str) 
 
     out: list[SearchResult] = []
     for idx, item in enumerate(raw):
-        url = str(item.get("url") or "").strip()
+        # Image capabilities return the normalized ImageSearchResult contract
+        # (`imageUrl`/`sourceUrl`); ordinary search returns `url`. Accept both so
+        # the research registry can consume an image connector unchanged.
+        url = str(item.get("url") or item.get("sourceUrl") or item.get("imageUrl") or "").strip()
         if not url:
             continue
         try:
-            domain = urlparse(url).netloc.lower().replace("www.", "")
+            domain = str(item.get("sourceDomain") or "").strip() or urlparse(url).netloc.lower().replace("www.", "")
         except Exception:  # noqa: BLE001
             domain = ""
         out.append(

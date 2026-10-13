@@ -44,6 +44,11 @@ const NODE_MIN_WIDTH = 88;
 const H_GAP = 26;
 const V_GAP = 62;
 const PADDING = 16;
+// Horizontal (LR) column pitch. Columns must be at least as wide as the widest
+// node in the previous column plus a gap, or wide labels overlap the next
+// column — the fixed 200px pitch this replaced was narrower than the 240px max
+// node width, so long labels collided.
+const COLUMN_GAP = 56;
 
 function measure(label: string): number {
   return Math.max(NODE_MIN_WIDTH, Math.min(240, label.length * 7.6 + 28));
@@ -127,13 +132,23 @@ export function layoutDiagram(block: DiagramBlock): DiagramLayout {
   });
   const mainExtent = Math.max(...layerExtent, 0);
 
+  // Horizontal columns are positioned from the widest node in each preceding
+  // layer, so a wide label can never bleed into the next column.
+  const columnX: number[] = [];
+  let columnCursor = PADDING;
+  for (const l of layers) {
+    columnX.push(columnCursor);
+    const widest = Math.max(NODE_MIN_WIDTH, ...byLayer.get(l)!.map((n) => measure(n.label)));
+    columnCursor += widest + COLUMN_GAP;
+  }
+
   layers.forEach((l, li) => {
     const bucket = byLayer.get(l)!;
     let cursor = PADDING + (mainExtent - layerExtent[li]) / 2;
     for (const n of bucket) {
       const width = measure(n.label);
       if (isHorizontal) {
-        laid.push({ id: n.id, label: n.label, tone: n.tone, x: PADDING + li * 200, y: cursor, width, height: NODE_HEIGHT, layer: l });
+        laid.push({ id: n.id, label: n.label, tone: n.tone, x: columnX[li], y: cursor, width, height: NODE_HEIGHT, layer: l });
         cursor += NODE_HEIGHT + H_GAP;
       } else {
         laid.push({ id: n.id, label: n.label, tone: n.tone, x: cursor, y: PADDING + li * (NODE_HEIGHT + V_GAP), width, height: NODE_HEIGHT, layer: l });

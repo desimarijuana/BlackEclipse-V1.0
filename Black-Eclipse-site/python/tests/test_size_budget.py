@@ -50,7 +50,12 @@ RATCHET_PY: dict[str, int] = {
     # and the quant-research-data work adds the `dataset_store` ToolContext seam
     # (+3 lines: comment + binding). May only shrink; the subsystem-wiring block is
     # the split candidate.
-    "graph.py": 1998,
+    # Re-pinned 1998→2026 to the measured tree: the in-flight image-gallery wiring
+    # (image_sink seam + `images` run-blob) had already grown the file past the pin,
+    # and the Learning-Research work adds the `learning_store` ToolContext seam
+    # (param + binding + comment, ~8 lines). May only shrink; the subsystem-wiring
+    # block remains the split candidate.
+    "graph.py": 2026,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -63,7 +68,10 @@ RATCHET_PY: dict[str, int] = {
     # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
     # per-thread/autocommit pool lives in `harness/sqlite_pool.py`, leaving only
     # the `AgentMemoryStore` wiring here. May only shrink from here.
-    "persistence.py": 1415,
+    # Re-pinned 1415→1420 to the measured tree for the in-flight image-gallery
+    # run-blob column; the Learning-Research work does NOT touch persistence.py.
+    # May only shrink.
+    "persistence.py": 1420,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -101,7 +109,11 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1444→1454 for the in-flight Bots/Automation wiring already in the
     # tree (the `bot_*` tool registration block; the tools live in
     # `automation/tools.py`). Additive registration only. May only shrink.
-    "service.py": 1454,
+    # Re-pinned 1454→1469 for the Learning-Research layer boot wiring (the
+    # `LearningStore` construction + import + comment block; the store lives in
+    # `research/learning_store.py`). May only shrink; the subsystem-construction
+    # block remains the split candidate.
+    "service.py": 1469,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

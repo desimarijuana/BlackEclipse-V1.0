@@ -264,6 +264,11 @@ class RunResult(BaseModel):
     # the right sidebar. Absent/None when a run used no document tool, so existing
     # clients remain compatible.
     documents: Optional[dict[str, Any]] = None
+    # Internet Image Search (additive, optional): the run's validated, normalized
+    # image results (direct image URL, thumbnail, source page, dimensions) for the
+    # chat's INLINE gallery. Absent/None when a run used no image tool, so existing
+    # clients remain compatible.
+    images: Optional[dict[str, Any]] = None
 
 
 EventLiteral = Literal[

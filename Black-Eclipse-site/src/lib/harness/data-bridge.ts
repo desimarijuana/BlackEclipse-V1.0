@@ -15,6 +15,8 @@ import { normalizeEconomicSeries, sortByDate } from "@/lib/economics/fetch";
 import { getSource } from "@/lib/economics/sources";
 import { searchWeb, fetchWebPageDetailed } from "@/lib/web-research";
 import { runConnectors, type ConnectorKind } from "@/lib/web-connectors";
+import { youtubeSearch, youtubeVideoMetadata, youtubeTranscript, githubSearch, courseSearch } from "@/lib/education-connectors";
+import { imageSearchCapability } from "@/lib/harness/data-bridge-images";
 import { resolveCustomSearchProvider, describeDiagnostics } from "@/lib/harness/web-provider-resolve";
 import {
   resolveSearchProviders,
@@ -439,9 +441,19 @@ async function dispatchCapability(
     case "news_search":
       return structuredConnectorCapability("news", params);
     case "image_search":
-      return structuredConnectorCapability("image", params);
+      return imageSearchCapability(params);
     case "video_search":
-      return structuredConnectorCapability("video", params);
+      return videoSearchCapability(params);
+    case "playlist_search":
+      return playlistSearchCapability(params);
+    case "video_metadata":
+      return videoMetadataCapability(params);
+    case "transcript_fetch":
+      return transcriptFetchCapability(params);
+    case "course_search":
+      return courseSearchCapability(params);
+    case "github_search":
+      return githubSearchCapability(params);
     case "mcp_secret_resolve":
       return mcpSecretResolve(params);
     case "mcp_oauth_token_get":
@@ -1440,6 +1452,111 @@ async function webFetchCapability(params: Record<string, unknown>): Promise<Data
     language: outcome.page.language ?? null,
     diagnostics: [outcome.diagnostic],
   };
+}
+
+/**
+ * Video search. Prefers the official YouTube Data API when a key is configured;
+ * otherwise falls through to the keyless media connector (Wikimedia Commons).
+ * It NEVER fabricates a video id: a keyless answer is a real source page.
+ */
+async function videoSearchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const query = String(params.query ?? "").trim();
+  if (!query) return unavailableClass("invalid_request", "query is required");
+  const rawLimit = Number(params.limit ?? 8);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 25) : 8;
+  const yt = await youtubeSearch(query, limit, {
+    kind: "video",
+    language: typeof params.language === "string" ? params.language : undefined,
+    duration: typeof params.duration === "string" ? params.duration : undefined,
+  });
+  if (yt.results.length > 0) {
+    return { status: "OK", query, kind: "video", provider: yt.provider, results: yt.results, diagnostics: [yt.diagnostic] };
+  }
+  // YouTube unconfigured/empty → the keyless connector is the honest fallback.
+  return structuredConnectorCapability("video", params);
+}
+
+/** Playlist discovery — kept distinct from single videos. */
+async function playlistSearchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const query = String(params.query ?? "").trim();
+  if (!query) return unavailableClass("invalid_request", "query is required");
+  const rawLimit = Number(params.limit ?? 8);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 25) : 8;
+  const yt = await youtubeSearch(query, limit, { kind: "playlist" });
+  if (yt.results.length === 0) {
+    return {
+      status: "UNAVAILABLE",
+      failureClass: yt.diagnostic.category === "not_configured" ? "not_configured" : "no_data",
+      error: yt.diagnostic.detail || "no playlists found",
+      diagnostics: [yt.diagnostic],
+    };
+  }
+  return { status: "OK", query, kind: "playlist", provider: yt.provider, results: yt.results, diagnostics: [yt.diagnostic] };
+}
+
+/** One video's canonical metadata (duration/statistics from the API only). */
+async function videoMetadataCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const videoId = String(params.videoId ?? params.video_id ?? "").trim();
+  if (!videoId) return unavailableClass("invalid_request", "videoId is required");
+  const result = await youtubeVideoMetadata(videoId);
+  if (!result.ok) {
+    return {
+      status: "UNAVAILABLE",
+      failureClass: result.diagnostic.category === "not_configured" ? "not_configured" : "no_data",
+      error: result.diagnostic.detail,
+      diagnostics: [result.diagnostic],
+    };
+  }
+  return { status: "OK", video: result.video, diagnostics: [] };
+}
+
+/** Transcript through a permitted, configured provider only; never scraped. */
+async function transcriptFetchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const videoId = String(params.videoId ?? params.video_id ?? "").trim();
+  if (!videoId) return unavailableClass("invalid_request", "videoId is required");
+  const language = String(params.language ?? "en");
+  const result = await youtubeTranscript(videoId, language);
+  if (result.status !== "OK") {
+    return { status: "UNAVAILABLE", failureClass: "not_configured", error: result.error ?? "transcript unavailable" };
+  }
+  return { status: "OK", language: result.language, text: result.text, segments: result.segments };
+}
+
+/** Course discovery restricted to an explicit allowlist of course providers. */
+async function courseSearchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const query = String(params.query ?? "").trim();
+  if (!query) return unavailableClass("invalid_request", "query is required");
+  const rawLimit = Number(params.limit ?? 8);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 25) : 8;
+  const outcome = await courseSearch(query, limit);
+  if (outcome.results.length === 0) {
+    return {
+      status: "UNAVAILABLE",
+      failureClass: outcome.diagnostic.normalizedStatus === "failed" ? "source_failure" : "no_data",
+      error: outcome.diagnostic.detail || "no course-provider results matched",
+      diagnostics: [outcome.diagnostic],
+    };
+  }
+  return { status: "OK", query, provider: outcome.diagnostic.provider, results: outcome.results, diagnostics: [outcome.diagnostic] };
+}
+
+/** Repository discovery via the official GitHub REST search API. */
+async function githubSearchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const query = String(params.query ?? "").trim();
+  if (!query) return unavailableClass("invalid_request", "query is required");
+  const rawLimit = Number(params.limit ?? 8);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 25) : 8;
+  const language = typeof params.language === "string" ? params.language : undefined;
+  const outcome = await githubSearch(query, limit, language);
+  if (outcome.results.length === 0) {
+    return {
+      status: "UNAVAILABLE",
+      failureClass: outcome.diagnostic.normalizedStatus === "failed" ? "source_failure" : "no_data",
+      error: outcome.diagnostic.detail || "GitHub returned no repositories",
+      diagnostics: [outcome.diagnostic],
+    };
+  }
+  return { status: "OK", query, provider: outcome.diagnostic.provider, results: outcome.results, diagnostics: [outcome.diagnostic] };
 }
 
 /**

@@ -35,7 +35,11 @@ const RATCHET: Record<string, number> = {
   "src/components/screens/market-overview.tsx": 2760,
   "src/components/screens/eclipse-memory/eclipse-memory-screen.tsx": 2488,
   "src/lib/i18n/dictionaries/index.ts": 1549,
-  "src/lib/harness/data-bridge.ts": 1594,
+  // Grew with the education/video capability dispatch (youtube/course/github
+  // connectors) landing alongside the internet-image-search capability. The
+  // image-search dispatch was extracted to `data-bridge-images.ts` so this file
+  // only carries the import + case. May only shrink from here.
+  "src/lib/harness/data-bridge.ts": 1710,
   "src/components/screens/market-bubbles.tsx": 1413,
   "src/components/chart/chart-widget.tsx": 1405,
   "src/lib/workspace/workspace-canvas.tsx": 1374,

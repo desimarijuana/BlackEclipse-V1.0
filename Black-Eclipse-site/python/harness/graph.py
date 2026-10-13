@@ -380,10 +380,14 @@ def build_graph(
     code_ledger: Optional[Any] = None,
     code_intel_runtime: Optional[Any] = None,
     evidence_store: Optional[Any] = None,
+    learning_store: Optional[Any] = None,
     vision_sink: Optional[Any] = None,
     # The run's document-intelligence result collector, so a `document_*` tool's
     # structured result reaches the run blob the right sidebar renders.
     document_sink: Optional[Any] = None,
+    # The run's internet-image result collector, so an `image_search`/`render_
+    # image_gallery` tool's validated results reach the chat's inline gallery.
+    image_sink: Optional[Any] = None,
     market: Optional[Any] = None,
     # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
     # the ONE ledger/valuation service (reusing the per-run market gateway).
@@ -524,11 +528,18 @@ def build_graph(
         # agent-memory connection). None = the research tools build their own from
         # the run's memory store (still persisted, just not the shared instance).
         evidence_store=evidence_store,
+        # The shared LearningStore for the learning-research engine (bound to the
+        # ONE eclipse-memory connection). None = the learning tools build their own
+        # from `memory_service` (still persisted, just not the shared instance).
+        learning_store=learning_store,
         # The run's vision-result collector, so a `vision_*` tool's structured
         # result reaches the run blob the right sidebar renders.
         vision_sink=vision_sink,
         # The run's document-intelligence collector (same idiom).
         document_sink=document_sink,
+        # The run's internet-image collector: `image_search` hands validated
+        # results here so they render inline in the chat (never fabricated).
+        image_sink=image_sink,
         # The Market Data Layer: gateway (routing + quality), durable snapshot/
         # instrument store and stream manager, as one bundle. Shared process-wide.
         market_gateway=getattr(market, "gateway", None),
@@ -1029,6 +1040,7 @@ async def execute_run(
     code_store: Optional[Any] = None,
     code_intel_runtime: Optional[Any] = None,
     evidence_store: Optional[Any] = None,
+    learning_store: Optional[Any] = None,
     market: Optional[Any] = None,
     portfolio: Optional[Any] = None,
     quant: Optional[Any] = None,
@@ -1259,6 +1271,14 @@ async def execute_run(
 
     document_collector = DocumentCollector()
 
+    # Ordinary-run internet-image collection: an `image_search` /
+    # `render_image_gallery` tool hands its validated results here so the run
+    # carries a bounded image blob the chat renders INLINE. Deterministic, and it
+    # never fabricates: only results with a safe direct image URL are collected.
+    from .research.image_contracts import ImageCollector  # noqa: PLC0415
+
+    image_collector = ImageCollector()
+
     # Bounded recovery (Milestone 4): if the run failed with a classified
     # CONTEXT_OVERFLOW, retry ONCE with a materially tighter history budget. The
     # terminal status is persisted once, below, after recovery resolves.
@@ -1316,8 +1336,10 @@ async def execute_run(
             code_ledger=code_ledger,
             code_intel_runtime=code_intel_runtime,
             evidence_store=evidence_store,
+            learning_store=learning_store,
             vision_sink=vision_collector.add,
             document_sink=document_collector.add,
+            image_sink=image_collector.add,
             market=market,
             portfolio=portfolio,
             quant=quant,
@@ -1463,12 +1485,17 @@ async def execute_run(
     # Document results collected from this run's `document_*` tool calls (None when
     # no document tool ran), shaped for the right sidebar.
     documents_blob = document_collector.to_blob()
+    # Internet-image results collected from this run's `image_search` /
+    # `render_image_gallery` tool calls (None when no image tool ran), shaped for
+    # the chat's inline gallery. Deterministic from validated tool results only.
+    images_blob = image_collector.to_blob()
     store.update_run(
         request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,
         **( {"research": research_blob} if research_blob else {} ),
         **( {"vision": vision_blob} if vision_blob else {} ),
         **( {"documents": documents_blob} if documents_blob else {} ),
+        **( {"images": images_blob} if images_blob else {} ),
     )
     # Durable terminal boundary: a resume of a completed run is a RESUME_CONFLICT.
     if lineage is not None:
@@ -1506,6 +1533,7 @@ async def execute_run(
     result.research = research_blob
     result.vision = vision_blob
     result.documents = documents_blob
+    result.images = images_blob
     return result
 
 

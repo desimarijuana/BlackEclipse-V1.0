@@ -22,6 +22,7 @@ _INTENT_RULES: list[tuple[ResearchIntent, tuple[str, ...]]] = [
     (ResearchIntent.OSINT, ("osint", "open source intelligence", "threat actor", "attribution")),
     (ResearchIntent.VERIFICATION, ("verify", "fact check", "fact-check", "is it true", "debunk", "confirm whether")),
     (ResearchIntent.COMPARISON, ("compare", "versus", " vs ", "better than", "difference between", "which is")),
+    (ResearchIntent.LEARNING, ("learn", "learning path", "teach me", "tutorial", "course", "curriculum", "roadmap", "from scratch", "beginner", "study plan", "bootcamp", "prerequisite", "how do i learn", "get started with", "master ")),
     (ResearchIntent.LEGAL_RESEARCH, ("lawsuit", "litigation", "court", "legal", "regulat", "antitrust", "compliance", "sec investigation")),
     (ResearchIntent.COMPETITOR_RESEARCH, ("competitor", "competitive landscape", "market share", "rival", "competition", "dominance", "dominant", "sustainable", "sustainability", "moat", "durable advantage", "ai accelerator")),
     (ResearchIntent.ACADEMIC_RESEARCH, ("paper", "study", "research paper", "journal", "peer-reviewed", "literature", "arxiv", "doi", "academic")),
@@ -50,6 +51,7 @@ _FINANCIAL_HINTS = (
     "10-k", "10-q", "ticker", "stock", "shares", "market cap", "dcf", "wacc",
 )
 _DEEP_HINTS = ("deep", "comprehensive", "thorough", "in depth", "in-depth", "analyze", "full analysis", "everything about")
+_LEARNING_DEEP_HINTS = ("from scratch", "complete", "comprehensive", "roadmap", "curriculum", "master", "end to end", "end-to-end")
 _FORENSIC_HINTS = ("forensic", "provenance", "point-in-time", "as of a specified", "source independence", "audit trail")
 _QUICK_HINTS = ("quick", "brief", "one sentence", "just tell me", "tldr", "short answer")
 _PRIMARY_HINTS = ("official", "primary source", "filing", "sec", "regulator", "government", "annual report", "transcript")
@@ -156,6 +158,8 @@ def classify_intent(
         depth = ResearchDepth.FORENSIC
     elif financial and intent == ResearchIntent.FINANCIAL_RESEARCH:
         depth = ResearchDepth.FINANCIAL
+    elif intent == ResearchIntent.LEARNING and any(h in text for h in _LEARNING_DEEP_HINTS):
+        depth = ResearchDepth.DEEP
     elif any(h in text for h in _DEEP_HINTS) or intent == ResearchIntent.DEEP_RESEARCH:
         depth = ResearchDepth.DEEP
     elif any(h in text for h in _QUICK_HINTS) or intent == ResearchIntent.FACT_LOOKUP:
@@ -195,6 +199,11 @@ def _source_types_for(intent: ResearchIntent, *, financial: bool, academic: bool
         types.append(SourceType.NEWS)
     if intent == ResearchIntent.ACADEMIC_RESEARCH or academic:
         types.append(SourceType.ACADEMIC)
+    if intent == ResearchIntent.LEARNING:
+        types += [
+            SourceType.DOCUMENTATION, SourceType.COURSE, SourceType.VIDEO,
+            SourceType.ACADEMIC, SourceType.REPOSITORY, SourceType.DATASET,
+        ]
     if intent == ResearchIntent.LEGAL_RESEARCH:
         types += [SourceType.REGULATOR, SourceType.GOVERNMENT]
     if intent == ResearchIntent.COMPETITOR_RESEARCH:

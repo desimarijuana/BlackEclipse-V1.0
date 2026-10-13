@@ -229,6 +229,10 @@ class ToolContext:
     # agent-memory connection). Set by the graph from the service; None = the
     # research tools run without persistence (still honest, just not stored).
     evidence_store: Any = None
+    # The per-run LearningStore for the learning-research engine (bound to the ONE
+    # eclipse-memory connection). Set by the graph from the service; None = the
+    # learning tools lazily build one from `memory_service` (still persisted).
+    learning_store: Any = None
     # The process-wide Financial Data Gateway provider registry (capabilities,
     # credential refs, rate limits, usage policy). Set by the graph from the
     # service; None = the `financial_providers` tool builds a default registry.
@@ -261,6 +265,10 @@ class ToolContext:
     # structured document blob (type, pages, status, capabilities, entities,
     # evidence counts) for the right sidebar. None = no collection attached.
     document_sink: Any = None
+    # The per-run internet-image collector. Set by the graph; an `image_search`
+    # tool calls `image_sink(images)` so the run carries a bounded, validated
+    # image blob the chat renders INLINE. None = no collection attached.
+    image_sink: Any = None
     # The Portfolio Accounting Engine service (ledger + valuation). Set by the
     # graph from the service; None = the `portfolio_*` tools report unavailable.
     portfolio_service: Any = None

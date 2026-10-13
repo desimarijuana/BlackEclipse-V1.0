@@ -45,7 +45,31 @@ _NEWS_HINTS = ("reuters.com", "apnews.com", "bbc.", "nytimes.com", "cnbc.com", "
 _ANALYST_HINTS = ("morganstanley.com", "goldmansachs.com", "jpmorgan.com", "seekingalpha.com", "barrons.com", "zacks.com")
 _INDUSTRY_HINTS = ("gartner.com", "mckinsey.com", "idc.com", "cbinsights.com", "statista.com", "deloitte.com", "pwc.com")
 _WIKI_HINTS = ("wikipedia.org", "wikiwand.com", "fandom.com", "britannica.com")
-_SOCIAL_HINTS = ("twitter.com", "x.com", "facebook.com", "linkedin.com", "instagram.com", "tiktok.com", "youtube.com", "reddit.com", "threads.net", "mastodon")
+# Learning-resource hints. These are checked BEFORE the social/forum/academic
+# families so `youtube.com` is a VIDEO and `github.com` a REPOSITORY, not
+# "social" — a learning objective ranks them by source-specific criteria.
+_VIDEO_HINTS = (
+    "youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com",
+    "ted.com", "bilibili.com",
+)
+_COURSE_HINTS = (
+    "coursera.org", "edx.org", "udacity.com", "khanacademy.org", "ocw.mit.edu",
+    "class-central.com", "futurelearn.com", "pluralsight.com", "datacamp.com",
+    "brilliant.org", "codecademy.com", "freecodecamp.org", "openstax.org",
+    "nptel.ac.in", "swayam.gov.in", "alison.com", "skillshare.com",
+)
+_REPO_HINTS = (
+    "github.com", "gitlab.com", "bitbucket.org", "sourceforge.net", "codeberg.org",
+    "huggingface.co", "kaggle.com", "colab.research.google.com",
+)
+_DOCS_HINTS = (
+    "docs.", "/docs", "readthedocs.io", "developer.mozilla.org", "devdocs.io",
+    "man7.org", "tutorialspoint.com", "geeksforgeeks.org", "w3schools.com",
+    "learn.microsoft.com", "cloud.google.com", "developer.apple.com",
+)
+_DATASET_HINTS = ("dataset", "data.gov", "ourworldindata.org", "worldbank.org", "imf.org", "eurostat", "datahub.io")
+_PODCAST_HINTS = ("podcast", "spotify.com/episode", "anchor.fm", "buzzsprout.com", "libsyn.com")
+_SOCIAL_HINTS = ("twitter.com", "x.com", "facebook.com", "linkedin.com", "instagram.com", "tiktok.com", "reddit.com", "threads.net", "mastodon")
 _FORUM_HINTS = ("stackexchange.com", "quora.com", "news.ycombinator.com", "discourse", "forum")
 _BLOG_HINTS = ("medium.com", "substack.com", "blogspot", "wordpress.com", "dev.to")
 
@@ -78,6 +102,20 @@ def classify_source_type(domain_or_url: str, url: str = "") -> SourceType:
         return SourceType.INVESTOR_RELATIONS
     if any(w in host for w in _WIKI_HINTS):
         return SourceType.WIKI
+    # Learning-resource families come before social/forum/academic so a video,
+    # course, repository, doc page or dataset is typed for its own ranking table.
+    if any(h in host for h in _VIDEO_HINTS):
+        return SourceType.VIDEO
+    if any(h in host for h in _COURSE_HINTS):
+        return SourceType.COURSE
+    if any(h in host for h in _REPO_HINTS):
+        return SourceType.REPOSITORY
+    if any(h in full for h in _DOCS_HINTS):
+        return SourceType.DOCUMENTATION
+    if any(h in full for h in _PODCAST_HINTS):
+        return SourceType.PODCAST
+    if any(h in host for h in _DATASET_HINTS):
+        return SourceType.DATASET
     if any(h in host for h in _SOCIAL_HINTS):
         return SourceType.SOCIAL
     if any(h in host for h in _FORUM_HINTS):
@@ -224,6 +262,17 @@ _RANK_TABLE: dict[str, tuple[SourceType, ...]] = {
         SourceType.ACADEMIC, SourceType.GOVERNMENT, SourceType.REGULATOR, SourceType.OFFICIAL_FILING,
         SourceType.INDUSTRY, SourceType.NEWS, SourceType.ANALYST, SourceType.WIKI, SourceType.BLOG,
         SourceType.FORUM, SourceType.SOCIAL, SourceType.UNKNOWN,
+    ),
+    # Learning ordering: official documentation first for an implementation goal,
+    # then established courses, coherent lecture video series, repositories with
+    # runnable code, academic theory, datasets, tutorials, then lower-signal web.
+    # This is a RELEVANCE ordering for a learning objective, not a claim that one
+    # source beats another for every goal; the ranking function weighs it.
+    "learning": (
+        SourceType.DOCUMENTATION, SourceType.COURSE, SourceType.VIDEO, SourceType.ACADEMIC,
+        SourceType.REPOSITORY, SourceType.DATASET, SourceType.TUTORIAL, SourceType.INDUSTRY,
+        SourceType.NEWS, SourceType.PODCAST, SourceType.BLOG, SourceType.WIKI, SourceType.FORUM,
+        SourceType.SOCIAL, SourceType.UNKNOWN,
     ),
     "default": (
         SourceType.OFFICIAL_FILING, SourceType.GOVERNMENT, SourceType.REGULATOR, SourceType.ACADEMIC,

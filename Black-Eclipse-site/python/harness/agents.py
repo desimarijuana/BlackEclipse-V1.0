@@ -163,6 +163,8 @@ WEB_RESEARCH_TOOLS = [
     "company_search",
     "academic_search",
     "image_search",
+    "validate_image_result",
+    "render_image_gallery",
     "video_search",
     "web_extract",
     "page_extract",
@@ -192,6 +194,19 @@ WEB_RESEARCH_TOOLS = [
     "finance_portfolio_analysis",
     "finance_metric_catalog",
     "research_quality",
+    # Learning-research & education-resource discovery: video/playlist/transcript,
+    # courses, GitHub, resource verification/ranking, and the persisted
+    # prerequisite-aware learning-path builder + progress.
+    "video_metadata",
+    "playlist_search",
+    "transcript_fetch",
+    "course_search",
+    "github_search",
+    "resource_verify",
+    "resource_rank",
+    "learning_path_build",
+    "learning_progress_get",
+    "learning_progress_update",
 ]
 
 # The repository tools. Phase 1 shipped the five read tools; Phase 2 adds the

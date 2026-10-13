@@ -42,7 +42,10 @@ export const RESPONSE_LIMITS = {
   maxSections: 40,
   maxActions: 12,
   maxArtifacts: 24,
+  maxImages: 24,
   maxWorkflowStages: 40,
+  maxLearningNodes: 120,
+  maxLearningResources: 200,
   maxMetadataKeys: 40,
   maxStringLength: 20000,
 } as const;
@@ -74,15 +77,31 @@ const PROSE_FIELD_TYPES = new Set(['markdown', 'callout', 'details']);
 const CALLOUT_TONES = new Set(['info', 'note', 'success', 'warning', 'danger']);
 
 // Non-ambiguous interval synonyms (lower-cased). A model often writes `1Y` for a
-// yearly view, which the `financial_chart` timeframe enum does not accept; map
-// the long/aliased forms onto the closest supported timeframe.
+// yearly view or `90d` for a three-month window, neither of which the
+// `financial_chart` timeframe enum accepts; map the long/aliased forms onto the
+// closest supported timeframe. Lower-case `m` is minutes and upper-case `M` is
+// months in this app, so day-count forms map to the daily/weekly bars that span
+// them rather than to a minute interval.
 const TIMEFRAME_ALIASES: Record<string, string> = {
   '1y': '1M', '2y': '1M', '3y': '1M', '5y': '1M', '10y': '1M',
   ytd: '1M', max: '1M', all: '1M',
-  '1d': '1D', day: '1D',
-  '1w': '1W', '1wk': '1W', week: '1W',
-  '1mo': '1M', month: '1M',
+  '1d': '1D', day: '1D', daily: '1D',
+  '7d': '1D', '14d': '1D', '30d': '1D', '60d': '1D', '90d': '1D', '180d': '1D', '365d': '1M',
+  '1mo': '1M', month: '1M', monthly: '1M',
+  '3mo': '1D', '6mo': '1D', '12mo': '1M',
+  '1w': '1W', '1wk': '1W', week: '1W', weekly: '1W',
   '1h': '1H', hour: '1H',
+};
+
+// Financial-chart style synonyms a producer may use for the render style.
+const FINANCIAL_CHART_TYPE_ALIASES: Record<string, string> = {
+  candle: 'candlestick',
+  candles: 'candlestick',
+  candlesticks: 'candlestick',
+  bar: 'ohlc',
+  bars: 'ohlc',
+  heikin_ashi: 'heikin-ashi',
+  heikinashi: 'heikin-ashi',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -134,6 +153,39 @@ function normalizeTableRows(value: unknown, columns: unknown): unknown {
   });
 }
 
+/**
+ * Chart points may arrive as objects rather than the contract's scalar / `[x, y]`
+ * / `[x, y, v]` forms: `{x, y}` (a scatter point), `{x, y, value}` (an extra
+ * dimension) or `{label, value}` / `{y}` (a labelled scalar on a category axis).
+ * Coerce the recognised shapes and drop an unrecognised object to `null` so one
+ * odd point never costs the whole chart (ECharts renders a gap; it is honest).
+ */
+function normalizeChartPoints(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((p) => {
+    if (!isRecord(p)) return p;
+    const x = p.x;
+    const y = p.y;
+    if (typeof x === 'number' && typeof y === 'number') {
+      const extra = p.v ?? p.z ?? p.value ?? p.r;
+      return typeof extra === 'number' ? [x, y, extra] : [x, y];
+    }
+    const scalar = p.value ?? p.y ?? p.count;
+    if (typeof scalar === 'number') return scalar;
+    return null;
+  });
+}
+
+/** Map an item's `key`/`name`/`title` onto the contract's `label` when absent. */
+function normalizeLabeledItems(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!isRecord(item) || item.label !== undefined) return item;
+    const label = item.key ?? item.name ?? item.title;
+    return typeof label === 'string' ? { ...item, label } : item;
+  });
+}
+
 /** Normalize the field-level synonyms of an already-canonically-typed block. */
 function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unknown> {
   const type = typeof raw.type === 'string' ? raw.type : '';
@@ -151,6 +203,8 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
   if (type === 'mermaid' && out.diagram === undefined) {
     if (out.content !== undefined) out.diagram = out.content;
     else if (out.code !== undefined) out.diagram = out.code;
+    else if (out.source !== undefined) out.diagram = out.source;
+    else if (out.definition !== undefined) out.diagram = out.definition;
   }
 
   if (
@@ -172,9 +226,62 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
     out.rows = normalizeTableRows(out.rows, out.columns);
   }
 
-  if (type === 'financial_chart' && typeof out.timeframe === 'string') {
-    const mapped = TIMEFRAME_ALIASES[out.timeframe.trim().toLowerCase()];
-    if (mapped) out.timeframe = mapped;
+  if (type === 'key_value') {
+    out.items = normalizeLabeledItems(out.items);
+  }
+
+  if (type === 'chart') {
+    if (out.categories === undefined && out.labels !== undefined) out.categories = out.labels;
+    if (Array.isArray(out.series)) {
+      out.series = out.series.map((s) => {
+        if (!isRecord(s)) return s;
+        const next: Record<string, unknown> = { ...s };
+        if (next.data === undefined) {
+          if (next.points !== undefined) next.data = next.points;
+          else if (next.values !== undefined) next.data = next.values;
+        }
+        next.data = normalizeChartPoints(next.data);
+        if (next.name === undefined && typeof next.label === 'string') next.name = next.label;
+        return next;
+      });
+    }
+  }
+
+  if (type === 'diagram' || type === 'node_graph') {
+    out.nodes = normalizeLabeledItems(out.nodes);
+    if (Array.isArray(out.edges)) {
+      out.edges = out.edges.map((e) => {
+        if (!isRecord(e)) return e;
+        const next: Record<string, unknown> = { ...e };
+        if (next.from === undefined && next.source !== undefined) next.from = next.source;
+        if (next.to === undefined && next.target !== undefined) next.to = next.target;
+        return next;
+      });
+    }
+  }
+
+  if (type === 'financial_chart') {
+    if (out.symbol === undefined) {
+      const sym = out.ticker ?? out.instrument ?? out.tickers;
+      if (typeof sym === 'string') out.symbol = sym;
+      else if (Array.isArray(sym) && typeof sym[0] === 'string') out.symbol = sym[0];
+    }
+    if (out.timeframe === undefined) {
+      const tf = out.interval ?? out.range ?? out.period;
+      if (typeof tf === 'string') out.timeframe = tf;
+    }
+    if (out.chartType === undefined) {
+      const ct = out.style ?? out.chart_type;
+      if (typeof ct === 'string') out.chartType = ct;
+    }
+    if (typeof out.timeframe === 'string') {
+      const mapped = TIMEFRAME_ALIASES[out.timeframe.trim().toLowerCase()];
+      if (mapped) out.timeframe = mapped;
+    }
+    if (typeof out.chartType === 'string') {
+      const mapped = FINANCIAL_CHART_TYPE_ALIASES[out.chartType.trim().toLowerCase()];
+      if (mapped) out.chartType = mapped;
+    }
   }
 
   if (type === 'workflow' && out.stages === undefined && Array.isArray(out.steps)) {
@@ -186,6 +293,18 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
     out.metrics = out.metrics.map((m) => {
       if (isRecord(m) && m.hint === undefined && m.note !== undefined) return { ...m, hint: m.note };
       return m;
+    });
+  }
+
+  if (type === 'gallery' && Array.isArray(out.images)) {
+    out.images = out.images.map((img) => {
+      if (!isRecord(img)) return img;
+      const next: Record<string, unknown> = { ...img };
+      if (next.url === undefined && next.imageUrl !== undefined) next.url = next.imageUrl;
+      if (next.alt === undefined && next.altText !== undefined) next.alt = next.altText;
+      if (next.sourceUrl === undefined && next.sourcePage !== undefined) next.sourceUrl = next.sourcePage;
+      if (next.sourceDomain === undefined && typeof next.domain === 'string') next.sourceDomain = next.domain;
+      return next;
     });
   }
 
@@ -633,6 +752,60 @@ const nodeGraphBlock = z.object({
   edges: z.array(diagramEdgeSchema).max(RESPONSE_LIMITS.maxDiagramEdges).default([]),
 });
 
+const learningResourceSchema = z.object({
+  resourceId: idString,
+  title: shortString,
+  url: httpUrl,
+  // The resource's own source type (video, course, documentation, repository…).
+  type: shortString.optional(),
+  author: shortString.optional(),
+  durationSeconds: z.number().int().nonnegative().optional(),
+  thumbnail: httpUrl.optional(),
+  cost: z.enum(['free', 'paid', 'unknown']).optional(),
+  // WHY this resource is recommended for the node (one short, honest sentence).
+  reason: boundedString.optional(),
+});
+
+const learningNodeSchema = z.object({
+  id: idString,
+  label: shortString,
+  level: z.enum(['beginner', 'intermediate', 'advanced', 'unspecified']).default('unspecified'),
+  group: shortString.optional(),
+  detail: boundedString.optional(),
+  objectives: z.array(shortString).max(20).default([]),
+  // Prerequisite skill ids (the edges of the curriculum DAG).
+  requires: z.array(idString).max(40).default([]),
+  resourceIds: z.array(idString).max(20).default([]),
+  exercises: z.array(shortString).max(20).default([]),
+  project: shortString.optional(),
+  assessment: boundedString.optional(),
+  milestone: shortString.optional(),
+  estimatedHours: z.number().nonnegative().optional(),
+  status: z.enum(['pending', 'in_progress', 'completed', 'skipped']).default('pending'),
+});
+
+// An interactive, prerequisite-aware learning roadmap rendered directly in the
+// chat. Unlike `node_graph` (read-only selectable nodes), each skill node carries
+// completion controls that PERSIST through `/api/learning/progress` when a
+// `pathId` is present, plus resource links, exercises and assessments. The
+// underlying curriculum is real data (built by the learning engine), never a
+// generated image.
+const learningMapBlock = z.object({
+  type: z.literal('learning_map'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  goal: shortString.optional(),
+  startLevel: z.enum(['beginner', 'intermediate', 'advanced', 'unspecified']).optional(),
+  targetCompetency: shortString.optional(),
+  // The persisted path id (enables real completion persistence).
+  pathId: idString.optional(),
+  nodes: z.array(learningNodeSchema).min(1).max(RESPONSE_LIMITS.maxLearningNodes),
+  resources: z.array(learningResourceSchema).max(RESPONSE_LIMITS.maxLearningResources).default([]),
+  // Non-fatal validation issues from the curriculum engine (gaps, missing
+  // assessments) — surfaced honestly rather than hidden.
+  issues: z.array(shortString).max(40).default([]),
+});
+
 const actionSchema = z.object({
   id: idString,
   label: shortString,
@@ -675,6 +848,33 @@ const artifactBlock = z.object({
   artifacts: z.array(artifactRefSchema).min(1).max(RESPONSE_LIMITS.maxArtifacts),
 });
 
+// ── Media: inline image gallery ────────────────────────────────────────────────
+// One image in the gallery. `url` is the direct, renderable image URL and MUST
+// be http(s) (the `httpUrl` refinement rejects `javascript:`/`data:` so an image
+// source can never become an XSS vector). `sourceUrl` is the attribution link.
+const galleryImageSchema = z.object({
+  url: httpUrl,
+  thumbnailUrl: httpUrl.optional(),
+  alt: shortString.optional(),
+  title: shortString.optional(),
+  caption: shortString.optional(),
+  sourceUrl: httpUrl.optional(),
+  sourceDomain: shortString.optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  attribution: shortString.optional(),
+});
+
+const galleryBlock = z.object({
+  type: z.literal('gallery'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  caption: shortString.optional(),
+  source: shortString.optional(),
+  columns: z.number().int().min(1).max(4).optional(),
+  images: z.array(galleryImageSchema).min(1).max(RESPONSE_LIMITS.maxImages),
+});
+
 /**
  * The discriminated union of every registered block type. Unknown `type` values
  * do NOT parse; the parser catches that and emits an `unknown` diagnostic block.
@@ -702,6 +902,8 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   nodeGraphBlock,
   actionGroupBlock,
   artifactBlock,
+  galleryBlock,
+  learningMapBlock,
 ]);
 
 /**
@@ -761,10 +963,15 @@ export type ReportBlock = z.infer<typeof reportBlock>;
 export type ReportSection = z.infer<typeof reportSectionSchema>;
 export type NodeGraphBlock = z.infer<typeof nodeGraphBlock>;
 export type NodeGraphNode = z.infer<typeof nodeGraphNodeSchema>;
+export type LearningMapBlock = z.infer<typeof learningMapBlock>;
+export type LearningNode = z.infer<typeof learningNodeSchema>;
+export type LearningResourceRef = z.infer<typeof learningResourceSchema>;
 export type ActionGroupBlock = z.infer<typeof actionGroupBlock>;
 export type ResponseAction = z.infer<typeof actionSchema>;
 export type ArtifactBlock = z.infer<typeof artifactBlock>;
 export type ArtifactRef = z.infer<typeof artifactRefSchema>;
+export type GalleryBlock = z.infer<typeof galleryBlock>;
+export type GalleryImage = z.infer<typeof galleryImageSchema>;
 
 /** A block whose type is not registered. Rendered as a readable diagnostic —
  *  never executed, never discarded silently. */

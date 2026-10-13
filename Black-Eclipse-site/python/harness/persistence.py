@@ -270,6 +270,10 @@ def default_db_path() -> str:
 _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "HarnessRun": [
         ("documents", "TEXT"),
+        # Internet image search: a bounded JSON blob of the run's validated,
+        # normalized image results for the chat's inline gallery. NULL when the
+        # run used no image tool, so existing clients stay compatible.
+        ("images", "TEXT"),
         ("promptTokens", "INTEGER NOT NULL DEFAULT 0"),
         ("completionTokens", "INTEGER NOT NULL DEFAULT 0"),
         ("totalTokens", "INTEGER NOT NULL DEFAULT 0"),
@@ -386,7 +390,7 @@ class AgentMemoryStore:
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
             "provider", "model", "startedAt", "finishedAt", "research", "memory",
-            "context", "codeVerification", "vision", "documents",
+            "context", "codeVerification", "vision", "documents", "images",
             "sessionId", "profileId", "projectId",
         }
         sets, params = [], []
@@ -395,7 +399,7 @@ class AgentMemoryStore:
                 continue
             value = patch[key]
             sets.append(f"{key} = ?")
-            if key in ("error", "research", "memory", "context", "codeVerification", "vision", "documents") and value is not None:
+            if key in ("error", "research", "memory", "context", "codeVerification", "vision", "documents", "images") and value is not None:
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -1354,6 +1358,7 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "codeVerification": json.loads(row["codeVerification"]) if _has_column(row, "codeVerification") and row["codeVerification"] else None,
         "vision": json.loads(row["vision"]) if _has_column(row, "vision") and row["vision"] else None,
         "documents": json.loads(row["documents"]) if _has_column(row, "documents") and row["documents"] else None,
+        "images": json.loads(row["images"]) if _has_column(row, "images") and row["images"] else None,
         "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
         "profileId": row["profileId"] if _has_column(row, "profileId") else None,
         "projectId": row["projectId"] if _has_column(row, "projectId") else None,

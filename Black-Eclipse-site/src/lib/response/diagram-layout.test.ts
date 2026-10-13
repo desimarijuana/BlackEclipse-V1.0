@@ -34,6 +34,25 @@ describe('layoutDiagram', () => {
     expect(layout.diagnostics.length).toBeGreaterThan(0);
   });
 
+  it('never lets one horizontal (LR) column overlap the next, even with wide labels', () => {
+    const layout = layoutDiagram(
+      diagram({
+        type: 'diagram',
+        direction: 'LR',
+        nodes: [
+          { id: 'a', label: 'A very long node label that is close to the maximum width' },
+          { id: 'b', label: 'Another equally long label sitting in the second column' },
+          { id: 'c', label: 'Third' },
+        ],
+        edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }],
+      }),
+    );
+    const byId = Object.fromEntries(layout.nodes.map((n) => [n.id, n]));
+    // Column 0 ends before column 1 begins; column 1 ends before column 2 begins.
+    expect(byId.a.x + byId.a.width).toBeLessThan(byId.b.x);
+    expect(byId.b.x + byId.b.width).toBeLessThan(byId.c.x);
+  });
+
   it('does not throw on a cyclic graph', () => {
     const layout = layoutDiagram(
       diagram({

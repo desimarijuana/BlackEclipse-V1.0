@@ -349,6 +349,13 @@ resume after a cancel is not instantly cancelled again.
   `web_providers.py` `ConnectorSearchProvider` registers `eclipse_academic`,
   `eclipse_image` and `eclipse_video`; the corresponding tools use their kind and
   fall back to plain web search only when the connector chain is unavailable.
+  **Image search is different from the other kinds:** the `image_search` bridge
+  capability returns the normalized `ImageSearchResult` contract (a *direct*
+  renderable image URL, not just a source page) via `lib/image-search.ts` — Brave
+  Images when `BRAVE_API_KEY` is set, else Openverse/Wikimedia Commons. The
+  Python `image_search` tool normalizes/validates and collects results into the
+  run's inline image gallery (`research/image_contracts.py`); see
+  `docs/interactive-response-engine.md`.
 - **Coverage method.** `_answered_questions` is layered and reports which layer
   ran (`coverageMethod`): `semantic` (embedding similarity, when an embedding
   runtime is available), `idf` (IDF-weighted term overlap — answers a

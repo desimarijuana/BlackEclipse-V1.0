@@ -50,6 +50,8 @@ export type HarnessUiEvent =
       vision?: unknown;
       /** Document Intelligence: the run's collected document results. */
       documents?: unknown;
+      /** Internet Image Search: the run's validated image results. */
+      images?: unknown;
     }
   | { kind: 'error'; message: string; code?: string }
   /** The run is blocked on an operator decision (approval card). */
@@ -306,6 +308,7 @@ export function normalizeHarnessEvent(
       capability: payload.capability ?? undefined,
       vision: payload.vision ?? undefined,
       documents: payload.documents ?? undefined,
+      images: payload.images ?? undefined,
     };
   }
 

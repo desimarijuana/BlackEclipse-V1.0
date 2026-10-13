@@ -33,8 +33,10 @@ import { DataTableBlock } from './data-table-block';
 import { DiagramBlock } from './diagram-block';
 import { ControlsBlock } from './controls-block';
 import { NodeGraphBlock } from './node-graph-block';
+import { LearningMapBlock } from './learning-map-block';
 import { MermaidBlock } from './mermaid-block';
 import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock, WorkflowBlock } from './rich-blocks';
+import { GalleryBlockView } from './gallery-block';
 import { ResponseActions } from './response-actions';
 
 // ECharts is ~1MB; only fetched when a chart block actually renders.
@@ -142,8 +144,12 @@ const REGISTRY = {
   workflow: (b: BlockOf<'workflow'>, ctx: RenderContext) => <WorkflowBlock block={b} onFollowup={ctx.onFollowup} />,
   report: (b: BlockOf<'report'>, ctx: RenderContext) => <ReportBlock block={b} renderBlocks={ctx.renderBlocks} />,
   node_graph: (b: BlockOf<'node_graph'>) => <NodeGraphBlock block={b} />,
+  learning_map: (b: BlockOf<'learning_map'>, ctx: RenderContext) => (
+    <LearningMapBlock block={b} onFollowup={ctx.onFollowup} />
+  ),
   action_group: (b: BlockOf<'action_group'>, ctx: RenderContext) => <ActionGroupBlock block={b} onFollowup={ctx.onFollowup} />,
   artifact: (b: BlockOf<'artifact'>) => <ArtifactBlock block={b} />,
+  gallery: (b: BlockOf<'gallery'>, ctx: RenderContext) => <GalleryBlockView block={b} compact={ctx.compact} />,
 } as const;
 
 type RegistryKey = keyof typeof REGISTRY;

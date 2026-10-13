@@ -1074,6 +1074,51 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 30 — the learning-research capability's durable slice of
+# eclipse-memory.db. A learner's roadmap, per-node progress, and durable
+# learning preferences live here — NOT in jdds.db (market data) and NOT in
+# agent-memory.db (run/event/tool traces). `CREATE TABLE IF NOT EXISTS` only.
+MIGRATIONS.append(
+    (
+        30,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS LearningPath (
+              id               TEXT PRIMARY KEY,
+              goal             TEXT NOT NULL,
+              startLevel       TEXT,
+              targetCompetency TEXT,
+              version          INTEGER NOT NULL DEFAULT 1,
+              status           TEXT NOT NULL DEFAULT 'active',
+              payload          TEXT NOT NULL,
+              createdAt        TEXT NOT NULL,
+              updatedAt        TEXT NOT NULL,
+              lastAccessedAt   TEXT
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS LearningNodeProgress (
+              id         TEXT PRIMARY KEY,
+              pathId     TEXT NOT NULL,
+              nodeId     TEXT NOT NULL,
+              status     TEXT NOT NULL DEFAULT 'pending',
+              assessment TEXT,
+              updatedAt  TEXT NOT NULL,
+              UNIQUE(pathId, nodeId)
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_learning_node_path ON LearningNodeProgress(pathId);",
+            """
+            CREATE TABLE IF NOT EXISTS LearningPreference (
+              key       TEXT PRIMARY KEY,
+              value     TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            """,
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

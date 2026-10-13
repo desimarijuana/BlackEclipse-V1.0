@@ -911,6 +911,8 @@ def _research_type(mandate: WebResearchMandate) -> str:
         return "news"
     if intent == "academic_research":
         return "academic"
+    if intent == "learning":
+        return "learning"
     return "default"
 
 

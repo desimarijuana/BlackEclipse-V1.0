@@ -327,10 +327,17 @@ def test_prompt_char_ceiling():
     timelines, citations, controls) — a genuinely new output capability that needs
     one guidance paragraph. Re-pinned to the measured size; it may only shrink
     from here.
+
+    Raised to 27445 by the Learning-Research capability: the agent may build a
+    prerequisite-aware learning path with `learning_path_build` and render it with
+    the interactive `learning_map` block (completion controls that persist) — a
+    genuinely new output capability that needs one guidance paragraph. (The
+    measured size had already drifted past the pin before this change; this
+    re-pins to the real, measured size and the ratchet bites again from here.)
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 26410, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 27445, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

@@ -13,6 +13,7 @@ import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import { VisionPanel } from './vision-panel';
+import { ImageGalleryPanel } from './image-gallery';
 import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
@@ -281,6 +282,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   ) : null}
                   {msg.vision ? (
                     <VisionPanel vision={msg.vision} compact={compact} />
+                  ) : null}
+                  {msg.images ? (
+                    <ImageGalleryPanel images={msg.images} compact={compact} />
                   ) : null}
                   {msg.documents ? (
                     <DocumentPanel documents={msg.documents} compact={compact} />
