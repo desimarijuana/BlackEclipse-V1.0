@@ -44,8 +44,11 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # 25217 for its one guidance paragraph; the Interactive Response Engine raised
     # it to 26410 for its `eclipse-response` guidance paragraph; the
     # Learning-Research capability raised it to 27445 for its `learning_map`
-    # guidance paragraph. It is re-pinned there and may only shrink from here.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 27445
+    # guidance paragraph; the website-style visual blocks (stat_hero, gauge,
+    # comparison_grid, ranked_list, badge_row, carousel) raised it to 27769 for
+    # their names + one guidance clause. It is re-pinned there and may only shrink
+    # from here.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 27769
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

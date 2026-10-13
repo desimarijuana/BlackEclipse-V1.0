@@ -334,10 +334,15 @@ def test_prompt_char_ceiling():
     genuinely new output capability that needs one guidance paragraph. (The
     measured size had already drifted past the pin before this change; this
     re-pins to the real, measured size and the ratchet bites again from here.)
+
+    Raised to 27769 by the website-style visual blocks: `stat_hero`, `gauge`,
+    `comparison_grid`, `ranked_list`, `badge_row` and `carousel` add six more
+    `eclipse-response` block names plus one guidance clause — a genuinely new
+    output capability. Re-pinned to the measured size; it may only shrink from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 27445, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 27769, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

@@ -122,13 +122,22 @@ diagnostic-backed empty response, never a throw.
 | | `report` | multi-section container; section `blocks` validated recursively |
 | Action | `action_group` | PROPOSED next steps; a click sends a follow-up prompt into the agent loop |
 | | `artifact` | a reference to the existing Artifact Center, linked to its download route |
+| Presentation | `stat_hero` | oversized headline number(s) (1–4) with unit + delta; the "at a glance" figure. Distinct from `metric_grid` (compact KPI cards). |
+| | `gauge` | progress meter: a `value` against a `max` (default 100) as a filled bar. The fill is clamped to `[0, max]` but the true value is always shown, so a clipped bar never lies. |
+| | `comparison_grid` | option × attribute matrix (pricing-table shape); a boolean cell renders a check/cross, otherwise its text. An optional `highlight` marks a column. |
+| | `ranked_list` | leaderboard of ranked bars scaled to the largest absolute value in the list (never a fabricated ceiling); order is the producer's rank order. |
+| | `badge_row` | a cluster of tag/pill badges (sectors, themes); `tone` maps to the shared palette, `icon` to the semantic allowlist. |
+| | `carousel` | a slide deck: each slide is a labelled panel of nested blocks (validated recursively, like `tabs`/`report`), one visible at a time with prev/next + dot navigation. A single slide renders without chrome. |
 | Layout | `tabs` | local tab switch; nested blocks validated recursively |
 
 **Aliases.** For producer convenience the documented synonyms `text`→`markdown`,
 `table`→`data_table`, `source_list`→`citations`, `interactive_form`→`controls`
 and `execution_timeline`→`timeline` are normalized to their canonical block in
 `normalizeBlockAlias` before validation, so the renderer only ever sees canonical
-types.
+types. The website-style family has matching synonyms: `stat`/`stats`→`stat_hero`,
+`progress`/`meter`→`gauge`, `comparison`→`comparison_grid`,
+`leaderboard`/`ranking`→`ranked_list`, `badges`→`badge_row` and
+`slides`→`carousel`.
 
 **Field-name synonyms** are normalized the same way, *after* the type alias, so a
 producer is not punished for naming a field naturally. `normalizeBlockFields`
@@ -348,6 +357,8 @@ composing placeholder.
 | BLOCK-002 | `node_graph` selectable graph (reuses layout engine) | `node-graph-block.tsx` | build/tsc | Verified |
 | BLOCK-003 | Spec-name aliases normalized to canonical blocks | `contract.ts` `normalizeBlockAlias` | contract-blocks.test.ts | Verified |
 | BLOCK-004 | Icon-driven connected `workflow` block (expandable stages, follow-up) | `contract.ts` + `rich-blocks.tsx` (`WorkflowBlock`) | contract-blocks.test.ts + render.test.tsx | Verified |
+| BLOCK-005 | Website-style visual blocks: `stat_hero`, `gauge`, `comparison_grid`, `ranked_list`, `badge_row`, `carousel` | `contract.ts` + `visual-blocks.tsx` + `response-view.tsx` REGISTRY | contract-blocks.test.ts + render.test.tsx | Verified |
+| BLOCK-006 | `carousel` nests blocks (recursively validated like `tabs`/`report`) | `contract.ts` `parseResponsePayload`/`parseNestedBlocks` | contract-blocks.test.ts + render.test.tsx | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
 | SEC-003 | Semantic icon allowlist (no component/import from model) | `lib/response/icons.ts` | contract-blocks.test.ts | Verified |
 

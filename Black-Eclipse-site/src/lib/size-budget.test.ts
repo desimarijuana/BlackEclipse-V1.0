@@ -75,6 +75,13 @@ const RATCHET: Record<string, number> = {
   // keep-alive block for the Bots (`bots`) tab, which mounts the ghost-avatar
   // bot manager. May only shrink from here.
   "src/components/screens/stock-chat.tsx": 1366,
+  // The Interactive Response contract is the ONE versioned zod boundary for every
+  // inline block. The website-style visual blocks (stat_hero, gauge,
+  // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard
+  // ceiling; pinned at its measured size. Standing split candidate: move the block
+  // schemas into `response/blocks/` modules, leaving the envelope + parser +
+  // validate here. May only shrink from here.
+  "src/lib/response/contract.ts": 1413,
 };
 
 export interface SizeEntry {

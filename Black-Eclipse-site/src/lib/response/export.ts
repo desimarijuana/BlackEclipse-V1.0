@@ -135,6 +135,37 @@ function tableStateFor(block: ValidatedBlock): PdfTableRow | null {
   if (block.type === 'timeline') {
     return { head: ['Time', 'Event', 'Detail'], body: block.events.map((e) => [e.time, e.title, e.description ?? '']) };
   }
+  if (block.type === 'stat_hero') {
+    return {
+      head: ['Statistic', 'Value', 'Delta'],
+      body: block.stats.map((s) => [
+        s.label,
+        s.unavailable ? 'UNAVAILABLE' : `${s.prefix ?? ''}${String(s.value)}${s.unit ?? ''}`,
+        s.delta != null ? String(s.delta) : '',
+      ]),
+    };
+  }
+  if (block.type === 'gauge') {
+    return {
+      head: ['Gauge', 'Value', 'Max'],
+      body: block.gauges.map((g) => [g.label, String(g.value), `${g.max}${g.unit ? ` ${g.unit}` : ''}`]),
+    };
+  }
+  if (block.type === 'ranked_list') {
+    return {
+      head: ['#', 'Item', block.valueLabel ?? 'Value'],
+      body: block.items.map((item, i) => [String(i + 1), item.label, item.display ?? `${item.value}${item.unit ? ` ${item.unit}` : ''}`]),
+    };
+  }
+  if (block.type === 'comparison_grid') {
+    return {
+      head: ['Attribute', ...block.columns.map((c) => c.label)],
+      body: block.rows.map((row) => [
+        row.label,
+        ...block.columns.map((_, c) => cellToText(row.values[c] ?? null)),
+      ]),
+    };
+  }
   return null;
 }
 
@@ -212,12 +243,20 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
       case 'data_table':
       case 'key_value':
       case 'citations':
-      case 'timeline': {
+      case 'timeline':
+      case 'stat_hero':
+      case 'gauge':
+      case 'ranked_list':
+      case 'comparison_grid': {
         const table = tableStateFor(block) as PdfTableRow;
         if (block.type === 'metric_grid' && block.title) heading(block.title, 12);
         if (block.type === 'data_table' && block.title) heading(block.title, 12);
         if (block.type === 'citations') heading(block.title ?? 'Sources', 12);
         if (block.type === 'timeline' && block.title) heading(block.title, 12);
+        if (block.type === 'stat_hero' && block.title) heading(block.title, 12);
+        if (block.type === 'gauge' && block.title) heading(block.title, 12);
+        if (block.type === 'ranked_list' && block.title) heading(block.title, 12);
+        if (block.type === 'comparison_grid' && block.title) heading(block.title, 12);
         autoTable(doc, {
           head: [table.head],
           body: table.body,
@@ -331,6 +370,22 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
           theme: 'striped',
         });
         y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+        break;
+      case 'badge_row': {
+        if (block.title) heading(block.title, 12);
+        paragraph(block.badges.map((b) => b.label).join(' · '));
+        y += 6;
+        break;
+      }
+      case 'carousel':
+        if (block.title) heading(block.title, 12);
+        block.slides.forEach((slide, i) => {
+          paragraph(`${i + 1}. ${slide.label ?? slide.title ?? `Slide ${i + 1}`}`);
+          if (slide.blocks && slide.blocks.length) {
+            missing.push(`carousel slide ${i + 1} contains nested blocks; open the app for the full render`);
+          }
+        });
+        y += 4;
         break;
       default:
         missing.push(`block "${(block as { type: string }).type}" has no PDF representation`);

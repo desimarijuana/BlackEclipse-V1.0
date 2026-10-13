@@ -44,6 +44,13 @@ export const RESPONSE_LIMITS = {
   maxArtifacts: 24,
   maxImages: 24,
   maxWorkflowStages: 40,
+  maxStats: 4,
+  maxGauges: 24,
+  maxCompareColumns: 6,
+  maxCompareRows: 60,
+  maxRankedItems: 50,
+  maxBadges: 60,
+  maxSlides: 12,
   maxLearningNodes: 120,
   maxLearningResources: 200,
   maxMetadataKeys: 40,
@@ -64,6 +71,15 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
   source_list: 'citations',
   interactive_form: 'controls',
   execution_timeline: 'timeline',
+  stat: 'stat_hero',
+  stats: 'stat_hero',
+  progress: 'gauge',
+  meter: 'gauge',
+  comparison: 'comparison_grid',
+  leaderboard: 'ranked_list',
+  ranking: 'ranked_list',
+  badges: 'badge_row',
+  slides: 'carousel',
 };
 
 /**
@@ -173,6 +189,26 @@ function normalizeChartPoints(value: unknown): unknown {
     const scalar = p.value ?? p.y ?? p.count;
     if (typeof scalar === 'number') return scalar;
     return null;
+  });
+}
+
+/** A comparison grid may supply `columns` as bare strings or `{name}`; the contract wants `{ label }`. */
+function normalizeComparisonColumns(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((col, i) => {
+    if (typeof col === 'string') return { label: col || `Option ${i + 1}` };
+    if (isRecord(col)) {
+      const label =
+        typeof col.label === 'string' && col.label
+          ? col.label
+          : typeof col.name === 'string' && col.name
+            ? col.name
+            : typeof col.title === 'string' && col.title
+              ? col.title
+              : `Option ${i + 1}`;
+      return { ...col, label };
+    }
+    return col;
   });
 }
 
@@ -306,6 +342,47 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
       if (next.sourceDomain === undefined && typeof next.domain === 'string') next.sourceDomain = next.domain;
       return next;
     });
+  }
+
+  if (type === 'stat_hero') {
+    if (out.stats === undefined) {
+      const alt = out.metrics ?? out.items ?? out.stats;
+      if (alt !== undefined) out.stats = alt;
+    }
+    out.stats = normalizeLabeledItems(out.stats);
+  }
+
+  if (type === 'gauge') {
+    if (out.gauges === undefined) {
+      const alt = out.items ?? out.bars ?? out.gauges;
+      if (alt !== undefined) out.gauges = alt;
+    }
+    out.gauges = normalizeLabeledItems(out.gauges);
+  }
+
+  if (type === 'comparison_grid') {
+    out.columns = normalizeComparisonColumns(out.columns);
+  }
+
+  if (type === 'ranked_list') {
+    if (out.items === undefined) {
+      const alt = out.entries ?? out.items;
+      if (alt !== undefined) out.items = alt;
+    }
+    out.items = normalizeLabeledItems(out.items);
+  }
+
+  if (type === 'badge_row') {
+    if (out.badges === undefined) {
+      const alt = out.items ?? out.badges;
+      if (alt !== undefined) out.badges = alt;
+    }
+    out.badges = normalizeLabeledItems(out.badges);
+  }
+
+  if (type === 'carousel' && out.slides === undefined) {
+    const alt = out.items ?? out.tabs;
+    if (alt !== undefined) out.slides = alt;
   }
 
   return out;
@@ -875,6 +952,138 @@ const galleryBlock = z.object({
   images: z.array(galleryImageSchema).min(1).max(RESPONSE_LIMITS.maxImages),
 });
 
+// ── Website-style visual blocks ────────────────────────────────────────────────
+// A family of presentational "figure" blocks that give an answer the rhythm of a
+// data website: a hero number, meters, a comparison matrix, a ranked bar list, a
+// badge cluster and a slide carousel. All are pure validation + rendering — no
+// field triggers code, a tool call, or a network request.
+
+// A large, emphasized headline number (with optional delta) — the "hero" statistic
+// of an answer. Distinct from `metric_grid` (a compact KPI card grid): a stat hero
+// is deliberately one to four oversized numbers with supporting context.
+const statHeroStatSchema = z.object({
+  label: shortString,
+  value: numberOrNumericString,
+  unit: shortString.optional(),
+  prefix: shortString.optional(),
+  delta: numberOrNumericString.optional(),
+  deltaTone: z.enum(['up', 'down', 'flat', 'neutral']).optional(),
+  icon: shortString.optional(),
+  hint: shortString.optional(),
+  unavailable: z.boolean().optional(),
+});
+
+const statHeroBlock = z.object({
+  type: z.literal('stat_hero'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  source: shortString.optional(),
+  asOf: shortString.optional(),
+  stats: z.array(statHeroStatSchema).min(1).max(RESPONSE_LIMITS.maxStats),
+});
+
+// A progress meter / gauge: a value rendered against a `max` as a filled bar.
+// The renderer clamps the fill to [0, max] rather than inventing a value; the
+// numeric value is always displayed, so a clipped bar never lies.
+const gaugeSchema = z.object({
+  label: shortString,
+  value: z.number().finite(),
+  max: z.number().finite().positive().default(100),
+  unit: shortString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  hint: shortString.optional(),
+});
+
+const gaugeBlock = z.object({
+  type: z.literal('gauge'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  gauges: z.array(gaugeSchema).min(1).max(RESPONSE_LIMITS.maxGauges),
+});
+
+// A comparison matrix (pricing-table shape): options become columns, attributes
+// become rows. A cell is a check/cross when boolean, otherwise its text value.
+const comparisonColumnSchema = z.object({
+  label: shortString,
+  highlight: z.boolean().optional(),
+});
+
+const comparisonCellSchema = z.union([
+  z.boolean(),
+  z.string().max(500),
+  z.number().finite(),
+  z.null(),
+]);
+
+const comparisonRowSchema = z.object({
+  label: shortString,
+  values: z.array(comparisonCellSchema).max(RESPONSE_LIMITS.maxCompareColumns),
+  hint: shortString.optional(),
+});
+
+const comparisonGridBlock = z.object({
+  type: z.literal('comparison_grid'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  caption: shortString.optional(),
+  columns: z.array(comparisonColumnSchema).min(1).max(RESPONSE_LIMITS.maxCompareColumns),
+  rows: z.array(comparisonRowSchema).min(1).max(RESPONSE_LIMITS.maxCompareRows),
+});
+
+// A leaderboard / ranked bar list. Bars are scaled to the largest absolute value
+// in the list (never to a fabricated ceiling). Order is the producer's rank order.
+const rankedItemSchema = z.object({
+  label: shortString,
+  value: z.number().finite(),
+  display: shortString.optional(),
+  unit: shortString.optional(),
+  icon: shortString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+});
+
+const rankedListBlock = z.object({
+  type: z.literal('ranked_list'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  valueLabel: shortString.optional(),
+  items: z.array(rankedItemSchema).min(1).max(RESPONSE_LIMITS.maxRankedItems),
+});
+
+// A cluster of tag/pill badges — sectors, themes, labels. Tone maps to the shared
+// tone palette; an optional icon is resolved against the semantic allowlist.
+const badgeSchema = z.object({
+  label: shortString,
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  icon: shortString.optional(),
+});
+
+const badgeRowBlock = z.object({
+  type: z.literal('badge_row'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  badges: z.array(badgeSchema).min(1).max(RESPONSE_LIMITS.maxBadges),
+});
+
+// A slide carousel: each slide is a labelled panel of nested blocks (validated
+// recursively by the parser, like `tabs`/`report`). One slide is visible at a
+// time with prev/next + dot navigation; a single-slide carousel renders plain.
+const carouselSlideSchema = z.object({
+  label: shortString.optional(),
+  title: shortString.optional(),
+  blocks: z.array(z.unknown()),
+});
+
+const carouselBlock = z.object({
+  type: z.literal('carousel'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  slides: z.array(carouselSlideSchema).min(1).max(RESPONSE_LIMITS.maxSlides),
+});
+
 /**
  * The discriminated union of every registered block type. Unknown `type` values
  * do NOT parse; the parser catches that and emits an `unknown` diagnostic block.
@@ -904,6 +1113,12 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   artifactBlock,
   galleryBlock,
   learningMapBlock,
+  statHeroBlock,
+  gaugeBlock,
+  comparisonGridBlock,
+  rankedListBlock,
+  badgeRowBlock,
+  carouselBlock,
 ]);
 
 /**
@@ -972,6 +1187,19 @@ export type ArtifactBlock = z.infer<typeof artifactBlock>;
 export type ArtifactRef = z.infer<typeof artifactRefSchema>;
 export type GalleryBlock = z.infer<typeof galleryBlock>;
 export type GalleryImage = z.infer<typeof galleryImageSchema>;
+export type StatHeroBlock = z.infer<typeof statHeroBlock>;
+export type StatHeroStat = z.infer<typeof statHeroStatSchema>;
+export type GaugeBlock = z.infer<typeof gaugeBlock>;
+export type Gauge = z.infer<typeof gaugeSchema>;
+export type ComparisonGridBlock = z.infer<typeof comparisonGridBlock>;
+export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>;
+export type ComparisonRow = z.infer<typeof comparisonRowSchema>;
+export type RankedListBlock = z.infer<typeof rankedListBlock>;
+export type RankedItem = z.infer<typeof rankedItemSchema>;
+export type BadgeRowBlock = z.infer<typeof badgeRowBlock>;
+export type Badge = z.infer<typeof badgeSchema>;
+export type CarouselBlock = z.infer<typeof carouselBlock>;
+export type CarouselSlide = z.infer<typeof carouselSlideSchema>;
 
 /** A block whose type is not registered. Rendered as a readable diagnostic —
  *  never executed, never discarded silently. */
@@ -1112,6 +1340,13 @@ export function parseResponsePayload(input: unknown): ParsedResponse {
         blocks: section.blocks ? parseNestedBlocks(section.blocks, 1, diagnostics) : undefined,
       }));
     }
+    if (block.type === 'carousel') {
+      const nested = block as z.infer<typeof carouselBlock>;
+      nested.slides = nested.slides.map((slide) => ({
+        ...slide,
+        blocks: parseNestedBlocks(slide.blocks, 1, diagnostics),
+      }));
+    }
     blocks.push(block);
   });
 
@@ -1164,6 +1399,13 @@ export function parseNestedBlocks(
       block.sections = block.sections.map((section) => ({
         ...section,
         blocks: section.blocks ? parseNestedBlocks(section.blocks, depth + 1, out) : undefined,
+      }));
+    }
+    if (block.type === 'carousel') {
+      const nested = block as z.infer<typeof carouselBlock>;
+      nested.slides = nested.slides.map((slide) => ({
+        ...slide,
+        blocks: parseNestedBlocks(slide.blocks, depth + 1, out),
       }));
     }
     return block;

@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-12
 
+- **Website-style visual blocks in chat.** Six new `eclipse-response` block
+  types give an answer the rhythm of a data website: `stat_hero` (oversized
+  headline numbers), `gauge` (progress meters), `comparison_grid`
+  (option × attribute check/cross matrix), `ranked_list` (leaderboard bars scaled
+  to the list's own max), `badge_row` (tag/pill clusters) and `carousel` (a slide
+  deck of recursively-validated nested blocks). Added zod schemas + limits +
+  type/field aliases (`stat`/`stats`, `progress`/`meter`, `comparison`,
+  `leaderboard`/`ranking`, `badges`, `slides`) and carousel nesting in
+  `src/lib/response/contract.ts`; new `src/components/response/visual-blocks.tsx`;
+  registry entries in `response-view.tsx`; PDF fallbacks in
+  `src/lib/response/export.ts`. Producer prompt updated with the new block names +
+  one guidance clause (ceiling re-pinned 27445 → 27769). No fabricated data: bars
+  clamp visually but always show the true value, and `unavailable` is honored.
+  Tests: `contract-blocks.test.ts`, `render.test.tsx`. docs updated:
+  `docs/interactive-response-engine.md`, `python/tests/test_memory_tools.py`,
+  `python/tests/test_phase_s_stabilization.py`.
+
 - **Diagrams and charts render instead of failing.** Three producer-vs-renderer
   mismatches were breaking real answers: (1) `key_value` items written with
   `key`, `chart` series written with `points` (`{x,y}` objects) and

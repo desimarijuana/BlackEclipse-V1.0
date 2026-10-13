@@ -429,6 +429,182 @@ describe('new rich blocks', () => {
   });
 });
 
+describe('website-style visual blocks', () => {
+  it('validates a stat_hero with hero numbers and a delta', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'stat_hero',
+          title: 'At a glance',
+          stats: [
+            { label: 'AUM', value: 4200000, prefix: '$', delta: 3.2, deltaTone: 'up' },
+            { label: 'Drawdown', value: 'UNAVAILABLE', unavailable: true },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('stat_hero');
+    if (block.type === 'stat_hero') {
+      expect(block.stats[0].value).toBe(4200000);
+      expect(block.stats[1].unavailable).toBe(true);
+    }
+  });
+
+  it('maps the `stats`/`stat` alias onto stat_hero and labels from `name`', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'stat', stats: [{ name: 'Sharpe', value: 1.8 }] }],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('stat_hero');
+    if (block.type === 'stat_hero') expect(block.stats[0].label).toBe('Sharpe');
+  });
+
+  it('validates a gauge and defaults max to 100 + tone to neutral', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'gauge', gauges: [{ label: 'Risk budget used', value: 62 }] }],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('gauge');
+    if (block.type === 'gauge') {
+      expect(block.gauges[0].max).toBe(100);
+      expect(block.gauges[0].tone).toBe('neutral');
+    }
+  });
+
+  it('maps the `progress` alias and `items` field onto a gauge', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'progress', items: [{ key: 'Completion', value: 40, max: 50 }] }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('gauge');
+    if (block.type === 'gauge') expect(block.gauges[0].label).toBe('Completion');
+  });
+
+  it('validates a comparison_grid and normalizes string columns', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'comparison_grid',
+          columns: ['Spot', { name: 'Futures', highlight: true }],
+          rows: [
+            { label: 'Leverage', values: [false, true] },
+            { label: 'Fee', values: ['0.10%', '0.05%'] },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('comparison_grid');
+    if (block.type === 'comparison_grid') {
+      expect(block.columns.map((c) => c.label)).toEqual(['Spot', 'Futures']);
+      expect(block.columns[1].highlight).toBe(true);
+      expect(block.rows[0].values).toEqual([false, true]);
+    }
+  });
+
+  it('validates a ranked_list and preserves producer order', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'ranked_list',
+          valueLabel: 'Return %',
+          items: [
+            { label: 'BTC', value: 42.1 },
+            { label: 'ETH', value: 18.4 },
+            { label: 'SOL', value: 9.2 },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('ranked_list');
+    if (block.type === 'ranked_list') expect(block.items.map((i) => i.label)).toEqual(['BTC', 'ETH', 'SOL']);
+  });
+
+  it('maps the `leaderboard` alias onto ranked_list', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'leaderboard', entries: [{ name: 'NVDA', value: 120 }] }],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('ranked_list');
+    if (block.type === 'ranked_list') expect(block.items[0].label).toBe('NVDA');
+  });
+
+  it('validates a badge_row with tone + icon keys', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'badge_row',
+          badges: [
+            { label: 'AI', tone: 'info', icon: 'cpu' },
+            { label: 'Semis' },
+            { label: 'Energy', tone: 'warning' },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('badge_row');
+    if (block.type === 'badge_row') {
+      expect(block.badges).toHaveLength(3);
+      expect(block.badges[1].tone).toBe('neutral');
+    }
+  });
+
+  it('validates a carousel and recursively validates its nested slide blocks', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'carousel',
+          title: 'Scenarios',
+          slides: [
+            { label: 'Base', blocks: [{ type: 'markdown', markdown: 'base case' }] },
+            { label: 'Stress', blocks: [{ type: 'bogus' }] },
+          ],
+        },
+      ],
+    });
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('carousel');
+    if (block.type === 'carousel') {
+      expect((block.slides[0].blocks as { type: string }[])[0].type).toBe('markdown');
+      expect((block.slides[1].blocks as { type: string }[])[0].type).toBe('unknown');
+    }
+    expect(parsed.diagnostics.some((d) => d.code === 'BLOCK_INVALID')).toBe(true);
+  });
+
+  it('maps the `slides` alias and `items` field onto a carousel', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'slides', items: [{ title: 'One', blocks: [{ type: 'markdown', markdown: 'x' }] }] }],
+    });
+    expect(parsed.blocks[0].type).toBe('carousel');
+  });
+
+  it('rejects an oversized ranked_list without losing sibling blocks', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'ranked_list', items: Array.from({ length: RESPONSE_LIMITS.maxRankedItems + 1 }, (_, i) => ({ label: `l${i}`, value: i })) },
+        { type: 'markdown', markdown: 'survivor' },
+      ],
+    });
+    expect(parsed.blocks[0].type).toBe('unknown');
+    expect(parsed.blocks[1].type).toBe('markdown');
+  });
+
+  it('never throws on the new block types', () => {
+    for (const raw of [{ type: 'stat_hero' }, { type: 'gauge' }, { type: 'comparison_grid' }, { type: 'ranked_list' }, { type: 'badge_row' }, { type: 'carousel' }]) {
+      expect(() => validateBlock(raw)).not.toThrow();
+    }
+  });
+});
+
 describe('link scheme safety', () => {
   it('rejects a javascript: URL in citations (block degrades, not executed)', () => {
     const parsed = parseResponsePayload({

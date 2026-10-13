@@ -37,6 +37,14 @@ import { LearningMapBlock } from './learning-map-block';
 import { MermaidBlock } from './mermaid-block';
 import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock, WorkflowBlock } from './rich-blocks';
 import { GalleryBlockView } from './gallery-block';
+import {
+  BadgeRowBlock,
+  CarouselBlock,
+  ComparisonGridBlock,
+  GaugeBlock,
+  RankedListBlock,
+  StatHeroBlock,
+} from './visual-blocks';
 import { ResponseActions } from './response-actions';
 
 // ECharts is ~1MB; only fetched when a chart block actually renders.
@@ -150,6 +158,12 @@ const REGISTRY = {
   action_group: (b: BlockOf<'action_group'>, ctx: RenderContext) => <ActionGroupBlock block={b} onFollowup={ctx.onFollowup} />,
   artifact: (b: BlockOf<'artifact'>) => <ArtifactBlock block={b} />,
   gallery: (b: BlockOf<'gallery'>, ctx: RenderContext) => <GalleryBlockView block={b} compact={ctx.compact} />,
+  stat_hero: (b: BlockOf<'stat_hero'>) => <StatHeroBlock block={b} />,
+  gauge: (b: BlockOf<'gauge'>) => <GaugeBlock block={b} />,
+  comparison_grid: (b: BlockOf<'comparison_grid'>) => <ComparisonGridBlock block={b} />,
+  ranked_list: (b: BlockOf<'ranked_list'>) => <RankedListBlock block={b} />,
+  badge_row: (b: BlockOf<'badge_row'>) => <BadgeRowBlock block={b} />,
+  carousel: (b: BlockOf<'carousel'>, ctx: RenderContext) => <CarouselBlock block={b} renderBlocks={ctx.renderBlocks} />,
 } as const;
 
 type RegistryKey = keyof typeof REGISTRY;

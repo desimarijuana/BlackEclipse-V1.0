@@ -21,6 +21,14 @@ import { DataTableBlock } from './data-table-block';
 import { DiagramBlock } from './diagram-block';
 import { StepperBlock, InfographicBlock, ActionGroupBlock, ArtifactBlock } from './rich-blocks';
 import { NodeGraphBlock } from './node-graph-block';
+import {
+  BadgeRowBlock,
+  CarouselBlock,
+  ComparisonGridBlock,
+  GaugeBlock,
+  RankedListBlock,
+  StatHeroBlock,
+} from './visual-blocks';
 
 const html = (node: ReactElement): string => renderToStaticMarkup(node);
 
@@ -170,6 +178,134 @@ describe('block rendering', () => {
     );
     expect(out).toContain('report.pdf');
     expect(out).toContain('/api/artifacts/abc/download');
+  });
+});
+
+describe('website-style visual blocks', () => {
+  it('renders a stat hero with a large number and an UNAVAILABLE chip', () => {
+    const out = html(
+      <StatHeroBlock
+        block={{
+          type: 'stat_hero',
+          title: 'At a glance',
+          stats: [
+            { label: 'Return', value: 41.2, unit: '%', delta: 41.2, deltaTone: 'up' },
+            { label: 'Beta', value: 'UNAVAILABLE', unavailable: true },
+          ],
+        }}
+      />,
+    );
+    expect(out).toContain('At a glance');
+    expect(out).toContain('Return');
+    expect(out).toContain('41.2');
+    expect(out).toContain('UNAVAILABLE');
+  });
+
+  it('renders a gauge as a clamped progress bar that displays the true value', () => {
+    const out = html(
+      <GaugeBlock
+        block={{
+          type: 'gauge',
+          gauges: [
+            { label: 'Risk budget', value: 62, max: 100, unit: '%', tone: 'warning' },
+            { label: 'Leverage', value: 150, max: 100, tone: 'danger' },
+          ],
+        }}
+      />,
+    );
+    expect(out).toContain('role="progressbar"');
+    expect(out).toContain('aria-valuenow="150"');
+    expect(out).toContain('width:100%');
+    expect(out).toContain('Risk budget');
+  });
+
+  it('renders a comparison grid with a check, a cross and text cells', () => {
+    const out = html(
+      <ComparisonGridBlock
+        block={{
+          type: 'comparison_grid',
+          title: 'Spot vs Futures',
+          columns: [{ label: 'Spot' }, { label: 'Futures', highlight: true }],
+          rows: [
+            { label: 'Leverage', values: [false, true] },
+            { label: 'Fee', values: ['0.10%', '0.05%'] },
+          ],
+        }}
+      />,
+    );
+    expect(out).toContain('Spot vs Futures');
+    expect(out).toContain('aria-label="yes"');
+    expect(out).toContain('aria-label="no"');
+    expect(out).toContain('0.05%');
+  });
+
+  it('renders a ranked list with rank order and scaled bars', () => {
+    const out = html(
+      <RankedListBlock
+        block={{
+          type: 'ranked_list',
+          title: 'Top movers',
+          valueLabel: 'Return %',
+          items: [
+            { label: 'BTC', value: 42.1, tone: 'neutral' },
+            { label: 'ETH', value: 18.4, tone: 'neutral' },
+          ],
+        }}
+      />,
+    );
+    expect(out).toContain('Top movers');
+    expect(out).toContain('BTC');
+    expect(out).toContain('42.1');
+    expect(out.indexOf('BTC')).toBeLessThan(out.indexOf('ETH'));
+  });
+
+  it('renders a badge row with resolved icons', () => {
+    const out = html(
+      <BadgeRowBlock
+        block={{
+          type: 'badge_row',
+          badges: [{ label: 'AI', tone: 'info', icon: 'cpu' }, { label: 'Energy', tone: 'warning' }],
+        }}
+      />,
+    );
+    expect(out).toContain('AI');
+    expect(out).toContain('Energy');
+    expect(out).toContain('<svg');
+  });
+
+  it('renders a carousel through the registry with nested blocks and navigation', () => {
+    const out = view({
+      blocks: [
+        {
+          type: 'carousel',
+          title: 'Scenarios',
+          slides: [
+            { label: 'Base', blocks: [{ type: 'markdown', markdown: 'BASE case text' }] },
+            { label: 'Stress', blocks: [{ type: 'markdown', markdown: 'STRESS case text' }] },
+          ],
+        },
+      ],
+    });
+    expect(out).toContain('Scenarios');
+    expect(out).toContain('BASE case text');
+    expect(out).toContain('aria-label="Next slide"');
+    expect(out).toContain('aria-label="Previous slide"');
+    expect(out).not.toContain('Unsupported block type');
+  });
+
+  it('renders a single-slide carousel without navigation chrome', () => {
+    const out = html(
+      <CarouselBlock
+        block={{ type: 'carousel', slides: [{ label: 'Only', blocks: [] }] }}
+        renderBlocks={() => null}
+      />,
+    );
+    expect(out).not.toContain('Next slide');
+  });
+
+  it('does not crash on an unknown icon key', () => {
+    const out = view({ blocks: [{ type: 'badge_row', badges: [{ label: 'Fallback', icon: 'not-real' }] }] });
+    expect(out).toContain('Fallback');
   });
 });
 
