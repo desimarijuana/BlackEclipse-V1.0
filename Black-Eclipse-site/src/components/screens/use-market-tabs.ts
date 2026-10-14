@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { fetchWithRetry, logHandledFetchFailure } from '@/lib/fetch-retry';
 
 // ── Forex & Commodities tabs ────────────────────────────────────────────────
 // Extracted from market-overview.tsx (memory/simplicity standing goal): each
@@ -44,13 +45,13 @@ export function useForex(active: boolean, setLoadingTab: (v: boolean) => void) {
     (async () => {
       setLoadingForex(true);
       try {
-        const res = await fetch('/api/forex');
+        const res = await fetchWithRetry('/api/forex');
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.pairs)) {
           setForexPairs(data.pairs);
         }
       } catch (err) {
-        console.error('Failed to load forex pairs', err);
+        logHandledFetchFailure('Failed to load forex pairs', err);
       } finally {
         if (!cancelled) setLoadingForex(false);
         setLoadingTab(false);
@@ -119,13 +120,13 @@ export function useCommodities(active: boolean, setLoadingTab: (v: boolean) => v
     (async () => {
       setLoadingCommodities(true);
       try {
-        const res = await fetch('/api/commodities');
+        const res = await fetchWithRetry('/api/commodities');
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.commodities)) {
           setCommodities(data.commodities);
         }
       } catch (err) {
-        console.error('Failed to load commodities', err);
+        logHandledFetchFailure('Failed to load commodities', err);
       } finally {
         if (!cancelled) setLoadingCommodities(false);
         setLoadingTab(false);

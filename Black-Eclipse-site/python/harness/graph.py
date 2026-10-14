@@ -314,8 +314,7 @@ def surface_disabled_tools(settings: Optional[dict[str, Any]]) -> set[str]:
 
         disabled.update(_SCHEDULING)
     if not bool(settings.get("acquisition_enabled", False)):
-        # Phase 16 (first slice): bulk collection is off until the operator turns
-        # it on — the same convention as scheduling and session history.
+        # Phase 16 slice: bulk collection is off until the operator turns it on.
         from .acquire.tools import TOOL_NAMES as _ACQUIRE  # noqa: PLC0415
 
         disabled.update(_ACQUIRE)

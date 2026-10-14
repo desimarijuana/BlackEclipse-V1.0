@@ -174,6 +174,26 @@ validates; the renderer then shows an explicit UNAVAILABLE state with the
 producer's `description`/`caption` explanation instead of an empty or fabricated
 figure.
 
+### Producer read-back: schema lookup + pre-send validation
+
+The producer does not have to infer field names. Two read-only tools, backed by
+the LIVE zod contract through the bridge (`response_contract` capability in
+`src/lib/harness/response-bridge.ts`), are bound to Eclipse:
+
+- `response_block_schema` — the exact field names for any block type (optional
+  fields marked, array item fields included). Derived from `ResponseBlockSchema`
+  at runtime, so it cannot drift from the renderer.
+- `response_validate` — runs the renderer's OWN parser over a drafted answer
+  (a full message containing the `eclipse-response` fence, or the bare JSON) and
+  returns per-block errors (wrong field name, invalid value, malformed JSON) so a
+  drifted block is fixed in-turn, before the answer is sent.
+
+Both are read-only and low-risk; a missing bridge reports UNAVAILABLE honestly.
+This is the answer to "the model can write into a format it cannot verify": the
+format is now queryable and checkable before emission. It does not replace the
+consumer-side leniency above — normalization still catches drift the model never
+checked.
+
 **Mermaid repair.** Mermaid is producer-authored text, and Mermaid v12 rejects
 small slips that a model makes routinely. Before rendering, `mermaid-repair.ts`
 (a pure, total, tested function) conservatively patches the observed cases — it
@@ -392,7 +412,8 @@ composing placeholder.
 | BLOCK-004 | Icon-driven connected `workflow` block (expandable stages, follow-up) | `contract.ts` + `rich-blocks.tsx` (`WorkflowBlock`) | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-005 | Website-style visual blocks: `stat_hero`, `gauge`, `comparison_grid`, `ranked_list`, `badge_row`, `carousel` | `contract.ts` + `visual-blocks.tsx` + `response-view.tsx` REGISTRY | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-006 | `carousel` nests blocks (recursively validated like `tabs`/`report`) | `contract.ts` `parseResponsePayload`/`parseNestedBlocks` | contract-blocks.test.ts + render.test.tsx | Verified |
-| BLOCK-007 | Field leniency (`body`, `chart_type`, 500-char `key_value` values) + block-level `unavailable` figures | `normalize.ts` + `visual-blocks.tsx` UNAVAILABLE state | contract-blocks.test.ts | Verified |
+| BLOCK-007 | Field leniency (`body`, `chart_type`, 500-char `key_value` values, bare-string badges) + block-level `unavailable` figures | `normalize.ts` + `visual-blocks.tsx` UNAVAILABLE state | contract-blocks.test.ts | Verified |
+| BLOCK-008 | Producer read-back: exact block schema + pre-send validation (bridge capability `response_contract`) | `src/lib/harness/response-bridge.ts` + `python/harness/response_tools.py` | response-bridge.test.ts + test_response_tools.py | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
 | SEC-003 | Semantic icon allowlist (no component/import from model) | `lib/response/icons.ts` | contract-blocks.test.ts | Verified |
 

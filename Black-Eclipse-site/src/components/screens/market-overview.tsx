@@ -34,6 +34,7 @@ import { currencyCodeFor as currencyFor } from '@/lib/market-currency';
 import { marketDisplayName } from '@/lib/markets';
 import { resolveUserMarket, setUserMarket } from '@/lib/user-market';
 import { marketSentimentFromIndices } from '@/lib/aurora-sentiment';
+import { fetchWithRetry, logHandledFetchFailure } from '@/lib/fetch-retry';
 
 // Pure formatting helpers live in @/lib/screener/format (extracted to keep this
 // file small). Currency rules: dollar assets keep "$", everything else shows
@@ -529,7 +530,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       try {
         // The Markets/GLOBAL overview still needs index cards + sectors +
         // shifters — it just scopes the screener table to US by default.
-        const res = await fetch(`/api/indices?market=${encodeURIComponent(qc)}`);
+        const res = await fetchWithRetry(`/api/indices?market=${encodeURIComponent(qc)}`);
         const data = await res.json();
         if (cancelled || !data) return false;
         if (Array.isArray(data.indices) && data.indices.length > 0) {
@@ -562,7 +563,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         }
         return true;
       } catch (err) {
-        console.error('Failed to load dashboard metrics:', err);
+        logHandledFetchFailure('Failed to load dashboard metrics:', err);
         return false;
       }
     };
@@ -611,14 +612,14 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     params.set('dir', stockSortOrder);
 
     try {
-      const res = await fetch(`/api/stocks?${params.toString()}`);
+      const res = await fetchWithRetry(`/api/stocks?${params.toString()}`);
       const data = await res.json();
       if (data && data.stocks && data.stocks.length > 0) {
         return { stocks: data.stocks, total: data.pagination?.total ?? data.stocks.length, filterOptions: data.filterOptions };
       }
       return null;
     } catch (err) {
-      console.error('Failed to load from JDBC, using demo:', err);
+      logHandledFetchFailure('Failed to load from JDBC, using demo:', err);
       return null;
     }
   }, [getQueryCountry, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterDividendYield, stockSearch, stockSortField, stockSortOrder]);
@@ -691,7 +692,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         });
       }
     } catch (err) {
-      console.error('Failed to load from JD, using demo:', err);
+      logHandledFetchFailure('Failed to load from JD, using demo:', err);
       if (!silent && apiStocks.length === 0) fallbackToDemo(qc);
       finishTableLoader();
     } finally {
@@ -794,7 +795,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   } = useGlobalMarkets(screenerTab === 'markets');
 
 
-
   // Demo fallback rows are placeholders — all prices/changes are zero (never
   // present simulated values as market data). The UI renders them as "—".
   function getFallbackStocks(country: string): StockItem[] {
@@ -861,7 +861,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         // push them server-side so pagination counts the full universe.
         if (filterChange !== 'All') params.set('change', filterChange);
         if (filterPrice !== 'All') params.set('price', filterPrice);
-        const res = await fetch(`/api/stocks?${params.toString()}`);
+        const res = await fetchWithRetry(`/api/stocks?${params.toString()}`);
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.stocks)) {
           const mapped: ETFItem[] = (data.stocks as Array<Record<string, unknown>>).map(s => ({
@@ -878,7 +878,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           setTotalEtfs(data.pagination?.total ?? mapped.length);
         }
       } catch (err) {
-        console.error('Failed to load ETFs from JDDS', err);
+        logHandledFetchFailure('Failed to load ETFs from JDDS', err);
       } finally {
         if (!cancelled) setLoadingTab(false);
       }
@@ -921,7 +921,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         });
         if (fundCategory !== 'All') params.set('industry', fundCategory);
         if (fundSearch.trim()) params.set('search', fundSearch.trim());
-        const res = await fetch(`/api/stocks?${params.toString()}`);
+        const res = await fetchWithRetry(`/api/stocks?${params.toString()}`);
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.stocks)) {
           const mapped: FundItem[] = (data.stocks as Array<Record<string, unknown>>).map(s => ({
@@ -940,7 +940,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           setTotalFunds(data.pagination?.total ?? mapped.length);
         }
       } catch (err) {
-        console.error('Failed to load funds from JDDS', err);
+        logHandledFetchFailure('Failed to load funds from JDDS', err);
       } finally {
         if (!cancelled) setLoadingTab(false);
       }

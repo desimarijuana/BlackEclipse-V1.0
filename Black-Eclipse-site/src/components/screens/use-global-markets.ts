@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { fetchWithRetry, logHandledFetchFailure } from '@/lib/fetch-retry';
 
 // ── Global Markets overview ──────────────────────────────────────────────────
 // Extracted from market-overview.tsx (memory/simplicity standing goal): this
@@ -88,13 +89,13 @@ export function useGlobalMarkets(active: boolean) {
     (async () => {
       setLoadingGlobalMarkets(true);
       try {
-        const res = await fetch('/api/global-overview');
+        const res = await fetchWithRetry('/api/global-overview');
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.groups)) {
           setGlobalOverview(data.groups);
         }
       } catch (err) {
-        console.error('Failed to load global overview:', err);
+        logHandledFetchFailure('Failed to load global overview:', err);
       } finally {
         if (!cancelled) setLoadingGlobalMarkets(false);
       }

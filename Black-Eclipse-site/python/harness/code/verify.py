@@ -22,15 +22,21 @@ MAX_LEDGER_RECORDS = 200
 MAX_CLAIM_SENTENCES = 500
 MAX_OUTPUT_DIGEST_CHARS = 64
 
-ClaimKind = Literal["tests_pass", "typecheck_clean", "build_ok", "lint_clean"]
+ClaimKind = Literal[
+    "tests_pass", "typecheck_clean", "build_ok", "lint_clean",
+    "artifacts_verified", "change_reviewed",
+]
 
 # The classes that may satisfy each claim kind. A claim is supported when a
-# zero-exit record exists whose class is IN this set.
+# zero-exit record exists whose class is IN this set. The two Phase-19 kinds are
+# supported by ARTIFACT / REVIEW records instead (see `unverified_claims`).
 CLAIM_CLASSES: dict[str, tuple[str, ...]] = {
     "tests_pass": ("unit_test", "python_test"),
     "typecheck_clean": ("typecheck",),
     "build_ok": ("build",),
     "lint_clean": ("lint",),
+    "artifacts_verified": ("artifact_check",),
+    "change_reviewed": ("change_review",),
 }
 
 # Deterministic, sentence-level patterns. Deliberately narrow: a phrase that is
@@ -49,6 +55,13 @@ CLAIM_PATTERNS: tuple[tuple[ClaimKind, "re.Pattern[str]"], ...] = (
     ("lint_clean", re.compile(
         r"\blint(ing)?\s+(is\s+)?(clean|passes|passed)\b"
         r"|\bno\s+lint\s+(errors|warnings)\b|\beslint\b[^.\n]{0,40}\b(clean|passes)\b", re.I)),
+    # Phase 19 — a claim about a PRODUCED artifact or a REVIEWED change. Narrow
+    # like the four above: a sentence that is not one of these shapes is left
+    # alone, and the shared negation guard keeps "I could not check…" honest.
+    ("artifacts_verified", re.compile(
+        r"\b(chart|figure|file|artifact)s?\s+(is|are)\s+(intact|verified)\b", re.I)),
+    ("change_reviewed", re.compile(
+        r"\bI\s+(reviewed|checked)\s+the\s+change\b", re.I)),
 )
 
 # A negation earlier in the sentence means the sentence is NOT a pass-claim. This
@@ -79,6 +92,229 @@ def output_digest(output: str) -> str:
     """
     normalized = _normalize_output(output)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:MAX_OUTPUT_DIGEST_CHARS]
+
+
+# ── Artifact verification (Phase 19, ADR-H191) ──────────────────────────────
+#
+# A produced artifact is an OBSERVATION, never a claim: the file is where the
+# reference says, its digest matches, its size is sane, it opens, and (when the
+# inputs were recorded) the series it carries matches them. A check that cannot
+# run is a FAILED record with its reason — never an absence.
+
+ArtifactCheck = Literal[
+    "artifact_exists",       # the file is where the reference says
+    "artifact_digest",       # sha256 on disk == the recorded sha256
+    "artifact_size",         # above the floor, below the cap
+    "artifact_readable",     # an image opens; csv/json parse
+    "figure_inputs_match",   # the produced series matches the recorded inputs
+]
+
+# A byte floor/cap for a produced artifact. Zero bytes is never a real artifact.
+MIN_ARTIFACT_BYTES = 1
+MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
+
+_IMAGE_EXTENSIONS = ("png", "jpg", "jpeg", "gif", "webp", "svg")
+_IMAGE_SIGNATURES: tuple[tuple[str, bytes], ...] = (
+    ("png", b"\x89PNG\r\n\x1a\n"),
+    ("jpg", b"\xff\xd8\xff"),
+    ("jpeg", b"\xff\xd8\xff"),
+    ("gif", b"GIF8"),
+    ("webp", b"RIFF"),
+)
+
+
+@dataclass(frozen=True)
+class ArtifactRecord:
+    """One VERIFIED artifact fact. Never a claim, always an observation."""
+
+    artifact_name: str
+    kind: str
+    check: str
+    passed: bool
+    detail: str                      # plain sentence; mechanism stays in the trace
+    observed: dict[str, Any] = None  # type: ignore[assignment]
+
+    def to_entry(self) -> dict[str, Any]:
+        return {
+            "artifactName": self.artifact_name,
+            "kind": self.kind,
+            "check": self.check,
+            "passed": self.passed,
+            "detail": self.detail,
+            "observed": dict(self.observed or {}),
+        }
+
+    @classmethod
+    def from_entry(cls, entry: dict[str, Any]) -> "ArtifactRecord":
+        if not isinstance(entry, dict) or not entry.get("artifactName") or not entry.get("check"):
+            raise ValueError("artifact record entry must name the artifact and the check")
+        observed = entry.get("observed")
+        return cls(
+            artifact_name=str(entry["artifactName"]),
+            kind=str(entry.get("kind") or ""),
+            check=str(entry["check"]),
+            passed=bool(entry.get("passed")),
+            detail=str(entry.get("detail") or ""),
+            observed=dict(observed) if isinstance(observed, dict) else {},
+        )
+
+
+def _artifact_path(reference: Any, output_dir: Any) -> Optional[Any]:
+    from pathlib import Path  # noqa: PLC0415
+
+    name = str(getattr(reference, "name", "") or "")
+    if not name:
+        return None
+    candidate = Path(output_dir) / name if output_dir is not None else None
+    if candidate is not None and candidate.exists():
+        return candidate
+    recorded = str(getattr(reference, "path", "") or "")
+    if recorded:
+        path = Path(recorded)
+        if path.exists():
+            return path
+    return candidate
+
+
+def _sha256_of(path: Any) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _readable(path: Any, media_type: str, name: str) -> tuple[bool, str, dict[str, Any]]:
+    """Whether the artifact opens as what it says it is. (passed, reason, observed)."""
+    import json  # noqa: PLC0415
+
+    suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    with open(path, "rb") as handle:
+        head = handle.read(64)
+    if suffix in _IMAGE_EXTENSIONS or str(media_type).startswith("image/"):
+        for ext, signature in _IMAGE_SIGNATURES:
+            if head.startswith(signature):
+                return True, f"opens as an image ({ext})", {"signature": ext}
+        if suffix == "svg" and b"<svg" in head:
+            return True, "opens as an image (svg)", {"signature": "svg"}
+        return False, "it does not open as an image", {"head": head[:16].hex()}
+    if suffix == "csv" or str(media_type).startswith("text/csv"):
+        import csv  # noqa: PLC0415
+
+        try:
+            with open(path, encoding="utf-8", newline="") as handle:
+                rows = sum(1 for _ in csv.reader(handle))
+        except Exception as exc:  # noqa: BLE001 - unreadable is a failed check
+            return False, f"it does not parse as a table ({type(exc).__name__})", {}
+        if rows < 2:
+            return False, "the table has no data rows", {"rows": rows}
+        return True, f"parses as a table ({rows - 1} data rows)", {"rows": rows - 1}
+    if suffix == "json" or "json" in str(media_type):
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            return False, f"it does not parse as JSON ({type(exc).__name__})", {}
+        return True, "parses as JSON", {}
+    # Any other kind: readable means non-empty text.
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        return False, f"it could not be read ({type(exc).__name__})", {}
+    return bool(text.strip()), ("it has readable text" if text.strip() else "it is empty"), {}
+
+
+def verify_artifacts(
+    references: Any,
+    output_dir: Any,
+    recorded_inputs: Optional[dict[str, Any]] = None,
+) -> list[ArtifactRecord]:
+    """Run the artifact checks against the REAL files; return one record per check.
+
+    A check that cannot run (a missing file) is a FAILED record with its reason,
+    never an omission. `recorded_inputs` maps an artifact name to what the
+    producing computation used; when it names a row count, the artifact's own
+    series must match it. Pass None when the producer did not record inputs —
+    the figure check is then recorded as failed for image artifacts.
+    """
+    records: list[ArtifactRecord] = []
+    for reference in references or []:
+        name = str(getattr(reference, "name", "") or "")
+        if not name:
+            continue
+        media_type = str(getattr(reference, "media_type", "application/octet-stream"))
+        kind = media_type.split("/", 1)[0]
+        path = _artifact_path(reference, output_dir)
+
+        exists = path is not None and path.exists()
+        records.append(ArtifactRecord(
+            artifact_name=name, kind=kind, check="artifact_exists", passed=bool(exists),
+            detail=("it is where it was reported" if exists else "it is not where it was reported"),
+            observed={"path": str(path) if path is not None else ""},
+        ))
+        if not exists:
+            # A missing file fails every remaining check with its reason.
+            for check, detail in (
+                ("artifact_digest", "the file is missing, so its digest could not be checked"),
+                ("artifact_size", "the file is missing, so its size could not be checked"),
+                ("artifact_readable", "the file is missing, so it could not be opened"),
+            ):
+                records.append(ArtifactRecord(
+                    artifact_name=name, kind=kind, check=check, passed=False, detail=detail,
+                    observed={},
+                ))
+            continue
+
+        size = path.stat().st_size
+        records.append(ArtifactRecord(
+            artifact_name=name, kind=kind, check="artifact_size",
+            passed=MIN_ARTIFACT_BYTES <= size <= MAX_ARTIFACT_BYTES,
+            detail=(
+                f"it is {size:,} bytes"
+                if MIN_ARTIFACT_BYTES <= size <= MAX_ARTIFACT_BYTES
+                else ("it is empty" if size == 0 else "it is larger than any sane artifact")
+            ),
+            observed={"bytes": size},
+        ))
+
+        recorded = str(getattr(reference, "sha256", "") or "")
+        if recorded:
+            actual = _sha256_of(path)
+            match = actual == recorded
+            records.append(ArtifactRecord(
+                artifact_name=name, kind=kind, check="artifact_digest", passed=match,
+                detail=("its digest matches the record" if match
+                        else "its digest does not match the record"),
+                observed={"sha256": actual},
+            ))
+
+        passed, why, seen = _readable(path, media_type, name)
+        records.append(ArtifactRecord(
+            artifact_name=name, kind=kind, check="artifact_readable", passed=passed,
+            detail=why, observed=seen,
+        ))
+
+        # The figure/inputs check runs only when the producer recorded inputs.
+        if recorded_inputs is not None:
+            entry = recorded_inputs.get(name)
+            if not isinstance(entry, dict):
+                if kind == "image":
+                    records.append(ArtifactRecord(
+                        artifact_name=name, kind=kind, check="figure_inputs_match", passed=False,
+                        detail="its inputs were not recorded, so the series could not be checked",
+                        observed={},
+                    ))
+            else:
+                expected = entry.get("rows")
+                actual_rows = seen.get("rows")
+                if isinstance(expected, int) and isinstance(actual_rows, int):
+                    ok = expected == actual_rows
+                    records.append(ArtifactRecord(
+                        artifact_name=name, kind=kind, check="figure_inputs_match", passed=ok,
+                        detail=(f"it carries the {expected:,} record(s) it was produced from" if ok
+                                else f"it carries {actual_rows:,} record(s), not the recorded {expected:,}"),
+                        observed={"expectedRows": expected, "rows": actual_rows},
+                    ))
+    return records
 
 
 class CheckClaim(BaseModel):
@@ -161,12 +397,36 @@ class VerificationLedger:
     def __init__(self, run_id: str, *, max_records: int = MAX_LEDGER_RECORDS) -> None:
         self.run_id = run_id
         self._records: list[VerificationRecord] = []
+        self._artifacts: list[ArtifactRecord] = []
+        self._reviews: list[dict[str, Any]] = []
         self._max_records = max(1, int(max_records))
 
     # ── recording ──────────────────────────────────────────────────────────
     @property
     def records(self) -> list[VerificationRecord]:
         return list(self._records)
+
+    @property
+    def artifacts(self) -> list[ArtifactRecord]:
+        return list(self._artifacts)
+
+    @property
+    def reviews(self) -> list[dict[str, Any]]:
+        return list(self._reviews)
+
+    def record_artifact(self, record: ArtifactRecord) -> ArtifactRecord:
+        """Record one artifact observation (bounded like the command records)."""
+        self._artifacts.append(record)
+        if len(self._artifacts) > self._max_records:
+            self._artifacts = self._artifacts[-self._max_records:]
+        return record
+
+    def record_review(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Record that a change review RAN (the findings ride in the entry)."""
+        self._reviews.append(dict(entry))
+        if len(self._reviews) > 16:
+            self._reviews = self._reviews[-16:]
+        return entry
 
     def record(
         self,
@@ -230,6 +490,20 @@ class VerificationLedger:
         """
         unsupported: list[CheckClaim] = []
         for claim in self.claims(answer):
+            # Phase 19: artifact and review claims are backed by ARTIFACT and
+            # REVIEW records, not by command executions.
+            if claim.kind == "artifacts_verified":
+                if self._artifacts and all(r.passed for r in self._artifacts):
+                    claim.supported = True
+                else:
+                    unsupported.append(claim)
+                continue
+            if claim.kind == "change_reviewed":
+                if self._reviews:
+                    claim.supported = True
+                else:
+                    unsupported.append(claim)
+                continue
             matching = [r for r in self._records if r.command_class in claim.matchedClasses]
             passing = [r for r in matching if r.passed]
             if passing:
@@ -255,6 +529,10 @@ class VerificationLedger:
             "recordCount": len(entries),
             "truncated": len(self._records) >= self._max_records,
             "records": entries,
+            # Phase 19 (additive, old-row-safe): artifact observations and the
+            # review records. Absent for pre-Phase-19 blobs.
+            "artifacts": [r.to_entry() for r in self._artifacts],
+            "reviews": list(self._reviews),
         }
 
     @classmethod
@@ -272,6 +550,14 @@ class VerificationLedger:
                 ledger._records.append(VerificationRecord.from_entry(entry))
             except (ValueError, TypeError):
                 continue  # drop a malformed row, never guess
+        for entry in blob.get("artifacts") or []:
+            try:
+                ledger._artifacts.append(ArtifactRecord.from_entry(entry))
+            except (ValueError, TypeError):
+                continue
+        for entry in blob.get("reviews") or []:
+            if isinstance(entry, dict) and entry.get("ran"):
+                ledger._reviews.append(dict(entry))
         if len(ledger._records) > ledger._max_records:
             ledger._records = ledger._records[-ledger._max_records:]
         return ledger
@@ -439,15 +725,20 @@ async def enforce_run_answer(
 
 __all__ = [
     "AnswerEnforcement",
+    "ArtifactCheck",
+    "ArtifactRecord",
     "CLAIM_CLASSES",
     "CLAIM_PATTERNS",
     "CheckClaim",
     "EnforcementMode",
+    "MAX_ARTIFACT_BYTES",
     "MAX_LEDGER_RECORDS",
+    "MIN_ARTIFACT_BYTES",
     "UNVERIFIED_MARKER",
     "VerificationLedger",
     "VerificationRecord",
     "enforce_answer",
     "enforce_run_answer",
     "output_digest",
+    "verify_artifacts",
 ]

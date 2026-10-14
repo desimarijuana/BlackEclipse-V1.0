@@ -82,6 +82,6 @@ describe('response contract bridge — validation read-back', () => {
 
   it('rejects an unknown op instead of guessing', async () => {
     const out = await responseContractCapability({ op: 'drop-tables' });
-    expect(out.status).toBe('ERROR');
+    expect(out.status).toBe('UNAVAILABLE');
   });
 });

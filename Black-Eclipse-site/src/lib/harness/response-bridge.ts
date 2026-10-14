@@ -11,6 +11,7 @@
 
 import { parseResponsePayload, ResponseBlockSchema } from "@/lib/response/contract";
 import { splitResponseSegments } from "@/lib/response/parse";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
 
 const MAX_VALIDATE_CHARS = 200_000;
 
@@ -95,7 +96,7 @@ export function describeResponseBlocks(): { type: string; fields: FieldInfo[] }[
  */
 export async function responseContractCapability(
   params: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+): Promise<DataBridgeResult> {
   const op = typeof params.op === "string" ? params.op : "";
 
   if (op === "schema") {
@@ -110,9 +111,9 @@ export async function responseContractCapability(
 
   if (op === "validate") {
     const markdown = typeof params.markdown === "string" ? params.markdown : "";
-    if (!markdown.trim()) return { status: "ERROR", error: "markdown is required" };
+    if (!markdown.trim()) return { status: "UNAVAILABLE", error: "markdown is required" };
     if (markdown.length > MAX_VALIDATE_CHARS) {
-      return { status: "ERROR", error: "payload too large to validate" };
+      return { status: "UNAVAILABLE", error: "payload too large to validate" };
     }
     // Accept either a full message containing the fence or the bare JSON payload.
     const segment = splitResponseSegments(markdown).find((s) => s.kind === "response");
@@ -156,5 +157,5 @@ export async function responseContractCapability(
     };
   }
 
-  return { status: "ERROR", error: `unknown response_contract op: ${op || "(missing)"}` };
+  return { status: "UNAVAILABLE", error: `unknown response_contract op: ${op || "(missing)"}` };
 }

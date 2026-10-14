@@ -8,6 +8,34 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-13
 
+- **The probe was answered from the real run record: the response FORMAT was
+  never broken — one block shape was.** Validating every block of the labelled
+  8-block probe run (`run_e24e0109…`) and the 22:00 Sazgar answer against the real
+  contract: 7/8 probe blocks pass (markdown `body`, mermaid `code`, callout
+  `variant`+`body`, key_value `items`, data_table string-columns were all already
+  accepted), and the Sazgar answer's 9 blocks all pass. The single failure was
+  `badge_row` with BARE STRINGS (`badges: ["PROBE-6 — badge_row"]`). A badge's only
+  content is its label, so `normalize.ts` now coerces a bare-string badge to
+  `{label}` (test in `contract-blocks.test.ts`). With this, all 152 blocks in the
+  25 most recent fenced runs validate.
+  docs updated: interactive-response-engine.md.
+
+- **The model can now VERIFY the response format it writes: schema lookup +
+  pre-send validation (read-back).** The agent's own diagnosis ("I am not given
+  each block's field names… I can write into a format I cannot verify") is now
+  closed by two read-only tools bound to Eclipse:
+  `response_block_schema` (exact field names per type, derived LIVE from the zod
+  contract — it cannot drift) and `response_validate` (runs the renderer's own
+  parser over a drafted fence or bare JSON; returns per-block errors so a drifted
+  block is fixed in-turn). Backed by a new `response_contract` bridge capability
+  in `src/lib/harness/response-bridge.ts` (also exempted from the health ledger);
+  Python side `python/harness/response_tools.py` + allowlist in `agents.py`;
+  a missing bridge reports UNAVAILABLE. Tests `response-bridge.test.ts` +
+  `test_response_tools.py`. `data-bridge.ts` re-pinned 1377→1379 for the two-line
+  dispatch; `graph.py` re-pinned 2043→2049 for unrelated in-flight shared-tree
+  growth (this change touches no part of graph.py).
+  docs updated: interactive-response-engine.md, NAVIGATION.md.
+
 - **Code changes are now visible as they happen (inline change cards).** The run
   stream is content-free except for one addition: `code.patch.applied` and every
   fs write event (`fs.*`, `previews[]`) now carry a bounded, redacted unified

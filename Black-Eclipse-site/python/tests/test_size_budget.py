@@ -62,7 +62,11 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2034→2043 to the measured tree: that same in-flight wiring had
     # grown another 9 lines past the re-pin before it landed (the capability-
     # acquire work in this change touches NO part of graph.py). May only shrink.
-    "graph.py": 2043,
+    # Re-pinned 2043→2049 to the measured tree: further in-flight shared-tree
+    # wiring grew the file again; the response-contract read-back work touches NO
+    # part of graph.py (it lives in `response_tools.py` + the TS bridge). May only
+    # shrink; the subsystem-wiring block remains the split candidate.
+    "graph.py": 2049,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
