@@ -600,11 +600,15 @@ tab (count, `9+` cap) and an aggregate badge on the Terminal/Agentic/Bots menu
 switcher for tabs the active menu hides; opening a tab (the sidebar is the
 shell's visible-tab signal) marks that tab's entries read, and an entry raised
 for the visible tab is recorded read on arrival — it is already in front of the
-operator. The top bar carries a **bell** (`components/layout/notification-center.tsx`)
-with the aggregate unread count; it opens the glass ledger panel, where an entry
-click marks its tab read and navigates through the same `be:navigate` channel
-the workspace panels use, each entry can be dismissed, and "Mark all read"
-clears every badge.
+operator. The **browser tab itself** is the out-of-app surface, with no in-app
+bell or panel: a root-mounted `src/lib/notifications/tab-indicator.tsx` turns
+the ledger into a tab signal while anything is unread — the document title
+carries the count (`(3) BlackEclipse — …`, `(99+)` cap; pure helpers in
+`title.ts`), the favicon becomes a red-badged copy of the LIVE icon
+(canvas-composited so a theme-customized favicon is respected; the plain icon
+returns at zero), and `navigator.setAppBadge` is set where supported. The theme
+store composes its branded title through the same prefix helper
+(`composeDocumentTitle`), so a branding write never silently drops the count.
 
 Background **task completion** is its own producer: `task-watcher.tsx` (mounted
 once in the root layout) polls `GET /api/tasks` every 15s, diffs task statuses
@@ -1700,7 +1704,10 @@ Sound is **fully customizable** through a dedicated Settings › Sound tab
 (`src/components/screens/sound-settings.tsx`), not a nested card. It exposes
 master on/off + volume, a **mode** (`all` vs `essential`, where essential mutes
 confirmations), a **voice-pack** picker, and per-cue volume / mute / custom
-upload. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
+upload. The notification cues (`taskdone`, `notification`) are split into their
+own **Notifications & alarms** card so the alarm decision is explicit, and the
+same two toggles are mirrored in Settings › Alerts next to the notification
+channels — both write the same `useSoundStore` per-cue prefs. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
 `eclipse` (warm harmonic-synthesis ticks, the refreshed default), `mechanical`,
 `crisp`, `typewriter`, `soft`, `marimba`, `glass`, `digital`, `retro` — each
 providing all eight cues. The manager resolves a cue's source per play: a

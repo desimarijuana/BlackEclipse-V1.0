@@ -128,6 +128,20 @@ def test_search_reports_path_line(tmp_path):
     assert "docs/valuation.md:" in result.text
 
 
+def test_search_accepts_a_single_file_path(tmp_path):
+    # Pointing `path` at the one file the caller means must search THAT file,
+    # not raise NOT_A_DIRECTORY/NOT_FOUND (a recorded incident, twice).
+    ws = _fixture_ws(tmp_path)
+    registry = _registry()
+    result = _run(_call(
+        registry, "workspace_search",
+        {"pattern": "dividend-discount", "path": "docs/valuation.md"}, _ctx(ws),
+    ))
+    assert result.ok
+    assert result.data["count"] >= 1
+    assert all(m["path"] == "docs/valuation.md" for m in result.data["matches"])
+
+
 # ── jdds.db → PROTECTED_PATH ────────────────────────────────────────────────
 
 

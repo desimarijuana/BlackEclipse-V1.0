@@ -304,6 +304,16 @@ SEC EDGAR (direct filing/XBRL, tier primary, US issuers)
   → reputable secondary web (bounded)
 ```
 
+**Vault freshness (statements & ratios).** The statements cache is a cache, not
+a source of truth: a snapshot older than 7 days is refreshed through the
+provider chain before it is served, and when the refresh returns nothing the
+persisted payload is still answered with `stale: true` + `cacheAgeDays` — never
+with a disguised fresh timestamp (a FY2018/19 payload was being served
+indefinitely). The `fundamentals` capability reports a `valuation` block (P/E,
+forward P/E) whose `provenance` is `LIVE` when fetched this call, else `JDDS`
+with the saved price's `asOf`; `get_fundamentals(refresh=true)` is the
+live-ratio route.
+
 The SEC route (`SecFilingsSource` → the `sec_filings` bridge capability → the
 existing `sec-edgar` adapter) is independent of the vault and of the search
 transport, and routes through the **shared identity gate** so a bare ticker

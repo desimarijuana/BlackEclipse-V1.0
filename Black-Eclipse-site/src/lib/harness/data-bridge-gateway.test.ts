@@ -62,6 +62,20 @@ describe("fetchCapability — crypto_market_data", () => {
     expect(fetchCryptoQuote).not.toHaveBeenCalled();
   });
 
+  it("accepts a BARE base symbol (BTC, SOL) and defaults the quote to USD", async () => {
+    fetchCryptoQuote.mockResolvedValue({
+      status: "ok",
+      source: "crypto",
+      quote: { symbol: "SOL", price: 150, changePct: 1, volume: 2000, volumeBase: 12, volumeQuote: 2000 },
+    });
+    const result = await fetchCapability("crypto_market_data", { symbol: "SOL" });
+    expect(result.status).toBe("OK");
+    expect(result.pair).toBe("SOL-USD");
+    // Both volumes are returned, explicitly labelled.
+    expect(result.volume).toBe(2000);
+    expect(result.volumeBase).toBe(12);
+  });
+
   it("returns UNAVAILABLE honestly when the provider fails", async () => {
     fetchCryptoQuote.mockResolvedValue({ status: "network_error", error: "down", source: "crypto" });
     const result = await fetchCapability("crypto_market_data", { symbol: "ETH-USD" });

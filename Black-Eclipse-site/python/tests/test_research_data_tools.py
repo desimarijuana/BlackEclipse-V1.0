@@ -115,6 +115,11 @@ def test_get_market_data_returns_rows(ctx):
     assert entry["symbol"] == "AAPL"
     assert entry["barCount"] == 3
     assert len(entry["rows"]) == 3
+    # The model-visible text must show the actual bars, not only a count
+    # (observed failure: "11,551 bars, no rows").
+    assert "bar(s)" in result.text
+    assert "O=" in result.text and "C=" in result.text
+    assert "structured `rows` carries the last 3" in result.text
 
 
 def test_get_market_data_cross_verified(ctx):

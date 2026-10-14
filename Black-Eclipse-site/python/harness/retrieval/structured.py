@@ -273,6 +273,13 @@ def is_fx_or_crypto(request: FinancialRetrievalRequest) -> bool:
 # an unknown quote suffix stays eligible for the general classifier.
 _CRYPTO_QUOTES = ("USD", "USDT", "USDC", "EUR", "GBP", "BTC", "ETH", "BNB")
 
+# Crypto bases the classifier recognises without a quote suffix. Mirrors the TS
+# `instrument-identity.CRYPTO_BASES` (the bridge decides canonical identity).
+_CRYPTO_BASES = (
+    "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "BNB", "DOT", "AVAX", "LINK",
+    "MATIC", "LTC", "BCH", "XLM", "TRX", "ATOM", "UNI", "AAVE", "ETC", "FIL",
+)
+
 
 def is_crypto(request: FinancialRetrievalRequest) -> bool:
     """True when the request is a CRYPTO asset specifically (not an FX pair).
@@ -293,11 +300,15 @@ def is_crypto(request: FinancialRetrievalRequest) -> bool:
     # An explicit FX shape is never crypto.
     if symbol.endswith(_FX_SUFFIX) or "/" in symbol:
         return False
+    # A BARE base (`BTC`, `SOL`) is the most common way a user names crypto.
+    # Without this, a bare base fell through to equity routing and the live path
+    # priced the WRONG instrument (bare `BTC` is a Grayscale mini-trust ETF on
+    # NYSE Arca — observed live).
+    if symbol in _CRYPTO_BASES:
+        return True
     # A crypto pair quoted against a fiat/stablecoin: `BTC-USD`, `ETHUSDT`.
     for quote in _CRYPTO_QUOTES:
-        if symbol.endswith(f"-{quote}") or symbol.endswith(quote) and symbol[: -len(quote)] in (
-            "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", "MATIC",
-        ):
+        if symbol.endswith(f"-{quote}") or symbol.endswith(quote) and symbol[: -len(quote)] in _CRYPTO_BASES:
             return True
     return False
 
@@ -416,7 +427,17 @@ def _params_for(request: FinancialRetrievalRequest) -> dict[str, Any]:
     if request.market:
         params["market"] = request.market
     if request.dateRange:
-        params["range"] = request.dateRange.get("range") or request.dateRange.get("start")
+        # An explicit WINDOW is passed through verbatim (the bridge/Yahoo honour
+        # start/end) and must not be overwritten by the default `quantity`
+        # range — that overwrite silently discarded the requested start.
+        start = request.dateRange.get("start")
+        end = request.dateRange.get("end")
+        if start:
+            params["start"] = start
+            if end:
+                params["end"] = end
+        else:
+            params["range"] = request.dateRange.get("range") or "1y"
     # `quantity` is overloaded by data type: for price history it is a range
     # ("6mo"); for macro it is a series id. Map it to the right bridge param.
     if request.quantity and request.dataType == "macro_series":
@@ -425,7 +446,7 @@ def _params_for(request: FinancialRetrievalRequest) -> dict[str, Any]:
         # not part of the agent-facing contract.
         if request.metadata and request.metadata.get("source"):
             params["source"] = request.metadata["source"]
-    elif request.quantity:
+    elif request.quantity and "start" not in params:
         q = request.quantity.strip().lower()
         if q in _RANGES:
             params["range"] = q

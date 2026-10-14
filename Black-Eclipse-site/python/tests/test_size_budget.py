@@ -75,9 +75,13 @@ RATCHET_PY: dict[str, int] = {
     # `code/events.py` + the preview fields on `code.patch.applied`), which had
     # already grown the file past its pin on the shared working tree. The
     # `emit_patch_applied` assembly was then split into `code/events.py` (the
-    # pin's split note), bringing the file to 1259 — re-pinned DOWN to the
+    # pin's split note), bringing the file to 1259 - re-pinned DOWN to the
     # measured tree. May only shrink.
-    "code/tools.py": 1259,
+    # Re-pinned 1259→1268 for the file-path branch in `_iter_scan_files` (a
+    # `workspace_search` on a single file searches it directly instead of
+    # raising NOT_FOUND; a recorded incident) + the schema wording. May only
+    # shrink; the next split candidate remains the search/symbols block.
+    "code/tools.py": 1268,
     # Re-pinned for the canonical `memory.created`/`memory.updated` Event System
     # emissions at the write/review seams. May only shrink from here.
     "eclipse_memory/service.py": 1845,

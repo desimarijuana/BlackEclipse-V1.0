@@ -83,10 +83,15 @@ describe("crypto connector", () => {
     const result = parseBinanceTicker("BTC", {
       lastPrice: "104321.5",
       priceChangePercent: "2.5",
+      volume: "1024",
       quoteVolume: "123456",
     });
     expect(result.status).toBe("ok");
     expect(result.quote).toMatchObject({ symbol: "BTC", price: 104321.5, changePct: 2.5, volume: 123456 });
+    // Both 24h volumes ride together, explicitly labelled (quote notional vs
+    // base-asset units) — never conflated into one unlabelled number.
+    expect(result.quote?.volumeQuote).toBe(123456);
+    expect(result.quote?.volumeBase).toBe(1024);
     expect(result.source).toBe("crypto");
   });
 

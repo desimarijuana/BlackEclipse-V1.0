@@ -98,7 +98,11 @@ whole file → rewrite whole file".
 
 - `search_text` prefers `ripgrep` (fast, `.gitignore`-aware) and falls back to a
   bounded Python scan; both return the same structured shape and name the engine.
-  An invalid regex is refused in-process before any engine runs.
+  An invalid regex is refused in-process before any engine runs. `path` may name
+  a folder OR a single file (a file is searched directly instead of raising
+  `NOT_A_DIRECTORY`); the summary states the match mode — literal vs regex — so a
+  literal zero-match is never read as "this code does not exist". `contextLines`
+  accepts 0-20.
 - `search_symbols`/`find_references` use real parsers where they exist: Python
   uses the stdlib `ast` (functions, methods, decorators, classes, imports,
   constants), and JS/TS use a brace-depth line scanner that distinguishes a

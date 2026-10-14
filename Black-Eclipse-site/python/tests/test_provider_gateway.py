@@ -227,6 +227,11 @@ def test_is_crypto_distinguishes_crypto_from_fx_and_equity():
 
     assert is_crypto(req(instrument="BTC-USD")) is True
     assert is_crypto(req(market="CRYPTO", instrument="BTC")) is True
+    # A BARE base is the common way a user names crypto; it must route to the
+    # crypto source (and never to the equity/vault path that priced the wrong
+    # NYSE Arca mini-trust ETF for bare `BTC`).
+    assert is_crypto(req(instrument="BTC")) is True
+    assert is_crypto(req(instrument="SOL")) is True
     assert is_crypto(req(instrument="EURUSD=X")) is False
     assert is_crypto(req(market="FX", instrument="EURUSD")) is False
     assert is_crypto(req(instrument="AAPL")) is False
@@ -256,6 +261,10 @@ async def test_crypto_source_normalizes_with_identity():
     assert price.identity.symbol == "BTC-USD"
     assert price.identity.currency == "USD"
     assert price.observation_source == "provider_asof"
+    # Volume is the 24h QUOTE notional — labelled as such, never "shares"
+    # (two providers used to report two different volumes under one label).
+    volume = next(o for o in outcome.objects if o.name == "volume")
+    assert volume.unit == "USD"
 
 
 @pytest.mark.asyncio

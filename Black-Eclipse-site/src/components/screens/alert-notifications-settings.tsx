@@ -5,10 +5,11 @@
 // Status is honest: "connected" only when required creds are actually set.
 
 import { useEffect, useState } from "react";
-import { Bell, Save, Check, Monitor } from "@/lib/icons";
+import { Bell, Save, Check, Monitor, Volume2 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useSoundStore } from "@/lib/sounds";
 import {
   isSupported,
   isEnabled as browserNotifyEnabled,
@@ -76,6 +77,13 @@ export function AlertNotificationsPanel() {
   const [status, setStatus] = useState<StatusRow[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Notification sound choices — the SAME per-cue prefs as Settings › Sound
+  // (Notifications & alarms), surfaced here so the decision sits next to the
+  // channels it applies to.
+  const cues = useSoundStore((s) => s.prefs.cues);
+  const setCueMuted = useSoundStore((s) => s.setCueMuted);
+  const taskdoneOn = !(cues.taskdone?.muted ?? false);
+  const notificationOn = !(cues.notification?.muted ?? false);
 
   // Desktop (OS) notifications — client-only, so probe after mount to keep SSR
   // stable. `supported` gates the whole control; `permission` drives the honest
@@ -217,6 +225,39 @@ export function AlertNotificationsPanel() {
           <Button size="sm" variant="outline" onClick={testBrowserNotify} disabled={!browserOn || browserPermission !== "granted"} className="cursor-pointer rounded-xl">
             Send test notification
           </Button>
+        </div>
+
+        <div className="rounded-xl border border-border/30 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Volume2 size={14} className="text-primary" />
+            <span className="text-xs font-semibold uppercase tracking-wide">Notification sounds</span>
+          </div>
+          <label className="flex items-start gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={taskdoneOn}
+              onChange={(e) => setCueMuted("taskdone", !e.target.checked)}
+              className="mt-0.5 accent-[hsl(var(--primary))]"
+            />
+            <span>
+              Task-done alarm — a loud sound when a background task, agent run or bot run finishes.
+              <span className="block text-[10px] text-muted-foreground mt-0.5">
+                It plays even while UI Sounds are off; this switch is the opt-out.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notificationOn}
+              onChange={(e) => setCueMuted("notification", !e.target.checked)}
+              className="mt-0.5 accent-[hsl(var(--primary))]"
+            />
+            <span>System &amp; approval cue — an approval is waiting for you or a run failed.</span>
+          </label>
+          <p className="text-[10px] text-muted-foreground">
+            Volume, test buttons, voice packs and custom clips live in Settings › Sound › Notifications &amp; alarms.
+          </p>
         </div>
 
         {Object.entries(CHANNEL_FIELDS).map(([id, fields]) => {

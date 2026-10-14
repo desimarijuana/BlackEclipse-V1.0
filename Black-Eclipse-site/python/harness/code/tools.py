@@ -76,7 +76,7 @@ class WorkspaceSearchInput(BaseModel):
     pattern: str = Field(..., min_length=1, max_length=MAX_PATTERN_CHARS)
     path: str = "."
     maxMatches: int = Field(50, ge=1, le=MAX_MATCHES)  # noqa: N815
-    contextLines: int = Field(2, ge=0, le=5)  # noqa: N815
+    contextLines: int = Field(2, ge=0, le=20)  # noqa: N815
     caseSensitive: bool = False  # noqa: N815
 
 
@@ -160,9 +160,9 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Regular expression to find in file contents."},
-            "path": {"type": "string", "description": "Folder to search, relative to the project root (default '.')."},
+            "path": {"type": "string", "description": "Folder, or a single file, to search, relative to the project root (default '.')."},
             "maxMatches": {"type": "integer", "description": "Maximum matches to return (default 50)."},
-            "contextLines": {"type": "integer", "description": "Lines of context around each match (0-5, default 2)."},
+            "contextLines": {"type": "integer", "description": "Lines of context around each match (0-20, default 2)."},
             "caseSensitive": {"type": "boolean", "description": "Match case-sensitively (default false)."},
         },
         "required": ["pattern"],
@@ -387,8 +387,17 @@ async def _list(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 
 def _iter_scan_files(ws: ResolvedWorkspace, base: str) -> Iterator[Tuple[str, Path]]:
-    """Yield `(rel, Path)` for text files under `base`, ignore-aware and bounded."""
+    """Yield `(rel, Path)` for text files under `base`, ignore-aware and bounded.
+
+    `base` may name a single file too: the model often points at the one file it
+    means, and refusing that (`NOT_A_DIRECTORY`/`NOT_FOUND`) was a real incident.
+    """
     start = confine(ws, base or ".")
+    if start.is_file():
+        rel = start.relative_to(ws.root).as_posix()
+        if not policy.is_ignored(rel) and not is_binary(start):
+            yield rel, start
+        return
     if not start.is_dir():
         raise WorkspaceDenial("NOT_FOUND", "That isn't a folder Eclipse can search.", path=base)
     scanned = 0

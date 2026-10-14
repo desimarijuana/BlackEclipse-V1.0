@@ -31,6 +31,59 @@ export interface ChartMeta {
   instrumentType: string | null;
 }
 
+/** Inclusive epoch-ms bounds for a requested window (bare dates pad to end-of-day). */
+export interface WindowBounds {
+  startMs: number | null;
+  endMs: number | null;
+}
+
+/** Parse a window from `start`/`end` strings (`YYYY-MM-DD` or a full timestamp). */
+export function windowBounds(start?: string, end?: string): WindowBounds {
+  const parse = (value: string | undefined, endOfDay: boolean): number | null => {
+    if (!value) return null;
+    const text = value.trim();
+    if (!text) return null;
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
+    const ms = Date.parse(dateOnly ? `${text}T00:00:00Z` : text);
+    if (!Number.isFinite(ms)) return null;
+    return ms + (endOfDay && dateOnly ? 86_399_000 : 0);
+  };
+  return { startMs: parse(start, false), endMs: parse(end, true) };
+}
+
+/** True when a bar timestamp (ISO date, epoch seconds or epoch ms) is inside the window. */
+export function timestampWithinWindow(ts: string, bounds: WindowBounds): boolean {
+  if (bounds.startMs == null && bounds.endMs == null) return true;
+  if (!ts) return true;
+  const numeric = Number(ts);
+  const ms = /^\d{4}-\d{2}-\d{2}/.test(ts)
+    ? Date.parse(ts)
+    : Number.isFinite(numeric)
+      ? numeric < 1e12
+        ? numeric * 1000
+        : numeric
+      : NaN;
+  if (!Number.isFinite(ms)) return true; // an unparsable stamp is kept, never dropped
+  if (bounds.startMs != null && ms < bounds.startMs) return false;
+  if (bounds.endMs != null && ms > bounds.endMs) return false;
+  return true;
+}
+
+// The smallest Yahoo `range` that COVERS a requested span, so a start date no
+// longer collapses to "max" (the full history) for every window.
+const RANGE_SPAN_DAYS: Array<[string, number]> = [
+  ['1d', 1], ['5d', 5], ['1mo', 31], ['3mo', 92], ['6mo', 183],
+  ['1y', 366], ['2y', 731], ['5y', 1827], ['10y', 3652], ['max', Number.POSITIVE_INFINITY],
+];
+
+/** The smallest range covering [startMs, endMs]; `fallback` when no start is given. */
+export function coveringRangeFor(startMs: number | null, endMs: number | null, fallback: string): string {
+  if (startMs == null) return fallback;
+  const end = endMs ?? Date.now();
+  const days = Math.max(1, Math.ceil((end - startMs) / 86_400_000));
+  return RANGE_SPAN_DAYS.find(([, span]) => days <= span)?.[0] ?? 'max';
+}
+
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
@@ -130,10 +183,21 @@ export async function fetchYahooChartSeries(
   ticker: string,
   range: string,
   interval = '1d',
+  window?: { start?: string; end?: string },
 ): Promise<{ bars: Bar[]; meta: ChartMeta } | null> {
+  // An explicit window is sent as `period1`/`period2` (epoch seconds): Yahoo
+  // honours those EXACTLY, where `range` can only name a fixed preset. Without
+  // this, a Dec-2025 window returned the entire history and downstream code
+  // truncated head+tail.
+  const bounds = windowBounds(window?.start, window?.end);
+  const span =
+    bounds.startMs != null
+      ? `&period1=${Math.floor(bounds.startMs / 1000)}` +
+        (bounds.endMs != null ? `&period2=${Math.floor(bounds.endMs / 1000)}` : '')
+      : `&range=${range}`;
   const url =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
-    `?range=${range}&interval=${interval}&includePrePost=false`;
+    `?interval=${interval}&includePrePost=false${span}`;
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },

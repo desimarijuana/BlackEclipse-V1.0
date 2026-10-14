@@ -56,7 +56,7 @@ function readPanel(): WorkspacePanel {
   if (typeof window === 'undefined') return 'context';
   try {
     const raw = window.localStorage.getItem(PANEL_KEY);
-    return isPanel(raw) ? raw : 'output';
+    return isPanel(raw) ? raw : 'context';
   } catch {
     return 'context';
   }

@@ -134,7 +134,11 @@ class CryptoSource:
         fields = (
             ("price", payload.get("price"), "currency"),
             ("changePct", payload.get("changePct"), "%"),
-            ("volume", payload.get("volume"), "shares"),
+            # `volume` is the 24h QUOTE notional (Binance quoteVolume) — label it
+            # as the quote currency, never "shares". The base-asset units are a
+            # separate, explicitly labelled object when the provider reports them.
+            ("volume", payload.get("volume"), currency or "quote"),
+            ("volumeBase", payload.get("volumeBase"), base or "base"),
             ("marketCap", payload.get("marketCap"), "currency"),
             ("high24h", payload.get("high24h"), "currency"),
             ("low24h", payload.get("low24h"), "currency"),

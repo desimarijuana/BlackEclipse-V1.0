@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyIdentifier,
   resolveInstrument,
   verifyProviderIdentity,
   toAssetClass,
@@ -8,6 +9,28 @@ import {
   type InstrumentRow,
 } from './instrument-identity';
 import { resolveMarketId, isKnownMarket, currencyIsoFor } from './markets';
+
+describe('classifyIdentifier — bare crypto bases', () => {
+  it('classifies a bare base as crypto (USD-quoted), like the Python market classifier', () => {
+    // Without this branch a bare `BTC` classified as equity and the live path
+    // fetched the WRONG instrument (the Grayscale BTC mini-trust ETF on NYSE
+    // Arca — observed live at 36.77).
+    expect(classifyIdentifier('BTC')).toEqual({
+      kind: 'crypto', base: 'BTC', quote: 'USD', canonical: 'BTC-USD', contract: 'spot',
+    });
+    expect(classifyIdentifier('sol')).toEqual({
+      kind: 'crypto', base: 'SOL', quote: 'USD', canonical: 'SOL-USD', contract: 'spot',
+    });
+  });
+
+  it('keeps pairs, FX and equities unchanged', () => {
+    expect(classifyIdentifier('BTC-USD')).toMatchObject({ kind: 'crypto', base: 'BTC', quote: 'USD' });
+    expect(classifyIdentifier('EURUSD=X')).toMatchObject({ kind: 'fx' });
+    expect(classifyIdentifier('AAPL')).toEqual({ kind: 'equity' });
+    // A bare FIAT code is not a crypto base.
+    expect(classifyIdentifier('USD')).toEqual({ kind: 'equity' });
+  });
+});
 
 // ── Market/venue alias resolution ───────────────────────────────────────────
 describe('resolveMarketId (venue/country/market aliases)', () => {

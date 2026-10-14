@@ -417,6 +417,16 @@ export function classifyIdentifier(raw: string): IdentifierKind {
     }
   }
 
+  // A BARE crypto base (BTC, ETH, SOL) — the most common way a user names
+  // crypto. Default the quote to USD, mirroring the Python market classifier
+  // (`market/instruments.split_crypto_pair`). Without this branch a bare base
+  // fell through to `equity` and the live path fetched the WRONG Yahoo
+  // instrument (bare `BTC`/`ETH` are the Grayscale mini-trust ETFs on NYSE
+  // Arca — observed live: 36.77 / 23.91).
+  if (!sep && CRYPTO_BASES.has(s)) {
+    return { kind: "crypto", base: s, quote: "USD", canonical: `${s}-USD`, contract: "spot" };
+  }
+
   return { kind: "equity" };
 }
 

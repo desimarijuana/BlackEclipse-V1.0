@@ -274,14 +274,23 @@ async def market_get_quote(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
 
 
 async def market_get_ohlcv(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    date_range: Optional[dict[str, str]] = None
+    if args.get("start") or args.get("end"):
+        date_range = {}
+        if args.get("start"):
+            date_range["start"] = str(args["start"])
+        if args.get("end"):
+            date_range["end"] = str(args["end"])
     request = FinancialRetrievalRequest(
         objective=str(args.get("objective") or f"historical prices for {args.get('symbol', '')}"),
         dataType="historical_prices",
         instrument=str(args.get("symbol", "")).strip().upper(),
         market=(str(args["market"]).strip().upper() if args.get("market") else None),
-        dateRange={"start": str(args.get("start", ""))} if args.get("start") else None,
+        dateRange=date_range,
         freshnessRequirement="slow",
-        quantity=str(args.get("period", "1y") or "1y"),
+        # An explicit window supersedes the range default: otherwise the default
+        # `period` overwrote the requested start and the full history came back.
+        quantity=None if date_range else str(args.get("period", "1y") or "1y"),
         allowWeb=False,  # a series is never sourced from search results
     )
     result = await _layer(ctx).retrieve(request)
@@ -660,7 +669,8 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
                     "symbol": {"type": "string", "description": "Ticker symbol."},
                     "market": {"type": "string", "description": "Market code."},
                     "period": {"type": "string", "description": "Range, e.g. 1mo, 6mo, 1y, 5y."},
-                    "start": {"type": "string", "description": "Optional start date (YYYY-MM-DD)."},
+                    "start": {"type": "string", "description": "Optional start date (YYYY-MM-DD). With a window, this supersedes `period`."},
+                    "end": {"type": "string", "description": "Optional end date (YYYY-MM-DD, inclusive)."},
                     "objective": {"type": "string", "description": "Why this data is needed (optional)."},
                 },
                 "required": ["symbol"],

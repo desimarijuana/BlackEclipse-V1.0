@@ -15,6 +15,7 @@ import type {
   ActivityEntry,
   ContextSource,
   FileChangeKind,
+  RunRecordPatch,
   TaskStatus,
   WorkspaceEvent,
 } from './types';
@@ -172,6 +173,48 @@ export function normalizeWorkspaceEvent(
         error && typeof error === 'object' ? str((error as Payload).code) : undefined;
       out.push({ type: 'error', message, code, at });
       out.push({ type: 'finished', status: 'failed', at });
+      break;
+    }
+
+    // The front-door terminal frame carries the authoritative run record
+    // (provider, model, tokens, steps, context window). The live harness events
+    // do not carry all of it (e.g. `model.requested` reports only step/message
+    // counts), so folding the record is what fills the Context panel instead of
+    // leaving model/provider/window permanently "Not available" after a run.
+    case 'client.final': {
+      const patch: RunRecordPatch = {};
+      const provider = str(p.provider);
+      if (provider) patch.provider = provider;
+      const model = str(p.model);
+      if (model) patch.model = model;
+      const promptTokens = num(p.promptTokens);
+      if (promptTokens != null) patch.promptTokens = promptTokens;
+      const completionTokens = num(p.completionTokens);
+      if (completionTokens != null) patch.completionTokens = completionTokens;
+      const totalTokens = num(p.totalTokens);
+      if (totalTokens != null) patch.totalTokens = totalTokens;
+      const modelSteps = num(p.modelSteps);
+      if (modelSteps != null) patch.modelSteps = modelSteps;
+      const toolCalls = num(p.toolCalls);
+      if (toolCalls != null) patch.toolCalls = toolCalls;
+      const toolErrors = num(p.toolErrors);
+      if (toolErrors != null) patch.toolErrors = toolErrors;
+
+      const context = p.context;
+      if (context && typeof context === 'object' && !Array.isArray(context)) {
+        const c = context as Payload;
+        const window = num(c.window);
+        if (window != null && window > 0) patch.windowTokens = window;
+        if (c.windowKnown === true) patch.windowKnown = true;
+        const keptTurns = num(c.keptTurns);
+        if (keptTurns != null) patch.turnsKept = keptTurns;
+        const droppedTurns = num(c.droppedTurns);
+        if (droppedTurns != null) patch.turnsDropped = droppedTurns;
+        const droppedTokensEstimate = num(c.droppedTokensEstimate);
+        if (droppedTokensEstimate != null) patch.droppedTokensEstimate = droppedTokensEstimate;
+      }
+
+      if (Object.keys(patch).length > 0) out.push({ type: 'run_record', patch, at });
       break;
     }
 

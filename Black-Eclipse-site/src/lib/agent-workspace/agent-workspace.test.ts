@@ -193,6 +193,45 @@ describe('normalizeWorkspaceEvent — context / research / browser / computer', 
     expect(mem[0]).toMatchObject({ type: 'context', patch: { memoriesUsed: 2 } });
   });
 
+  it('folds the front-door client.final run record into a run_record patch', () => {
+    const out = norm('client.final', {
+      runId: 'run_x',
+      status: 'completed',
+      provider: 'ollama',
+      model: 'deepseek-v4.1-flash:cloud',
+      promptTokens: 1200,
+      completionTokens: 300,
+      totalTokens: 1500,
+      modelSteps: 4,
+      toolCalls: 7,
+      context: { window: null, windowKnown: false, keptTurns: 6, droppedTurns: 2, droppedTokensEstimate: 410 },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      type: 'run_record',
+      patch: {
+        provider: 'ollama',
+        model: 'deepseek-v4.1-flash:cloud',
+        promptTokens: 1200,
+        completionTokens: 300,
+        totalTokens: 1500,
+        modelSteps: 4,
+        toolCalls: 7,
+        turnsKept: 6,
+        turnsDropped: 2,
+        droppedTokensEstimate: 410,
+      },
+    });
+    // An unknown window must not be emitted as a fabricated token count.
+    const record = out.find((e): e is Extract<WorkspaceEvent, { type: 'run_record' }> => e.type === 'run_record');
+    expect(record?.patch.windowTokens).toBeUndefined();
+    expect(record?.patch.windowKnown).toBeUndefined();
+  });
+
+  it('emits nothing for a client.final with no usable record fields', () => {
+    expect(norm('client.final', { runId: 'run_x', status: 'running' })).toEqual([]);
+  });
+
   it('maps browser navigation + screenshot', () => {
     const nav = norm('browser.navigated', { sessionId: 's1', url: 'https://x.test' });
     expect(nav.some((e) => e.type === 'activity')).toBe(true);
@@ -238,6 +277,63 @@ describe('reducer — folding normalized events', () => {
     expect(s.model).toEqual({ provider: 'openai', model: 'gpt-5' });
     expect(s.telemetry.promptTokens).toBe(100);
     expect(s.telemetry.totalTokens).toBe(150);
+  });
+
+  it('keeps unreported token usage unknown instead of a fabricated zero', () => {
+    const s = run([
+      ...norm('run.started', {}, 1),
+      ...norm('model.completed', { promptTokens: 0, completionTokens: 0, totalTokens: 0, step: 1 }, 2),
+    ]);
+    expect(s.telemetry.promptTokens).toBeUndefined();
+    expect(s.telemetry.completionTokens).toBeUndefined();
+    expect(s.telemetry.totalTokens).toBeUndefined();
+  });
+
+  it('folds the client.final run record over the live accumulation', () => {
+    const s = run([
+      ...norm('run.started', {}, 1),
+      ...norm('model.completed', { promptTokens: 100, completionTokens: 50, totalTokens: 150, step: 1 }, 2),
+      ...norm('client.final', {
+        runId: 'run_1',
+        status: 'completed',
+        provider: 'openai',
+        model: 'gpt-5',
+        promptTokens: 1000,
+        completionTokens: 200,
+        totalTokens: 1200,
+        modelSteps: 3,
+        toolCalls: 4,
+        context: { window: 128000, windowKnown: true, keptTurns: 5, droppedTurns: 1, droppedTokensEstimate: 90 },
+      }, 3),
+    ]);
+    expect(s.model).toEqual({ provider: 'openai', model: 'gpt-5' });
+    expect(s.telemetry.promptTokens).toBe(1000);
+    expect(s.telemetry.completionTokens).toBe(200);
+    expect(s.telemetry.totalTokens).toBe(1200);
+    expect(s.telemetry.modelSteps).toBe(3);
+    expect(s.context.windowTokens).toBe(128000);
+    expect(s.context.windowKnown).toBe(true);
+    expect(s.context.turnsKept).toBe(5);
+    expect(s.context.turnsDropped).toBe(1);
+  });
+
+  it('never lets a zero-valued record downgrade live telemetry or a known window', () => {
+    const s = run([
+      ...norm('model.completed', { promptTokens: 100, completionTokens: 50, totalTokens: 150, step: 1 }, 1),
+      ...norm('memory.history_bounded', { window: 32000, windowKnown: true }, 2),
+      ...norm('client.final', {
+        runId: 'run_1',
+        status: 'completed',
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        modelSteps: 0,
+      }, 3),
+    ]);
+    expect(s.telemetry.totalTokens).toBe(150);
+    expect(s.telemetry.modelSteps).toBe(1);
+    expect(s.context.windowTokens).toBe(32000);
+    expect(s.context.windowKnown).toBe(true);
   });
 
   it('correlates a tool start with its end (LIFO) and counts calls', () => {

@@ -88,11 +88,16 @@ _DATA_VERBS = (
     "dedupe", "deduplicate", "normalize", "normalise", "wrangle", "resample",
     "simulate", "compute", "calculate", "aggregate", "reconcile",
     "plot", "chart", "visualize", "visualise",
+    # Computation/analysis verbs ("analyze the drawdown", "backtest this
+    # strategy") — work the deterministic analysis sandbox exists to do.
+    "analyze", "analyse", "backtest", "optimize", "optimise",
+    "annualize", "annualise", "stress-test",
 )
 
 # A data object — a thing data work acts on. Deliberately narrower than every
-# finance noun: "report", "portfolio" and "watchlist" are NOT here, so
-# "run a report on my portfolio" stays `not_code`.
+# finance noun: "report", "portfolio" and "watchlist" are NOT here, so a display
+# ask like "show me the data" stays `not_code`; but a COMPUTATION ask ("compute
+# the YTD return") names a metric and is a data task.
 _DATA_OBJECTS = (
     "data", "dataset", "datasets", "data set", "csv", "excel", "xlsx", "xls",
     "spreadsheet", "sheet", "workbook", "json", "xml", "parquet", "dataframe",
@@ -101,12 +106,21 @@ _DATA_OBJECTS = (
     "candles", "ticks", "returns", "drawdown", "correlation", "covariance",
     "volatility", "ratio", "ratios", "metric", "metrics", "sharpe", "sortino",
     "number", "numbers", "value", "values",
+    # Finance-computation metrics observed in live asks ("AAPL 11,551 bars" →
+    # YTD refused with ANALYSIS_NOT_ENABLED because no object matched).
+    "ytd", "year to date", "return", "performance", "cagr", "alpha", "beta",
+    "exposure", "allocation", "holdings",
     "site", "website", "web site", "webpage", "web page", "url", "page",
 )
 
 # Distinctive phrases that are data work on their own, with any directive
 # ("run a Monte Carlo" is not a software object, but it is work to construct).
-_DATA_PHRASES = ("monte carlo", "monte-carlo")
+_DATA_PHRASES = (
+    "monte carlo", "monte-carlo",
+    # A report/analysis OF something is computation, not a software change
+    # ("run a report on my portfolio"). "report" alone stays a finance noun.
+    "an analysis", "analysis of", "analyses of", "a report on", "a report of",
+)
 
 # A question ABOUT code is read-only. These openers plus a software object (or a
 # pasted path) classify as `code_question`.

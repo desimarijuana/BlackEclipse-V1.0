@@ -138,7 +138,7 @@ class SearchTextInput(_Base):
     wholeWord: bool = False  # noqa: N815
     glob: Optional[str] = Field(None, max_length=200)
     maxResults: int = Field(100, ge=1, le=500)  # noqa: N815
-    contextLines: int = Field(0, ge=0, le=5)  # noqa: N815
+    contextLines: int = Field(0, ge=0, le=20)  # noqa: N815
     includeIgnored: bool = False  # noqa: N815
     includeHidden: bool = False  # noqa: N815
 
@@ -347,8 +347,10 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     }, ["path"]),
     "search_text": _obj({
         "query": {**_STR, "description": "Literal text to find (regex=true for a pattern/alternation)."},
-        "path": {**_STR}, "regex": {**_BOOL}, "caseSensitive": {**_BOOL}, "wholeWord": {**_BOOL},
-        "glob": {**_STR}, "maxResults": {**_INT}, "contextLines": {**_INT},
+        "path": {**_STR, "description": "Folder, or a single file, to search (default '.')"},
+        "regex": {**_BOOL}, "caseSensitive": {**_BOOL}, "wholeWord": {**_BOOL},
+        "glob": {**_STR}, "maxResults": {**_INT},
+        "contextLines": {**_INT, "description": "Lines of context around each match (0-20, default 0)."},
         "includeIgnored": {**_BOOL}, "includeHidden": {**_BOOL},
     }, ["query"]),
     "search_files": _obj({

@@ -10,7 +10,13 @@
 // label for Yahoo data, shared with the price-history route) and the transport
 // is named separately (`yahoo-chart`), never conflated with the bridge.
 
-import { fetchYahooChartSeries, yahooChartCandidates, type Bar } from "@/lib/scraper/yahoo-chart";
+import {
+  fetchYahooChartSeries,
+  timestampWithinWindow,
+  windowBounds,
+  yahooChartCandidates,
+  type Bar,
+} from "@/lib/scraper/yahoo-chart";
 
 export interface HistoryFallback {
   series: Bar[];
@@ -22,18 +28,29 @@ export interface HistoryFallback {
 /**
  * Try the direct chart transport across the per-market Yahoo candidate chain
  * (thin venues have fallback suffixes). Returns the first series with at least
- * two real bars, or null — never a fabricated or partial single point.
+ * two real bars, or null — never a fabricated or partial single point. When a
+ * window is given it is sent to the provider AND enforced on the bars, so a
+ * caller can never receive head/tail-truncated full history in place of its
+ * requested span.
  */
 export async function fetchHistorySeriesFallback(
   symbol: string,
   market: string,
   range: string,
   interval: string,
+  window?: { start?: string; end?: string },
 ): Promise<HistoryFallback | null> {
+  const bounds = windowBounds(window?.start, window?.end);
+  const windowArg = window && (window.start || window.end) ? window : undefined;
   for (const ticker of yahooChartCandidates(symbol, market)) {
-    const chart = await fetchYahooChartSeries(ticker, range, interval);
+    const chart = windowArg
+      ? await fetchYahooChartSeries(ticker, range, interval, windowArg)
+      : await fetchYahooChartSeries(ticker, range, interval);
     if (chart && chart.bars.length >= 2) {
-      return { series: chart.bars, ticker, provider: "yfinance", transport: "yahoo-chart" };
+      const series = chart.bars.filter((b) => timestampWithinWindow(b.date, bounds));
+      if (series.length >= 2) {
+        return { series, ticker, provider: "yfinance", transport: "yahoo-chart" };
+      }
     }
   }
   return null;

@@ -171,6 +171,13 @@ def test_the_create_an_application_wish_is_a_change(query: str) -> None:
         "calculate the Sharpe ratio from this series",
         "parse the JSON and plot the returns",
         "download the prices and compute the drawdown",
+        # Finance COMPUTATION asks enable the analysis sandbox (live failure:
+        # "analysis not enabled for this session" on a YTD calculation).
+        "compute the YTD return for AAPL",
+        "analyze the drawdown on this series",
+        "run an analysis of my portfolio",
+        "run a report on my portfolio",
+        "create a report of my holdings",
     ],
 )
 def test_data_work_is_a_data_task(query: str) -> None:
@@ -201,8 +208,6 @@ def test_follow_up_after_a_data_task_stays_a_data_task() -> None:
     "query",
     [
         "show me the data",
-        "run a report on my portfolio",
-        "create a report of my holdings",
         "what's the price of AAPL",
         "summarize the earnings call",
         "clean up my portfolio",
@@ -241,7 +246,10 @@ def test_a_reported_symptom_is_a_change(query: str) -> None:
     ],
 )
 def test_finance_verbs_are_not_mistaken_for_code_changes(query: str) -> None:
-    assert classify_code_request(query).verdict == "not_code", query
+    # The property under test is that a finance ask is never read as a SOFTWARE
+    # change; "run a report…" is a legitimate `data_task` (analysis sandbox
+    # only), which is still not a code change.
+    assert classify_code_request(query).verdict != "code_change", query
 
 
 # ── question forms now cover "what does …" ───────────────────────────────────

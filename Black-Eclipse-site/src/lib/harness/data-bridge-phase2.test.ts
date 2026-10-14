@@ -38,10 +38,15 @@ vi.mock("@/lib/scraper/fetchers/yfinance", () => ({
 }));
 // The DIRECT chart transport (the price-history fallback). Mocked like every
 // other provider so the suite is offline; `null` = the transport is down.
-vi.mock("@/lib/scraper/yahoo-chart", () => ({
-  fetchYahooChartSeries: (...a: unknown[]) => fetchYahooChartSeries(...a),
-  yahooChartCandidates: (...a: unknown[]) => yahooChartCandidates(...a),
-}));
+vi.mock("@/lib/scraper/yahoo-chart", async (importOriginal) => {
+  // The REAL window helpers (pure date math) stay in place.
+  const actual = await importOriginal<typeof import("@/lib/scraper/yahoo-chart")>();
+  return {
+    ...actual,
+    fetchYahooChartSeries: (...a: unknown[]) => fetchYahooChartSeries(...a),
+    yahooChartCandidates: (...a: unknown[]) => yahooChartCandidates(...a),
+  };
+});
 // Use the REAL normalizer so the test catches the { date, value } contract
 // between the macro sources and the normalizer (the FRED-analytics regression).
 vi.mock("@/lib/economics/fetch", async (importOriginal) => {
@@ -178,6 +183,31 @@ describe("fetchCapability — price_history", () => {
     expect(result.provider).toBe("yfinance");
     expect(result.providerSymbol).toBe("AAPL");
     expect((result.series as unknown[]).length).toBe(2);
+  });
+
+  it("honours an explicit start/end window (bridge rows filtered, never full history)", async () => {
+    fetchYahooBatchRaw.mockResolvedValue({
+      history: {
+        AAPL: [
+          { date: "2025-11-15", close: 100 },
+          { date: "2025-12-10", close: 110 },
+          { date: "2025-12-31", close: 120 },
+          { date: "2026-01-05", close: 130 },
+        ],
+      },
+    });
+    const result = await fetchCapability("price_history", {
+      symbol: "AAPL",
+      start: "2025-12-01",
+      end: "2025-12-31",
+    });
+    expect(result.status).toBe("OK");
+    // A 31-day window picks a covering range — never "max" (the old behaviour
+    // returned everything and the renderer truncated head+tail).
+    expect(fetchYahooBatchRaw).toHaveBeenCalledWith(["AAPL"], "US", "1d", "1mo");
+    const dates = (result.series as Array<{ date: string }>).map((r) => r.date);
+    expect(dates).toEqual(["2025-12-10", "2025-12-31"]);
+    expect(result.window).toEqual({ start: "2025-12-01", end: "2025-12-31" });
   });
 
   it("returns UNAVAILABLE when neither transport has a series", async () => {

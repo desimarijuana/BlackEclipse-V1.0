@@ -66,7 +66,11 @@ AUTHORITY: dict[str, DataTypeAuthority] = {
     "historical_prices": DataTypeAuthority(
         "historical_prices", (STRUCTURED_LIVE, STRUCTURED_VAULT),
         "arbitrated", require_precise=True, web_allowed=False,
-        request_window_s=6 * 3600,
+        # A bar's timestamp is when the bar HAPPENED, not when it was fetched:
+        # a daily/weekly series is legitimately up to a weekend (7 days for a
+        # weekly bar) old. The old 6h ceiling rejected EVERY series once the
+        # last close aged past six hours ("NO_FRESH_SOURCE").
+        request_window_s=7 * 24 * 3600,
     ),
     "macro_series": DataTypeAuthority(
         "macro_series", (STRUCTURED_LIVE, STRUCTURED_VAULT),
@@ -200,13 +204,78 @@ def _age_seconds(ts: Optional[str], *, now: Optional[float]) -> Optional[float]:
     return (ref - parsed).total_seconds()
 
 
+_SERIES_COVERAGE_GRACE_MS = 7 * 24 * 3600 * 1000
+
+
+def _parse_ms(value: str) -> Optional[int]:
+    """Epoch ms for an ISO timestamp/date, or None when unparsable."""
+    import datetime as _dt
+
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        parsed = _dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _newest_ms(outcome: SourceOutcome) -> Optional[int]:
+    known = [
+        _parse_ms(obj.observation_time or obj.dataTimestamp)
+        for obj in outcome.objects
+        if (obj.observation_time or obj.dataTimestamp)
+    ]
+    stamps = [ms for ms in known if ms is not None]
+    return max(stamps) if stamps else None
+
+
+def _series_coverage_reason(outcome: SourceOutcome, request: FinancialRetrievalRequest) -> Optional[str]:
+    """Coverage for an explicit window: does the series REACH the requested end?
+
+    A bar timestamp is when the bar happened, not when the data was fetched, so
+    wall-clock freshness is the wrong test for a historical window. A window
+    ending in the past was rejected as STALE purely because its newest bar was
+    older than six hours. Judge coverage instead — a series that stops well
+    before the requested end is honestly stale; one that reaches it is complete.
+    """
+    date_range = request.dateRange if isinstance(request.dateRange, dict) else {}
+    end = str(date_range.get("end") or "").strip()
+    if not end:
+        return None
+    end_ms = _parse_ms(end)
+    if end_ms is None:
+        return None
+    if len(end) == 10:  # a bare date means the whole day is requested
+        end_ms += 86_399_000
+    newest = _newest_ms(outcome)
+    if newest is None:
+        return None
+    if newest + _SERIES_COVERAGE_GRACE_MS < end_ms:
+        return (
+            f"STALE_SOURCE: {outcome.source} series ends {format_age((end_ms - newest) / 1000)} "
+            f"before the requested window end"
+        )
+    return None
+
+
 def _is_stale(outcome: SourceOutcome, authority: DataTypeAuthority, request: FinancialRetrievalRequest, now: Optional[float]) -> Optional[str]:
     """A stale reason for one outcome, or None when it may answer.
 
     The effective window is the stricter of the type's own ceiling and the
     caller's freshness window. An undateable candidate cannot be proven stale and
-    is therefore eligible — a missing time is not a fabrication.
+    is therefore eligible — a missing time is not a fabrication. A SERIES with an
+    explicit window is judged by coverage of that window instead (see
+    ``_series_coverage_reason``).
     """
+    if request.dataType == "historical_prices":
+        coverage = _series_coverage_reason(outcome, request)
+        if coverage is not None:
+            return coverage
+        if isinstance(request.dateRange, dict) and request.dateRange.get("end"):
+            # A past window's age carries no meaning: coverage is the test.
+            return None
     newest, _source = _observation(outcome)
     age = _age_seconds(newest, now=now)
     if age is None:
@@ -286,8 +355,14 @@ def decide_source(
         survivors.append(name)
 
     # A precise type rejects web even when it is not a listed candidate for the
-    # type (the prohibition is a property of the type, not of the table row).
-    if not authority.web_allowed and not any(name == WEB for name, _why in rejected):
+    # type (the prohibition is a property of the type). Report it ONLY when a
+    # WEB outcome actually ran: appending the line unconditionally made every
+    # "NO_FRESH_SOURCE" read as if web had been tried and refused.
+    if (
+        not authority.web_allowed
+        and WEB in all_outcomes
+        and not any(name == WEB for name, _why in rejected)
+    ):
         rejected.append((WEB, "WEB is not eligible for a precise data type"))
 
     if not survivors:

@@ -1,7 +1,7 @@
 ---
 title: Agent Workspace — Execution Observability
 status: Current
-last-verified: 2026-10-12
+last-verified: 2026-10-14
 ---
 
 # Agent Workspace — Execution Observability
@@ -56,14 +56,16 @@ Previously it was a global, portaled, floating panel. That was replaced because 
 floating overlay "is not a sidebar" and its 13 tabs buried the useful output
 under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
 
-- **Minimal tabs:** **Output** (default), **Context**, **Changes**, **Approvals**,
-  **History**. The overview/activity/tasks/telemetry/research/browser/computer/
-  artifacts panels were removed as noise — the Output feed carries the signal. The
-  **Context** tab was added back (2026-10-09) once the need was concrete: a
-  session-context gauge answering "how full is the model's window, and what fills
-  it?", mirroring the OpenCode session sidebar. It reads the already-normalized
-  `state.context` + `state.contextSources` + `state.telemetry` and resolves the
-  window from the declared model catalog (`context-usage.ts`).
+- **Minimal tabs:** **Context** (default/open panel), **Output**, **Changes**,
+  **Approvals**, **History**. The overview/activity/tasks/telemetry/research/
+  browser/computer/artifacts panels were removed as noise — the Output feed
+  carries the signal. The **Context** tab was added back (2026-10-09) once the
+  need was concrete: a session-context gauge answering "how full is the model's
+  window, and what fills it?", mirroring the OpenCode session sidebar. It reads
+  the already-normalized `state.context` + `state.contextSources` +
+  `state.telemetry` and resolves the window from the declared model catalog
+  (`context-usage.ts`). The panel body scrolls; previously the column's
+  `overflow-hidden` clipped the lower context rows.
 - **Changes rows carry the change itself.** Write events (`fs.*` `previews[]`,
   `code.patch.applied`) now include the runtime's bounded, redacted unified
   preview, so a Changes row expands inline to show the diff (`DiffLines`, shared
@@ -130,6 +132,15 @@ it to the store. It lives outside `useAgentRun` so **every** chat surface (the
 ChatBot tab, the floating dock, future surfaces) feeds the sidebar with no
 per-surface wiring.
 
+The stream also carries the front door's terminal `client.final` frame, which
+`normalize.ts` folds into a `run_record` event: the authoritative provider, model,
+tokens, steps and context window. The harness events alone do not carry all of it
+(e.g. `model.requested` reports only step/message counts), so without this fold
+the Context panel left model/provider/window "Not available" after a live run.
+`applyRunRecordPatch` (`reducer.ts`) merges it with SET semantics and is the same
+merge `history.applyRunRecord` uses for a replayed record; a zero token count is
+"unreported" and never overwrites or fabricates a `0`.
+
 The workspace has its own normalizer (`normalize.ts`) rather than extending the
 chat's `HarnessUiEvent` union, because it maps a **superset** of events into a
 different shape (categories, changes, artifacts, telemetry). It reuses the chat's
@@ -170,8 +181,9 @@ are incremented from real events. Nothing is inferred.
 
 The selected tab and open/closed state persist in `localStorage`
 (`black-eclipse:workspace-{panel,open}`, plus `width`). There is no auto-focus or
-pinning: the Output feed is the default and stays put. A pending approval shows an
-attention dot on the Approvals tab; a running run shows one on Output.
+pinning: the **Context** panel is the default (the 2026-10-09 ordering change) and
+stays put. A pending approval shows an attention dot on the Approvals tab; a
+running run shows one on Output.
 
 ## Reopening a past chat
 
@@ -207,9 +219,11 @@ built identically.
 
 - **Context is partial by design.** The **Context** tab surfaces the context
   window, total/input/output tokens, remaining, turns kept/dropped, memories and
-  estimated cost, plus a source-breakdown gauge. Two honest limits: the window is
-  the runtime-reported one when known, else the catalog's declared window (never
-  guessed); and `totalTokens` is the run-cumulative sum across model steps
+  estimated cost, plus a source-breakdown gauge. Honest limits: the window is the
+  runtime-reported one when known, else the catalog's declared window (never
+  guessed — an undeclared provider, e.g. Ollama, stays unknown); a token count the
+  provider did not report stays "Not available" (a zero-only report is never shown
+  as `0`); and `totalTokens` is the run-cumulative sum across model steps
   (`reducer.ts`), matching OpenCode's session-total semantics — it is not a
   single-request prompt size. The remaining telemetry that has no home (retries,
   tool errors) is still normalized into state and shown in the Output feed.

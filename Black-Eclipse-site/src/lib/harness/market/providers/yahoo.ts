@@ -6,7 +6,12 @@
 // equities/FX; the chart helper is the keyless fallback.
 
 import { fetchYahooBatchRaw } from "@/lib/scraper/fetchers/yfinance";
-import { fetchYahooChartSeries } from "@/lib/scraper/yahoo-chart";
+import {
+  coveringRangeFor,
+  fetchYahooChartSeries,
+  timestampWithinWindow,
+  windowBounds,
+} from "@/lib/scraper/yahoo-chart";
 import { resolveProviderKey } from "@/lib/provider-keys";
 import { safeGet } from "@/lib/connectors/security";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "../types";
@@ -18,8 +23,14 @@ const RANGE_MAP: Record<string, string> = {
   "4h": "6mo", "1d": "1y", "1w": "5y", "1mo": "max",
 };
 
-function rangeFor(interval: string, start?: string): string {
-  if (start) return "max";
+function rangeFor(interval: string, start?: string, end?: string): string {
+  // A requested window picks the smallest range that COVERS it — never "max"
+  // for every start (the old behaviour returned the whole history and the
+  // renderer truncated head+tail, so a Dec-2025 window was never reached).
+  if (start) {
+    const bounds = windowBounds(start, end);
+    return coveringRangeFor(bounds.startMs, bounds.endMs, RANGE_MAP[interval] ?? "1y");
+  }
   return RANGE_MAP[interval] ?? "1y";
 }
 
@@ -57,7 +68,8 @@ async function fetchQuote(request: MarketDataRequest): Promise<Record<string, un
 async function fetchSeries(request: MarketDataRequest): Promise<Record<string, unknown>> {
   const ticker = await yahooSymbol(request);
   const interval = request.interval || "1d";
-  const range = rangeFor(interval, request.start);
+  const range = rangeFor(interval, request.start, request.end);
+  const bounds = windowBounds(request.start, request.end);
   let rows: Array<Record<string, unknown>> | undefined;
   try {
     const data = await fetchYahooBatchRaw([ticker], request.market || "US", interval, range);
@@ -67,7 +79,9 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
     rows = undefined;
   }
   if (!rows || rows.length < 2) {
-    const chart = await fetchYahooChartSeries(ticker, range, interval);
+    // The direct chart transport takes the window verbatim (period1/period2).
+    const windowArg = request.start || request.end ? { start: request.start, end: request.end } : undefined;
+    const chart = await fetchYahooChartSeries(ticker, range, interval, windowArg);
     if (!chart) throw new ProviderError(`no history for ${ticker}`, "DATA_NOT_AVAILABLE", false);
     rows = chart.bars.map((b) => ({
       date: b.date, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
@@ -75,6 +89,9 @@ async function fetchSeries(request: MarketDataRequest): Promise<Record<string, u
   }
   const bars = (rows || [])
     .filter((r) => r.close != null)
+    // The bridge transport cannot express an arbitrary window, so the window
+    // is enforced here regardless of which transport answered.
+    .filter((r) => timestampWithinWindow(String(r.date ?? r.timestamp ?? ""), bounds))
     .map((r) => ({
       timestamp: String(r.date ?? r.timestamp ?? ""),
       open: r.open ?? null,

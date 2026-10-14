@@ -99,6 +99,32 @@ def _iter_files(ctx: FsContext, base: str, *, include_ignored: bool, include_hid
             yield rel, current / name
 
 
+def _resolve_search_root(ctx: FsContext, base: str) -> tuple[Path, Optional[str]]:
+    """Resolve a search root: a folder, or a SINGLE regular file.
+
+    Returns `(start_dir, only_file_rel)`. A model often points `path` at the one
+    file it cares about; requiring a directory there raised `NOT_A_DIRECTORY`
+    (observed, twice) even though the intent was unambiguous. When a file is
+    named, the search runs over exactly that file and `only_file_rel` carries its
+    workspace-relative path for display.
+    """
+    target = res.resolve(ctx.ws, base or ".")
+    if not target.exists():
+        raise err.FsError(err.PATH_NOT_FOUND, "That path isn't there.", path=base)
+    if target.is_dir():
+        return target, None
+    if not target.is_file():
+        raise err.FsError(err.NOT_A_FILE, "That isn't a regular file.", path=base)
+    return target.parent, res.relative(ctx.ws, target)
+
+
+def _file_is_searchable(rel_file: str, *, include_ignored: bool, include_hidden: bool) -> bool:
+    """The same ignore/hidden rule a folder scan would apply to this file."""
+    if not include_hidden and Path(rel_file).name.startswith("."):
+        return False
+    return not _is_ignored(rel_file, include_ignored=include_ignored)
+
+
 def search_text(
     ctx: FsContext,
     pattern: str,
@@ -157,7 +183,15 @@ def _search_ripgrep(
     case_sensitive: bool, whole_word: bool, glob: Optional[str], max_results: int,
     context_lines: int, include_ignored: bool, include_hidden: bool, started: float,
 ) -> dict[str, Any]:
-    start = res.require_directory(ctx.ws, path or ".")
+    single = _resolve_search_root(ctx, path)
+    start, only_file = single
+    if only_file is not None and not _file_is_searchable(
+        only_file, include_ignored=include_ignored, include_hidden=include_hidden
+    ):
+        return {
+            "status": "ok", "engine": "ripgrep", "pattern": pattern, "matches": [],
+            "count": 0, "truncated": False, "ms": int((time.monotonic() - started) * 1000),
+        }
     argv = [rg, "--json", "--line-number", "--with-filename", "--color", "never"]
     argv.append(f"-C{max(0, int(context_lines))}")
     if not case_sensitive:
@@ -175,7 +209,7 @@ def _search_ripgrep(
             argv.extend(["--glob", f"!**/{excluded}/**"])
     if glob:
         argv.extend(["--glob", glob])
-    argv.extend(["--", pattern, "."])
+    argv.extend(["--", pattern, Path(only_file).name if only_file else "."])
     proc = subprocess.run(
         argv, cwd=str(start), shell=False, capture_output=True, timeout=RG_TIMEOUT_S,
         env={k: os.environ[k] for k in ("PATH", "SYSTEMROOT", "PATHEXT") if k in os.environ},
@@ -197,6 +231,8 @@ def _search_ripgrep(
         rel = rel.replace("\\", "/")
         if rel.startswith("./"):
             rel = rel[2:]
+        if only_file is not None:
+            rel = only_file  # rg ran inside the file's own folder
         line_no = int(data.get("line_number") or 0)
         line_text = (data.get("lines") or {}).get("text", "").rstrip("\n").rstrip("\r")
         column = 1
@@ -244,7 +280,15 @@ def _search_scan(
     files_scanned = 0
     total_bytes = 0
     truncated = False
-    for rel, full in _iter_files(ctx, path, include_ignored=include_ignored, include_hidden=include_hidden):
+    start, only_file = _resolve_search_root(ctx, path)
+    if only_file is not None:
+        if _file_is_searchable(only_file, include_ignored=include_ignored, include_hidden=include_hidden):
+            file_iter: Iterator[tuple[str, Path]] = iter([(only_file, start / Path(only_file).name)])
+        else:
+            file_iter = iter([])
+    else:
+        file_iter = _iter_files(ctx, path, include_ignored=include_ignored, include_hidden=include_hidden)
+    for rel, full in file_iter:
         if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(Path(rel).name, glob):
             continue
         try:

@@ -8,6 +8,13 @@ export interface Quote {
   marketCap?: number;
   volume?: number;
   /**
+   * Crypto sources report two different volumes for the same pair: the 24h
+   * QUOTE notional (Binance `quoteVolume`, in USD/USDT) and the BASE-asset units
+   * (`volume`). They are not interchangeable — label them, never conflate.
+   */
+  volumeQuote?: number;
+  volumeBase?: number;
+  /**
    * The market the quote was priced in. Set by the fetcher from the request so
    * a downstream identity check can detect a provider answering for a different
    * instrument. Optional for legacy callers; the bridge always sets it.

@@ -1,7 +1,7 @@
 ---
 title: Market Data Layer
 status: Current
-last-verified: 2026-10-12
+last-verified: 2026-10-13
 ---
 
 # Market Data Layer
@@ -134,6 +134,22 @@ An **invalid** finding withholds the value (the gateway tries the next provider)
 a **warning** is surfaced on `meta.warnings`. The engine never repairs silently.
 
 ## Freshness & caching
+
+**Requested windows.** A history request that names `start`/`end` is honored
+end-to-end: the Yahoo adapter sends the window as `period1`/`period2` (a bare
+date is inclusive, padded to that day's last second) and picks the smallest
+provider `range` that COVERS it for the batched bridge, whose rows are then
+filtered to the window — a Dec-2025 window can no longer return the whole
+history and get head/tail truncated. The retrieval authority judges a SERIES by
+COVERAGE of the requested window (7-day cadence otherwise), not by the 6h
+bar-timestamp ceiling every daily series fails after the last close.
+
+**Crypto identity & volume.** A bare base (`BTC`, `SOL`) classifies as the
+USD-quoted spot pair in BOTH classifiers (TS `instrument-identity`, Python
+`retrieval/structured`), so it routes to the crypto source and never to an
+equity/vault read — bare `BTC` on Yahoo is the Grayscale mini-trust ETF, which
+is exactly how a wrong price used to appear. Binance's two 24h volumes travel
+explicitly labelled: `volume` = quote notional, `volumeBase` = base-asset units.
 
 `cache.py` is a per-capability in-process TTL cache with an explicit-freshness
 guard: a `realtime` request is never served a value older than the realtime

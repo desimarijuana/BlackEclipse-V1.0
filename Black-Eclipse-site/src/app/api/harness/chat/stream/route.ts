@@ -141,6 +141,15 @@ export async function POST(request: Request) {
             error: run.error,
             provider: run.provider ?? null,
             model: run.model ?? null,
+            // Authoritative usage/steps so the Agent Workspace Context panel can
+            // fold the record into the live run (the harness events alone do not
+            // carry provider/model/tokens on every path).
+            promptTokens: run.promptTokens,
+            completionTokens: run.completionTokens,
+            totalTokens: run.totalTokens,
+            modelSteps: run.modelSteps,
+            toolCalls: run.toolCalls,
+            toolErrors: run.toolErrors,
             research: run.research ?? null,
             memory: run.memory ?? null,
             context: run.context ?? null,

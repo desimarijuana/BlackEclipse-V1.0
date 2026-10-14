@@ -36,6 +36,7 @@ import {
 import { useAuroraPaletteStore } from '@/lib/aurora/store';
 import { parseAuroraPalette } from '@/lib/aurora/theme';
 import { type AuroraPalette } from '@/lib/aurora-sentiment';
+import { composeDocumentTitle } from '@/lib/notifications/title';
 
 export const THEME_STORAGE_KEY = 'be_theme_v1';
 export const THEME_PRESETS_STORAGE_KEY = 'be_theme_presets_v1';
@@ -239,7 +240,9 @@ function applyFavicon(theme: EclipseTheme) {
 function applyDocumentTitle(theme: EclipseTheme) {
   if (typeof document === 'undefined') return;
   const suffix = '\u2014 AI Stock Research & Screening Platform';
-  document.title = `${theme.appName} ${suffix}`;
+  // Compose through the notification prefix so an unread count is never
+  // silently dropped by a branding title write.
+  document.title = composeDocumentTitle(`${theme.appName} ${suffix}`);
 }
 
 function persist(theme: EclipseTheme) {

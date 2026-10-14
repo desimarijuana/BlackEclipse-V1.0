@@ -50,6 +50,17 @@ import {
   structuredConnectorCapability,
 } from "@/lib/harness/data-bridge-education";
 import { fetchHistorySeriesFallback } from "@/lib/harness/data-bridge-history";
+import {
+  liveCompanyProfile,
+  readCachedStatements,
+  staleStatementsResult,
+  type StaleStatements,
+} from "@/lib/harness/data-bridge-statements";
+import {
+  coveringRangeFor,
+  timestampWithinWindow,
+  windowBounds,
+} from "@/lib/scraper/yahoo-chart";
 import type { DataCapability } from "./types";
 
 // The result shape lives in `data-bridge-types.ts` (shared with the health
@@ -91,6 +102,7 @@ interface VaultAsset {
     marketCap: number | null;
     volume: number | null;
     peRatio: number | null;
+    forwardPE: number | null;
     source: string;
     updatedAt: Date;
   } | null;
@@ -685,34 +697,28 @@ async function fundamentals(params: Record<string, unknown>): Promise<DataBridge
     // Provenance for the profile fields: vault or a live provider. Honest about
     // where the profile came from so a consumer never assumes the vault answered.
     profileSource,
+    // Valuation ratios get their own provenance: the LIVE provider values when a
+    // company snapshot was fetched this call, otherwise the vault's saved ratios
+    // with their as-of. A live P/E therefore has a route (refresh), and a saved
+    // one is never disguised as current (DATA-1).
+    valuation: liveProfile
+      ? {
+          peRatio: liveProfile.trailingPE,
+          forwardPE: liveProfile.forwardPE,
+          provenance: "LIVE",
+          source: liveProfile.valuationSource,
+          asOf: liveProfile.valuationAsOf,
+        }
+      : asset?.price
+        ? {
+            peRatio: asset.price.peRatio ?? null,
+            forwardPE: asset.price.forwardPE ?? null,
+            provenance: "JDDS",
+            source: asset.price.source ?? null,
+            asOf: asset.price.updatedAt ? new Date(asset.price.updatedAt).toISOString() : null,
+          }
+        : null,
   };
-}
-
-/**
- * The company profile from the live provider pipeline (SEC → FMP → Yahoo), or
- * null when no provider can answer. Reuses the existing fundamentals service —
- * there is no second provider implementation here.
- */
-async function liveCompanyProfile(
-  symbol: string,
-  market: string
-): Promise<{ name: string | null; sector: string | null; industry: string | null; country: string | null; exchange: string | null; currency: string | null } | null> {
-  try {
-    const { getFundamentals } = await import("@/lib/fundamentals");
-    const snapshot = await getFundamentals(symbol, market);
-    if (!snapshot) return null;
-    const c = snapshot.company;
-    return {
-      name: c.name ?? null,
-      sector: c.sector ?? null,
-      industry: c.industry ?? null,
-      country: c.country ?? null,
-      exchange: c.exchange ?? null,
-      currency: snapshot.currency ?? null,
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -747,33 +753,21 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
     identity = fallback;
   }
 
+  // Statements are cached, but a cache is only useful while it is CURRENT: a
+  // FY2018/FY2019 payload was being served indefinitely with a fresh `updatedAt`
+  // (the row's timestamp refreshes on any write while the VALUE stays ancient).
+  // Past the cadence the provider chain is tried first; if it cannot answer, the
+  // persisted snapshot is still served — with its age stated, never disguised as
+  // current. The shaping lives in `data-bridge-statements.ts` (size ratchet).
+  let staleCached: StaleStatements | undefined;
   const cached = await prisma.fundamentalsCache.findUnique({
     where: { symbol_market: { symbol: identity.symbol, market: identity.market } },
   });
   if (cached) {
-    let snapshot: Record<string, unknown>;
-    try {
-      snapshot = JSON.parse(cached.payload) as Record<string, unknown>;
-    } catch {
-      return unavailableClass("incomplete", "persisted statements could not be parsed");
-    }
-    const periods = Array.isArray(snapshot.periods) ? snapshot.periods : [];
-    if (periods.length > 0) {
-      return {
-        status: "OK",
-        symbol: identity.symbol,
-        market: identity.market,
-        currency: identity.currency,
-        instrumentId: `${identity.market}:${identity.symbol}`,
-        provider: cached.primarySource,
-        retrievedAt: cached.fetchedAt.toISOString(),
-        statementSource: snapshot.primarySource ?? cached.primarySource,
-        provenance: "CACHED",
-        assetClass: identity.assetClass,
-        periods,
-      };
-    }
-    // An empty shell is a cache miss, not a value — fall through to a live fetch.
+    const read = readCachedStatements(cached, identity, params.refresh === true);
+    if (read.parseError) return read.parseError;
+    if (read.fresh) return read.fresh;
+    staleCached = read.stale;
   }
 
   // Live provider fallback: the existing fundamentals service (SEC/FMP/yfinance),
@@ -781,9 +775,10 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
   try {
     const { getFundamentals } = await import("@/lib/fundamentals");
     const snapshot = await getFundamentals(identity.symbol, identity.market, {
-      force: params.refresh === true,
+      force: params.refresh === true || staleCached !== undefined,
     });
     if (!snapshot || snapshot.periods.length === 0) {
+      if (staleCached) return staleStatementsResult(staleCached);
       return unavailableClass(
         "no_data",
         `no financial statements available for ${identity.symbol} (${identity.market}) ` +
@@ -802,8 +797,11 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
       provenance: snapshot.provenance,
       assetClass: identity.assetClass,
       periods: snapshot.periods,
+      // The cache now holds this payload; say the read came out fresh.
+      cacheAgeDays: 0,
     };
   } catch (err) {
+    if (staleCached) return staleStatementsResult(staleCached);
     return unavailableClass(
       "source_failure",
       `live statement fetch failed for ${identity.symbol}: ${err instanceof Error ? err.message : String(err)}`,
@@ -1091,7 +1089,12 @@ async function cryptoMarketData(params: Record<string, unknown>): Promise<DataBr
       contract: classified.contract,
       price: q.price,
       changePct: q.changePct,
+      // `volume` keeps the connector's historical meaning (24h QUOTE notional).
+      // The base-asset units and the explicit quote notional ride alongside so a
+      // consumer can say which volume it means instead of conflating the two.
       volume: q.volume ?? null,
+      volumeBase: q.volumeBase ?? null,
+      volumeQuote: q.volumeQuote ?? q.volume ?? null,
       marketCap: null,
       high24h: null,
       low24h: null,
@@ -1113,8 +1116,17 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
   if (!symbol) return unavailableClass("invalid_request", "symbol is required");
   const rawMarket = params.market;
-  const range = String(params.range ?? "1y").trim().toLowerCase();
   const interval = String(params.period ?? params.interval ?? "1d").trim().toLowerCase();
+  const start = typeof params.start === "string" ? params.start : undefined;
+  const end = typeof params.end === "string" ? params.end : undefined;
+  // An explicit window picks a covering range for the bridge transport and is
+  // enforced on the rows below; without one the legacy `range` default applies.
+  const bounds = windowBounds(start, end);
+  const range = coveringRangeFor(
+    bounds.startMs,
+    bounds.endMs,
+    String(params.range ?? "1y").trim().toLowerCase(),
+  );
 
   // Identity first: history for an unresolvable market must not silently fetch a
   // bare ticker either.
@@ -1130,7 +1142,11 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
   try {
     const data = await fetchYahooBatchRaw([identity.symbol], identity.market, interval, range);
     const key = Object.keys(data.history ?? {})[0];
-    const rows = key ? data.history?.[key] : undefined;
+    const allRows = key ? data.history?.[key] : undefined;
+    // The bridge cannot express period1/period2, so the window is enforced here.
+    const rows = Array.isArray(allRows)
+      ? allRows.filter((r) => timestampWithinWindow(String(r?.date ?? r?.timestamp ?? ""), bounds))
+      : undefined;
     if (Array.isArray(rows) && rows.length >= 2) {
       return {
         status: "OK",
@@ -1142,6 +1158,7 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
         interval,
         provider: "yfinance",
         transport: "yfinance-bridge",
+        ...(bounds.startMs != null ? { window: { start: start ?? null, end: end ?? null } } : {}),
         series: rows,
         asOf: rows[rows.length - 1]?.date ?? null,
       };
@@ -1149,7 +1166,10 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
   } catch {
     /* fall through to the direct transport */
   }
-  const fallback = await fetchHistorySeriesFallback(identity.symbol, identity.market, range, interval);
+  const fallback = await fetchHistorySeriesFallback(identity.symbol, identity.market, range, interval, {
+    start,
+    end,
+  });
   if (fallback) {
     return {
       status: "OK",
@@ -1164,6 +1184,7 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
       // The provider ticker the chart transport actually answered for (a thin
       // market may resolve through a fallback suffix) — provenance, not a guess.
       providerSymbol: fallback.ticker,
+      ...(bounds.startMs != null ? { window: { start: start ?? null, end: end ?? null } } : {}),
       series: fallback.series,
       asOf: fallback.series[fallback.series.length - 1]?.date ?? null,
     };

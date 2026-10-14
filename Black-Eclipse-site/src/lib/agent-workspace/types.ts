@@ -291,6 +291,28 @@ export interface ContextPatch extends Partial<ContextUsage> {
   fileKey?: string;
 }
 
+/**
+ * The authoritative run-record fields the front door forwards on `client.final`
+ * (and that `applyRunRecord` merges when replaying a finished run). Applied with
+ * SET semantics: a present, non-zero value wins over the live accumulation; a
+ * zero/missing token count stays "unreported" and is not invented.
+ */
+export interface RunRecordPatch {
+  provider?: string;
+  model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  modelSteps?: number;
+  toolCalls?: number;
+  toolErrors?: number;
+  windowTokens?: number | null;
+  windowKnown?: boolean;
+  turnsKept?: number;
+  turnsDropped?: number;
+  droppedTokensEstimate?: number;
+}
+
 export type WorkspaceEvent =
   | { type: 'agent'; status: AgentStatus; phase?: string; agentId?: string; at: number }
   | { type: 'model'; provider?: string; model?: string; at: number }
@@ -308,5 +330,6 @@ export type WorkspaceEvent =
   | { type: 'research'; patch: ResearchPatch; at: number }
   | { type: 'browser'; patch: BrowserPatch; at: number }
   | { type: 'computer'; patch: ComputerPatch; at: number }
+  | { type: 'run_record'; patch: RunRecordPatch; at: number }
   | { type: 'error'; message: string; code?: string; at: number }
   | { type: 'finished'; status: AgentStatus; output?: string; at: number };

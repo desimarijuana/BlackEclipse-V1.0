@@ -25,6 +25,7 @@ export function toBinancePair(symbol: string): string {
 interface BinanceTicker {
   lastPrice?: string;
   priceChangePercent?: string;
+  volume?: string;
   quoteVolume?: string;
 }
 
@@ -32,9 +33,14 @@ interface BinanceTicker {
 export function parseBinanceTicker(symbol: string, data: BinanceTicker | null | undefined): FetchResult {
   const price = parseFloat(data?.lastPrice || "0");
   const changePct = parseFloat(data?.priceChangePercent || "0");
-  const volume = parseFloat(data?.quoteVolume || "0");
+  // Two DIFFERENT 24h volumes, both reported: quote notional (USD/USDT) and
+  // base-asset units. `volume` keeps its historical meaning (quote notional);
+  // the base units ride alongside so a caller can state which one it means.
+  const volumeQuote = parseFloat(data?.quoteVolume || "0");
+  const volumeBase = parseFloat(data?.volume || "0");
   if (!Number.isNaN(price) && price > 0) {
-    const quote: Quote = { symbol, price, changePct, volume };
+    const quote: Quote = { symbol, price, changePct, volume: volumeQuote, volumeQuote };
+    if (!Number.isNaN(volumeBase) && volumeBase > 0) quote.volumeBase = volumeBase;
     return { status: "ok", quote, source: "crypto" };
   }
   return { status: "empty", error: "No valid price in ticker", source: "crypto" };

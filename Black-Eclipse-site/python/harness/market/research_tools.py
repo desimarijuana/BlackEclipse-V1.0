@@ -293,6 +293,20 @@ def _render_market_data(rows: list[dict[str, Any]], interval: str, start: Any, e
             f"  {entry['symbol']}: {entry['barCount']} bar(s) from {entry.get('provider') or '?'}"
             f" (quality={entry.get('quality')}){vtext}"
         )
+        # The model-visible text is the answer's only view of the data; a bar
+        # COUNT alone hid the actual series (observed: "11,551 bars, no rows").
+        # Show a bounded tail inline and say exactly how much `rows` carries.
+        bars = entry.get("rows") or []
+        if bars:
+            lines.append(
+                f"      latest {min(3, len(bars))} of {entry['barCount']} bar(s); "
+                f"structured `rows` carries the last {len(bars)}:"
+            )
+            for bar in bars[-3:]:
+                lines.append(
+                    f"        {bar.get('timestamp')} O={bar.get('open')} H={bar.get('high')} "
+                    f"L={bar.get('low')} C={bar.get('close')} V={bar.get('volume')}"
+                )
     return "\n".join(lines)
 
 

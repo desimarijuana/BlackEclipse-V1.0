@@ -26,6 +26,7 @@ import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
 import { TaskCompletionWatcher } from "@/lib/notifications/task-watcher";
 import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
+import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
 import { SoundProvider } from "@/lib/sounds";
 import { TerminalKeybind } from "@/components/layout/terminal-keybind";
 import { WorkspaceKeybind } from "@/components/agent-workspace/workspace-keybind";
@@ -90,6 +91,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <AlertNotificationProvider />
         <TaskCompletionWatcher />
         <BotsRunWatcher />
+        <BrowserTabIndicator />
       </body>
     </html>
   );

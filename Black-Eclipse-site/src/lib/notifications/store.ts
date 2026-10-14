@@ -142,10 +142,6 @@ export interface NotificationsStore {
   /** Record one event. Returns false when the id was already recorded. */
   push: (input: NotificationInput) => boolean;
   markTabRead: (tab: AppTab) => void;
-  /** Mark every item read (the panel's "Mark all read"). */
-  markAllRead: () => void;
-  /** Drop one item entirely (the panel's per-item dismiss). */
-  remove: (id: string) => void;
   /**
    * Track the visible tab AND mark its items read — a notification the
    * operator can already see never badges.
@@ -187,22 +183,6 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
     const { items } = get();
     if (!items.some((n) => n.tab === tab && !n.read)) return;
     const next = items.map((n) => (n.tab === tab && !n.read ? { ...n, read: true } : n));
-    persist(next);
-    set({ items: next });
-  },
-
-  markAllRead: () => {
-    const { items } = get();
-    if (!items.some((n) => !n.read)) return;
-    const next = items.map((n) => (n.read ? n : { ...n, read: true }));
-    persist(next);
-    set({ items: next });
-  },
-
-  remove: (id) => {
-    const { items } = get();
-    const next = items.filter((n) => n.id !== id);
-    if (next.length === items.length) return;
     persist(next);
     set({ items: next });
   },

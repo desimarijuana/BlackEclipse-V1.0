@@ -305,7 +305,13 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
 
 async def get_fundamentals(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     symbol = str(args.get("symbol", "")).strip().upper()
-    payload = await _fetch(ctx, "fundamentals", {"symbol": symbol})
+    params: dict[str, Any] = {"symbol": symbol}
+    # `refresh: true` asks the provider chain (SEC/FMP/Yahoo) for a live profile
+    # and live valuation ratios instead of the saved snapshot — the route the
+    # stale-P/E complaint asked for. The response labels each ratio's provenance.
+    if args.get("refresh") is True:
+        params["refresh"] = True
+    payload = await _fetch(ctx, "fundamentals", params)
     if payload.get("status") != "OK":
         return f"UNAVAILABLE — no fundamentals stored for {symbol} in JDdS.", {"status": "UNAVAILABLE"}
     return dumps(payload), {"status": "OK", "symbol": symbol}
@@ -588,10 +594,20 @@ def register_finance_tools(registry: ToolRegistry) -> None:
     registry.register(
         ToolDefinition(
             name="get_fundamentals",
-            description="Read sector/industry/financial profile for a symbol from JDdS.",
+            description=(
+                "Read the profile and valuation ratios for a symbol: sector/industry, "
+                "plus P/E and forward P/E with their provenance. Pass refresh=true to "
+                "pull live values from the provider chain instead of the saved snapshot."
+            ),
             input_schema={
                 "type": "object",
-                "properties": {"symbol": {"type": "string", "description": "Ticker symbol."}},
+                "properties": {
+                    "symbol": {"type": "string", "description": "Ticker symbol."},
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Fetch live profile + ratios from the provider chain (default false).",
+                    },
+                },
                 "required": ["symbol"],
             },
             handler=get_fundamentals,

@@ -245,22 +245,28 @@ export function AgentWorkspace({ showExplain = false }: { showExplain?: boolean 
       </nav>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col p-3">
-        {!state.runId && state.activity.length === 0 && shownPanel !== 'history' ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-            <Sparkles size={20} className="text-muted-foreground/30" />
-            <p className="text-[12px] leading-relaxed text-muted-foreground/50">{t('workspace.empty')}</p>
-          </div>
-        ) : (
-          <PanelBody
-            panel={shownPanel}
-            state={state}
-            runId={runId}
-            load={loadArtifact}
-            onOpenDiff={(change) => setViewing({ id: `diff:${change.path}`, name: change.path, type: 'diff', createdAt: Date.now(), storageRef: change.path })}
-            onDecide={onDecide}
-            onOpenRun={openRun}
-          />
-        )}
+        {/* The panel body scrolls as a whole. Context (the default view) stacks
+            a gauge, a 12-tile stat grid and the source list taller than the
+            dock, and without this the lower context data was clipped by the
+            column's `overflow-hidden`. Output keeps its own inner scroll. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {!state.runId && state.activity.length === 0 && shownPanel !== 'history' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <Sparkles size={20} className="text-muted-foreground/30" />
+              <p className="text-[12px] leading-relaxed text-muted-foreground/50">{t('workspace.empty')}</p>
+            </div>
+          ) : (
+            <PanelBody
+              panel={shownPanel}
+              state={state}
+              runId={runId}
+              load={loadArtifact}
+              onOpenDiff={(change) => setViewing({ id: `diff:${change.path}`, name: change.path, type: 'diff', createdAt: Date.now(), storageRef: change.path })}
+              onDecide={onDecide}
+              onOpenRun={openRun}
+            />
+          )}
+        </div>
 
         {viewing && (
           <div className="absolute inset-0 z-20 flex flex-col bg-background/85 backdrop-blur-sm">

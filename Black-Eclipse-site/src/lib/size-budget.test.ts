@@ -49,7 +49,12 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1377→1379 for the `response_contract` dispatch (two lines: the case
   // + its one-line return), the model's read-back for the eclipse-response block
   // format. Implementation lives in `response-bridge.ts`; may only shrink.
-  "src/lib/harness/data-bridge.ts": 1379,
+  // Re-pinned 1379→1400 for the register closeout: statement-cache staleness and
+  // the live profile/valuation helpers were EXTRACTED to
+  // `data-bridge-statements.ts` (the split candidate named above), leaving the
+  // `valuation` block + helper imports here (+21 net). May only shrink; the next
+  // split candidate is the instrument-identity block.
+  "src/lib/harness/data-bridge.ts": 1400,
   "src/components/screens/market-bubbles.tsx": 1413,
   "src/components/chart/chart-widget.tsx": 1405,
   "src/lib/workspace/workspace-canvas.tsx": 1374,

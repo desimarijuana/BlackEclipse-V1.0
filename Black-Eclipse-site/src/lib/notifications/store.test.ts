@@ -72,23 +72,6 @@ describe('useNotificationsStore', () => {
     expect(items.find((n) => n.tab === 'chat')?.read).toBe(false);
   });
 
-  it('markAllRead clears every unread item', () => {
-    const store = useNotificationsStore.getState();
-    store.push({ id: 'a', tab: 'alerts', title: 'Alert' });
-    store.push({ id: 'b', tab: 'tasks', title: 'Task' });
-    useNotificationsStore.getState().markAllRead();
-    expect(totalUnread(useNotificationsStore.getState().items)).toBe(0);
-  });
-
-  it('remove drops exactly one item and leaves the rest untouched', () => {
-    const store = useNotificationsStore.getState();
-    store.push({ id: 'a', tab: 'alerts', title: 'Alert' });
-    store.push({ id: 'b', tab: 'bots', title: 'Bot run completed' });
-    useNotificationsStore.getState().remove('a');
-    const { items } = useNotificationsStore.getState();
-    expect(items.map((n) => n.id)).toEqual(['b']);
-  });
-
   it('setActiveTab records the tab and clears its unread items', () => {
     const store = useNotificationsStore.getState();
     store.push({ id: 'a', tab: 'tasks', title: 'Task' });

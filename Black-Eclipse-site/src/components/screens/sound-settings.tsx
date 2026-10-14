@@ -12,7 +12,7 @@
 
 import { useRef, useState } from "react";
 import {
-  Volume2, VolumeX, Play, Upload, RotateCcw, Check, Music2,
+  Volume2, VolumeX, Play, Upload, RotateCcw, Check, Music2, Bell,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -49,6 +49,12 @@ function Card({
     </div>
   );
 }
+
+// Cues that announce something happening OUTSIDE the current view. They get
+// their own card so the operator can decide about them explicitly instead of
+// hunting through the generic cue list — `taskdone` is critical (plays even
+// while UI sounds are off) and this card is its documented opt-out.
+const NOTIFICATION_CUES: readonly SoundName[] = ["taskdone", "notification"];
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -297,6 +303,20 @@ export function SoundSettingsPanel() {
         </div>
       </Card>
 
+      {/* ── Notifications & alarms ─────────────────────────────────── */}
+      <Card icon={Bell} title="Notifications & alarms">
+        <p className="text-[10px] text-muted-foreground -mt-2">
+          Whether these events make a sound — decide it here. The task-done alarm is
+          critical: it plays even while UI sounds are off until you switch it off below
+          (or with the same toggles under Settings › Alerts).
+        </p>
+        <div className="space-y-3">
+          {NOTIFICATION_CUES.map((name) => (
+            <CueRow key={name} name={name} />
+          ))}
+        </div>
+      </Card>
+
       {/* ── Voice pack ─────────────────────────────────────────────── */}
       <Card icon={Music2} title="Sound Pack">
         <p className="text-[10px] text-muted-foreground -mt-2">
@@ -351,10 +371,10 @@ export function SoundSettingsPanel() {
         }
       >
         <p className="text-[10px] text-muted-foreground -mt-2">
-          Fine-tune each cue — volume, mute, or upload your own audio file.
+          Fine-tune the remaining cues — volume, mute, or upload your own audio file.
         </p>
         <div className="space-y-3">
-          {SOUND_NAMES.map((name) => (
+          {SOUND_NAMES.filter((name) => !NOTIFICATION_CUES.includes(name)).map((name) => (
             <CueRow key={name} name={name} />
           ))}
         </div>

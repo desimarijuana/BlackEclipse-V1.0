@@ -7,10 +7,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const fetchYahooChartSeries = vi.fn();
 const yahooChartCandidates = vi.fn();
 
-vi.mock("@/lib/scraper/yahoo-chart", () => ({
-  fetchYahooChartSeries: (...a: unknown[]) => fetchYahooChartSeries(...a),
-  yahooChartCandidates: (...a: unknown[]) => yahooChartCandidates(...a),
-}));
+vi.mock("@/lib/scraper/yahoo-chart", async (importOriginal) => {
+  // Keep the REAL window helpers (pure date math) — only the network helper and
+  // the candidate chain are mocked.
+  const actual = await importOriginal<typeof import("@/lib/scraper/yahoo-chart")>();
+  return {
+    ...actual,
+    fetchYahooChartSeries: (...a: unknown[]) => fetchYahooChartSeries(...a),
+    yahooChartCandidates: (...a: unknown[]) => yahooChartCandidates(...a),
+  };
+});
 
 import { fetchHistorySeriesFallback } from "./data-bridge-history";
 

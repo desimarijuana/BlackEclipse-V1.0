@@ -35,6 +35,12 @@ describe('Agent Workspace reachability', () => {
     const registry = readFileSync(here, 'utf8');
     expect(registry).toContain('ingestHarnessFrame');
   });
+
+  it('scrolls the panel body so stacked context data is never clipped', () => {
+    const here = fileURLToPath(new URL('./workspace.tsx', import.meta.url));
+    const src = readFileSync(here, 'utf8');
+    expect(src).toContain('overflow-y-auto');
+  });
 });
 
 describe('Agent Workspace copy', () => {

@@ -297,6 +297,28 @@ def test_search_text_summary_names_the_match_mode_and_guards_zero(tmp_path):
     assert "regex: true" in result.text
 
 
+def test_search_text_accepts_a_single_file_path(tmp_path):
+    root = tree(tmp_path)
+    svc = make_service(root)
+    result = svc.search_text("calculateTotal", path="src/nested/util.py")
+    assert result["count"] >= 1
+    assert all(m["path"] == "src/nested/util.py" for m in result["matches"])
+    missing = None
+    try:
+        svc.search_text("x", path="src/nested/not-there.py")
+    except err.FsError as exc:
+        missing = exc
+    assert missing is not None and missing.code == err.PATH_NOT_FOUND
+
+
+def test_search_text_accepts_context_lines_above_five(tmp_path):
+    # contextLines was capped at 5 and rejected 6+; the cap is now 20.
+    registry, ctx = _ctx(tree(tmp_path))
+    result = _call(registry, "search_text", {"query": "calculateTotal", "contextLines": 6}, ctx)
+    assert result.ok
+    assert result.data["count"] >= 1
+
+
 def test_registry_registers_all_fs_tools(tmp_path):
     registry, _ctx_unused = _ctx(tree(tmp_path))
     names = set(registry.names())

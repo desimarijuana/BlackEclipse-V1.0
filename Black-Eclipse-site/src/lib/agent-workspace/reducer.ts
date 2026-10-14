@@ -17,6 +17,7 @@ import type {
   ComputerPatch,
   ContextPatch,
   ResearchPatch,
+  RunRecordPatch,
   WorkspaceEvent,
 } from './types';
 
@@ -103,9 +104,12 @@ export function applyWorkspaceEvent(
         t.modelSteps = event.step;
         state.execution.iteration = event.step;
       }
-      if (event.promptTokens != null) t.promptTokens = (t.promptTokens ?? 0) + event.promptTokens;
-      if (event.completionTokens != null) t.completionTokens = (t.completionTokens ?? 0) + event.completionTokens;
-      if (event.totalTokens != null) t.totalTokens = (t.totalTokens ?? 0) + event.totalTokens;
+      // Providers that do not report usage send zeros; a zero report is
+      // "unreported", not a real count, so it must not turn a metric into a
+      // misleading `0` (honesty rule — unreported renders "Not available").
+      if (event.promptTokens != null && event.promptTokens > 0) t.promptTokens = (t.promptTokens ?? 0) + event.promptTokens;
+      if (event.completionTokens != null && event.completionTokens > 0) t.completionTokens = (t.completionTokens ?? 0) + event.completionTokens;
+      if (event.totalTokens != null && event.totalTokens > 0) t.totalTokens = (t.totalTokens ?? 0) + event.totalTokens;
       break;
     }
     case 'plan': {
@@ -233,6 +237,9 @@ export function applyWorkspaceEvent(
     case 'context_sources':
       state.contextSources = event.sources;
       break;
+    case 'run_record':
+      applyRunRecordPatch(state, event.patch);
+      break;
     case 'research':
       applyResearchPatch(state, event.patch);
       break;
@@ -295,6 +302,34 @@ function applyContextPatch(ctx: AgentWorkspaceState['context'], patch: ContextPa
   if (patch.memoriesUsed != null) ctx.memoriesUsed = patch.memoriesUsed;
   if (patch.memoryChars != null) ctx.memoryChars = patch.memoryChars;
   if (patch.linesInspectedDelta) ctx.linesInspected += patch.linesInspectedDelta;
+}
+
+/**
+ * Merge an authoritative run-record patch (from the front-door `client.final`
+ * frame, or a replayed run record). SET semantics with the same honesty guards
+ * as `applyRunRecord`: a token/tool count of zero is "unreported" and never
+ * overwrites; a known window is never downgraded to unknown.
+ */
+export function applyRunRecordPatch(state: AgentWorkspaceState, patch: RunRecordPatch): void {
+  if (patch.provider) state.model.provider = patch.provider;
+  if (patch.model) state.model.model = patch.model;
+
+  const t = state.telemetry;
+  if (patch.promptTokens != null && patch.promptTokens > 0) t.promptTokens = patch.promptTokens;
+  if (patch.completionTokens != null && patch.completionTokens > 0) t.completionTokens = patch.completionTokens;
+  if (patch.totalTokens != null && patch.totalTokens > 0) t.totalTokens = patch.totalTokens;
+  if (patch.modelSteps != null && patch.modelSteps > 0) {
+    t.modelSteps = patch.modelSteps;
+    state.execution.iteration = patch.modelSteps;
+  }
+  if (patch.toolCalls != null && patch.toolCalls > 0) t.toolCalls = patch.toolCalls;
+  if (patch.toolErrors != null && patch.toolErrors > 0) t.toolErrors = patch.toolErrors;
+
+  if (patch.windowTokens != null) state.context.windowTokens = patch.windowTokens;
+  if (patch.windowKnown) state.context.windowKnown = true;
+  if (patch.turnsKept != null) state.context.turnsKept = patch.turnsKept;
+  if (patch.turnsDropped != null) state.context.turnsDropped = patch.turnsDropped;
+  if (patch.droppedTokensEstimate != null) state.context.droppedTokensEstimate = patch.droppedTokensEstimate;
 }
 
 function applyResearchPatch(state: AgentWorkspaceState, patch: ResearchPatch): void {

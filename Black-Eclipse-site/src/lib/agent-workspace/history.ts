@@ -6,7 +6,7 @@
 // No second store, no new persistence: the runtime owns the trace.
 
 import { normalizeWorkspaceEvent } from './normalize';
-import { applyWorkspaceEvents, initialWorkspaceState } from './reducer';
+import { applyRunRecordPatch, applyWorkspaceEvents, initialWorkspaceState } from './reducer';
 import type { RunRecord } from '@/lib/harness/types';
 import type { AgentStatus, AgentWorkspaceState } from './types';
 
@@ -117,16 +117,27 @@ function statusOf(record: RunRecord): AgentStatus {
  * present. Pure: mutates and returns the given state.
  */
 export function applyRunRecord(state: AgentWorkspaceState, record: RunRecord): AgentWorkspaceState {
-  if (record.provider) state.model.provider = record.provider;
-  if (record.model) state.model.model = record.model;
+  applyRunRecordPatch(state, {
+    provider: record.provider ?? undefined,
+    model: record.model ?? undefined,
+    promptTokens: record.promptTokens,
+    completionTokens: record.completionTokens,
+    totalTokens: record.totalTokens,
+    modelSteps: record.modelSteps,
+    toolCalls: record.toolCalls,
+    toolErrors: record.toolErrors,
+    ...(record.context
+      ? {
+          windowTokens: record.context.window ?? state.context.windowTokens ?? null,
+          windowKnown: record.context.windowKnown,
+          turnsKept: record.context.keptTurns,
+          turnsDropped: record.context.droppedTurns,
+          droppedTokensEstimate: record.context.droppedTokensEstimate,
+        }
+      : {}),
+  });
 
   const t = state.telemetry;
-  if (record.promptTokens > 0) t.promptTokens = record.promptTokens;
-  if (record.completionTokens > 0) t.completionTokens = record.completionTokens;
-  if (record.totalTokens > 0) t.totalTokens = record.totalTokens;
-  if (record.modelSteps > 0) t.modelSteps = record.modelSteps;
-  if (record.toolCalls > 0) t.toolCalls = record.toolCalls;
-  if (record.toolErrors > 0) t.toolErrors = record.toolErrors;
   const started = timeOf(record.startedAt ?? undefined, 0);
   if (started > 0) t.startedAt = started;
   const finished = timeOf(record.finishedAt ?? undefined, 0);
@@ -134,14 +145,6 @@ export function applyRunRecord(state: AgentWorkspaceState, record: RunRecord): A
 
   state.execution.runId = record.id;
   state.execution.status = statusOf(record);
-
-  if (record.context) {
-    state.context.windowTokens = record.context.window ?? state.context.windowTokens ?? null;
-    state.context.windowKnown = record.context.windowKnown || state.context.windowKnown;
-    state.context.turnsKept = record.context.keptTurns;
-    state.context.turnsDropped = record.context.droppedTurns;
-    state.context.droppedTokensEstimate = record.context.droppedTokensEstimate;
-  }
 
   return state;
 }
