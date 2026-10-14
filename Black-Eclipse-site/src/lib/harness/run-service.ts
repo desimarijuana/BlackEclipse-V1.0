@@ -64,7 +64,7 @@ export interface StartRunOptions {
 export async function chatWithAgent(
   query: string,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
-  documents: Array<{ name: string; text: string }> = [],
+  documents: Array<{ name: string; text: string; truncated?: boolean; originalChars?: number }> = [],
   runId?: string,
   sessionId?: string,
   model?: string,
@@ -214,7 +214,7 @@ function reasoningContext(
 export async function startChatRun(
   query: string,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
-  documents: Array<{ name: string; text: string }> = [],
+  documents: Array<{ name: string; text: string; truncated?: boolean; originalChars?: number }> = [],
   runId?: string,
   sessionId?: string,
   model?: string,

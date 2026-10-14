@@ -7,12 +7,23 @@ unlocks: [18, 20]
 last-verified: 2026-10-11
 ---
 
-> **Progress (2026-10-11).** The **promotion slice is Done** under **ADR-H176**
+> **Progress (2026-10-13).** The **promotion slice is Done** under **ADR-H176**
 > (`python/harness/code/promotion.py`, `POST /code/tasks/{id}/promote/preview` +
 > `.../promote`, the additive `patch.py` `overwrite` op, the chat/Code-Tasks
-> control, `python/tests/test_code_promotion.py`). The document extractors
-> (§6.1–§6.2, docx/xlsx/pptx), the artifact serving routes/renderer (§6.3) and the
-> raised caps remain **Not started**.
+> control, `python/tests/test_code_promotion.py`). The **document extractors
+> (§6.1–§6.2) are Done** — `extract.ts` handles text/code (100+ extensions), PDF
+> (pdfjs), Office ZIP+XML (docx/xlsx/pptx/odt/ods/odp/epub), RTF, and a
+> readable-string scan for legacy binary, bounded against zip bombs; the 2026-10-11
+> note above was stale on this point (the code wins, `AGENTS.md`). **Visible
+> truncation (§6.2 item 2) is Done (2026-10-13):** `ExtractResult.originalChars`,
+> `loadContextDocuments` and the TS validator mark a shortened document, the run
+> payload carries `truncated`/`originalChars` (`schemas.RunDocument`), and
+> `graph._user_message` states the limit inside the `<document>` wrapper.
+> Artifact **serving exists** through the Artifact Center route group (content-
+> addressed by id, producer-registered); the inline chat renderer for figures is
+> phase 18. The **caps remain deliberately bounded** (`SESSION_LIMITS`: 20k/doc,
+> 60k total) — raising them is a context-budget decision, recorded here rather
+> than silently tuned. Scanned-PDF OCR stays an unrelated recorded gap.
 
 # Phase 15 — Documents In, Files Out, and Landing a Change
 

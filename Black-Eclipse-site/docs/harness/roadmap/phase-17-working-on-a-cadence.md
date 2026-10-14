@@ -1,11 +1,28 @@
 ---
 title: "Phase 17 — Working on a Cadence"
-status: Not started
+status: Done
 phase: 17
 depends_on: [6, 14]
 unlocks: [20]
-last-verified: 2026-10-02
+last-verified: 2026-10-13
 ---
+
+> **Progress (2026-10-13) — Done, repo-mapped onto the Native Automation Engine
+> (ADR-H187).** The planned artifacts (`jobs/catalogue.py`, `jobs/tools.py`, the
+> `jobs/delivery.py` helper) landed as `automation/catalogue.py`,
+> `automation/scheduling_tools.py` and `automation/delivery.py::render_run_report`,
+> because the automation engine superseded `harness.jobs` (ADR-H152) and its
+> `/jobs` API is an adapter. Shipped: the fixed nine-shape research/analysis
+> catalogue (no code/deploy shapes), the four tools (`job_list`,
+> `job_describe_template`, `job_create` — always DISABLED, `job_run_now` — refuses
+> a switched-off job), the operator master switch `agent_scheduling_enabled`
+> (default OFF; `graph.surface_disabled_tools` removes the whole surface when
+> off, handlers re-check fail-closed) with a Policies-tab toggle, and the
+> unattended answer contract (`render_run_report`). ADR-H122 was already taken by
+> bounded replanning, so this decision is **ADR-H187**. Tests:
+> `python/tests/test_scheduling_tools.py` (9). The job-shape catalogue references
+> the EXISTING templates; enabling a created job remains an operator action in
+> the UI.
 
 # Phase 17 — Working on a Cadence
 

@@ -1,13 +1,30 @@
 ---
 title: "Phase 16 — Bounded Bulk Acquisition"
-status: Not started
+status: In progress
 phase: 16
 depends_on: [13, 15]
 unlocks: [18, 20]
-last-verified: 2026-10-02
+last-verified: 2026-10-13
 ---
 
 # Phase 16 — Bounded Bulk Acquisition
+
+> **Progress (2026-10-13) — first slice shipped under ADR-H190.** Landed:
+> `python/harness/acquire/` (`registry.py` with three REAL sources on the
+> existing bridge capabilities — `price_history`, `macro_series`,
+> `sec_filings`; `budget.py`; `writer.py`; `adapters.py`; `tools.py`), the
+> `acquire` tool registered + allowlisted, the `data.collect` noun
+> (`skills/permissions.py`, `code/policy.acquisition_grants`), the operator
+> switch `acquisition_enabled` (eclipse-memory policy, default OFF;
+> surface-dropped when off; handler fail-closed), and the collect authorizer
+> seam. Tests: `python/tests/test_acquire.py` (9, hermetic). Repo-mapped
+> deviations (recorded, per `AGENTS.md`): the transport is the existing
+> read-only bridge (no new `fetch.py` HTTP path — R3-04's one-egress decision),
+> the operator profile is the policy key above rather than a separate settings
+> file, and the planned numbers for H120/H121 were long taken, so the decision
+> is **ADR-H190**. **Remaining (not started):** more sources (SEC filing LISTS,
+> operator-declared REST), cross-call budget accumulation, the chat manifest
+> panel + `acquire.*` i18n keys, the runbook, and the opt-in live smoke.
 
 | | |
 |---|---|

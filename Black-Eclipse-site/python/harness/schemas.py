@@ -56,8 +56,16 @@ class RunDocument(BaseModel):
     this is the already-readable text, injected into the user turn.
     """
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     name: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=20_000)
+    # The front door SHORTENS an over-large document (per-doc then combined caps).
+    # `truncated` marks it so the runtime can say so instead of answering from
+    # only the first part; `original_chars` is the pre-truncation length when the
+    # extractor knew it.
+    truncated: bool = False
+    original_chars: Optional[int] = Field(None, ge=0)
 
 
 class RunInput(BaseModel):

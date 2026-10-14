@@ -51,6 +51,12 @@ OPERATOR_PERMISSIONS: frozenset[str] = frozenset(
     {"skill.create", "skill.review", "skill.enable", "skill.disable", "portfolio.modify"}
 )
 
+# Data-collection permissions (Phase 16, first slice): granted ONLY by an
+# operator-set acquisition profile (`code/policy.acquisition_grants`), never by
+# the safe or operator sets above. The noun is declared here so a skill manifest
+# that names one stays well-formed while the grant stays impossible by default.
+DATA_PERMISSIONS: frozenset[str] = frozenset({"data.collect"})
+
 # Never granted in Phase 3, to any actor. Declaring one is allowed (the manifest
 # stays well-formed) but it can never resolve to a grant. `code.execute` /
 # `code.write` left this set in Phase 0: they are now grantable ONLY through the
@@ -175,6 +181,7 @@ def can_enable(manifest_permissions: Iterable[str], actor: Actor) -> PermissionD
 __all__ = [
     "Actor",
     "BLOCKED_PERMISSIONS",
+    "DATA_PERMISSIONS",
     "DEFAULT_ACTOR",
     "OPERATOR_ACTOR",
     "OPERATOR_PERMISSIONS",

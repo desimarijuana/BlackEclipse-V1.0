@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
+import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional, Protocol
 
@@ -45,6 +48,12 @@ BACKEND_NAMES: tuple[str, ...] = ("local", "container", "remote")
 CONTAINER_BACKEND_ENV = "HARNESS_SANDBOX_CONTAINER"   # e.g. "docker" | "podman"
 REMOTE_BACKEND_ENV = "HARNESS_SANDBOX_REMOTE_URL"
 REMOTE_TOKEN_ENV = "HARNESS_SANDBOX_REMOTE_TOKEN"
+# The image the container tier runs commands in. Operator-configured; the default
+# is a small, widely available image. A command class whose toolchain the image
+# lacks reports the toolchain error honestly (exit code + output), exactly like a
+# machine without that toolchain.
+SANDBOX_IMAGE_ENV = "HARNESS_SANDBOX_IMAGE"
+DEFAULT_CONTAINER_IMAGE = "python:3.12-slim"
 
 
 def _plain_backend_reason(name: str) -> str:
@@ -130,8 +139,9 @@ def _local_guarantees() -> SandboxGuarantees:
     """
     network = (
         "network is denied by policy for analysis runs (blocked by construction: "
-        "a fixed module list, restricted builtins, no URL literals); commands "
-        "that declare network run with host network"
+        "a fixed module list, restricted builtins, no URL literals); the local "
+        "runner REFUSES any command that declares network — network-capable work "
+        "requires the container tier and never runs here"
         if not policy.NETWORK_DEFAULT else "network policy allows it"
     )
     return SandboxGuarantees(
@@ -205,9 +215,91 @@ class ContainerBackend:
             "guarantees": self.guarantees.as_dict(),
         }
 
+    def build_argv(self, spec: sandbox.RunSpec, *, container_name: str = "eclipse_sandbox") -> list[str]:
+        """The hardened `docker run` argv for a spec. PURE — unit-testable.
+
+        Delegates the flag construction to `security/sandbox.py::docker_argv` (the
+        ONE place the hardened flags live: `--network none|bridge`, read-only
+        rootfs, no-new-privileges, cap-drop ALL, tmpfs, non-root user,
+        cpu/memory/pids limits). The task's own folder is the ONLY mount; no
+        secret reaches the container (the spec's env is already the scrubbed
+        allowlist; `secret_env` stays empty by construction).
+        """
+        from ..security.sandbox import SandboxSpec, docker_argv  # noqa: PLC0415
+
+        image = (os.environ.get(SANDBOX_IMAGE_ENV) or "").strip() or DEFAULT_CONTAINER_IMAGE
+        inner = SandboxSpec(
+            argv=list(spec.argv),
+            cwd=str(spec.cwd),
+            env=dict(spec.env),
+            allow_network=bool(spec.network),
+            mounts=[(str(spec.cwd), "/work", False)],
+            secret_env={},
+            timeout_s=int(spec.timeout_s),
+            memory_mb=int(spec.memory_mb) or None,
+            pids=int(spec.process_limit) or None,
+            image=image,
+        )
+        return docker_argv(inner, container_name=container_name)
+
     async def run(self, spec: sandbox.RunSpec) -> sandbox.RawResult:
-        raise sandbox.SandboxUnavailable(
-            _plain_backend_reason(self.name)
+        """Run one spec in a real container. REFUSES when no runtime is present.
+
+        Never degrades to `local`. A timeout kills the container by name before
+        returning, so a runaway workload cannot outlive its run.
+        """
+        if not self.available:
+            raise sandbox.SandboxUnavailable(_plain_backend_reason(self.name))
+        name = f"eclipse_sbx_{uuid.uuid4().hex[:12]}"
+        argv = self.build_argv(spec, container_name=name)
+        started = time.monotonic()
+
+        def _result(**fields: Any) -> sandbox.RawResult:
+            fields.setdefault("duration_ms", int((time.monotonic() - started) * 1000))
+            fields.setdefault("backend", self.name)
+            fields.setdefault("killed", False)
+            fields.setdefault("cancelled", False)
+            return sandbox.RawResult(
+                exit_code=fields.pop("exit_code", None),
+                timed_out=fields.pop("timed_out", False),
+                killed=fields.pop("killed"),
+                cancelled=fields.pop("cancelled"),
+                output=fields.pop("output", ""),
+                truncated=fields.pop("truncated", False),
+                total_chars=fields.pop("total_chars", 0),
+                duration_ms=fields.pop("duration_ms"),
+                backend=fields.pop("backend"),
+                launch_error=fields.pop("launch_error", None),
+            )
+
+        try:
+            proc = subprocess.run(
+                argv, capture_output=True, text=True, check=False,
+                timeout=float(spec.timeout_s) + 30.0,
+            )
+        except subprocess.TimeoutExpired:
+            try:
+                subprocess.run(
+                    [str(self.runtime), "kill", name],
+                    capture_output=True, check=False, timeout=30,
+                )
+            except Exception:  # noqa: BLE001 - best-effort teardown
+                pass
+            return _result(timed_out=True)
+        except Exception as exc:  # noqa: BLE001 - a launch error is a refusal
+            return _result(launch_error=str(exc)[:500])
+
+        output = proc.stdout or ""
+        if proc.stderr:
+            output = f"{output}\n{proc.stderr}" if output else proc.stderr
+        cap = max(1, int(spec.output_cap_bytes))
+        truncated = len(output) > cap
+        total = len(output)
+        return _result(
+            exit_code=proc.returncode,
+            output=output[:cap] if truncated else output,
+            truncated=truncated,
+            total_chars=total,
         )
 
 
@@ -294,18 +386,35 @@ def describe_all() -> dict[str, Any]:
     return out
 
 
+def select_for_spec(spec: sandbox.RunSpec) -> SandboxBackend:
+    """The backend a spec REQUIRES (never a preference).
+
+    A spec that DECLARES network cannot be guaranteed by the local primitive
+    (`code/sandbox.py::run` refuses it outright), so it needs the container tier —
+    and refuses with `SANDBOX_UNAVAILABLE` when no container runtime is present.
+    Everything else keeps the local tier exactly as before. There is no fallback
+    in either direction.
+    """
+    if spec.network:
+        return select_backend("container")
+    return select_backend("local")
+
+
 __all__ = [
     "BACKEND_NAMES",
     "CONTAINER_BACKEND_ENV",
     "ContainerBackend",
+    "DEFAULT_CONTAINER_IMAGE",
     "LocalBackend",
     "REMOTE_BACKEND_ENV",
     "REMOTE_TOKEN_ENV",
     "RemoteBackend",
+    "SANDBOX_IMAGE_ENV",
     "SANDBOX_UNAVAILABLE",
     "SandboxBackend",
     "SandboxGuarantees",
     "available_backends",
     "describe_all",
     "select_backend",
+    "select_for_spec",
 ]

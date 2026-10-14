@@ -457,6 +457,8 @@ async function dispatchCapability(
     case "market_stream_config":
       return (await import("./market/stream-config")).marketStreamConfig(params);
     case "world_events": return (await import("./world-events")).worldEvents(params);
+    case "response_contract": // schema + validation for eclipse-response blocks (model read-back)
+      return (await import("./response-bridge")).responseContractCapability(params);
     case "web_collect": // bounded page → records (SSRF-hardened + cheerio; R3-04)
       return (await import("./data-bridge-collect")).webCollectCapability(params);
     default:

@@ -11,6 +11,7 @@ import { hasResponseFence } from '@/lib/response/parse';
 import { planMarkdown, plannerUpgraded } from '@/lib/response/planner';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
+import { ChangeCards } from './change-cards';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import { VisionPanel } from './vision-panel';
 import { ImageGalleryPanel } from './image-gallery';
@@ -252,6 +253,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                         </div>
                       </div>
                     </div>
+                  )}
+                  {msg.changes && msg.changes.length > 0 && (
+                    <ChangeCards changes={msg.changes} compact={compact} />
                   )}
                   {!working && msg.model?.model && (
                     <div

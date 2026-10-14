@@ -2053,24 +2053,20 @@ const POLICY_LABELS: Record<string, string> = {
   memory_in_diagnostics: "Show memory in diagnostic views",
   capture_policy: "Per-category capture policy",
   recall_policy: "Per-category recall policy",
+  agent_scheduling_enabled: "Let Eclipse schedule work for you",
+  acquisition_enabled: "Let Eclipse collect datasets for you",
 };
 
 const LEARNING_MODE_OPTIONS: { value: string; label: string; hint: string }[] = [
   {
-    value: "automatic_selective",
-    label: "Automatic (selective)",
+    value: "automatic_selective", label: "Automatic (selective)",
     hint: "Save strong, durable, low-risk facts automatically — no per-run prompt. Requires recurrence for project-specific claims.",
   },
   {
-    value: "ask_before_saving",
-    label: "Ask before saving",
+    value: "ask_before_saving", label: "Ask before saving",
     hint: "Stage candidates and request approval (an inert suggestion); never save on your behalf.",
   },
-  {
-    value: "off",
-    label: "Off",
-    hint: "Do not learn automatically. Explicit “remember/forget/correct” requests still work.",
-  },
+  { value: "off", label: "Off", hint: "Do not learn automatically. Explicit “remember/forget/correct” requests still work." },
 ];
 
 const LEARNING_MODE_KEYS = new Set(["memory_mode", "skill_learning_mode"]);
@@ -2091,6 +2087,8 @@ const POLICY_HINTS: Record<string, string> = {
   memory_in_diagnostics: "Whether memory content appears in the Lifecycle and explanation views. Off hides it without deleting anything.",
   capture_policy: "Per-category capture rule. “deny” refuses a category; it can never widen authorization.",
   recall_policy: "Per-category recall rule. “deny” removes a category from recall; scope/privacy filtering stays authoritative.",
+  agent_scheduling_enabled: "When on, Eclipse can set up recurring finance jobs from a fixed list — each one saved switched off until you turn it on under Scheduled Jobs. Off by default.",
+  acquisition_enabled: "When on, Eclipse can pull whole datasets (price history, an economic series, company statements) from a fixed list of sources. Each pull is capped, saved as a file with a record of what it is, and a partial pull is always marked partial. Off by default.",
 };
 
 const CATEGORY_POLICY_KEYS = new Set(["capture_policy", "recall_policy"]);

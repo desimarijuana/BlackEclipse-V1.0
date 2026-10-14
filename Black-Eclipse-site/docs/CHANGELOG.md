@@ -8,6 +8,94 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-13
 
+- **Code changes are now visible as they happen (inline change cards).** The run
+  stream is content-free except for one addition: `code.patch.applied` and every
+  fs write event (`fs.*`, `previews[]`) now carry a bounded, redacted unified
+  diff (`code/events.py::diff_event_payload`, 12k cap, secret-shaped spans
+  scrubbed; `code/patch.py` computes per-op previews from before/after text).
+  The chat maps them to per-file change cards with `+N/−M` and the colored diff
+  (`src/components/chat/change-cards.tsx`, rendered from `chat-history.tsx`,
+  carried on `AssistantTurn.changes` / `Message.changes`); the Agent Workspace
+  Changes panel expands the same preview inline. A capped preview is flagged,
+  never silent. Tests: `python/tests/test_change_event_previews.py` +
+  `test_code_patch.py` + `events.test.ts` + `agent-workspace.test.ts`.
+  docs updated: harness/architecture.md, agent-workspace.md.
+
+- **A run can no longer hang forever at a model call or a tool call.** Live
+  evidence: `run_23de73de…` emitted `model.requested` and then nothing for 10+
+  minutes — `asyncio.wait_for` waits for cancellation to COMPLETE before
+  raising, so a provider adapter that swallows `CancelledError` defeats the
+  timeout entirely. New `python/harness/async_timeout.py` (`await_bounded`)
+  races the work against a plain timer and raises at the deadline without
+  waiting for cancellation; outer cancellation still cancels the inner task and
+  abandoned work is drained. Wired into `model_stream.py` (the run now fails
+  with `PROVIDER_TIMEOUT` at the declared budget; the abandoned stream is
+  flagged so it stops emitting deltas) and `ToolRegistry.execute` (a
+  cancellation-swallowing handler now returns `TOOL_TIMEOUT`). Tests
+  `test_async_timeout.py` + a `test_tools.py` case — both hang with the old
+  implementation.
+  docs updated: harness/architecture.md.
+
+- **A stalled run now always reaches a terminal state (watchdog).** Belt and
+  suspenders beside the hard deadlines: `python/harness/run_watchdog.py` sweeps
+  every 30s; any run in `created`/`running` silent past its own agent model
+  budget (`runTimeoutMs` + 60s grace — 180s for Eclipse Agent, 660s for Code
+  Agent) is marked failed (`RUN_STALLED`) with a durable `run.failed` event, its
+  SSE stream is closed and its task cancelled, so the chat cannot spin forever
+  even if a future subsystem strand misbehaves. Runs waiting on a user approval
+  (`approval.requested`) are exempt. Wired in `boot.py` (start/stop). Test
+  `test_run_watchdog.py`.
+  docs updated: harness/architecture.md.
+
+- **Bridge timeouts refined to per-class budgets (supersedes the earlier
+  blanket-8s bridge entry in today's section).** 8s applies to structured/vault
+  reads only; capabilities that
+  fetch the public web (search/extract/education/image) keep a 20s class under
+  the 30s research budget, so research quality is not cut to fix the fast path.
+  Retry narrowed to `ConnectError` only (instant dev-server-restart refusal) — a
+  timeout is never retried, so the worst-case wait is one per-class timeout and
+  always fits the caller's tool budget. `test_bridge.py` pins both invariants.
+  docs updated: harness/architecture.md (bridge.py row).
+
+- **Eclipse answers no longer turn into parse errors: contract leniency for
+  observed producer drift.** Live runs showed 18/233 recently produced
+  `eclipse-response` blocks failing validation — every markdown/callout block
+  whose prose field was named `body` (3rd observed spelling after
+  `content`/`text`), `gauge`/`ranked_list` blocks that correctly said
+  `"unavailable": true` with no data points, `key_value` values over the
+  120-char numeric bound when a source/citation was attached, and one
+  `chart_type` spelling. `src/lib/response/normalize.ts` (extracted from
+  `contract.ts`, which was at its size ratchet; re-exported for callers) now
+  accepts `body`→`markdown` (also the `mermaid` body), `chart_type`→`chartType`,
+  and 500-char `key_value` values; the figure family (`stat_hero`, `gauge`,
+  `comparison_grid`, `ranked_list`, `badge_row`) accepts a block-level
+  `unavailable` with an absent/empty data array and
+  `src/components/response/visual-blocks.tsx` renders an explicit UNAVAILABLE
+  state with the producer's explanation instead of an empty figure. A settled
+  malformed fence now also offers a "Show the raw content" disclosure
+  (`response-fence.tsx`) so an unparseable body is never lost. Re-validated
+  against the real 233-block sample from `agent-memory.db`: 0 failures (was 18).
+  Tests `contract-blocks.test.ts` (+5). `npm run test` + `npx tsc --noEmit`
+  pass. docs updated: interactive-response-engine.md.
+
+- **Data-bridge failures fail fast instead of timing out tools.** `_HttpDataBridge`
+  (now `python/harness/bridge.py`, extracted from `service.py` for its size
+  ratchet and re-exported as `_HttpDataBridge`) drops the read timeout 20s→8s
+  (below the market tools' own budgets) and retries ONCE on transient connection
+  errors (dev-server restart → `All connection attempts failed` was the top
+  recorded retrieval failure), so a tool returns a structured UNAVAILABLE
+  instead of being killed as `TOOL_TIMEOUT`. docs updated:
+  harness/architecture.md.
+
+- **Orphaned runs no longer spin forever after a restart.** The runtime executes
+  runs in-process, so runs left `created`/`running` by a dead process could never
+  finish (11 such rows were live in `agent-memory.db`). `run_startup_maintenance`
+  now calls `fail_orphaned_runs` (`python/harness/run_recovery.py`, a new module so
+  `persistence.py` stays within its size ratchet): each orphan becomes `failed`
+  with code `RUN_ORPHANED` plus a durable `run.failed` event, so every streaming
+  client sees a terminal state. Test `python/tests/test_run_recovery.py`.
+  docs updated: harness/architecture.md.
+
 - **Bot-mode UI fixes (six issues).** `src/components/bots/bot-chat.tsx`:
   "Run now" now gives visible feedback (a run-status note that says the run was
   queued, auto-clearing) instead of silently enqueuing, and shows a reason in the
@@ -118,6 +206,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `npx tsc --noEmit` clean; i18n + bots vitest pass.
   no doc change — UI feature, no contract change.
 
+- **Composer feature pass (frontend), benchmarked against Grok/Hermes-style
+  chats.** Bot composer (`bot-chat.tsx`): added inline **model selector**
+  (reuses `ModelSelector` + `useChatModel`, passes `model` to the run), thumbs
+  **feedback**, and **retry** on error turns (alongside the existing stop/edit/
+  regenerate/copy). Group room (`group-chat-room.tsx`): **@mention autocomplete**
+  (typing `@` lists members; a mention routes the turn to exactly those bots over
+  the audience selector), **edit/resend**, **regenerate** per reply, **retry**,
+  thumbs **feedback**, and per-member avatars on replies. Stores gained
+  `feedback` on messages and `setMessages` for group truncation; exported
+  `ModelSelector`. New i18n keys `bots.chat.{retry,good,bad}`.
+  `npx tsc --noEmit` clean; i18n + bots vitest pass.
+  Deferred (next): attachments-as-context (needs provider file threading),
+  context meter (no per-run usage surfaced to the bot path), voice (needs STT).
+  no doc change — UI behavior only.
+
 - **Construction benchmark R3-08 — the 16 master scenarios, with completion and
   recovery now gated (ADR-H183).** New
   `python/harness/evaluation/datasets/construction_v1.json` runs all 16
@@ -197,6 +300,137 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   container build unverified here (no Docker), live-model eval stays opt-in.
   docs updated: `docs/harness/decisions.md` (ADR-H186),
   `docs/harness/authentication.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+
+- **Bulk acquisition — first slice (W3/ADR-H190): declared sources, a Python
+  budget, files with a manifest.** New `python/harness/acquire/`: a declared
+  source registry (daily price history → `price_history`, economic series →
+  `macro_series`, annual company statements → `sec_filings`; each row names its
+  capability, CLOSED parameter set, CSV columns, licence and attribution — and
+  `registry_issues()` fails an incomplete row), an `AcquisitionBudget` beside
+  `ResearchBudget` (calls/rows/bytes/seconds, enforced in Python), a
+  ceiling-enforcing CSV writer whose row count equals the real file, and the
+  `acquire` tool over the ONE read-only bridge (no new egress; `research/`
+  untouched). It writes `<source>_<stamp>.csv` + a manifest under the run's
+  artifact directory; a partial pull is always marked partial with a plain
+  reason. `data.collect` is a real noun (`skills/permissions.py`
+  `DATA_PERMISSIONS`, `code/policy.acquisition_grants`) granted only by the
+  operator switch `acquisition_enabled` (eclipse-memory policy, default OFF;
+  surface-dropped when off; handler re-checks fail-closed; admitted by a new
+  `_admit_collect_tools` seam). Policies tab gained "Let Eclipse collect
+  datasets for you". Tests: `python/tests/test_acquire.py` (9, hermetic stub
+  bridge). Verified: targeted Python suites 71 passed; vitest size ratchet held.
+  Recorded as remaining (phase-16): more sources, cross-call budget, the chat
+  manifest panel, the opt-in live smoke.
+  docs updated: `docs/harness/decisions.md` (ADR-H190),
+  `docs/harness/roadmap/phase-16-bulk-acquisition.md`,
+  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Execution tiers are enforced (W4/ADR-H189): the local runner refuses
+  network; the container tier is real.** `RunSpec.network` was declarative with
+  no consumer. Now `code/sandbox.py::run` refuses any spec that declares network
+  (the local primitive cannot contain it), `code/backends.py::ContainerBackend`
+  is implemented on the hardened `security/sandbox.py::docker_argv` flags
+  (`--network none|bridge`, read-only rootfs, `no-new-privileges`, cap-drop ALL,
+  tmpfs, non-root, memory/pids limits; only the task's folder mounted; scrubbed
+  env only; container killed by name on timeout; image via
+  `HARNESS_SANDBOX_IMAGE`, default `python:3.12-slim`), a new
+  `select_for_spec` is the ONE tier rule (network ⇒ container, else local, no
+  fallback), and `command_run` routes through it — `dependency_install` stays
+  operator-gated OFF and now genuinely requires a container runtime when
+  enabled. The `local` guarantees text was updated in the same change so the
+  declaration cannot drift from the behavior. Tests:
+  `python/tests/test_sandbox_backends.py` (+4: refusal-before-launch, tier
+  routing, hardened argv for network, `--network none` when unasked). Verified:
+  targeted Python suites 66 passed.
+  docs updated: `docs/harness/decisions.md` (ADR-H189), `docs/CHANGELOG.md`.
+
+- **Headless one-shot: `eclipse chat -z "…"` (scripting / CI surface).** New
+  `python/harness/chat_cli.py` runs ONE question through the SAME runtime the web
+  chat uses (in-process, like `eclipse eval` — no front door, no second agent
+  loop): `eclipse chat -z "…"` prints the answer, `--json` prints
+  `{success, runId, status, output, error}`, exit 0/1/2 for completed/failed/
+  missing-question. Model settings resolve from the `HARNESS_JOB_*` environment
+  (the same source a scheduled job uses) plus the callback bridge vars; the
+  dispatch is wired in `harness/cli.py` before the shared parser. Tests:
+  `python/tests/test_chat_cli.py` (4, hermetic). Documented in
+  `docs/QUICKSTART.md` (Headless one-shot) with the CI note (`eclipse eval .`
+  already runs the offline gate). Verified: pytest 4 passed.
+  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+
+- **Phase 15 tail — document truncation is now visible in the run (honesty fix).**
+  A shortened attachment was only noted at the front door; the run could not know
+  it was reading the first part, so a question about page 30 could be answered
+  confidently from page 1. Now `extract.ts` reports `originalChars`,
+  `loadContextDocuments` and the TS validator carry `truncated`/`originalChars`
+  through the run payload (`schemas.RunDocument` gained the fields with camel
+  aliases), and `graph._user_message` marks the document
+  (`<document … shortened="true">` plus a plain sentence) so the answer can state
+  the limit. The phase-15 file's stale "extractors Not started" note is corrected
+  (the docx/xlsx/pptx/odt/ods/odp/epub extractors already existed; the code wins).
+  Caps stay deliberately bounded (20k/doc, 60k total) — raising them is a
+  context-budget decision, recorded in the phase file. Tests:
+  `src/lib/chat/session-store.test.ts` (+1), `src/lib/harness/validation.test.ts`
+  (+2), `python/tests/test_graph.py` (+1). Verified: vitest 25 passed (2 files),
+  pytest 3 passed, `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/roadmap/phase-15-attachments-and-artifacts.md`,
+  `docs/CHANGELOG.md`.
+
+- **Phase 17 — the agent can schedule its own work, from a fixed catalogue and
+  behind an operator switch (repo-mapped onto the Automation engine; ADR-H187).**
+  New `python/harness/automation/catalogue.py` (nine research/analysis shapes
+  referencing the EXISTING `jobs.templates` — no code or deploy shape; a
+  consistency check fails on drift) and `python/harness/automation/scheduling_tools.py`
+  (`job_list`, `job_describe_template`, `job_create`, `job_run_now` on the ONE
+  registry). `job_create` ALWAYS writes a DISABLED automation tagged `job`+shape
+  and accepts only the shape's closed parameter set — the operator enables it
+  under Scheduled Jobs; `job_run_now` refuses a switched-off job (mirrors
+  `bot_run`). New policy key `agent_scheduling_enabled` (eclipse-memory policy,
+  default OFF): `graph.surface_disabled_tools` drops the whole scheduling surface
+  when off and every handler re-checks it fail-closed; a Policies-tab toggle
+  ("Let Eclipse schedule work for you") surfaces it. The unattended answer
+  contract now exists: `automation/delivery.py::render_run_report` puts the
+  plain outcome on the FIRST line of every delivered report and names every
+  limit a run hit. `job_create` is admitted via the new
+  `SCHEDULING_EFFECT_TOOLS` class; the chat code profile carries the four tools.
+  Tests: `python/tests/test_scheduling_tools.py` (9) + updated
+  `test_chat_code_profile.py`. Verified: targeted Python suites 47 passed.
+  docs updated: `docs/harness/decisions.md` (ADR-H187),
+  `docs/harness/automation-engine.md`, `docs/harness/roadmap/phase-17-working-on-a-cadence.md`,
+  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **The acquire loop: Eclipse can now install skills from GitHub and install
+  software, Hermes-style (ADR-H188).** New `python/harness/skills/install.py`
+  (parse a https GitHub URL/`owner/repo`, fetch the codeload zipball with
+  size/timeout caps, zip-slip/symlink-safe extraction, accept both `skill.json`
+  and `SKILL.md`-frontmatter formats, staged pydantic validation + content scan,
+  commit + `trust_root`, `uninstall_skill`, `list_installed_sources`,
+  `discover_installed_skills`) and `python/harness/skills/install_tools.py`
+  (`skill_install`/`skill_uninstall`/`skill_sources` + `make_skill_authorizer`:
+  single-use digest-bound approval `skill_install`, pause-in-card-mode). The
+  registry loads installs as the new **`external` tier**
+  (`project > profile > external > bundled`) via `load_all(installed_home=)` /
+  new `reload()`; boot records `<repo>/installed-skills`
+  (`BLACK_ECLIPSE_SKILLS_DIR` override). `mcp/install_ops.py` extracts the
+  preset-integration install so the operator route and the new approval-gated
+  `mcp_install` tool (`mcp/install_tools.py`, plus read-only `mcp_integrations`)
+  share ONE implementation — still DISABLED/nothing-selected. The chat
+  classifier now treats acquisition as software work (`install`/`uninstall` are
+  strong verbs; `download`/`set up` need a software object), so "install
+  blender" reaches the code profile where `package_install`/`terminal_run` run;
+  `ACQUISITION_WRITE_TOOLS` (`code/policy.py`) strips the five tools at
+  `plan_only`. Prompt, `ECLIPSE_AGENT` and `CHAT_CODE_TOOLS` carry the new tools;
+  `GET /skills/installed` + installed fields on `GET /skills`. Tests:
+  `python/tests/test_skill_install.py` (28) + `test_mcp_install_tools.py` (8) +
+  classifier cases; prompt ceiling re-pinned 27769→29162 (three guidance
+  paragraphs); `python/conftest.py` anchors `HARNESS_MCP_CONFIG` to a temp file
+  so a developer's real `mcp-servers.json` can never leak into the suite; the
+  graph.py size pin re-pinned 2034→2043 for unrelated in-flight wiring. Verified:
+  `npm run test` green — vitest 262 files passed, pytest 5973 passed / 16 skipped,
+  eval gates ALL PASS; `npx tsc --noEmit` clean.
+  docs updated: `docs/harness/decisions.md` (ADR-H188),
+  `docs/harness/phase-3-architecture.md`,
+  `docs/harness/memory-skills-evolution-plan.md`,
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 
 ## 2026-10-12
 

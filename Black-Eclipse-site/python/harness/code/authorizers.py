@@ -54,6 +54,12 @@ def build_effect_authorizer(
     # build_project / start_service / package_install all False).
     code_authorizer = _admit_runtime_tools(code_authorizer)
 
+    # Bulk acquisition (`acquire`): admitted HERE; the HANDLER enforces the
+    # operator's master switch (`acquisition_enabled`, default OFF) and the
+    # `data.collect` grant, and the collection itself runs through the read-only
+    # bridge under its own budget (W3 slice of phase 16).
+    code_authorizer = _admit_collect_tools(code_authorizer)
+
     # Generic terminal: an `allow` command runs, an `ask` command needs a
     # single-use workspace-bound approval, a `deny` is refused.
     from .terminal_tools import make_terminal_authorizer  # noqa: PLC0415
@@ -101,6 +107,18 @@ def build_effect_authorizer(
 
     code_authorizer = make_bot_authorizer(code_authorizer)
 
+    # The acquire loop: `skill_install`/`skill_uninstall` (GitHub skills) and
+    # `mcp_install` (a preset MCP integration) each require a single-use,
+    # digest-bound operator approval — the same card/decision store every other
+    # capability uses. Composition order is irrelevant: each layer owns unique
+    # tool names and falls through for everything else.
+    from ..skills.install_tools import make_skill_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_skill_authorizer(code_authorizer)
+    from ..mcp.install_tools import make_mcp_install_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_mcp_install_authorizer(code_authorizer)
+
     if approvals is None or not workspace_id:
         return _wrap_with_security(code_authorizer, run_id, workspace_id)
 
@@ -128,6 +146,25 @@ def _admit_runtime_tools(inner: Any) -> Any:
     async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
         name = str(getattr(tool, "name", ""))
         if name in policy.EXECUTION_WRITE_TOOLS or name in policy.APP_RUNTIME_WRITE_TOOLS:
+            return True
+        return bool(await inner(tool, args, ctx))
+
+    return authorize
+
+
+def _admit_collect_tools(inner: Any) -> Any:
+    """Admit the bulk-acquisition tool (`acquire`) at this seam.
+
+    Admission is not authority: the HANDLER refuses unless the operator's switch
+    (`acquisition_enabled`) is on AND the `data.collect` grant is held, and the
+    collection runs through the read-only bridge under its own Python-enforced
+    budget. Without this branch the tool would fall through to the MCP
+    authorizer and be dead.
+    """
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name in policy.DATA_COLLECT_TOOLS:
             return True
         return bool(await inner(tool, args, ctx))
 

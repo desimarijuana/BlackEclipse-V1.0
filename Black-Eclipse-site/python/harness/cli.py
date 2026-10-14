@@ -911,6 +911,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if raw and raw[0] == "eval":
         from .evaluation.cli import run_cli
         return run_cli(raw[1:])
+    # The `chat` group is the headless one-shot over the ONE runtime; it owns its
+    # own arguments and needs no Application Runtime manager.
+    if raw and raw[0] == "chat":
+        from .chat_cli import run_cli as chat_cli
+        return chat_cli(raw[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     # The `computer` group owns its own desktop runtime and needs no application

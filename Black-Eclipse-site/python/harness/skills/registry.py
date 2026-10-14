@@ -89,6 +89,15 @@ class SkillRegistry:
         # gate remains authoritative.
         self._content_findings: dict[str, dict[str, Any]] = {}
         self._quarantined: list[str] = []
+        # Installed (GitHub) tier: notices + per-skill drift/quarantine, kept
+        # separate from the project fields so the UI can tell the two roots apart.
+        self._installed_notices: list[str] = []
+        self._installed_changed_ids: list[str] = []
+        self._installed_quarantined_ids: list[str] = []
+        # The kwargs of the last `load_all`, so `reload()` (after an install /
+        # trust decision) re-reads every tier — installs, project, profile,
+        # bundled — without a caller having to restate the configuration.
+        self._load_kwargs: dict[str, Any] = {}
 
     # ── Registration / loading ──────────────────────────────────────────────
 
@@ -143,6 +152,7 @@ class SkillRegistry:
         *,
         project_root: Optional[str] = None,
         project_discovery: bool = True,
+        installed_home: Optional[str] = None,
     ) -> list[str]:
         """Load the library and persist each skill/version to the store.
 
@@ -150,10 +160,19 @@ class SkillRegistry:
         path; it is idempotent.
 
         Precedence (deterministic, first-wins): **project > profile (user) >
-        bundled**. Project skills are registered ONLY for a trusted root; an
-        untrusted root contributes a notice, never a skill. A skill still runs
+        installed (external) > bundled**. Project skills are registered ONLY for
+        a trusted root; an untrusted root contributes a notice, never a skill.
+        Installed (GitHub) skills load only from TRUSTED install roots (the
+        install approval records that trust) and carry the `external` tier so a
+        quarantine-severity content finding holds them back. A skill still runs
         through the same permission/execution gate regardless of tier.
         """
+        self._load_kwargs = {
+            "root": root,
+            "project_root": project_root,
+            "project_discovery": project_discovery,
+            "installed_home": installed_home,
+        }
         self._skills = {}
         self._duplicates = []
         self._shadowed = []
@@ -163,6 +182,9 @@ class SkillRegistry:
         self._project_unchanged_ids = []
         self._content_findings = {}
         self._quarantined = []
+        self._installed_notices = []
+        self._installed_changed_ids = []
+        self._installed_quarantined_ids = []
         errors: list[str] = []
 
         # 1. Project skills (highest precedence) — trusted roots only.
@@ -215,15 +237,37 @@ class SkillRegistry:
                 provenance="profile",
             ))
 
-        # 3. Bundled library (lowest precedence). A higher tier (project/profile)
-        # legitimately shadows a bundled skill of the same id — that is expected
-        # precedence, not a duplicate-error. Track it separately.
+        # 3. Installed (GitHub) skills — trusted install roots only, `external`
+        # tier. They sit BELOW project/profile (an operator's own or authored
+        # skill always wins) and ABOVE bundled (installing a skill may
+        # deliberately shadow a shipped one).
+        if installed_home:
+            from .install import discover_installed_skills  # noqa: PLC0415
+
+            installed, notices, changed, quarantined = discover_installed_skills(
+                self.store, installed_home,
+            )
+            for loaded in installed:
+                loaded.provenance = "external"
+                existing = self._skills.get(loaded.manifest.id)
+                if existing is not None and existing.provenance in ("project", "profile"):
+                    self._shadowed.append(loaded.manifest.id)
+                    continue
+                self.register(loaded)
+            self._installed_notices = list(notices)
+            self._installed_changed_ids = list(changed)
+            self._installed_quarantined_ids = list(quarantined)
+
+        # 4. Bundled library (lowest precedence). A higher tier
+        # (project/profile/installed) legitimately shadows a bundled skill of the
+        # same id — that is expected precedence, not a duplicate-error. Track it
+        # separately.
         for loaded in load_catalog(root):
             existing = self._skills.get(loaded.manifest.id)
             if existing is not None:
                 # Shadowing by a higher tier is expected precedence; a second
                 # bundled definition of the same id is a true duplicate error.
-                if existing.provenance in ("project", "profile"):
+                if existing.provenance in ("project", "profile", "external"):
                     self._shadowed.append(loaded.manifest.id)
                 else:
                     self._duplicates.append(loaded.manifest.id)
@@ -241,9 +285,9 @@ class SkillRegistry:
         for loaded in self._skills.values():
             manifest = loaded.manifest
             existing = self.store.get_skill(manifest.id)
-            # authored + project skills are lifecycle-managed by the store; a
-            # reload must not reset an operator's enable/disable decision.
-            managed = loaded.authored or loaded.provenance == "project"
+            # authored + project + installed skills are lifecycle-managed by the
+            # store; a reload must not reset an operator's enable/disable decision.
+            managed = loaded.authored or loaded.provenance in ("project", "external")
             status = existing["status"] if existing and managed else manifest.status
             # A version created by a structured patch may be NEWER than the
             # catalog/UserSkill source manifest. The store's own SkillVersion rows
@@ -505,6 +549,28 @@ class SkillRegistry:
     def project_unchanged_ids(self) -> list[str]:
         """Project skills whose content still matches the approved hash."""
         return list(getattr(self, "_project_unchanged_ids", []))
+
+    def installed_notices(self) -> list[str]:
+        """Installed-tier notices from the last load (untrusted/drift/errors)."""
+        return list(getattr(self, "_installed_notices", []))
+
+    def installed_changed_ids(self) -> list[str]:
+        """Installed skills whose content changed since install (quarantined)."""
+        return list(getattr(self, "_installed_changed_ids", []))
+
+    def installed_quarantined_ids(self) -> list[str]:
+        """Installed skills held back pending re-approval (subset of changed)."""
+        return list(getattr(self, "_installed_quarantined_ids", []))
+
+    def reload(self, **overrides: Any) -> list[str]:
+        """Re-run the last `load_all` configuration (plus any overrides).
+
+        The ONE reload seam after an install/uninstall/trust decision, so every
+        tier — installs, project, profile, bundled — is re-read together and a
+        caller never has to restate the boot configuration.
+        """
+        kwargs = {**self._load_kwargs, **overrides}
+        return self.load_all(**kwargs)
 
     def content_findings(self) -> dict[str, dict[str, Any]]:
         """Advisory content-scan findings by skill id (never proof of safety)."""

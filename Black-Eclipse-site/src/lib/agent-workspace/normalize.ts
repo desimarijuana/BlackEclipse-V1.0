@@ -94,10 +94,44 @@ function mapTaskStatus(value: unknown): TaskStatus {
 
 function changeKind(value: unknown): FileChangeKind {
   const s = str(value)?.toLowerCase();
-  if (s === 'a' || s === 'added' || s === 'add' || s === 'create' || s === 'created') return 'added';
+  if (s === 'a' || s === 'added' || s === 'add' || s === 'create' || s === 'created' || s === 'copy' || s === 'copied') return 'added';
   if (s === 'd' || s === 'deleted' || s === 'delete' || s === 'remove' || s === 'removed') return 'deleted';
-  if (s === 'r' || s === 'renamed' || s === 'rename') return 'renamed';
+  if (s === 'r' || s === 'renamed' || s === 'rename' || s === 'move' || s === 'moved') return 'renamed';
   return 'modified';
+}
+
+/** One per-file change event from a runtime preview record, or null. */
+function fileChangeFromPreview(record: Payload, at: number, workspaceId?: string): WorkspaceEvent | null {
+  const path = str(record.path) ?? str(record.to);
+  if (!path) return null;
+  const from = str(record.from);
+  const diff = str(record.diff);
+  return {
+    type: 'file',
+    change: {
+      path,
+      change: changeKind(str(record.op) ?? str(record.operation)),
+      additions: num(record.additions),
+      deletions: num(record.deletions),
+      at,
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(from ? { from } : {}),
+      ...(diff ? { diff } : {}),
+      ...(record.diffTruncated === true || record.truncated === true ? { truncated: true } : {}),
+    },
+  };
+}
+
+/** Every per-file change a payload's `previews[]` carries ([] when none). */
+function fileChangesFromPayload(p: Payload, at: number, workspaceId?: string): WorkspaceEvent[] {
+  const previews = Array.isArray(p.previews) ? (p.previews as Payload[]) : [];
+  const out: WorkspaceEvent[] = [];
+  for (const preview of previews) {
+    if (!preview || typeof preview !== 'object' || Array.isArray(preview)) continue;
+    const event = fileChangeFromPreview(preview, at, workspaceId);
+    if (event) out.push(event);
+  }
+  return out;
 }
 
 // ── The normalizer ────────────────────────────────────────────────────────────
@@ -418,8 +452,14 @@ export function normalizeWorkspaceEvent(
     case 'fs.patch_file':
     case 'fs.edit_file.applied': {
       const path = str(p.path) ?? str(p.file);
+      const workspaceId = str(p.workspaceId);
+      const previews = fileChangesFromPayload(p, at, workspaceId);
+      if (previews.length > 0) {
+        out.push(...previews);
+      } else if (path) {
+        out.push({ type: 'file', change: { path, change: 'modified', at, workspaceId } });
+      }
       if (path) {
-        out.push({ type: 'file', change: { path, change: 'modified', at, workspaceId: str(p.workspaceId) } });
         out.push({
           type: 'artifact',
           artifact: {
@@ -436,10 +476,12 @@ export function normalizeWorkspaceEvent(
     }
     case 'code.patch.applied': {
       const path = str(p.path);
-      if (path) {
-        const op = str(p.op);
-        const kind = changeKind(op === 'create' ? 'added' : op === 'delete' ? 'deleted' : op === 'move' ? 'renamed' : 'modified');
-        out.push({ type: 'file', change: { path, change: kind, at, workspaceId: str(p.workspaceId) } });
+      const workspaceId = str(p.workspaceId);
+      const preview = fileChangeFromPreview(p, at, workspaceId);
+      if (preview) {
+        out.push(preview);
+      } else if (path) {
+        out.push({ type: 'file', change: { path, change: changeKind(p.op), at, workspaceId } });
       }
       out.push({
         type: 'activity',
@@ -599,6 +641,10 @@ export function normalizeWorkspaceEvent(
       out.push({ type: 'permission_resolved', id: str(p.approvalId), approved: p.approved === true, at });
     } else if (type === 'retrieval.source_start' || type === 'retrieval.source_ok' || type === 'retrieval.source_unavailable') {
       out.push(...retrievalEvent(type, p, at));
+    } else if (type.startsWith('fs.') && Array.isArray(p.previews)) {
+      // Every other fs write family (create/delete/apply_diff/multi_file_patch/
+      // replace_text/…) reports its change previews in the same shape.
+      out.push(...fileChangesFromPayload(p, at, str(p.workspaceId)));
     }
   }
 

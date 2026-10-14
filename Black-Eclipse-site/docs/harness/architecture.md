@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-13
 ---
 
 # Harness Architecture
@@ -75,10 +75,15 @@ Two boundaries, both deliberate:
 | `replan.py` | **Phase 11**: bounded replanning — the trigger (`should_replan`), the bound (`ReplanBudget`), the deterministic directive (`build_replan_instruction`) and the optional model-authored plan (`model_replan`). The `replan` node rides the SAME graph; flag-gated `HARNESS_REPLAN_ENABLED`, default OFF (ADR-H122) |
 | `history.py` | history bounding (`_bounded_history`/`_history_messages`) + the inert dropped-context block, extracted from `graph.py` (size ratchet) and re-exported there |
 | `checkpoint_io.py` | checkpoint (de)serialization (`serialize_messages`/`restore_messages`/`checkpoint_payload_of`), extracted from `graph.py` (size ratchet) and re-exported there |
+| `async_timeout.py` | the hard-deadline primitive (`await_bounded`): races a coroutine against a plain timer and raises `asyncio.TimeoutError` WITHOUT waiting for cancellation to be acknowledged, so a provider/tool that swallows `CancelledError` (observed: a run sat on `model.requested` for 10+ minutes) cannot hold a run hostage. Outer cancellation still cancels the inner task; abandoned work is drained. Used by `model_stream.py` and `ToolRegistry.execute` |
+| `model_stream.py` | model invoke/streaming helpers (extracted), with the HARD per-call deadline via `await_bounded`: a hung provider stream fails the run with `PROVIDER_TIMEOUT` at the declared budget, and the abandoned stream is flagged so it stops emitting deltas |
+| `run_watchdog.py` | the stall watchdog: every 30s, a run in `created`/`running` whose last recorded activity (event or start) is older than its own agent's model budget (`runTimeoutMs`) + 60s grace is failed with code `RUN_STALLED`, gets a durable `run.failed` event, its SSE stream is closed and its task is cancelled. A run legitimately waiting on a user decision (last event `approval.requested`) is exempt. Started/stopped from `boot.py`. This is the guarantee that a chat stream always reaches a terminal state |
 | `events.py` | per-run event emitter + live bus |
 | `event_system/` | **the canonical, durable Event System** (ADR-H153): `envelope.py` (`EclipseEvent` + correlation/causation/trace context vars + secret redaction), `registry.py` (`EventRegistry`/`EventTypeSpec`), `filters.py`, `store.py` (`HarnessEventLog`/`HarnessEventConsumer`/`HarnessEventDeadLetter`/`HarnessEventSubscription` on `agent-memory.db`), `metrics.py`, `middleware.py`, `security.py`, `bus.py` (`EventBus`/`Subscription`: workers, backpressure, retry, DLQ, idempotency, request/reply, legacy bridge), `rules.py` (event→action via the Automation Engine), `replay.py`, `service.py` (`EventSystem` facade + memory-candidate/self-improvement/market-sampler consumers), `config.py`, `bootstrap.py`. It BRIDGES `events.py` (one transport, one model) rather than replacing it. Detail: `docs/harness/event-system.md` |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
-| `service.py` | process-wide store/registry/bus + JDdS data bridge client |
+| `service.py` | process-wide store/registry/bus; the JDdS bridge transport itself lives in `bridge.py` |
+| `bridge.py` | the thin HTTP data-bridge transport (`HttpDataBridge`, re-exported by `service.py` as `_HttpDataBridge`): the ONE read-only path the finance/retrieval/market tools use to reach JDdS through the TS accessor. TWO timeout classes: 8s for structured/vault reads (below the smallest market-tool budget so the tool reports UNAVAILABLE, never `TOOL_TIMEOUT`) and 20s for capabilities that fetch the public web (under the 30s research budget). Exactly ONE retry, only on `ConnectError` (the instant dev-server-restart refusal); a timeout is never retried |
+| `run_recovery.py` | boot reconciliation for runs orphaned by a process restart: `fail_orphaned_runs` marks every `created`/`running` run row failed with code `RUN_ORPHANED` plus a durable `run.failed` event, so a client streaming a run whose process died sees a terminal state instead of waiting forever. Idempotent; called from `AgenticService.run_startup_maintenance` |
 | `deps.py` | the front door's shared state + authorization seam: the ONE process-wide `AgenticService`, the `require_operator`/`require_mcp_operator` transport/token dependencies, and the identity/tenancy boundary helpers (`identity_boundary`, `deployment_exposure`) |
 | `computer/` | the **Computer Use Engine**: observe and operate a real desktop (native apps, OS chrome, dialogs) with accessibility-first grounding, SOM snapshots + stale-element protection, background-first input, verification, recovery, a permission/risk policy engine, sensitive-region redaction and a **Finance Action Firewall**. Platform-independent `ComputerDriver` (Windows via `ctypes` Win32; Linux/X11 via `ctypes` X11/XTest; macOS via Core Graphics/AX; honest `NullDriver` where no backend exists). Registers the `computer_*` toolset on the ONE registry. Detail: `docs/harness/computer-use.md` |
 | `run_lineage.py` | **Phase 1**: run lineage + durable checkpoints + idempotency. Owns the two additive `HarnessRun` columns (`parentRunId`/`workflowId`) and the `RunCheckpoint`/`ToolExecutionIdempotency` tables, bound to the store's per-thread connection (so ratcheted `persistence.py`
@@ -618,6 +623,17 @@ authoritative answer when the stream ends. If SSE is unavailable the client
 falls back to the one-shot `/api/harness/chat` — a run always yields an answer
 or an honest error.
 
+**Change events carry the change itself.** Run events are content-free except
+for the one thing a code surface must show: a file change. `code.patch.applied`
+(one event per applied op, `code/tools.py`) and every fs write event (`fs.*`,
+a `previews[]` list, `code/fs_tools.py`) carry a **bounded, redacted unified
+diff** (`code/events.py::diff_event_payload` — secret-shaped spans scrubbed with
+the file reader's pattern set, capped at `EVENT_DIFF_MAX_CHARS=12k` with an
+honest truncation flag). The chat maps them to inline change cards
+(`src/lib/agent/events.ts` → `TurnChange` on the turn/message); the Agent
+Workspace expands them in its Changes panel. The diff is never re-derived
+client-side, never fabricated, and a capped preview says so.
+
 ### Model-aware context budgeting
 
 History is no longer bounded by a hardcoded guess. Before a run, the runtime
@@ -1138,6 +1154,24 @@ Cancel**; "Always allow" appears only when the runtime marked the action
 grantable. `McpApproval` stays single-use (ADR-H92) — a grant removes asking, the
 store still authorizes.
 
+**The acquire loop (ADR-H188).** The same authorizer chain gained one layer for
+capability acquisition: `make_skill_authorizer` (`skills/install_tools.py`) gates
+`skill_install`/`skill_uninstall` on a single-use, digest-bound approval
+(`skill_install`/`skill_uninstall` kinds in `McpApproval`, pause-in-card-mode
+included, no standing grant), and `make_mcp_install_authorizer`
+(`mcp/install_tools.py`) gates `mcp_install` the same way. On approval,
+`skill_install` runs the staged GitHub loop (`skills/install.py`: codeload fetch →
+zip-slip-safe extract → both skill formats → validate + content-scan → commit)
+and trusts the install root through the project-trust store, so the registry
+loads it as the `external` tier (`project > profile > external > bundled`;
+`load_all(installed_home=)` / `reload()`). `mcp_install` delegates to
+`mcp/install_ops.py` — the same operation as the operator route — and always
+writes a DISABLED, nothing-selected config. `code/policy.py`
+(`ACQUISITION_WRITE_TOOLS`) removes all five tools at `plan_only` and the
+unknown-profile fallback; they stay on the chat code profile. Installing widens
+what can be used, never what may be done — the skill permission/execution gate
+is unchanged.
+
 | To add… | Do this |
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
@@ -1151,5 +1185,6 @@ store still authorizes.
 | A local MCP server | Add an entry to `<repo root>/mcp-servers.json` (see `harness/mcp/config.py`): `id`, `command`, `args`, optional `env`/`env_allowlist`/`secret_refs`/`cwd`, `enabled: true`, and the `selected_tools` include list. Only read-only tools activate in this slice. Or use Settings › MCP Servers (`/api/harness/mcp/*`). A ready-to-edit set (Notion, Google Sheets, Excel, Tavily/Brave search, filesystem, Yahoo Finance, memory) is in `mcp-servers.example.json`. |
 | Durable knowledge | Use `store.remember` / `store.recall` or `store.propose_skill`. |
 | A runtime skill | Add a folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (and optional `tests/cases.json`); it loads at boot via `skills/loader.py`. |
+| A skill source other than a GitHub repo | Extend `parse_source`/`fetch_archive` in `python/harness/skills/install.py` (bounds and the staged validate/scan/trust pipeline stay untouched) and cover it in `python/tests/test_skill_install.py`. See ADR-H188. |
 | A skill API surface | Add a proxy route under `src/app/api/skills/` (or `learning/`) and a typed call in `skills-client.ts` (server) / `skills-browser.ts` (UI). |
 | A conversational surface | `POST /api/harness/chat` (`chatWithAgent`); pass `history` so follow-ups keep the thread. |

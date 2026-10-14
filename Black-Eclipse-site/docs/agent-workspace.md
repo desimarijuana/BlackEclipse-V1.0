@@ -64,6 +64,11 @@ under telemetry noise (see the ADR-042 amendment in `docs/DECISIONS.md`).
   it?", mirroring the OpenCode session sidebar. It reads the already-normalized
   `state.context` + `state.contextSources` + `state.telemetry` and resolves the
   window from the declared model catalog (`context-usage.ts`).
+- **Changes rows carry the change itself.** Write events (`fs.*` `previews[]`,
+  `code.patch.applied`) now include the runtime's bounded, redacted unified
+  preview, so a Changes row expands inline to show the diff (`DiffLines`, shared
+  with the chat's change cards). A preview the runtime capped says so; a row
+  without a preview (a pure move) shows the path only.
 - **Influences (chat-only):** a sixth tab, **Influences** (a 3-dots icon),
   surfaces the run's memory/skill observability — which facts were injected,
   which were filtered out and why, the memory budget, workflow/lineage, and the

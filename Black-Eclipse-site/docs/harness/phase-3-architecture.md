@@ -1,7 +1,7 @@
 ---
 title: Harness Phase 3 — Skill System Architecture
 status: Current
-last-verified: 2026-09-30
+last-verified: 2026-10-13
 ---
 
 # Harness Phase 3 — Skill System Architecture
@@ -48,6 +48,52 @@ Safety, enforced in code:
   mutated. Built-ins cannot be edited or deleted. A user skill with execution
   history is **deprecated, not deleted**, so history is preserved.
 
+## Installed (GitHub) skills — the acquire loop
+
+A user can point Eclipse at a public **GitHub repository** ("load this skill")
+and the agent installs it through `skill_install` (`skills/install_tools.py` +
+`skills/install.py`). The loop is staged and approval-gated end to end:
+
+1. **Parse + fetch.** `parse_source` accepts `https://github.com/<owner>/<repo>`
+   (`/tree/<ref>/<path>` and `owner/repo` shorthand included); anything else —
+   another host, http, a traversal subpath — is refused before a byte moves. The
+   zipball is fetched from `codeload.github.com` over https with a size cap and
+   timeout (stdlib only; no shell, no git binary).
+2. **Extract + discover.** Extraction enforces zip-slip / absolute-path /
+   symlink / file-count / expanded-size guards. Two skill formats are accepted:
+   this app's `skill.json` + `SKILL.md` folders and the cross-tool
+   `SKILL.md`-with-frontmatter convention, scanned under `skills/`,
+   `.black-eclipse/skills/`, `.agents/skills/`, `.opencode/skills/` or the repo
+   root.
+3. **Normalize + scan.** Every candidate is materialized under
+   `<root>/.black-eclipse/skills/<id>/`, validated by the same pydantic
+   `SkillManifest`, and content-scanned; a skill tripping a quarantine-severity
+   rule is refused (per-skill failures are reported and skipped). Manifests
+   declaring never-grantable permissions are refused outright.
+4. **Approve + commit.** `make_skill_authorizer` (`code/authorizers.py`) requires
+   a single-use, digest-bound operator approval (`skill_install` kind in the SAME
+   `McpApproval` store every other capability uses; the streaming chat pauses on
+   the approval card). On approval the install commits and the root is trusted
+   through the SAME project-trust store (`trust_root`), so later content changes
+   quarantine only the changed skills until re-approved.
+
+Installed roots live under `<repo>/installed-skills/<owner>__<repo>/`
+(`BLACK_ECLIPSE_SKILLS_DIR` override) and load as the **`external` tier**:
+precedence `project > profile > external > bundled`, so an operator's own or
+authored skill always wins while an installed skill may deliberately shadow a
+bundled one. `skill_sources` lists sources + drift; `skill_uninstall` removes a
+skill (re-baselining the root, removing it entirely with its last skill).
+Installing is not privilege escalation: a skill still runs through the same
+permission/execution gate, and fetched prose is untrusted data under the
+skill-safety rule.
+
+The chat classifier (`code/request_intent.py`) routes software acquisition
+("install blender", "download and install X", "install this skill from github")
+to the code profile, so pip/npm/git-clone/`package_install` actually run there.
+The sibling `mcp_install` tool (`mcp/install_tools.py` + `mcp/install_ops.py`,
+shared with the operator route) installs a preset MCP integration the same way —
+approval-gated, and always as a DISABLED, nothing-selected config.
+
 ## Where it lives
 
 ```
@@ -58,6 +104,10 @@ python/harness/skills/
   registry.py      load/validate/search/filter/version/dependency resolution
   store.py         compatibility alias: SkillStore = EclipseMemoryStore (eclipse-memory.db)
   runtime.py       SkillExecutionRequest/Result + execution through execute_run
+  install.py       GitHub acquire loop: parse/fetch/extract/discover/validate/scan/
+                   install/trust + uninstall/list (staged, bounded, zip-slip-safe)
+  install_tools.py the `skill_install`/`skill_uninstall`/`skill_sources` agent tools
+                   + the single-use approval authorizer (`skill_install` kind)
   schema_validation.py  full JSON Schema validation of input/output + schema self-check
   learning.py      trace analysis → learning candidates (no auto-enable)
   draft.py         candidate → unvalidated draft (no auto-enable)

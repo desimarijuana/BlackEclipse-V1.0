@@ -57,352 +57,10 @@ export const RESPONSE_LIMITS = {
   maxStringLength: 20000,
 } as const;
 
-/**
- * Spec-name → canonical-type aliases. The producer contract (see prompts.py)
- * documents one vocabulary, but the wider ecosystem names some blocks slightly
- * differently (`text`, `table`, `source_list`, `interactive_form`,
- * `execution_timeline`). Those names are normalized to their canonical block here
- * so a producer is never punished for a synonym; the renderer only ever sees the
- * canonical type.
- */
-const BLOCK_TYPE_ALIASES: Record<string, string> = {
-  text: 'markdown',
-  table: 'data_table',
-  source_list: 'citations',
-  interactive_form: 'controls',
-  execution_timeline: 'timeline',
-  stat: 'stat_hero',
-  stats: 'stat_hero',
-  progress: 'gauge',
-  meter: 'gauge',
-  comparison: 'comparison_grid',
-  leaderboard: 'ranked_list',
-  ranking: 'ranked_list',
-  badges: 'badge_row',
-  slides: 'carousel',
-};
-
-/**
- * Field-name synonyms a producer may plausibly use for the same canonical
- * field. Like the type aliases above, these are normalized before validation so
- * a model is never punished for naming a body `content` instead of `markdown`.
- * Values that are not themselves valid are left untouched, so an unknown tone
- * still falls back to the schema default rather than hard-failing.
- */
-const PROSE_FIELD_TYPES = new Set(['markdown', 'callout', 'details']);
-const CALLOUT_TONES = new Set(['info', 'note', 'success', 'warning', 'danger']);
-
-// Non-ambiguous interval synonyms (lower-cased). A model often writes `1Y` for a
-// yearly view or `90d` for a three-month window, neither of which the
-// `financial_chart` timeframe enum accepts; map the long/aliased forms onto the
-// closest supported timeframe. Lower-case `m` is minutes and upper-case `M` is
-// months in this app, so day-count forms map to the daily/weekly bars that span
-// them rather than to a minute interval.
-const TIMEFRAME_ALIASES: Record<string, string> = {
-  '1y': '1M', '2y': '1M', '3y': '1M', '5y': '1M', '10y': '1M',
-  ytd: '1M', max: '1M', all: '1M',
-  '1d': '1D', day: '1D', daily: '1D',
-  '7d': '1D', '14d': '1D', '30d': '1D', '60d': '1D', '90d': '1D', '180d': '1D', '365d': '1M',
-  '1mo': '1M', month: '1M', monthly: '1M',
-  '3mo': '1D', '6mo': '1D', '12mo': '1M',
-  '1w': '1W', '1wk': '1W', week: '1W', weekly: '1W',
-  '1h': '1H', hour: '1H',
-};
-
-// Financial-chart style synonyms a producer may use for the render style.
-const FINANCIAL_CHART_TYPE_ALIASES: Record<string, string> = {
-  candle: 'candlestick',
-  candles: 'candlestick',
-  candlesticks: 'candlestick',
-  bar: 'ohlc',
-  bars: 'ohlc',
-  heikin_ashi: 'heikin-ashi',
-  heikinashi: 'heikin-ashi',
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** `items`/`sources` entries may spell the label `name`; the contract wants `title`. */
-function normalizeCitationSources(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((item) => {
-    if (!isRecord(item)) return item;
-    if (item.title === undefined && typeof item.name === 'string') return { ...item, title: item.name };
-    return item;
-  });
-}
-
-/** A table may supply `columns` as bare strings; the contract wants `{ key, label }`. */
-function normalizeTableColumns(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((col, i) => {
-    if (typeof col === 'string') return { key: `c${i}`, label: col || `Column ${i + 1}` };
-    if (isRecord(col)) {
-      const key = typeof col.key === 'string' && col.key ? col.key : `c${i}`;
-      const label =
-        typeof col.label === 'string' && col.label
-          ? col.label
-          : typeof col.key === 'string' && col.key
-            ? col.key
-            : `Column ${i + 1}`;
-      return { ...col, key, label };
-    }
-    return col;
-  });
-}
-
-/** A table may supply `rows` as positional arrays; the contract wants records keyed by column. */
-function normalizeTableRows(value: unknown, columns: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  const keys = Array.isArray(columns)
-    ? columns.map((c) => (isRecord(c) && typeof c.key === 'string' ? c.key : undefined))
-    : [];
-  return value.map((row) => {
-    if (!Array.isArray(row)) return row;
-    const record: Record<string, unknown> = {};
-    row.forEach((cell, i) => {
-      record[keys[i] ?? `c${i}`] = cell;
-    });
-    return record;
-  });
-}
-
-/**
- * Chart points may arrive as objects rather than the contract's scalar / `[x, y]`
- * / `[x, y, v]` forms: `{x, y}` (a scatter point), `{x, y, value}` (an extra
- * dimension) or `{label, value}` / `{y}` (a labelled scalar on a category axis).
- * Coerce the recognised shapes and drop an unrecognised object to `null` so one
- * odd point never costs the whole chart (ECharts renders a gap; it is honest).
- */
-function normalizeChartPoints(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((p) => {
-    if (!isRecord(p)) return p;
-    const x = p.x;
-    const y = p.y;
-    if (typeof x === 'number' && typeof y === 'number') {
-      const extra = p.v ?? p.z ?? p.value ?? p.r;
-      return typeof extra === 'number' ? [x, y, extra] : [x, y];
-    }
-    const scalar = p.value ?? p.y ?? p.count;
-    if (typeof scalar === 'number') return scalar;
-    return null;
-  });
-}
-
-/** A comparison grid may supply `columns` as bare strings or `{name}`; the contract wants `{ label }`. */
-function normalizeComparisonColumns(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((col, i) => {
-    if (typeof col === 'string') return { label: col || `Option ${i + 1}` };
-    if (isRecord(col)) {
-      const label =
-        typeof col.label === 'string' && col.label
-          ? col.label
-          : typeof col.name === 'string' && col.name
-            ? col.name
-            : typeof col.title === 'string' && col.title
-              ? col.title
-              : `Option ${i + 1}`;
-      return { ...col, label };
-    }
-    return col;
-  });
-}
-
-/** Map an item's `key`/`name`/`title` onto the contract's `label` when absent. */
-function normalizeLabeledItems(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((item) => {
-    if (!isRecord(item) || item.label !== undefined) return item;
-    const label = item.key ?? item.name ?? item.title;
-    return typeof label === 'string' ? { ...item, label } : item;
-  });
-}
-
-/** Normalize the field-level synonyms of an already-canonically-typed block. */
-function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unknown> {
-  const type = typeof raw.type === 'string' ? raw.type : '';
-  const out: Record<string, unknown> = { ...raw };
-
-  if (PROSE_FIELD_TYPES.has(type) && out.markdown === undefined) {
-    // Producers name the body `content` or, as often observed, `text` (the same
-    // word as the `text`→`markdown` type alias). Neither is the canonical field;
-    // both are accepted so the block is not lost. `heading` legitimately owns a
-    // `text` field, so this rewrite is scoped to the prose body types only.
-    if (out.content !== undefined) out.markdown = out.content;
-    else if (typeof out.text === 'string') out.markdown = out.text;
-  }
-
-  if (type === 'mermaid' && out.diagram === undefined) {
-    if (out.content !== undefined) out.diagram = out.content;
-    else if (out.code !== undefined) out.diagram = out.code;
-    else if (out.source !== undefined) out.diagram = out.source;
-    else if (out.definition !== undefined) out.diagram = out.definition;
-  }
-
-  if (
-    type === 'callout' &&
-    out.tone === undefined &&
-    typeof out.variant === 'string' &&
-    CALLOUT_TONES.has(out.variant)
-  ) {
-    out.tone = out.variant;
-  }
-
-  if (type === 'citations') {
-    if (out.sources === undefined && out.items !== undefined) out.sources = out.items;
-    out.sources = normalizeCitationSources(out.sources);
-  }
-
-  if (type === 'data_table') {
-    out.columns = normalizeTableColumns(out.columns);
-    out.rows = normalizeTableRows(out.rows, out.columns);
-  }
-
-  if (type === 'key_value') {
-    out.items = normalizeLabeledItems(out.items);
-  }
-
-  if (type === 'chart') {
-    if (out.categories === undefined && out.labels !== undefined) out.categories = out.labels;
-    if (Array.isArray(out.series)) {
-      out.series = out.series.map((s) => {
-        if (!isRecord(s)) return s;
-        const next: Record<string, unknown> = { ...s };
-        if (next.data === undefined) {
-          if (next.points !== undefined) next.data = next.points;
-          else if (next.values !== undefined) next.data = next.values;
-        }
-        next.data = normalizeChartPoints(next.data);
-        if (next.name === undefined && typeof next.label === 'string') next.name = next.label;
-        return next;
-      });
-    }
-  }
-
-  if (type === 'diagram' || type === 'node_graph') {
-    out.nodes = normalizeLabeledItems(out.nodes);
-    if (Array.isArray(out.edges)) {
-      out.edges = out.edges.map((e) => {
-        if (!isRecord(e)) return e;
-        const next: Record<string, unknown> = { ...e };
-        if (next.from === undefined && next.source !== undefined) next.from = next.source;
-        if (next.to === undefined && next.target !== undefined) next.to = next.target;
-        return next;
-      });
-    }
-  }
-
-  if (type === 'financial_chart') {
-    if (out.symbol === undefined) {
-      const sym = out.ticker ?? out.instrument ?? out.tickers;
-      if (typeof sym === 'string') out.symbol = sym;
-      else if (Array.isArray(sym) && typeof sym[0] === 'string') out.symbol = sym[0];
-    }
-    if (out.timeframe === undefined) {
-      const tf = out.interval ?? out.range ?? out.period;
-      if (typeof tf === 'string') out.timeframe = tf;
-    }
-    if (out.chartType === undefined) {
-      const ct = out.style ?? out.chart_type;
-      if (typeof ct === 'string') out.chartType = ct;
-    }
-    if (typeof out.timeframe === 'string') {
-      const mapped = TIMEFRAME_ALIASES[out.timeframe.trim().toLowerCase()];
-      if (mapped) out.timeframe = mapped;
-    }
-    if (typeof out.chartType === 'string') {
-      const mapped = FINANCIAL_CHART_TYPE_ALIASES[out.chartType.trim().toLowerCase()];
-      if (mapped) out.chartType = mapped;
-    }
-  }
-
-  if (type === 'workflow' && out.stages === undefined && Array.isArray(out.steps)) {
-    // The natural word for a workflow's stages is `steps`; accept it.
-    out.stages = out.steps;
-  }
-
-  if (type === 'metric_grid' && Array.isArray(out.metrics)) {
-    out.metrics = out.metrics.map((m) => {
-      if (isRecord(m) && m.hint === undefined && m.note !== undefined) return { ...m, hint: m.note };
-      return m;
-    });
-  }
-
-  if (type === 'gallery' && Array.isArray(out.images)) {
-    out.images = out.images.map((img) => {
-      if (!isRecord(img)) return img;
-      const next: Record<string, unknown> = { ...img };
-      if (next.url === undefined && next.imageUrl !== undefined) next.url = next.imageUrl;
-      if (next.alt === undefined && next.altText !== undefined) next.alt = next.altText;
-      if (next.sourceUrl === undefined && next.sourcePage !== undefined) next.sourceUrl = next.sourcePage;
-      if (next.sourceDomain === undefined && typeof next.domain === 'string') next.sourceDomain = next.domain;
-      return next;
-    });
-  }
-
-  if (type === 'stat_hero') {
-    if (out.stats === undefined) {
-      const alt = out.metrics ?? out.items ?? out.stats;
-      if (alt !== undefined) out.stats = alt;
-    }
-    out.stats = normalizeLabeledItems(out.stats);
-  }
-
-  if (type === 'gauge') {
-    if (out.gauges === undefined) {
-      const alt = out.items ?? out.bars ?? out.gauges;
-      if (alt !== undefined) out.gauges = alt;
-    }
-    out.gauges = normalizeLabeledItems(out.gauges);
-  }
-
-  if (type === 'comparison_grid') {
-    out.columns = normalizeComparisonColumns(out.columns);
-  }
-
-  if (type === 'ranked_list') {
-    if (out.items === undefined) {
-      const alt = out.entries ?? out.items;
-      if (alt !== undefined) out.items = alt;
-    }
-    out.items = normalizeLabeledItems(out.items);
-  }
-
-  if (type === 'badge_row') {
-    if (out.badges === undefined) {
-      const alt = out.items ?? out.badges;
-      if (alt !== undefined) out.badges = alt;
-    }
-    out.badges = normalizeLabeledItems(out.badges);
-  }
-
-  if (type === 'carousel' && out.slides === undefined) {
-    const alt = out.items ?? out.tabs;
-    if (alt !== undefined) out.slides = alt;
-  }
-
-  return out;
-}
-
-/**
- * Rewrite a raw block into its canonical shape before validation: first the
- * documented `type` aliases (`text`, `table`, `source_list`, …), then the
- * field-level synonyms (`content`→`markdown`, `variant`→`tone`,
- * `items`→`sources`, string table columns / positional rows, interval aliases).
- * Pure and total: a non-object block is returned unchanged.
- */
-export function normalizeBlockAlias(raw: unknown): unknown {
-  if (!isRecord(raw)) return raw;
-  const declared = raw.type;
-  if (typeof declared !== 'string') return raw;
-  const canonical = BLOCK_TYPE_ALIASES[declared];
-  const renamed = canonical ? { ...raw, type: canonical } : raw;
-  return normalizeBlockFields(renamed);
-}
+// Block normalization (type aliases + field synonyms) lives in ./normalize so
+// this module stays within its size ratchet. Re-exported for existing callers.
+import { normalizeBlockAlias } from './normalize';
+export { normalizeBlockAlias };
 
 const boundedString = z.string().max(RESPONSE_LIMITS.maxStringLength);
 const shortString = z.string().max(500);
@@ -459,6 +117,12 @@ const calloutBlock = z.object({
   markdown: boundedString,
 });
 
+// A key/value row is a display line, not a schema fragment: producers attach a
+// short source/citation to the value, which routinely exceeds the 120-char
+// generic numeric-string bound (observed 5x in live runs). Allow a wrapping line
+// instead of failing the whole block.
+const keyValueValue = z.union([z.number().finite(), z.string().max(500)]);
+
 const keyValueBlock = z.object({
   type: z.literal('key_value'),
   id: idString.optional(),
@@ -467,7 +131,7 @@ const keyValueBlock = z.object({
     .array(
       z.object({
         label: shortString,
-        value: numberOrNumericString,
+        value: keyValueValue,
         hint: shortString.optional(),
       }),
     )
@@ -979,7 +643,14 @@ const statHeroBlock = z.object({
   title: shortString.optional(),
   source: shortString.optional(),
   asOf: shortString.optional(),
-  stats: z.array(statHeroStatSchema).min(1).max(RESPONSE_LIMITS.maxStats),
+  description: shortString.optional(),
+  caption: shortString.optional(),
+  // A producer that has no data for the figure marks the WHOLE block unavailable
+  // (the prompt's `"unavailable": true` contract) rather than inventing numbers.
+  // The array may then be absent/empty; the renderer shows the UNAVAILABLE state,
+  // never an empty figure.
+  unavailable: z.boolean().optional(),
+  stats: z.array(statHeroStatSchema).max(RESPONSE_LIMITS.maxStats).default([]),
 });
 
 // A progress meter / gauge: a value rendered against a `max` as a filled bar.
@@ -999,7 +670,9 @@ const gaugeBlock = z.object({
   id: idString.optional(),
   title: shortString.optional(),
   description: shortString.optional(),
-  gauges: z.array(gaugeSchema).min(1).max(RESPONSE_LIMITS.maxGauges),
+  caption: shortString.optional(),
+  unavailable: z.boolean().optional(),
+  gauges: z.array(gaugeSchema).max(RESPONSE_LIMITS.maxGauges).default([]),
 });
 
 // A comparison matrix (pricing-table shape): options become columns, attributes
@@ -1027,8 +700,11 @@ const comparisonGridBlock = z.object({
   id: idString.optional(),
   title: shortString.optional(),
   caption: shortString.optional(),
-  columns: z.array(comparisonColumnSchema).min(1).max(RESPONSE_LIMITS.maxCompareColumns),
-  rows: z.array(comparisonRowSchema).min(1).max(RESPONSE_LIMITS.maxCompareRows),
+  unavailable: z.boolean().optional(),
+  // An unavailable matrix may arrive with only the flag + caption; the renderer
+  // shows the UNAVAILABLE state rather than failing validation.
+  columns: z.array(comparisonColumnSchema).max(RESPONSE_LIMITS.maxCompareColumns).default([]),
+  rows: z.array(comparisonRowSchema).max(RESPONSE_LIMITS.maxCompareRows).default([]),
 });
 
 // A leaderboard / ranked bar list. Bars are scaled to the largest absolute value
@@ -1048,7 +724,9 @@ const rankedListBlock = z.object({
   title: shortString.optional(),
   description: shortString.optional(),
   valueLabel: shortString.optional(),
-  items: z.array(rankedItemSchema).min(1).max(RESPONSE_LIMITS.maxRankedItems),
+  caption: shortString.optional(),
+  unavailable: z.boolean().optional(),
+  items: z.array(rankedItemSchema).max(RESPONSE_LIMITS.maxRankedItems).default([]),
 });
 
 // A cluster of tag/pill badges — sectors, themes, labels. Tone maps to the shared
@@ -1064,7 +742,9 @@ const badgeRowBlock = z.object({
   id: idString.optional(),
   title: shortString.optional(),
   description: shortString.optional(),
-  badges: z.array(badgeSchema).min(1).max(RESPONSE_LIMITS.maxBadges),
+  caption: shortString.optional(),
+  unavailable: z.boolean().optional(),
+  badges: z.array(badgeSchema).max(RESPONSE_LIMITS.maxBadges).default([]),
 });
 
 // A slide carousel: each slide is a labelled panel of nested blocks (validated

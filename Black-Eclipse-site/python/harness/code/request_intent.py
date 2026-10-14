@@ -36,7 +36,16 @@ _DIRECTIVE_VERBS = (
     # classified as not_code and the user saw a refusal of all tools.
     "count", "list", "show", "display", "view", "open", "inspect", "scan",
     "search", "find", "read", "pull up", "check",
+    # software acquisition: "download and install X" is work on the machine.
+    # "download the prices" is unaffected — a data object with no software
+    # object still routes to `data_task`.
+    "install", "uninstall", "download", "set up", "setup",
 )
+
+# Acquisition verbs strong enough to stand alone: "install X" has no finance
+# reading, so no software object is required. Kept separate from
+# `_DIRECTIVE_VERBS` so "download the prices" still routes to `data_task`.
+_STRONG_ACQUIRE_VERBS = ("install", "uninstall")
 
 # A software object — a thing a code change acts on. Concrete on purpose: a
 # vague finance noun ("report", "portfolio", "watchlist") is NOT here, so
@@ -61,6 +70,9 @@ _SOFTWARE_OBJECTS = (
     "screener", "screen", "indicator", "automation", "integration",
     "plugin", "extension", "backend", "frontend", "ui", "report generator",
     "tracker", "chart", "scraper",
+    # software a user downloads or installs, and the skill it may arrive as
+    "software", "program", "executable", "installer", "binary",
+    "skill", "skills",
     # places a user asks the agent to read/write in
     "desktop", "desktop folder", "folder", "directory", "files", "file system",
     "filesystem", "path", "website", "web site",
@@ -313,6 +325,18 @@ def classify_code_request(
                 "code_change", "certain",
                 "The turn asks to change a project document.",
                 ("directive+doc_object",),
+            )
+
+    # A bare STRONG acquisition verb ("install blender", "uninstall foo") is
+    # itself a code change — there is no finance reading of "install X". Weaker
+    # acquisition words ("download", "set up") still need a software object, so
+    # "download the prices" keeps routing to `data_task`.
+    for clause in clauses:
+        if _matched_terms(clause, _STRONG_ACQUIRE_VERBS):
+            return _verdict(
+                "code_change", "likely",
+                "The turn asks to install or remove software.",
+                ("acquire",),
             )
 
     # A reported symptom with a software object or a path ("the app crashes when

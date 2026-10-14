@@ -168,7 +168,20 @@ export function validateRunInput(raw: unknown): InputValidationResult {
         }
         const bounded = text.slice(0, Math.min(MAX_DOCUMENT_CHARS, remaining));
         total += bounded.length;
-        docs.push({ name, text: bounded });
+        // Carry the truncation provenance through: a document shortened here is
+        // marked so the runtime can state the limit in the turn.
+        const declaredChars =
+          typeof doc.originalChars === "number" && Number.isFinite(doc.originalChars)
+            ? Math.max(0, Math.floor(doc.originalChars))
+            : undefined;
+        const truncated = doc.truncated === true || bounded.length < text.length;
+        docs.push({
+          name,
+          text: bounded,
+          ...(truncated
+            ? { truncated: true, originalChars: Math.max(declaredChars ?? 0, text.length) }
+            : {}),
+        });
       }
       documents = docs.length ? docs : undefined;
     }

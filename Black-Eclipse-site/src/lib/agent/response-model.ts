@@ -98,6 +98,29 @@ export interface TurnError {
   message: string;
 }
 
+/**
+ * One file change an assistant turn made, with the runtime's bounded diff
+ * preview. Fed by the runtime's change events (`code.patch.applied`,
+ * `fs.*` with `previews`) — never re-derived on the client, never fabricated.
+ */
+export interface TurnChange {
+  /** Workspace-relative path (for a move, the destination). */
+  path: string;
+  change: 'added' | 'modified' | 'deleted' | 'renamed';
+  /** The previous path of a move/rename, when the runtime reported one. */
+  from?: string;
+  /** Added/removed line counts, only when the runtime reported them. */
+  additions?: number;
+  deletions?: number;
+  /** Bounded, redacted unified diff text. Absent when there is no text
+   *  preview (e.g. a pure move) — the card then shows no diff body. */
+  diff?: string;
+  /** True when the runtime capped the diff preview (honest truncation). */
+  truncated?: boolean;
+  /** How many separate edits this turn made to this path (1 when once). */
+  edits?: number;
+}
+
 /** The full state of one in-flight or finished assistant turn. */
 export interface AssistantTurn {
   status: ResponseStatus;
@@ -106,6 +129,12 @@ export interface AssistantTurn {
   /** Authoritative final text from `client.final` when it arrives. */
   finalText?: string;
   activities: ActivityItem[];
+  /**
+   * The code changes this turn made, in arrival order: one entry per path, the
+   * latest preview winning (`edits` counts repeat edits). Empty for a turn
+   * that changed no files.
+   */
+  changes: TurnChange[];
   error?: TurnError;
   /**
    * Phase 4 evidence-grounded research metadata carried on `client.final` for a
@@ -181,7 +210,7 @@ export interface AssistantTurn {
 }
 
 export function emptyTurn(): AssistantTurn {
-  return { status: 'queued', text: '', activities: [], done: false };
+  return { status: 'queued', text: '', activities: [], changes: [], done: false };
 }
 
 /** The text the UI should show: authoritative final text wins over deltas. */

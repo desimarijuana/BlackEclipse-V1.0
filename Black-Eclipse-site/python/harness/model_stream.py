@@ -12,6 +12,8 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage
 
+from .async_timeout import await_bounded
+
 
 async def ainvoke_streaming(
     model: Any,
@@ -28,14 +30,24 @@ async def ainvoke_streaming(
     every fragment. The assembled message is what the graph stores, so tool
     calls and usage metadata still work exactly as before.
 
+    The deadline is HARD (`await_bounded`): a provider that ignores cancellation
+    cannot hold the run hostage past `timeout_s` — the run fails with a timeout
+    instead of hanging forever, and the abandoned stream is flagged so it stops
+    emitting deltas.
+
     On the final step (`finalizing`) tools are unbound upstream, so this only
     ever yields the closing answer.
     """
+    abandoned = False
+
     async def _stream() -> Any:
+        nonlocal abandoned
         aggregated: Any = None
         last_with_tools: Any = None
         last_with_usage: Any = None
         async for chunk in model.astream(messages):
+            if abandoned:
+                break
             aggregated = chunk if aggregated is None else merge_chunks(aggregated, chunk)
             if getattr(chunk, "tool_calls", None):
                 last_with_tools = chunk
@@ -61,16 +73,20 @@ async def ainvoke_streaming(
                     pass
         return aggregated
 
+    def _abandon() -> None:
+        nonlocal abandoned
+        abandoned = True
+
     try:
-        aggregated = await asyncio.wait_for(_stream(), timeout=timeout_s)
+        aggregated = await await_bounded(_stream(), timeout_s, on_timeout=_abandon)
         if aggregated is None:
             # An empty stream is not an answer; fall back to a plain call.
-            return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
+            return await await_bounded(model.ainvoke(messages), timeout_s)
         return aggregated
     except (asyncio.TimeoutError, asyncio.CancelledError):
         raise
     except Exception:  # noqa: BLE001 - not all models implement astream
-        return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
+        return await await_bounded(model.ainvoke(messages), timeout_s)
 
 
 FINALIZE_INSTRUCTION = (

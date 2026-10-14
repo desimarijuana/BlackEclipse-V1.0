@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from ..tools import ToolContext
 from . import policy
+from . import backends as backend_mod
 from . import sandbox as sandbox_mod
 from .commands import CommandUnavailable, build_argv, resolve_class
 from .sandbox import SandboxUnavailable
@@ -161,8 +162,18 @@ async def command_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
                         network=command_class.network)
         return _command_refusal(decision.code, decision.reason, command_class=command_class.name)
 
+    spec = sandbox_mod.RunSpec(
+        argv=argv, cwd=resolved.root, env=sandbox_mod.build_env(),
+        timeout_s=command_class.timeout_s, output_cap_bytes=command_class.output_cap_bytes,
+        network=command_class.network,
+    )
+
+    # Tier selection: a class that DECLARES network is never run by the local
+    # primitive (it cannot contain it). It requires the container tier — and
+    # refuses honestly when no container runtime is present. Everything else
+    # keeps the local tier exactly as before (W4/ADR-H189).
     try:
-        sandbox_mod.select_backend()
+        backend = backend_mod.select_for_spec(spec)
     except SandboxUnavailable:
         await emit_code_event(ctx, "command.refused", {
             "commandClass": command_class.name, "code": "SANDBOX_UNAVAILABLE"})
@@ -177,14 +188,9 @@ async def command_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
             recovery="Run the check on a machine where the runtime can isolate it.",
         )
 
-    spec = sandbox_mod.RunSpec(
-        argv=argv, cwd=resolved.root, env=sandbox_mod.build_env(),
-        timeout_s=command_class.timeout_s, output_cap_bytes=command_class.output_cap_bytes,
-        network=command_class.network,
-    )
     await emit_code_event(ctx, "command.started", {
         "commandClass": command_class.name, "timeoutS": command_class.timeout_s})
-    raw = sandbox_mod.run(spec)
+    raw = await backend.run(spec)
     exit_code = raw.exit_code
     event = "command.killed" if (raw.timed_out or raw.cancelled) else "command.completed"
     await emit_code_event(ctx, event, {

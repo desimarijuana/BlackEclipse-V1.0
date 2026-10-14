@@ -85,6 +85,16 @@ export interface FileChange {
   at: number;
   /** Run-relative workspace id when the runtime reports one. */
   workspaceId?: string;
+  /** The previous path of a move/rename, when the runtime reported one. */
+  from?: string;
+  /**
+   * The runtime's bounded, redacted unified preview of this change. Present
+   * only when the runtime emitted one (never re-derived here); a pure move has
+   * none. Displayed by the Changes panel.
+   */
+  diff?: string;
+  /** True when the runtime capped the preview (honest truncation). */
+  truncated?: boolean;
 }
 
 export type ArtifactType =

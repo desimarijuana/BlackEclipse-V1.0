@@ -118,4 +118,16 @@ describe('loadContextDocuments', () => {
   it('returns nothing for an invalid id instead of throwing', async () => {
     expect(await loadContextDocuments('../nope')).toEqual([]);
   });
+
+  it('marks a shortened document so the run can state the limit', async () => {
+    const big = 'a'.repeat(SESSION_LIMITS.maxDocChars + 500);
+    await writeSessionFile('c3', { name: 'big.txt', bytes: Buffer.from(big, 'utf8'), kind: 'context' });
+
+    const docs = await loadContextDocuments('c3');
+    expect(docs).toHaveLength(1);
+    expect(docs[0].name).toBe('big.txt');
+    expect(docs[0].text.length).toBe(SESSION_LIMITS.maxDocChars);
+    expect(docs[0].truncated).toBe(true);
+    expect(docs[0].originalChars).toBe(big.length);
+  });
 });

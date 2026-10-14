@@ -208,6 +208,9 @@ export const en = {
   'bots.chat.copy': 'Copy',
   'bots.chat.copied': 'Copied',
   'bots.chat.regenerate': 'Regenerate',
+  'bots.chat.retry': 'Retry',
+  'bots.chat.good': 'Good response',
+  'bots.chat.bad': 'Bad response',
   'bots.create.editedField': 'Edited',
   'bots.create.duplicate': 'A bot with this name already exists.',
 
@@ -482,6 +485,13 @@ export const en = {
   'workspace.queries': 'Queries',
   'workspace.actions': 'Actions',
   'workspace.collapseAll': 'Collapse all',
+
+  // Code changes in chat — the files a turn changed, with the runtime's bounded
+  // preview. Everyday words only; a capped preview admits it instead of
+  // pretending it has the whole change.
+  'chat.change.edits': '{count} edits',
+  'chat.change.renamedFrom': 'from {path}',
+  'chat.change.truncated': 'Only the first part of this change is shown — it is larger than the preview.',
 
   // Top bar
   'topbar.searchPlaceholder': 'Search instruments, indicators, commands…',

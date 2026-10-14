@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-12
+last-verified: 2026-10-13
 ---
 
 # Interactive Response Engine
@@ -143,7 +143,10 @@ types. The website-style family has matching synonyms: `stat`/`stats`→`stat_he
 producer is not punished for naming a field naturally. `normalizeBlockFields`
 rewrites: `content`→`markdown` (markdown/callout/details), a scalar `text`→
 `markdown` on those same prose types (observed producer output — scoped away from
-`heading`, which legitimately owns a `text` field), `content`/`code`/`source`→
+`heading`, which legitimately owns a `text` field), and a scalar `body`→
+`markdown` on those same prose types (also accepted as the `mermaid` body) —
+three real producer spellings of the one field, all observed in live runs;
+`content`/`code`/`source`→
 `diagram` (mermaid), `variant`→`tone` (callout, when the value is a valid tone),
 `items`→`sources` and `name`→`title` (citations), string `columns` + positional
 array `rows`→typed table columns/records (`data_table`), `note`→`hint`
@@ -151,14 +154,25 @@ array `rows`→typed table columns/records (`data_table`), `note`→`hint`
 `90d`, `3mo`, …) onto a supported `financial_chart` timeframe, and `steps`→
 `stages` for a `workflow`. It also coerces observed producer shapes that the
 strict schema would otherwise reject whole (each degrades only its own block):
-`key`/`name`→item `label` (`key_value`), `points`/`values`→chart `data` with
+`key`/`name`→item `label` (`key_value`; its `value` is a display line and may
+run to 500 chars because producers attach a short source/citation),
+`points`/`values`→chart `data` with
 `{x,y}` / `{value}` point objects coerced to tuples/scalars and `labels`→
-`categories` (`chart`), `ticker`/`instrument`→`symbol` and `interval`/`range`→
+`categories` (`chart`, whose `chart_type` spelling is also accepted),
+`ticker`/`instrument`→`symbol` and `interval`/`range`→
 `timeframe` plus chart-type synonyms (`financial_chart`), and node
 `name`/`title`→`label` / edge `source`/`target`→`from`/`to` (`diagram`,
 `node_graph`). A value that is not itself valid is
 left untouched, so an unknown tone still falls back to the schema default rather
 than hard-failing.
+
+**Block-level `unavailable` figures.** The producer prompt's rule for missing
+data (`"unavailable": true` — never a made-up value) is honored at the BLOCK
+level for the figure family (`stat_hero`, `gauge`, `comparison_grid`,
+`ranked_list`, `badge_row`): the data array may be absent/empty and the block
+validates; the renderer then shows an explicit UNAVAILABLE state with the
+producer's `description`/`caption` explanation instead of an empty or fabricated
+figure.
 
 **Mermaid repair.** Mermaid is producer-authored text, and Mermaid v12 rejects
 small slips that a model makes routinely. Before rendering, `mermaid-repair.ts`
@@ -205,7 +219,9 @@ reach an `<img src>`. Images load directly (plain `<img>`, `loading="lazy"`,
 - `empty` — whitespace body → render nothing.
 - `incomplete` — a JSON **syntax** error while the turn is still streaming → a
   "composing" placeholder (never rendered as a validated object).
-- `malformed` — a syntax error on a **settled** turn → an explicit diagnostic.
+- `malformed` — a syntax error on a **settled** turn → an explicit diagnostic
+  card with a "Show the raw content" disclosure, so an unparseable body is never
+  lost to the user.
 
 ## 4. The renderer (`src/components/response/response-view.tsx`)
 
@@ -372,10 +388,11 @@ composing placeholder.
 | REND-005 | Per-response export + save actions | `response-actions.tsx` | build/tsc | Verified |
 | BLOCK-001 | `stepper`, `infographic`, `report`, `action_group`, `artifact` blocks | `contract.ts` + `rich-blocks.tsx` | contract-blocks.test.ts | Verified |
 | BLOCK-002 | `node_graph` selectable graph (reuses layout engine) | `node-graph-block.tsx` | build/tsc | Verified |
-| BLOCK-003 | Spec-name aliases normalized to canonical blocks | `contract.ts` `normalizeBlockAlias` | contract-blocks.test.ts | Verified |
+| BLOCK-003 | Spec-name aliases normalized to canonical blocks | `normalize.ts` (`normalizeBlockAlias`, re-exported by `contract.ts`) | contract-blocks.test.ts | Verified |
 | BLOCK-004 | Icon-driven connected `workflow` block (expandable stages, follow-up) | `contract.ts` + `rich-blocks.tsx` (`WorkflowBlock`) | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-005 | Website-style visual blocks: `stat_hero`, `gauge`, `comparison_grid`, `ranked_list`, `badge_row`, `carousel` | `contract.ts` + `visual-blocks.tsx` + `response-view.tsx` REGISTRY | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-006 | `carousel` nests blocks (recursively validated like `tabs`/`report`) | `contract.ts` `parseResponsePayload`/`parseNestedBlocks` | contract-blocks.test.ts + render.test.tsx | Verified |
+| BLOCK-007 | Field leniency (`body`, `chart_type`, 500-char `key_value` values) + block-level `unavailable` figures | `normalize.ts` + `visual-blocks.tsx` UNAVAILABLE state | contract-blocks.test.ts | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
 | SEC-003 | Semantic icon allowlist (no component/import from model) | `lib/response/icons.ts` | contract-blocks.test.ts | Verified |
 

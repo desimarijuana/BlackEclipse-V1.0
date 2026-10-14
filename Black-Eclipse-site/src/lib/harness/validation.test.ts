@@ -79,6 +79,29 @@ describe("validateRunInput (front door)", () => {
     expect(result.issues.some((i) => i.includes("char limit"))).toBe(true);
   });
 
+  it("carries truncation provenance through to the run payload", () => {
+    const result = validateRunInput({
+      query: "hi",
+      documents: [{ name: "deck.pdf", text: "first part", truncated: true, originalChars: 90_000 }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value?.documents).toEqual([
+      { name: "deck.pdf", text: "first part", truncated: true, originalChars: 90_000 },
+    ]);
+  });
+
+  it("marks a document the validator itself shortened", () => {
+    const result = validateRunInput({
+      query: "hi",
+      documents: [{ name: "big.txt", text: "y".repeat(20_500) }],
+    });
+    expect(result.ok).toBe(true);
+    const doc = result.value?.documents?.[0];
+    expect(doc?.text.length).toBe(20_000);
+    expect(doc?.truncated).toBe(true);
+    expect(doc?.originalChars).toBe(20_500);
+  });
+
   it("assertRunInput throws a structured HarnessError", () => {
     expect(() => assertRunInput({})).toThrow(HarnessError);
     try {

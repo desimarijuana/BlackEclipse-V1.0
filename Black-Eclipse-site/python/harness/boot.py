@@ -103,6 +103,13 @@ async def _boot() -> None:
     from .recovery.bootstrap import start_recovery
 
     await start_recovery(service)
+    # Run stall watchdog: even if some strand of the runtime hangs past its own
+    # per-call hard deadlines (a swallowed cancellation, an unforeseen subsystem
+    # strand), every non-terminal run still reaches a terminal state and its
+    # stream closes. Best-effort, bounded interval, no new daemon beyond one task.
+    from .run_watchdog import start_run_watchdog
+
+    await start_run_watchdog(service)
     # The Task / Plan runtime: one durable scheduler task that claims runnable
     # tasks and dispatches each through the ordinary run path. Started after jobs
     # so a task-triggering job sees a live scheduler.
@@ -187,6 +194,10 @@ async def _shutdown() -> None:
     from .recovery.bootstrap import stop_recovery
 
     await stop_recovery(service)
+    # Stop the stall watchdog before the bus it closes streams on.
+    from .run_watchdog import stop_run_watchdog
+
+    await stop_run_watchdog()
     from .event_system.bootstrap import stop_events
     await service.stop_artifacts()
     await service.stop_tasks()

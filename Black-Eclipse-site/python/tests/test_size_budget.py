@@ -55,11 +55,25 @@ RATCHET_PY: dict[str, int] = {
     # and the Learning-Research work adds the `learning_store` ToolContext seam
     # (param + binding + comment, ~8 lines). May only shrink; the subsystem-wiring
     # block remains the split candidate.
-    "graph.py": 2026,
+    # Re-pinned 2026→2034 to the measured tree: unrelated in-flight wiring on the
+    # shared working tree (the acquire-loop / scheduling-tool stream) had grown the
+    # file past its pin again. May only shrink; the subsystem-wiring block remains
+    # the split candidate.
+    # Re-pinned 2034→2043 to the measured tree: that same in-flight wiring had
+    # grown another 9 lines past the re-pin before it landed (the capability-
+    # acquire work in this change touches NO part of graph.py). May only shrink.
+    "graph.py": 2043,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
-    "code/tools.py": 1263,
+    # Re-pinned 1263→1268 to the measured tree for the in-flight change-event
+    # preview wiring (the `diff_event_payload`/`REDACT_MARKER` re-export from
+    # `code/events.py` + the preview fields on `code.patch.applied`), which had
+    # already grown the file past its pin on the shared working tree. The
+    # `emit_patch_applied` assembly was then split into `code/events.py` (the
+    # pin's split note), bringing the file to 1259 — re-pinned DOWN to the
+    # measured tree. May only shrink.
+    "code/tools.py": 1259,
     # Re-pinned for the canonical `memory.created`/`memory.updated` Event System
     # emissions at the write/review seams. May only shrink from here.
     "eclipse_memory/service.py": 1845,

@@ -36,6 +36,10 @@ MAX_TOTAL_BYTES_PER_APPLY = 4_000_000
 MAX_OLD_SPAN_CHARS = 20_000
 MAX_PATH_CHARS = 512
 MAX_REASON_CHARS = 500
+# A per-op diff preview is kept on the applied record (for the UI event stream
+# and a future review surface). Bounded here so one op can never hold a whole
+# large file; the event seam caps it further.
+MAX_DIFF_PREVIEW_CHARS = 20_000
 
 # Paths a patch may never touch, in addition to policy.PROTECTED_PATHS. These are
 # repo-relative; matched on the normalized relative path.
@@ -100,6 +104,10 @@ class AppliedOp:
     moved_from: Optional[str] = None
     old: Optional[str] = None            # replace: kept for a content-exact revert
     new: Optional[str] = None            # replace: kept for a content-exact revert
+    diff: Optional[str] = None           # bounded unified preview of THIS op
+    additions: int = 0
+    deletions: int = 0
+    diff_truncated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -114,6 +122,10 @@ class AppliedOp:
             "movedFrom": self.moved_from,
             "old": self.old,
             "new": self.new,
+            "diff": self.diff,
+            "additions": self.additions,
+            "deletions": self.deletions,
+            "diffTruncated": self.diff_truncated,
         }
 
 
@@ -265,6 +277,7 @@ class _Planned:
     deleted: bool
     source: Optional[Path] = None
     source_text: Optional[str] = None
+    before_text: Optional[str] = None   # the file's text before this op (diff preview)
 
 
 def _read_text(path: Path) -> str:
@@ -306,12 +319,19 @@ def _plan_one(ws: ResolvedWorkspace, binding: Any, actor: Any, op: PatchOp, scop
         if count > 1:
             raise PatchError("PATCH_SPAN_AMBIGUOUS", "the text to replace appears more than once")
         updated = current.replace(op.old or "", op.new or "", 1)
-        return _Planned(op, target, before, updated, len(updated.encode("utf-8")), False, False)
+        return _Planned(op, target, before, updated, len(updated.encode("utf-8")), False, False,
+                        before_text=current)
 
     if op.op == "delete":
         if before is None:
             raise PatchError("PATCH_FILE_MISSING", f"{rel!r} does not exist")
-        return _Planned(op, target, before, None, 0, False, True)
+        try:
+            deleted_text = _read_text(target)
+        except (UnicodeDecodeError, OSError):
+            # A binary/undecodable file is still deletable; it just has no text
+            # preview (an honest absence, never a fabricated one).
+            deleted_text = None
+        return _Planned(op, target, before, None, 0, False, True, before_text=deleted_text)
 
     if op.op == "overwrite":
         # Whole-file replacement. The base is proven by `expectHash` (checked
@@ -324,7 +344,7 @@ def _plan_one(ws: ResolvedWorkspace, binding: Any, actor: Any, op: PatchOp, scop
         )
         return _Planned(
             replacement, target, before, text, len(text.encode("utf-8")),
-            before is None, False,
+            before is None, False, before_text=before_text,
         )
 
     # move
@@ -345,6 +365,28 @@ def _write_atomic(path: Path, text: str) -> None:
     tmp = path.with_name(path.name + f".tmp{uuid_hex()}")
     tmp.write_text(text, encoding="utf-8", newline="")
     os.replace(tmp, path)
+
+
+def _op_preview(item: _Planned, rel: str) -> dict[str, Any]:
+    """A bounded unified-diff preview for one applied op ({} for a move).
+
+    Uses the fs subsystem's ONE diff generator, so the preview the UI shows is
+    the same text a dry-run would show. Purely descriptive: it is computed from
+    the already-planned before/after text and decides nothing.
+    """
+    if item.op.op == "move":
+        return {}
+    from .fs.diff import unified_diff  # noqa: PLC0415 - avoids importing the fs package at module load
+    after = "" if item.op.op == "delete" else (item.after_text or "")
+    info = unified_diff(item.before_text or "", after, path=rel, max_chars=MAX_DIFF_PREVIEW_CHARS)
+    if not info.get("hasChanges"):
+        return {}
+    return {
+        "diff": str(info.get("diff") or ""),
+        "additions": int(info.get("additions") or 0),
+        "deletions": int(info.get("deletions") or 0),
+        "diff_truncated": bool(info.get("truncated")),
+    }
 
 
 def uuid_hex() -> str:
@@ -392,12 +434,14 @@ def apply(
         else:
             _write_atomic(item.target, item.after_text or "")
             after_hash = _sha(item.after_text or "")
+        rel = item.target.relative_to(ws.root).as_posix()
         applied.append(AppliedOp(
-            op=op.op, path=item.target.relative_to(ws.root).as_posix(), reason=op.reason,
+            op=op.op, path=rel, reason=op.reason,
             content_hash_before=item.before_hash, content_hash_after=after_hash,
             bytes_written=item.bytes_written, created=item.created, deleted=item.deleted,
             moved_from=(item.source.relative_to(ws.root).as_posix() if item.source else None),
             old=op.old, new=op.new,
+            **_op_preview(item, rel),
         ))
 
     return {

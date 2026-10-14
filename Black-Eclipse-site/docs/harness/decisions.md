@@ -6409,3 +6409,195 @@ gate gains one fast advisory step; `docs/harness/authentication.md` and
 approval kind and remain refused by design (not needed for the app's workflows),
 roadmap phases 16–20 remain features, the container is not built/verified on a
 machine without Docker, and live-model evaluation stays an opt-in tier.
+
+## ADR-H187 — The agent may schedule its own work, within a fixed catalogue and behind an operator master switch
+
+**Decision.** Phase 17 (agent-scheduled work) is implemented on the ONE Native
+Automation Engine — not a second scheduler and not the legacy `jobs` store:
+
+1. `automation/catalogue.py` is a fixed, one-row-per-shape catalogue that
+   references EXISTING `jobs.templates` templates (research/analysis shapes
+   only; deliberately no code or deploy shape). `catalogue_issues()` fails on
+   any row that names a missing template, a parameter the template lacks, or a
+   frequency ceiling below the template's own cadence.
+2. `automation/scheduling_tools.py` registers `job_list`,
+   `job_describe_template`, `job_create` and `job_run_now` on the ONE registry.
+   `job_create` ALWAYS writes a `disabled` automation tagged `job`+shape id and
+   accepts only a closed parameter set; only the operator enables it under
+   Scheduled Jobs. `job_run_now` refuses a switched-off job and mirrors
+   `bot_run` (read permission; a visible one-off action).
+3. The operator master switch is the eclipse-memory policy key
+   `agent_scheduling_enabled` (default OFF). `graph.surface_disabled_tools`
+   removes the whole scheduling surface (reads included) from the bound set
+   when off, and every handler re-checks it fail-closed — the same convention
+   `memory_enabled`/`session_history_enabled` already use.
+4. The unattended answer contract is
+   `automation/delivery.py::render_run_report`: a delivered job report's FIRST
+   line states the outcome in plain words, every limit the run hit is named,
+   and a completed run that produced nothing says so.
+
+**Why.** The measured gap (the agent "cannot schedule tasks" while the
+scheduler sits behind operator-only routes) is a permission decision, not a
+mechanism one. Reusing the automation engine keeps ONE scheduler, ONE store and
+ONE delivery path; the fixed catalogue stops free-form recurring work; and the
+always-disabled save means an agent-created schedule can never begin
+autonomously — the operator's enable IS the consent. A schedule approval
+(`bot_schedule`) is therefore unnecessary for `job_create`, which is admitted
+by the automation authorizer under the new `SCHEDULING_EFFECT_TOOLS` class
+(`code/policy.py`).
+
+**Consequences.** +9 tests (`python/tests/test_scheduling_tools.py`); the chat
+code profile snapshot test gained the four names (the profile keeps the same
+scheduling surface on a coding turn). The phase file's planned artifacts
+(`jobs/catalogue.py`, `jobs/tools.py`, ADR-H122) were repo-mapped onto the live
+engine because the automation engine superseded `jobs` (ADR-H152) and H122 is
+taken by bounded replanning. Phase 16–20 remain features; this does not widen
+network, code-write, or delivery authority.
+
+## ADR-H189 — Execution tiers are required, not preferred: the local runner refuses network, the container tier is real
+
+**Decision.** The declared-but-inert `RunSpec.network` flag becomes an
+enforcement boundary:
+
+1. `code/sandbox.py::run` REFUSES any spec that declares `network=True`. The
+   local primitive (Windows Job Object / POSIX process groups) cannot contain
+   network use, so it never runs such a command — "no network" is true by
+   construction, not by policy prose.
+2. `code/backends.py::ContainerBackend` is implemented, not a stub. It builds the
+   hardened `docker run` argv through `security/sandbox.py::docker_argv` (the ONE
+   place the flags live: `--network none|bridge`, read-only rootfs,
+   `no-new-privileges`, `cap-drop ALL`, tmpfs, non-root user, memory/pids
+   limits), mounts ONLY the task's own folder at `/work`, passes only the
+   scrubbed env, and kills the container by name on timeout. The image is
+   operator-configured (`HARNESS_SANDBOX_IMAGE`, default `python:3.12-slim`).
+3. `code/backends.py::select_for_spec` is the tier rule: a network spec requires
+   the container tier; everything else keeps the local tier. No fallback in
+   either direction — a missing container runtime refuses with
+   `SANDBOX_UNAVAILABLE` (zero-config preserved: the refusal is plain and the
+   local tier is untouched for everything else).
+4. `command_run` routes through `select_for_spec`; the only class that declares
+   `network=True` (`dependency_install`) remains operator-gated OFF and now
+   genuinely requires a container runtime when enabled.
+
+**Why.** The audit measured `RunSpec.network` as "declarative and has no
+consumer" (`construction-first-audit.md` §2.3) — a flag the code carried but
+nothing enforced. A declared guarantee must be enforced or deleted; deleting it
+would remove the only route to network-capable commands, so it is enforced. The
+honest guarantees text in `_local_guarantees` was updated in the same change, so
+the declaration and the behavior cannot drift (G3b).
+
+**Consequences.** The container tier is testable without Docker (the argv
+builder is pure; tests pin the flags, the mount, and the refusal paths).
+Analysis sandbox runs are unaffected (`network=False` by construction). Any
+future network-enabled profile (bulk acquisition, package installs) has exactly
+one honest route: the container tier, or a refusal. Tests:
+`python/tests/test_sandbox_backends.py` (+4).
+
+## ADR-H190 — Bulk acquisition is a declared, budgeted pull through the ONE bridge — never a crawler
+
+**Decision.** Phase 16's first slice ships `python/harness/acquire/`:
+
+1. **A declared source registry** (`registry.py`), data, one row per source:
+   daily price history (`price_history`), economic series (`macro_series`), and
+   annual company statements (`sec_filings`). Each row names the bridge
+   capability it reaches, a CLOSED parameter set, a rate ceiling, a per-call row
+   ceiling, the exact CSV columns, a licence and an attribution.
+   `registry_issues()` fails an incomplete row. A source without a row is
+   unusable — there is no generic fetch.
+2. **A budget beside `ResearchBudget`, not inside it** (`budget.py`): calls,
+   rows, bytes written and wall clock, enforced in Python. The claim-verified
+   research path (`research/`) is byte-unchanged.
+3. **A ceiling-enforcing writer** (`writer.py`): writes the CSV under the row
+   and byte ceilings, returns `(rows_written, complete, stopped_reason)`, and the
+   row count always equals what is really in the file. A partial file is always
+   accompanied by a plain reason.
+4. **One tool, `acquire`** (`tools.py`), over the read-only bridge — the ONE
+   egress point (R3-04). It writes `<source>_<stamp>.csv` plus a manifest
+   (purpose, window, rows, completeness, licence, attribution, limits) under the
+   run's artifact directory. It refuses, with a stable code and one plain
+   sentence, when the operator's switch is off, the source is unknown, a
+   parameter is outside the closed set, the values are not allowed, symbols are
+   missing/too many, or no bridge is reachable.
+5. **`data.collect` is a real noun** (`skills/permissions.py`,
+   `code/policy.py`): never in the safe or operator sets; granted only by the
+   `declared_sources` acquisition profile. The live mapping of the operator's
+   profile is the eclipse-memory policy key `acquisition_enabled` (default OFF,
+   the same discovery-is-not-activation convention as scheduling); when off,
+   `graph.surface_disabled_tools` removes the tool from the bound surface and the
+   handler re-checks fail-closed. `acquire` is admitted by a new
+   `_admit_collect_tools` branch at the effect-authorizer seam.
+
+**Why.** "Get me every filing for this sector" and "two years of daily bars for
+these 40 names" were answered with the ANSWER budget (4 searches / 8 fetches) —
+useless for a dataset — or not at all. The slice gives volume exactly one honest
+route: declared sources, a Python-enforced budget, files with a manifest, and
+never a partial presented as complete. The transport is the existing bridge, so
+no new egress, no sandbox network, and the container tier (ADR-H189) is not
+required for these read-only pulls.
+
+**Consequences.** +9 tests (`python/tests/test_acquire.py`), hermetic with a stub
+bridge. The remaining phase-16 items are recorded, not silently skipped: more
+sources (SEC filing LISTS rather than statements, operator-declared REST),
+cross-call budget accumulation, the chat manifest panel and i18n keys, and the
+opt-in live smoke. `jdds.db`, `prisma/` and `research/` are untouched.
+
+## ADR-H188 — The acquire loop is an agent capability: GitHub skills install through the SAME trust + approval stores, and software installs route to the code surface
+
+**Decision.** "Load this skill from GitHub" and "install this software" are now
+capabilities of the agent itself, built on the existing machinery — no second
+registry, no second approval store, no second trust model:
+
+1. `skills/install.py` is the ONE GitHub acquire loop: `parse_source` accepts
+   only https `github.com` URLs (or `owner/repo`), the zipball is fetched from
+   `codeload.github.com` with size/timeout caps (stdlib; no shell, no git
+   binary), extraction enforces zip-slip/absolute-path/symlink/count/size
+   guards, and both skill formats (`skill.json` and cross-tool `SKILL.md`
+   frontmatter) are normalized, pydantic-validated and content-scanned. A
+   quarantine-severity finding or a never-grantable permission refuses that
+   skill; per-skill failures are reported, never hidden.
+2. `skills/install_tools.py` registers `skill_install` / `skill_uninstall` /
+   `skill_sources` and composes a `make_skill_authorizer` layer into
+   `code/authorizers.py`. Admission is a single-use, digest-bound operator
+   approval (`skill_install` / `skill_uninstall` kinds in the SAME `McpApproval`
+   store), pause-in-card-mode included; no standing grant is offered. On
+   approval the root is recorded in the SAME project-trust store (`trust_root`
+   with per-skill content hashes), so post-install drift quarantines only the
+   changed skill.
+3. Installed roots (`<repo>/installed-skills/<owner>__<repo>/`,
+   `BLACK_ECLIPSE_SKILLS_DIR` override) load through `SkillRegistry.load_all`
+   as the `external` tier: precedence `project > profile > external > bundled`.
+   `registry.reload()` re-reads every tier from the remembered boot
+   configuration, so an install is live in the same run and the trust/untrust
+   routes never silently drop the tier.
+4. `mcp/install_ops.py` extracts the preset-integration install so the operator
+   route and the new approval-gated `mcp_install` agent tool (`mcp/install_tools.py`,
+   plus the read-only `mcp_integrations` catalog tool) share ONE implementation.
+   Install stays DISABLED/nothing-selected: installing is not activation.
+5. `code/request_intent.py` treats acquisition as software work: `install` /
+   `uninstall` are strong directive verbs (a bare "install X" is enough), the
+   weaker `download`/`set up` need a software object, and "software"/"program"/
+   "skill" joined the software objects — so "download and install this software"
+   reaches the code profile where `package_install`/`terminal_run` actually run,
+   while "download the prices and compute the drawdown" stays `data_task`.
+6. `ACQUISITION_WRITE_TOOLS` (`code/policy.py`) removes the five new tools at
+   `plan_only` and the unknown-profile fallback; they remain on the chat code
+   profile so a code-classified turn keeps the acquire surface.
+
+**Why.** A wrong `code_change` used to hand the turn a narrow workspace profile
+with no install verbs (software couldn't be installed at all), and skills could
+only enter through operator-only routes or an inert learning draft. The
+Hermes-class behavior users expect — point at a repo, use it; ask for software,
+have it installed — is a wiring gap, not a new engine. Every privileged step
+already had a store (approvals, trust, content scan); this decision connects
+the agent to them rather than inventing a bypass.
+
+**Consequences.** +28 tests (`python/tests/test_skill_install.py`,
+`test_mcp_install_tools.py`) + classifier cases; `service.py` gained the
+installed-home boot kwarg + two registrations (net shrink after the
+`install_mcp_integration` refactor); `routers/skills.py` gained
+`GET /skills/installed` and the installed fields on `GET /skills`; the prompt
+ceiling re-pinned 27769→29162 for the three guidance paragraphs; `python/conftest.py`
+now anchors `HARNESS_MCP_CONFIG` so a developer's real `mcp-servers.json` can
+never leak into the suite. The skill permission/execution gate, the approval
+single-use semantics and the untrusted-prose rule are unchanged — installing
+widens what can be *used*, never what may be *done*.

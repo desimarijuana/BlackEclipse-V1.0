@@ -24,6 +24,7 @@ from typing import Any, Callable, Coroutine, Optional
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ValidationError, create_model
 
+from .async_timeout import await_bounded
 from .schemas import HarnessError
 
 ToolPermission = str  # "read" | "write" | "external_action"
@@ -514,9 +515,11 @@ class ToolRegistry:
             # Wait slightly past the logical deadline so a tool that honors its
             # own internal timeout can return its structured diagnostic (naming
             # the timeout category + latency) instead of being hard-killed by
-            # asyncio before it can report WHY. The wait_for is still bounded.
-            output = await asyncio.wait_for(
-                tool.handler(clean, ctx), timeout=(effective_timeout + _TIMEOUT_GRACE_MS) / 1000
+            # asyncio before it can report WHY. `await_bounded` keeps the wait
+            # bounded even when a handler swallows cancellation — a plain
+            # `asyncio.wait_for` would hang the run behind such a handler.
+            output = await await_bounded(
+                tool.handler(clean, ctx), (effective_timeout + _TIMEOUT_GRACE_MS) / 1000
             )
         except asyncio.TimeoutError:
             return self._failure(

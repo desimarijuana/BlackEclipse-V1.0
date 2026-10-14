@@ -257,3 +257,32 @@ def test_finance_verbs_are_not_mistaken_for_code_changes(query: str) -> None:
 )
 def test_more_code_questions_are_read_only(query: str) -> None:
     assert classify_code_request(query).verdict == "code_question", query
+
+
+# ── software acquisition routes to the code profile ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "install blender",
+        "uninstall the old tool",
+        "download and install this software",
+        "install this skill from github",
+        "setup the cli",
+        "set up the trading tool",
+    ],
+)
+def test_software_acquisition_is_a_change(query: str) -> None:
+    # The gap this exists for: "install X" previously classified `not_code` and
+    # the turn could not run pip/npm/git at all.
+    assert classify_code_request(query).verdict == "code_change", query
+
+
+def test_downloading_data_is_still_a_data_task_not_an_install() -> None:
+    # A weaker acquisition word still needs a software object, so data work is
+    # unaffected by the acquisition verbs.
+    assert classify_code_request("download the prices and compute the drawdown").verdict == "data_task"
+    # A bare strong verb ("install X") has no data reading — the wrong-verdict
+    # direction is the designed-safe one here (a narrow workspace profile).
+    assert classify_code_request("install a helper for the portfolio").verdict == "code_change"

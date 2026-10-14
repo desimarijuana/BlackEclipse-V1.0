@@ -16,6 +16,14 @@ export interface ConversationTurn {
 export interface RunDocument {
   name: string;
   text: string;
+  /**
+   * True when the front door shortened the extracted text (per-doc then combined
+   * caps). The runtime states the limit in the turn so the answer can never be
+   * confidently based on only the first part of a document.
+   */
+  truncated?: boolean;
+  /** Pre-truncation extracted length, when the extractor knew it. */
+  originalChars?: number;
 }
 
 export interface RunInput {
@@ -577,4 +585,5 @@ export type DataCapability =
   | "mcp_oauth_token_clear"
   | "market_data"
   | "market_stream_config"
-  | "world_events";
+  | "world_events"
+  | "response_contract";

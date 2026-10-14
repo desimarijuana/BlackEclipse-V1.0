@@ -260,7 +260,7 @@ export function ChatInput({
  * top level switches model on the active provider, and a "Custom model id…"
  * item types any id. A local/router provider gets a live discovery action.
  */
-function ModelSelector({ state }: { state: ChatModelState }) {
+export function ModelSelector({ state }: { state: ChatModelState }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [custom, setCustom] = useState("");
   // The menu is controlled so opening the Manage-models dialog can CLOSE it

@@ -92,7 +92,11 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     const emit = () => {
       rafRef.current = null;
       if (!mountedRef.current) return;
-      const snapshot: AssistantTurn = { ...turnRef.current, activities: [...turnRef.current.activities] };
+      const snapshot: AssistantTurn = {
+        ...turnRef.current,
+        activities: [...turnRef.current.activities],
+        changes: [...turnRef.current.changes],
+      };
       setTurn(snapshot);
       onTurnRef.current?.(snapshot);
     };
@@ -139,6 +143,22 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
             summary: event.summary,
           });
           t.activities = [...state.activities];
+          publish(true);
+          break;
+        }
+        case 'changes': {
+          // One entry per path, latest preview wins; `edits` counts repeats so
+          // a re-edited file reads honestly as "edited N×" rather than silently
+          // replacing the earlier change.
+          const byPath = new Map(t.changes.map((c) => [c.path, c] as const));
+          for (const item of event.items) {
+            const previous = byPath.get(item.path);
+            byPath.set(item.path, {
+              ...item,
+              edits: previous ? (previous.edits ?? 1) + 1 : 1,
+            });
+          }
+          t.changes = [...byPath.values()];
           publish(true);
           break;
         }

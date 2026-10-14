@@ -202,6 +202,28 @@ def test_attached_documents_are_injected_into_the_user_message():
     assert "summarize" in text
     assert "report.md" in text
     assert "Revenue rose 4%." in text
+    assert "shortened" not in text
+
+
+def test_shortened_document_states_the_limit_in_the_turn():
+    req = RunRequest(
+        runId="r",
+        input=RunInput(
+            query="what changed on page 30?",
+            documents=[{
+                "name": "prospectus.pdf",
+                "text": "Page one only.",
+                "truncated": True,
+                "originalChars": 90_000,
+            }],
+        ),
+        agentId="eclipse-agent",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    text = graph_module._user_message(req)
+    assert 'shortened="true"' in text
+    assert "shortened to fit" in text
 
 
 def test_no_documents_leaves_the_user_message_clean():

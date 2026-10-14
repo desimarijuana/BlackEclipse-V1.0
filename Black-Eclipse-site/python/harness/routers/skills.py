@@ -28,9 +28,30 @@ def list_skills(status: Optional[str] = None) -> dict[str, Any]:
         "projectChangedSkillIds": registry.project_changed_ids(),
         "projectQuarantinedSkillIds": registry.project_quarantined_ids(),
         "projectUnchangedSkillIds": registry.project_unchanged_ids(),
+        "installedNotices": registry.installed_notices(),
+        "installedChangedSkillIds": registry.installed_changed_ids(),
+        "installedQuarantinedSkillIds": registry.installed_quarantined_ids(),
         "shadowed": registry.shadowed_ids(),
         "contentFindings": registry.content_findings(),
         "quarantined": registry.quarantined_ids(),
+    }
+
+
+@router.get("/skills/installed")
+def installed_skill_sources() -> dict[str, Any]:
+    """GitHub-installed skill sources with trust/drift state (read-only).
+
+    Declared BEFORE `/skills/{skill_id}` so the literal path wins. Never
+    contacts the network; the `install.json` metadata + the trust store are the
+    only inputs.
+    """
+    from ..skills.install import list_installed_sources  # noqa: PLC0415
+
+    sources = list_installed_sources(service.skill_store)
+    return {
+        "success": True,
+        "sources": sources,
+        "notices": service.skill_registry.installed_notices(),
     }
 
 

@@ -11,7 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, Copy, Loader2, Pause, Play, RefreshCw, Settings, SquarePen,
+  ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, Copy, Loader2, Pause, Play,
+  RefreshCw, Settings, SquarePen, ThumbsDown, ThumbsUp,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +21,9 @@ import {
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
+import { ModelSelector } from '@/components/chat/chat-input';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { useChatModel } from '@/lib/agent/use-chat-model';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
 import { BreakerPill, LifecyclePill } from '@/components/bots/status-pill';
@@ -71,6 +74,8 @@ export function BotChat({
   // top-bar toggle and Ctrl/Cmd+Shift+E keybind keeps them in sync.
   const schedulerOpen = useWorkspaceStore((s) => s.open);
   const toggleScheduler = useWorkspaceStore((s) => s.toggle);
+  // The composer's real model selector/serialized state (never a fabricated list).
+  const modelState = useChatModel();
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -219,6 +224,7 @@ export function BotChat({
         undefined,
         {
           chatId: `bot-${bot.id}`,
+          model: modelState.selectedModel || undefined,
           signal: controller.signal,
           onDelta: (chunk) => {
             streamed += chunk;
@@ -246,7 +252,7 @@ export function BotChat({
       abortRef.current = null;
       setSending(false);
     }
-  }, [sending, append, updateMessage, bot.id, bot.name, bot.description, instructions]);
+  }, [sending, append, updateMessage, bot.id, bot.name, bot.description, instructions, modelState.selectedModel]);
 
   const send = useCallback(() => {
     void runTurn(input);
@@ -281,6 +287,15 @@ export function BotChat({
       }
     }
   }, [bot.id, setMessages, runTurn]);
+
+  /** Thumbs feedback on an assistant turn; toggling the same rating clears it. */
+  const setFeedback = useCallback(
+    (id: string, fb: 'up' | 'down') => {
+      const current = (useBotChatStore.getState().byBot[bot.id] ?? []).find((m) => m.id === id);
+      updateMessage(bot.id, id, { feedback: current?.feedback === fb ? undefined : fb });
+    },
+    [bot.id, updateMessage],
+  );
 
   const lastRun = useMemo(() => bot.lastRunAt, [bot.lastRunAt]);
   const spec = avatarFor(avatars, bot.id);
@@ -432,9 +447,11 @@ export function BotChat({
               botName={bot.name}
               spec={spec}
               onEdit={editMessage}
+              onFeedback={setFeedback}
               onRegenerate={
                 i === messages.length - 1 && m.role === 'assistant' && !m.error ? regenerate : undefined
               }
+              onRetry={m.role === 'assistant' && m.error ? regenerate : undefined}
             />
           ),
         )}
@@ -466,6 +483,7 @@ export function BotChat({
             aria-label={`Message ${bot.name}`}
             className="max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none dark:bg-input/30"
           />
+          {!sending && <div className="hidden sm:block"><ModelSelector state={modelState} /></div>}
           {sending ? (
             <Button size="icon" variant="outline" onClick={stop} title={t('bots.chat.stop')} aria-label={t('bots.chat.stop')}>
               <Pause size={15} />
@@ -581,6 +599,8 @@ function ChatBubble({
   spec,
   onEdit,
   onRegenerate,
+  onRetry,
+  onFeedback,
 }: {
   message: BotMessage;
   botId: string;
@@ -588,6 +608,8 @@ function ChatBubble({
   spec: import('@/lib/bots/ghost').GhostSpec;
   onEdit: (id: string) => void;
   onRegenerate?: () => void;
+  onRetry?: () => void;
+  onFeedback?: (id: string, fb: 'up' | 'down') => void;
 }) {
   const isUser = message.role === 'user';
   // A bot reply is the room's/main content: it reads as a full-width document
@@ -602,7 +624,13 @@ function ChatBubble({
           <Markdown content={message.content} compact className="w-full" />
           <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <span>{formatDateTime(message.at)}</span>
-            <MessageActions content={message.content} isUser={false} onRegenerate={onRegenerate} />
+            <MessageActions
+              content={message.content}
+              isUser={false}
+              feedback={message.feedback}
+              onFeedback={onFeedback ? (fb) => onFeedback(message.id, fb) : undefined}
+              onRegenerate={onRegenerate}
+            />
           </div>
         </div>
       </div>
@@ -630,7 +658,7 @@ function ChatBubble({
           {isUser && !message.error ? (
             <MessageActions content={message.content} isUser onEdit={() => onEdit(message.id)} />
           ) : (
-            <MessageActions content={message.content} isUser={false} />
+            <MessageActions content={message.content} isUser={false} onRetry={onRetry} />
           )}
         </div>
       </div>
@@ -641,13 +669,19 @@ function ChatBubble({
 function MessageActions({
   content,
   isUser,
+  feedback,
   onEdit,
   onRegenerate,
+  onRetry,
+  onFeedback,
 }: {
   content: string;
   isUser: boolean;
+  feedback?: 'up' | 'down';
   onEdit?: () => void;
   onRegenerate?: () => void;
+  onRetry?: () => void;
+  onFeedback?: (fb: 'up' | 'down') => void;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -671,6 +705,30 @@ function MessageActions({
       >
         {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
       </button>
+      {!isUser && onFeedback && (
+        <>
+          <button
+            type="button"
+            onClick={() => onFeedback('up')}
+            className={cn(btn, feedback === 'up' && 'text-emerald-300')}
+            title={t('bots.chat.good')}
+            aria-label={t('bots.chat.good')}
+            aria-pressed={feedback === 'up'}
+          >
+            <ThumbsUp size={12} weight={feedback === 'up' ? 'fill' : 'regular'} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onFeedback('down')}
+            className={cn(btn, feedback === 'down' && 'text-rose-300')}
+            title={t('bots.chat.bad')}
+            aria-label={t('bots.chat.bad')}
+            aria-pressed={feedback === 'down'}
+          >
+            <ThumbsDown size={12} weight={feedback === 'down' ? 'fill' : 'regular'} />
+          </button>
+        </>
+      )}
       {isUser && onEdit && (
         <button type="button" onClick={onEdit} className={btn} title={t('bots.edit')} aria-label={t('bots.edit')}>
           <SquarePen size={12} />
@@ -683,6 +741,17 @@ function MessageActions({
           className={btn}
           title={t('bots.chat.regenerate')}
           aria-label={t('bots.chat.regenerate')}
+        >
+          <RefreshCw size={12} />
+        </button>
+      )}
+      {!isUser && onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className={btn}
+          title={t('bots.chat.retry')}
+          aria-label={t('bots.chat.retry')}
         >
           <RefreshCw size={12} />
         </button>

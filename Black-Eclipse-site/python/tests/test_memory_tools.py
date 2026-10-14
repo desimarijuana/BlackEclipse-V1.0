@@ -339,10 +339,16 @@ def test_prompt_char_ceiling():
     `comparison_grid`, `ranked_list`, `badge_row` and `carousel` add six more
     `eclipse-response` block names plus one guidance clause — a genuinely new
     output capability. Re-pinned to the measured size; it may only shrink from here.
+
+    Raised to 29162 by the capability-acquire loop: `skill_install`/`skill_uninstall`
+    (install skills from a GitHub repo behind an approval card), software installs
+    routed through the coding surface, and `mcp_install` (a disabled preset
+    integration) — three genuinely new capabilities that need their own guidance
+    paragraphs. Re-pinned to the measured size; it may only shrink from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 27769, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 29162, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

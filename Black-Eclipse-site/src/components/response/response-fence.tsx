@@ -45,6 +45,14 @@ export function ResponseFence({ source, streaming = false, compact = false, onFo
         The structured response could not be parsed.
       </div>
       <p className="mt-0.5 font-mono text-[10px] opacity-70">{result.error}</p>
+      {source.trim() && (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer select-none text-[11px] opacity-80">Show the raw content</summary>
+          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2 font-mono text-[10px] leading-relaxed text-rose-100/80">
+            {source}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }

@@ -46,9 +46,11 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Learning-Research capability raised it to 27445 for its `learning_map`
     # guidance paragraph; the website-style visual blocks (stat_hero, gauge,
     # comparison_grid, ranked_list, badge_row, carousel) raised it to 27769 for
-    # their names + one guidance clause. It is re-pinned there and may only shrink
-    # from here.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 27769
+    # their names + one guidance clause; the capability-acquire loop
+    # (skill_install/uninstall, software installs, mcp_install) raised it to
+    # 29162 for three new guidance paragraphs. It is re-pinned there and may only
+    # shrink from here.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 29162
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

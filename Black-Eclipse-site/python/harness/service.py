@@ -13,6 +13,7 @@ import os
 import threading
 from typing import Any, Optional
 
+from .bridge import HttpDataBridge as _HttpDataBridge
 from .code.tools import register_code_tools
 from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
@@ -60,34 +61,6 @@ def _default_callback_base_url() -> str:
     return os.environ.get("HARNESS_CALLBACK_URL") or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
 
 
-class _HttpDataBridge(DataBridge):
-    """Reads JDdS data through the thin TS bridge."""
-
-    def __init__(self, base_url: str, token: Optional[str]) -> None:
-        self._base = base_url.rstrip("/")
-        self._token = token
-
-    async def fetch(self, capability: str, params: dict[str, Any]) -> dict[str, Any]:
-        import httpx
-
-        headers = {"Content-Type": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    f"{self._base}/api/harness/data",
-                    headers=headers,
-                    json={"capability": capability, "params": params},
-                )
-            if response.status_code >= 400:
-                return {"status": "UNAVAILABLE", "error": f"bridge HTTP {response.status_code}"}
-            return response.json()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("data bridge failed (%s): %s", capability, exc)
-            return {"status": "UNAVAILABLE", "error": str(exc)}
-
-
 class AgenticService:
     def __init__(self, store: Optional[AgentMemoryStore] = None) -> None:
         self.store = store or AgentMemoryStore()
@@ -104,6 +77,13 @@ class AgenticService:
         # The memory/skill tools the system prompt promises — on the SAME
         # registry, so validation/permission/timeout machinery is shared.
         register_memory_tools(self.registry)
+        # The acquire loop: install skills from a GitHub repo (approval-gated),
+        # uninstall them, and list installed sources. Handlers in
+        # `skills/install_tools.py`; the effect authorizer is composed in
+        # `code/authorizers.py` like every other capability.
+        from .skills.install_tools import register_skill_install_tools  # noqa: PLC0415
+
+        register_skill_install_tools(self.registry)
         # The read-only repository navigator (Phase 1): five read tools on the
         # SAME registry. No write/execute tool is registered.
         register_code_tools(self.registry)
@@ -191,9 +171,13 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - migration must not block boot
             log.warning("legacy skill import skipped", exc_info=True)
         self.skill_registry = SkillRegistry(self.skill_store)
+        from .skills.install import installed_skills_home  # noqa: PLC0415
+
+        self.skills_home = installed_skills_home()
         self.skill_load_errors = self.skill_registry.load_all(
             project_root=self._project_root(),
             project_discovery=self._project_discovery_enabled(),
+            installed_home=self.skills_home,
         )
         self.skill_registry.attach_tool_registry(self.registry)
         self.bus = EventBus()
@@ -216,6 +200,13 @@ class AgenticService:
         # The terminal tools are registered on the SAME registry, so validation,
         # permission and the effect authorizer apply unchanged.
         register_terminal_tools(self.registry)
+        # Response-contract read-back: the model can look up exact
+        # `eclipse-response` field names and validate a drafted payload before
+        # sending it (schema derived live from the TS renderer's contract through
+        # the ONE read-only bridge). Read-only; never blocks boot.
+        from .response_tools import register_response_contract_tools  # noqa: PLC0415
+
+        register_response_contract_tools(self.registry)
         # The Code Execution & Verification Layer: the orchestrator, runtime
         # registry, scheduler, service manager and execution history, all reusing
         # the terminal manager for long-running services and `code/sandbox.py` for
@@ -367,6 +358,11 @@ class AgenticService:
         # Effectful-tool approvals (5G): persisted in the runtime's own DB and
         # consulted by every run's effect authorizer.
         self.approvals = ApprovalStore(self.store) if MCP_AVAILABLE else None
+        # MCP integration agent tools (catalog + install). The install operation
+        # itself lives in `mcp/install_ops.py`, shared with the operator route.
+        from .mcp.install_tools import register_mcp_install_tools  # noqa: PLC0415
+
+        register_mcp_install_tools(self.registry)
         # The Security subsystem (ADR-H159): the ONE decision path (Security
         # Gateway + Permission/Policy/Risk/Approval/Capability engines + Security
         # Floor + secrets + network policy + audit) over every privileged effect.
@@ -455,6 +451,18 @@ class AgenticService:
 
             set_automation_service(self.automation_service())
             register_automation_tools(self.registry)
+            # Scheduling tools (Phase 17): `job_*` over the SAME catalogue +
+            # service. The operator's master switch (`agent_scheduling_enabled`)
+            # removes the whole surface when off; creation is always disabled.
+            from .automation.scheduling_tools import register_scheduling_tools  # noqa: PLC0415
+
+            register_scheduling_tools(self.registry)
+            # Bulk acquisition (Phase 16, first slice): the `acquire` tool over
+            # the declared source registry, through the read-only bridge. The
+            # operator's switch (`acquisition_enabled`) removes it when off.
+            from .acquire.tools import register_acquire_tools  # noqa: PLC0415
+
+            register_acquire_tools(self.registry)
         except Exception:  # noqa: BLE001 - bot tools are optional; never block boot
             log.warning("automation tools wiring skipped", exc_info=True)
         # Observability platform: ONE process-wide hub fed by this service's
@@ -562,14 +570,13 @@ class AgenticService:
             return False
 
     def reload_project_skills(self) -> list[str]:
-        """Re-scan project skills after a trust/untrust decision (no restart).
+        """Re-scan every skill tier after a trust/install decision (no restart).
 
-        Returns load errors; untrusted roots contribute notices, not skills.
+        Delegates to the registry's remembered boot configuration, so installed
+        (GitHub) skills are re-read alongside project skills; untrusted roots
+        contribute notices, not skills.
         """
-        self.skill_load_errors = self.skill_registry.load_all(
-            project_root=self._project_root(),
-            project_discovery=self._project_discovery_enabled(),
-        )
+        self.skill_load_errors = self.skill_registry.reload()
         return self.skill_load_errors
 
     def refresh_memory_router(self) -> None:
@@ -775,10 +782,10 @@ class AgenticService:
         try:
             result = manager.reconcile()
             log.info("application runtime reconciled %s runtime(s)", result.get("count", 0))
-            return result
         except Exception:  # noqa: BLE001 - reconciliation must never block boot
             log.warning("application runtime reconciliation failed", exc_info=True)
             return {"status": "error", "reconciled": []}
+        return result
 
     def stop_application_runtime(self) -> None:
         """Stop every application this process started, on shutdown (never raises)."""
@@ -920,6 +927,21 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - the sweep must never block boot
             log.warning("vision asset sweep failed", exc_info=True)
             result["visionAssetSweep"] = {"ok": False, "error": "sweep failed"}
+        # Orphaned agent runs: the runtime executes runs in-process, so any run
+        # left `created`/`running` by a previous process can never finish. Mark
+        # it failed with a durable run.failed event so a watching client sees a
+        # terminal state instead of waiting forever.
+        try:
+            from .run_recovery import fail_orphaned_runs  # noqa: PLC0415
+
+            result["orphanedRuns"] = {
+                "failed": fail_orphaned_runs(
+                    self.store, "the agent runtime restarted while this run was in flight"
+                )
+            }
+        except Exception:  # noqa: BLE001 - reconciliation must never block boot
+            log.warning("orphaned run reconciliation failed", exc_info=True)
+            result["orphanedRuns"] = {"ok": False, "error": "reconciliation failed"}
         return result
 
     def run_skill_maintenance(self) -> dict[str, Any]:
@@ -987,39 +1009,15 @@ class AgenticService:
     def install_mcp_integration(self, integration_id: str) -> dict[str, Any]:
         """Install a preset integration as a DISABLED, nothing-selected config.
 
-        The user must not hand-edit JSON for a server Eclipse recommends. Nothing
+        Thin delegate: the operation lives in `mcp/install_ops.py` so this route
+        and the agent's `mcp_install` tool share ONE implementation. Nothing
         ships enabled or selected; the operator reviews and activates.
-
-        Install is create-if-absent: if a server with the integration's id is
-        already configured, the existing entry is left untouched, so re-installing
-        never resets a change the user made (trust tier, selection, effects,
-        declared data sources, confirmation).
         """
-        from .mcp.config import load_mcp_configs, upsert_mcp_config
-        from .mcp.presets import integration, integration_to_config
-        from .mcp.screening import refusals, screen_entry
+        from .mcp.install_ops import install_integration  # noqa: PLC0415
 
-        spec = integration(integration_id)
-        if spec is None:
-            return {"success": False, "reason": "unknown integration"}
-        existing, _ = load_mcp_configs()
-        if any(c.id == spec.id for c in existing):
-            return {
-                "success": True,
-                "installed": integration_id,
-                "alreadyInstalled": True,
-                "reason": "already configured; left unchanged",
-            }
-        entry = integration_to_config(spec)
-        blocked = refusals(screen_entry(entry))
-        if blocked:
-            return {"success": False, "reason": blocked[0].message}
-        from .mcp.config import MCPServerConfig
-
-        upsert_mcp_config(MCPServerConfig(**entry))
         if self.mcp is not None:
             self.mcp.load_diagnostics = []
-        return {"success": True, "installed": integration_id, "config": entry}
+        return install_integration(integration_id)
 
     async def verify_mcp_server(
         self, server_id: str, *, tool: str, arguments: Optional[dict[str, Any]] = None

@@ -66,6 +66,22 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 | `npm test` | Vitest unit tests |
 | `npm run lint` | ESLint |
 
+### Headless one-shot (scripting / CI)
+
+Ask Eclipse one question without the web app and print the answer:
+
+```bash
+node scripts/eclipse.js chat -z "Summarise AAPL's last earnings"
+node scripts/eclipse.js chat -z "Is the market risk-on today?" --json
+```
+
+It runs the SAME runtime the web chat uses, in-process; model settings come from
+the `HARNESS_JOB_*` environment (the same source a scheduled job uses), and a
+real provider key env wins. `--json` prints `{success, runId, status, output,
+error}` for scripts. Exit code is `0` on a completed run, `1` when the run failed
+or could not start. `eclipse eval .` runs the offline evaluation gate headlessly
+for CI.
+
 ## Configuration (all optional)
 
 Copy `.env.example` to `.env.local` if you want to configure anything. The table

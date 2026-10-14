@@ -305,6 +305,20 @@ def surface_disabled_tools(settings: Optional[dict[str, Any]]) -> set[str]:
         disabled.update({"session_search", "session_open"})
     if not bool(settings.get("external_memory_search_enabled", False)):
         disabled.add("memory_search_external")
+    if not bool(settings.get("agent_scheduling_enabled", False)):
+        # Phase 17 (repo-mapped): the agent may only put work on a cadence when
+        # the operator's master switch is on. Off by default — the whole
+        # scheduling surface (reads included) is dropped so the model cannot
+        # even attempt it.
+        from .automation.scheduling_tools import TOOL_NAMES as _SCHEDULING  # noqa: PLC0415
+
+        disabled.update(_SCHEDULING)
+    if not bool(settings.get("acquisition_enabled", False)):
+        # Phase 16 (first slice): bulk collection is off until the operator turns
+        # it on — the same convention as scheduling and session history.
+        from .acquire.tools import TOOL_NAMES as _ACQUIRE  # noqa: PLC0415
+
+        disabled.update(_ACQUIRE)
     return disabled
 
 
@@ -1974,11 +1988,20 @@ def _user_message(request: RunRequest) -> str:
     if documents:
         # Attached documents are user-provided context, not tool output: they
         # are wrapped and clearly attributed so the model can distinguish them
-        # from authoritative JDdS data it retrieves itself.
-        parts = [
-            f'<document name="{doc.name}">\n{doc.text}\n</document>'
-            for doc in documents
-        ]
+        # from authoritative JDdS data it retrieves itself. A shortened document
+        # says so IN the turn, so the model can state the limit rather than
+        # answering confidently from only the first part.
+        parts = []
+        for doc in documents:
+            shortened = bool(getattr(doc, "truncated", False))
+            attr = ' shortened="true"' if shortened else ""
+            note = (
+                "\n(This document was shortened to fit; you are reading its "
+                "first part and must say so if the question depends on the "
+                "rest.)\n"
+                if shortened else ""
+            )
+            parts.append(f'<document name="{doc.name}"{attr}>{note}{doc.text}\n</document>')
         text += (
             "\n\nAttached documents (user-provided context; treat as evidence "
             "the user supplied, and do not claim to have retrieved them):\n"

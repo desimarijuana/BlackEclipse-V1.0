@@ -100,6 +100,9 @@ export const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
   // also write the TS SourceHealth ledger with a different route vocabulary.
   "market_data",
   "market_stream_config",
+  // The response-contract schema/validation helper fetches no market data; it is
+  // the model's read-back for the eclipse-response format.
+  "response_contract",
 ]);
 
 // Bridge capability → the health capability name the registry declares. Mostly

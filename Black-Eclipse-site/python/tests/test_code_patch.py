@@ -75,6 +75,34 @@ def test_applied_op_records_hashes_both_sides(tmp_path):
     assert op["contentHashBefore"] != op["contentHashAfter"]
 
 
+# ── diff previews (what the UI event stream shows) ──────────────────────────
+
+
+def test_applied_op_carries_a_bounded_diff_preview(tmp_path):
+    root = _tree(tmp_path)
+    result = _apply(root, [{"op": "replace", "path": "src/app.py", "reason": "r", "old": "beta", "new": "BETA"}])
+    op = result["applied"][0]
+    assert "-beta" in op["diff"] and "+BETA" in op["diff"]
+    assert op["additions"] == 1 and op["deletions"] == 1
+    assert op["diffTruncated"] is False
+
+
+def test_create_and_delete_previews_show_the_whole_file(tmp_path):
+    root = _tree(tmp_path)
+    created = _apply(root, [{"op": "create", "path": "src/new.py", "reason": "x", "content": "x = 1\n"}])
+    assert "+x = 1" in created["applied"][0]["diff"]
+    deleted = _apply(root, [{"op": "delete", "path": "src/other.py", "reason": "x"}])
+    assert "-UNTOUCHED = True" in deleted["applied"][0]["diff"]
+
+
+def test_move_preview_is_absent(tmp_path):
+    root = _tree(tmp_path)
+    result = _apply(root, [{"op": "move", "path": "src/moved.py", "fromPath": "src/other.py", "reason": "x"}])
+    op = result["applied"][0]
+    assert op["diff"] is None
+    assert op["movedFrom"] == "src/other.py"
+
+
 # ── atomicity ───────────────────────────────────────────────────────────────
 
 

@@ -96,6 +96,33 @@ describe('producer field-name synonyms are normalized (not dropped)', () => {
     if (details.type === 'details') expect(details.markdown).toBe('HIDDEN');
   });
 
+  it('accepts `body` for the prose body of markdown/callout/details (observed producer output)', () => {
+    // Reproduces real Sazgar/PSX answers: the model named the prose field
+    // `body`, which previously failed every markdown/callout block as
+    // BLOCK_INVALID and turned the answer into a diagnostics panel.
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'markdown', body: '**Short answer:** SAZEW assembles GWM vehicles.' },
+        { type: 'callout', variant: 'warning', title: 'Limits', body: 'OCR was unavailable this run.' },
+        { type: 'details', summary: 'More', body: 'HIDDEN' },
+        { type: 'mermaid', title: 'Flow', body: 'flowchart TD\n A-->B' },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const [md, callout, details, mermaid] = parsed.blocks;
+    expect(md.type).toBe('markdown');
+    if (md.type === 'markdown') expect(md.markdown).toContain('SAZEW');
+    expect(callout.type).toBe('callout');
+    if (callout.type === 'callout') {
+      expect(callout.tone).toBe('warning');
+      expect(callout.markdown).toBe('OCR was unavailable this run.');
+    }
+    expect(details.type).toBe('details');
+    if (details.type === 'details') expect(details.markdown).toBe('HIDDEN');
+    expect(mermaid.type).toBe('mermaid');
+    if (mermaid.type === 'mermaid') expect(mermaid.diagram).toContain('flowchart');
+  });
+
   it('does not steal `text` from a heading (heading legitimately owns `text`)', () => {
     const parsed = parseResponsePayload({
       blocks: [{ type: 'heading', text: 'Section title', level: 2 }],
@@ -179,6 +206,24 @@ describe('producer field-name synonyms are normalized (not dropped)', () => {
     }
   });
 
+  it('accepts a long cited key_value value (observed producer output)', () => {
+    const longValue =
+      '"LSE Plaza (Formerly Lahore Stock Exchange Building)" — verified from the company\'s own page (https://lse.com.pk/LSEFinancialServices/LSE-plaza.php, retrieved 2026-10-13)';
+    expect(longValue.length).toBeGreaterThan(120);
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'key_value',
+          items: [{ key: 'What the building is', value: longValue }],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('key_value');
+    if (block.type === 'key_value') expect(block.items[0].value).toBe(longValue);
+  });
+
   it('accepts chart `series[].points` with {x,y} objects (observed scatter output)', () => {
     const parsed = parseResponsePayload({
       blocks: [
@@ -227,6 +272,22 @@ describe('producer field-name synonyms are normalized (not dropped)', () => {
       expect(block.categories).toEqual(['Q1', 'Q2']);
       expect(block.series[0].data).toEqual([10, 20]);
     }
+  });
+
+  it('accepts `chart_type` as the chart style field', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'chart',
+          chart_type: 'line',
+          series: [{ name: 'Close', data: [1, 2, 3] }],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('chart');
+    if (block.type === 'chart') expect(block.chartType).toBe('line');
   });
 
   it('accepts `ticker`/`interval` and a day-count timeframe for financial_chart', () => {
@@ -536,6 +597,50 @@ describe('website-style visual blocks', () => {
     if (block.type === 'ranked_list') expect(block.items[0].label).toBe('NVDA');
   });
 
+  it('accepts an `unavailable` figure block with no data points (observed producer output)', () => {
+    // Reproduces real answers: the model correctly reported UNAVAILABLE for a
+    // figure with no retrievable data, but the block failed validation because
+    // its data array was empty. The honest state must render, not error.
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'gauge',
+          unavailable: true,
+          label: 'Forward P/E',
+          caption: 'needs: a ticker + forward EPS estimate (no consensus-estimate route is bound)',
+        },
+        {
+          type: 'ranked_list',
+          unavailable: true,
+          title: 'Magnificent Seven — YTD return',
+          caption: 'No rank available: no base close retrieved.',
+        },
+        { type: 'stat_hero', unavailable: true, title: 'Macro dashboard', caption: 'No macro route bound.' },
+        { type: 'comparison_grid', unavailable: true, caption: 'Nothing to compare.' },
+        { type: 'badge_row', unavailable: true, caption: 'No themes available.' },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const [gauge, ranked, hero, grid, badges] = parsed.blocks;
+    expect(gauge.type).toBe('gauge');
+    if (gauge.type === 'gauge') {
+      expect(gauge.unavailable).toBe(true);
+      expect(gauge.gauges).toEqual([]);
+      expect(gauge.caption).toContain('consensus-estimate');
+    }
+    expect(ranked.type).toBe('ranked_list');
+    if (ranked.type === 'ranked_list') expect(ranked.items).toEqual([]);
+    expect(hero.type).toBe('stat_hero');
+    if (hero.type === 'stat_hero') expect(hero.stats).toEqual([]);
+    expect(grid.type).toBe('comparison_grid');
+    if (grid.type === 'comparison_grid') {
+      expect(grid.columns).toEqual([]);
+      expect(grid.rows).toEqual([]);
+    }
+    expect(badges.type).toBe('badge_row');
+    if (badges.type === 'badge_row') expect(badges.badges).toEqual([]);
+  });
+
   it('validates a badge_row with tone + icon keys', () => {
     const parsed = parseResponsePayload({
       blocks: [
@@ -555,6 +660,21 @@ describe('website-style visual blocks', () => {
     if (block.type === 'badge_row') {
       expect(block.badges).toHaveLength(3);
       expect(block.badges[1].tone).toBe('neutral');
+    }
+  });
+
+  it('accepts bare-string badges (observed in a live probe run)', () => {
+    // The model emitted `badges: ["PROBE-6 — badge_row"]`; a badge's only content
+    // is its label, so the string is complete information — coerce, never drop.
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'badge_row', title: 'Themes', badges: ['AI', { label: 'Semis', tone: 'info' }] }],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('badge_row');
+    if (block.type === 'badge_row') {
+      expect(block.badges[0].label).toBe('AI');
+      expect(block.badges[1].label).toBe('Semis');
     }
   });
 

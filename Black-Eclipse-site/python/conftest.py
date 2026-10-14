@@ -17,6 +17,7 @@ instead of `tmp_path`; it receives the same kind of path.
 
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The tests directory is not a package; make the sibling helper importable.
@@ -25,6 +26,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tes
 # Tests must never race a background search warm-index against their temp
 # databases. The real runtime leaves this unset (warm-up on); tests turn it off.
 os.environ.setdefault("HARNESS_SEARCH_WARM_INDEX", "0")
+
+# Some test modules import `harness.main` at collection time, which constructs the
+# process-wide `AgenticService` before most modules have redirected their own temp
+# paths. Anchor the MCP server config to a temp file HERE (conftest imports before
+# any test module) so a developer's REAL `<repo>/mcp-servers.json` — a legitimate
+# app state (Settings → MCP / `mcp_install`) — can never leak into the suite and
+# make an unrelated test order-dependent.
+os.environ.setdefault(
+    "HARNESS_MCP_CONFIG",
+    os.path.join(tempfile.mkdtemp(prefix="be-suite-cfg-"), "mcp-servers.json"),
+)
 
 import pytest  # noqa: E402
 

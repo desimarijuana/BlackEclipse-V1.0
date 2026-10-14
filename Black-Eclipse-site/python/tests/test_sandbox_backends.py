@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 import pytest
@@ -126,3 +127,60 @@ def test_local_backend_runs_through_the_existing_primitive():
     assert backend.name == "local"
     assert backend.available is True
     assert backend.describe()["guarantees"] == backends.LocalBackend().guarantees.as_dict()
+
+
+# ── W4 (ADR-H189) — the tier rule: network requires the container tier ───────
+
+
+def test_local_primitive_refuses_a_network_spec(tmp_path):
+    marker = tmp_path / "ran.txt"
+    spec = RunSpec(
+        argv=[sys.executable, "-c", f"open(r'{marker}', 'w').write('x')"],
+        cwd=tmp_path, env=sandbox.build_env(), timeout_s=10,
+        output_cap_bytes=1000, network=True,
+    )
+    with pytest.raises(SandboxUnavailable):
+        sandbox.run(spec)
+    # The guard precedes any launch: nothing ran, nothing was created.
+    assert not marker.exists()
+
+
+def test_select_for_spec_routes_by_the_declared_network(monkeypatch):
+    monkeypatch.delenv(backends.CONTAINER_BACKEND_ENV, raising=False)
+    assert backends.select_for_spec(_spec()).name == "local"
+    network_spec = RunSpec(
+        argv=["true"], cwd=Path("."), env={}, timeout_s=5,
+        output_cap_bytes=1000, network=True,
+    )
+    # No container runtime → honest refusal; never the local tier.
+    with pytest.raises(SandboxUnavailable):
+        backends.select_for_spec(network_spec)
+
+
+def test_container_argv_is_hardened_and_carries_the_network_flag(tmp_path):
+    backend = backends.ContainerBackend(runtime="docker")
+    spec = RunSpec(
+        argv=["python", "-V"], cwd=tmp_path, env={"PYTHONIOENCODING": "utf-8"},
+        timeout_s=30, output_cap_bytes=1000, network=True,
+        memory_mb=512, process_limit=64,
+    )
+    argv = backend.build_argv(spec, container_name="eclipse_test")
+    assert argv[:3] == ["docker", "run", "--rm"]
+    assert "--network" in argv and argv[argv.index("--network") + 1] == "bridge"
+    assert "--read-only" in argv
+    assert "--security-opt" in argv and "no-new-privileges" in argv
+    assert "ALL" in argv  # --cap-drop ALL
+    assert "--memory" in argv and "512m" in argv
+    assert "--pids-limit" in argv and "64" in argv
+    assert "-e" in argv and "PYTHONIOENCODING=utf-8" in argv
+    assert "-v" in argv and any(mount.endswith(":/work") for mount in argv)
+
+
+def test_container_argv_turns_network_off_when_the_spec_does_not_ask(tmp_path):
+    backend = backends.ContainerBackend(runtime="docker")
+    spec = RunSpec(
+        argv=["python", "-V"], cwd=tmp_path, env={}, timeout_s=30,
+        output_cap_bytes=1000, network=False,
+    )
+    argv = backend.build_argv(spec, container_name="eclipse_test")
+    assert argv[argv.index("--network") + 1] == "none"

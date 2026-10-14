@@ -19,6 +19,8 @@ export interface BotMessage {
   at: string;
   /** True when the assistant turn failed (shown as an honest error bubble). */
   error?: boolean;
+  /** Optional thumbs feedback on an assistant turn. */
+  feedback?: 'up' | 'down';
 }
 
 interface BotChatStore {

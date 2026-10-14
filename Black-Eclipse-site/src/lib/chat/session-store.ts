@@ -217,12 +217,16 @@ export async function deleteSessionFile(chatId: string, kind: SessionFileKind, n
 /**
  * Load every context file as text for prompt injection. Extraction failures
  * are skipped rather than failing the run, and the total is capped so a large
- * set of documents cannot blow the context window.
+ * set of documents cannot blow the context window. A shortened document is
+ * MARKED (`truncated` + `originalChars`) so the runtime states the limit in the
+ * turn instead of answering from only the first part.
  */
-export async function loadContextDocuments(chatId: string): Promise<Array<{ name: string; text: string }>> {
+export async function loadContextDocuments(chatId: string): Promise<
+  Array<{ name: string; text: string; truncated?: boolean; originalChars?: number }>
+> {
   if (!CHAT_ID_RE.test(chatId)) return [];
   const files = await listKind(chatId, "context");
-  const docs: Array<{ name: string; text: string }> = [];
+  const docs: Array<{ name: string; text: string; truncated?: boolean; originalChars?: number }> = [];
   let total = 0;
   for (const file of files) {
     if (total >= SESSION_LIMITS.maxTotalDocChars) break;
@@ -233,7 +237,17 @@ export async function loadContextDocuments(chatId: string): Promise<Array<{ name
       const remaining = SESSION_LIMITS.maxTotalDocChars - total;
       const text = result.text.slice(0, remaining);
       total += text.length;
-      docs.push({ name: file.name, text });
+      const truncated = Boolean(result.note) || text.length < result.text.length;
+      docs.push({
+        name: file.name,
+        text,
+        ...(truncated
+          ? {
+              truncated: true,
+              originalChars: result.originalChars ?? result.text.length,
+            }
+          : {}),
+      });
     } catch {
       // Unreadable/unsupported file — skip, don't fail the run.
     }

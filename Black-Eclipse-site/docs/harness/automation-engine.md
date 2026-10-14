@@ -210,6 +210,27 @@ The legacy `/jobs` routes (`create_schedule`, `list_schedules`, `update_schedule
 thin ADAPTER over the same service. A job created through `/jobs` is an automation
 in `/automations` (same id, same store) — verified by test.
 
+## Agent scheduling (Phase 17, ADR-H187)
+
+The chat agent can put its own recurring work on this scheduler — from a FIXED
+catalogue and only behind the operator's master switch:
+
+- `automation/catalogue.py` — nine research/analysis shapes, each referencing an
+  EXISTING `jobs.templates` template (no code or deploy shape). One row per
+  shape; `catalogue_issues()` fails on drift.
+- `automation/scheduling_tools.py` — `job_list`, `job_describe_template`,
+  `job_create` and `job_run_now` on the ONE registry. `job_create` ALWAYS saves
+  a `disabled` automation tagged `job`+shape id and accepts only the shape's
+  closed parameter set; the operator enables it under Scheduled Jobs.
+  `job_run_now` refuses a switched-off job (mirrors `bot_run`).
+- Master switch — the eclipse-memory policy key `agent_scheduling_enabled`
+  (default OFF), surfaced as "Let Eclipse schedule work for you" in the Policies
+  tab. `graph.surface_disabled_tools` removes the whole scheduling surface when
+  off (reads included) and every handler re-checks it fail-closed.
+- Unattended answer contract — `automation/delivery.py::render_run_report`: the
+  FIRST line of a delivered report states the outcome in plain words, every
+  limit the run hit is named, and a completed run that produced nothing says so.
+
 ## Migration
 
 `AutomationStore.migrate_legacy_jobs()` runs on first use of the automation store:

@@ -50,7 +50,6 @@ from .workspace import (
 )
 from ..session_index import redact_span, secret_pattern_name
 
-REDACT_MARKER = "«redacted»"
 _DOCS_WINDOW_LINES = 6
 _SEARCH_DEADLINE_CHECK_LINES = 200
 
@@ -272,7 +271,8 @@ _INPUT_SCHEMAS["scaffold"] = _scaffold_schema()
 
 # The single `code.*` event seam. Extracted to `code/events.py`; re-exported here
 # so every existing `from .tools import emit_code_event` keeps working.
-from .events import emit_code_event  # noqa: E402,F401
+# `REDACT_MARKER` + `emit_patch_applied` live there too, as the one copy.
+from .events import REDACT_MARKER, emit_code_event, emit_patch_applied  # noqa: E402,F401
 
 
 def _present(args: dict[str, Any]) -> dict[str, Any]:
@@ -780,11 +780,7 @@ async def _patch_apply(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         return _patch_refusal(cw.id, refused.get("code", "PATCH_MALFORMED"), refused.get("reason", ""))
 
     for item in result["applied"]:
-        await emit_code_event(ctx, "code.patch.applied", {
-            "workspaceId": cw.id, "op": item["op"], "path": item["path"],
-            "bytes": item["bytesWritten"], "hashBefore": item["contentHashBefore"],
-            "hashAfter": item["contentHashAfter"],
-        })
+        await emit_patch_applied(ctx, cw.id, item)
     summary = ", ".join(f"{a['op']} {a['path']}" for a in result["applied"])
     where = "the user's real folder" if getattr(ctx, "direct", False) else "the task's working copy"
     text = f"Change made in {where}: {summary}."

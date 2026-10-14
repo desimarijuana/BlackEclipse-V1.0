@@ -113,6 +113,41 @@ describe('normalizeWorkspaceEvent — files / changes / artifacts', () => {
     expect(out.some((e) => e.type === 'artifact')).toBe(true);
   });
 
+  it('carries the runtime preview (diff, counts, move path) onto the change row', () => {
+    const modified = norm('fs.write_file', {
+      path: 'src/y.ts',
+      previews: [{ path: 'src/y.ts', op: 'modify', diff: '-old\n+new', additions: 1, deletions: 1 }],
+    });
+    expect(modified.find((e) => e.type === 'file')).toMatchObject({
+      change: { path: 'src/y.ts', change: 'modified', additions: 1, deletions: 1, diff: '-old\n+new' },
+    });
+
+    const created = norm('fs.create_file', {
+      previews: [{ path: 'src/new.ts', op: 'create', diff: '+new', additions: 1 }],
+    });
+    expect(created[0]).toMatchObject({
+      type: 'file',
+      change: { path: 'src/new.ts', change: 'added', diff: '+new' },
+    });
+
+    const moved = norm('fs.move_file', {
+      previews: [{ path: 'src/b.ts', op: 'move', from: 'src/a.ts' }],
+    });
+    expect(moved[0]).toMatchObject({
+      type: 'file',
+      change: { path: 'src/b.ts', change: 'renamed', from: 'src/a.ts' },
+    });
+  });
+
+  it('keeps the diff fields on code.patch.applied', () => {
+    const out = norm('code.patch.applied', {
+      op: 'replace', path: 'src/x.ts', additions: 2, deletions: 1, diff: '-a\n+b',
+    });
+    expect(out.find((e) => e.type === 'file')).toMatchObject({
+      change: { path: 'src/x.ts', change: 'modified', additions: 2, deletions: 1, diff: '-a\n+b' },
+    });
+  });
+
   it('maps code.diff to a change-summary activity and a diff artifact', () => {
     const out = norm('code.diff', { filesChanged: 3, additions: 10, deletions: 2, digest: 'abc' });
     expect(out[0]).toMatchObject({ type: 'activity', entry: { label: 'Showing what changed' } });

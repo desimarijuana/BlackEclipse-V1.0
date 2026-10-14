@@ -46,7 +46,10 @@ const RATCHET: Record<string, number> = {
   // shrink from here. Next split candidate: the instrument-identity block
   // (`resolveVaultInstrument`/`resolveAnyInstrument`/…), which would also free the
   // statement/filings functions to move out.
-  "src/lib/harness/data-bridge.ts": 1377,
+  // Re-pinned 1377→1379 for the `response_contract` dispatch (two lines: the case
+  // + its one-line return), the model's read-back for the eclipse-response block
+  // format. Implementation lives in `response-bridge.ts`; may only shrink.
+  "src/lib/harness/data-bridge.ts": 1379,
   "src/components/screens/market-bubbles.tsx": 1413,
   "src/components/chart/chart-widget.tsx": 1405,
   "src/lib/workspace/workspace-canvas.tsx": 1374,

@@ -32,6 +32,8 @@ export interface GroupMessage {
   /** Display name shown on the bubble. */
   authorName?: string;
   error?: boolean;
+  /** Optional thumbs feedback on an assistant turn. */
+  feedback?: 'up' | 'down';
 }
 
 interface Persisted {
@@ -51,6 +53,8 @@ interface BotGroupsStore {
   setMembers: (id: string, memberIds: string[]) => void;
   deleteGroup: (id: string) => void;
   appendMessage: (groupId: string, message: GroupMessage) => void;
+  /** Replace a room's whole message list (used to truncate on edit/regenerate). */
+  setMessages: (groupId: string, messages: GroupMessage[]) => void;
   /** Patch one message in place — used to fill the live streaming reply. */
   updateMessage: (groupId: string, id: string, patch: Partial<GroupMessage>) => void;
   clearMessages: (groupId: string) => void;
@@ -168,6 +172,10 @@ export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
     appendMessage: (groupId, message) => {
       const byGroup = { ...get().byGroup, [groupId]: [...(get().byGroup[groupId] ?? []), message] };
       commit(get().groups, byGroup);
+    },
+
+    setMessages: (groupId, messages) => {
+      commit(get().groups, { ...get().byGroup, [groupId]: messages });
     },
 
     updateMessage: (groupId, id, patch) => {

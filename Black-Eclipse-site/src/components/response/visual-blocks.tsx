@@ -70,6 +70,20 @@ function UnavailableChip() {
   );
 }
 
+/**
+ * The honest empty state for a figure block: the producer marked the whole block
+ * `unavailable` (or supplied no data points). The figure is NOT rendered blank —
+ * the UNAVAILABLE state and the producer's explanation are shown instead.
+ */
+function UnavailableFigure({ note }: { note?: string }) {
+  return (
+    <div className="glass-card-subtle flex flex-wrap items-center gap-2 rounded-xl px-3 py-2.5">
+      <UnavailableChip />
+      {note && <span className="min-w-0 flex-1 text-[11.5px] text-muted-foreground/80">{note}</span>}
+    </div>
+  );
+}
+
 function DeltaBadge({ delta, tone }: { delta: string | number; tone?: 'up' | 'down' | 'flat' | 'neutral' }) {
   const n = numeric(delta);
   const resolved = tone ?? (n == null ? 'neutral' : n > 0 ? 'up' : n < 0 ? 'down' : 'flat');
@@ -88,6 +102,7 @@ function DeltaBadge({ delta, tone }: { delta: string | number; tone?: 'up' | 'do
 export function StatHeroBlock({ block }: { block: StatHeroBlockType }) {
   const cols = block.stats.length;
   const gridClass = cols <= 1 ? 'grid-cols-1' : cols === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 md:grid-cols-4';
+  const empty = block.unavailable === true || cols === 0;
   return (
     <div className="w-full">
       {(block.title || block.source || block.asOf) && (
@@ -102,43 +117,47 @@ export function StatHeroBlock({ block }: { block: StatHeroBlockType }) {
           )}
         </div>
       )}
-      <div className={cn('grid gap-2.5', gridClass)}>
-        {block.stats.map((stat, i) => {
-          const unavailable = stat.unavailable || (typeof stat.value === 'string' && isUnavailableText(stat.value));
-          const Icon: LucideIcon = resolveResponseIcon(stat.icon);
-          return (
-            <div key={i} className="glass-card rounded-xl px-3.5 py-3">
-              <div className="flex items-center gap-1.5 text-muted-foreground/70">
-                {stat.icon && <Icon size={13} />}
-                <p className="truncate text-[11px] uppercase tracking-wide" title={stat.hint}>
-                  {stat.label}
-                </p>
-              </div>
-              <div className="mt-1.5 flex items-baseline gap-1.5">
-                {unavailable ? (
-                  <UnavailableChip />
-                ) : (
-                  <>
-                    {stat.prefix && <span className="text-[15px] text-muted-foreground">{stat.prefix}</span>}
-                    <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
-                      {typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}
+      {empty ? (
+        <UnavailableFigure note={block.description ?? block.caption} />
+      ) : (
+        <div className={cn('grid gap-2.5', gridClass)}>
+          {block.stats.map((stat, i) => {
+            const unavailable = stat.unavailable || (typeof stat.value === 'string' && isUnavailableText(stat.value));
+            const Icon: LucideIcon = resolveResponseIcon(stat.icon);
+            return (
+              <div key={i} className="glass-card rounded-xl px-3.5 py-3">
+                <div className="flex items-center gap-1.5 text-muted-foreground/70">
+                  {stat.icon && <Icon size={13} />}
+                  <p className="truncate text-[11px] uppercase tracking-wide" title={stat.hint}>
+                    {stat.label}
+                  </p>
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  {unavailable ? (
+                    <UnavailableChip />
+                  ) : (
+                    <>
+                      {stat.prefix && <span className="text-[15px] text-muted-foreground">{stat.prefix}</span>}
+                      <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+                        {typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}
+                      </span>
+                      {stat.unit && <span className="text-[13px] text-muted-foreground">{stat.unit}</span>}
+                    </>
+                  )}
+                </div>
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  {stat.delta != null && <DeltaBadge delta={stat.delta} tone={stat.deltaTone} />}
+                  {stat.hint && (
+                    <span className="truncate text-[10px] text-muted-foreground/50" title={stat.hint}>
+                      {stat.hint}
                     </span>
-                    {stat.unit && <span className="text-[13px] text-muted-foreground">{stat.unit}</span>}
-                  </>
-                )}
+                  )}
+                </div>
               </div>
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                {stat.delta != null && <DeltaBadge delta={stat.delta} tone={stat.deltaTone} />}
-                {stat.hint && (
-                  <span className="truncate text-[10px] text-muted-foreground/50" title={stat.hint}>
-                    {stat.hint}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -146,43 +165,49 @@ export function StatHeroBlock({ block }: { block: StatHeroBlockType }) {
 // ── Gauge / progress ────────────────────────────────────────────────────────────
 
 export function GaugeBlock({ block }: { block: GaugeBlockType }) {
+  const empty = block.unavailable === true || block.gauges.length === 0;
   return (
     <div className="w-full">
       {block.title && <h4 className="mb-1 text-sm font-semibold text-foreground">{block.title}</h4>}
       {block.description && <p className="mb-2 text-[12px] text-muted-foreground">{block.description}</p>}
-      <div className="space-y-2.5">
-        {block.gauges.map((gauge, i) => {
-          const pct = Math.max(0, Math.min(100, (gauge.value / gauge.max) * 100));
-          return (
-            <div key={i} className="glass-card-subtle rounded-xl px-3 py-2.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-[12px] font-medium text-foreground" title={gauge.hint ?? gauge.label}>
-                  {gauge.label}
-                </span>
-                <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
-                  <span className="text-foreground">{gauge.value.toLocaleString()}</span>
-                  <span className="text-muted-foreground/60">
-                    {' '}
-                    / {gauge.max.toLocaleString()}
-                    {gauge.unit ? ` ${gauge.unit}` : ''}
+      {empty ? (
+        <UnavailableFigure note={block.caption ?? block.description} />
+      ) : (
+        <div className="space-y-2.5">
+          {block.gauges.map((gauge, i) => {
+            const pct = Math.max(0, Math.min(100, (gauge.value / gauge.max) * 100));
+            return (
+              <div key={i} className="glass-card-subtle rounded-xl px-3 py-2.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[12px] font-medium text-foreground" title={gauge.hint ?? gauge.label}>
+                    {gauge.label}
                   </span>
-                </span>
+                  <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                    <span className="text-foreground">{gauge.value.toLocaleString()}</span>
+                    <span className="text-muted-foreground/60">
+                      {' '}
+                      / {gauge.max.toLocaleString()}
+                      {gauge.unit ? ` ${gauge.unit}` : ''}
+                    </span>
+                  </span>
+                </div>
+                <div
+                  className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-accent/40"
+                  role="progressbar"
+                  aria-valuenow={gauge.value}
+                  aria-valuemin={0}
+                  aria-valuemax={gauge.max}
+                  aria-label={gauge.label}
+                >
+                  <div className={cn('h-full rounded-full transition-[width] duration-300', TONE_FILL[gauge.tone])} style={{ width: `${pct}%` }} />
+                </div>
+                {gauge.hint && <p className="mt-1 text-[10px] text-muted-foreground/60">{gauge.hint}</p>}
               </div>
-              <div
-                className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-accent/40"
-                role="progressbar"
-                aria-valuenow={gauge.value}
-                aria-valuemin={0}
-                aria-valuemax={gauge.max}
-                aria-label={gauge.label}
-              >
-                <div className={cn('h-full rounded-full transition-[width] duration-300', TONE_FILL[gauge.tone])} style={{ width: `${pct}%` }} />
-              </div>
-              {gauge.hint && <p className="mt-1 text-[10px] text-muted-foreground/60">{gauge.hint}</p>}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
+      {block.caption && !empty && <p className="mt-1 text-[10px] text-muted-foreground/60">{block.caption}</p>}
     </div>
   );
 }
@@ -197,48 +222,53 @@ function ComparisonCell({ value }: { value: boolean | string | number | null }) 
 }
 
 export function ComparisonGridBlock({ block }: { block: ComparisonGridBlockType }) {
+  const empty = block.unavailable === true || block.columns.length === 0 || block.rows.length === 0;
   return (
     <div className="w-full">
       {block.title && <h4 className="mb-1.5 text-sm font-semibold text-foreground">{block.title}</h4>}
-      <div className="glass-card-subtle overflow-x-auto rounded-xl">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-white/10">
-              <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70" />
-              {block.columns.map((col, i) => (
-                <th
-                  key={i}
-                  className={cn(
-                    'px-3 py-2 text-center text-[12px] font-semibold text-foreground',
-                    col.highlight && 'bg-primary/[0.08]',
-                  )}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, r) => (
-              <tr key={r} className="border-b border-white/[0.06] last:border-0">
-                <th
-                  scope="row"
-                  className="px-3 py-2 text-left text-[12.5px] font-medium text-muted-foreground"
-                  title={row.hint}
-                >
-                  {row.label}
-                </th>
-                {block.columns.map((col, c) => (
-                  <td key={c} className={cn('px-3 py-2 text-center align-middle', col.highlight && 'bg-primary/[0.05]')}>
-                    <ComparisonCell value={row.values[c] ?? null} />
-                  </td>
+      {empty ? (
+        <UnavailableFigure note={block.caption} />
+      ) : (
+        <div className="glass-card-subtle overflow-x-auto rounded-xl">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70" />
+                {block.columns.map((col, i) => (
+                  <th
+                    key={i}
+                    className={cn(
+                      'px-3 py-2 text-center text-[12px] font-semibold text-foreground',
+                      col.highlight && 'bg-primary/[0.08]',
+                    )}
+                  >
+                    {col.label}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {block.caption && <p className="mt-1 text-[10px] text-muted-foreground/60">{block.caption}</p>}
+            </thead>
+            <tbody>
+              {block.rows.map((row, r) => (
+                <tr key={r} className="border-b border-white/[0.06] last:border-0">
+                  <th
+                    scope="row"
+                    className="px-3 py-2 text-left text-[12.5px] font-medium text-muted-foreground"
+                    title={row.hint}
+                  >
+                    {row.label}
+                  </th>
+                  {block.columns.map((col, c) => (
+                    <td key={c} className={cn('px-3 py-2 text-center align-middle', col.highlight && 'bg-primary/[0.05]')}>
+                      <ComparisonCell value={row.values[c] ?? null} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {block.caption && !empty && <p className="mt-1 text-[10px] text-muted-foreground/60">{block.caption}</p>}
     </div>
   );
 }
@@ -247,6 +277,7 @@ export function ComparisonGridBlock({ block }: { block: ComparisonGridBlockType 
 
 export function RankedListBlock({ block }: { block: RankedListBlockType }) {
   const maxAbs = block.items.reduce((m, item) => Math.max(m, Math.abs(item.value)), 0) || 1;
+  const empty = block.unavailable === true || block.items.length === 0;
   return (
     <div className="w-full">
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
@@ -254,36 +285,41 @@ export function RankedListBlock({ block }: { block: RankedListBlockType }) {
         {block.valueLabel && <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{block.valueLabel}</span>}
       </div>
       {block.description && <p className="mb-2 text-[12px] text-muted-foreground">{block.description}</p>}
-      <ol className="space-y-1.5">
-        {block.items.map((item, i) => {
-          const Icon: LucideIcon = resolveResponseIcon(item.icon);
-          const pct = Math.max(2, (Math.abs(item.value) / maxAbs) * 100);
-          return (
-            <li key={i} className="glass-card-subtle flex items-center gap-2.5 rounded-lg px-2.5 py-1.5">
-              <span className="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground/60">{i + 1}</span>
-              {item.icon && (
-                <span className={cn('shrink-0', TONE_TEXT[item.tone])}>
-                  <Icon size={14} />
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-[12.5px] font-medium text-foreground" title={item.label}>
-                    {item.label}
+      {empty ? (
+        <UnavailableFigure note={block.caption} />
+      ) : (
+        <ol className="space-y-1.5">
+          {block.items.map((item, i) => {
+            const Icon: LucideIcon = resolveResponseIcon(item.icon);
+            const pct = Math.max(2, (Math.abs(item.value) / maxAbs) * 100);
+            return (
+              <li key={i} className="glass-card-subtle flex items-center gap-2.5 rounded-lg px-2.5 py-1.5">
+                <span className="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground/60">{i + 1}</span>
+                {item.icon && (
+                  <span className={cn('shrink-0', TONE_TEXT[item.tone])}>
+                    <Icon size={14} />
                   </span>
-                  <span className="shrink-0 text-[12px] tabular-nums text-foreground/90">
-                    {item.display ?? item.value.toLocaleString()}
-                    {item.unit && <span className="ml-0.5 text-[10px] text-muted-foreground">{item.unit}</span>}
-                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-[12.5px] font-medium text-foreground" title={item.label}>
+                      {item.label}
+                    </span>
+                    <span className="shrink-0 text-[12px] tabular-nums text-foreground/90">
+                      {item.display ?? item.value.toLocaleString()}
+                      {item.unit && <span className="ml-0.5 text-[10px] text-muted-foreground">{item.unit}</span>}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
+                    <div className={cn('h-full rounded-full', TONE_FILL[item.tone])} style={{ width: `${pct}%` }} />
+                  </div>
                 </div>
-                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
-                  <div className={cn('h-full rounded-full', TONE_FILL[item.tone])} style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {block.caption && !empty && <p className="mt-1 text-[10px] text-muted-foreground/60">{block.caption}</p>}
     </div>
   );
 }
@@ -291,27 +327,33 @@ export function RankedListBlock({ block }: { block: RankedListBlockType }) {
 // ── Badge row ───────────────────────────────────────────────────────────────────
 
 export function BadgeRowBlock({ block }: { block: BadgeRowBlockType }) {
+  const empty = block.unavailable === true || block.badges.length === 0;
   return (
     <div className="w-full">
       {block.title && <h4 className="mb-1 text-sm font-semibold text-foreground">{block.title}</h4>}
       {block.description && <p className="mb-1.5 text-[12px] text-muted-foreground">{block.description}</p>}
-      <div className="flex flex-wrap gap-1.5">
-        {block.badges.map((badge, i) => {
-          const Icon: LucideIcon = resolveResponseIcon(badge.icon);
-          return (
-            <span
-              key={i}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] font-medium',
-                TONE_PILL[badge.tone],
-              )}
-            >
-              {badge.icon && <Icon size={11} />}
-              {badge.label}
-            </span>
-          );
-        })}
-      </div>
+      {empty ? (
+        <UnavailableFigure note={block.caption} />
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {block.badges.map((badge, i) => {
+            const Icon: LucideIcon = resolveResponseIcon(badge.icon);
+            return (
+              <span
+                key={i}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] font-medium',
+                  TONE_PILL[badge.tone],
+                )}
+              >
+                {badge.icon && <Icon size={11} />}
+                {badge.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {block.caption && !empty && <p className="mt-1 text-[10px] text-muted-foreground/60">{block.caption}</p>}
     </div>
   );
 }

@@ -50,7 +50,17 @@ from .ml.tools import ML_TOOLS
 # `service.py` on the SAME registry; imported as the ONE canonical list so the
 # allowlist cannot drift.
 from .automation.tools import TOOL_NAMES as AUTOMATION_TOOLS
-
+# The scheduling tools (`job_*`, Phase 17): the chat agent may create recurring
+# finance jobs from the FIXED catalogue — always saved switched off — and run an
+# already-switched-on job once. The operator's master switch
+# (`agent_scheduling_enabled`) removes the whole surface when off, enforced in
+# `graph.surface_disabled_tools`. Registered by `service.py` on the SAME registry.
+from .automation.scheduling_tools import TOOL_NAMES as SCHEDULING_TOOLS
+# The bulk-acquisition tool (`acquire`, Phase 16 first slice): collect a DATASET
+# from the declared source registry. The operator's `acquisition_enabled` switch
+# removes it when off (`graph.surface_disabled_tools`); the handler re-checks the
+# `data.collect` grant and enforces the per-pull budget.
+from .acquire.tools import TOOL_NAMES as ACQUIRE_TOOLS
 # The Browser Automation Runtime toolset (`browser_*`). Declared here so the
 # finance agent and the code agent advertise the SAME capability surface; the
 # registry only registers them when the capability is enabled AND Playwright is
@@ -356,6 +366,15 @@ ECLIPSE_AGENT = AgentConfig(
         "skill_list",
         "skill_view",
         "skill_invoke",
+        # The acquire loop: install skills from a GitHub repo (single-use
+        # operator approval), uninstall them, list installed sources; and MCP
+        # integration catalog + install (disabled, nothing selected). Read
+        # `skill_sources`/`mcp_integrations` freely; installs always ask first.
+        "skill_install",
+        "skill_uninstall",
+        "skill_sources",
+        "mcp_integrations",
+        "mcp_install",
         # Full-session historical recall: read-only search/open over prior
         # sessions. Historical content is context, never current evidence.
         "session_search",
@@ -377,6 +396,14 @@ ECLIPSE_AGENT = AgentConfig(
         # agents the Bots workspace shows. Thin wrappers over the ONE automation
         # service, so a bot made in chat and one made in the UI are the same object.
         *AUTOMATION_TOOLS,
+        # Scheduling (Phase 17): recurring finance jobs from the fixed catalogue,
+        # always saved switched off. The operator's master switch drops this whole
+        # surface when off (see `graph.surface_disabled_tools`).
+        *SCHEDULING_TOOLS,
+        # Bulk acquisition (Phase 16, first slice): collect a DATASET from the
+        # declared source registry. Switch-gated like scheduling; the handler
+        # re-checks the `data.collect` grant and enforces the pull budget.
+        *ACQUIRE_TOOLS,
         # Agent-to-Agent: delegate to / spawn / message specialist agents, merge
         # their structured results, and request review or approval. Read-permission
         # orchestration over the durable task + message bus. Real-world effects a
@@ -436,6 +463,10 @@ ECLIPSE_AGENT = AgentConfig(
         # save/restore layout). UI-configuration state only — no filesystem,
         # network, shell or secret access.
         *UI_TOOLS,
+        # Response-contract read-back: the exact `eclipse-response` block field
+        # names + pre-send validation, so a drifted block is fixed in-turn rather
+        # than silently failing to render. Read-only.
+        "response_block_schema", "response_validate",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
@@ -761,8 +792,16 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "git_submodule_init", "git_submodule_sync",
     # read-only context, unchanged from ECLIPSE_AGENT
     "memory", "skill_list", "skill_view", "session_search", "session_open",
+    # The acquire loop stays available in a coding turn: "install this skill /
+    # MCP integration" is a valid code request and must not fall off the surface
+    # when the front door classifies a mixed turn as `code_change`.
+    "skill_install", "skill_uninstall", "skill_sources",
+    "mcp_integrations", "mcp_install",
     # finance tools stay available: a code change may need the vault for a fixture
     "market_get_quote", "fundamentals_get_financials", "research_search",
+    # Scheduling (Phase 17): a coding-turn run keeps the same scheduling surface as
+    # an ordinary finance turn; the operator's master switch still governs it.
+    *SCHEDULING_TOOLS,
     # Browser Automation Runtime for a chat coding turn (debug a dev server on
     # localhost, QA a page). `plan_only` removes the effectful half via policy.
     *BROWSER_TOOLS,

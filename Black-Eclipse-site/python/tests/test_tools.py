@@ -109,6 +109,30 @@ async def test_timeout():
 
 
 @pytest.mark.asyncio
+async def test_timeout_holds_even_when_the_handler_swallows_cancellation():
+    # A pathological handler that ignores CancelledError could previously hang
+    # `asyncio.wait_for` (and the whole run) forever; the hard deadline must
+    # still return TOOL_TIMEOUT.
+    release = asyncio.Event()
+
+    async def stubborn(args, c):
+        while not release.is_set():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                continue
+        return "late"
+
+    reg = ToolRegistry()
+    reg.register(make_tool(handler=stubborn, timeout_ms=100))
+    result = await reg.execute("echo", "c1", {"symbol": "X"}, ctx())
+    assert not result.ok
+    assert result.error.code == "TOOL_TIMEOUT"
+    release.set()
+    await asyncio.sleep(0.05)  # let the abandoned handler exit cleanly
+
+
+@pytest.mark.asyncio
 async def test_handler_failure_is_structured():
     async def boom(args, c):
         raise RuntimeError("kaboom")

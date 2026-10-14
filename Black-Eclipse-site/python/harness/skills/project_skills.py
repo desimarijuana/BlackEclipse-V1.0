@@ -403,6 +403,21 @@ def _scan_root(store: Any, root: str) -> ProjectSkillRoot:
     )
 
 
+def scan_root(store: Any, root: str) -> ProjectSkillRoot:
+    """Scan ONE root's trust state and skills (public seam).
+
+    Identical to the project-root scan; exposed so the installed-skills tier
+    (`skills/install.py`) reuses the ONE trust/drift implementation instead of
+    growing a second one.
+    """
+    return _scan_root(store, root)
+
+
+def load_root_skills(skills_dir: str) -> tuple[list[LoadedSkill], list[str], list[str]]:
+    """Load every `skill.json` folder under a skills dir (public wrapper)."""
+    return _load_project_skills(skills_dir)
+
+
 def discover_project_skills(
     store: Any, root: Optional[str] = None, *,
     project_discovery: bool = True,
@@ -581,8 +596,10 @@ __all__ = [
     "drift_status",
     "find_project_root",
     "is_trusted",
+    "load_root_skills",
     "per_skill_hashes",
     "root_content_hash",
+    "scan_root",
     "trust_root",
     "untrust_root",
 ]

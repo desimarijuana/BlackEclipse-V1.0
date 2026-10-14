@@ -561,7 +561,17 @@ def set_backend(backend: Optional[_BaseBackend]) -> None:
 
 
 def run(spec: RunSpec, *, cancel_event: Optional[threading.Event] = None) -> RawResult:
-    """Run one command through the selected isolation primitive."""
+    """Run one command through the selected isolation primitive.
+
+    The local primitive enforces NO network boundary: a spec that DECLARES
+    network is refused here (never silently run with host network) and must be
+    routed to the network-capable tier by its caller (`code/backends.py`).
+    """
+    if spec.network:
+        raise SandboxUnavailable(
+            "this command needs a runner that can keep its network use contained; "
+            "the local runner cannot, so it was not run"
+        )
     return select_backend().run(spec, cancel_event=cancel_event)
 
 

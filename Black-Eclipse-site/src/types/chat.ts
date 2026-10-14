@@ -1,4 +1,4 @@
-import type { ActivityItem, AssistantModel, PendingApproval, ResponseStatus, TurnError } from '@/lib/agent/response-model';
+import type { ActivityItem, AssistantModel, PendingApproval, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
 
 /**
  * One turn in a conversation transcript.
@@ -16,6 +16,11 @@ export interface Message {
   status?: ResponseStatus;
   /** Tools/retrieval the agent used while producing this turn. */
   activities?: ActivityItem[];
+  /**
+   * Code changes the turn made, with the runtime's bounded diff previews.
+   * Absent on user turns, change-free runs, and legacy rows.
+   */
+  changes?: TurnChange[];
   /**
    * Phase 4 evidence-grounded research metadata for a gated run (coverage,
    * citations, claims, gaps). Absent on user turns, ordinary chat, and legacy

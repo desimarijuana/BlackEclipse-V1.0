@@ -89,6 +89,52 @@ describe('normalizeHarnessEvent', () => {
     });
   });
 
+  it('maps code.patch.applied to a change with the runtime diff', () => {
+    const e = normalizeHarnessEvent('code.patch.applied', {
+      type: 'code.patch.applied',
+      data: { op: 'replace', path: 'src/app.py', additions: 1, deletions: 1, diff: '-beta\n+BETA' },
+    });
+    expect(e).toMatchObject({
+      kind: 'changes',
+      items: [{ path: 'src/app.py', change: 'modified', additions: 1, deletions: 1, diff: '-beta\n+BETA' }],
+    });
+  });
+
+  it('maps fs previews — a multi-file change arrives as several items', () => {
+    const e = normalizeHarnessEvent('fs.apply_diff', {
+      type: 'fs.apply_diff',
+      data: {
+        previews: [
+          { path: 'a.ts', op: 'modify', diff: '-a\n+A', additions: 1, deletions: 1 },
+          { path: 'b.ts', op: 'create', diff: '+B', additions: 1 },
+        ],
+      },
+    });
+    if (e?.kind !== 'changes') throw new Error('expected a changes event');
+    expect(e.items).toHaveLength(2);
+    expect(e.items[1]).toMatchObject({ path: 'b.ts', change: 'added', diff: '+B' });
+  });
+
+  it('maps a move preview to a renamed change without a diff', () => {
+    const e = normalizeHarnessEvent('fs.move_file', {
+      type: 'fs.move_file',
+      data: { previews: [{ path: 'src/b.ts', op: 'move', from: 'src/a.ts' }] },
+    });
+    expect(e).toMatchObject({
+      kind: 'changes',
+      items: [{ path: 'src/b.ts', change: 'renamed', from: 'src/a.ts' }],
+    });
+  });
+
+  it('ignores an fs event with no previews', () => {
+    expect(
+      normalizeHarnessEvent('fs.transaction.committed', {
+        type: 'fs.transaction.committed',
+        data: { filesChanged: 2 },
+      }),
+    ).toBeNull();
+  });
+
   it('surfaces tool.failed as a failed activity with its code', () => {
     const e = normalizeHarnessEvent('tool.failed', {
       type: 'tool.failed',

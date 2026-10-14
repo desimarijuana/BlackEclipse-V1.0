@@ -1,7 +1,7 @@
 ---
 title: Harness — Memory & Skills Evolution Plan (Phase 0)
 status: Current
-last-verified: 2026-09-28
+last-verified: 2026-10-13
 ---
 
 # Memory & Skills Evolution — Phase 0 Audit and Design
@@ -541,8 +541,27 @@ gaps phases and the final-hardening pass.
 - Hosted/cloud memory providers; multi-tenant identity.
 - A second skill execution engine or a TypeScript skill runtime.
 - Autonomous background **writes** (the review queue proposes only).
-- Skill marketplace/hub install from arbitrary URLs.
+- A skill marketplace/hub with arbitrary-URL install — GitHub repositories are
+  now installable (see below); a curated hub and non-GitHub sources remain out.
 - Multi-user auth/tenancy (documented boundary + deployment guards only).
+
+## Installed (GitHub) skills — the acquire loop (2026-10-13)
+
+The Hermes-inspired "point at a repo and use it" gap is closed for **public
+GitHub repositories**: `skill_install` (agent tool, single-use approval card)
+fetches, validates, content-scans, installs and trusts a repo's skills; the
+registry loads them as the `external` tier (`project > profile > external >
+bundled`). `skill_sources` lists sources + drift; `skill_uninstall` removes a
+skill. Installation reuses the EXISTING stores and gates — the project-trust
+store for per-skill content identity, the shared `McpApproval` store for the
+approval, the content scanner for quarantine, and the manifest/permission/
+execution gate unchanged. The owning modules are `skills/install.py`,
+`skills/install_tools.py`, `skills/registry.py` (`load_all(installed_home=)` /
+`reload()`), `code/authorizers.py`, `code/policy.py`
+(`ACQUISITION_WRITE_TOOLS`), `mcp/install_ops.py` + `mcp/install_tools.py`
+(approved preset-MCP install, still disabled until the operator activates), and
+`code/request_intent.py` (software acquisition routes to the code profile).
+Design detail: `phase-3-architecture.md`; decision: ADR-H188.
 
 ## Future architecture
 

@@ -60,6 +60,8 @@ export interface ExtractResult {
   text?: string;
   /** Present when `ok` is false, or when the text was truncated. */
   note?: string;
+  /** The pre-truncation length, present only when the text was truncated. */
+  originalChars?: number;
 }
 
 export function extensionOf(name: string): string {
@@ -270,6 +272,7 @@ function bound(text: string): ExtractResult {
       ok: true,
       text: trimmed.slice(0, SESSION_LIMITS.maxDocChars),
       note: `Truncated to ${SESSION_LIMITS.maxDocChars.toLocaleString()} chars`,
+      originalChars: trimmed.length,
     };
   }
   return { ok: true, text: trimmed };

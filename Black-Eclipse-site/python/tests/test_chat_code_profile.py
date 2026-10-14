@@ -295,9 +295,23 @@ EXPECTED = (
     'skill_view',
     'session_search',
     'session_open',
+    # The acquire loop (skill install/uninstall/sources + MCP catalog/install) —
+    # deliberately part of the chat code profile: "install this skill / MCP
+    # integration" is a valid code request and must not fall off the surface.
+    'skill_install',
+    'skill_uninstall',
+    'skill_sources',
+    'mcp_integrations',
+    'mcp_install',
     'market_get_quote',
     'fundamentals_get_financials',
     'research_search',
+    # Scheduling (Phase 17): the same four tools an ordinary finance turn carries;
+    # the operator's master switch removes them from both surfaces when off.
+    'job_list',
+    'job_describe_template',
+    'job_create',
+    'job_run_now',
 ) + tuple(BROWSER_TOOLS) + tuple(COMPUTER_TOOLS)
 
 

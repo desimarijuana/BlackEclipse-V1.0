@@ -22,7 +22,7 @@ export interface RunRequestPayload {
     market?: string;
     context?: Record<string, unknown>;
     history?: Array<{ role: "user" | "assistant"; content: string }>;
-    documents?: Array<{ name: string; text: string }>;
+    documents?: Array<{ name: string; text: string; truncated?: boolean; originalChars?: number }>;
   };
   /** Authoritative agent id; Python resolves the config + prompt from it. */
   agentId: string;

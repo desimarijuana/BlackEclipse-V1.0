@@ -412,6 +412,39 @@ APP_RUNTIME_K8S_WRITE_TOOLS: tuple[str, ...] = (
     "k8s_port_forward", "k8s_logs_follow",
 )
 
+# The capability-acquire tools (GitHub skill install/uninstall, MCP integration
+# install). They mutate what the agent can then use, so they are removed at
+# `plan_only` and in the unknown-profile fallback exactly like the other write
+# families; at `edit_verify` they stay (each call still requires its own
+# single-use operator approval in the effect authorizer chain).
+ACQUISITION_WRITE_TOOLS: tuple[str, ...] = (
+    "skill_install", "skill_uninstall", "mcp_install",
+)
+
+# ── Bulk data acquisition (Phase 16, first slice) ─────────────────────────────
+#
+# `data.collect` is a NEW noun granted ONLY by an operator-set acquisition
+# profile — never by the default actor, never by `code.write`. `acquire` is the
+# one tool family it grants; the surface is removed entirely when the operator's
+# switch (`acquisition_enabled`) is off, and the handler re-checks the grant
+# fail-closed.
+ACQUISITION_PROFILES: tuple[str, ...] = ("none", "declared_sources")
+
+_ACQUISITION_GRANTS: dict[str, frozenset[str]] = {
+    "none": frozenset(),
+    "declared_sources": frozenset({"data.collect"}),
+}
+
+
+def acquisition_grants(profile: str) -> frozenset[str]:
+    """Unknown profile → nothing (fail-closed, like `code_grants`)."""
+    return _ACQUISITION_GRANTS.get(profile, frozenset())
+
+
+# The tools the `data.collect` noun admits. Admitted by the effect authorizer
+# (`code/authorizers.py`); the handler enforces the switch and the budget.
+DATA_COLLECT_TOOLS: tuple[str, ...] = ("acquire",)
+
 # The file-system subsystem's mutating tools (Phase FS). They are code.write
 # tools: removed at `plan_only`, admitted at `edit_verify`, and each path is
 # re-checked by the handler → `permissions.require` → `decide_write`.
@@ -555,6 +588,20 @@ def is_automation_effect(name: str) -> bool:
     """Whether a tool name is an autonomous-schedule tool the authorizer admits."""
     return name in AUTOMATION_EFFECT_TOOLS
 
+
+# The scheduling tools (Phase 17, repo-mapped onto the Automation engine). Only
+# `job_create` is effectful: it writes a DISABLED finance job from the fixed
+# catalogue — it can never start work on its own (enabling stays an operator
+# action in the UI), so it is a local write, not an autonomous schedule. The
+# bot authorizer admits it; the POLICY SWITCH (`agent_scheduling_enabled`) plus
+# the always-disabled save are the controls.
+SCHEDULING_EFFECT_TOOLS: tuple[str, ...] = ("job_create",)
+
+
+def is_scheduling_effect(name: str) -> bool:
+    """Whether a tool name is an admitted scheduling-effect tool."""
+    return name in SCHEDULING_EFFECT_TOOLS
+
 # ── Git / Version-Control subsystem (the Git engine) ─────────────────────────
 #
 # The Git tools are classified by EFFECT exactly like every other tool, so the
@@ -654,7 +701,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS) | set(ACQUISITION_WRITE_TOOLS)
     elif autonomy == "edit_verify":
         # Local container/process mutations stay; CLUSTER/INFRA/CLOUD mutations
         # (kubectl apply/delete/scale/exec, helm install/uninstall, terraform
@@ -667,7 +714,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS) | set(ACQUISITION_WRITE_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 
@@ -743,6 +790,7 @@ def decide_command(
 
 
 __all__ = [
+    "ACQUISITION_WRITE_TOOLS",
     "AUTONOMY_PROFILES",
     "COMMAND_CLASSES",
     "DENIED_PROGRAMS",
@@ -757,6 +805,9 @@ __all__ = [
     "INTEL_WRITE_TOOLS",
     "NETWORK_DEFAULT",
     "AUTOMATION_EFFECT_TOOLS",
+    "SCHEDULING_EFFECT_TOOLS",
+    "DATA_COLLECT_TOOLS",
+    "ACQUISITION_PROFILES",
     "PLAIN_LANGUAGE_DENYLIST",
     "PROTECTED_PATHS",
     "READ_ONLY_TOOLS",
@@ -766,6 +817,7 @@ __all__ = [
     "PolicyDenial",
     "WorkspaceBinding",
     "allowed_tools",
+    "acquisition_grants",
     "code_grants",
     "decide_command",
     "decide_write",
@@ -773,5 +825,6 @@ __all__ = [
     "is_code_write",
     "is_ignored",
     "is_protected",
+    "is_scheduling_effect",
     "resolve_within",
 ]

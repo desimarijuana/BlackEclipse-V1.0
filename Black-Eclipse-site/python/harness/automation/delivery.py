@@ -28,6 +28,52 @@ STATUS_WORD = {
     "waiting": "waiting for approval",
 }
 
+#: The FIRST line of every delivered report, in plain words (Phase 17's
+#: unattended-answer contract). No mechanism vocabulary, no exit codes.
+OUTCOME_FIRST_LINE = {
+    "completed": "Finished as asked.",
+    "failed": "Couldn't finish.",
+    "timed_out": "Stopped early.",
+    "skipped": "Skipped this time.",
+    "blocked": "Couldn't run — not allowed.",
+    "waiting": "Waiting for your approval.",
+    "approval_required": "Waiting for your approval.",
+}
+
+_UNKNOWN_OUTCOME_LINE = "Finished with something worth a look."
+
+
+def render_run_report(
+    definition: AutomationDefinition,
+    state: str,
+    output: Optional[str],
+    *,
+    limits: Optional[list[str]] = None,
+) -> str:
+    """The text a delivered job report must carry (the unattended contract).
+
+    Rules (asserted by tests, not by convention):
+      1. The FIRST line states the outcome in plain words.
+      2. A run that hit limits names EVERY limit it hit — never a silent short
+         report. (The caller passes the limits it recorded; an empty list is a
+         complete run.)
+      3. A run that produced nothing says so instead of delivering an empty
+         report as a success.
+      4. No mechanism word reaches the text.
+    """
+    lines = [OUTCOME_FIRST_LINE.get(str(state or "").strip(), _UNKNOWN_OUTCOME_LINE)]
+    for limit in limits or []:
+        text = str(limit).strip()
+        if text:
+            lines.append(f"- {text}")
+    body = (output or "").strip()
+    if body:
+        lines.append("")
+        lines.append(body)
+    elif str(state or "").strip() == "completed":
+        lines.append("It produced no result this time.")
+    return "\n".join(lines) + "\n"
+
 
 @dataclass
 class DeliveryOutcome:
@@ -51,11 +97,20 @@ def _message(definition: AutomationDefinition, state: str) -> tuple[str, dict[st
     return "automations.delivery.message.done", params
 
 
-def _write_artifact(run_id: str, definition: AutomationDefinition, state: str, output: Optional[str]) -> DeliveryOutcome:
+def _write_artifact(
+    run_id: str,
+    definition: AutomationDefinition,
+    state: str,
+    output: Optional[str],
+    *,
+    limits: Optional[list[str]] = None,
+) -> DeliveryOutcome:
     try:
         directory: Path = artifact_dir_for(run_id)
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "report.md").write_text(output or "", encoding="utf-8")
+        (directory / "report.md").write_text(
+            render_run_report(definition, state, output, limits=limits), encoding="utf-8"
+        )
         (directory / "meta.json").write_text(json.dumps({
             "automationId": definition.id,
             "automationName": definition.name,
@@ -77,8 +132,14 @@ async def deliver_automation(
     output: Optional[str],
     store: Any,
     bus: Any,
+    limits: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
-    """Deliver to every configured target; record one outcome per target."""
+    """Deliver to every configured target; record one outcome per target.
+
+    `limits` names anything the run could not complete (stale source, refused
+    check, missing input). The artifact report always carries them — a delivered
+    run never hides a limit (the unattended-answer contract).
+    """
     if not definition.delivery.wants(state):
         return []
     targets: list[DeliveryTarget] = definition.delivery.effective_targets()
@@ -99,7 +160,7 @@ async def deliver_automation(
                                                 ok=False, reason_code="NO_DESTINATION",
                                                 reason="no run id to name the artifact"))
             else:
-                outcomes.append(_write_artifact(run_id, definition, state, output))
+                outcomes.append(_write_artifact(run_id, definition, state, output, limits=limits))
         elif target.adapter == "messaging":
             if not target.destination:
                 outcomes.append(DeliveryOutcome(adapter="messaging", destination=None, ok=False,
@@ -140,4 +201,4 @@ def _publish(bus: Any, event_type: str, data: dict[str, Any]) -> bool:
         return False
 
 
-__all__ = ["DeliveryOutcome", "deliver_automation"]
+__all__ = ["DeliveryOutcome", "deliver_automation", "render_run_report"]

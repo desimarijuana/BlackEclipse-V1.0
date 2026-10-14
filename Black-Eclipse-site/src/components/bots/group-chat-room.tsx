@@ -9,7 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Copy, Loader2, Pause, Play, Settings, Trash2, Users,
+  ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Copy, Loader2, Pause, Play,
+  RefreshCw, Settings, SquarePen, ThumbsDown, ThumbsUp, Trash2, Users,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +45,10 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const NO_MESSAGES: GroupMessage[] = [];
 
 export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRoomProps) {
@@ -53,6 +58,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   const avatars = useBotAvatarStore((s) => s.avatars);
   const messages = useBotGroupsStore((s) => s.byGroup[group.id] ?? NO_MESSAGES);
   const append = useBotGroupsStore((s) => s.appendMessage);
+  const setMessages = useBotGroupsStore((s) => s.setMessages);
   const updateMessage = useBotGroupsStore((s) => s.updateMessage);
   const clearMessages = useBotGroupsStore((s) => s.clearMessages);
   const deleteGroup = useBotGroupsStore((s) => s.deleteGroup);
@@ -68,6 +74,8 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   const [groupNote, setGroupNote] = useState<string | null>(null);
   /** Who answers: 'all' (every member) or a single member's bot id. */
   const [audience, setAudience] = useState<string>('all');
+  /** Active @mention token query (null = the mention menu is closed). */
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef<AbortController[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -210,8 +218,16 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
     const prior = useBotGroupsStore.getState().byGroup[group.id] ?? [];
     append(group.id, { id: newId(), role: 'user', content: text, at: new Date().toISOString() });
     setInput('');
+    setMentionQuery(null);
     setSending(true);
-    const targets = audience === 'all' ? members : members.filter((b) => b.id === audience);
+    // @mentions win over the audience selector: naming bots routes the turn to
+    // exactly those members.
+    const mentioned = members.filter((b) => new RegExp(`@${escapeRegExp(b.name)}\\b`, 'i').test(text));
+    const targets = mentioned.length
+      ? mentioned
+      : audience === 'all'
+        ? members
+        : members.filter((b) => b.id === audience);
     const controllers: AbortController[] = [];
     controllersRef.current = controllers;
     try {
@@ -228,6 +244,62 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   const stop = useCallback(() => {
     controllersRef.current.forEach((c) => c.abort());
   }, []);
+
+  // @mention autocomplete: detect a trailing "@word" token as the user types.
+  const onInputChange = useCallback((v: string) => {
+    setInput(v);
+    const m = v.match(/(?:^|\s)@([\w.-]*)$/);
+    setMentionQuery(m ? m[1] : null);
+  }, []);
+
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return members.filter((b) => b.name.toLowerCase().includes(q));
+  }, [mentionQuery, members]);
+
+  const pickMention = useCallback((bot: AutomationView) => {
+    setInput((prev) => prev.replace(/@([\w.-]*)$/, `@${bot.name} `));
+    setAudience(bot.id);
+    setMentionQuery(null);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
+  /** Edit a sent prompt: truncate the thread there and load it into the composer. */
+  const editGroupMessage = useCallback((id: string) => {
+    const msgs = useBotGroupsStore.getState().byGroup[group.id] ?? [];
+    const idx = msgs.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    setMessages(group.id, msgs.slice(0, idx));
+    setInput(msgs[idx].content);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [group.id, setMessages]);
+
+  /** Re-run a reply: drop just that assistant message and re-run its author. */
+  const regenerateGroup = useCallback((id: string) => {
+    const msgs = useBotGroupsStore.getState().byGroup[group.id] ?? [];
+    const ai = msgs.findIndex((m) => m.id === id);
+    if (ai < 0) return;
+    let ui = ai - 1;
+    while (ui >= 0 && msgs[ui].role !== 'user') ui -= 1;
+    if (ui < 0) return;
+    const text = msgs[ui].content;
+    const author = members.find((b) => b.id === msgs[ai].authorId);
+    const targets = author ? [author] : members;
+    const prior = msgs.slice(0, ui); // everything before the prompt
+    setMessages(group.id, msgs.slice(0, ai)); // keep the prompt, drop the reply
+    const controllers: AbortController[] = [];
+    controllersRef.current = controllers;
+    setSending(true);
+    void Promise.all(targets.map((b) => runMember(b, text, prior, controllers)))
+      .finally(() => { controllersRef.current = []; setSending(false); });
+  }, [group.id, members, runMember, setMessages]);
+
+  /** Thumbs feedback on a member reply; toggling the same rating clears it. */
+  const setGroupFeedback = useCallback((id: string, fb: 'up' | 'down') => {
+    const cur = (useBotGroupsStore.getState().byGroup[group.id] ?? []).find((m) => m.id === id);
+    updateMessage(group.id, id, { feedback: cur?.feedback === fb ? undefined : fb });
+  }, [group.id, updateMessage]);
 
   return (
     <div className="glass-card flex h-full min-h-0 flex-col rounded-2xl">
@@ -350,9 +422,21 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           </div>
         )}
 
-        {messages.map((m) =>
+        {messages.map((m, i) =>
           !m.error && m.role === 'assistant' && !m.content ? null : (
-            <GroupBubble key={m.id} message={m} groupName={group.name} groupSpec={groupSpec} groupImage={group.image} />
+            <GroupBubble
+              key={m.id}
+              message={m}
+              groupName={group.name}
+              groupSpec={groupSpec}
+              groupImage={group.image}
+              onEdit={editGroupMessage}
+              onRegenerate={
+                i === messages.length - 1 && m.role === 'assistant' && !m.error ? regenerateGroup : undefined
+              }
+              onRetry={m.role === 'assistant' && m.error ? regenerateGroup : undefined}
+              onFeedback={setGroupFeedback}
+            />
           ),
         )}
 
@@ -400,13 +484,30 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           </DropdownMenu>
           <span className="truncate text-[10px] text-muted-foreground">{t('bots.groups.audienceHint')}</span>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {mentionQuery !== null && mentionMatches.length > 0 && (
+            <ul className="glass-card-strong absolute bottom-full left-0 z-30 mb-2 max-h-48 w-56 overflow-y-auto rounded-xl border border-border/40 p-1 shadow-xl shadow-black/40">
+              {mentionMatches.map((b) => (
+                <li key={b.id}>
+                  <button
+                    type="button"
+                    onClick={() => pickMention(b)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-white/[0.06]"
+                  >
+                    <BotAvatar botId={b.id} spec={avatarFor(avatars, b.id)} size={18} title={b.name} />
+                    <span className="truncate">{b.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
+              if (e.key === 'Escape' && mentionQuery !== null) { e.preventDefault(); setMentionQuery(null); }
             }}
             rows={1}
             placeholder={t('bots.groups.composer')}
@@ -443,11 +544,19 @@ function GroupBubble({
   groupName,
   groupSpec,
   groupImage,
+  onEdit,
+  onRegenerate,
+  onRetry,
+  onFeedback,
 }: {
   message: GroupMessage;
   groupName: string;
   groupSpec: import('@/lib/bots/ghost').GhostSpec;
   groupImage?: string;
+  onEdit: (id: string) => void;
+  onRegenerate?: (id: string) => void;
+  onRetry?: (id: string) => void;
+  onFeedback?: (id: string, fb: 'up' | 'down') => void;
 }) {
   const t = useT();
   const avatars = useBotAvatarStore((s) => s.avatars);
@@ -460,6 +569,7 @@ function GroupBubble({
     : groupImage
       ? <img src={groupImage} alt="" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
       : <GhostAvatar spec={groupSpec} size={28} className="mt-0.5 shrink-0" />;
+  const btn = 'flex h-5 w-5 cursor-pointer items-center justify-center rounded-md hover:bg-white/10 hover:text-foreground';
   const copy = () => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return;
     void navigator.clipboard.writeText(message.content).then(() => {
@@ -468,17 +578,50 @@ function GroupBubble({
     }).catch(() => { /* clipboard unavailable */ });
   };
   const timeRow = (
-    <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-      <span>{formatDateTime(message.at)}</span>
-      <button
-        type="button"
-        onClick={copy}
-        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-md hover:bg-white/10 hover:text-foreground"
-        title={copied ? t('bots.chat.copied') : t('bots.chat.copy')}
-        aria-label={t('bots.chat.copy')}
-      >
+    <div className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span className="mr-1">{formatDateTime(message.at)}</span>
+      <button type="button" onClick={copy} className={btn} title={copied ? t('bots.chat.copied') : t('bots.chat.copy')} aria-label={t('bots.chat.copy')}>
         {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
       </button>
+      {!isUser && onFeedback && (
+        <>
+          <button
+            type="button"
+            onClick={() => onFeedback(message.id, 'up')}
+            className={cn(btn, message.feedback === 'up' && 'text-emerald-300')}
+            title={t('bots.chat.good')}
+            aria-label={t('bots.chat.good')}
+            aria-pressed={message.feedback === 'up'}
+          >
+            <ThumbsUp size={12} weight={message.feedback === 'up' ? 'fill' : 'regular'} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onFeedback(message.id, 'down')}
+            className={cn(btn, message.feedback === 'down' && 'text-rose-300')}
+            title={t('bots.chat.bad')}
+            aria-label={t('bots.chat.bad')}
+            aria-pressed={message.feedback === 'down'}
+          >
+            <ThumbsDown size={12} weight={message.feedback === 'down' ? 'fill' : 'regular'} />
+          </button>
+        </>
+      )}
+      {isUser && !message.error && (
+        <button type="button" onClick={() => onEdit(message.id)} className={btn} title={t('bots.edit')} aria-label={t('bots.edit')}>
+          <SquarePen size={12} />
+        </button>
+      )}
+      {!isUser && onRegenerate && (
+        <button type="button" onClick={() => onRegenerate(message.id)} className={btn} title={t('bots.chat.regenerate')} aria-label={t('bots.chat.regenerate')}>
+          <RefreshCw size={12} />
+        </button>
+      )}
+      {!isUser && onRetry && (
+        <button type="button" onClick={() => onRetry(message.id)} className={btn} title={t('bots.chat.retry')} aria-label={t('bots.chat.retry')}>
+          <RefreshCw size={12} />
+        </button>
+      )}
     </div>
   );
   // A room reply reads as a full-width document with no glass surface; only the

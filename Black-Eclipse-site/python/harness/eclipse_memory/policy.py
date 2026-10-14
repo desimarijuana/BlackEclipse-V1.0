@@ -166,6 +166,21 @@ DEFAULTS: dict[str, Any] = {
     # versions past the archive threshold are affected — never a pinned or
     # operator-managed one.
     "skill_maintenance_auto_archive": False,
+    # ── Agent scheduling (Phase 17) ─────────────────────────────────────────
+    # Whether the chat agent may CREATE recurring finance jobs from the fixed
+    # scheduling catalogue. OFF by default: discovery is not activation. Even
+    # when on, a created job is ALWAYS saved switched off and only the operator
+    # turns it on under Scheduled Jobs. When off, `graph.surface_disabled_tools`
+    # removes the scheduling tools from the model's bound surface.
+    "agent_scheduling_enabled": False,
+    # ── Bulk data acquisition (Phase 16, first slice) ────────────────────────
+    # Whether the agent may collect a DATASET (many rows) from the declared
+    # source registry through the read-only bridge. OFF by default: the same
+    # discovery-is-not-activation rule as scheduling. When on, each pull is
+    # bounded by its own Python-enforced budget and writes a CSV + manifest; a
+    # partial pull is always marked partial. When off, the `acquire` tool is
+    # removed from the model's bound surface entirely.
+    "acquisition_enabled": False,
     # ── Dropped-context extraction (Milestone 2 / Phase 1) ──────────────────
     # OFF by default. When on, the dropped-context seam MAY additionally ask the
     # run's own configured model to propose INERT candidates from the turns that

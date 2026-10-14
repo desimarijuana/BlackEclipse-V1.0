@@ -390,6 +390,7 @@ export function ChatDock({
               content: turnText(turn),
               status: turn.status,
               activities: turn.activities,
+              changes: turn.changes,
               error: turn.error,
               research: turn.research,
               memory: turn.memory,

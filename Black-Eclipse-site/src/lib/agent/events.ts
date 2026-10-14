@@ -1,4 +1,4 @@
-import type { ActivityItem, PendingApproval, ResponseStatus } from './response-model';
+import type { ActivityItem, PendingApproval, ResponseStatus, TurnChange } from './response-model';
 import { sourceLabel, toolLabel } from './response-model';
 import { refusalKey } from '@/lib/i18n/refusal-copy';
 
@@ -28,6 +28,11 @@ export type HarnessUiEvent =
       /** Short user-safe result summary (e.g. "3 records") when reported. */
       summary?: string;
     }
+  /**
+   * File changes the runtime reported this step (with its bounded, redacted
+   * diff previews). A multi-file change arrives as several items at once.
+   */
+  | { kind: 'changes'; items: TurnChange[] }
   | {
       kind: 'final';
       output?: string;
@@ -99,6 +104,48 @@ const STATUS_BY_EVENT: Record<string, ResponseStatus> = {
   'run.failed': 'error',
   'run.cancelled': 'cancelled',
 };
+
+/** The runtime's operation word → the change kind a card shows. */
+const CHANGE_BY_OP: Record<string, TurnChange['change']> = {
+  create: 'added',
+  add: 'added',
+  copy: 'added',
+  create_file: 'added',
+  delete: 'deleted',
+  remove: 'deleted',
+  delete_file: 'deleted',
+  move: 'renamed',
+  rename: 'renamed',
+  move_file: 'renamed',
+  rename_file: 'renamed',
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * One change record from a runtime payload (an fs `previews[]` entry, a
+ * `code.patch.applied` event, or a single-file write). Returns null when the
+ * record carries no path. The diff body and counts are the runtime's own —
+ * never re-derived here.
+ */
+function turnChangeFrom(record: Record<string, unknown>): TurnChange | null {
+  const path = str(record.path) ?? str(record.to);
+  if (!path) return null;
+  const op = (str(record.op) ?? str(record.operation) ?? '').toLowerCase();
+  const from = str(record.from);
+  const diff = str(record.diff);
+  return {
+    path,
+    change: CHANGE_BY_OP[op] ?? 'modified',
+    additions: num(record.additions),
+    deletions: num(record.deletions),
+    ...(from ? { from } : {}),
+    ...(diff ? { diff } : {}),
+    ...(record.diffTruncated === true || record.truncated === true ? { truncated: true } : {}),
+  };
+}
 
 /**
  * Map one raw `(event, payload)` frame to a typed UI event, or `null` when the
@@ -341,6 +388,20 @@ export function normalizeHarnessEvent(
     const code =
       error && typeof error === 'object' ? str((error as Record<string, unknown>).code) : undefined;
     return { kind: 'error', message: message ?? 'The run failed.', code };
+  }
+
+  // File changes — the runtime's bounded, redacted diff previews. Fed by the
+  // fs write events (`previews[]`) and the workspace patch engine (one event
+  // per applied op). This is what lets the chat show WHAT changed, not only
+  // that a tool ran.
+  if (event.startsWith('fs.') || event === 'code.patch.applied') {
+    const records: unknown[] =
+      event === 'code.patch.applied' ? [payload] : (payload.previews as unknown[] | undefined) ?? [];
+    const items = records
+      .filter(isRecord)
+      .map(turnChangeFrom)
+      .filter((c): c is TurnChange => c !== null);
+    return items.length > 0 ? { kind: 'changes', items } : null;
   }
 
   const status = STATUS_BY_EVENT[event];

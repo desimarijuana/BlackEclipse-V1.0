@@ -27,6 +27,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
+from .events import diff_event_payload
 from .fs.errors import WORKSPACE_UNBOUND, FsError
 from .fs.intent import is_insert_before, parse_edit_instruction
 from .fs.service import FileSystemService
@@ -474,6 +475,52 @@ async def _emit(ctx: ToolContext, event_type: str, data: dict[str, Any]) -> None
     await emit_code_event(ctx, event_type, data)
 
 
+# A single change event carries at most this many per-file previews; a larger
+# multi-file change is still fully applied — the event just shows the first N.
+_MAX_EVENT_PREVIEW_FILES = 8
+
+
+def _event_previews(data: Any) -> list[dict[str, Any]]:
+    """Bounded per-file change records for the live event stream, or [].
+
+    Extracts the diff previews the fs operations ALREADY compute (a single-file
+    `diff`/`additions`/`deletions` record, or the `previews`/`results` list a
+    multi-file change returns) so the chat and workspace can show WHAT changed.
+    Never raises, never fabricates: a result with no diff yields [].
+    """
+    if not isinstance(data, dict) or data.get("dryRun") is True:
+        return []
+    records: list[dict[str, Any]] = []
+    for key in ("previews", "results", "changes"):
+        value = data.get(key)
+        if isinstance(value, list) and value:
+            records = [v for v in value if isinstance(v, dict)]
+            break
+    if not records and isinstance(data.get("diff"), str):
+        records = [data]
+    out: list[dict[str, Any]] = []
+    for record in records[:_MAX_EVENT_PREVIEW_FILES]:
+        if record.get("changed") is False:
+            # An explicit no-op ("the file already says that") is not a change.
+            continue
+        path = record.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        entry: dict[str, Any] = {
+            "path": path,
+            "op": str(record.get("op") or record.get("operation") or "modify"),
+        }
+        payload = diff_event_payload(record)
+        if payload:
+            entry.update(payload)
+        out.append(entry)
+    if not out and data.get("moved") is True and isinstance(data.get("to"), str):
+        out.append({"path": data["to"], "op": "move", "from": data.get("from")})
+    elif not out and data.get("copied") is True and isinstance(data.get("to"), str):
+        out.append({"path": data["to"], "op": "copy", "from": data.get("from")})
+    return out
+
+
 def _refusal_text(error: FsError) -> str:
     text = f"REFUSED ({error.code}): {error.reason}"
     if error.recovery:
@@ -533,6 +580,7 @@ async def _dispatch(
         await _emit(ctx, "fs.transaction.committed", {
             "tool": tool, "filesChanged": data.get("filesChanged", 1),
         })
+    previews = _event_previews(data)
     await _emit(ctx, f"fs.{tool}", {
         "tool": tool, "path": data.get("path", path),
         "workspaceId": getattr(getattr(service, "workspace", None), "id", ""),
@@ -540,6 +588,7 @@ async def _dispatch(
         "filesChanged": data.get("filesChanged", 1),
         "bytesWritten": data.get("bytesWritten", 0),
         "durationMs": int((time.monotonic() - started) * 1000),
+        **({"previews": previews} if previews else {}),
     })
     return _ok(verb, data.get("path", path) or path, data)
 
@@ -949,10 +998,12 @@ async def _edit_file(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         return _refusal_text(exc), exc.to_dict()
     if derived is not None:
         result["parsedInstruction"] = derived
+    previews = _event_previews(result)
     await _emit(ctx, "fs.edit_file.applied", {
         "path": result.get("path"), "bytesWritten": result.get("bytesWritten", 0),
         "parsed": derived is not None,
         "durationMs": int((time.monotonic() - started) * 1000),
+        **({"previews": previews} if previews else {}),
     })
     return _summary(result, verb="Edited", path=result.get("path", model.path)), result
 
