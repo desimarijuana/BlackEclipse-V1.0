@@ -71,6 +71,7 @@ export async function chatWithAgent(
   reasoningEffort?: ReasoningLevel,
   identityHeaders?: Record<string, string>,
   uiContext?: Record<string, unknown>,
+  memoryScope?: "conversation",
 ): Promise<{
   output: string;
   runId: string;
@@ -106,6 +107,9 @@ export async function chatWithAgent(
     // The chat workspace id is the session id, so a chat turn belongs to a
     // long-lived session and shows up in the Sessions tab (M3).
     sessionId,
+    // Bot chats and group-member turns opt into PRIVATE per-conversation memory:
+    // the conversation id IS the session id (`bot-<id>` / `group-...`).
+    ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
     ...(capability?.autonomy ? { autonomy: capability.autonomy } : {}),
     ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
     ...(identityHeaders ? { identityHeaders } : {}),
@@ -221,6 +225,7 @@ export async function startChatRun(
   reasoningEffort?: ReasoningLevel,
   identityHeaders?: Record<string, string>,
   uiContext?: Record<string, unknown>,
+  memoryScope?: "conversation",
 ): Promise<string> {
   const input = assertRunInput({
     query,
@@ -269,6 +274,9 @@ export async function startChatRun(
     agentId: agent.id,
     modelSettings,
     sessionId,
+    // Bot chats and group-member turns opt into PRIVATE per-conversation memory:
+    // the conversation id IS the session id (`bot-<id>` / `group-...`).
+    ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
     ...(autonomy ? { autonomy } : {}),
     ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
     // Approval cards: chat runs pause for the operator when a step needs an

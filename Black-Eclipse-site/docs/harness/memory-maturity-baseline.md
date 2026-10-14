@@ -1,7 +1,7 @@
 ---
 title: Harness — Memory Maturity Baseline
 status: Current
-last-verified: 2026-09-30
+last-verified: 2026-10-14
 ---
 
 # Memory Maturity Baseline (Phase 0)
@@ -47,6 +47,13 @@ identities. Nothing here assumes hosted accounts or multi-tenant auth.
   other types require a lexical relevance signal.
 * Skills share the same store (`Skill*`, `LearningCandidate`, …); promotion is
   evaluation + operator gated.
+* **Scopes** are `user | general | market | task` plus the additive
+  **`conversation`** scope (ADR-044 / ADR-H194): a bot chat and each group-room
+  member turn own a private bucket keyed by `scopeId = sessionId`
+  (`bot-<id>` / `group-<gid>-<botid>`). A conversation reads only its own bucket,
+  the signed-in user's own rows and `general`; the owner is normalized at the one
+  write gate (`decision.resolve_owner_scope`). Opt-in is explicit per call site;
+  ordinary chat is unchanged. `bot_delete` archives a bot's conversation memory.
 * APIs: Python FastAPI `/eclipse-memory/*` (`main.py`), Next.js proxies
   `src/app/api/eclipse-memory/**`, UI `src/components/screens/eclipse-memory/`.
 * Measurement seam: `eclipse_memory/eval/` (`dataset_v1.json` + runner).

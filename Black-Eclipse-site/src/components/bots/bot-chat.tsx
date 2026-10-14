@@ -224,6 +224,9 @@ export function BotChat({
         undefined,
         {
           chatId: `bot-${bot.id}`,
+          // This bot keeps its own PRIVATE per-conversation long-term memory,
+          // isolated from every other bot and from ordinary chat.
+          memoryScope: 'conversation' as const,
           model: modelState.selectedModel || undefined,
           signal: controller.signal,
           onDelta: (chunk) => {

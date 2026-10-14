@@ -177,6 +177,12 @@ class RunRequest(BaseModel):
     sessionId: Optional[str] = None  # noqa: N815
     profileId: Optional[str] = None  # noqa: N815
     projectId: Optional[str] = None  # noqa: N815
+    # Private per-conversation memory (additive, optional). When set, durable
+    # memory captured in this run is owned by this conversation id and is
+    # readable only by it (plus truly-global `general` knowledge and the
+    # signed-in user's own rows). Used by bot chats and group-room member turns;
+    # absent for ordinary chat, whose behaviour is unchanged.
+    conversationId: Optional[str] = None  # noqa: N815
     # Phase 3: an optional skill bundle to expand into the run's skill manifest.
     # The bundle is a reference only — a member that is missing/disabled is
     # reported and skipped, never enabled.

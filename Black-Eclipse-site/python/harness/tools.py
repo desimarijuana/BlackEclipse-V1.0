@@ -112,6 +112,11 @@ class ToolContext:
     # The verified tenant for this run. Set by the graph from the API-verified
     # identity; the security gateway scopes every effect to it. None = single-tenant.
     tenant_id: Optional[str] = None
+    # The conversation this run belongs to, when the caller opted in (a bot chat
+    # or a group-room member turn). Durable memory captured in such a run is
+    # stored in that conversation's PRIVATE bucket, isolated from every other
+    # conversation and from the shared stores. None = ordinary chat (unchanged).
+    conversation_id: Optional[str] = None
     # The actual user turn text for THIS run. A model-facing `memory` write is
     # authorized against it by the shared decision gate — tool output, retrieved
     # memory and documents are never user intent.

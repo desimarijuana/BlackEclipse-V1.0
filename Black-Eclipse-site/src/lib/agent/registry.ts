@@ -61,7 +61,7 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
       ? `run_${crypto.randomUUID()}`
       : `run_${Date.now().toString(36)}`;
   options?.onRunId?.(runId);
-  return { query, history, chatId: options?.chatId, runId, model: options?.model, reasoningEffort: options?.reasoningEffort, uiContext: options?.uiContext };
+  return { query, history, chatId: options?.chatId, runId, model: options?.model, reasoningEffort: options?.reasoningEffort, uiContext: options?.uiContext, memoryScope: options?.memoryScope };
 }
 
 /** One-shot fallback used when SSE is unavailable. */

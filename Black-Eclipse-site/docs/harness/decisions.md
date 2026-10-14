@@ -6729,3 +6729,39 @@ now anchors `HARNESS_MCP_CONFIG` so a developer's real `mcp-servers.json` can
 never leak into the suite. The skill permission/execution gate, the approval
 single-use semantics and the untrusted-prose rule are unchanged — installing
 widens what can be *used*, never what may be *done*.
+
+## ADR-H194 — Private per-conversation memory is a new `conversation` scope on the ONE Eclipse-Memory pipeline, not a second store
+
+**Decision.** A bot chat and each group-room member turn own a PRIVATE durable
+memory bucket, keyed by `scopeId = conversation id` (the run `sessionId`:
+`bot-<id>` / `group-<gid>-<botid>`). This is the new **`conversation`** value on
+`MemoryRecord.scope` — no new database, table or column (ADR-026/034 hold).
+
+1. `eclipse_memory/decision.resolve_owner_scope` is the ONE owner resolver. In a
+   conversation-scoped run with no signed-in user, a personal (`user`) fact is
+   owned by the conversation; a `conversation` scope with no id degrades to
+   user/general; outside a conversation nothing changes.
+2. `EclipseMemoryService.commit_decision` normalizes the owner at the ONE write
+   gate (both the deterministic-turn and model-proposal paths pass through it).
+3. `retrieval.retrieve_memories` gathers candidates only from the conversation's
+   own bucket + the signed-in user's own rows + `general`, and
+   `_scope_authorized` refuses another conversation's rows BEFORE ranking —
+   scope/privacy filtering stays authoritative.
+4. Opt-in is explicit: only bot/group call sites send `memoryScope:'conversation'`
+   → `RunRequest.conversationId`. Ordinary chat is byte-identical.
+5. Scheduled bot runs bind the same `bot-<id>` conversation, so a background run
+   and the interactive chat share one memory; `bot_delete` archives it.
+
+**Why.** The bots UI honestly said "no separate memory": every durable fact went
+to shared/unattributable rows, so a bot could neither build long-term context nor
+be isolated. A per-bot store would break the one-store/one-pipeline invariants; a
+new scope value reuses the decision gate, the scope-before-rank filter and the one
+persistence path.
+
+**Consequences.** `eclipse_memory/{decision,retrieval,service}.py`,
+`memory_tools.py`, `graph.py`, `graph_context.py`, `schemas.py`, `tools.py`,
+`automation/{dispatcher,tools}.py`, `routers/memory.py`; TS `agent/{types,registry}.ts`,
+`harness/{run-service,python-client,eclipse-memory-browser}.ts`, both chat routes,
+`bot-chat.tsx`, `group-chat-room.tsx`, `bot-detail.tsx`, new `bot-memory-section.tsx`,
+i18n `en.ts`. +9 tests (`python/tests/test_memory_conversation.py`). Conversation ids
+are local labels, not security identities. Mirrors app-level ADR-044.

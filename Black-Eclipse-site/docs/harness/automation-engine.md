@@ -1,7 +1,7 @@
 ---
 title: Native Automation Engine
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-14
 ---
 
 # Native Automation Engine
@@ -187,10 +187,23 @@ Every definition change bumps `version`; the prior version is written immutably 
 (`automationVersion`), so "why did it behave this way six months ago" is
 answerable from the execution snapshot.
 
+## Bot memory (private per-conversation)
+
+A bot is one long-lived conversation with its **own private durable memory**
+(ADR-044 / ADR-H194). The bucket is the Eclipse-Memory `conversation` scope keyed
+by `scopeId = bot-<automationId>` — the SAME id the interactive bot chat uses
+(`bot-chat.tsx` → `sessionId`), so what a scheduled run learns is recalled when
+the user next talks to the bot. A member of a group room keeps a per-room bucket
+(`group-<gid>-<botid>`). A conversation reads only its own bucket, the signed-in
+user's own rows and truly-global `general` knowledge — never another bot's or
+another conversation's memory. Deleting a bot archives its conversation memory
+(`bot_delete`, never hard-deletes). The Bots UI Memory panel lists the bucket and
+offers an explicit "Forget this conversation's memory" control. No new database or
+table: this rides the ONE Eclipse-Memory pipeline.
+
 ## Observability
 
-`GET /automations/metrics` reports automation/execution counts, retries,
-deliveries, open breakers, in-flight work, worker id and tick latency. Each
+`GET /automations/metrics` reports automation/execution counts, retries,deliveries, open breakers, in-flight work, worker id and tick latency. Each
 execution carries a timeline (`AutomationExecutionEvent`) and per-target delivery
 outcomes; `GET /automations/{id}/status` reports success rate, average duration,
 cost and tokens.

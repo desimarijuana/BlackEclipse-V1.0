@@ -78,15 +78,27 @@ export async function listMemories(filters: {
   memoryType?: string;
   scope?: string;
   status?: string;
+  scopeId?: string;
   limit?: number;
 } = {}): Promise<MemoryRecord[]> {
   const params = new URLSearchParams();
   if (filters.memoryType) params.set("memoryType", filters.memoryType);
   if (filters.scope) params.set("scope", filters.scope);
   if (filters.status) params.set("status", filters.status);
+  if (filters.scopeId) params.set("scopeId", filters.scopeId);
   params.set("limit", String(filters.limit ?? 100));
   const body = await request<{ memories: MemoryRecord[] }>(`/eclipse-memory/memories?${params}`, { method: "GET" });
   return body.memories ?? [];
+}
+
+/** Forget (archive) one conversation's private memory. Operator-gated in Python. */
+export async function forgetConversation(
+  conversationId: string,
+  operator = true,
+): Promise<{ success: boolean; archived: string[] }> {
+  return request(`/eclipse-memory/conversations/${encodeURIComponent(conversationId)}/forget`, {
+    method: "POST", body: JSON.stringify({ operator }),
+  });
 }
 
 export async function getMemory(memoryId: string): Promise<MemoryDetail | null> {

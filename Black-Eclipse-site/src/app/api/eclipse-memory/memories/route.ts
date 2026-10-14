@@ -14,6 +14,7 @@ export async function GET(request: Request) {
       memoryType: url.searchParams.get("memoryType") || undefined,
       scope: url.searchParams.get("scope") || undefined,
       status: url.searchParams.get("status") || undefined,
+      scopeId: url.searchParams.get("scopeId") || undefined,
       limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
     });
     return NextResponse.json({ success: true, memories });

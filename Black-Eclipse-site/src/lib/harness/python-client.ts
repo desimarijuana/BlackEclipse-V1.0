@@ -40,6 +40,13 @@ export interface RunRequestPayload {
   sessionId?: string;
   profileId?: string;
   projectId?: string;
+  /**
+   * Private per-conversation memory (optional). When set, durable memory
+   * captured in this run is owned by this conversation id (used by bot chats and
+   * group-room member turns). Absent for ordinary chat, whose behaviour is
+   * unchanged.
+   */
+  conversationId?: string;
   /** Phase 1 (optional): bind this run to a read-only workspace. */
   workspace?: { root: string; baseRevision?: string };
   /** Phase 14 (optional): the code profile for this run, when the turn is a

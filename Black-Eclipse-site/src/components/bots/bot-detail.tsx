@@ -21,6 +21,7 @@ import { GhostCustomizer } from '@/components/bots/ghost-customizer';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
 import { BreakerPill, ExecutionPill, LifecyclePill } from '@/components/bots/status-pill';
 import { RunHistory } from '@/components/bots/run-history';
+import { BotMemorySection } from '@/components/bots/bot-memory-section';
 import {
   disableAutomation,
   enableAutomation,
@@ -230,10 +231,7 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
           </SectionBlock>
 
           <SectionBlock icon={Sparkles} title={t('bots.detail.memory')}>
-            <div className="glass-card-subtle flex items-start gap-2.5 rounded-xl p-4 text-xs text-muted-foreground">
-              <Sparkles size={15} className="mt-0.5 shrink-0 text-primary/70" />
-              <p className="min-w-0 break-words">{t('bots.memoryUnavailable')}</p>
-            </div>
+            <BotMemorySection botId={bot.id} />
           </SectionBlock>
 
           <SectionBlock icon={ListChecks} title={t('bots.detail.history')}>

@@ -60,8 +60,14 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     if action == "save":
         content = str(args.get("content") or "").strip()
         memory_type = str(args.get("type") or "semantic")
-        scope = str(args.get("scope") or "general")
-        scope_id = args.get("scope_id") or ctx.user_id
+        # In a conversation-scoped run (a bot / group member) a durable save is
+        # PRIVATE to that conversation by default; the model must ask explicitly
+        # for `general` to publish shared knowledge.
+        default_scope = "conversation" if ctx.conversation_id else "general"
+        scope = str(args.get("scope") or default_scope)
+        scope_id = args.get("scope_id") or (
+            ctx.conversation_id if scope == "conversation" else None
+        ) or ctx.user_id
 
         # The model may PROPOSE a memory, but it cannot authorize its own write.
         # The shared decision gate re-checks the proposal against the actual user
@@ -97,8 +103,12 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
                 confidence=confidence,
                 settings=settings,
                 verified=verified,
+                conversation_id=ctx.conversation_id,
             )
-            outcome = svc.commit_decision(decision, run_id=ctx.run_id, user_id=ctx.user_id)
+            outcome = svc.commit_decision(
+                decision, run_id=ctx.run_id, user_id=ctx.user_id,
+                conversation_id=ctx.conversation_id,
+            )
         except (TypeError, ValueError) as exc:
             # Defense in depth: any bad input the gate would coerce internally is
             # returned as a typed error instead of an unhandled TypeError. The
@@ -149,6 +159,7 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             subject=args.get("subject"),
             actor_scope=ctx.user_id and "user",
             scope_id=ctx.user_id,
+            conversation_id=ctx.conversation_id,
             run_id=ctx.run_id,
             limit=int(args.get("limit") or 8),
         )
@@ -166,9 +177,11 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         return "\n".join(lines), {"count": len(result.memories), "memories": result.memories}
 
     # list
+    default_list_scope = "conversation" if ctx.conversation_id else args.get("scope")
     memories = svc.store.list_memories(
-        memory_type=args.get("type"), scope=args.get("scope"),
-        scope_id=args.get("scope_id") or ctx.user_id,
+        memory_type=args.get("type"), scope=default_list_scope,
+        scope_id=args.get("scope_id")
+        or (ctx.conversation_id if default_list_scope == "conversation" else ctx.user_id),
         limit=int(args.get("limit") or 20), include_inactive=False,
     )
     if not memories:
@@ -512,7 +525,7 @@ def register_memory_tools(registry: ToolRegistry) -> None:
                     "action": {"type": "string", "enum": ["save", "search", "list"], "description": "Operation to perform."},
                     "content": {"type": "string", "description": "The memory content (action=save). Write a declarative fact, not an instruction."},
                     "type": {"type": "string", "enum": ["preference", "semantic", "procedural", "episodic", "constraint", "observation", "summary"], "description": "Memory type."},
-                    "scope": {"type": "string", "enum": ["user", "general", "market", "task"], "description": "Memory scope."},
+                    "scope": {"type": "string", "enum": ["user", "general", "market", "task", "conversation"], "description": "Memory scope."},
                     "scope_id": {"type": "string", "description": "Scope identifier (e.g. user id)."},
                     "subject": {"type": "string", "description": "Optional subject key (ticker, topic)."},
                     "query": {"type": "string", "description": "Search query (action=search)."},

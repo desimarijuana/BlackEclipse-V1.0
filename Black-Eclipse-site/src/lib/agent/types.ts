@@ -45,6 +45,12 @@ export interface ChatOptions {
    */
   chatId?: string;
   /**
+   * Opt this conversation into PRIVATE per-conversation long-term memory. Set
+   * by bot chats and group-room member turns, where each conversation keeps its
+   * own durable memory isolated from every other. Absent for ordinary chat.
+   */
+  memoryScope?: 'conversation';
+  /**
    * The model id the operator picked in the composer for THIS turn. Overrides
    * the saved model in the settings vault for the provider already configured
    * (the provider/key are unchanged). Absent = the saved model.

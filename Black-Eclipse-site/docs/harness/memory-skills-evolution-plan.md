@@ -1,7 +1,7 @@
 ---
 title: Harness — Memory & Skills Evolution Plan (Phase 0)
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 ---
 
 # Memory & Skills Evolution — Phase 0 Audit and Design
@@ -116,6 +116,7 @@ Facts/Session-History/Skills UI vocabulary.
 | Guided learn request | `harness/skills/learning.py` | `build_skill_from_source(source_kind, ...) -> inert draft + evidence` |
 | Learning journey graph | `harness/learning_graph.py` | `build_learning_journey()` → `{nodes[], edges[], stats}` derived from canonical rows |
 | Conflict review view | `eclipse_memory/service.py` | `explain_conflict(memory_id)` → competing records + recommendation |
+| Conversation owner resolver | `eclipse_memory/decision.py` | `resolve_owner_scope(scope, scope_id, *, user_id, conversation_id)` — routes a personal fact to the conversation bucket in a bot/group run; the additive `conversation` scope (ADR-044 / ADR-H194) |
 
 All new contracts are **inert by default**: a bundle cannot enable a disabled
 skill, a project skill is inert until trusted, and a learned draft cannot

@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Bots now keep PRIVATE per-conversation long-term memory.** A bot chat and
+  each group-room member turn own a durable-memory bucket keyed by the
+  conversation id (`bot-<id>` / `group-<gid>-<botid>`), isolated from every other
+  conversation/bot and from ordinary chat — the capability the Bots UI previously
+  declared unavailable. Implemented as an additive `conversation` scope on the
+  EXISTING `MemoryRecord` (no new database/table/column): a new
+  `decision.resolve_owner_scope` normalizes the owner at the ONE write gate, and
+  `retrieval._scope_authorized` lets a conversation read only its own bucket, the
+  signed-in user's own rows and `general`. Opt-in is explicit via
+  `memoryScope:'conversation'` → `RunRequest.conversationId`; ordinary chat is
+  unchanged. Scheduled bot runs bind the same `bot-<id>` bucket, `bot_delete`
+  archives it, and the bot Memory panel lists it with a "Forget this
+  conversation's memory" control. Tests:
+  `python/tests/test_memory_conversation.py` (+9). ADR-044 / ADR-H194.
+  docs updated: `docs/harness/{memory-skills-evolution-plan,memory-maturity-baseline,automation-engine,decisions}.md`,
+  `docs/DECISIONS.md`, `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
+
 - **Agent Workspace Context panel (right sidebar) shows its data properly.** Three
   fixes: (1) the panel body now scrolls, so the Context tab's gauge/stat
   grid/source list are no longer clipped by the docked column's

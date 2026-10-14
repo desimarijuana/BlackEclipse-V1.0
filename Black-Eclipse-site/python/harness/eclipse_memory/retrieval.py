@@ -199,6 +199,52 @@ def _parse_iso(stamp: str) -> float:
         return calendar.timegm(time.strptime(base, "%Y-%m-%dT%H:%M:%S"))
 
 
+def _scope_authorized(
+    memory: dict[str, Any], *,
+    actor_scope: Optional[str],
+    scope_id: Optional[str],
+    conversation_id: Optional[str],
+) -> tuple[bool, str]:
+    """Whether an actor may see one memory row — the authoritative isolation
+    filter, applied BEFORE ranking.
+
+    A ``conversation`` actor (a bot / group member) may see its OWN conversation
+    bucket, the signed-in user's own ``user`` rows (when a user is present) and
+    truly-global ``general`` knowledge. It may never see another conversation's
+    bucket. Outside a conversation the single-actor rules are unchanged.
+    """
+    scope = memory.get("scope")
+    owner = memory.get("scopeId")
+    if scope == "general":
+        return True, ""
+    if conversation_id is not None:
+        if scope == "conversation":
+            if owner == conversation_id:
+                return True, ""
+            return False, "another conversation's scope"
+        if scope == "user":
+            if scope_id is None:
+                if owner is not None:
+                    return False, "user scope not attributable"
+                return True, ""
+            if owner != scope_id:
+                return False, "another user's scope"
+            return True, ""
+        return False, f"scope {scope} not authorized"
+    if actor_scope and scope not in ("general", actor_scope):
+        return False, f"scope {scope} not authorized"
+    # Cross-user isolation: an actor scoped to a user may only see user-scoped
+    # rows owned by THAT user. A row owned by another user (or an unattributable
+    # user row when no scope_id was supplied) is never authorized.
+    if scope == "user":
+        if scope_id is None:
+            if owner is not None:
+                return False, "user scope not attributable"
+        elif owner != scope_id:
+            return False, "another user's scope"
+    return True, ""
+
+
 def retrieve_memories(
     store: EclipseMemoryStore,
     *,
@@ -213,6 +259,7 @@ def retrieve_memories(
     run_id: Optional[str] = None,
     include_proposed: bool = False,
     recall_denied_types: Optional[set[str]] = None,
+    conversation_id: Optional[str] = None,
 ) -> RetrievalResult:
     """Retrieve a bounded, ranked, provenance-carrying memory context.
 
@@ -234,29 +281,52 @@ def retrieve_memories(
         # If specific types requested, query per type; else query all.
         query_types: list[Optional[str]] = types if types else [None]
         seen: set[str] = set()
-        for memory_type in query_types:
-            for memory in store.list_memories(
-                memory_type=memory_type, scope=scope, scope_id=scope_id,
-                subject=subject, limit=200, include_inactive=True,
-            ):
-                if memory["id"] in seen:
-                    continue
-                seen.add(memory["id"])
-                candidates.append(memory)
-            # A user-scoped retrieval must ALSO consider truly-global `general`
-            # memories. `list_memories(scope_id=...)` filters `scopeId = ?`, and a
-            # general memory has no scopeId, so without this second query global
-            # memories would never be recalled for a signed-in user — contradicting
-            # the documented "that user's scope (plus truly-global general)".
-            if scope_id and scope is None:
+        if conversation_id is not None:
+            # A conversation-scoped run reads ONLY: its own private bucket, the
+            # signed-in user's own memories (when a user is present) and truly-
+            # global `general` knowledge. Another conversation's bucket is never a
+            # candidate. Scopes are queried explicitly so an unscoped fetch never
+            # drags in unrelated rows.
+            scope_jobs: list[tuple[str, Optional[str]]] = [
+                ("conversation", conversation_id),
+                ("general", None),
+            ]
+            if scope_id:
+                scope_jobs.append(("user", scope_id))
+            for memory_type in query_types:
+                for sc, sid in scope_jobs:
+                    for memory in store.list_memories(
+                        memory_type=memory_type, scope=sc, scope_id=sid,
+                        subject=subject, limit=200, include_inactive=True,
+                    ):
+                        if memory["id"] in seen:
+                            continue
+                        seen.add(memory["id"])
+                        candidates.append(memory)
+        else:
+            for memory_type in query_types:
                 for memory in store.list_memories(
-                    memory_type=memory_type, scope="general", scope_id=None,
+                    memory_type=memory_type, scope=scope, scope_id=scope_id,
                     subject=subject, limit=200, include_inactive=True,
                 ):
                     if memory["id"] in seen:
                         continue
                     seen.add(memory["id"])
                     candidates.append(memory)
+                # A user-scoped retrieval must ALSO consider truly-global `general`
+                # memories. `list_memories(scope_id=...)` filters `scopeId = ?`, and a
+                # general memory has no scopeId, so without this second query global
+                # memories would never be recalled for a signed-in user — contradicting
+                # the documented "that user's scope (plus truly-global general)".
+                if scope_id and scope is None:
+                    for memory in store.list_memories(
+                        memory_type=memory_type, scope="general", scope_id=None,
+                        subject=subject, limit=200, include_inactive=True,
+                    ):
+                        if memory["id"] in seen:
+                            continue
+                        seen.add(memory["id"])
+                        candidates.append(memory)
 
         diagnostics.candidates = len(candidates)
 
@@ -272,23 +342,13 @@ def retrieve_memories(
             if memory["status"] == "proposed" and not include_proposed:
                 diagnostics.excluded.append({"id": memory["id"], "reason": "proposed (needs review)"})
                 continue
-            if actor_scope and memory["scope"] not in ("general", actor_scope):
-                diagnostics.excluded.append({"id": memory["id"], "reason": f"scope {memory['scope']} not authorized"})
+            authorized, reason = _scope_authorized(
+                memory, actor_scope=actor_scope, scope_id=scope_id,
+                conversation_id=conversation_id,
+            )
+            if not authorized:
+                diagnostics.excluded.append({"id": memory["id"], "reason": reason})
                 continue
-            # Cross-user isolation: an actor scoped to a user may only see
-            # user-scoped rows owned by THAT user. A row owned by another user (or
-            # an unattributable user row when no scope_id was supplied) is never
-            # authorized. Without this, `actor_scope="user"` with no `scope_id`
-            # leaked every user's memories.
-            if memory["scope"] == "user":
-                owner = memory.get("scopeId")
-                if scope_id is None:
-                    if owner is not None:
-                        diagnostics.excluded.append({"id": memory["id"], "reason": "user scope not attributable"})
-                        continue
-                elif owner != scope_id:
-                    diagnostics.excluded.append({"id": memory["id"], "reason": "another user's scope"})
-                    continue
             if memory.get("expiresAt") and memory["expiresAt"] < _now():
                 diagnostics.excluded.append({"id": memory["id"], "reason": "expired"})
                 continue

@@ -52,6 +52,10 @@ export async function POST(request: Request) {
     const chatId = typeof (body as Record<string, unknown>).chatId === "string"
       ? ((body as Record<string, unknown>).chatId as string)
       : "";
+    // Bot chats and group-member turns opt into private per-conversation memory.
+    const memoryScope = (body as Record<string, unknown>).memoryScope === "conversation"
+      ? ("conversation" as const)
+      : undefined;
     const model = typeof (body as Record<string, unknown>).model === "string"
       ? ((body as Record<string, unknown>).model as string).trim()
       : "";
@@ -91,7 +95,7 @@ export async function POST(request: Request) {
     })();
 
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

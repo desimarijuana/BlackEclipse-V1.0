@@ -58,15 +58,33 @@ export async function listMemories(filters: {
   memoryType?: string;
   scope?: string;
   status?: string;
+  scopeId?: string;
   limit?: number;
 } = {}): Promise<MemoryRecord[]> {
   const params = new URLSearchParams();
   if (filters.memoryType) params.set("memoryType", filters.memoryType);
   if (filters.scope) params.set("scope", filters.scope);
   if (filters.status) params.set("status", filters.status);
+  if (filters.scopeId) params.set("scopeId", filters.scopeId);
   params.set("limit", String(filters.limit ?? 100));
   const body = await api<{ memories: MemoryRecord[] }>(`/api/eclipse-memory/memories?${params}`);
   return body.memories ?? [];
+}
+
+/**
+ * The durable memories one conversation owns (its private per-conversation
+ * bucket). Bots use this for their Memory panel.
+ */
+export async function listConversationMemories(conversationId: string, limit = 100): Promise<MemoryRecord[]> {
+  return listMemories({ scope: "conversation", scopeId: conversationId, limit });
+}
+
+/** Forget (archive) one conversation's private memory. Operator-gated. */
+export async function forgetConversation(conversationId: string) {
+  return api<{ success: boolean; archived: string[] }>(
+    `/api/eclipse-memory/conversations/${encodeURIComponent(conversationId)}/forget`,
+    { method: "POST", body: JSON.stringify({ operator: true }) }
+  );
 }
 
 export async function getMemory(memoryId: string): Promise<MemoryDetail | null> {

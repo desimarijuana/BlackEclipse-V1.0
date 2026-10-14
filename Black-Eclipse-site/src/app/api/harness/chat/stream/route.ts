@@ -51,6 +51,9 @@ export async function POST(request: Request) {
     : [];
 
   const chatId = typeof body.chatId === "string" ? body.chatId : "";
+  // Bot chats and group-member turns opt into private per-conversation memory.
+  // Only the one known value is honoured; anything else is ignored.
+  const memoryScope = body.memoryScope === "conversation" ? ("conversation" as const) : undefined;
   const model = typeof body.model === "string" ? body.model.trim() : "";
   const rawEffort = body.reasoningEffort;
   const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
@@ -84,7 +87,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

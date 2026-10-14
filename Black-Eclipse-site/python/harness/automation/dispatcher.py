@@ -106,6 +106,11 @@ class Dispatcher:
             runId=run_id,
             input=RunInput(query=(objective or definition.name)[:4000]),
             agentId=action.agent_id or "eclipse-agent",
+            # A bot is one long-lived conversation: its scheduled runs share the
+            # SAME private memory bucket as its interactive chat (`bot-<id>`), so
+            # what the bot learns running in the background is recalled when the
+            # user next talks to it — and never leaks into another bot or a chat.
+            conversationId=f"bot-{definition.id}",
             modelSettings=self._model_settings(),
             autonomy=action.autonomy,
             workspace=RunWorkspace(root=action.workspace_root) if action.workspace_root else None,
@@ -331,6 +336,7 @@ class Dispatcher:
             log=lambda *_: None,
             memory_store=self._service.store,
             memory_service=getattr(self._service, "memory", None),
+            conversation_id=f"bot-{definition.id}",
             skill_registry=getattr(self._service, "skill_registry", None),
             tool_registry=registry,
             bus=getattr(self._service, "bus", None),

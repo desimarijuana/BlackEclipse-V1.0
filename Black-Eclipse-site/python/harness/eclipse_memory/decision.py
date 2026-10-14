@@ -260,6 +260,33 @@ def _infer_scope(text: str) -> tuple[str, Optional[str]]:
     return _intent_scope(text)
 
 
+def resolve_owner_scope(
+    scope: str,
+    scope_id: Optional[str],
+    *,
+    user_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+) -> tuple[str, Optional[str]]:
+    """Resolve the durable-memory owner for a write.
+
+    A conversation-scoped run (a bot chat or a group-room member turn) has no
+    signed-in user, so a personal (``user``) fact belongs to that conversation's
+    PRIVATE bucket rather than an unattributable user row. An explicit
+    ``conversation`` scope requires a conversation id; without one it degrades to
+    the user/general owner so a stray request can never create an orphan bucket.
+    Outside a conversation the behaviour is unchanged.
+    """
+    if scope == "conversation":
+        if conversation_id:
+            return "conversation", conversation_id
+        return ("user", user_id) if user_id else ("general", None)
+    if scope == "user":
+        if conversation_id and not user_id:
+            return "conversation", conversation_id
+        return "user", (scope_id or user_id)
+    return scope, scope_id
+
+
 # ── The gate ────────────────────────────────────────────────────────────────
 
 
@@ -272,6 +299,7 @@ def decide_turn(
     recently_dismissed: bool = False,
     recurring: bool = False,
     is_skill_run: bool = False,
+    conversation_id: Optional[str] = None,
 ) -> MemoryDecision:
     """Authorize the memory disposition of one user turn.
 
@@ -389,12 +417,14 @@ def decide_turn(
     return _decide_incidental(
         text, user_id=user_id, settings=settings,
         recently_dismissed=recently_dismissed, recurring=recurring,
+        conversation_id=conversation_id,
     )
 
 
 def _decide_incidental(
     text: str, *, user_id: Optional[str], settings: dict[str, Any],
     recently_dismissed: bool, recurring: bool,
+    conversation_id: Optional[str] = None,
 ) -> MemoryDecision:
     """A casual statement: usually history-only or ignore; under
     ``automatic_selective`` a strong, low-risk fact may save without asking."""
@@ -443,7 +473,10 @@ def _decide_incidental(
     memory_type = _classify_type(text)
     if memory_type == "preference" and scope == "general":
         scope = "user"
-    scope_id = user_id if scope == "user" else None
+    scope, scope_id = resolve_owner_scope(
+        scope, user_id if scope == "user" else None,
+        user_id=user_id, conversation_id=conversation_id,
+    )
 
     if mode == "ask_before_saving":
         return MemoryDecision(
@@ -457,11 +490,14 @@ def _decide_incidental(
     # prompt. A direct user preference qualifies on first statement; a
     # project-specific convention additionally requires recurrence.
     if direct_preference:
+        pref_scope, pref_sid = resolve_owner_scope(
+            "user", user_id, user_id=user_id, conversation_id=conversation_id,
+        )
         return MemoryDecision(
             outcome="save", action="save",
             reason="high-confidence, low-risk user preference — saved automatically",
-            content=text, memory_type="preference", scope="user",
-            scope_id=user_id, subject=subject, confidence=0.75, importance=0.6,
+            content=text, memory_type="preference", scope=pref_scope,
+            scope_id=pref_sid, subject=subject, confidence=0.75, importance=0.6,
             provenance="explicit_user",
             metadata={"automatic": True, "evidence": "direct user preference"},
         )
@@ -494,6 +530,7 @@ def authorize_proposal(
     settings: Optional[dict[str, Any]] = None,
     evidence: Optional[dict[str, Any]] = None,
     verified: bool = False,
+    conversation_id: Optional[str] = None,
 ) -> MemoryDecision:
     """Validate a proposed write (the model `memory` tool, a UI save, analysis).
 
@@ -542,10 +579,13 @@ def authorize_proposal(
         memory_type = "semantic"
     if memory_type == "preference" and scope == "general":
         scope = "user"
-    if scope not in ("general", "user", "market", "task"):
+    if scope not in ("general", "user", "market", "task", "conversation"):
         scope = "general"
     if scope == "user":
         scope_id = scope_id or user_id
+    scope, scope_id = resolve_owner_scope(
+        scope, scope_id, user_id=user_id, conversation_id=conversation_id,
+    )
 
     # Operator/UI saves are an explicit human action: authorize as save once the
     # content passed the safety guards above. A correction recorded through the

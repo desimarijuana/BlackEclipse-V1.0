@@ -75,12 +75,29 @@ def eclipse_memory_overview() -> dict[str, Any]:
 def list_memories(
     memoryType: Optional[str] = None, scope: Optional[str] = None,
     status: Optional[str] = None, subject: Optional[str] = None,
-    source: Optional[str] = None, limit: int = 100,
+    source: Optional[str] = None, scopeId: Optional[str] = None, limit: int = 100,
 ) -> dict[str, Any]:
     return {"success": True, "memories": service.memory_store.list_memories(
-        memory_type=memoryType, scope=scope, status=status, subject=subject,
+        memory_type=memoryType, scope=scope, scope_id=scopeId, status=status, subject=subject,
         source=source, limit=limit, include_inactive=True,
     )}
+
+
+@router.post("/eclipse-memory/conversations/{conversation_id}/forget")
+def forget_conversation(
+    conversation_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Forget (archive) one conversation's PRIVATE memory. Operator-gated.
+
+    Never hard-deletes: the records become inert and unrecallable. Used by the
+    bot Memory panel and by bot deletion.
+    """
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="forgetting a conversation requires an authorized operator")
+    return {"success": True, **service.memory.forget_conversation(conversation_id)}
 
 
 @router.get("/eclipse-memory/memories/{memory_id}")

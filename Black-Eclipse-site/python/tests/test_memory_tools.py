@@ -351,10 +351,15 @@ def test_prompt_char_ceiling():
     the live vocabulary — one clause, a genuinely missing piece of output
     guidance (`icons` silently rendered as a neutral dot). Re-pinned to the
     measured size; it may only shrink from here.
+
+    Raised to 29643 by the branching `flow` response block: the guidance
+    distinguishes a LINEAR `workflow` from a BRANCHING `flow` and points
+    flowchart/state-graph requests at the native `diagram`/`node_graph` blocks
+    instead of Mermaid. Re-pinned to the measured size; it may only shrink from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 29252, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 29643, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

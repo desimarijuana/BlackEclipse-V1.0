@@ -59,6 +59,7 @@ async def _memory_context(
             subject=request.input.ticker,
             actor_scope="user" if request.userId else None,
             scope_id=request.userId,
+            conversation_id=getattr(request, "conversationId", None),
             run_id=request.runId,
             limit=8,
         )
@@ -227,6 +228,7 @@ async def _apply_memory_intent(
             user_id=request.userId,
             recurring=recurring,
             is_skill_run=False,
+            conversation_id=getattr(request, "conversationId", None),
         )
     except Exception as exc:  # noqa: BLE001 - memory must never break a run
         try:
@@ -248,7 +250,8 @@ async def _apply_memory_intent(
 
     try:
         outcome = memory_service.commit_decision(
-            decision, run_id=request.runId, user_id=request.userId
+            decision, run_id=request.runId, user_id=request.userId,
+            conversation_id=getattr(request, "conversationId", None),
         )
     except Exception as exc:  # noqa: BLE001 - memory must never break a run
         try:

@@ -186,6 +186,9 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           undefined,
           {
             chatId: `group-${group.id}-${bot.id}`,
+            // Each member keeps its own PRIVATE per-conversation memory (this
+            // room + bot), isolated from every other room and bot.
+            memoryScope: 'conversation' as const,
             signal: controller.signal,
             onDelta: (chunk) => {
               streamed += chunk;

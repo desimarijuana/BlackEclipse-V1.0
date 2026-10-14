@@ -655,6 +655,7 @@ class EclipseMemoryService:
         limit: Optional[int] = None,
         run_id: Optional[str] = None,
         include_proposed: Optional[bool] = None,
+        conversation_id: Optional[str] = None,
     ) -> RetrievalResult:
         # Policy supplies the defaults; an explicit caller value still wins.
         # A policy read failure must not crash retrieval â€” fall back to safe
@@ -678,6 +679,7 @@ class EclipseMemoryService:
             include_proposed=include_proposed if include_proposed is not None
             else settings["include_proposed_in_retrieval"],
             recall_denied_types=denied or None,
+            conversation_id=conversation_id,
         )
 
     # â”€â”€ Compact prompt profile (materialized projection) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -780,6 +782,7 @@ class EclipseMemoryService:
         user_id: Optional[str] = None,
         recurring: bool = False,
         is_skill_run: bool = False,
+        conversation_id: Optional[str] = None,
     ) -> Any:
         """Run the shared decision gate for one user turn.
 
@@ -817,6 +820,7 @@ class EclipseMemoryService:
             user_text, user_id=user_id, settings=settings,
             has_prior_memory=prior, recently_dismissed=recently_dismissed,
             recurring=recurring, is_skill_run=is_skill_run,
+            conversation_id=conversation_id,
         )
         # Record this occurrence (after the decision) so the NEXT occurrence
         # counts as recurrence. Only durable-sounding turns are recorded, keeping
@@ -946,6 +950,7 @@ class EclipseMemoryService:
         *,
         run_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Persist (or act on) a detected explicit user intent.
 
@@ -962,6 +967,7 @@ class EclipseMemoryService:
           * refused/confirm â†’ `{action: "refused"|"needs_confirmation", ...}`
         """
         from .intent import MemoryIntent
+        from .decision import resolve_owner_scope  # noqa: PLC0415
 
         if isinstance(intent, dict):
             intent = MemoryIntent(
@@ -997,12 +1003,14 @@ class EclipseMemoryService:
                 "reason": intent.reason, "intent": intent.to_dict(),
             }
 
-        scope_id = intent.scope_id or (user_id if intent.scope == "user" else None)
+        scope, scope_id = resolve_owner_scope(
+            intent.scope, intent.scope_id, user_id=user_id, conversation_id=conversation_id,
+        )
 
         if intent.action == "save":
             memory = self.write_memory(
                 memory_type=intent.memory_type, content=intent.content,
-                source="explicit_user", scope=intent.scope, scope_id=scope_id,
+                source="explicit_user", scope=scope, scope_id=scope_id,
                 subject=intent.subject, source_run_id=run_id,
                 confidence=intent.confidence,
                 verification="unverified", created_by=user_id or "user",
@@ -1028,7 +1036,7 @@ class EclipseMemoryService:
             return {"ok": True, "action": "saved", "memory": memory}
 
         if intent.action == "correct":
-            target, ambiguous = self._resolve_target(intent, scope_id)
+            target, ambiguous = self._resolve_target(intent, scope_id, conversation_id=conversation_id)
             if ambiguous:
                 return {
                     "ok": False, "action": "needs_clarification",
@@ -1040,7 +1048,7 @@ class EclipseMemoryService:
                 or (target["content"] if target else ""),
                 correction=intent.content,
                 subject=intent.subject, run_id=run_id,
-                provided_by=user_id or "user", scope=intent.scope,
+                provided_by=user_id or "user", scope=scope,
                 generalizable=intent.generalizable,
             )
             if target:
@@ -1050,7 +1058,7 @@ class EclipseMemoryService:
                     "superseded": target["id"] if target else None}
 
         if intent.action == "forget":
-            outcome = self._forget_matching(intent, scope_id, run_id=run_id)
+            outcome = self._forget_matching(intent, scope_id, run_id=run_id, conversation_id=conversation_id)
             return outcome
 
         return {"ok": False, "action": "unsupported", "reason": f"unknown action {intent.action!r}"}
@@ -1061,6 +1069,7 @@ class EclipseMemoryService:
         *,
         run_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """The ONE write entry point for a `MemoryDecision`.
 
@@ -1069,6 +1078,22 @@ class EclipseMemoryService:
         and ``ignore`` write nothing and return an honest outcome. Corrections
         and forgets preserve history (supersede/archive), never hard-delete.
         """
+        # Resolve the owner: in a conversation-scoped run (a bot / group member
+        # with no signed-in user) a personal fact belongs to that conversation's
+        # private bucket, not an unattributable user row. This is the single
+        # normalization point; both the deterministic-turn and model-proposal
+        # paths pass through here.
+        from dataclasses import replace  # noqa: PLC0415
+
+        from .decision import resolve_owner_scope  # noqa: PLC0415
+
+        if getattr(decision, "scope", None):
+            owner_scope, owner_id = resolve_owner_scope(
+                decision.scope, decision.scope_id,
+                user_id=user_id, conversation_id=conversation_id,
+            )
+            if (owner_scope, owner_id) != (decision.scope, decision.scope_id):
+                decision = replace(decision, scope=owner_scope, scope_id=owner_id)
         if decision.outcome == "ignore":
             if decision.refused:
                 self.store.append_memory_event(
@@ -1095,7 +1120,9 @@ class EclipseMemoryService:
         # outcome == "save"
         intent = _decision_to_intent(decision)
         try:
-            return self.apply_explicit_intent(intent, run_id=run_id, user_id=user_id)
+            return self.apply_explicit_intent(
+                intent, run_id=run_id, user_id=user_id, conversation_id=conversation_id,
+            )
         except MemoryFullError as exc:
             self.store.append_memory_event(
                 "memory.budget_full", run_id=run_id,
@@ -1119,7 +1146,7 @@ class EclipseMemoryService:
             }
 
     def _resolve_target(
-        self, intent: Any, scope_id: Optional[str]
+        self, intent: Any, scope_id: Optional[str], *, conversation_id: Optional[str] = None,
     ) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
         """Resolve the single memory a correct/forget request targets.
 
@@ -1129,7 +1156,9 @@ class EclipseMemoryService:
         """
         result = self.retrieve(
             query=intent.content, subject=intent.subject,
-            scope_id=scope_id, actor_scope="user" if scope_id else None,
+            scope_id=scope_id,
+            actor_scope=None if conversation_id else ("user" if scope_id else None),
+            conversation_id=conversation_id,
             limit=5, run_id=None,
         )
         if not result.memories:
@@ -1144,7 +1173,8 @@ class EclipseMemoryService:
         return result.memories[0], []
 
     def _forget_matching(
-        self, intent: Any, scope_id: Optional[str], *, run_id: Optional[str]
+        self, intent: Any, scope_id: Optional[str], *, run_id: Optional[str],
+        conversation_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Archive the single memory a forget request targets (never hard-delete).
 
@@ -1155,7 +1185,7 @@ class EclipseMemoryService:
         if not query:
             return {"ok": False, "action": "needs_clarification",
                     "reason": "no memory target was specified"}
-        target, ambiguous = self._resolve_target(intent, scope_id)
+        target, ambiguous = self._resolve_target(intent, scope_id, conversation_id=conversation_id)
         if ambiguous:
             return {
                 "ok": False, "action": "needs_clarification",
@@ -1170,6 +1200,31 @@ class EclipseMemoryService:
             data={"query": query[:200]},
         )
         return {"ok": True, "action": "forgotten", "archived": [target["id"]]}
+
+    def forget_conversation(
+        self, conversation_id: str, *, status: str = "archived", reason: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Archive every active memory owned by one conversation (never deletes).
+
+        Used to purge a conversation's private memory (e.g. when its bot is
+        deleted) and by the explicit "Forget this conversation" control. History
+        is retained; the records simply become inert and unrecallable.
+        """
+        if not conversation_id:
+            return {"ok": False, "reason": "a conversation id is required", "archived": []}
+        rows = self.store.list_memories(
+            scope="conversation", scope_id=conversation_id,
+            limit=500, include_inactive=False,
+        )
+        archived: list[str] = []
+        for row in rows:
+            if self.store.archive_memory(row["id"], status=status, reason=reason) is not None:
+                archived.append(row["id"])
+        self.store.append_memory_event(
+            "memory.conversation_forgotten",
+            data={"conversationId": conversation_id, "archived": len(archived)},
+        )
+        return {"ok": True, "conversationId": conversation_id, "archived": archived}
 
     # â”€â”€ Post-run analysis (policy-gated, deterministic, never auto-enables) â”€â”€
 

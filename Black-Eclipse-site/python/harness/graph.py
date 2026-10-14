@@ -487,6 +487,9 @@ def build_graph(
         log=lambda m, d=None: None,
         user_id=request.userId,
         tenant_id=request.tenantId,
+        # Private per-conversation memory (bot chats / group members). Absent for
+        # ordinary chat, where memory scoping is unchanged.
+        conversation_id=getattr(request, "conversationId", None),
         user_message=request.input.query,
         # A skill run is composed with an agent id of the form `skill:<id>`; its
         # memory saves carry execution-lesson provenance, not explicit-user.

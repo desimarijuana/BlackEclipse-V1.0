@@ -247,7 +247,20 @@ async def _delete(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
     ok = service.delete(bot_id)
     if not ok:
         return f"No bot {bot_id!r}.", {"deleted": False}
-    return _dumps({"deleted": True, "botId": bot_id}), {"deleted": True, "botId": bot_id}
+    # Privacy: deleting a bot also forgets its PRIVATE conversation memory (the
+    # `bot-<id>` bucket), archived rather than hard-deleted. Best-effort — a purge
+    # failure never blocks the delete and is reported honestly.
+    purged = 0
+    memory = getattr(service, "memory", None)
+    if memory is not None:
+        try:
+            purged = len(memory.forget_conversation(f"bot-{bot_id}").get("archived") or [])
+        except Exception:  # noqa: BLE001 - a purge failure must not fail the delete
+            purged = 0
+    return (
+        _dumps({"deleted": True, "botId": bot_id, "memoryPurged": purged}),
+        {"deleted": True, "botId": bot_id, "memoryPurged": purged},
+    )
 
 
 async def _status(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
