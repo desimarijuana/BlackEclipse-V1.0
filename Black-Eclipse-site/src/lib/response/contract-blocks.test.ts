@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseResponsePayload, validateBlock, RESPONSE_LIMITS } from './contract';
-import { RESPONSE_ICONS, isResponseIconKey, resolveResponseIcon } from './icons';
+import { RESPONSE_ICONS, isResponseIconKey, resolveResponseIcon, canonicalIconKey } from './icons';
 
 describe('response block aliases', () => {
   it('maps `text` (+ content) to a markdown block', () => {
@@ -759,6 +759,89 @@ describe('icon registry', () => {
   it('allowlists the workflow icon vocabulary', () => {
     for (const key of ['workflow', 'radio', 'brain-circuit', 'combined-chart', 'cpu', 'server', 'gears']) {
       expect(isResponseIconKey(key)).toBe(true);
+    }
+  });
+});
+
+describe('icon key canonicalization', () => {
+  it('resolves case/separator spellings to the canonical key', () => {
+    expect(canonicalIconKey('TrendUp')).toBe('trend-up');
+    expect(canonicalIconKey('trend_up')).toBe('trend-up');
+    expect(canonicalIconKey('TREND UP')).toBe('trend-up');
+    expect(canonicalIconKey('ph-chart')).toBe('chart');
+    expect(canonicalIconKey('brainCircuit')).toBe('brain-circuit');
+  });
+
+  it('maps common synonyms and emoji to a key', () => {
+    expect(canonicalIconKey('graph')).toBe('chart');
+    expect(canonicalIconKey('money')).toBe('dollar');
+    expect(canonicalIconKey('alert')).toBe('warning');
+    expect(canonicalIconKey('📈')).toBe('trend-up');
+    expect(canonicalIconKey('⚠️')).toBe('warning');
+  });
+
+  it('keeps unknown strings as-is and drops non-strings', () => {
+    expect(canonicalIconKey('not-a-real-icon')).toBe('not-a-real-icon');
+    expect(canonicalIconKey(42)).toBeUndefined();
+    expect(canonicalIconKey({ name: 'chart' })).toBeUndefined();
+    expect(canonicalIconKey('  ')).toBeUndefined();
+  });
+
+  it('normalizes icons before validation for every icon-bearing block', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'infographic',
+          cards: [
+            { icon: 'TrendUp', label: 'Return', value: 12.4 },
+            { icon: 42, label: 'Sharpe', value: 1.8 },
+          ],
+        },
+        { type: 'ranked_list', items: [{ label: 'A', value: 1, icon: '📊' }] },
+        { type: 'badge_row', badges: [{ label: 'AI', icon: 'brainCircuit' }] },
+        { type: 'workflow', stages: [{ title: 'Fetch', icon: 'trend_up' }] },
+        { type: 'stat_hero', stats: [{ label: 'AUM', value: 1, icon: '💰' }] },
+        { type: 'action_group', actions: [{ id: 'a1', label: 'Do', prompt: 'do it', icon: 'settings' }] },
+      ],
+    });
+    // Every block still validates — a bad icon costs the glyph, never the block.
+    expect(parsed.diagnostics).toHaveLength(0);
+    expect(parsed.blocks.map((b) => b.type)).toEqual([
+      'infographic', 'ranked_list', 'badge_row', 'workflow', 'stat_hero', 'action_group',
+    ]);
+    const info = parsed.blocks[0];
+    if (info.type === 'infographic') {
+      expect(info.cards[0].icon).toBe('trend-up');
+      expect(info.cards[1].icon).toBeUndefined();
+    }
+    const ranked = parsed.blocks[1];
+    if (ranked.type === 'ranked_list') expect(ranked.items[0].icon).toBe('chart');
+    const badges = parsed.blocks[2];
+    if (badges.type === 'badge_row') expect(badges.badges[0].icon).toBe('brain-circuit');
+    const flow = parsed.blocks[3];
+    if (flow.type === 'workflow') expect(flow.stages[0].icon).toBe('trend-up');
+    const hero = parsed.blocks[4];
+    if (hero.type === 'stat_hero') expect(hero.stats[0].icon).toBe('dollar');
+    const actions = parsed.blocks[5];
+    if (actions.type === 'action_group') expect(actions.actions[0].icon).toBe('gears');
+  });
+
+  it('normalizes icons inside nested blocks too', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'report',
+          sections: [
+            { heading: 'S', blocks: [{ type: 'ranked_list', items: [{ label: 'A', value: 1, icon: 'TrendUp' }] }] },
+          ],
+        },
+      ],
+    });
+    const report = parsed.blocks[0];
+    if (report.type === 'report') {
+      const nested = (report.sections[0].blocks as { type: string; items?: { icon?: string }[] }[])[0];
+      expect(nested?.type).toBe('ranked_list');
+      if (nested?.type === 'ranked_list') expect(nested.items?.[0]?.icon).toBe('trend-up');
     }
   });
 });

@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { destinationToHref } from '@/lib/search/deep-link';
+import { useNotificationsStore, unreadCountsByTab, totalUnread } from '@/lib/notifications/store';
 import { useT, navLabelKey } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
@@ -108,6 +109,24 @@ export function Sidebar({
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
+  // Red unread badges, fed by the notification center (price alerts, agent
+  // approvals, finished background tasks). Counts key by the owning AppTab.
+  const notificationItems = useNotificationsStore((s) => s.items);
+  const unreadByTab = useMemo(() => unreadCountsByTab(notificationItems), [notificationItems]);
+
+  // Unread belonging to tabs the CURRENT mode does not list (e.g. Agentic
+  // items while in Terminal mode) is surfaced on the menu switcher so it is
+  // not invisible. Bots mode lists no static nav, so every item counts.
+  const hiddenUnread = useMemo(() => {
+    if (navMode === 'bots') return totalUnread(notificationItems);
+    let total = 0;
+    for (const def of DEFAULT_SIDEBAR_SECTIONS) {
+      if (def.group === 'both' || def.group === navMode) continue;
+      total += unreadByTab[def.id] ?? 0;
+    }
+    return total;
+  }, [navMode, notificationItems, unreadByTab]);
+
   // Keep the switcher in sync with programmatic navigation: opening a Terminal
   // screen (command palette, deep link, cross-screen CTA) shows the Terminal
   // menu, and likewise for Agentic. ChatBot is shared and never forces a switch.
@@ -123,6 +142,15 @@ export function Sidebar({
     const mode = modeForTab(activeTab);
     if (mode) setNavMode(mode);
   }, [activeTab, setNavMode]);
+
+  // Track the visible tab in the notification center: opening a tab clears its
+  // red badge, and a notification raised for the visible tab never badges (it
+  // is already in front of the operator). The sidebar stays mounted for the
+  // whole SPA session (even `hidden`, its hooks still run), so this is the
+  // shell's single visible-tab signal.
+  useEffect(() => {
+    useNotificationsStore.getState().setActiveTab(activeTab);
+  }, [activeTab]);
 
   const handleSelectChat = (id: string) => {
     onSelectConversation(id);
@@ -213,7 +241,17 @@ export function Sidebar({
                 <ActiveModeIcon size={14} className="shrink-0" />
                 <span className="truncate">{t(activeMode.labelKey)}</span>
               </span>
-              <ChevronDown size={14} className="shrink-0 opacity-70" />
+              <span className="flex items-center gap-2 shrink-0">
+                {hiddenUnread > 0 && (
+                  <span
+                    title="Unread notifications in other menus"
+                    className="flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white"
+                  >
+                    {hiddenUnread > 9 ? '9+' : hiddenUnread}
+                  </span>
+                )}
+                <ChevronDown size={14} className="shrink-0 opacity-70" />
+              </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-(--anchor-width)">
               {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
@@ -271,6 +309,7 @@ export function Sidebar({
           {navItems.map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
+            const unreadCount = unreadByTab[tab.id] ?? 0;
 
             return (
               <a
@@ -284,17 +323,32 @@ export function Sidebar({
                   e.preventDefault();
                   handleTabClick(tab.id);
                 }}
-                title={isCollapsed ? (tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label) : undefined}
+                title={isCollapsed
+                  ? `${tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
+                  : undefined}
                 className={`h-9 flex items-center px-3.5 py-2 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden no-underline ${
                   isSelected
                     ? 'rounded-xl bg-white/[0.08] text-foreground border-border/30'
                     : 'rounded-none bg-transparent text-muted-foreground hover:rounded-xl hover:bg-accent/40 hover:text-foreground border-transparent'
                 } ${isCollapsed ? 'justify-center w-10 px-0 gap-0' : 'justify-start w-full gap-3'}`}
               >
-                <Icon size={16} className="shrink-0 transition-colors duration-300" />
+                <span className="relative shrink-0 flex items-center justify-center">
+                  <Icon size={16} className="transition-colors duration-300" />
+                  {unreadCount > 0 && isCollapsed && (
+                    <span className="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-background" />
+                  )}
+                </span>
                 <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden flex-1 text-left ${
                   isCollapsed ? 'opacity-0 -translate-x-2 w-0' : 'opacity-100 translate-x-0 w-auto'
                 }`}>{tab.label}</span>
+                {unreadCount > 0 && !isCollapsed && (
+                  <span
+                    title={`${unreadCount} unread`}
+                    className="shrink-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white"
+                  >
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
                 {tab.shortcut && !isCollapsed && (
                   <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
                     isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'

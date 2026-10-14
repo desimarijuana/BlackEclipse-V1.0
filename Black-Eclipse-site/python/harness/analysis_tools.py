@@ -206,6 +206,19 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         )
     except Exception:  # noqa: BLE001
         pass
+    # Phase 19: verify what was produced — the recorded reference is an
+    # OBSERVATION, never a claim. The records ride the run's ledger so a sentence
+    # about the artifact is backed or marked UNVERIFIED. Best-effort; never fails
+    # the analysis.
+    ledger = getattr(ctx, "code_ledger", None)
+    if ledger is not None and result.artifacts:
+        try:
+            from .code.verify import verify_artifacts  # noqa: PLC0415
+
+            for record in verify_artifacts(result.artifacts, output_dir, None):
+                ledger.record_artifact(record)
+        except Exception:  # noqa: BLE001
+            pass
     await emit_code_event(ctx, "analysis.completed", {
         "status": result.status, "code": result.code,
         "artifacts": len(result.artifacts),

@@ -283,6 +283,7 @@ export function SoundSettingsPanel() {
         <div className="flex items-center justify-between gap-3 pt-1">
           <p className="text-[10px] text-muted-foreground/70">
             Sounds play only after your first interaction — never on hover, typing or live price updates.
+            Critical alarms (Task done) also play while UI sounds are off — mute that cue below to silence it.
           </p>
           <Button
             variant="outline"

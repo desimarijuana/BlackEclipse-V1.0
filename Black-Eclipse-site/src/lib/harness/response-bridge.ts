@@ -2,15 +2,22 @@
 // Exposes the Interactive Response Engine's block contract to the Python runtime
 // through the read-only data bridge, so the model can do what it could not before:
 //   * `op: "schema"`   — the EXACT field names for every block type, derived LIVE
-//                        from the zod contract (single source of truth; no copy).
+//                        from the zod contract (single source of truth; no copy),
+//                        plus the live icon-key vocabulary (`iconKeys`) for the
+//                        semantic `icon` fields.
 //   * `op: "validate"` — validate a drafted answer/fence BEFORE emitting it and get
 //                        per-block errors back (the read-back for the response format).
 //
 // Read-only and pure: it parses the caller's text with the SAME parser the chat
 // renderer uses. Nothing here executes, fetches or persists anything.
+//
+// SERVER-SAFE imports only: the icon vocabulary comes from
+// `@/lib/response/icon-vocabulary` (pure data), NOT `./icons` (client React
+// icon set) — the latter crashes this route under the react-server condition.
 
 import { parseResponsePayload, ResponseBlockSchema } from "@/lib/response/contract";
 import { splitResponseSegments } from "@/lib/response/parse";
+import { RESPONSE_ICON_KEYS } from "@/lib/response/icon-vocabulary";
 import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
 
 const MAX_VALIDATE_CHARS = 200_000;
@@ -106,6 +113,9 @@ export async function responseContractCapability(
       status: "OK",
       op,
       blocks: wanted ? blocks.filter((b) => b.type === wanted) : blocks,
+      // The live icon vocabulary for every `icon` field, derived from the same
+      // registry the renderer resolves against (cannot drift from it).
+      iconKeys: [...RESPONSE_ICON_KEYS],
     };
   }
 

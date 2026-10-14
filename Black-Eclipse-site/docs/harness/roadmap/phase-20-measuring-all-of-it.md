@@ -1,13 +1,31 @@
 ---
 title: "Phase 20 — Measuring All of It"
-status: Not started
+status: In progress
 phase: 20
 depends_on: [13, 14, 15, 16, 17, 18, 19]
 unlocks: []
-last-verified: 2026-10-02
+last-verified: 2026-10-13
 ---
 
 # Phase 20 — Measuring All of It
+
+> **Progress (2026-10-13) — first slice shipped under ADR-H193.** Landed:
+> `python/harness/code/eval/capabilities.py` (the capability-class registry —
+> 17 classes incl. the four published as `not measured yet` WITH reasons; the
+> runner grading through the REAL modules: 4 in-module fixtures over
+> `harness.acquire.budget`/`harness.automation.delivery`/`harness.code.verify`/
+> `harness.code.review`, named `pytest:`/`vitest:` test selectors for document
+> attachment + figure provenance, and the seven code shapes' fixture ids checked
+> against the labelled dataset; `MEASURED_BASELINE` + `check_capability_floors`),
+> the generated statement's "Every capability class" section (incl. the
+> published unmeasured count) with a real fix to the generator's repo-root
+> constant, and the named `capability-class gate` step in `scripts/test-evals.js`
+> (`PASS measured=13 unmeasured=4`). Tests:
+> `python/tests/test_capability_classes.py` (7). **Remaining (not started):**
+> labelled fixtures for `price_authority` and `promotion` (today honestly
+> unmeasured), the bootstrap/Monte-Carlo rule fixture, the adversarial safety
+> cases for the new power in `code/eval/safety_cases.py`, and per-class
+> threshold tables beyond the all-or-nothing floor.
 
 | | |
 |---|---|

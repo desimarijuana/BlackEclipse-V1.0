@@ -49,6 +49,11 @@ CATEGORIES = (
     "unbounded_retry",              # repair attempts exceeded the configured bound
     "protected_path_write_attempt", # a write to a PROTECTED_PATHS entry was refused
     "sandbox_unavailable",          # a check could not run (honest refusal)
+    # Phase 19 (artifact + change verification). Each carries evidence.
+    "artifact_missing",             # a produced artifact was not where it was reported
+    "artifact_digest_mismatch",     # the reported digest does not match the file
+    "unreachable_module",           # a new module nothing imports
+    "unstated_limitation",          # a limitation that existed and was not reported
 )
 
 _SEVERITY = {
@@ -67,6 +72,10 @@ _SEVERITY = {
     "check_run_failed_ignored": "high",
     "scope_violation": "high",
     "protected_path_write_attempt": "high",
+    "artifact_missing": "high",
+    "artifact_digest_mismatch": "high",
+    "unreachable_module": "low",
+    "unstated_limitation": "medium",
     "unbounded_retry": "medium",
     "sandbox_unavailable": "medium",
 }

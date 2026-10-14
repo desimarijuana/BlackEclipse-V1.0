@@ -286,6 +286,17 @@ def _call(registry, name, args, ctx):
     return asyncio.run(registry.execute(name, f"call_{name}", args, ctx))
 
 
+def test_search_text_summary_names_the_match_mode_and_guards_zero(tmp_path):
+    registry, ctx = _ctx(tree(tmp_path))
+    result = _call(registry, "search_text", {"query": "badge_row|infographic"}, ctx)
+    assert result.ok
+    # A LITERAL alternation matches nothing; the summary must say so plainly so
+    # "0 match(es)" is never read as "this code does not exist" (TOOL-1).
+    assert "0 match(es)" in result.text
+    assert "literal" in result.text
+    assert "regex: true" in result.text
+
+
 def test_registry_registers_all_fs_tools(tmp_path):
     registry, _ctx_unused = _ctx(tree(tmp_path))
     names = set(registry.names())

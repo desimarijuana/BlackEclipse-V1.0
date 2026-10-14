@@ -173,6 +173,11 @@ class AnalysisRequest(BaseModel):
     inputs: list[AnalysisInput] = Field(default_factory=list)
     purpose: str = Field(..., min_length=1, max_length=300)
     timeout_s: int = Field(DEFAULT_TIMEOUT_S, ge=1, le=600)
+    # Phase 18 (additive): extra top-level modules a DECLARED recipe needs (e.g.
+    # the figure recipe's `io` + `matplotlib`). A caller cannot set this freely —
+    # it comes from the recipe table, never from the model. The AST allowlist
+    # stays the boundary; this only widens it by a NAMED, reviewed set.
+    extra_imports: tuple[str, ...] = ()
 
 
 class ArtifactRef(BaseModel):
@@ -244,7 +249,7 @@ _FORBIDDEN_CALL_NAMES = frozenset((
 ))
 
 
-def check_imports(source: str) -> list[str]:
+def check_imports(source: str, extra_allowlist: tuple[str, ...] = ()) -> list[str]:
     """Walk the source's imports with ``ast``; return what is NOT allowed.
 
     A syntax error raises ``AnalysisError(SOURCE_INVALID)``. Beyond the module
@@ -253,24 +258,29 @@ def check_imports(source: str) -> list[str]:
     (``__class__``/``__globals__``/``__subclasses__`` escape chains), the bare
     name ``__builtins__``, and http(s) URL literals (which would let an allowed
     module like pandas fetch over the network).
+
+    `extra_allowlist` widens the module set by a NAMED, reviewed tuple (the
+    declared recipe's needs, e.g. the figure recipe's `io` + `matplotlib`).
+    Every other rule — reflection, dunders, URL literals — still applies.
     """
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise AnalysisError(SOURCE_INVALID, f"the analysis could not be read: {exc}") from exc
+    allowed = frozenset(IMPORT_ALLOWLIST) | frozenset(extra_allowlist or ())
     offenders: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top = alias.name.split(".")[0]
-                if top not in IMPORT_ALLOWLIST:
+                if top not in allowed:
                     offenders.append(top)
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.module is None:
                 offenders.append("<relative>")
             elif node.module:
                 top = node.module.split(".")[0]
-                if top not in IMPORT_ALLOWLIST:
+                if top not in allowed:
                     offenders.append(top)
         elif isinstance(node, ast.Call):
             func = node.func
@@ -370,11 +380,16 @@ def _load_inputs(path):
 
 def _write_artifact(name, data):
     # The ONLY way user code writes a deliverable: into the run's declared
-    # `output/` folder. The name is sanitised to a bare filename.
+    # `output/` folder. The name is sanitised to a bare filename. Bytes (a
+    # rendered figure) are written verbatim; anything else is text/JSON.
     safe = os.path.basename(str(name))
     if not safe:
         return None
     path = os.path.join("output", safe)
+    if isinstance(data, (bytes, bytearray)):
+        with open(path, "wb") as handle:
+            handle.write(bytes(data))
+        return safe
     text = data if isinstance(data, str) else json.dumps(data, default=str)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(text)
@@ -414,7 +429,7 @@ def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None)
     source_digest = _digest_text(request.source)
 
     # 1. Import allowlist (AST).
-    offenders = check_imports(request.source)
+    offenders = check_imports(request.source, tuple(request.extra_imports))
     if offenders:
         return AnalysisResult(
             status="refused", code=IMPORT_NOT_ALLOWED, source_digest=source_digest,

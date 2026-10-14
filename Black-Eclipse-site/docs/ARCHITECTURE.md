@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-10
+last-verified: 2026-10-13
 ---
 
 # Architecture
@@ -588,6 +588,38 @@ Two client surfaces consume the fired-alert stream:
    open in the browser; the UI states this rather than hiding it. Toggle + "Send
    test notification" live in Settings › Alerts/Notifications
    (`alert-notifications-settings.tsx`).
+
+**The notification center.** Every raise also lands in an app-wide ledger —
+`src/lib/notifications/store.ts` (zustand, persisted at `be_notifications_v1`,
+newest-first, capped at 100). Each entry is tagged with its owning `AppTab`,
+`sound` and dedupe `id`; the provider parses the same `be:alert-notify` detail
+(`{ id, title, body, tab, kind, sound, alertId, test }`), so price alerts, agent
+approval requests (`use-agent-run.ts`), durable task completions and bot runs
+all flow through ONE delivery point. The sidebar renders a red unread badge per
+tab (count, `9+` cap) and an aggregate badge on the Terminal/Agentic/Bots menu
+switcher for tabs the active menu hides; opening a tab (the sidebar is the
+shell's visible-tab signal) marks that tab's entries read, and an entry raised
+for the visible tab is recorded read on arrival — it is already in front of the
+operator. The top bar carries a **bell** (`components/layout/notification-center.tsx`)
+with the aggregate unread count; it opens the glass ledger panel, where an entry
+click marks its tab read and navigates through the same `be:navigate` channel
+the workspace panels use, each entry can be dismissed, and "Mark all read"
+clears every badge.
+
+Background **task completion** is its own producer: `task-watcher.tsx` (mounted
+once in the root layout) polls `GET /api/tasks` every 15s, diffs task statuses
+via the pure `task-diff.ts` (first poll seeds; a task that reaches `COMPLETED`
+or `FAILED` since the last poll is announced once, keyed by
+`task:<id>:<completedAt|updatedAt>`), and raises a `tasks`-tab notification —
+completed tasks with the loud `taskdone` cue. **Bot runs** have their own
+watcher: `bots-run-watcher.tsx` (also mounted in the root layout) sweeps
+`GET /api/automations` plus one status call per active bot (capped at 20, 30s)
+and diffs each bot's `lastExecution` via the pure `bots-run-diff.ts`; a run that
+reaches a notifiable terminal state gets a `bots`-tab notification (completed →
+`taskdone`, failed/timed out/blocked → the alert cue; cancelled/skipped stay
+quiet). A finished chat reply raised while the operator is on another tab is
+announced the same way from `use-agent-run.ts` (ChatBot tab, `taskdone` cue);
+while the ChatBot is visible the surfaces keep their soft `message` cue.
 
 ## The two workspace systems (read this twice)
 
@@ -1647,10 +1679,18 @@ finished chat reply, a fired alert) is never silently dropped; a context that
 later drifts to `suspended` is resumed via `onstatechange`. This persistent,
 re-armed context is what fixes the old intermittent-silence behaviour. Every
 failure path is a silent no-op. The cue set is declared once in `config.ts`
-(`click`, `tick`, `toggle`, `success`, `error`, `notification`, `message`) with
-per-cue gain, throttle, and an `essential` flag. One delegated listener plays
-`toggle` for `role="switch"` / checkbox / radio and `click` for buttons, links
-and menu options. Anything can opt into a precise cue with
+(`click`, `tick`, `toggle`, `success`, `error`, `notification`, `message`,
+`taskdone`) with per-cue gain, throttle, an `essential` flag and the optional
+`gainFloor` / `alwaysAudible` flags. `taskdone` is the loud completion alarm for
+a finished background task / agent run — a **critical cue**: it is treated as
+essential (a quiet mode cannot silence it), `alwaysAudible` lets it play even
+while UI sounds are switched OFF, and its `gainFloor` (0.75) keeps it audible
+over the deliberately subtle default master volume. Per-cue mute is the explicit
+opt-out (muting the Task done cue silences it in every mode; the other cues keep
+their normal master-switch behaviour). Assets live in every pack
+(`public/sounds/<pack>/taskdone.wav`). One delegated
+listener plays `toggle` for `role="switch"` / checkbox / radio and `click` for
+buttons, links and menu options. Anything can opt into a precise cue with
 `data-sound="tick|click|…"`; `sound.*()` or the `eclipse:sound` CustomEvent
 covers async outcomes — `sound.message()` fires when an assistant reply
 finishes in either chat surface. Deliberately excluded: hover, typing,
@@ -1663,12 +1703,13 @@ confirmations), a **voice-pack** picker, and per-cue volume / mute / custom
 upload. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
 `eclipse` (warm harmonic-synthesis ticks, the refreshed default), `mechanical`,
 `crisp`, `typewriter`, `soft`, `marimba`, `glass`, `digital`, `retro` — each
-providing all seven cues. The manager resolves a cue's source per play: a
+providing all eight cues. The manager resolves a cue's source per play: a
 user-uploaded `custom` data URL wins, otherwise the active pack asset; the
 decoded buffer is cached by source URL, so a pack switch only re-fetches the
 sources that actually changed. All of it persists through
-the client zustand `useSoundStore` (`be_sounds_v2`; bumped from `_v1` when UI
-audio became opt-in, so existing installs drop the old always-on value). Sound
+the client zustand `useSoundStore` (`be_sounds_v3`; the key was bumped from
+`_v1` when UI audio became opt-in, then `_v2`→`_v3` when the cue set gained
+`message` and the engine moved to Web Audio). Sound
 is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
 pack `eclipse`.
 

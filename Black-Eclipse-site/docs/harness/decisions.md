@@ -6541,6 +6541,134 @@ sources (SEC filing LISTS rather than statements, operator-declared REST),
 cross-call budget accumulation, the chat manifest panel and i18n keys, and the
 opt-in live smoke. `jdds.db`, `prisma/` and `research/` are untouched.
 
+## ADR-H191 — A produced artifact is verified, and the repo's rules are reported — one ledger, two new claim classes
+
+**Decision.** Phase 19's verification spine is extended, never duplicated:
+
+1. `code/verify.py` gains `ArtifactCheck` / `ArtifactRecord` /
+   `verify_artifacts(references, output_dir, recorded_inputs)`: the file exists
+   where the reference says, its sha256 matches, its size is inside
+   `[MIN_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES]`, it opens as what it claims (image
+   signature, CSV parse, JSON parse), and — when the producer recorded the
+   inputs — the series it carries matches them. A check that cannot run (a
+   missing file, an image without recorded inputs) is a FAILED record with its
+   reason, never an omission.
+2. `analysis_tools.py` records those checks on the run's `VerificationLedger`
+   after an analysis (best-effort; never blocks the analysis).
+3. The ledger gains artifact + review records (bounded, old-row-safe in
+   `to_blob`/`from_blob`) and two claim classes — `artifacts_verified` and
+   `change_reviewed` — with the same narrow, negation-guarded patterns as the
+   Phase-4 four. An unbacked sentence about a produced file or a reviewed change
+   is marked `[UNVERIFIED …]` by the ONE enforcement path.
+4. `code/review.py` is the change-quality rule TABLE (data), each rule naming
+   the real repo rule it encodes: `new-module-reachable`, `size-ratchet`
+   (pins read from BOTH ratchet files), `string-is-key`, `protected-path`
+   (blocking; the SAME rule `patch.apply` enforces — this module only reports
+   it, and the test asserts they agree), `doc-obligation`, `test-touched`.
+   An unevaluable rule lands in `unevaluated` — never reported as clean.
+5. The `review_change` tool (read-only) runs the rules over the task's diff and
+   RECORDS the review on the ledger. It is registered by
+   `code/review_tools.py` from `service.py` (not from `register_code_tools`,
+   which is at its size pin) and allowlisted on the code agent + chat code
+   profile.
+6. `eclipse_memory/mistakes.py` gains the four categories the checks can emit
+   (`artifact_missing`, `artifact_digest_mismatch`, `unreachable_module`,
+   `unstated_limitation`), so a repeated failure reaches the existing
+   self-improvement bridge; `CODE_AGENT_SYSTEM_PROMPT` states that artifact and
+   review sentences are checked and that an unstated limitation is the failure
+   mode. The chat panel renders artifact rollups and review findings (i18n keys
+   `code.proof.*`).
+
+**Why.** The Phase-4 ledger covered commands; "the chart shows the drawdown"
+and "I reviewed the change" matched no pattern and were backed by no record.
+The enforcement machinery was already the right one — it was pointed at half the
+surface. The review rules are the repo's own rules where they are mechanical;
+style, naming and intent remain judgement and are named as such.
+
+**Consequences.** +24 tests (`test_claim_classes.py`,
+`test_artifact_verification.py`, `test_change_review.py`); the chat code profile
+snapshot gained `review_change`. Recorded deviations: no separate progress file
+(notes inline in the phase file), the prompt paragraph lives in the CODE agent
+prompt (the finance prompt is char-ratcheted), and `figure_inputs_match` is
+recorded only when the producer recorded inputs — the figure payload itself is
+phase 18. No LLM judge: a model's opinion can never satisfy a check.
+
+## ADR-H192 — The runtime may render a figure, from a declared recipe, inside the existing sandbox
+
+**Decision.** Phase 18's first slice ships a FIGURE recipe without opening a new
+execution path:
+
+1. `AnalysisRequest.extra_imports` is an additive, NAMED widening of the AST
+   allowlist. It is set only by the recipe table — never by the model, never by
+   a caller — and everything else in `check_imports` still applies (reflection,
+   dunder access, `__builtins__`, URL literals). The shipped figure recipe
+   declares exactly `("io", "matplotlib")`.
+2. `write_artifact` accepts BYTES, so a rendered PNG reaches the run's declared
+   `output/` folder through the ONE artifact seam (the name is still sanitised
+   to a bare filename; only files in `output/` are collected).
+3. `drawdown_figure` runs in the Phase-3 sandbox with the Agg backend (no
+   display, no network — `RunSpec(network=False)` by construction), returns the
+   numbers in `result` exactly like the seven numeric recipes, and writes
+   `drawdown.png` as an `ArtifactRef` the Phase-19 ledger verifies (exists,
+   digest, size, opens as an image).
+4. A machine without matplotlib fails the recipe HONESTLY (an import error in
+   the run), never silently and never with a substituted chart.
+
+**Why.** "Create a visualisation" was impossible — not poorly supported — and
+the artifact type system already anticipated `image/png` with nothing producing
+one. The widening is the smallest honest step: a reviewed module list attached
+to a declared recipe, inside the sandbox that already bounds time, output and
+network, with the figure verified by the ledger that already exists. The
+figure is `computed`, never evidence (ADR-H123): it may illustrate a result but
+can never back a market claim.
+
+**Consequences.** +1 real-sandbox test (the PNG is rendered and verified end to
+end). Recorded as remaining (phase-18): the structured figure PAYLOAD on the
+run blob, the remaining figure recipes, and the inline chat renderer — today the
+figure is handed over through the computed-result panel + Artifact Center.
+
+## ADR-H193 — The capability statement covers every class; an unmeasured class is published as unmeasured, never omitted
+
+**Decision.** Phase 20's measurement slice lands one registry, one runner and one
+gate step:
+
+1. `code/eval/capabilities.py` is the capability-class registry, as DATA: the
+   seven code shapes, the classes this round added (bulk collection, unattended
+   report, artifact verification, change review, document attachment, figure
+   provenance), AND the classes this round did NOT grade (`price_authority`,
+   `promotion`, `scraping_breadth`, `messaging_gateway`) — each declaring its
+   module and, when unmeasured, its REASON.
+2. The runner grades a class only through its NAMED evidence: a deterministic
+   in-module fixture that drives the REAL module (`harness.acquire.budget`,
+   `harness.automation.delivery`, `harness.code.verify`, `harness.code.review` —
+   the thing under test is never mocked), a named test that runs in the release
+   gate (`pytest:…`/`vitest:…` — the runner verifies the test exists so a proof
+   can never point at nothing), or a fixture id in the code eval's labelled
+   dataset (graded by the code gate in the same run). An unmeasured class is
+   reported `unmeasured` WITH its reason — never a pass, never a failure.
+3. `MEASURED_BASELINE` pins the measured set: the gate fails when a class falls
+   below its floor OR when a measured class regresses to unmeasured — a
+   capability may not silently go quiet.
+4. The generated statement (`code/eval/statement.py`) gains the "Every
+   capability class" section: one row per class, the count of unmeasured classes
+   published with them ("N of M classes are not measured yet"), same derivation
+   discipline as the shape table (ADR-H114). `scripts/test-evals.js` gains the
+   named `capability-class gate` step, so this is part of `npm run check:all`.
+
+**Why.** §6.1's two empty rows were the point: seven unmeasured classes were
+simply ABSENT from the statement, which reads as "fine". Publishing them as
+`not measured yet`, with reasons, is the difference between a claim and a
+measurement. The runner also surfaced and fixed a real defect: the statement
+generator's repo-root constant pointed at `python/docs/…` (one level short), so
+`write_statement()` could never have written the committed file.
+
+**Consequences.** +7 tests (`test_capability_classes.py`); the release gate gained
+one fast offline step (`capability-class gate: PASS measured=13 unmeasured=4`).
+Recorded as remaining (phase-20): labelled fixtures for `price_authority` and
+`promotion` (today honestly unmeasured), the bootstrap/Monte-Carlo rule fixture,
+the adversarial safety cases for the new power in `code/eval/safety_cases.py`,
+and per-class threshold tables beyond the all-or-nothing floor.
+
 ## ADR-H188 — The acquire loop is an agent capability: GitHub skills install through the SAME trust + approval stores, and software installs route to the code surface
 
 **Decision.** "Load this skill from GitHub" and "install this software" are now

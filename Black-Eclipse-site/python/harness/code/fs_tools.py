@@ -346,7 +346,7 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "path": {**_STR}, "recursive": {**_BOOL, "description": "Required to remove a non-empty folder."}, "dryRun": {**_BOOL},
     }, ["path"]),
     "search_text": _obj({
-        "query": {**_STR, "description": "Text or regex to find."},
+        "query": {**_STR, "description": "Literal text to find (regex=true for a pattern/alternation)."},
         "path": {**_STR}, "regex": {**_BOOL}, "caseSensitive": {**_BOOL}, "wholeWord": {**_BOOL},
         "glob": {**_STR}, "maxResults": {**_INT}, "contextLines": {**_INT},
         "includeIgnored": {**_BOOL}, "includeHidden": {**_BOOL},
@@ -728,11 +728,20 @@ async def _search_text(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         ),
     )
     if isinstance(payload, dict) and payload.get("status") == "ok":
-        lines = [f"{payload['count']} match(es) for {model.query!r} (engine: {payload.get('engine')}):"]
+        # Name the match mode in the summary: a LITERAL miss must never read as
+        # "this symbol/code does not exist" (alternation queries silently match
+        # nothing unless regex=true).
+        mode = "regex" if model.regex else "literal text"
+        lines = [f"{payload['count']} match(es) for {model.query!r} ({mode} match; engine: {payload.get('engine')}):"]
         for match in payload["matches"][:200]:
             lines.append(f"  {match['path']}:{match['line']}:{match['column']}: {match['text'].strip()}")
         if payload.get("truncated"):
             lines.append("[truncated]")
+        if payload["count"] == 0 and not model.regex:
+            lines.append(
+                "0 matches means this exact literal text was not found — it does NOT prove the "
+                "symbol/code is absent. For alternation (`a|b`) or any pattern, retry with regex: true."
+            )
         text = "\n".join(lines)
     return text, payload
 

@@ -17,9 +17,13 @@ import os
 from typing import Any, Optional
 
 from .tasks import capability_rows, load_task_dataset
+from .capabilities import CLASSES, run_capability_eval
 
-# Where the generated statement lives (repo-relative, one level up from `python/`).
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Where the generated statement lives (repo-relative). The module sits at
+# `<site>/python/harness/code/eval/statement.py`, so the site root is FIVE
+# levels up — the previous four-level constant pointed at `python/docs/…`.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 STATEMENT_PATH = os.path.join(_REPO_ROOT, "docs", "harness", "capability-statement.md")
 
 # The i18n key for each shape's plain name.
@@ -90,6 +94,48 @@ def render_statement(dataset: Optional[dict[str, Any]] = None) -> str:
         "and lives in the terminal and the progress log; it is never shown to a user.",
         "",
     ]
+
+    # ── Every capability class (Phase 20 §6.4, ADR-H193) ──────────────────────
+    # One row per registered class, including the ones this round did NOT grade:
+    # an unmeasured class is published with its reason, never omitted. The count
+    # of unmeasured classes is published with them.
+    report = run_capability_eval()
+    classes_by_id = {c.id: c for c in CLASSES}
+    lines += [
+        "## Every capability class",
+        "",
+        "**This section is generated too** — from the capability-class registry in",
+        "`python/harness/code/eval/capabilities.py`. It covers every class a user can",
+        "ask for; a class with no fixture is published as `not measured yet` with its",
+        "reason, never omitted.",
+        "",
+        f"{len(report.unmeasured)} of {len(report.results)} classes are not measured yet.",
+        "",
+        "| What you can ask for | Can Eclipse do it today? | Proof | What is missing |",
+        "|---|---|---|---|",
+    ]
+    for result in report.results:
+        klass = classes_by_id.get(result.id)
+        label = klass.label_key if klass is not None else result.id
+        if result.status == "passed":
+            status_key = "capability.status.yes"
+            if klass is not None and klass.kind == "code_eval":
+                proof = ", ".join(f"`{s}`" for s in klass.selectors) + " (graded by the code gate in this run)"
+            elif klass is not None and klass.kind == "test_gate":
+                proof = ", ".join(f"`{s}`" for s in klass.selectors)
+            else:
+                proof = f"graded through `{klass.module}`" if klass is not None else "—"
+            missing = "—"
+        elif result.status == "unmeasured":
+            status_key = "capability.status.notMeasuredYet"
+            proof = f"`{klass.module}`" if klass is not None else "—"
+            missing = result.detail or "—"
+        else:
+            status_key = "capability.status.partial"
+            proof = f"`{klass.module}`" if klass is not None else "—"
+            missing = result.detail
+        lines.append(f"| `{label}` | `{status_key}` | {proof} | {missing} |")
+    lines.append("")
     return "\n".join(lines)
 
 

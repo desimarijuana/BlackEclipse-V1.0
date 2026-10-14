@@ -175,7 +175,13 @@ export async function deleteWorkspacePath(path: string): Promise<{ path: string;
 
 // ── Pure, client-safe render helpers (mirrors of the server client) ─────────
 
-export type CheckClaimKind = 'tests_pass' | 'typecheck_clean' | 'build_ok' | 'lint_clean';
+export type CheckClaimKind =
+  | 'tests_pass'
+  | 'typecheck_clean'
+  | 'build_ok'
+  | 'lint_clean'
+  | 'artifacts_verified'
+  | 'change_reviewed';
 
 export interface CodeVerificationRecord {
   commandExecutionId: string;
@@ -214,10 +220,79 @@ export interface CodeVerification {
   unverifiedCount: number;
   repair: CodeVerificationRepair | null;
   truncated: boolean;
+  /** Phase 19: artifact observations (one per check). Additive, old-row-safe. */
+  artifacts: CodeArtifactRecord[];
+  /** Phase 19: recorded change reviews. Additive, old-row-safe. */
+  reviews: CodeReviewRecord[];
+}
+
+export interface CodeArtifactRecord {
+  artifactName: string;
+  kind: string;
+  check: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface CodeReviewFinding {
+  rule: string;
+  summary: string;
+  severity: 'blocking' | 'advisory';
+  path: string;
+  line: number | null;
+}
+
+export interface CodeReviewRecord {
+  filesReviewed: number;
+  findings: CodeReviewFinding[];
+  unevaluated: string[];
 }
 
 export function claimStatusKey(supported: boolean): 'code.proof.verified' | 'code.proof.notChecked' {
   return supported ? 'code.proof.verified' : 'code.proof.notChecked';
+}
+
+function _artifactRecords(raw: unknown): CodeArtifactRecord[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as unknown[])
+    .filter((a): a is Record<string, unknown> => a !== null && typeof a === 'object')
+    .map((a) => ({
+      artifactName: String(a.artifactName ?? ''),
+      kind: String(a.kind ?? ''),
+      check: String(a.check ?? ''),
+      passed: Boolean(a.passed),
+      detail: String(a.detail ?? ''),
+    }))
+    .filter((a) => a.artifactName && a.check)
+    .slice(0, 200);
+}
+
+function _reviewRecords(raw: unknown): CodeReviewRecord[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as unknown[])
+    .filter(
+      (r): r is Record<string, unknown> =>
+        r !== null && typeof r === 'object' && (r as Record<string, unknown>).ran === true,
+    )
+    .map((r) => ({
+      filesReviewed: Number(r.filesReviewed ?? 0),
+      findings: Array.isArray(r.findings)
+        ? (r.findings as unknown[])
+            .filter((f): f is Record<string, unknown> => f !== null && typeof f === 'object')
+            .map((f) => ({
+              rule: String(f.rule ?? ''),
+              summary: String(f.summary ?? ''),
+              severity: f.severity === 'blocking' ? ('blocking' as const) : ('advisory' as const),
+              path: String(f.path ?? ''),
+              line: typeof f.line === 'number' ? f.line : null,
+            }))
+            .slice(0, 50)
+        : [],
+      unevaluated: Array.isArray(r.unevaluated)
+        ? (r.unevaluated as unknown[]).map(String).slice(0, 10)
+        : [],
+    }))
+    .slice(0, 8);
 }
 
 export function coerceCodeVerification(raw: unknown): CodeVerification | null {
@@ -225,7 +300,17 @@ export function coerceCodeVerification(raw: unknown): CodeVerification | null {
   const blob = raw as Record<string, unknown>;
   const records = Array.isArray(blob.records) ? (blob.records as CodeVerificationRecord[]) : [];
   const claims = Array.isArray(blob.claims) ? (blob.claims as CodeVerificationClaim[]) : [];
-  if (records.length === 0 && claims.length === 0 && !blob.repair) return null;
+  const artifacts = _artifactRecords(blob.artifacts);
+  const reviews = _reviewRecords(blob.reviews);
+  if (
+    records.length === 0 &&
+    claims.length === 0 &&
+    artifacts.length === 0 &&
+    reviews.length === 0 &&
+    !blob.repair
+  ) {
+    return null;
+  }
   return {
     runId: String(blob.runId ?? ''),
     records,
@@ -233,5 +318,7 @@ export function coerceCodeVerification(raw: unknown): CodeVerification | null {
     unverifiedCount: Number(blob.unverifiedCount ?? 0),
     repair: (blob.repair as CodeVerificationRepair | null) ?? null,
     truncated: Boolean(blob.truncated),
+    artifacts,
+    reviews,
   };
 }

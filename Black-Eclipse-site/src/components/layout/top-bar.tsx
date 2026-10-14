@@ -10,6 +10,7 @@ import { useThemeStore, BRAND_MARK_SRC } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { useTerminalStore } from '@/lib/terminal/store';
 import { AgentWorkspaceToggle } from '@/components/agent-workspace/workspace';
+import { NotificationBell } from '@/components/layout/notification-center';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -103,6 +104,7 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
               </kbd>
             </button>
             <AgentWorkspaceToggle />
+            <NotificationBell />
             <TerminalButton />
          </div>
      </div>

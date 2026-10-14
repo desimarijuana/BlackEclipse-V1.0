@@ -344,11 +344,17 @@ def test_prompt_char_ceiling():
     (install skills from a GitHub repo behind an approval card), software installs
     routed through the coding surface, and `mcp_install` (a disabled preset
     integration) — three genuinely new capabilities that need their own guidance
-    paragraphs. Re-pinned to the measured size; it may only shrink from here.
+    paragraphs.
+
+    Raised to 29252 by the icon-vocabulary guidance: `icon` fields on the visual
+    blocks must use a semantic key from `response_block_schema`, which now lists
+    the live vocabulary — one clause, a genuinely missing piece of output
+    guidance (`icons` silently rendered as a neutral dot). Re-pinned to the
+    measured size; it may only shrink from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 29162, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 29252, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

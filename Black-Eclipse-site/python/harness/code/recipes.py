@@ -44,6 +44,10 @@ class Recipe:
     missing_prompt: str = "I need {missing} to do that."
     artifact_name: Optional[str] = None
     writes_artifact: bool = False
+    # Phase 18 (additive): the extra NAMED modules this recipe's source imports
+    # (the figure recipe needs `io` + `matplotlib`). Comes from THIS table only —
+    # a caller/model cannot widen the analysis allowlist.
+    extra_imports: tuple[str, ...] = ()
 
 
 # ── The seven recipes (§6.6) ─────────────────────────────────────────────────
@@ -136,6 +140,38 @@ shocked = {r["name"]: round(float(r["value"]) * factor, 6) for r in rows}
 result = {"shockPct": shock, "shockedValues": shocked}
 """
 
+# Phase 18: the FIRST figure recipe. Rendered in the sandbox (Agg backend, no
+# display, no network), written as bytes into the run's `output/` folder, and
+# collected as an artifact the verification ledger then CHECKS (exists, digest,
+# size, opens as an image). The plotted series is the computation's own drawn
+# series — computed, never evidence (ADR-H123).
+_DRAWDOWN_FIGURE = """
+import io
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+prices = [float(p) for p in inputs.get("prices")]
+peak = prices[0]
+drawdowns = []
+for value in prices:
+    if value > peak:
+        peak = value
+    drawdowns.append(round((value / peak - 1.0) * 100, 4) if peak else 0.0)
+fig, ax = plt.subplots(figsize=(8, 3.2), dpi=110)
+ax.plot(range(len(prices)), drawdowns, color="#e11d48", linewidth=1.4)
+ax.set_title("Drawdown")
+ax.set_xlabel("Period")
+ax.set_ylabel("Drawdown percent")
+ax.grid(True, alpha=0.25)
+fig.tight_layout()
+buf = io.BytesIO()
+fig.savefig(buf, format="png")
+plt.close(fig)
+write_artifact("drawdown.png", buf.getvalue())
+worst = min(drawdowns) if drawdowns else 0.0
+result = {"maxDrawdownPct": round(worst, 4), "points": len(prices)}
+"""
+
 RECIPES: tuple[Recipe, ...] = (
     Recipe(
         name="returns_series",
@@ -195,6 +231,19 @@ RECIPES: tuple[Recipe, ...] = (
         source=_SCENARIO_SHOCK,
         missing_prompt="I need the holdings and the percentage move to work that out — what should I assume?",
     ),
+    # Phase 18 (slice): the drawdown, as a FIGURE. Produces a PNG artifact the
+    # chat can hand over; the numbers still come back in `result`, so a claim
+    # about them is checked exactly like any other computed value.
+    Recipe(
+        name="drawdown_figure",
+        answers="show me the worst fall as a chart",
+        inputs=(RecipeInput("prices", "series", "a list of prices over time"),),
+        source=_DRAWDOWN_FIGURE,
+        missing_prompt="I need the prices to draw the worst fall — which series should I use?",
+        artifact_name="drawdown.png",
+        writes_artifact=True,
+        extra_imports=("io", "matplotlib"),
+    ),
 )
 
 
@@ -244,6 +293,7 @@ def run_recipe(
             inputs=[AnalysisInput(name=i.name, kind=i.kind, value=provided[i.name]) for i in recipe.inputs],
             purpose=recipe.answers,
             timeout_s=timeout_s,
+            extra_imports=recipe.extra_imports,
         )
     except Exception as exc:  # noqa: BLE001 - a malformed recipe call is a refusal
         raise AnalysisError(INPUT_INVALID, str(exc)) from exc

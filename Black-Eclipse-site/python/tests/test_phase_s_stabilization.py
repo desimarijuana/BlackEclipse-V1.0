@@ -48,9 +48,11 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # comparison_grid, ranked_list, badge_row, carousel) raised it to 27769 for
     # their names + one guidance clause; the capability-acquire loop
     # (skill_install/uninstall, software installs, mcp_install) raised it to
-    # 29162 for three new guidance paragraphs. It is re-pinned there and may only
-    # shrink from here.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 29162
+    # 29162 for three new guidance paragraphs; the icon-vocabulary guidance
+    # (`response_block_schema` lists the semantic keys) raised it to 29252 —
+    # one clause so the model stops spelling icons wrong. It is re-pinned there
+    # and may only shrink from here.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 29252
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

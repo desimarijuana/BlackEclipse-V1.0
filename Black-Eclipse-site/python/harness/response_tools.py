@@ -42,6 +42,13 @@ def _fmt_schema(payload: dict[str, Any]) -> str:
             detail = f"{kind} {{{','.join(str(i) for i in items)}}}" if items else kind
             parts.append(f"{name}{'' if field.get('required') else '?'} ({detail})")
         lines.append(f"- {block.get('type')}: " + ", ".join(parts))
+    icon_keys = [str(k) for k in payload.get("iconKeys") or []]
+    if icon_keys:
+        lines.append(
+            "`icon` fields (kind `icon-key`, including inside array items) accept "
+            "exactly one of: " + ", ".join(icon_keys) + ". Use one of these exact "
+            "keys — never an emoji, component name, import path or made-up name."
+        )
     return "\n".join(lines)
 
 
@@ -108,6 +115,8 @@ def register_response_contract_tools(registry: ToolRegistry) -> None:
             description=(
                 "Look up the EXACT field names the eclipse-response renderer accepts, "
                 "before emitting structured/visual blocks — never guess a field name. "
+                "Also returns the live `icon` key vocabulary: an `icon` field (including "
+                "inside array items) must use one of those semantic keys. "
                 "Pass `block_type` for one type, or omit it for every registered type."
             ),
             input_schema={

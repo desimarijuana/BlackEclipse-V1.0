@@ -45,6 +45,29 @@ async def test_schema_tool_formats_exact_fields():
 
 
 @pytest.mark.asyncio
+async def test_schema_tool_lists_the_live_icon_vocabulary():
+    reg = ToolRegistry()
+    register_response_contract_tools(reg)
+    bridge = _Bridge({
+        "status": "OK",
+        "blocks": [{
+            "type": "workflow",
+            "fields": [{
+                "name": "stages",
+                "required": True,
+                "kind": "array",
+                "itemFields": ["id", "icon", "title"],
+            }],
+        }],
+        "iconKeys": ["trend-up", "chart", "gears"],
+    })
+    result = await reg.execute("response_block_schema", "c1", {}, _ctx(bridge))
+    assert result.ok
+    assert "trend-up, chart, gears" in result.text
+    assert "never an emoji" in result.text
+
+
+@pytest.mark.asyncio
 async def test_validate_tool_names_the_failing_block_and_next_step():
     reg = ToolRegistry()
     register_response_contract_tools(reg)

@@ -312,6 +312,8 @@ EXPECTED = (
     'job_describe_template',
     'job_create',
     'job_run_now',
+    # Change review (Phase 19): the repo's own rules over the turn's diff.
+    'review_change',
 ) + tuple(BROWSER_TOOLS) + tuple(COMPUTER_TOOLS)
 
 

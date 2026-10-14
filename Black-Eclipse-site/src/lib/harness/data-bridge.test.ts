@@ -198,6 +198,16 @@ describe("fetchCapability — other capabilities", () => {
     expect(fundamentalsGet).toHaveBeenCalledWith("005930", "KR", expect.anything());
   });
 
+  it("dispatches response_contract to the block schema read-back", async () => {
+    // Pure capability (no db/network): the model's pre-send schema lookup for
+    // `eclipse-response` blocks. Its absence from the HTTP allowlist once made
+    // every call 400, so pin the dispatch here AND the allowlist at the route.
+    const result = await fetchCapability("response_contract", { op: "schema", block_type: "infographic" });
+    expect(result.status).toBe("OK");
+    expect(Array.isArray(result.blocks)).toBe(true);
+    expect((result.iconKeys as string[]).length).toBeGreaterThanOrEqual(40);
+  });
+
   it("rejects an unknown capability", async () => {
     const result = await fetchCapability("nope" as never, {});
     expect(result.status).toBe("UNAVAILABLE");

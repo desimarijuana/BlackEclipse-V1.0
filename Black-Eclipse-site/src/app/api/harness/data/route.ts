@@ -46,6 +46,11 @@ const CAPABILITIES: DataCapability[] = [
   "market_data",
   "market_stream_config",
   "world_events",
+  // The model's read-back for eclipse-response blocks: `schema` (exact field
+  // names + the live icon vocabulary) and `validate`. Dispatched by
+  // `data-bridge.ts` since the read-back shipped; the allowlist entry was
+  // missing, so every schema lookup 400'd. Route tests pin it.
+  "response_contract",
 ];
 
 export async function POST(request: Request) {
@@ -71,6 +76,10 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (err) {
     console.error("[api/harness/data] POST error:", err);
-    return NextResponse.json({ status: "UNAVAILABLE", error: "bridge failure" }, { status: 500 });
+    // Dev-only diagnostic: a bare "bridge failure" hid the cause of the
+    // response_contract 500 (a client React import in the server graph) for a
+    // whole debugging round. Production keeps the opaque contract.
+    const detail = process.env.NODE_ENV === "development" && err instanceof Error ? `${err.name}: ${err.message}` : undefined;
+    return NextResponse.json({ status: "UNAVAILABLE", error: "bridge failure", ...(detail ? { detail } : {}) }, { status: 500 });
   }
 }

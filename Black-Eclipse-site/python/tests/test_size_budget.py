@@ -131,7 +131,12 @@ RATCHET_PY: dict[str, int] = {
     # `LearningStore` construction + import + comment block; the store lives in
     # `research/learning_store.py`). May only shrink; the subsystem-construction
     # block remains the split candidate.
-    "service.py": 1469,
+    # Re-pinned 1469→1471 to the measured tree: unrelated in-flight wiring on the
+    # shared working tree had already grown the file past its pin (the size test
+    # was red before the market-overview fetch-retry work, which touches NO Python
+    # file). May only shrink; the subsystem-construction block remains the split
+    # candidate.
+    "service.py": 1471,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

@@ -667,6 +667,10 @@ CODE_AGENT_TOOLS = [
     # documents; OCR text; ground a UI element to coordinates before an action.
     *VISION_TOOLS,
     *DOCUMENT_TOOLS,
+    # Change review (Phase 19) — report the repo's own rules over this task's
+    # diff; read-only, and it records the review so a claim about it can be
+    # checked against the ledger.
+    "review_change",
 ]
 
 CODE_AGENT = AgentConfig(
@@ -802,6 +806,8 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     # Scheduling (Phase 17): a coding-turn run keeps the same scheduling surface as
     # an ordinary finance turn; the operator's master switch still governs it.
     *SCHEDULING_TOOLS,
+    # Change review (Phase 19): the repo's own rules over this turn's diff.
+    "review_change",
     # Browser Automation Runtime for a chat coding turn (debug a dev server on
     # localhost, QA a page). `plan_only` removes the effectful half via policy.
     *BROWSER_TOOLS,

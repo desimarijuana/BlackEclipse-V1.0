@@ -39,9 +39,9 @@ file, not here.
 | 15 — Documents in, files out, landing a change | [phase-15](./phase-15-attachments-and-artifacts.md) 🟡 In progress (promotion slice Done — ADR-H176; attachments/artifacts Not started) | 14 | 18, 20 | new |
 | 16 — Bounded bulk acquisition | [phase-16](./phase-16-bulk-acquisition.md) 🟡 In progress 2026-10-13 (first slice shipped — ADR-H190; more sources + manifest panel remain) | 13, 15 | 18, 20 | new |
 | 17 — Working on a cadence | [phase-17](./phase-17-working-on-a-cadence.md) ✅ Done 2026-10-13 (repo-mapped onto the Automation engine — ADR-H187) | 6, 14 | 20 | new |
-| 18 — Visual output | [phase-18](./phase-18-visual-output.md) ⬜ Not started | 15, 16 | 19, 20 | new |
-| 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ⬜ Not started | 14, 18 | 20 | new |
-| 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) ⬜ Not started | 13–19 | — | §15.3 **7F** extended |
+| 18 — Visual output | [phase-18](./phase-18-visual-output.md) 🟡 In progress 2026-10-13 (first figure recipe shipped — ADR-H192; payload + inline renderer remain) | 15, 16 | 19, 20 | new |
+| 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ✅ Done 2026-10-13 (ADR-H191) | 14, 18 | 20 | new |
+| 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) 🟡 In progress 2026-10-13 (registry + runner + statement + gate step shipped — ADR-H193; remaining fixtures named) | 13–19 | — | §15.3 **7F** extended |
 
 **Round 2 (phases 13–20) — what it is for.** Round 1 (0–12) built the *machinery* of
 a harness: a code capability, isolation, a trust spine, jobs, delegation, kits,

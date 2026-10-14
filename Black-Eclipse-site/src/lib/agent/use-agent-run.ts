@@ -18,8 +18,8 @@ import type { HarnessUiEvent } from './events';
 import type { AssistantTurn, PendingApproval } from './response-model';
 import { emptyTurn } from './response-model';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
-import { sound } from '@/lib/sounds';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
+import { useNotificationsStore } from '@/lib/notifications/store';
 import { getUiFocus } from '@/lib/ui-engineering/ui-focus';
 
 export interface StartRunArgs {
@@ -59,6 +59,31 @@ export interface UseAgentRun {
    */
   decide: (approve: boolean, remember?: boolean) => Promise<void>;
   reset: () => void;
+}
+
+/**
+ * A reply that finishes while the operator is on another tab is a background
+ * task: raise the loud completion alarm + badge on the ChatBot tab through the
+ * shared notification channel. Watching the ChatBot stays quiet — the host
+ * surfaces play their own soft `message` cue there.
+ */
+function announceCompletedRun(text: string, runId: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (useNotificationsStore.getState().activeTab === 'chat') return;
+  const body = text.trim();
+  if (!body) return;
+  window.dispatchEvent(
+    new CustomEvent(ALERT_NOTIFY_EVENT, {
+      detail: {
+        id: runId ? `run-done:${runId}` : undefined,
+        title: 'Reply ready',
+        body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
+        tab: 'chat',
+        kind: 'agent',
+        sound: 'taskdone',
+      },
+    }),
+  );
 }
 
 export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
@@ -182,6 +207,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
             t.status = 'completed';
           }
           t.done = true;
+          if (!event.error) announceCompletedRun(event.output || t.text, t.runId ?? null);
           publish(true);
           break;
         }
@@ -199,16 +225,21 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           t.pendingApproval = event.approval;
           t.status = 'awaiting_approval';
           publish(true);
-          // Make it impossible to miss: a distinct cue, an in-app toast, and (if
-          // opted in) an OS notification — the same channel the alert system uses.
-          sound.notification();
+          // Make it impossible to miss: the shared notification channel raises
+          // the in-app toast, badges the ChatBot tab, plays the alert cue and
+          // (when opted in) shows an OS notification — the same channel the
+          // price-alert and task systems use.
           if (typeof window !== 'undefined') {
             const grant = event.approval.grantPattern ? ' You can also allow it always.' : '';
             window.dispatchEvent(
               new CustomEvent(ALERT_NOTIFY_EVENT, {
                 detail: {
+                  id: `approval:${event.approval.id}`,
                   title: 'Approval needed',
                   body: `${event.approval.title}.${grant}`,
+                  tab: 'chat',
+                  kind: 'approval',
+                  sound: 'notification',
                 },
               }),
             );

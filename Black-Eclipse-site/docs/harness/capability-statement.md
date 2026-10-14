@@ -35,3 +35,32 @@ The safety properties (what Eclipse refuses) are proved by eleven adversarial
 cases in `python/tests/test_code_eval_safety.py`, each of which asserts both
 the block and the recorded reason. The eval report itself is engineering-facing
 and lives in the terminal and the progress log; it is never shown to a user.
+
+## Every capability class
+
+**This section is generated too** — from the capability-class registry in
+`python/harness/code/eval/capabilities.py`. It covers every class a user can
+ask for; a class with no fixture is published as `not measured yet` with its
+reason, never omitted.
+
+4 of 17 classes are not measured yet.
+
+| What you can ask for | Can Eclipse do it today? | Proof | What is missing |
+|---|---|---|---|
+| `capability.class.oneFile` | `capability.status.yes` | `one-file-change` (graded by the code gate in this run) | — |
+| `capability.class.crossFile` | `capability.status.yes` | `cross-file-change` (graded by the code gate in this run) | — |
+| `capability.class.testFirst` | `capability.status.yes` | `test-first` (graded by the code gate in this run) | — |
+| `capability.class.repair` | `capability.status.yes` | `failing-check-repair` (graded by the code gate in this run) | — |
+| `capability.class.job` | `capability.status.yes` | `job-definition` (graded by the code gate in this run) | — |
+| `capability.class.kit` | `capability.status.yes` | `kit-scaffold` (graded by the code gate in this run) | — |
+| `capability.class.refusal` | `capability.status.yes` | `refusal-protected-write` (graded by the code gate in this run) | — |
+| `capability.class.bulkCollection` | `capability.status.yes` | graded through `harness.acquire.budget` | — |
+| `capability.class.unattendedReport` | `capability.status.yes` | graded through `harness.automation.delivery` | — |
+| `capability.class.artifactVerification` | `capability.status.yes` | graded through `harness.code.verify` | — |
+| `capability.class.changeReview` | `capability.status.yes` | graded through `harness.code.review` | — |
+| `capability.class.documentAttachment` | `capability.status.yes` | `vitest:src/lib/chat/extract.test.ts`, `vitest:src/lib/chat/session-store.test.ts` | — |
+| `capability.class.figureProvenance` | `capability.status.yes` | `pytest:python/tests/test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies`, `pytest:python/tests/test_analysis_execution.py` | — |
+| `capability.class.priceAuthority` | `capability.status.notMeasuredYet` | `harness.retrieval.authority` | Not graded yet — the source-choice logic is tested in pieces, not end to end. |
+| `capability.class.promotion` | `capability.status.notMeasuredYet` | `harness.code.actions` | Not graded yet — putting a change into your files is tested in pieces, not end to end. |
+| `capability.class.scrapingBreadth` | `capability.status.notMeasuredYet` | `harness.acquire.registry` | Not graded yet — only a few kinds of data sources are set up. |
+| `capability.class.messagingGateway` | `capability.status.notMeasuredYet` | `harness.gateway` | Not built yet. |

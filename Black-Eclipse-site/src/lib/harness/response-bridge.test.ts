@@ -29,6 +29,19 @@ describe('response contract bridge — schema read-back', () => {
     expect(out.status).toBe('OK');
     expect((out.blocks as { type: string }[]).map((b) => b.type)).toEqual(['mermaid']);
   });
+
+  it('exposes the live icon-key vocabulary for the semantic icon fields', async () => {
+    const out = await responseContractCapability({ op: 'schema', block_type: 'infographic' });
+    expect(out.status).toBe('OK');
+    const keys = out.iconKeys as string[];
+    expect(keys).toContain('trend-up');
+    expect(keys).toContain('brain-circuit');
+    expect(keys).toContain('gears');
+    expect(keys.length).toBeGreaterThanOrEqual(40);
+    // Canonical lower-kebab spellings, no duplicates.
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const key of keys) expect(key).toMatch(/^[a-z][a-z0-9-]*$/);
+  });
 });
 
 describe('response contract bridge — validation read-back', () => {

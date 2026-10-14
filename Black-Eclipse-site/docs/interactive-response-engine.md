@@ -166,6 +166,15 @@ run to 500 chars because producers attach a short source/citation),
 left untouched, so an unknown tone still falls back to the schema default rather
 than hard-failing.
 
+**Icon values.** The optional `icon` on the icon-bearing item arrays (`infographic`
+cards, `workflow` stages, `action_group` actions, `stat_hero` stats, `ranked_list`
+items, `badge_row` badges) is canonicalized before validation against the allowlist
+below: case/separator spellings (`TrendUp`, `trend_up`, `TREND UP`), common synonyms
+(`graph`, `money`, `alert`) and the emoji producers actually emit (`📈`, `⚠️`) all
+resolve to the canonical key. A string that is still unknown is kept as-is — the
+renderer degrades it to the neutral dot — and a non-string value (number, object)
+has the field dropped, so a bad icon costs at most the glyph, never the block.
+
 **Block-level `unavailable` figures.** The producer prompt's rule for missing
 data (`"unavailable": true` — never a made-up value) is honored at the BLOCK
 level for the figure family (`stat_hero`, `gauge`, `comparison_grid`,
@@ -181,8 +190,11 @@ the LIVE zod contract through the bridge (`response_contract` capability in
 `src/lib/harness/response-bridge.ts`), are bound to Eclipse:
 
 - `response_block_schema` — the exact field names for any block type (optional
-  fields marked, array item fields included). Derived from `ResponseBlockSchema`
-  at runtime, so it cannot drift from the renderer.
+  fields marked, array item fields included), plus the **live icon vocabulary**
+  (`iconKeys`, from `lib/response/icon-vocabulary.ts` — the server-safe key
+  list; the component map stays in `lib/response/icons.ts`) for the semantic
+  `icon` fields. Derived from `ResponseBlockSchema` at runtime, so it cannot
+  drift from the renderer.
 - `response_validate` — runs the renderer's OWN parser over a drafted answer
   (a full message containing the `eclipse-response` fence, or the bare JSON) and
   returns per-block errors (wrong field name, invalid value, malformed JSON) so a
@@ -346,8 +358,11 @@ composing placeholder.
   in the contract — bare `z.string().url()` accepts `javascript:`/`data:`, which
   would be an XSS vector once rendered as an `href`.
 - **Icon allowlist.** Infographic/action `icon` values are semantic keys resolved
-  against `lib/response/icons.ts`; an unknown key degrades to a neutral default.
-  The model never names a component or an import path.
+  against `lib/response/icons.ts`; spellings, common synonyms and emoji are
+  canonicalized to the allowlisted key before validation, an unknown key degrades
+  to a neutral default, and a non-string value is dropped rather than failing the
+  block. The model never names a component or an import path, and the live
+  vocabulary is queryable via `response_block_schema`.
 - **Actions are proposals.** `action_group` only composes a follow-up prompt and
   re-enters the existing agent loop; it cannot call a backend function, and the
   card is labeled "Proposed" until the user runs one.
@@ -360,7 +375,8 @@ composing placeholder.
 - `src/lib/response/contract.test.ts` — envelope, per-block degradation, unknown
   types, version warnings, nesting, totals.
 - `src/lib/response/contract-blocks.test.ts` — the new block types, the spec-name
-  aliases, link scheme restrictions, the icon allowlist.
+  aliases, link scheme restrictions, the icon allowlist and icon-key
+  canonicalization (aliases, emoji, non-string drop, nested blocks).
 - `src/lib/response/parse.test.ts` — segmentation, streaming vs. settled decode.
 - `src/lib/response/chart-option.test.ts` — option building per chart type.
 - `src/lib/response/diagram-layout.test.ts` — layering, unknown-edge handling,
@@ -413,9 +429,10 @@ composing placeholder.
 | BLOCK-005 | Website-style visual blocks: `stat_hero`, `gauge`, `comparison_grid`, `ranked_list`, `badge_row`, `carousel` | `contract.ts` + `visual-blocks.tsx` + `response-view.tsx` REGISTRY | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-006 | `carousel` nests blocks (recursively validated like `tabs`/`report`) | `contract.ts` `parseResponsePayload`/`parseNestedBlocks` | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-007 | Field leniency (`body`, `chart_type`, 500-char `key_value` values, bare-string badges) + block-level `unavailable` figures | `normalize.ts` + `visual-blocks.tsx` UNAVAILABLE state | contract-blocks.test.ts | Verified |
-| BLOCK-008 | Producer read-back: exact block schema + pre-send validation (bridge capability `response_contract`) | `src/lib/harness/response-bridge.ts` + `python/harness/response_tools.py` | response-bridge.test.ts + test_response_tools.py | Verified |
+| BLOCK-008 | Producer read-back: exact block schema + live icon vocabulary + pre-send validation (bridge capability `response_contract`) | `src/lib/harness/response-bridge.ts` + `python/harness/response_tools.py` | response-bridge.test.ts + test_response_tools.py | Verified |
+| BLOCK-009 | Icon-key canonicalization (spellings, synonyms, emoji) + non-string icon leniency, in the prompt vocabulary | `icon-vocabulary.ts` `canonicalIconKey` + `normalize.ts` + `prompts.py` | contract-blocks.test.ts | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
-| SEC-003 | Semantic icon allowlist (no component/import from model) | `lib/response/icons.ts` | contract-blocks.test.ts | Verified |
+| SEC-003 | Semantic icon allowlist (no component/import from model); vocabulary server-safe, component map client-only | `lib/response/icon-vocabulary.ts` + `lib/response/icons.ts` | contract-blocks.test.ts + route.test.ts | Verified |
 
 ## 8. Known limitations (honest)
 

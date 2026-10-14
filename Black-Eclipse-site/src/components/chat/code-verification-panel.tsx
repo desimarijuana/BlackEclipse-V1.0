@@ -38,6 +38,15 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
   const failedRecords = data.records.filter((r) => r.exitCode !== 0);
   const unbacked = data.claims.filter((c) => !c.supported);
 
+  // Phase 19: one line per produced artifact (its checks rolled up), and each
+  // recorded change review with its findings in plain words.
+  const artifacts = new Map<string, typeof data.artifacts>();
+  for (const record of data.artifacts) {
+    const list = artifacts.get(record.artifactName) ?? [];
+    list.push(record);
+    artifacts.set(record.artifactName, list);
+  }
+
   return (
     <div className={cn('glass-card-subtle rounded-xl border border-border/40 p-3', compact ? 'text-[11px]' : 'text-[12px]')}>
       <button
@@ -92,6 +101,49 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
               ))}
             </ul>
           )}
+
+          {/* What Eclipse produced — one line per artifact, amber when a check failed. */}
+          {artifacts.size > 0 && (
+            <ul className="space-y-0.5 border-t border-border/30 pt-1.5">
+              {[...artifacts.entries()].map(([name, checks]) => {
+                const failed = checks.filter((c) => !c.passed);
+                return (
+                  <li key={name} className="flex items-start gap-2">
+                    <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', failed.length ? 'bg-amber-500' : 'bg-emerald-500')} />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{name}</span>
+                    <span className={cn('shrink-0', failed.length ? 'text-amber-500' : 'text-emerald-500')}>
+                      {failed.length ? t('code.proof.artifactsIssue', { count: failed.length }) : t('code.proof.artifactsOk')}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {/* Change review — findings in plain words; unevaluated never hidden. */}
+          {data.reviews.map((review, i) => (
+            <div key={`review-${i}`} className="border-t border-border/30 pt-1.5 text-muted-foreground/80">
+              {review.findings.length === 0
+                ? t('code.proof.reviewClean', { count: review.filesReviewed })
+                : (
+                  <>
+                    {t('code.proof.reviewFindings', { count: review.findings.length })}
+                    <ul className="mt-0.5 space-y-0.5">
+                      {review.findings.slice(0, 4).map((finding, j) => (
+                        <li key={j} className="truncate">
+                          - {finding.path ? `${finding.path}: ` : ''}{finding.summary}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              {review.unevaluated.length > 0 && (
+                <div className="text-muted-foreground/60">
+                  {t('code.proof.reviewUnevaluated', { count: review.unevaluated.length })}
+                </div>
+              )}
+            </div>
+          ))}
 
           {/* Repair — only when one ran. */}
           {data.repair && (

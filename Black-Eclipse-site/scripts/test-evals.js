@@ -115,6 +115,13 @@ const launcher = [
   "_cs = run_construction_gate(dataset_name='construction_v1')",
   "print('  construction gate:', 'PASS' if _cs.passed else 'FAIL', 'tasks=' + str(len(_cs.tasks)), 'task_success=' + str(_cs.aggregates.get('task_success')), 'recovery_success=' + str(_cs.aggregates.get('recovery_success')))",
   "failed += [] if _cs.passed else ['construction']",
+  // Phase 20 (ADR-H193): the capability-class gate — every registered class is
+  // measured or NAMED as not measured; a measured class may not regress.
+  "from harness.code.eval.capabilities import run_capability_eval, check_capability_floors",
+  "_cap = run_capability_eval()",
+  "_capv = check_capability_floors(_cap)",
+  "print('  capability-class gate:', 'PASS' if _capv['passed'] else 'FAIL', 'measured=' + str(_capv['measured']), 'unmeasured=' + str(_capv['unmeasured']), _capv['failures'] if not _capv['passed'] else '')",
+  "failed += [] if _capv['passed'] else ['capability_classes']",
   "print('eval gates:', 'ALL PASS' if not failed else 'FAILED: ' + ','.join(failed))",
   "sys.exit(0 if not failed else 1)",
 ].join("\n");

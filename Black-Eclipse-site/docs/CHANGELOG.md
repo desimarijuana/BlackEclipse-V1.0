@@ -8,6 +8,62 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-13
 
+- **The response-format read-back is reachable end-to-end again (BR-1), and it can
+  no longer crash the route.** `response_contract` was dispatched
+  (`data-bridge.ts`) and type-declared but missing from the HTTP capability
+  allowlist (`src/app/api/harness/data/route.ts`), so every
+  `response_block_schema` / `response_validate` call returned 400 → Python
+  reported `bridge HTTP 400` / UNAVAILABLE and the agent could not verify the
+  icon vocabulary. Two fixes: the allowlist entry, and a server/client split of
+  the icon vocabulary — the schema read-back now imports
+  `lib/response/icon-vocabulary.ts` (pure keys + `canonicalIconKey`), because
+  importing `lib/response/icons.ts` pulls the Phosphor React set into the
+  react-server bundle and crashes the route with `react.createContext is not a
+  function` (found by probing the real dev server after allowlisting).
+  `icons.ts` keeps the client component map, type-pinned to the vocabulary by
+  `satisfies Record<ResponseIconKey, LucideIcon>`. The route also returns the
+  caught error detail in development only. Verified against the running dev
+  server: schema → 200 with exact fields + 42 `iconKeys`; validate → per-block
+  verdicts (`TrendUp` + numeric-icon payload is ok; a bad gauge reports
+  `gauges.0.value`). Tests: new `src/app/api/harness/data/route.test.ts`
+  (allowlist + cross-origin + unknown-capability), `data-bridge.test.ts`
+  dispatch case. Also TOOL-1: `search_text` summaries now name the match mode
+  (literal/regex) and a literal zero-match says it is not proof of absence
+  (`test_fs_search_index_watch.py`).
+  docs updated: interactive-response-engine.md, NAVIGATION.md.
+
+- **Agent `icon` fields now render: the vocabulary is taught, spellings are
+  canonicalized, and a bad icon can no longer drop a block.** Three gaps closed.
+  (1) The producer is told the vocabulary: the "Structured answers" prompt lists
+  the 42 semantic keys, and `response_block_schema` now returns the LIVE
+  `iconKeys` (derived from `lib/response/icons.ts`, cannot drift) which the
+  Python formatter prints with each schema lookup. (2) `canonicalIconKey` in
+  `icons.ts` resolves case/separator spellings (`TrendUp`, `trend_up`, `TREND
+  UP`), common synonyms (`graph`, `money`, `alert`) and the emoji producers emit
+  (`📈`, `⚠️`) to the canonical key; `normalize.ts` applies it to all six
+  icon-bearing item arrays (infographic cards, workflow stages, action_group
+  actions, stat_hero stats, ranked_list items, badge_row badges), including
+  nested blocks. (3) A NON-STRING icon (number/object/array) now has the field
+  dropped before validation instead of failing the whole block — a misspelled
+  icon costs at most the glyph, never the card. Tests: `contract-blocks.test.ts`
+  (+5), `response-bridge.test.ts` (+1), `test_response_tools.py` (+1).
+  docs updated: interactive-response-engine.md, NAVIGATION.md.
+
+- **Market Discover no longer surfaces a `Console TypeError: Failed to fetch`
+  when the dev server is recycled mid-request.** Root cause: the Next dev-server
+  child process was killed under memory pressure (6.6 GB RSS, ~0.8 GB free) while
+  `/api/stocks` was in flight, so the request never got a response. New
+  `src/lib/fetch-retry.ts` (`fetchWithRetry` + `logHandledFetchFailure`) retries
+  transport-level failures twice with backoff (HTTP error statuses are returned
+  as-is, aborts are never retried) and logs a handled outage as a warning instead
+  of `console.error`, so the dev error overlay only fires for real bugs. Wired
+  into the screener/dashboard fetches of `market-overview.tsx`,
+  `use-market-tabs.ts` and `use-global-markets.ts`; tests
+  `fetch-retry.test.ts` (+7). `python/harness/service.py` re-pinned 1469→1471 to
+  the measured tree (pre-existing in-flight growth on the shared working tree;
+  this change touches no Python file).
+  no doc change — client-side resilience fix; no contract or architecture change.
+
 - **The probe was answered from the real run record: the response FORMAT was
   never broken — one block shape was.** Validating every block of the labelled
   8-block probe run (`run_e24e0109…`) and the 22:00 Sazgar answer against the real
@@ -329,6 +385,74 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/decisions.md` (ADR-H186),
   `docs/harness/authentication.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
 
+- **Phase 20 — every capability class is measured or NAMED as not measured
+  (W7 slice, ADR-H193).** New `python/harness/code/eval/capabilities.py`: the
+  capability-class registry (17 classes — the seven code shapes, the classes
+  this round added, and the four it did NOT grade, each unmeasured row stating
+  its reason), a runner that grades only through NAMED evidence (in-module
+  fixtures driving the REAL modules — acquire budget/writer, automation
+  delivery, verify ledger, review rules; `pytest:`/`vitest:` test selectors the
+  runner verifies exist; code-eval fixture ids checked against the labelled
+  dataset), `MEASURED_BASELINE` + `check_capability_floors` (a measured class
+  may not regress to unmeasured). The generated statement gained the "Every
+  capability class" section with the published unmeasured count ("4 of 17
+  classes are not measured yet") — and the generator's repo-root constant was
+  fixed (it pointed one level short, at `python/docs/…`). `scripts/test-evals.js`
+  gained the named `capability-class gate` step (`PASS measured=13
+  unmeasured=4`; evals re-verified ALL PASS). en.ts gained the 17
+  `capability.class.*` labels. Tests: `test_capability_classes.py` (7);
+  `test_code_eval.py` statement tests still green. Recorded remaining:
+  labelled fixtures for `price_authority`/`promotion`, the bootstrap/Monte-Carlo
+  rule fixture, the adversarial safety cases for the new power, and per-class
+  threshold tables.
+  docs updated: `docs/harness/decisions.md` (ADR-H193),
+  `docs/harness/roadmap/phase-20-measuring-all-of-it.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/capability-statement.md`
+  (regenerated), `docs/CHANGELOG.md`.
+
+- **Phase 18 — the first FIGURE recipe (W5 slice, ADR-H192).** `drawdown_figure`
+  renders a real PNG in the analysis sandbox (Agg backend, no display, no
+  network) and writes it through the existing `write_artifact` seam, which now
+  accepts BYTES; the Phase-19 ledger then verifies it (exists, digest, size,
+  opens as an image) end to end in a real-sandbox test. The allowlist widening
+  is NAMED and narrow: `AnalysisRequest.extra_imports` is set only by the
+  recipe table (`io`, `matplotlib` — present in the vendored interpreter,
+  3.11.2); `check_imports` still refuses reflection, dunders and URL literals,
+  and an undeclared source importing matplotlib is refused. A machine without
+  matplotlib fails the recipe honestly. Tests:
+  `test_analysis_recipes.py` (+1 real render + allowlist assertions; recipe
+  count 7→8). Recorded remaining: the figure payload on the run blob, more
+  figure recipes, the inline chat renderer. Verified: analysis suites 51 passed.
+  docs updated: `docs/harness/decisions.md` (ADR-H192),
+  `docs/harness/roadmap/phase-18-visual-output.md`,
+  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Phase 19 — a produced artifact is verified, and the repo's rules are reported
+  (W6/ADR-H191).** `code/verify.py` gains `ArtifactCheck`/`ArtifactRecord`/
+  `verify_artifacts` (exists, digest, size, readable, figure-inputs match — a
+  check that cannot run is a FAILED record, never an omission), the ledger gains
+  bounded artifact + review records (old-row-safe in `to_blob`/`from_blob`), and
+  the two new claim classes `artifacts_verified`/`change_reviewed` join the
+  existing narrow, negation-guarded patterns — an unbacked "the figure is
+  intact" or "I reviewed the change" is marked `[UNVERIFIED …]` by the ONE
+  enforcement path. `analysis_tools.py` records the artifact checks after an
+  analysis. New `code/review.py` (the six-rule table: new-module-reachable,
+  size-ratchet with pins read from BOTH ratchet files, string-is-key,
+  protected-path BLOCKING and proven to agree with `policy.is_protected`,
+  doc-obligation, test-touched; unevaluable rules land in `unevaluated`, never
+  clean) + the read-only `review_change` tool (`code/review_tools.py`, wired
+  from `service.py`, allowlisted on the code agent + chat profile, records the
+  review on the ledger). `mistakes.py` gains the four categories the checks
+  emit; the CODE-agent prompt states that artifact/review sentences are checked;
+  the chat panel renders artifact rollups + review findings (`code.proof.*`
+  keys). Tests: `test_claim_classes.py`, `test_artifact_verification.py`,
+  `test_change_review.py` (24), updated `test_chat_code_profile.py`. Verified:
+  targeted suites 468 + 24 passed; `npx tsc --noEmit` clean; panel/vitest green.
+  Recorded: the figure payload itself is phase 18 (still open).
+  docs updated: `docs/harness/decisions.md` (ADR-H191),
+  `docs/harness/roadmap/phase-19-self-verification.md`,
+  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
 - **Bulk acquisition — first slice (W3/ADR-H190): declared sources, a Python
   budget, files with a manifest.** New `python/harness/acquire/`: a declared
   source registry (daily price history → `price_history`, economic series →
@@ -459,6 +583,64 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/phase-3-architecture.md`,
   `docs/harness/memory-skills-evolution-plan.md`,
   `docs/harness/architecture.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Notification center: red unread badges on sidebar tabs + a loud task-done
+  alarm.** New `src/lib/notifications/` — `store.ts` (zustand ledger at
+  `be_notifications_v1`, newest-first cap 100, per-`AppTab` unread counts, an
+  item raised for the visible tab is read on arrival; `setActiveTab` clears a
+  tab's badge), `task-diff.ts` (pure first-poll seeds, then announce exactly
+  one transition per `task:<id>:<completedAt|updatedAt>`; completed → loud,
+  failed → alert cue), `task-watcher.tsx` (mounted in `src/app/layout.tsx`,
+  15s poll of `GET /api/tasks`, honest no-op on 503/offline). The
+  `be:alert-notify` channel is now the single raise path for price alerts,
+  agent approvals and task completions: `alert-notification-provider.tsx`
+  parses `{ id, title, body, tab, kind, sound, alertId, test }` and always
+  toasts + feeds the ledger (+ OS notification when opted in). The sidebar
+  renders red per-tab badges (count, `9+` cap, dot when collapsed) and an
+  aggregate badge on the Terminal/Agentic/Bots switcher for tabs the active
+  menu hides; the sidebar's `activeTab` is the shell's visible-tab signal.
+  New `taskdone` sound cue (8th cue) — genuinely loud by design: synthesized
+  per-pack WAV assets in `public/sounds/<pack>/taskdone.wav`, `essential: true`,
+  and a new optional `gainFloor` (0.75) in `SoundDefinition` so the deliberately
+  subtle default master volume cannot render it inaudible (per-cue mute/volume
+  and the master switch still apply). A chat reply that finishes while the
+  operator is on another tab raises the same loud cue from `use-agent-run.ts`
+  (watching the ChatBot keeps the soft `message` cue). Tests:
+  `src/lib/notifications/store.test.ts` (8) + `task-diff.test.ts` (8).
+  Verified: vitest 266 files / 2823 passed; `npx tsc --noEmit` clean; eval
+  gates ALL PASS (one pre-existing, machine-specific
+  `test_vision_tools.py` failure — `PRIVACY_REFUSED` on a desktop with a
+  display — unrelated to this change; no Python file touched).
+  docs updated: `docs/ARCHITECTURE.md` (notification center + `taskdone`/
+  `gainFloor`/`be_sounds_v3` drift fix), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **Notification center completed: bell panel, bot-run notifications, and a
+  critical alarm that plays even with UI sounds off.** Follow-up to the entry
+  above. (1) `taskdone` is now a declared critical cue: `SoundDefinition` gains
+  `alwaysAudible`; `canPlay` lets such cues through while the master switch is
+  off (per-cue mute remains the explicit opt-out), so a finished background task
+  is heard without the operator hunting for the opt-in toggle. Settings › Sound
+  states this honestly; the cue hint says it too. (2) Bot runs now notify:
+  pure `src/lib/notifications/bots-run-diff.ts` diffs each bot's `lastExecution`
+  (first sweep seeds; new-or-finished terminal runs announce once keyed
+  `bot-run:<automationId>:<executionId>`; cancelled/skipped stay quiet) and
+  `bots-run-watcher.tsx` (mounted in `src/app/layout.tsx`) sweeps
+  `GET /api/automations` + one status call per active bot (cap 20, 30s) —
+  failures keep their previous tracking entry so a transient status error cannot
+  swallow a completion. Completed → `taskdone` cue, failed/timed out/blocked →
+  the alert cue, all on the `bots` tab. (3) The top bar gains a notification
+  bell + glass ledger panel (`src/components/layout/notification-center.tsx`):
+  aggregate unread count, entry click → mark tab read + `be:navigate`, per-entry
+  dismiss, "Mark all read" (store `markAllRead`/`remove` actions). New
+  `NotificationKind` = `bot`. Tests: `bots-run-diff.test.ts` (9) + two store
+  cases for `markAllRead`/`remove` — 27 total in `src/lib/notifications`.
+  Verified: vitest 268
+  files / 2838 passed; `npx tsc --noEmit` clean; `npm run dev` boot smoke check —
+  `/` 200 (56 KB), `/api/alerts/live` 200, and the new watchers' first polls
+  (`GET /api/automations`) reached the Python runtime with no compile or runtime
+  errors. No Python file touched (the pre-existing machine-specific
+  `test_vision_tools.py` failure is unchanged).
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 
 ## 2026-10-12
 

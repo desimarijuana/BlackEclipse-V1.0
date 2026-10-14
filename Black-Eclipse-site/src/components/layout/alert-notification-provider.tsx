@@ -1,27 +1,36 @@
 'use client';
 
-// ── Global alert notification provider ─────────────────────────────────────
+// ── Global notification provider ────────────────────────────────────────────
 // Mounted once at the app root (src/app/layout.tsx). It makes a fired price
-// alert visible EVERYWHERE in the app — not just on the /alerts tab.
+// alert — or any raised notification — visible EVERYWHERE in the app, not just
+// on the owning tab.
 //
-// Two delivery layers, so an alert is never silent:
-//   1. An in-app toast (bottom-right) — always shown when an alert fires, on
-//      every tab, with no browser permission required.
-//   2. A native OS (desktop) notification via the Web Notification API — only
+// Three delivery layers, so an event is never silent:
+//   1. An in-app toast (bottom-right) — always shown, on every tab, with no
+//      browser permission required.
+//   2. The notification ledger (`lib/notifications/store`) — the toast's item
+//      is recorded against its owning tab, so the sidebar shows a red unread
+//      badge until that tab is opened.
+//   3. A native OS (desktop) notification via the Web Notification API — only
 //      when the user opted in AND the browser granted permission. The Settings
 //      toggle reports the honest permission state (`off`/`blocked`/`on`).
+// A caller may also request a sound cue (`sound` in the detail).
 //
 // It watches GET /api/alerts/live (the always-recorded fired-alert stream). A
 // bounded set of seen ids (lib/alerts/event-diff.ts) guarantees exactly one
 // notice per event, even though the feed is capped at 50 rows. The first poll
 // seeds the set without notifying, so opening the app never replays history.
 //
-// A `be:alert-notify` window event lets any surface (the Settings test button,
-// future callers) raise the same toast+desktop pair without duplicating logic.
+// The `be:alert-notify` window event is the unified "raise a notification"
+// channel: price alerts, agent approval requests, the task watcher and the
+// Settings test button all go through it, so toast/desktop/ledger/sound logic
+// exists exactly once.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ALERT_NOTIFY_EVENT, isEnabled, showAlertNotification } from '@/lib/alerts/browser-notifier';
 import { seedSeen, selectNewEvents, type LiveAlertEvent } from '@/lib/alerts/event-diff';
+import { isSoundName, sound } from '@/lib/sounds';
+import { useNotificationsStore, useHydrateNotifications, type NotificationRequest } from '@/lib/notifications/store';
 
 const POLL_MS = 10_000;
 const TOAST_MS = 8_000;
@@ -37,6 +46,7 @@ interface Toast {
 }
 
 export function AlertNotificationProvider() {
+  useHydrateNotifications();
   const seenRef = useRef<Set<string>>(new Set());
   const seededRef = useRef(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -47,12 +57,27 @@ export function AlertNotificationProvider() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), TOAST_MS);
   }, []);
 
-  // The one place an alert becomes visible: always the toast, plus the desktop
-  // notification when the user opted in and permission is granted.
-  const announce = useCallback(
-    (title: string, body: string, alertId?: string, test?: boolean) => {
-      pushToast(test ? `Test — ${title}` : title, body);
-      if (isEnabled()) showAlertNotification({ alertName: title, msg: body, alertId, test });
+  // The one place a notification becomes visible: the ledger, always the
+  // toast, the desktop notification when opted in, and an optional sound cue.
+  const raise = useCallback(
+    (req: NotificationRequest) => {
+      const title = req.title || 'BlackEclipse';
+      const body = req.body || 'Alert';
+      pushToast(req.test ? `Test — ${title}` : title, body);
+      if (isEnabled()) showAlertNotification({ alertName: title, msg: body, alertId: req.alertId, test: req.test });
+      // Validated: the detail arrives via a window event, so the cue name is
+      // runtime input, not a compile-time SoundName.
+      if (req.sound && isSoundName(req.sound)) sound.play(req.sound);
+      // A test raise is a settings probe, not an event — never badge.
+      if (!req.test) {
+        useNotificationsStore.getState().push({
+          id: req.id,
+          tab: req.tab ?? 'alerts',
+          kind: req.kind ?? 'alert',
+          title,
+          body,
+        });
+      }
     },
     [pushToast],
   );
@@ -76,7 +101,14 @@ export function AlertNotificationProvider() {
         const { fresh, seen } = selectNewEvents(events, seenRef.current);
         seenRef.current = seen;
         for (const e of fresh) {
-          announce('BlackEclipse alert', e.detail || 'Alert fired', e.alertId);
+          raise({
+            id: e.id,
+            title: 'BlackEclipse alert',
+            body: e.detail || 'Alert fired',
+            alertId: e.alertId,
+            tab: 'alerts',
+            kind: 'alert',
+          });
         }
       } catch {
         /* offline / server down — try again next tick */
@@ -89,17 +121,18 @@ export function AlertNotificationProvider() {
       cancelled = true;
       clearInterval(t);
     };
-  }, [announce]);
+  }, [raise]);
 
-  // External surfaces (Settings test button) raise the same pair.
+  // External surfaces (agent approvals, the task watcher, Settings test button)
+  // raise the same toast + desktop + ledger + sound through one channel.
   useEffect(() => {
     const onNotify = (ev: Event) => {
-      const d = (ev as CustomEvent<{ title?: string; body?: string; test?: boolean }>).detail || {};
-      announce(d.title || 'BlackEclipse', d.body || 'Alert', undefined, d.test);
+      const d = (ev as CustomEvent<Partial<NotificationRequest>>).detail || {};
+      raise(d);
     };
     window.addEventListener(ALERT_NOTIFY_EVENT, onNotify);
     return () => window.removeEventListener(ALERT_NOTIFY_EVENT, onNotify);
-  }, [announce]);
+  }, [raise]);
 
   if (toasts.length === 0) return null;
 

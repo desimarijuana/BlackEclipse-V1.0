@@ -11,6 +11,7 @@
 //   error        — failed actions
 //   notification — important system events / alerts
 //   message      — an incoming chat reply has finished
+//   taskdone     — a background task / agent run finished while away
 
 export type SoundName =
   | 'click'
@@ -19,10 +20,11 @@ export type SoundName =
   | 'success'
   | 'error'
   | 'notification'
-  | 'message';
+  | 'message'
+  | 'taskdone';
 
 export const SOUND_NAMES: readonly SoundName[] = [
-  'click', 'tick', 'toggle', 'success', 'error', 'notification', 'message',
+  'click', 'tick', 'toggle', 'success', 'error', 'notification', 'message', 'taskdone',
 ] as const;
 
 export interface SoundDefinition {
@@ -39,6 +41,19 @@ export interface SoundDefinition {
    * (confirmations, alerts) are muted in the `essential` sound mode.
    */
   essential: boolean;
+  /**
+   * Minimum effective master volume (0–1). Critical attention cues stay
+   * audible even when the global volume slider sits low; the per-cue mute,
+   * per-cue volume and the master on/off switch still apply.
+   */
+  gainFloor?: number;
+  /**
+   * Critical alarm. Plays even while UI sounds are switched OFF (per-cue
+   * mute and volume still apply — muting the cue is the explicit way to
+   * silence it). Reserved for events the operator must not miss, e.g. a
+   * finished background task.
+   */
+  alwaysAudible?: boolean;
 }
 
 export const SOUND_DEFINITIONS: Record<SoundName, SoundDefinition> = {
@@ -49,6 +64,12 @@ export const SOUND_DEFINITIONS: Record<SoundName, SoundDefinition> = {
   error: { label: 'Error', hint: 'Failed actions', volume: 1, throttleMs: 120, essential: false },
   notification: { label: 'Notification', hint: 'Alerts and system events', volume: 1, throttleMs: 400, essential: false },
   message: { label: 'Message', hint: 'An incoming chat reply has finished', volume: 1, throttleMs: 300, essential: false },
+  // The loud completion alarm. Treated as essential so a quiet
+  // "essential-only" mode cannot silence it, `alwaysAudible` so the master
+  // switch cannot either, and `gainFloor` keeps it audible over the
+  // (deliberately subtle) default master volume. Muting this one cue in
+  // Settings › Sound remains the explicit opt-out.
+  taskdone: { label: 'Task done', hint: 'A background task or agent run has finished — critical, plays even while sounds are off', volume: 1, throttleMs: 2500, essential: true, gainFloor: 0.75, alwaysAudible: true },
 };
 
 // ── Voice packs ─────────────────────────────────────────────────────────────

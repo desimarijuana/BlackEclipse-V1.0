@@ -1,10 +1,16 @@
-// ── Semantic icon allowlist for visual blocks ─────────────────────────────────
+// ── Semantic icon allowlist for visual blocks (client-only) ──────────────────
 //
 // The producer supplies an icon *key* (e.g. "trend-up"), never a component name,
 // import path or SVG. This registry is the single place that maps a key to a
 // real icon from the app's one icon surface (`@/lib/icons`). An unknown key
 // degrades to a neutral default, so a bad key can never break a block — and no
 // key can reach arbitrary code.
+//
+// CLIENT-ONLY: this module imports the React icon set. The vocabulary itself —
+// keys, aliases, canonicalization — lives in `./icon-vocabulary`, which server
+// code (the `response_contract` bridge) imports instead. Importing THIS module
+// from a server route pulls `@phosphor-icons/react` into the react-server bundle
+// and crashes it (`react.createContext is not a function`).
 
 import {
   Activity,
@@ -52,8 +58,15 @@ import {
   Zap,
   type LucideIcon,
 } from '@/lib/icons';
+import { isResponseIconKey, type ResponseIconKey } from './icon-vocabulary';
 
-/** The allowlisted semantic icon vocabulary. Keys are lower-kebab-case. */
+export { RESPONSE_ICON_KEYS, canonicalIconKey, isResponseIconKey, type ResponseIconKey } from './icon-vocabulary';
+
+/**
+ * The allowlisted semantic key → component map. `satisfies` pins it to the
+ * vocabulary EXACTLY: a key added to `./icon-vocabulary` without a component
+ * (or a stale entry here) fails typecheck.
+ */
 export const RESPONSE_ICONS = {
   'trend-up': TrendingUp,
   'trend-down': TrendingDown,
@@ -97,19 +110,10 @@ export const RESPONSE_ICONS = {
   list: ListChecks,
   rocket: Rocket,
   pin: Pin,
-} as const satisfies Record<string, LucideIcon>;
-
-export type ResponseIconKey = keyof typeof RESPONSE_ICONS;
-
-const ICON_KEYS = new Set<string>(Object.keys(RESPONSE_ICONS));
+} as const satisfies Record<ResponseIconKey, LucideIcon>;
 
 /** The neutral fallback when a key is absent or unknown. */
 export const DEFAULT_RESPONSE_ICON: LucideIcon = CircleDot;
-
-/** True when `key` is an allowlisted semantic icon key. */
-export function isResponseIconKey(key: string | undefined): key is ResponseIconKey {
-  return typeof key === 'string' && ICON_KEYS.has(key);
-}
 
 /**
  * Resolve a semantic key to an icon component. Unknown/missing keys return the

@@ -2,10 +2,13 @@
 //
 // Pure, total rewrite of a raw producer block into the canonical contract shape
 // BEFORE validation: documented `type` aliases (`text`, `table`, `source_list`,
-// …) and field-level synonyms (`content`/`text`/`body`→`markdown`,
-// `variant`→`tone`, `items`→`sources`, string table columns / positional rows,
-// interval aliases). A non-object block is returned unchanged; nothing here
-// throws, executes or reads the network.
+// …), field-level synonyms (`content`/`text`/`body`→`markdown`, `variant`→`tone`,
+// `items`→`sources`, string table columns / positional rows, interval aliases)
+// and icon values (`TrendUp`/`trend_up`/emoji → the canonical `trend-up` key).
+// A non-object block is returned unchanged; nothing here throws, executes or
+// reads the network.
+
+import { canonicalIconKey } from './icon-vocabulary';
 
 /**
  * Spec-name → canonical-type aliases. The producer contract (see prompts.py)
@@ -169,6 +172,36 @@ function normalizeLabeledItems(value: unknown): unknown {
     if (!isRecord(item) || item.label !== undefined) return item;
     const label = item.key ?? item.name ?? item.title;
     return typeof label === 'string' ? { ...item, label } : item;
+  });
+}
+
+// Array fields whose items carry the optional semantic `icon` key, per block
+// type (see `icons.ts`). One place to extend when a new icon-bearing block lands.
+const ICON_ITEM_FIELDS: Record<string, string> = {
+  infographic: 'cards',
+  workflow: 'stages',
+  action_group: 'actions',
+  stat_hero: 'stats',
+  ranked_list: 'items',
+  badge_row: 'badges',
+};
+
+/**
+ * Canonicalize each item's `icon` (aliases, case/separator spellings, common
+ * emoji → the allowlisted key). A NON-STRING icon is dropped so the block still
+ * validates and renders — a misspelled icon may cost the glyph, never the card.
+ */
+function normalizeIconItems(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!isRecord(item) || item.icon === undefined) return item;
+    const key = canonicalIconKey(item.icon);
+    if (key === undefined) {
+      const next: Record<string, unknown> = { ...item };
+      delete next.icon;
+      return next;
+    }
+    return key === item.icon ? item : { ...item, icon: key };
   });
 }
 
@@ -345,6 +378,13 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
   if (type === 'carousel' && out.slides === undefined) {
     const alt = out.items ?? out.tabs;
     if (alt !== undefined) out.slides = alt;
+  }
+
+  // Icon-bearing item arrays: canonicalize spellings/aliases and drop values
+  // that are not strings at all, so an odd icon never invalidates the block.
+  const iconField = ICON_ITEM_FIELDS[type];
+  if (iconField && out[iconField] !== undefined) {
+    out[iconField] = normalizeIconItems(out[iconField]);
   }
 
   return out;

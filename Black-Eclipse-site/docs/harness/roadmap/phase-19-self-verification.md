@@ -1,13 +1,32 @@
 ---
 title: "Phase 19 — Verifying What It Produced"
-status: Not started
+status: Done
 phase: 19
 depends_on: [14, 18]
 unlocks: [20]
-last-verified: 2026-10-02
+last-verified: 2026-10-13
 ---
 
 # Phase 19 — Verifying What It Produced
+
+> **Progress (2026-10-13) — Done, ADR-H191.** Shipped: `code/verify.py`
+> (`ArtifactCheck`/`ArtifactRecord`/`verify_artifacts`; ledger artifact + review
+> records, bounded and old-row-safe; the two new claim classes with the same
+> narrow negation-guarded patterns), `analysis_tools.py` recording the artifact
+> checks after an analysis, `code/review.py` (the six-rule table +
+> `review_change`, ratchet pins read from BOTH ratchet files, `unevaluated`
+> never clean), the read-only `review_change` tool registered by
+> `code/review_tools.py` from `service.py` and allowlisted on the code agent +
+> chat code profile, the four additive `mistakes.py` categories, the CODE-agent
+> prompt paragraph, and the chat panel rendering artifact rollups + review
+> findings (`code.proof.*` i18n keys). Tests:
+> `python/tests/test_claim_classes.py`, `test_artifact_verification.py`,
+> `test_change_review.py` (24). Recorded deviations (per `AGENTS.md`): no
+> separate progress file (notes inline), the prompt paragraph is in the CODE
+> agent prompt (the finance prompt is char-ratcheted), `review_change` is
+> registered from `service.py` because `code/tools.py` is at its size pin, and
+> the figure-specific `figure_inputs_match` runs when the producer recorded
+> inputs — the figure payload itself is phase 18, still open.
 
 | | |
 |---|---|

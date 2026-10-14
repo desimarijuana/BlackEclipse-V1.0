@@ -91,10 +91,14 @@ class SoundManager {
     if (typeof window === 'undefined') return false;
     if (!this.armed) return false;
     const prefs = useSoundStore.getState().prefs;
-    if (!prefs.enabled) return false;
+    const def = SOUND_DEFINITIONS[name];
     const cue = prefs.cues[name];
+    // Per-cue mute is always the explicit opt-out.
     if (cue?.muted) return false;
-    if (prefs.mode === 'essential' && !SOUND_DEFINITIONS[name].essential) return false;
+    // Critical alarms (e.g. task completed) ignore the master switch; muting
+    // the cue itself is how the operator silences them.
+    if (!prefs.enabled && !def.alwaysAudible) return false;
+    if (prefs.mode === 'essential' && !def.essential) return false;
     return true;
   }
 
@@ -160,7 +164,11 @@ class SoundManager {
     if (!ctx) return;
     try {
       const prefs = useSoundStore.getState().prefs;
-      const gain = prefs.volume * SOUND_DEFINITIONS[name].volume * (prefs.cues[name]?.volume ?? 1);
+      const def = SOUND_DEFINITIONS[name];
+      // Critical cues (e.g. task completed) keep a floor under the master
+      // volume so the subtle default (12%) cannot render them inaudible.
+      const master = def.gainFloor != null ? Math.max(prefs.volume, def.gainFloor) : prefs.volume;
+      const gain = master * def.volume * (prefs.cues[name]?.volume ?? 1);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       const node = ctx.createGain();
@@ -213,6 +221,8 @@ class SoundManager {
   error = (): void => this.play('error');
   notification = (): void => this.play('notification');
   message = (): void => this.play('message');
+  /** The loud completion alarm for a finished background task / agent run. */
+  taskDone = (): void => this.play('taskdone');
 
   /**
    * Explicit event bus hook. A caller that knows the semantic outcome of an

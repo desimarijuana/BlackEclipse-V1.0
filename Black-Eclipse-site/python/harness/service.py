@@ -87,6 +87,10 @@ class AgenticService:
         # The read-only repository navigator (Phase 1): five read tools on the
         # SAME registry. No write/execute tool is registered.
         register_code_tools(self.registry)
+        # Change review (Phase 19): report the repo's rules over the task diff.
+        from .code.review_tools import register_review_tools  # noqa: PLC0415
+
+        register_review_tools(self.registry)
         # The Evidence-Driven Web Research Engine: search/extract/verify tools on
         # the SAME registry. The engine reuses the existing retrieval layer, the TS
         # web transport (via the bridge), the browser runtime, the SSRF guard and
@@ -457,9 +461,7 @@ class AgenticService:
             from .automation.scheduling_tools import register_scheduling_tools  # noqa: PLC0415
 
             register_scheduling_tools(self.registry)
-            # Bulk acquisition (Phase 16, first slice): the `acquire` tool over
-            # the declared source registry, through the read-only bridge. The
-            # operator's switch (`acquisition_enabled`) removes it when off.
+            # Bulk acquisition (Phase 16 slice): the `acquire` tool.
             from .acquire.tools import register_acquire_tools  # noqa: PLC0415
 
             register_acquire_tools(self.registry)

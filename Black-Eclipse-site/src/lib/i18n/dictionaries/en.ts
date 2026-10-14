@@ -712,6 +712,11 @@ export const en = {
   'code.proof.repairFailed': 'Could not fix it ({attempts} of {max} attempts).',
   'code.proof.truncated': 'More checks were run than are shown here.',
   'code.proof.details': 'details',
+  'code.proof.artifactsOk': 'checks passed',
+  'code.proof.artifactsIssue': '{count} check(s) did not pass',
+  'code.proof.reviewClean': 'Reviewed the change ({count} file(s)) - nothing to flag.',
+  'code.proof.reviewFindings': 'Reviewed the change - {count} thing(s) to look at:',
+  'code.proof.reviewUnevaluated': '{count} thing(s) could not be checked.',
 
   // Code tasks (Phase 5) — the task screen names the JOB, never the mechanism.
   // The three autonomy choices are plain sentences, not config keys.
@@ -1005,6 +1010,25 @@ export const en = {
   'capability.status.partial': 'Partly',
   'capability.status.notYet': 'Not yet',
   'capability.status.notMeasuredYet': 'Not measured yet',
+  // Phase 20 (ADR-H193): one plain name per capability class in the generated
+  // statement's "Every capability class" section.
+  'capability.class.oneFile': 'A small change to one file',
+  'capability.class.crossFile': 'A change across a few files',
+  'capability.class.testFirst': 'Making a failing test pass',
+  'capability.class.repair': 'Fixing a check that fails',
+  'capability.class.job': 'Setting up a scheduled job',
+  'capability.class.kit': 'Building a ready-made tool',
+  'capability.class.refusal': 'Declining something it should not do',
+  'capability.class.bulkCollection': 'Collecting many rows of data from a supplied source',
+  'capability.class.unattendedReport': 'A run that reports the limits it hit',
+  'capability.class.artifactVerification': 'Checking a file it produced',
+  'capability.class.changeReview': 'Reviewing a change against the rules',
+  'capability.class.documentAttachment': 'Reading a document you attach',
+  'capability.class.figureProvenance': 'Drawing a chart from a computation',
+  'capability.class.priceAuthority': 'Preferring a fresh price source',
+  'capability.class.promotion': 'Putting a change into your own files',
+  'capability.class.scrapingBreadth': 'Collecting from many kinds of sources',
+  'capability.class.messagingGateway': 'Talking to Eclipse from a messaging app',
   'capability.missing.live': 'Proof against a live model',
   'capability.missing.none': 'Nothing',
 

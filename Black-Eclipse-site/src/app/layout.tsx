@@ -24,6 +24,8 @@ import { GlobalLoader } from "@/components/ui/global-loader";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
+import { TaskCompletionWatcher } from "@/lib/notifications/task-watcher";
+import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
 import { SoundProvider } from "@/lib/sounds";
 import { TerminalKeybind } from "@/components/layout/terminal-keybind";
 import { WorkspaceKeybind } from "@/components/agent-workspace/workspace-keybind";
@@ -86,6 +88,8 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <WorkspaceKeybind />
         <SoundProvider />
         <AlertNotificationProvider />
+        <TaskCompletionWatcher />
+        <BotsRunWatcher />
       </body>
     </html>
   );

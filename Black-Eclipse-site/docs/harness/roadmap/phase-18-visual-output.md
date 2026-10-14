@@ -1,13 +1,28 @@
 ---
 title: "Phase 18 — Visual Output"
-status: Not started
+status: In progress
 phase: 18
 depends_on: [15, 16]
 unlocks: [19, 20]
-last-verified: 2026-10-02
+last-verified: 2026-10-13
 ---
 
 # Phase 18 — Visual Output
+
+> **Progress (2026-10-13) — first slice shipped under ADR-H192.** A `drawdown_figure`
+> recipe renders a REAL PNG in the analysis sandbox (Agg backend, no display, no
+> network), written as bytes through the existing `write_artifact` seam and
+> collected as an `ArtifactRef` the Phase-19 ledger then VERIFIES (exists,
+> digest, size, opens as an image). The allowlist widening is NAMED and narrow:
+> `AnalysisRequest.extra_imports` accepts only what the recipe TABLE declares
+> (`io`, `matplotlib`); `check_imports` still refuses reflection, dunders and URL
+> literals. Test: `test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies`.
+> **Remaining (not started):** the figure PAYLOAD contract (§6.1: plotted-series
+> metadata on the run blob), the remaining figure recipes, and the inline chat
+> renderer (§6.4) — the artifact is currently handed over through the existing
+> computed-result panel + Artifact Center. `matplotlib` is present in the
+> vendored interpreter (3.11.2); a machine without it fails the recipe
+> HONESTLY (import error), never silently.
 
 | | |
 |---|---|

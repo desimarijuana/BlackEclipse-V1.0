@@ -32,6 +32,7 @@ _VALID_INPUTS: dict[str, dict] = {
     },
     "period_comparison": {"current": 120.0, "previous": 100.0},
     "scenario_shock": {"values": [{"name": "AAPL", "value": 100}, {"name": "MSFT", "value": 200}], "shockPct": -20.0},
+    "drawdown_figure": {"prices": [100, 90, 95, 80, 120]},
 }
 
 
@@ -46,12 +47,13 @@ def _has_runner() -> bool:
 requires_runner = pytest.mark.skipif(not _has_runner(), reason="sandbox/interpreter unavailable")
 
 
-def test_the_seven_named_recipes_are_shipped():
+def test_the_named_recipes_are_shipped():
     assert _NAMES == {
         "returns_series", "drawdown_profile", "correlation_matrix",
         "contribution_to_return", "reconciliation", "period_comparison", "scenario_shock",
+        "drawdown_figure",  # Phase 18: the first figure recipe
     }
-    assert len(list_recipes()) == 7
+    assert len(list_recipes()) == 8
 
 
 @pytest.mark.parametrize("name", sorted(_NAMES))
@@ -112,6 +114,34 @@ def test_scenario_shock_applies_the_move():
     result = run_recipe("scenario_shock", _VALID_INPUTS["scenario_shock"])
     assert result.status == "ok"
     assert result.outputs["shockedValues"]["AAPL"] == 80.0
+
+
+@requires_runner
+def test_drawdown_figure_writes_a_real_png_artifact_that_verifies(tmp_path):
+    """Phase 18: the figure recipe produces a PNG the ledger can CHECK."""
+    from harness.code.verify import verify_artifacts
+
+    result = run_recipe("drawdown_figure", {"prices": [100, 90, 95, 80, 120]}, output_dir=tmp_path)
+    assert result.status == "ok", result.stderr
+    assert result.outputs["maxDrawdownPct"] == -20.0
+
+    figures = [a for a in result.artifacts if a.name == "drawdown.png"]
+    assert figures, [a.name for a in result.artifacts]
+    figure = figures[0]
+    assert figure.media_type.startswith("image/")
+
+    # The artifact verifies as a real image: exists, digest, size, opens.
+    records = verify_artifacts([figure], tmp_path, None)
+    checks = {r.check: r.passed for r in records}
+    assert checks["artifact_exists"] and checks["artifact_digest"]
+    assert checks["artifact_size"] and checks["artifact_readable"]
+
+    # The allowlist widening stays NAMED and narrow: an undeclared recipe source
+    # cannot import matplotlib.
+    from harness.code.execution import check_imports
+
+    assert check_imports("import matplotlib\n") == ["matplotlib"]
+    assert check_imports("import matplotlib\n", ("matplotlib",)) == []
 
 
 def test_unknown_recipe_is_refused():
