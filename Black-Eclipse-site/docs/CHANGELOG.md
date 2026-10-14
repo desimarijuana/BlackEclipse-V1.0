@@ -8,6 +8,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: computed-result and research-provenance panels now share a 50/50 row.**
+  `ComputedResultPanel` ("This number has no record…") and
+  `ResearchEvidencePanel` ("Sources consulted") were stacked full-width because
+  the assistant message column stretches to the chat width (`chat-history.tsx`).
+  Wrapped both in a `flex md:flex-row` row so each child is `md:w-1/2`, stacking
+  on mobile; zeroed the panels' own top margins via `[&>div]:mt-0` so they align.
+  Layout-only change; no doc change — `docs/CHANGELOG.md` only.
+
 - **Bots now keep PRIVATE per-conversation long-term memory.** A bot chat and
   each group-room member turn own a durable-memory bucket keyed by the
   conversation id (`bot-<id>` / `group-<gid>-<botid>`), isolated from every other

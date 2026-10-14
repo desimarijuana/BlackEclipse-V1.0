@@ -282,12 +282,20 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                     runId={msg.runId}
                     compact={compact}
                   />
-                  {msg.analysis ? (
-                    <ComputedResultPanel result={msg.analysis} compact={compact} />
-                  ) : null}
-                  {msg.research ? (
-                    <ResearchEvidencePanel research={msg.research} compact={compact} />
-                  ) : null}
+                  {(msg.analysis || msg.research) && (
+                    <div className="mt-3 flex w-full flex-col gap-3 md:flex-row md:items-start">
+                      {msg.analysis ? (
+                        <div className="w-full md:w-1/2 md:min-w-0 [&>div]:mt-0">
+                          <ComputedResultPanel result={msg.analysis} compact={compact} />
+                        </div>
+                      ) : null}
+                      {msg.research ? (
+                        <div className="w-full md:w-1/2 md:min-w-0 [&>div]:mt-0">
+                          <ResearchEvidencePanel research={msg.research} compact={compact} />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                   {msg.vision ? (
                     <VisionPanel vision={msg.vision} compact={compact} />
                   ) : null}
