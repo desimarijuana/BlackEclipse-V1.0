@@ -8,6 +8,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: Aurora glow shows on the ChatBot landing only.** Restrict the local
+  in-panel `AuroraGlow` to the empty-transcript landing (not the conversation
+  view, which keeps its calm chat surface). `stock-chat.tsx` only. UI-only; no
+  doc change — `docs/CHANGELOG.md` only.
+
+- **Slash commands: wire the remaining high-value commands + close the gaps.**
+  Promoted `/tools`, `/usage` (`/cost`), `/market`, `/portfolio`, `/memory` and
+  `/mcp` from declared-unavailable to real handlers backed by their existing TS
+  clients (runtime health/tools, usage summary, market gateway providers+health,
+  Portfolio Accounting Engine, Eclipse-Memory overview, MCP server list). Wired
+  `/skill-create --from-workflow` through the learning engine and made
+  `/skill-create`'s name optional when a source id is given. Confirmed automatic
+  skill selection in normal chat is already provided by the runtime's
+  `skill_list`/`skill_view`/`skill_invoke` tools (documented, not re-implemented).
+  Added a route-level test for `/api/harness/command`. Tests: 62 command/route
+  cases; full vitest 3040 passed; `npx tsc --noEmit` clean; eslint clean.
+  Re-pinned the size-budget ratchet for `stock-chat.tsx` (1391->1399) to the
+  measured tree after the concurrent "Aurora glow" chat-shell commit grew it
+  (unrelated to this work). docs updated: `docs/harness/slash-commands.md`.
+
 - **Fix: Aurora glow was missing on the ChatBot page.** The shell's `AuroraGlow`
   sits at the root `z-0`, but the chat panel (`z-10`) now paints an opaque chat
   surface / wallpaper over it, so the glow was covered. Mounted a local
@@ -4501,3 +4521,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Checks re-run on this tree: pytest **5040 passed / 16 skipped**,
   `tsc --noEmit` clean, vitest **2337 passed**. docs updated:
   `docs/harness/search-retrieval.md`, `docs/harness/execution-architecture.md`.
+
+- **Runtime/run durability: a restart no longer orphans an in-flight self-edit.**
+  The front-door supervisor now DEFERS replacing a runtime while it is serving
+  runs (`activeRuns` added to the runtime `/health`, alongside `pid`), and treats
+  a runtime that answered within a busy-grace window as busy rather than hung — so
+  a `python/harness/**` self-edit paused on its approval card is not killed
+  mid-flight. Policy extracted to `src/lib/harness/runtime-supervision.ts` and
+  wired into `ensurePythonRuntimeUncached` (`python-runtime.ts`). If a restart
+  still catches a run paused on an operator approval, boot recovery now labels it
+  `RUN_INTERRUPTED` ("nothing was applied — re-request") instead of a generic
+  `RUN_ORPHANED` (`python/harness/run_recovery.py`). Surfaced from the live
+  `/eclipsesdk` acceptance: concurrent app restarts orphaned runs paused on the
+  write approval. Tests: `src/lib/harness/runtime-supervision.test.ts` (8),
+  `python/tests/test_run_recovery.py` (+1). Targeted checks green (8 vitest, 2
+  pytest); the full `tsc` run flags only the concurrent worker's untracked
+  `command-router.*`, not this change. docs updated:
+  `docs/harness/self-editing-harness-plan.md`.
