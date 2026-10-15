@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Aurora glow restored on the ChatBot landing.** The app-wide responsive pass
+  (commit 5062aeab) deleted the in-panel `<AuroraGlow />` gated to the empty
+  transcript, leaving only the shell-level glow at the root (`z-0`). The chat
+  panel is `relative z-10` and, on the landing, `.app-bg-layer` fills it with the
+  opaque default solid backdrop, so the shell glow was covered — while the
+  conversation view (no wallpaper layer, chat surface defaulting to `opacity: 0`)
+  showed it through. Re-mounted the landing-only in-panel glow between
+  `.app-bg-layer` and `<ChatWordmark />`. Re-pinned the `stock-chat.tsx` size
+  ratchet 1455→1460. no doc change — UI fix only; no architecture, data-shape,
+  contract, setup or folder change.
+
 - **Responsive pass across the shell and screens.** Fixed the app-wide mobile
   breakage: the Agent Workspace dock's inline `width` (300–760px) no longer
   overrides `w-full` below `md`; removed the duplicate floating hamburger in the

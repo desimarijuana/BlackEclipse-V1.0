@@ -114,7 +114,11 @@ const RATCHET: Record<string, number> = {
   // a global Ctrl/Cmd+Alt+N handler (switch to ChatBot + new chat + focus the
   // composer). May only shrink from here; the per-tab keep-alive blocks remain
   // the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1455,
+  // Re-pinned 1455→1460: restoring the in-panel Aurora glow on the ChatBot
+  // landing (the app-wide responsive pass, commit 5062aeab, dropped it, so the
+  // shell glow was covered by the opaque landing backdrop). One mount line + a
+  // shorter wordmark comment. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1460,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard
