@@ -7,7 +7,6 @@ import { useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 interface Options {
   open: boolean;
   onToggle: () => void;
-  slashShortcut?: boolean;
 }
 
 export function useCommandCenterKeybind(options: Options) {
@@ -19,14 +18,16 @@ export function useCommandCenterKeybind(options: Options) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isKeyboardEventAvailable(event) || useKeyboardShortcutsStore.getState().helpOpen) return;
-      const { open, onToggle, slashShortcut = false } = optionsRef.current;
+      const { open, onToggle } = optionsRef.current;
+      // The command center is toggled by Ctrl/Cmd+K ONLY. Plain `/` is reserved
+      // for focusing the chat composer (see `useChatFocusKeybind`).
       if (open && (matchesShortcut(event, 'mod+k') || matchesShortcut(event, 'escape'))) {
         event.preventDefault();
         onToggle();
         return;
       }
       if (!canHandleKeyboardEvent(event)) return;
-      if (matchesShortcut(event, 'mod+k') || (slashShortcut && !open && matchesShortcut(event, '/'))) {
+      if (matchesShortcut(event, 'mod+k')) {
         event.preventDefault();
         onToggle();
       }

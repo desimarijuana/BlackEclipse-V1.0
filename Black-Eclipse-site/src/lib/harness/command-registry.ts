@@ -33,6 +33,8 @@ export type CommandHandlerType =
   | "workflow"
   | "runtime"
   | "profile"
+  /** Runs as a normal agent turn after the query is rewritten (e.g. `/skill`). */
+  | "agent"
   | "unsupported";
 
 export type CommandExecutionMode = "sync" | "async";
@@ -307,11 +309,11 @@ const SKILLS: CommandSpec = {
   id: "skills.list",
   name: "skills",
   aliases: [],
-  summary: "List, search, inspect, and test skills.",
+  summary: "List, search, inspect, test, and run skills.",
   description:
     "The skill catalog interface. `list` shows installed skills; `search` filters by keyword; " +
-    "`category` filters by category; `show` inspects one skill; `test` runs its evaluation suite; " +
-    "`validate` checks its preflight (dependencies, tools, permissions).",
+    "`category` filters by category; `show` inspects one skill; `run` executes one; `test` runs its " +
+    "evaluation suite; `validate` checks its preflight (dependencies, tools, permissions).",
   category: "skills",
   tags: ["skills", "discovery"],
   version: V,
@@ -321,7 +323,7 @@ const SKILLS: CommandSpec = {
       name: "action",
       description: "What to do.",
       type: "enum",
-      values: ["list", "search", "category", "show", "test", "validate"],
+      values: ["list", "search", "category", "show", "run", "test", "validate"],
       default: "list",
     },
     {
@@ -337,50 +339,49 @@ const SKILLS: CommandSpec = {
   permissions: { approval: "none" },
   risk: "low",
   executionMode: "sync",
-  timeoutMs: 120_000,
+  timeoutMs: 240_000,
   idempotent: true,
-  output: { type: "response", summary: "A skill table or a single skill's detail." },
+  output: { type: "response", summary: "A skill table, a single skill's detail, or an execution result." },
   examples: [
     "/skills",
     "/skills search crypto",
     "/skills category research",
     "/skills show crypto-onchain-research",
+    "/skills run crypto-onchain-research",
     "/skills test crypto-onchain-research",
     "/skills validate crypto-onchain-research",
   ],
 };
 
 const SKILL: CommandSpec = {
-  id: "skill.execute",
+  id: "skill.author",
   name: "skill",
   aliases: [],
-  summary: "Execute one skill with validated inputs.",
+  summary: "Create a new reusable Eclipse skill.",
   description:
-    "Resolve a skill id against the authoritative registry, validate its inputs, and execute it through the " +
-    "trusted runtime (allowlist, permissions, and budget are enforced in Python). `--key value` flags become " +
-    "the skill's input object.",
+    "Tell Eclipse to author a new reusable skill from your description. The chatbot generates the " +
+    "procedure and metadata, saves it in the Skills library (so it appears on the Skills page where you " +
+    "can view, edit, enable, or run it), and creation is approval-gated. This is a normal chat turn: " +
+    "describe what the skill should do. To RUN an existing skill, use `/skills run <id>`.",
   category: "skills",
-  tags: ["skills", "execute"],
+  tags: ["skills", "authoring"],
   version: V,
   status: "available",
   args: [
-    { name: "skillId", description: "The skill id to execute.", required: true, completion: "skills" },
+    { name: "name", description: "A short name for the new skill.", required: false },
+    { name: "description", description: "What the skill should do.", variadic: true },
   ],
   flags: [
-    { name: "version", description: "Pin a specific skill version.", type: "string" },
-    { name: "mode", description: "Execution mode.", type: "string", values: ["interactive", "workflow", "agent"] },
+    { name: "category", description: "Skill category.", type: "string", values: ["research", "quality", "finance", "system"] },
   ],
-  passThroughFlags: true,
-  handler: { type: "skill", target: "skill.execute" },
-  permissions: { approval: "none" },
+  handler: { type: "agent", target: "agent.skill.author" },
+  permissions: { approval: "user" },
   risk: "medium",
-  executionMode: "sync",
-  timeoutMs: 240_000,
-  idempotent: false,
-  output: { type: "response", summary: "The skill's result, evidence, and execution metrics." },
+  executionMode: "async",
+  output: { type: "markdown", summary: "The chatbot authors the skill and confirms the created id." },
   examples: [
-    "/skill crypto-onchain-research --asset BTC --period 90d",
-    "/skill financial-statement-analysis --company NVDA --period annual",
+    "/skill crypto-onchain-research Research tokenomics and on-chain activity for a token",
+    "/skill risk-review Review a portfolio for concentration risk and flag the worst offenders",
   ],
 };
 

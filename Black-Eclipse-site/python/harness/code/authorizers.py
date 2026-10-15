@@ -157,6 +157,13 @@ def build_effect_authorizer(
 
     code_authorizer = make_mcp_install_authorizer(code_authorizer)
 
+    # The trading Journal: `journal_add_trade` writes to the front door's own
+    # store and needs a single-use, digest-bound operator approval; the read and
+    # every other tool fall through.
+    from ..journal_tools import make_journal_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_journal_authorizer(code_authorizer)
+
     if approvals is None or not workspace_id:
         return _wrap_with_security(code_authorizer, run_id, workspace_id)
 

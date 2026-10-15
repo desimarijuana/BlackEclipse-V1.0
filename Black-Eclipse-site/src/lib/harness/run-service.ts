@@ -9,6 +9,7 @@ import { getLLMConfig } from "@/lib/settings";
 import { assertChatAutonomy, assertRunInput, validateWorkspaceRef } from "./validation";
 import { resolveChatCodeProfile } from "./chat-capability";
 import { parseChatCommand } from "./commands";
+import { buildAgentInstruction } from "./command-agent";
 import { getAgentPreset } from "./agent-presets";
 import { runViaRuntime, startRunBackground, type RunRequestPayload } from "./python-client";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
@@ -90,13 +91,21 @@ export async function chatWithAgent(
   // with NO code tool bound and the model honestly refused. A command
   // (`/eclipsesdk`) forces the profile deterministically; otherwise the
   // classifier decides. A classifier failure is an ordinary turn (null).
-  const parsedCommand = parseChatCommand(query);
-  const effectiveQuery = parsedCommand ? parsedCommand.query : query;
+  // An AGENT-turn command (`/skill`) rewrites the query and runs normally.
+  const agentCommand = buildAgentInstruction(query);
+  const parsedCommand = agentCommand ? null : parseChatCommand(query);
+  const effectiveQuery = agentCommand
+    ? agentCommand.instruction
+    : parsedCommand
+      ? parsedCommand.query
+      : query;
   let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
-  try {
-    capability = await resolveChatCodeProfile(effectiveQuery, history);
-  } catch {
-    capability = null;
+  if (!agentCommand) {
+    try {
+      capability = await resolveChatCodeProfile(effectiveQuery, history);
+    } catch {
+      capability = null;
+    }
   }
   const forced = parsedCommand?.command.profile;
   const result = await startRun({
@@ -116,7 +125,7 @@ export async function chatWithAgent(
       ? { autonomy: forced?.autonomy ?? capability!.autonomy! }
       : {}),
     ...(forced?.analysisEnabled || capability?.analysisEnabled ? { analysisEnabled: true } : {}),
-    ...(parsedCommand ? { command: parsedCommand.command.name } : {}),
+    ...(parsedCommand ? { command: parsedCommand.command.name } : agentCommand ? { command: agentCommand.command } : {}),
     ...(identityHeaders ? { identityHeaders } : {}),
   });
 
@@ -234,9 +243,16 @@ export async function startChatRun(
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
-  // classifier. An unknown `/token` or ordinary text falls through unchanged.
-  const parsedCommand = parseChatCommand(query);
-  const effectiveQuery = parsedCommand ? parsedCommand.query : query;
+  // classifier. An AGENT-turn command (`/skill`) rewrites the query into a
+  // directive and runs as a normal turn. An unknown `/token` or ordinary text
+  // falls through unchanged.
+  const agentCommand = buildAgentInstruction(query);
+  const parsedCommand = agentCommand ? null : parseChatCommand(query);
+  const effectiveQuery = agentCommand
+    ? agentCommand.instruction
+    : parsedCommand
+      ? parsedCommand.query
+      : query;
   const input = assertRunInput({
     query: effectiveQuery,
     history,
@@ -274,7 +290,9 @@ export async function startChatRun(
   // must not hand out a code profile.
   let autonomy: "plan_only" | "edit_verify" | undefined;
   let analysisEnabled = false;
-  if (parsedCommand) {
+  if (agentCommand) {
+    // An agent-turn command runs under the default profile; do not classify it.
+  } else if (parsedCommand) {
     autonomy = assertChatAutonomy(parsedCommand.command.profile.autonomy);
     analysisEnabled = parsedCommand.command.profile.analysisEnabled;
   } else {
@@ -301,7 +319,7 @@ export async function startChatRun(
     ...(analysisEnabled ? { analysisEnabled: true } : {}),
     // The command marker, when a command forced this turn. The runtime never
     // treats a command turn as trivial and records what selected the profile.
-    ...(parsedCommand ? { command: parsedCommand.command.name } : {}),
+    ...(parsedCommand ? { command: parsedCommand.command.name } : agentCommand ? { command: agentCommand.command } : {}),
     // Approval cards: chat runs pause for the operator when a step needs an
     // approval, instead of the model retrying later.
     approvalMode: "ask",

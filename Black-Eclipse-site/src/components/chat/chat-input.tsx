@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers } from '@/lib/icons';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -30,12 +30,27 @@ import {
   searchCommands,
   type CommandSpec,
 } from '@/lib/harness/command-registry';
+import { searchMentions, mentionedTargets, type MentionTarget } from '@/lib/bots/mentions';
+import { BotAvatar } from '@/components/bots/bot-avatar';
+import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
+import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { useT } from '@/lib/i18n/use-t';
+import { isKeyboardScopeVisible } from '@/lib/keyboard';
+import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
 // Cap the palette so typing a bare `/` never floods the list.
 const MAX_COMMAND_RESULTS = 12;
+// Cap the `@` palette the same way.
+const MAX_MENTION_RESULTS = 8;
+
+/** The trailing `@token` the user is typing (null = no open mention token). */
+function mentionTokenOf(text: string): string | null {
+  const m = /(?:^|\s)@([\w.-]*)$/.exec(text);
+  return m ? m[1] : null;
+}
 
 /** One attached file shown as a chip above the composer. */
 export interface AttachmentChip {
@@ -86,6 +101,12 @@ interface ChatInputProps {
   contextLabel?: string;
   /** 0–1 fraction for the small usage meter. */
   contextFraction?: number;
+  /**
+   * Bots and group chats the user can `@`-mention from this composer. When
+   * provided, typing `@` opens a palette and the message routes to the mentioned
+   * bot(s)/room(s) on send. Omitted on composers that have no bots to reach.
+   */
+  mentionTargets?: MentionTarget[];
 }
 
 export function ChatInput({ 
@@ -105,6 +126,7 @@ export function ChatInput({
   onRemoveAttachment,
   contextLabel,
   contextFraction,
+  mentionTargets,
   }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // The REAL configured provider, never a fabricated model list.
@@ -127,11 +149,23 @@ export function ChatInput({
 
   useEffect(() => { resize(); }, [query, resize]);
 
+  // `/` (broadcast globally) places the caret here. Only the composer actually
+  // on screen answers — a keep-alive tab hidden with `display:none` fails the
+  // visibility test, so the ChatDock (or the other composer) gets the focus.
+  useEffect(() => {
+    const onFocusChat = () => {
+      const el = textareaRef.current;
+      if (el && isKeyboardScopeVisible(el)) el.focus();
+    };
+    window.addEventListener(CHAT_FOCUS_EVENT, onFocusChat);
+    return () => window.removeEventListener(CHAT_FOCUS_EVENT, onFocusChat);
+  }, []);
+
   // ── Slash-command palette ──────────────────────────────────────────────
   // Typing a bare `/word` (no space yet) opens a small menu of matching chat
   // commands. Selecting one inserts `/name ` and focuses the composer so the
-  // user types the instruction. Distinct from the global `/` search shortcut,
-  // which only fires when the composer is NOT focused.
+  // user types the instruction. Distinct from the global `/` shortcut, which
+  // focuses this composer (and only fires while it is NOT focused).
   const [commandHighlight, setCommandHighlight] = useState(0);
   const commandToken = useMemo(() => {
     const t = query.trimStart();
@@ -165,7 +199,57 @@ export function ChatInput({
     ) ?? null;
   }, [query]);
 
+  // ── Bot / group `@mention` palette ──────────────────────────────────────
+  // Typing `@word` (start of text or after a space, no space yet) opens a menu of
+  // the user's bots and group chats. Selecting one inserts `@Name `; on send a
+  // mentioned target receives the turn (delegation). Inert without `mentionTargets`.
+  useHydrateBotAvatars();
+  const mentionAvatars = useBotAvatarStore((s) => s.avatars);
+  const [mentionHighlight, setMentionHighlight] = useState(0);
+  const mentionToken = useMemo(() => mentionTokenOf(query), [query]);
+  const mentionMatches = useMemo<MentionTarget[]>(() => {
+    if (mentionToken === null || !mentionTargets || mentionTargets.length === 0) return [];
+    return searchMentions(mentionTargets, mentionToken, MAX_MENTION_RESULTS);
+  }, [mentionToken, mentionTargets]);
+  const mentionMenuOpen = mentionToken !== null && mentionMatches.length > 0;
+  useEffect(() => { setMentionHighlight(0); }, [mentionToken]);
+
+  const completeMention = useCallback(
+    (m: MentionTarget) => {
+      // Replace only the partial token being typed; never clobber earlier text.
+      setQuery(query.replace(/@([\w.-]*)$/, `@${m.name} `));
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [setQuery, query],
+  );
+
+  // Resolved mentions already in the draft: chips so the user sees exactly which
+  // bots/rooms the message will reach before sending.
+  const activeMentions = useMemo(
+    () => (mentionTargets ? mentionedTargets(query, mentionTargets) : []),
+    [query, mentionTargets],
+  );
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // The `@` palette takes priority: arrows navigate it and Enter/Tab completes
+    // the highlighted mention (instead of sending).
+    if (mentionMenuOpen && !e.nativeEvent.isComposing) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionHighlight((h) => (h + 1) % mentionMatches.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionHighlight((h) => (h - 1 + mentionMatches.length) % mentionMatches.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        completeMention(mentionMatches[mentionHighlight]);
+        return;
+      }
+    }
     // While the command menu is open, the arrows navigate it and Enter/Tab
     // completes the highlighted command (instead of sending).
     if (commandMenuOpen) {
@@ -209,7 +293,7 @@ export function ChatInput({
   const formRef = useRef<HTMLFormElement>(null);
   const [paletteBox, setPaletteBox] = useState<{ left: number; width: number; bottom: number } | null>(null);
   useLayoutEffect(() => {
-    if (!commandMenuOpen) {
+    if (!commandMenuOpen && !mentionMenuOpen) {
       setPaletteBox(null);
       return;
     }
@@ -226,7 +310,7 @@ export function ChatInput({
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [commandMenuOpen]);
+  }, [commandMenuOpen, mentionMenuOpen]);
 
   return (
     <div className="w-full">
@@ -275,6 +359,25 @@ export function ChatInput({
               <span className="ml-1 text-[9px] uppercase tracking-wide opacity-80">not available</span>
             )}
           </span>
+        </div>
+      )}
+      {activeMentions.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Mentioned bots and group chats">
+          {activeMentions.map((m) => (
+            <span
+              key={`${m.kind}:${m.id}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 py-0.5 pl-1 pr-2 text-[11px] font-medium text-primary"
+              title={m.kind === 'group' ? `Group chat · ${m.description}` : m.description || m.name}
+            >
+              {m.kind === 'group'
+                ? <GhostAvatar spec={ghostSpecFromId(m.id)} size={16} title={m.name} />
+                : <BotAvatar botId={m.id} spec={avatarFor(mentionAvatars, m.id)} size={16} title={m.name} />}
+              @{m.name}
+              <span className="ml-0.5 rounded-full bg-accent/40 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                {m.kind}
+              </span>
+            </span>
+          ))}
         </div>
       )}
       {commandMenuOpen && paletteBox && typeof document !== 'undefined' &&
@@ -328,6 +431,55 @@ export function ChatInput({
               </button>
             );
           })}
+          </div>,
+          document.body,
+        )}
+      {mentionMenuOpen && paletteBox && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="listbox"
+            aria-label={t('bots.mentions.paletteLabel')}
+            style={{
+              position: 'fixed',
+              left: paletteBox.left,
+              width: paletteBox.width,
+              bottom: paletteBox.bottom,
+            }}
+            className="z-[120] max-h-[50vh] overflow-y-auto rounded-2xl glass-command-popover shadow-lg"
+          >
+            <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+              {t('bots.mentions.paletteLabel')}
+            </div>
+            {mentionMatches.map((m, i) => (
+              <button
+                key={`${m.kind}:${m.id}`}
+                type="button"
+                role="option"
+                aria-selected={i === mentionHighlight}
+                onMouseEnter={() => setMentionHighlight(i)}
+                // onMouseDown (not onClick) so the textarea does not blur/lose the
+                // selection before the mention is inserted.
+                onMouseDown={(e) => { e.preventDefault(); completeMention(m); }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                  i === mentionHighlight ? 'bg-accent/40' : 'hover:bg-accent/25',
+                )}
+              >
+                {m.kind === 'group'
+                  ? <GhostAvatar spec={ghostSpecFromId(m.id)} size={18} title={m.name} />
+                  : <BotAvatar botId={m.id} spec={avatarFor(mentionAvatars, m.id)} size={18} title={m.name} />}
+                <span className="min-w-0 shrink-0 truncate font-medium">@{m.name}</span>
+                {m.description && (
+                  <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70 sm:inline">
+                    {m.description}
+                  </span>
+                )}
+                <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                  {m.kind === 'group' ? <Users size={9} /> : <Bot size={9} />}
+                  {m.kind}
+                </span>
+              </button>
+            ))}
           </div>,
           document.body,
         )}

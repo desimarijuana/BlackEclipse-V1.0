@@ -4,9 +4,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // front-door contract: validation, unknown-command handling, and honest status.
 
 const executeCommandFromText = vi.fn();
+const buildAgentInstruction = vi.fn();
+const chatWithAgent = vi.fn();
 
 vi.mock("@/lib/harness/command-router", () => ({
   executeCommandFromText: (...args: unknown[]) => executeCommandFromText(...args),
+}));
+
+vi.mock("@/lib/harness/command-agent", () => ({
+  buildAgentInstruction: (...args: unknown[]) => buildAgentInstruction(...args),
+}));
+
+vi.mock("@/lib/harness/run-service", () => ({
+  chatWithAgent: (...args: unknown[]) => chatWithAgent(...args),
 }));
 
 vi.mock("@/lib/harness/skills-client", () => ({
@@ -28,7 +38,13 @@ function post(body: unknown): Request {
 }
 
 describe("POST /api/harness/command", () => {
-  beforeEach(() => executeCommandFromText.mockReset());
+  beforeEach(() => {
+    executeCommandFromText.mockReset();
+    buildAgentInstruction.mockReset();
+    chatWithAgent.mockReset();
+    // Default: not an agent-turn command.
+    buildAgentInstruction.mockReturnValue(null);
+  });
 
   it("rejects an empty body", async () => {
     const res = await POST(post({}));
@@ -67,5 +83,16 @@ describe("POST /api/harness/command", () => {
     const body = await res.json();
     expect(body.success).toBe(false);
     expect(body.result.status).toBe("unavailable");
+  });
+
+  it("runs an agent-turn command (/skill) through the chat path", async () => {
+    buildAgentInstruction.mockReturnValueOnce({ command: "skill", instruction: "author a skill" });
+    chatWithAgent.mockResolvedValueOnce({ status: "completed", output: "Created skill `x`.", runId: "run_1" });
+    const res = await POST(post({ text: "/skill x do y" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.result.commandId).toBe("skill.author");
+    expect(chatWithAgent).toHaveBeenCalled();
   });
 });

@@ -17,7 +17,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Markdown } from '@/components/chat/markdown';
-import { getAgentProvider } from '@/lib/agent/registry';
+import { runGroupMemberTurn } from '@/lib/bots/invoke';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
@@ -159,43 +159,21 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
         id: replyId, role: 'assistant', content: '', at: new Date().toISOString(),
         authorId: bot.id, authorName: bot.name,
       });
-      const persona =
-        `You are "${bot.name}", one member of the group chat "${group.name}". ` +
-        `Your role: ${bot.description || '—'}. Your standing instructions: ${bot.action.objective || '—'}. ` +
-        `Reply ONLY as ${bot.name}, in your own distinct voice. Do not speak for other ` +
-        `members and do not summarize the room. Use your tools when asked.`;
-      const history = [
-        { role: 'user' as const, content: persona },
-        { role: 'assistant' as const, content: `Understood — I am ${bot.name}.` },
-        ...prior
-          .filter((m) => !m.error && m.content.trim().length > 0)
-          .slice(-8)
-          .map((m) => ({
-            role: m.role,
-            // Prior room replies are labelled with their author so each bot can
-            // tell who said what, without blending them into one voice.
-            content: m.role === 'assistant' && m.authorName ? `${m.authorName}: ${m.content}` : m.content,
-          })),
-      ];
       const controller = new AbortController();
       controllers.push(controller);
       let streamed = '';
       try {
-        const reply = await getAgentProvider().chat(
-          [...history, { role: 'user' as const, content: text }],
-          undefined,
-          {
-            chatId: `group-${group.id}-${bot.id}`,
-            // Each member keeps its own PRIVATE per-conversation memory (this
-            // room + bot), isolated from every other room and bot.
-            memoryScope: 'conversation' as const,
-            signal: controller.signal,
-            onDelta: (chunk) => {
-              streamed += chunk;
-              updateMessage(group.id, replyId, { content: streamed });
-            },
+        const reply = await runGroupMemberTurn({
+          group,
+          bot,
+          text,
+          prior,
+          signal: controller.signal,
+          onDelta: (chunk) => {
+            streamed += chunk;
+            updateMessage(group.id, replyId, { content: streamed });
           },
-        );
+        });
         const final = reply || streamed;
         updateMessage(
           group.id,
@@ -212,7 +190,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
         }
       }
     },
-    [append, updateMessage, group.id, group.name],
+    [append, updateMessage, group],
   );
 
   const send = useCallback(async () => {

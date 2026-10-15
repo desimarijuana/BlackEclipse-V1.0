@@ -22,7 +22,7 @@ import {
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
 import { ModelSelector } from '@/components/chat/chat-input';
-import { getAgentProvider } from '@/lib/agent/registry';
+import { runBotTurn } from '@/lib/bots/invoke';
 import { useChatModel } from '@/lib/agent/use-chat-model';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
@@ -192,19 +192,6 @@ export function BotChat({
     append(bot.id, { id: newId(), role: 'user', content: text, at: new Date().toISOString() });
     setInput('');
     setSending(true);
-    // Standing context: the bot's identity + instructions, then the recent turns.
-    const persona =
-      `You are the persistent bot "${bot.name}" (id: ${bot.id}). ` +
-      `Purpose: ${bot.description || '—'}. Standing instructions: ${instructions || '—'}. ` +
-      `Answer as this bot, and use your tools to act when the user asks.`;
-    const history = [
-      { role: 'user' as const, content: persona },
-      { role: 'assistant' as const, content: 'Understood — I am this bot.' },
-      ...prior
-        .filter((m) => !m.error && m.content.trim().length > 0)
-        .slice(-10)
-        .map((m) => ({ role: m.role, content: m.content })),
-    ];
     // Placeholder the stream fills in place, so a long tool-heavy run shows the
     // answer as it is written instead of a blank wait.
     const replyId = newId();
@@ -218,23 +205,19 @@ export function BotChat({
       // `/api/harness/chat`: that path aborts every run at the front door's
       // 180s cap, so a real research turn (e.g. "find me a good psx stock",
       // ~4 min, dozens of tool calls) died as "Failed to fetch". Here the run
-      // is observed live and survives its full duration.
-      const reply = await getAgentProvider().chat(
-        [...history, { role: 'user' as const, content: text }],
-        undefined,
-        {
-          chatId: `bot-${bot.id}`,
-          // This bot keeps its own PRIVATE per-conversation long-term memory,
-          // isolated from every other bot and from ordinary chat.
-          memoryScope: 'conversation' as const,
-          model: modelState.selectedModel || undefined,
-          signal: controller.signal,
-          onDelta: (chunk) => {
-            streamed += chunk;
-            updateMessage(bot.id, replyId, { content: streamed });
-          },
+      // is observed live and survives its full duration. The persona/history and
+      // the private `bot-<id>` memory scope live in the shared `runBotTurn`.
+      const reply = await runBotTurn({
+        bot,
+        text,
+        prior,
+        model: modelState.selectedModel || undefined,
+        signal: controller.signal,
+        onDelta: (chunk) => {
+          streamed += chunk;
+          updateMessage(bot.id, replyId, { content: streamed });
         },
-      );
+      });
       const final = reply || streamed;
       updateMessage(
         bot.id,
@@ -255,7 +238,7 @@ export function BotChat({
       abortRef.current = null;
       setSending(false);
     }
-  }, [sending, append, updateMessage, bot.id, bot.name, bot.description, instructions, modelState.selectedModel]);
+  }, [sending, append, updateMessage, bot, modelState.selectedModel]);
 
   const send = useCallback(() => {
     void runTurn(input);

@@ -154,10 +154,10 @@ describe("executeCommandFromText", () => {
   });
 
   it("reports invalid/missing arguments with a usage hint", async () => {
-    const res = (await executeCommandFromText("/skill", ctx, makeDeps()))!;
+    const res = (await executeCommandFromText("/skills show", ctx, makeDeps()))!;
     expect(res.status).toBe("invalid");
     expect(res.output).toContain("Usage:");
-    expect(res.output).toContain("skillId");
+    expect(res.output).toContain("skill-id");
   });
 
   it("reports an unavailable command explicitly, never as functional", async () => {
@@ -199,29 +199,22 @@ describe("executeCommandFromText", () => {
     expect(missing.error?.code).toBe("SKILL_NOT_FOUND");
   });
 
-  it("executes a skill with pass-through inputs", async () => {
+  it("runs a skill via /skills run", async () => {
     const deps = makeDeps();
-    const res = (await executeCommandFromText("/skill crypto-onchain-research --asset BTC", ctx, deps))!;
+    const res = (await executeCommandFromText("/skills run crypto-onchain-research", ctx, deps))!;
     expect(res.status).toBe("completed");
     expect(res.meta?.skillId).toBe("crypto-onchain-research");
     expect(deps.skills.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ skillId: "crypto-onchain-research", input: { asset: "BTC" } }),
+      expect.objectContaining({ skillId: "crypto-onchain-research" }),
       { operator: false },
     );
-  });
-
-  it("blocks a skill execution whose inputs fail validation", async () => {
-    const deps = makeDeps({ validateInput: vi.fn(async () => ({ valid: false, issues: ["asset is required"] })) });
-    const res = (await executeCommandFromText("/skill foo", ctx, deps))!;
-    expect(res.status).toBe("invalid");
-    expect(deps.skills.execute).not.toHaveBeenCalled();
   });
 
   it("reports a failed skill execution honestly", async () => {
     const deps = makeDeps({
       execute: vi.fn(async () => execution({ status: "failed", output: null, error: { code: "TOOL_ERROR", message: "boom" } })),
     });
-    const res = (await executeCommandFromText("/skill foo", ctx, deps))!;
+    const res = (await executeCommandFromText("/skills run foo", ctx, deps))!;
     expect(res.status).toBe("failed");
     expect(res.error?.code).toBe("TOOL_ERROR");
   });
@@ -295,9 +288,10 @@ describe("executeCommandFromText", () => {
 });
 
 describe("isRoutedCommand", () => {
-  it("routes handler commands but not the chat profile command", () => {
+  it("routes handler commands but not the chat profile or agent commands", () => {
     expect(isRoutedCommand(resolveCommand("skills")!)).toBe(true);
     expect(isRoutedCommand(resolveCommand("eclipsesdk")!)).toBe(false);
+    expect(isRoutedCommand(resolveCommand("skill")!)).toBe(false);
     expect(isRoutedCommand(null)).toBe(false);
   });
 });

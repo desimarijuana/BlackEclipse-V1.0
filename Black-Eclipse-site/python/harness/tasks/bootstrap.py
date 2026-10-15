@@ -88,6 +88,48 @@ def _plan_agent(manager: TaskManager, task: Task) -> str:
     return "eclipse-agent"
 
 
+def _root_budget(service: Any, task: Task) -> Any:
+    """The A2A `BudgetTracker` + root run id for a task, or None.
+
+    A task dispatched by the A2A delegation layer carries `metadata.rootRunId`;
+    its token/tool-call usage is accounted against that root run's budget.
+    """
+    a2a = getattr(service, "a2a", None)
+    root = (task.metadata or {}).get("rootRunId")
+    if a2a is None or not root:
+        return None
+    return a2a, str(root)
+
+
+def _budget_exhausted(ctx: Any) -> bool:
+    """Whether the run's recorded token/cost/runtime budget is already spent."""
+    if ctx is None:
+        return False
+    a2a, root = ctx
+    try:
+        remaining = a2a.budgets.snapshot(root).get("remaining", {}) or {}
+    except Exception:  # noqa: BLE001 - a budget read failure never blocks work
+        return False
+    return any(remaining.get(kind) is not None and remaining.get(kind) <= 0
+               for kind in ("tokens", "cost", "runtime"))
+
+
+def _record_budget_usage(ctx: Any, outcome: TaskRunOutcome) -> None:
+    """Post-hoc accounting: mirror a completed run's usage onto the root budget."""
+    if ctx is None:
+        return
+    a2a, root = ctx
+    metrics = outcome.metrics or {}
+    tokens = int(metrics.get("totalTokens") or 0)
+    tool_calls = int(metrics.get("toolCalls") or 0)
+    if not tokens and not tool_calls:
+        return
+    try:
+        a2a.budgets.record_usage(root, tokens=tokens, tool_calls=tool_calls)
+    except Exception:  # noqa: BLE001 - accounting must never fail a task
+        log.debug("budget usage record failed for %s", root, exc_info=True)
+
+
 def _extract_artifacts(result: dict[str, Any], service: Any = None) -> list[dict[str, Any]]:
     """Real artifacts only — never invented.
 
@@ -198,6 +240,14 @@ def build_task_executor(service: Any, manager: TaskManager):
     async def executor(task: Task, context: TaskContext, run_id: str) -> TaskRunOutcome:
         settings = _task_model_settings(manager, task)
         agent_id = task.assigned_agent_id or _plan_agent(manager, task)
+        budget_ctx = _root_budget(service, task)
+        # Refuse new work when the run's resource budget is already spent — a
+        # non-retryable, truthful failure, never an unbounded run.
+        if _budget_exhausted(budget_ctx):
+            return TaskRunOutcome(
+                status="failed", run_id=run_id, error_class="BUDGET_EXCEEDED",
+                error="the run's resource budget is exhausted",
+            )
 
         def build_request(attempt: int, attempt_run_id: str) -> RunRequest:
             return RunRequest(
@@ -219,7 +269,9 @@ def build_task_executor(service: Any, manager: TaskManager):
         # Pre-recovery behavior: one attempt, the run's own outcome reported as-is.
         if not _RECOVERY_AVAILABLE or recovery_service is None:
             dumped = _dump(await service.run(build_request(1, run_id)))
-            return _outcome_from_dump(dumped, run_id, service)
+            outcome = _outcome_from_dump(dumped, run_id, service)
+            _record_budget_usage(budget_ctx, outcome)
+            return outcome
 
         last: dict[str, Any] = {"dumped": {}, "code": "TASK_RUN_FAILED", "message": ""}
 
@@ -249,6 +301,7 @@ def build_task_executor(service: Any, manager: TaskManager):
             outcome.status = "failed"
             outcome.error = exc.message or outcome.error
             outcome.error_class = exc.code or outcome.error_class
+            _record_budget_usage(budget_ctx, outcome)
             return outcome
 
         if not recovery.ok:
@@ -259,10 +312,12 @@ def build_task_executor(service: Any, manager: TaskManager):
             if last["message"]:
                 outcome.error = last["message"]
             outcome.metrics.update(_recovery_metrics(recovery))
+            _record_budget_usage(budget_ctx, outcome)
             return outcome
 
         outcome = _outcome_from_dump(recovery.value, run_id, service)
         outcome.metrics.update(_recovery_metrics(recovery))
+        _record_budget_usage(budget_ctx, outcome)
         return outcome
 
     return executor
@@ -347,6 +402,7 @@ def install_task_layer(service: Any) -> bool:
             max_in_flight=int(os.environ.get("HARNESS_TASK_MAX_IN_FLIGHT", "2")),
             tick_seconds=float(os.environ.get("HARNESS_TASK_TICK_SECONDS", "15")),
             lease_seconds=int(os.environ.get("HARNESS_TASK_LEASE_SECONDS", "600")),
+            max_per_agent=int(os.environ.get("HARNESS_TASK_MAX_PER_AGENT", "0")),
         )
         service.tasks_store = store
         service.tasks = manager

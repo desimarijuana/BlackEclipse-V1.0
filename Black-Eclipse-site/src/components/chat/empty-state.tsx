@@ -4,6 +4,7 @@ import { ChatInput, type AttachmentChip } from './chat-input';
 import { cn } from '@/lib/utils';
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
+import type { MentionTarget } from '@/lib/bots/mentions';
 
 interface EmptyStateProps {
   query: string;
@@ -25,13 +26,15 @@ interface EmptyStateProps {
   modelState?: ChatModelState;
   /** The composer's per-question reasoning-effort state. */
   effortState?: ReasoningEffortState;
+  /** Bots + group chats the user can `@`-mention from the composer. */
+  mentionTargets?: MentionTarget[];
 }
 
 /**
  * The chat landing surface: nothing but the composer, full width. The eclipse
  * background is painted by the chat tab container, so this stays transparent.
  */
-export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onRemoveAttachment, busy, onCancel, focus, modelState, effortState }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onRemoveAttachment, busy, onCancel, focus, modelState, effortState, mentionTargets }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-end w-full px-4 md:px-6 pb-2 z-10 relative">
       <div
@@ -52,6 +55,7 @@ export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onR
           onCancel={onCancel}
           modelState={modelState}
           effortState={effortState}
+          mentionTargets={mentionTargets}
         />
       </div>
     </div>

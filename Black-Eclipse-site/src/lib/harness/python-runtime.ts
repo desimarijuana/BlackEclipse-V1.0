@@ -14,7 +14,7 @@ import { existsSync, readdirSync, statSync } from "fs";
 import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
 import { PYTHON_RUNTIME_DEPS } from "./runtime-config";
-import { isRecentlyHealthy, shouldReplaceStaleRuntime } from "./runtime-supervision";
+import { isRecentlyHealthy, resolveStartTimeoutMs, shouldReplaceStaleRuntime } from "./runtime-supervision";
 
 // The URL is authoritative. When an operator overrides HARNESS_PY_URL, the
 // spawned uvicorn must bind the SAME host/port — otherwise health checks would
@@ -290,9 +290,11 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       g.__harnessPyStart = undefined;
     });
 
-    const ready = await waitForHealth(30_000);
+    const ready = await waitForHealth(resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS));
     if (!ready) {
-      console.error("[harness] Python runtime did not become healthy within 30s");
+      console.error(
+        `[harness] Python runtime did not become healthy within ${resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS)}ms`
+      );
       proc.kill();
       return false;
     }

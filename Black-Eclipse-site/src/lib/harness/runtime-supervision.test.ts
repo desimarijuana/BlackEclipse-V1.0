@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BUSY_GRACE_MS, isRecentlyHealthy, shouldReplaceStaleRuntime } from "./runtime-supervision";
+import {
+  BUSY_GRACE_MS,
+  DEFAULT_START_TIMEOUT_MS,
+  isRecentlyHealthy,
+  resolveStartTimeoutMs,
+  shouldReplaceStaleRuntime,
+} from "./runtime-supervision";
 
 const ours = (over: Partial<Parameters<typeof shouldReplaceStaleRuntime>[0]> = {}) => ({
   ok: true,
@@ -50,5 +56,23 @@ describe("isRecentlyHealthy", () => {
 
   it("does not treat an unknown last-success as recent", () => {
     expect(isRecentlyHealthy(undefined, 1_000_000)).toBe(false);
+  });
+});
+
+describe("resolveStartTimeoutMs", () => {
+  it("uses a generous default when unset", () => {
+    expect(resolveStartTimeoutMs(undefined)).toBe(DEFAULT_START_TIMEOUT_MS);
+    expect(DEFAULT_START_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000);
+  });
+
+  it("honours a positive override so an operator can tune the budget", () => {
+    expect(resolveStartTimeoutMs("240000")).toBe(240_000);
+  });
+
+  it("falls back to the default on a blank, non-numeric, or non-positive value", () => {
+    expect(resolveStartTimeoutMs("")).toBe(DEFAULT_START_TIMEOUT_MS);
+    expect(resolveStartTimeoutMs("soon")).toBe(DEFAULT_START_TIMEOUT_MS);
+    expect(resolveStartTimeoutMs("0")).toBe(DEFAULT_START_TIMEOUT_MS);
+    expect(resolveStartTimeoutMs("-1")).toBe(DEFAULT_START_TIMEOUT_MS);
   });
 });

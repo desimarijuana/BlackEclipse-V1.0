@@ -156,7 +156,10 @@ RATCHET_PY: dict[str, int] = {
     # registering `document_create`; the tool + builders live in
     # `documents/`). May only shrink; the subsystem-construction block remains the
     # split candidate.
-    "service.py": 1479,
+    # Re-pinned 1479→1485 for the Journal agent tools registration (two lines
+    # calling `register_journal_tools`, plus its comment; the tools live in
+    # `journal_tools.py`). May only shrink from here.
+    "service.py": 1485,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

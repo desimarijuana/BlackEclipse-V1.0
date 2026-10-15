@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-10-15
 ---
 
 # Quickstart
@@ -46,6 +46,10 @@ Understanding this sequence explains most "why is it empty / slow" questions:
 7. **Warm-up** bulk-prices open markets — *skipped in dev* unless you set
    `BE_WARMUP=1`.
 8. **Alert monitor** starts its server-side poll loop.
+9. **Python agent runtime** is pre-started (non-blocking) so the first chat
+   request does not pay a cold spawn. A cold start imports the whole agent stack
+   and can take minutes on this (memory-constrained) machine; the front door
+   waits `HARNESS_PY_START_TIMEOUT_MS` (default 120000) for `/health`.
 
 Because of steps 4–7, the first minute can look sparse and then fill in.
 
@@ -65,6 +69,15 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 | `npm run build` / `npm start` | Production build / serve |
 | `npm test` | Vitest unit tests |
 | `npm run lint` | ESLint |
+
+> **`next dev` vs `npm run up` on a loaded machine.** `next dev` compiles the
+> ~19k-module graph on demand. Under memory pressure a cold route compile can
+> exceed the browser's chunk-load budget and surface as a `ChunkLoadError` or an
+> "Invalid or unexpected token" overlay in the browser — that is a slow compile,
+> **not** a syntax error in your source (`npx tsc --noEmit` and `next build`
+> both pass). The dev chunk budget is raised in `next.config.ts`, but if you only
+> need to *use* the app, prefer `npm run up`: production chunks are prebuilt and
+> serve instantly.
 
 ### Headless one-shot (scripting / CI)
 

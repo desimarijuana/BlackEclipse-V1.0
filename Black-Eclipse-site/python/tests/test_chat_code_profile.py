@@ -308,6 +308,7 @@ EXPECTED = (
     'skill_delete',
     'mcp_integrations',
     'mcp_install',
+    'mcp_probe',
     'market_get_quote',
     'fundamentals_get_financials',
     'research_search',

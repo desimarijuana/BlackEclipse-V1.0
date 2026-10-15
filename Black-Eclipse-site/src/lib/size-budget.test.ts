@@ -103,7 +103,11 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1391→1399: the concurrent "Aurora glow" chat-shell change (commit
   // ab9b5eb2) added glow wiring to the ChatBot page; the slash-command work
   // touches no part of stock-chat.tsx. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1399,
+  // Re-pinned 1399→1435 for main-chat `@mention` delegation: the shell wires the
+  // mentionable list + a dispatch branch into its send paths. The turn lifecycle
+  // and the bulk of the logic were EXTRACTED to `lib/bots/use-bot-delegation.ts`,
+  // so the residual growth is only composer plumbing. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1435,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

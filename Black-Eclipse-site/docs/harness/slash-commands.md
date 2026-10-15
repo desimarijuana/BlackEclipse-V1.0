@@ -12,19 +12,25 @@ routed, or executed in the chat surfaces.
 ## What this is (and why)
 
 Eclipse's chat is chatbot-first. A leading `/` in the composer names a **slash
-command**. There are two kinds, and the distinction is the whole design:
+command**. There are three kinds, and the distinction is the whole design:
 
 - **Profile commands** (e.g. `/eclipsesdk`) do **not** execute anything on their
   own; they force a deterministic run *profile* for the next agent turn. They are
   parsed in TS (`src/lib/harness/commands.ts`) and the runtime still enforces the
   actual grant.
-- **Routed commands** (`/skills`, `/skill`, `/status`, …) are executed by the
+- **Routed commands** (`/skills`, `/status`, `/market`, …) are executed by the
   **shared command router** and return a rendered result immediately. They never
   open an LLM turn.
+- **Agent-turn commands** (`/skill`) rewrite the chat query into a directive and
+  run as a **normal agent turn**, so the chatbot does the work (and streaming +
+  conversation history are preserved). `/skill <name> <what it should do>` tells
+  Eclipse to author a new reusable skill. The rewrite lives in
+  `src/lib/harness/command-agent.ts`.
 
 Profile commands exist because the alternative — asking a classifier to infer "is
 this a coding request?" from prose — is fuzzy. The set of profile commands is
-deliberately tiny.
+deliberately tiny. Agent-turn commands run under the **default** profile (no
+classifier narrowing) so the write-capable `skill_create` tool stays bound.
 
 ## The contract
 
@@ -86,11 +92,11 @@ unit-testable without a live runtime.
   intercept a routed command *before* starting an agent run. The stream route
   emits a synthetic `client.run` / `client.final` / `stream.end` sequence, so the
   existing chat UI and renderer handle a command result with no special casing.
-  Profile commands and ordinary prose fall through to the normal agent path;
-  unknown `/tokens` also fall through, so text that merely starts with a slash
-  keeps working.
-- **Direct entry** — `POST /api/harness/command` runs the same router for
-  external callers/tools.
+  Profile commands, agent-turn commands, and ordinary prose fall through to the
+  normal agent path; unknown `/tokens` also fall through, so text that merely
+  starts with a slash keeps working.
+- **Direct entry** — `POST /api/harness/command` runs the same router for routed
+  commands and the chat path for agent-turn commands.
 
 ## Commands implemented today
 
@@ -102,10 +108,11 @@ Backed by real handlers/endpoints:
 - Markets / portfolio / memory / MCP: `/market` (gateway providers + health),
   `/portfolio` (real portfolios), `/memory` (overview + recent), `/mcp`
   (configured servers).
-- Skills (Phase 4 family): `/skills` (list/search/category/show/test/validate),
-  `/skill`, `/skill-explain`, `/skill-test`, `/skill-enable`, `/skill-disable`,
-  `/skill-create`.
+- Skills: `/skills` (list/search/category/show/**run**/test/validate),
+  `/skill` (**author a new skill** — agent turn), `/skill-explain`, `/skill-test`,
+  `/skill-enable`, `/skill-disable`, `/skill-create` (learning-engine draft).
 - Profile: `/eclipsesdk` (alias `/esdk`).
+- Agent-turn: `/skill` (authors a skill for Eclipse; see Skill integration).
 
 Registered but **not yet wired** (return an explicit unsupported error; they are
 listed so discovery is complete): `research`, `deep-research`, `quote`,
@@ -116,12 +123,27 @@ execution stays in the code capability under approval.)
 
 ## Skill integration
 
-`/skill <id>` validates the skill's inputs (`validateInput`) and then calls the
-existing `executeSkill`, which runs through the Python runtime's real executor
-(allowlist, permissions, dependency DAG, and budget enforced in Python — the
-`SKILL.md` text is prompt-delivered and can never widen authority). The registry
-is never queried by the client with a guessed id: an unknown id returns
-`SKILL_NOT_FOUND`, and a disabled/incompatible skill is refused by Python.
+### Run a skill — `/skills run <id>`
+
+Resolves the skill against the authoritative registry and calls the existing
+`executeSkill`, which runs through the Python runtime's real executor (allowlist,
+permissions, dependency DAG, and budget enforced in Python — the `SKILL.md` text
+is prompt-delivered and can never widen authority). An unknown id returns
+`SKILL_NOT_FOUND`; a disabled/incompatible skill is refused by Python.
+
+### Author a skill — `/skill <name> <what it should do>`
+
+Typing `/skill …` tells Eclipse to **make a skill for itself**. It is an
+agent-turn command: the query is rewritten (`command-agent.ts`) into an authoring
+directive, and the normal chat turn runs. The chatbot generates the skill (a
+one-line description, concise steps, minimal tools/permissions, input schema) and
+persists it with the existing `skill_create` tool — so it lands in the Python
+skill library and **appears on the Skills page** (`src/components/screens/skills/`)
+where the user can view, edit, enable, evaluate, or run it. Creation is gated by a
+single-use operator approval (an approval card in the streaming chat), and the
+agent is told never to claim a skill was created unless the tool result confirms
+it. `/skill-create` remains available for the deterministic learning-engine path
+(`--from-task`, `--from-workflow`, `--objective`).
 
 ### Automatic selection during normal chat
 
@@ -132,7 +154,7 @@ a relevant ENABLED skill and run it as a controlled sub-run when a request
 matches. Discovery is metadata-only (bounded context); execution re-enforces the
 skill's allowlist/permissions and links the child run to the turn. This is the
 existing runtime behaviour, not a second planner — the TS side only owns the
-explicit `/skill` surface.
+explicit command surfaces.
 
 ## Security notes
 
@@ -149,14 +171,24 @@ explicit `/skill` surface.
   availability, search, argument hints.
 - `src/lib/harness/command-parser.test.ts` — quoting, escapes, Unicode, enum and
   required-arg validation, pass-through flags.
+- `src/lib/harness/command-agent.test.ts` — `/skill` rewrites into a skill-authoring
+  directive; non-agent commands and prose return null.
 - `src/lib/harness/command-router.test.ts` — unknown/invalid/unavailable/denied
-  paths, `/help`, `/status`, `/skills`, `/skill` execute, operator gating,
+  paths, `/help`, `/status`, `/skills`, `/skills run`, operator gating,
   `/skill-create` requiring a real source.
+- `src/app/api/harness/command/route.test.ts` — the direct route, including the
+  agent-turn path.
 
 ## Known gaps / follow-ups
 
 - The remaining planned commands need handlers; each is currently honest about
   being unavailable.
-- Skills list/execute require the Python runtime; without it the command reports
-  a runtime-unavailable error (never a fabricated result).
+- `/skills` run/list and `/skill` authoring require the Python runtime; without it
+  they report a runtime-unavailable error (never a fabricated result).
+- The direct `POST /api/harness/command` path runs `/skill` non-streaming, so the
+  `skill_create` approval is deny-and-retry there; use the chat surfaces for the
+  approval-card flow.
 - `/terminal` and `/run` are intentionally not chat commands.
+- **Mentions (`@`).** The `@` sibling — naming a bot or group chat so the main
+  chat delegates the turn to it — is a separate surface documented in
+  `docs/harness/mentions.md`.

@@ -316,7 +316,7 @@ export const en = {
   'bots.groups.ranAll': 'Run queued for every member.',
   'bots.groups.pausedAll': 'All members paused.',
   'bots.groups.resumedAll': 'All members resumed.',
-
+  'bots.mentions.paletteLabel': 'Mention a bot or group chat',
   // Bots workspace — centre canvas
   'bots.workspace.selectPrompt': 'Select a bot to start chatting, or create a new one.',
 

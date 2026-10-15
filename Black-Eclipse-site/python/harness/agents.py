@@ -21,6 +21,10 @@ from .tasks.tools import TASK_TOOLS
 # The Agent-to-Agent tools. Registered by `a2a/bootstrap.py` on the SAME registry;
 # imported here as the ONE canonical list so the allowlist cannot drift.
 from .a2a.tools import A2A_TOOLS
+# The Bot Team Orchestration tools (`team_*`). Registered by `team/bootstrap.py` on
+# the SAME registry; imported here as the ONE canonical list so the allowlist
+# cannot drift from what is registered.
+from .team.tools import TEAM_TOOLS
 # The UI Engineering tools (`ui_*`). Registered by `ui/bootstrap.py` on the SAME
 # registry; imported here as the ONE canonical list so the allowlist cannot drift.
 from .ui.tools import UI_TOOLS
@@ -384,6 +388,10 @@ ECLIPSE_AGENT = AgentConfig(
         "mcp_integrations",
         "mcp_install",
         "mcp_probe",
+        # The trading Journal — the SAME Prisma store the Journal screen reads.
+        # `journal_trades` lists; `journal_add_trade` is approval-gated.
+        "journal_trades",
+        "journal_add_trade",
         # Full-session historical recall: read-only search/open over prior
         # sessions. Historical content is context, never current evidence.
         "session_search",
@@ -418,6 +426,10 @@ ECLIPSE_AGENT = AgentConfig(
         # orchestration over the durable task + message bus. Real-world effects a
         # delegated task finally performs still require the runtime's approval.
         *A2A_TOOLS,
+        # Bot Team Orchestration: run a team of specialist bots on one objective
+        # through a dependency-aware graph, with conflict reconciliation and an
+        # independent review. Read-permission orchestration over the same tasks.
+        *TEAM_TOOLS,
         # Evidence-Driven Web Research Engine: search, extract, evidence,
         # conflicts, claim verification, calculations, citations, coverage. All
         # read-only; fetched content is wrapped as untrusted data.

@@ -20,6 +20,10 @@ import { MemoryActionPanel } from './memory-action-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
 import { ComputedResultPanel } from './computed-result-panel';
 import { MessageRail } from './message-rail';
+import { BotAvatar } from '@/components/bots/bot-avatar';
+import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
+import { ghostSpecFromId } from '@/lib/bots/ghost';
 
 interface ChatHistoryProps {
   messages: Message[];
@@ -94,6 +98,7 @@ const AssistantContent = memo(function AssistantContent({
 export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const avatars = useBotAvatarStore((s) => s.avatars);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -307,6 +312,16 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
 
               {msg.role === 'assistant' ? (
                 <>
+                  {msg.author && (
+                    // A reply from a bot/group the user `@`-mentioned, not the
+                    // main Eclipse agent — show who produced it.
+                    <div className="mb-1 flex items-center gap-1.5">
+                      {msg.author.kind === 'group'
+                        ? <GhostAvatar spec={ghostSpecFromId(msg.author.id)} size={18} title={msg.author.name} />
+                        : <BotAvatar botId={msg.author.id} spec={avatarFor(avatars, msg.author.id)} size={18} title={msg.author.name} />}
+                      <span className="text-[11px] font-semibold text-muted-foreground">{msg.author.name}</span>
+                    </div>
+                  )}
                   {msg.error && (
                     <div
                       role="alert"

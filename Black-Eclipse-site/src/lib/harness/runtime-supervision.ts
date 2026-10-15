@@ -23,6 +23,30 @@ export interface RuntimeHealth {
 export const BUSY_GRACE_MS = 30_000;
 
 /**
+ * Default budget for a COLD Python runtime start: how long to wait for
+ * `/health` after spawning uvicorn before declaring the runtime unavailable.
+ *
+ * The old hard-coded 30s was enough only on an idle machine. This app's
+ * interpreter imports the whole agent stack (LangChain/LangGraph, browser,
+ * terminal, quant, ML, …) and, on a memory-constrained host under load, that
+ * cold start can take well over a minute. A 30s budget made the front door kill
+ * a still-starting process and respawn it forever — every spawn was killed
+ * before it could finish, so the runtime never came up and every route returned
+ * a spurious 503. The default is raised to a value that survives real load;
+ * `HARNESS_PY_START_TIMEOUT_MS` overrides it.
+ */
+export const DEFAULT_START_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve the cold-start budget from an env value. Non-positive / unparseable
+ * values fall back to the default so a typo can never disable the wait.
+ */
+export function resolveStartTimeoutMs(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_START_TIMEOUT_MS;
+}
+
+/**
  * Whether a healthy-looking runtime should be REPLACED because it serves code
  * older than the source on disk (a restart is how a `python/harness/**` edit
  * takes effect).

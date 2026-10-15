@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import time
 from typing import Any, AsyncIterator, Optional
 
@@ -51,6 +50,7 @@ from .routers.code import router as code_router
 from .routers.application import router as application_router
 from .routers.artifacts import router as artifacts_router
 from .routers.a2a import router as a2a_router
+from .routers.team import router as team_router
 from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
 from .routers.computer import router as computer_router
@@ -96,6 +96,7 @@ logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(nam
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=lifespan)
 # Route groups extracted into `harness/routers/` (public surface: `harness.main:app`).
 app.include_router(a2a_router)
+app.include_router(team_router)
 app.include_router(application_router)
 app.include_router(artifacts_router)
 app.include_router(automation_router)
@@ -156,14 +157,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "service": "harness-runtime",
         "startedAtMs": _STARTED_AT_MS,
-        # The OS pid, so an operator (or the front door) can tell two runtime
-        # processes apart instead of guessing from `startedAtMs` alone.
-        "pid": os.getpid(),
-        # In-flight agent runs in THIS process. The front door reads this BEFORE
-        # it replaces a "stale" runtime: a runtime that is actively serving runs
-        # is never killed out from under them, because that orphans the run —
-        # including one paused on an approval card, whose change is then lost.
-        "activeRuns": len(getattr(service, "_active", {}) or {}),
+        "activeRuns": len(getattr(service, "_active", {}) or {}),  # in-flight runs; never restart a busy runtime
         "tools": service.registry.names(),
         "agents": list(AGENT_PRESETS.keys()),
         "defaultAgentId": DEFAULT_AGENT_ID,

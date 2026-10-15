@@ -51,6 +51,7 @@ import { getPage } from '@/lib/search/registry';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
+import { useChatFocusKeybind } from '@/hooks/use-chat-focus-keybind';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
 
 /**
@@ -220,11 +221,15 @@ export function GlobalSearch() {
   // Whether the results list can still scroll down (drives the bottom fade).
   const [canScrollDown, setCanScrollDown] = useState(false);
 
+  // Ctrl/Cmd+K opens the command center; plain `/` focuses the chat composer
+  // (see below) — the two shortcuts never overlap.
   useCommandCenterKeybind({
     open: store.open,
     onToggle: store.toggle,
-    slashShortcut: true,
   });
+  // Mounted once with the command center (which lives in the root layout), so
+  // `/` reaches the composer on every route, including the standalone pages.
+  useChatFocusKeybind();
 
   // Load the universe index + economic calendar + server-side entities.
   useEffect(() => {

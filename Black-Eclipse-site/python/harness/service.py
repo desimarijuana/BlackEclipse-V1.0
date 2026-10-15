@@ -367,6 +367,12 @@ class AgenticService:
         from .mcp.install_tools import register_mcp_install_tools  # noqa: PLC0415
 
         register_mcp_install_tools(self.registry)
+        # The trading Journal is front-door-owned (Prisma); these tools reach the
+        # screen's own route over the loopback callback (ADR: one store, no second
+        # book). The add is approval-gated; the list is read-only.
+        from .journal_tools import register_journal_tools  # noqa: PLC0415
+
+        register_journal_tools(self.registry)
         # The Security subsystem (ADR-H159): the ONE decision path (Security
         # Gateway + Permission/Policy/Risk/Approval/Capability engines + Security
         # Floor + secrets + network policy + audit) over every privileged effect.

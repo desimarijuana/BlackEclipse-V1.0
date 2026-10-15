@@ -30,6 +30,7 @@ import {
 import { cn } from '@/lib/utils';
 import { sound } from '@/lib/sounds';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
+import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
 import type { AssistantTurn } from '@/lib/agent/response-model';
@@ -240,6 +241,19 @@ export function ChatDock({
       return next;
     });
   }, []);
+
+  // `/` (broadcast globally) places the caret in the composer. Ignored when this
+  // surface is suppressed (ChatBot tab, Settings) so the full composer keeps the
+  // focus; a minimized pill restores first, then focuses.
+  useEffect(() => {
+    const onFocusChat = () => {
+      if (!hostVisible || !visible) return;
+      if (minimized) { toggleMinimized(); return; }
+      textareaRef.current?.focus();
+    };
+    window.addEventListener(CHAT_FOCUS_EVENT, onFocusChat);
+    return () => window.removeEventListener(CHAT_FOCUS_EVENT, onFocusChat);
+  }, [hostVisible, visible, minimized, toggleMinimized]);
 
   /**
    * Pointer drag for the minimized pill. A press that moves past a small

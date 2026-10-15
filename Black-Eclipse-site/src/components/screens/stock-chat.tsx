@@ -23,6 +23,8 @@ import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { useHydrateChatAppearance } from '@/lib/chat/appearance';
 import { Message } from '@/types/chat';
+import { mentionedTargets } from '@/lib/bots/mentions';
+import { useBotDelegation } from '@/lib/bots/use-bot-delegation';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { restoreWorkspaceForChat } from '@/lib/agent-workspace/restore';
 
@@ -659,7 +661,7 @@ function StockChatContent() {
     } catch {
       // A failed flush must not block the send; the error is surfaced on the bar.
     }
-    await runAgent(chatId, userText, userMsg);
+    await dispatchTurn(chatId, userText, userMsg);
   };
 
   /**
@@ -745,9 +747,41 @@ function StockChatContent() {
     }
   };
 
+  // Delegate `@`-mentioned turns to the real bots/rooms over the SAME runtime
+  // path as the Bots workspace (no second agent loop, nothing fabricated). The
+  // hook hydrates the mentionable list and owns the turn lifecycle, keeping this
+  // shell small; the host hands over the transcript writers it already owns.
+  const { mentionTargets, run: runDelegation, abort: abortDelegation } = useBotDelegation({
+    model: chatModel.displayModel || undefined,
+    getMessages: (id) => conversationsRef.current.find((c) => c.id === id)?.messages ?? [],
+    appendAssistantReply,
+    replaceAssistantReply,
+    persist: () => saveConversations(conversationsRef.current),
+    setBusy: setAgentBusy,
+    isInFlight: () => runInFlightRef.current,
+    setInFlight: (v) => { runInFlightRef.current = v; },
+    runFallback: (id, text) => runAgent(id, text, { id: Date.now().toString(), role: 'user', content: text }),
+  });
+
+  /**
+   * Route a user turn: to the mentioned bot(s)/room(s) when the message contains
+   * a resolvable `@mention`, otherwise to the normal Eclipse agent. Every send
+   * path funnels through here so mentions work everywhere (send, follow-up,
+   * edit/redirect, injected prompts).
+   */
+  const dispatchTurn = async (chatId: string, userText: string, userMsg: Message) => {
+    const targets = mentionedTargets(userText, mentionTargets);
+    if (targets.length > 0) await runDelegation(chatId, userText, targets);
+    else await runAgent(chatId, userText, userMsg);
+  };
+
   /** Stop the in-flight run (cooperative cancel in the Python runtime). */
   const handleCancel = async () => {
     sound.tick();
+    // Abort a delegated (@-mentioned) turn if one is in flight; otherwise the
+    // single main-agent run. Aborting stops the client reading the stream and
+    // keeps whatever already streamed (same contract as the Bots workspace Stop).
+    if (abortDelegation()) return;
     agentRun.cancel();
   };
 
@@ -816,7 +850,7 @@ function StockChatContent() {
     // Re-run the edited prompt through the agent.
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
     const newChatId = addMessageToActiveChat(userMsg);
-    void runAgent(newChatId, content, userMsg);
+    void dispatchTurn(newChatId, content, userMsg);
   };
 
   /**
@@ -833,7 +867,7 @@ function StockChatContent() {
    *  answer is grounded in JDdS tools — never a canned fabricated reply. */
   const runAgentPrompt = async (chatId: string, userText: string) => {
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: userText };
-    await runAgent(chatId, userText, userMsg);
+    await dispatchTurn(chatId, userText, userMsg);
   };
 
   /** Run a follow-up turn from a response `controls` block (same path as send). */
@@ -842,7 +876,7 @@ function StockChatContent() {
     if (!text || agentBusy) return;
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text };
     const chatId = addMessageToActiveChat(userMsg);
-    void runAgent(chatId, text, userMsg);
+    void dispatchTurn(chatId, text, userMsg);
   };
 
   const handleInjectPrompt = (ticker: string, promptType: 'research' | 'discuss', customContext?: string) => {
@@ -1081,6 +1115,7 @@ function StockChatContent() {
                       focus={focusMode}
                       modelState={chatModel}
                       effortState={reasoningEffort}
+                      mentionTargets={mentionTargets}
                     />
                     <div className="w-full px-4 md:px-6">
                       <SessionBar session={sessionController} />
@@ -1117,6 +1152,7 @@ function StockChatContent() {
                         attaching={sessionController.busy}
                         attachments={attachmentChips}
                         onRemoveAttachment={handleRemoveAttachment}
+                        mentionTargets={mentionTargets}
                         contextLabel={sessionController.session && sessionController.session.contextChars > 0
                           ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars`
                           : undefined}

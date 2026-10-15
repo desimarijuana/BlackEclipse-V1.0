@@ -246,7 +246,8 @@ class A2AService:
         target_agent_id: Optional[str] = None, capability: Optional[str] = None,
         context: str = "", tool_subset: Optional[list[str]] = None,
         priority: str = "NORMAL", parent_task_id: Optional[str] = None,
-        root_run_id: Optional[str] = None,
+        root_run_id: Optional[str] = None, dependencies: Optional[list[str]] = None,
+        autostart: bool = True, plan_id: Optional[str] = None,
     ) -> dict[str, Any]:
         root = root_run_id or run_id
         sender = self._require_agent(sender_agent_id)
@@ -282,7 +283,9 @@ class A2AService:
         tools = permissions.permitted_tools(target, requested) if requested else None
 
         manager = self._task_manager()
-        plan_id = self._ensure_plan(manager, root)
+        # A team builder owns ONE plan for the whole graph and passes it in; the
+        # ad-hoc path lets the A2A layer own a per-root-run plan.
+        plan_id = plan_id or self._ensure_plan(manager, root)
         from ..tasks.model import TaskPriority  # noqa: PLC0415
 
         task_priority = _PRIORITY_TO_TASK.get(str(priority).upper(), "NORMAL")
@@ -298,6 +301,15 @@ class A2AService:
             },
             actor_id=sender_agent_id,
         )
+        # Explicit parent→child edges (Feature C): a delegated subtask may depend
+        # on earlier subtasks in the same plan. Validated by the Task runtime.
+        for dep_id in dependencies or []:
+            try:
+                manager.add_dependency(task.id, dep_id, actor_id=sender_agent_id)
+            except Exception as exc:  # noqa: BLE001 - surface as a refusal, never persist a broken graph
+                raise A2AError(
+                    A2A_DELEGATION_REFUSED, f"invalid dependency {dep_id!r}: {exc}",
+                ) from exc
 
         correlation = "cor_" + _hex()
         record = self.store.save_delegation(DelegationRecord(
@@ -323,9 +335,17 @@ class A2AService:
             "delegationId": record.id, "parentAgentId": sender_agent_id,
             "childAgentId": target_id, "childTaskId": task.id,
         })
+        # A delegation is only real if the scheduler can pick it up: a plan left in
+        # PLANNING is never dispatched. Starting it here closes that gap. A team
+        # builder passes autostart=False and starts the plan once the whole graph
+        # (and its dependency edges) is durable, so no ready task runs early.
+        plan_running = False
+        if autostart:
+            plan_running = self._start_plan(manager, plan_id)
         return {
             "taskId": task.id, "delegationId": record.id, "childAgentId": target_id,
-            "correlationId": correlation, "status": task.status.value, "nonBlocking": True,
+            "correlationId": correlation, "status": task.status.value,
+            "planId": plan_id, "planStarted": plan_running, "nonBlocking": True,
         }
 
     async def spawn_agent(
@@ -617,19 +637,50 @@ class A2AService:
         except RegistryError as exc:
             raise A2AError(A2A_NO_AGENT, exc.reason) from exc
 
+    def _start_plan(self, manager: Any, plan_id: str) -> bool:
+        """Move a non-terminal plan to RUNNING so the scheduler dispatches it.
+
+        Idempotent and safe for a terminal plan (a finished/abandoned plan is never
+        reopened): returns whether the plan is (now) running.
+        """
+        from ..tasks.model import PlanStatus  # noqa: PLC0415
+
+        plan = manager.get_plan(plan_id)
+        if plan.status is PlanStatus.RUNNING:
+            return True
+        if plan.status in (PlanStatus.PLANNING, PlanStatus.READY, PlanStatus.BLOCKED):
+            manager.start_plan(plan_id)
+            return True
+        return False
+
     def _ensure_plan(self, manager: Any, root_run_id: str) -> str:
         cached = self._plan_cache.get(root_run_id)
         if cached:
-            return cached
+            from ..tasks.model import PlanStatus  # noqa: PLC0415
+
+            existing = manager._store.get_plan(cached)  # noqa: SLF001
+            if existing is not None and existing.status not in (
+                PlanStatus.COMPLETED, PlanStatus.FAILED, PlanStatus.CANCELLED,
+            ):
+                return cached
+            self._plan_cache.pop(root_run_id, None)
         name = f"A2A {root_run_id}"
+        from ..tasks.model import CreatePlanInput, PlanStatus  # noqa: PLC0415
+
+        terminal = (PlanStatus.COMPLETED, PlanStatus.FAILED, PlanStatus.CANCELLED)
+        saw_terminal = False
         for plan in manager.list_plans(limit=500):
-            if plan.name == name:
+            if plan.name != name and not plan.name.startswith(f"{name} #"):
+                continue
+            if plan.status not in terminal:
                 self._plan_cache[root_run_id] = plan.id
                 return plan.id
-        from ..tasks.model import CreatePlanInput  # noqa: PLC0415
-
+            saw_terminal = True
+        # A fresh plan each time the current one is terminal, so new work is never
+        # attached to a finished plan it can never run under.
+        suffix = f" #{_hex(4)}" if saw_terminal else ""
         plan = manager.create_plan(CreatePlanInput(
-            name=name, objective=f"Agent-to-agent work for run {root_run_id}",
+            name=f"{name}{suffix}", objective=f"Agent-to-agent work for run {root_run_id}",
             metadata={"a2a": True, "rootRunId": root_run_id},
         ))
         self._plan_cache[root_run_id] = plan.id

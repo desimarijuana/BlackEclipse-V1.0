@@ -16,6 +16,17 @@ const nextConfig: NextConfig = {
   // controls underneath it.
   devIndicators: false,
   serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "pdfjs-dist"],
+  // Dev only. On a memory-constrained host a cold `next dev` compile of the
+  // ~19k-module graph can take longer than webpack's default 120s client
+  // chunk-load timeout. When that happens the browser gives up on a route chunk
+  // and Next surfaces it as a `ChunkLoadError` / "Invalid or unexpected token"
+  // overlay — which looks like a syntax error but is really a slow compile.
+  // A longer dev budget lets a slow first load resolve instead of failing hard;
+  // production chunks are prebuilt and unaffected.
+  webpack: (config, { dev }) => {
+    if (dev) config.output.chunkLoadTimeout = 300_000;
+    return config;
+  },
 };
 
 export default nextConfig;

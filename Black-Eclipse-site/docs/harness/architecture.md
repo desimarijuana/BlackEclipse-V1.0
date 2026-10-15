@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-15
 ---
 
 # Harness Architecture
@@ -806,8 +806,13 @@ lifespan exit (the pool reconnects lazily if the runtime restarts).
 - `scripts/test-python.js` runs the pytest suite (wired into `npm test`).
 - Env: `HARNESS_PY_URL` / `HARNESS_PY_HOST` / `HARNESS_PY_PORT` (default
   `http://127.0.0.1:8765`), `HARNESS_CALLBACK_URL`, `AGENT_MEMORY_DB_PATH`,
-  `HARNESS_REPLAN_ENABLED` (bounded replanning, default OFF).
-- The runtime is spawned automatically on first use. If it cannot start, agent
+  `HARNESS_REPLAN_ENABLED` (bounded replanning, default OFF),
+  `HARNESS_PY_START_TIMEOUT_MS` (cold-start readiness budget; default 120000).
+- The runtime is warmed at boot by `src/instrumentation.ts` (non-blocking) and
+  also spawned lazily on first use. A cold start imports the whole agent stack,
+  so the front door waits `HARNESS_PY_START_TIMEOUT_MS` for `/health` before
+  declaring failure; the wait must outlast a loaded cold start or the still-
+  starting process is killed and respawned in a loop. If it cannot start, agent
   runs return **503 "runtime unavailable"** — never a fake agent.
 - **Stable database location.** `eclipse-memory.db` and `agent-memory.db` default
   to the repository root (the dir containing `python/`), not the process cwd;

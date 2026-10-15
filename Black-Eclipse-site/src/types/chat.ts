@@ -92,4 +92,10 @@ export interface Message {
    * client-side by the run owners; absent on user turns and legacy rows.
    */
   durationMs?: number;
+  /**
+   * Who produced this assistant turn when it is NOT the main Eclipse agent: a
+   * bot or group-chat member the user `@`-mentioned in the main composer. Absent
+   * on ordinary Eclipse replies, user turns, and legacy rows.
+   */
+  author?: { id: string; kind: 'bot' | 'group'; name: string };
 }

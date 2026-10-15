@@ -45,6 +45,10 @@ log = logging.getLogger("harness.tasks.scheduler")
 TICK_SECONDS = 15.0
 DEFAULT_MAX_IN_FLIGHT = 2
 DEFAULT_RUN_TIMEOUT_S = 900
+#: 0 = no per-agent cap (only the global in-flight cap applies). A positive value
+#: bounds how many tasks for the SAME assigned agent run at once, so one bot
+#: cannot occupy every worker slot in a team.
+DEFAULT_MAX_PER_AGENT = 0
 
 
 def _default_clock() -> _dt.datetime:
@@ -86,6 +90,8 @@ class TaskScheduler:
         run_timeout_s: int = DEFAULT_RUN_TIMEOUT_S,
         worker_id: Optional[str] = None,
         auto_verify_criteria: bool = True,
+        max_per_agent: int = DEFAULT_MAX_PER_AGENT,
+        agent_limits: Optional[dict[str, int]] = None,
     ) -> None:
         self._manager = manager
         self._executor = executor
@@ -96,8 +102,15 @@ class TaskScheduler:
         self._run_timeout_s = max(30, int(run_timeout_s))
         self._worker_id = worker_id or f"worker:{uuid.uuid4().hex[:8]}"
         self._auto_verify_criteria = auto_verify_criteria
+        # Per-agent concurrency: a positive default caps every agent; a task may
+        # override it with `metadata.maxConcurrency`, and `agent_limits` pins a
+        # specific agent (e.g. one bot that must never run twice at once).
+        self._max_per_agent = max(0, int(max_per_agent))
+        self._agent_limits = {str(k): max(0, int(v)) for k, v in (agent_limits or {}).items()}
         self._task: Optional[asyncio.Task[Any]] = None
         self._active: dict[str, asyncio.Task[Any]] = {}
+        self._active_by_agent: dict[str, int] = {}
+        self._active_by_plan: dict[str, int] = {}
         self._claimed: dict[str, str] = {}  # task_id -> claim_token
         self._last_prune = 0.0
 
@@ -118,6 +131,8 @@ class TaskScheduler:
         for running in list(self._active.values()):
             running.cancel()
         self._active.clear()
+        self._active_by_agent.clear()
+        self._active_by_plan.clear()
         for task_id, token in list(self._claimed.items()):
             try:
                 self._manager._store.release_claim(task_id, claim_token=token)  # noqa: SLF001
@@ -158,9 +173,51 @@ class TaskScheduler:
                 break
             if self._plan_status(task) not in (PlanStatus.RUNNING, None):
                 continue
+            if not self._has_agent_capacity(task):
+                continue
+            if not self._has_plan_capacity(task):
+                continue
             if await self._claim_and_launch(task):
                 started += 1
         return {"recovered": recovered, "started": started, "inFlight": len(self._active)}
+
+    def _agent_limit(self, task: Task) -> int:
+        """The effective per-agent concurrency cap for a task (0 = unlimited)."""
+        agent = task.assigned_agent_id or ""
+        pinned = self._agent_limits.get(agent)
+        if pinned is not None:
+            return pinned
+        override = (task.metadata or {}).get("maxConcurrency")
+        try:
+            if override is not None:
+                return max(0, int(override))
+        except (TypeError, ValueError):
+            pass
+        return self._max_per_agent
+
+    def _has_agent_capacity(self, task: Task) -> bool:
+        limit = self._agent_limit(task)
+        if limit <= 0:
+            return True
+        return self._active_by_agent.get(task.assigned_agent_id or "", 0) < limit
+
+    def _plan_limit(self, task: Task) -> int:
+        """An optional per-plan (per-team-run) in-flight cap from plan metadata."""
+        if not task.plan_id:
+            return 0
+        plan = self._manager._store.get_plan(task.plan_id)  # noqa: SLF001
+        if plan is None:
+            return 0
+        try:
+            return max(0, int((plan.metadata or {}).get("maxConcurrency") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _has_plan_capacity(self, task: Task) -> bool:
+        limit = self._plan_limit(task)
+        if limit <= 0:
+            return True
+        return self._active_by_plan.get(task.plan_id or "", 0) < limit
 
     def _plan_status(self, task: Task) -> Optional[PlanStatus]:
         if not task.plan_id:
@@ -223,12 +280,29 @@ class TaskScheduler:
             )
         except Exception:  # noqa: BLE001 - a checkpoint must never block dispatch
             log.warning("failed to write run_start checkpoint", exc_info=True)
+        agent_key = fresh.assigned_agent_id or ""
+        plan_key = fresh.plan_id or ""
         running = asyncio.create_task(self._execute(fresh, token, execution.id, run_id))
         self._active[fresh.id] = running
+        self._active_by_agent[agent_key] = self._active_by_agent.get(agent_key, 0) + 1
+        if plan_key:
+            self._active_by_plan[plan_key] = self._active_by_plan.get(plan_key, 0) + 1
 
-        def _done(_t: asyncio.Task[Any], task_id: str = fresh.id) -> None:
+        def _done(_t: asyncio.Task[Any], task_id: str = fresh.id, key: str = agent_key,
+                  pkey: str = plan_key) -> None:
             self._active.pop(task_id, None)
             self._claimed.pop(task_id, None)
+            remaining = self._active_by_agent.get(key, 0) - 1
+            if remaining > 0:
+                self._active_by_agent[key] = remaining
+            else:
+                self._active_by_agent.pop(key, None)
+            if pkey:
+                premain = self._active_by_plan.get(pkey, 0) - 1
+                if premain > 0:
+                    self._active_by_plan[pkey] = premain
+                else:
+                    self._active_by_plan.pop(pkey, None)
 
         running.add_done_callback(_done)
         return True

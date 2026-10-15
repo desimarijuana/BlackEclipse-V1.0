@@ -6,7 +6,7 @@ import {
   parseCommandInvocation,
   tokenizeArgs,
 } from "./command-parser";
-import { resolveCommand } from "./command-registry";
+import { resolveCommand, type CommandSpec } from "./command-registry";
 
 describe("tokenizeArgs", () => {
   it("splits on whitespace and preserves quoted strings", () => {
@@ -63,7 +63,18 @@ describe("parseCommandInvocation", () => {
 
 describe("bindArgs", () => {
   const skills = resolveCommand("skills")!;
-  const skill = resolveCommand("skill")!;
+  const skillTest = resolveCommand("skill-test")!;
+  const skillExplain = resolveCommand("skill-explain")!;
+  // A synthetic spec exercising pass-through flags (no shipped command uses it).
+  const passthrough = {
+    ...skills,
+    id: "test.passthrough",
+    name: "passthrough",
+    aliases: [],
+    args: [{ name: "target", description: "Target.", required: true }],
+    flags: [],
+    passThroughFlags: true,
+  } as CommandSpec;
 
   it("maps positionals onto declared args with a default", () => {
     const bound = bindArgs(skills, tokenizeArgs(""));
@@ -85,21 +96,20 @@ describe("bindArgs", () => {
   });
 
   it("reports a missing required argument", () => {
-    const bound = bindArgs(skill, tokenizeArgs(""));
+    const bound = bindArgs(skillExplain, tokenizeArgs(""));
     expect(bound.errors.some((e) => e.code === "MISSING_ARG" && e.arg === "skillId")).toBe(true);
   });
 
   it("passes unknown --key value flags through as skill input", () => {
-    const bound = bindArgs(skill, tokenizeArgs("crypto-onchain-research --asset BTC --period 90d"));
-    expect(bound.positionals.skillId).toBe("crypto-onchain-research");
+    const bound = bindArgs(passthrough, tokenizeArgs("crypto-onchain-research --asset BTC --period 90d"));
+    expect(bound.positionals.target).toBe("crypto-onchain-research");
     expect(bound.input).toEqual({ asset: "BTC", period: "90d" });
     expect(bound.errors).toEqual([]);
   });
 
   it("parses --key=value and recognized boolean flags", () => {
-    const bound = bindArgs(skill, tokenizeArgs("x --version=2.0"));
-    expect(bound.flags.version).toBe("2.0");
-    const skillTest = resolveCommand("skill-test")!;
+    const bound = bindArgs(resolveCommand("skill")!, tokenizeArgs("x --category=finance"));
+    expect(bound.flags.category).toBe("finance");
     expect(bindArgs(skillTest, tokenizeArgs("x --regression")).flags.regression).toBe(true);
   });
 

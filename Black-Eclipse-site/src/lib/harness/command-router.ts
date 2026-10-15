@@ -536,7 +536,7 @@ const handlers: Record<string, Handler> = {
     return { status: "completed", blocks };
   },
 
-  "skills.catalog": async (_ctx, _spec, args, deps) => {
+  "skills.catalog": async (ctx, _spec, args, deps) => {
     const action = str(args.positionals.action) || "list";
     const subject = Array.isArray(args.positionals.subject) ? (args.positionals.subject as string[]) : [];
     switch (action) {
@@ -564,6 +564,12 @@ const handlers: Record<string, Handler> = {
         if (!detail) return fail("SKILL_NOT_FOUND", `No skill named \`${id}\`.`);
         return { status: "completed", blocks: skillDetailBlocks(detail) };
       }
+      case "run": {
+        const id = subject[0];
+        if (!id) return invalid("MISSING_ARG", "Usage: `/skills run <skill-id>`.");
+        const result = await deps.skills.execute({ skillId: id, executionMode: "interactive" }, { operator: ctx.operator });
+        return renderSkillExecution(result);
+      }
       case "test": {
         const id = subject[0];
         if (!id) return invalid("MISSING_ARG", "Usage: `/skills test <skill-id>`.");
@@ -576,26 +582,8 @@ const handlers: Record<string, Handler> = {
         return { status: "completed", blocks: skillPreflightBlocks(id, preflight) };
       }
       default:
-        return invalid("INVALID_ENUM", `Unknown action \`${action}\`. Use list, search, category, show, test, or validate.`);
+        return invalid("INVALID_ENUM", `Unknown action \`${action}\`. Use list, search, category, show, run, test, or validate.`);
     }
-  },
-
-  "skill.execute": async (ctx, _spec, args, deps) => {
-    const skillId = str(args.positionals.skillId);
-    if (!skillId) return invalid("MISSING_ARG", "Usage: `/skill <skill-id> [--input value …]`.");
-    const input: Record<string, unknown> = { ...args.input };
-    const validation = await deps.skills.validateInput(skillId, input);
-    if (!validation.valid) {
-      return invalid("SKILL_INPUT_INVALID", `Input validation failed: ${validation.issues.join("; ") || "unknown issue"}.`);
-    }
-    const req: SkillExecutionRequest = {
-      skillId,
-      input,
-      executionMode: "interactive",
-      ...(typeof args.flags.version === "string" ? { version: args.flags.version } : {}),
-    };
-    const result = await deps.skills.execute(req, { operator: ctx.operator });
-    return renderSkillExecution(result);
   },
 
   "skill.explain": async (_ctx, _spec, args, deps) => {
@@ -954,9 +942,9 @@ export async function executeCommandFromText(
   return executeCommand(parsed.invocation, parsed.args, ctx, deps);
 }
 
-/** Whether a resolved spec should be intercepted by the router (vs. the chat profile path). */
+/** Whether a resolved spec should be intercepted by the router (vs. the agent/profile path). */
 export function isRoutedCommand(spec: CommandSpec | null): boolean {
-  return Boolean(spec && spec.handler.type !== "profile");
+  return Boolean(spec && spec.handler.type !== "profile" && spec.handler.type !== "agent");
 }
 
 export { listCommands };

@@ -136,6 +136,11 @@ async def _boot() -> None:
 
     install_a2a_layer(service)
     recover_a2a(service)
+    # Bot Team Orchestration: composes the A2A + Task layers above into team runs
+    # (delegation, dependency-aware concurrency, conflict reconciliation, review).
+    from .team.bootstrap import install_team_layer
+
+    install_team_layer(service)
     # Execution Fabric (ADR-H156): the durable queue + worker pool + execution-mode
     # router. Installed AFTER the subsystems it workers over (agent runtime,
     # tools, automation, events, plugins) so its event rules can subscribe to a

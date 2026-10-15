@@ -20,7 +20,7 @@ describe("command registry", () => {
 
   it("resolves commands by name, alias, and a leading slash", () => {
     expect(resolveCommand("skills")?.id).toBe("skills.list");
-    expect(resolveCommand("/skill")?.id).toBe("skill.execute");
+    expect(resolveCommand("/skill")?.id).toBe("skill.author");
     expect(resolveCommand("help")?.id).toBe("runtime.help");
     expect(resolveCommand("health")?.name).toBe("status");
     expect(resolveCommand("esdk")?.name).toBe("eclipsesdk");
@@ -66,13 +66,18 @@ describe("command registry", () => {
 
   it("builds an argument hint from the schema", () => {
     expect(commandArgHint(resolveCommand("skills")!)).toBe("[action] [subject…] [--status <string>]");
-    expect(commandArgHint(resolveCommand("skill")!)).toContain("<skillId>");
-    expect(commandArgHint(resolveCommand("skill")!)).toContain("[--<key> <value>]…");
+    expect(commandArgHint(resolveCommand("skill")!)).toBe("[name] [description…] [--category <string>]");
   });
 
   it("exposes the profile command with a forced edit profile", () => {
     const spec = allCommands().find((c) => c.name === "eclipsesdk")!;
     expect(spec.handler.type).toBe("profile");
     expect(spec.profile).toEqual({ autonomy: "edit_verify", analysisEnabled: true });
+  });
+
+  it("marks /skill as an agent-turn command that authors a skill", () => {
+    const spec = resolveCommand("skill")!;
+    expect(spec.handler.type).toBe("agent");
+    expect(spec.handler.target).toBe("agent.skill.author");
   });
 });
