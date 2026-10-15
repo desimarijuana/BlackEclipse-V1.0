@@ -8,8 +8,73 @@ import {
   normalizeBackgroundPrefs,
   normalizePresetBackground,
   resolveBackgroundCss,
+  resolveChatBubbleCss,
+  resolveChatSurfaceCss,
   shippedBackground,
 } from './backgrounds';
+
+describe('chat surface', () => {
+  it('is ON by default with a dark/light pair', () => {
+    const prefs = normalizeBackgroundPrefs(null);
+    expect(prefs.chatSurfaceEnabled).toBe(true);
+    expect(prefs.chatSurfaceFill).toBe('flat');
+    expect(resolveChatSurfaceCss(prefs)).toEqual({ dark: '#0a0b0b', light: '#f4f4f5', opacity: 1 });
+  });
+
+  it('is null when disabled', () => {
+    expect(resolveChatSurfaceCss({ ...DEFAULT_BACKGROUND, chatSurfaceEnabled: false })).toBeNull();
+  });
+
+  it('resolves flat fills, defaulting an empty color to the theme card', () => {
+    const css = resolveChatSurfaceCss({
+      ...DEFAULT_BACKGROUND,
+      chatSurfaceColor: '',
+      chatSurfaceColorLight: '',
+    });
+    expect(css).toEqual({ dark: 'var(--card)', light: 'var(--card)', opacity: 1 });
+  });
+
+  it('resolves a scheme-aware gradient and clamps opacity', () => {
+    const css = resolveChatSurfaceCss({
+      ...DEFAULT_BACKGROUND,
+      chatSurfaceFill: 'gradient',
+      chatSurfaceColor: '#101014',
+      chatSurfaceColorLight: '#e0e0e0',
+      chatSurfaceColor2: '#204020',
+      chatSurfaceOpacity: 40,
+    });
+    expect(css?.dark).toContain('#101014');
+    expect(css?.dark).toContain('#204020');
+    expect(css?.light).toContain('#e0e0e0');
+    expect(css?.opacity).toBeCloseTo(0.4);
+  });
+
+  it('normalizes chat-surface fields and unknown fill', () => {
+    const prefs = normalizeBackgroundPrefs({
+      chatSurfaceEnabled: true,
+      chatSurfaceFill: 'plaid',
+      chatSurfaceColorLight: '#abcdef',
+      chatSurfaceOpacity: 250,
+    });
+    expect(prefs.chatSurfaceEnabled).toBe(true);
+    expect(prefs.chatSurfaceFill).toBe('flat');
+    expect(prefs.chatSurfaceColorLight).toBe('#abcdef');
+    expect(prefs.chatSurfaceOpacity).toBe(100);
+  });
+});
+
+describe('chat bubble', () => {
+  it('falls back to the neutral tint when no color is set', () => {
+    const css = resolveChatBubbleCss({ ...DEFAULT_BACKGROUND, chatBubbleColor: '', chatBubbleColorLight: '' });
+    expect(css.light).toContain('color-mix');
+    expect(css.dark).toContain('color-mix');
+  });
+
+  it('uses the per-scheme picks when set', () => {
+    const css = resolveChatBubbleCss({ ...DEFAULT_BACKGROUND, chatBubbleColor: '#111111', chatBubbleColorLight: '#eeeeee' });
+    expect(css).toEqual({ light: '#eeeeee', dark: '#111111' });
+  });
+});
 
 describe('normalizeBackgroundPrefs', () => {
   it('returns shipped defaults for junk input', () => {
@@ -39,6 +104,9 @@ describe('normalizeBackgroundPrefs', () => {
       textWeight: 800, textLetterSpacing: 0.1, textLineHeight: 1.2, textWidth: 120,
       textItalic: true, textUppercase: true, textScale: 22,
       textOpacity: 40, textPositionY: 30, textAlign: 'left',
+      chatSurfaceEnabled: true, chatSurfaceFill: 'gradient',
+      chatSurfaceColor: '#111111', chatSurfaceColorLight: '#eeeeee', chatSurfaceColor2: '#222222', chatSurfaceOpacity: 55,
+      chatBubbleColor: '#010203', chatBubbleColorLight: '#fdfdfd',
     });
     expect(t).toEqual({
       mode: 'image', preset: 'eclipse-5', customKey: 'x',
@@ -51,6 +119,9 @@ describe('normalizeBackgroundPrefs', () => {
       textWeight: 800, textLetterSpacing: 0.1, textLineHeight: 1.2, textWidth: 120,
       textItalic: true, textUppercase: true, textScale: 22,
       textOpacity: 40, textPositionY: 30, textAlign: 'left',
+      chatSurfaceEnabled: true, chatSurfaceFill: 'gradient',
+      chatSurfaceColor: '#111111', chatSurfaceColorLight: '#eeeeee', chatSurfaceColor2: '#222222', chatSurfaceOpacity: 55,
+      chatBubbleColor: '#010203', chatBubbleColorLight: '#fdfdfd',
     });
   });
 

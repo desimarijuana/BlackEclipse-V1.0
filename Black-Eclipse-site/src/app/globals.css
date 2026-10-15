@@ -1487,6 +1487,40 @@ body {
   transform-origin: var(--app-bg-position, center);
 }
 
+/* Chat-conversation surface (Settings › Customization › ChatBot Page › Chat
+ * background). On by default: fills the chat panel behind the transcript +
+ * composer with a flat color or gradient, so messages sit on a surface of your
+ * choosing instead of the raw wallpaper. Sits at z-0 (same tier as the
+ * wallpaper/wordmark), below the content at z-10, so it never covers the
+ * messages. The store writes the vars inline and sets opacity to 0 when disabled,
+ * so it paints nothing when off. The background is scheme-aware: light uses
+ * `--chat-surface-bg-light`, dark (`html.dark`) `--chat-surface-bg-dark`. */
+.chat-surface-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--chat-surface-bg-light, transparent);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: var(--chat-surface-opacity, 0);
+}
+html.dark .chat-surface-layer {
+  background: var(--chat-surface-bg-dark, transparent);
+}
+
+/* Prompt-bubble fill (Settings › Customization › ChatBot Page › Chat background
+ * › Prompt bubble). The user bubble's background is a scheme-aware var pair,
+ * defaulting to a neutral foreground tint so it reads clearly on both the light
+ * and dark chat surfaces. The store writes `--chat-bubble-bg-light/-dark`. */
+.chat-bubble {
+  background: var(--chat-bubble-bg-light, color-mix(in srgb, var(--foreground) 10%, transparent));
+}
+html.dark .chat-bubble {
+  background: var(--chat-bubble-bg-dark, color-mix(in srgb, var(--foreground) 10%, transparent));
+}
+
 /* Giant ChatBot wordmark. A display-type wordmark (e.g. "ECLIPSE AGENT") painted
  * behind the ChatBot landing, above the wallpaper art but below the transcript
  * and composer. Sits at `z-0` like the wallpaper layer, so the message/composer

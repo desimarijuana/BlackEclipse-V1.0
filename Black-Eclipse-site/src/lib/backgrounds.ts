@@ -41,6 +41,8 @@ import type { FontOption } from '@/lib/theme/tokens';
 export type BackgroundMode = 'image' | 'solid';
 /** How the `solid` backdrop is painted. */
 export type SolidFill = 'flat' | 'gradient' | 'pattern';
+/** How the opt-in chat-conversation surface is painted. */
+export type ChatSurfaceFill = 'flat' | 'gradient';
 /** A texture overlaid when `solidFill === 'pattern'`. */
 export type SolidPattern = 'grid' | 'dots' | 'diagonal' | 'ascii';
 /** Gradient shape. */
@@ -132,6 +134,30 @@ export interface BackgroundPrefs {
   textPositionY: number;
   /** Horizontal alignment of the wordmark. */
   textAlign: WordmarkAlign;
+  /**
+   * Surface painted behind the ChatBot *conversation* (transcript + composer),
+   * independent of the page backdrop. On by default so replies sit on a calm
+   * surface (`#0a0b0b` dark / a matte off-white light) instead of a busy
+   * wallpaper.
+   */
+  chatSurfaceEnabled: boolean;
+  /** How the chat surface is painted: a flat color or a two-color gradient. */
+  chatSurfaceFill: ChatSurfaceFill;
+  /** Base color for the chat surface in DARK mode. Empty = theme's `--card`. */
+  chatSurfaceColor: string;
+  /** Base color for the chat surface in LIGHT mode. Empty = theme's `--card`. */
+  chatSurfaceColorLight: string;
+  /** Gradient end color (shared). Empty = derive from the brand color. */
+  chatSurfaceColor2: string;
+  /** Chat-surface strength, 0–100 (lets the backdrop show through). */
+  chatSurfaceOpacity: number;
+  /**
+   * The prompt-bubble fill in DARK mode. Empty = a neutral translucent tint
+   * (`color-mix(foreground 10%)`), the shipped look.
+   */
+  chatBubbleColor: string;
+  /** The prompt-bubble fill in LIGHT mode. Empty = the neutral tint. */
+  chatBubbleColorLight: string;
 }
 
 /** The official first-run background for new users. */
@@ -175,6 +201,16 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   textOpacity: 90,
   textPositionY: 50,
   textAlign: 'center',
+  // Chat-conversation surface: ON by default — a near-black in dark mode and a
+  // matte off-white in light mode, so the conversation sits on a calm surface.
+  chatSurfaceEnabled: true,
+  chatSurfaceFill: 'flat',
+  chatSurfaceColor: '#0a0b0b',
+  chatSurfaceColorLight: '#f4f4f5',
+  chatSurfaceColor2: '',
+  chatSurfaceOpacity: 100,
+  chatBubbleColor: '',
+  chatBubbleColorLight: '',
 };
 
 const MODES: readonly BackgroundMode[] = ['image', 'solid'];
@@ -183,6 +219,7 @@ const SOLID_PATTERNS: readonly SolidPattern[] = ['grid', 'dots', 'diagonal', 'as
 const GRADIENT_TYPES: readonly SolidGradientType[] = ['linear', 'radial'];
 const FITS: readonly BackgroundFit[] = ['cover', 'contain', 'tile'];
 const WORDMARK_ALIGNS: readonly WordmarkAlign[] = ['left', 'center', 'right'];
+const CHAT_SURFACE_FILLS: readonly ChatSurfaceFill[] = ['flat', 'gradient'];
 const MAX_WORDMARK_LENGTH = 64;
 
 export const BACKGROUND_MODE_OPTIONS: { id: BackgroundMode; label: string; hint: string }[] = [
@@ -206,6 +243,11 @@ export const SOLID_PATTERN_OPTIONS: { id: SolidPattern; label: string; hint: str
 export const GRADIENT_TYPE_OPTIONS: { id: SolidGradientType; label: string; hint: string }[] = [
   { id: 'linear', label: 'Linear', hint: 'Straight-angle wash' },
   { id: 'radial', label: 'Radial', hint: 'Center-out glow' },
+];
+
+export const CHAT_SURFACE_FILL_OPTIONS: { id: ChatSurfaceFill; label: string; hint: string }[] = [
+  { id: 'flat', label: 'Flat', hint: 'One solid color' },
+  { id: 'gradient', label: 'Gradient', hint: 'A two-color wash' },
 ];
 
 export const BACKGROUND_FIT_OPTIONS: { id: BackgroundFit; label: string; hint: string }[] = [
@@ -360,6 +402,20 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const textAlign = WORDMARK_ALIGNS.includes(value.textAlign as WordmarkAlign)
     ? (value.textAlign as WordmarkAlign)
     : DEFAULT_BACKGROUND.textAlign;
+  const chatSurfaceEnabled = typeof value.chatSurfaceEnabled === 'boolean'
+    ? value.chatSurfaceEnabled
+    : DEFAULT_BACKGROUND.chatSurfaceEnabled;
+  const chatSurfaceFill = CHAT_SURFACE_FILLS.includes(value.chatSurfaceFill as ChatSurfaceFill)
+    ? (value.chatSurfaceFill as ChatSurfaceFill)
+    : DEFAULT_BACKGROUND.chatSurfaceFill;
+  const chatSurfaceColor = typeof value.chatSurfaceColor === 'string' ? value.chatSurfaceColor : DEFAULT_BACKGROUND.chatSurfaceColor;
+  const chatSurfaceColorLight = typeof value.chatSurfaceColorLight === 'string' ? value.chatSurfaceColorLight : DEFAULT_BACKGROUND.chatSurfaceColorLight;
+  const chatSurfaceColor2 = typeof value.chatSurfaceColor2 === 'string' ? value.chatSurfaceColor2 : '';
+  const chatSurfaceOpacity = typeof value.chatSurfaceOpacity === 'number' && Number.isFinite(value.chatSurfaceOpacity)
+    ? Math.min(100, Math.max(0, Math.round(value.chatSurfaceOpacity)))
+    : DEFAULT_BACKGROUND.chatSurfaceOpacity;
+  const chatBubbleColor = typeof value.chatBubbleColor === 'string' ? value.chatBubbleColor : '';
+  const chatBubbleColorLight = typeof value.chatBubbleColorLight === 'string' ? value.chatBubbleColorLight : '';
   return {
     mode, preset, customKey, fit, scale, positionX, positionY, dim,
     solidFill, solidColor, solidColor2, solidGradientType, solidGradientAngle,
@@ -367,6 +423,8 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
     textEnabled, text, textFont, textColor, textWeight, textLetterSpacing,
     textLineHeight, textWidth, textItalic, textUppercase,
     textScale, textOpacity, textPositionY, textAlign,
+    chatSurfaceEnabled, chatSurfaceFill, chatSurfaceColor, chatSurfaceColorLight, chatSurfaceColor2, chatSurfaceOpacity,
+    chatBubbleColor, chatBubbleColorLight,
   };
 }
 
@@ -705,6 +763,65 @@ export function isWordmarkVisible(prefs: BackgroundPrefs): boolean {
   return prefs.mode === 'solid' || prefs.textEnabled;
 }
 
+/** The concrete CSS for the chat-conversation surface. */
+export interface ChatSurfaceCss {
+  /** A CSS `background` value for LIGHT mode (a color or a gradient). */
+  light: string;
+  /** A CSS `background` value for DARK mode (a color or a gradient). */
+  dark: string;
+  /** Opacity 0–1, so the page backdrop can show through. */
+  opacity: number;
+}
+
+/** One scheme's chat-surface background: a flat color, or a two-color gradient. */
+function chatSurfaceBackground(prefs: BackgroundPrefs, color: string): string {
+  const base = color.trim() || 'var(--card)';
+  if (prefs.chatSurfaceFill === 'gradient') {
+    const to = prefs.chatSurfaceColor2.trim() || 'rgb(var(--brand-rgb) / 0.55)';
+    return `linear-gradient(160deg, ${base} 0%, ${to} 100%)`;
+  }
+  return base;
+}
+
+/**
+ * Resolve the chat-conversation surface, or null when it is off. Returns a
+ * scheme-specific `background` value for light and dark mode, so the surface
+ * follows the active theme (dark `#0a0b0b` / light matte off-white by default).
+ * Painted by `.chat-surface-layer` (globals.css) from these vars.
+ */
+export function resolveChatSurfaceCss(prefs: BackgroundPrefs): ChatSurfaceCss | null {
+  if (!prefs.chatSurfaceEnabled) return null;
+  const opacity = Math.min(1, Math.max(0, prefs.chatSurfaceOpacity / 100));
+  return {
+    dark: chatSurfaceBackground(prefs, prefs.chatSurfaceColor),
+    light: chatSurfaceBackground(prefs, prefs.chatSurfaceColorLight),
+    opacity,
+  };
+}
+
+/** The concrete CSS for the prompt-bubble fill (always present; falls back to a
+ *  neutral foreground tint). */
+export interface ChatBubbleCss {
+  /** A CSS `background` value for LIGHT mode. */
+  light: string;
+  /** A CSS `background` value for DARK mode. */
+  dark: string;
+}
+
+/** The neutral bubble tint used when the user has not picked a color. */
+export const DEFAULT_CHAT_BUBBLE_BG = 'color-mix(in srgb, var(--foreground) 10%, transparent)';
+
+/**
+ * Resolve the prompt-bubble fill for light and dark mode. Empty picks fall back
+ * to {@link DEFAULT_CHAT_BUBBLE_BG}, so the shipped look is unchanged.
+ */
+export function resolveChatBubbleCss(prefs: BackgroundPrefs): ChatBubbleCss {
+  return {
+    light: prefs.chatBubbleColorLight.trim() || DEFAULT_CHAT_BUBBLE_BG,
+    dark: prefs.chatBubbleColor.trim() || DEFAULT_CHAT_BUBBLE_BG,
+  };
+}
+
 // ── DOM application ──────────────────────────────────────────────────────────
 
 /**
@@ -726,6 +843,18 @@ export function applyBackgroundToDocument(prefs: BackgroundPrefs, customUrl: str
   root.style.setProperty('--app-bg-position', css.position);
   root.style.setProperty('--app-bg-zoom', String(css.zoom));
   root.style.setProperty('--app-bg-scrim', css.scrim ? css.scrimImage : 'none');
+
+  // Chat-conversation surface (independent of the page backdrop). Light/dark
+  // pair so it follows the scheme.
+  const surface = resolveChatSurfaceCss(prefs);
+  root.style.setProperty('--chat-surface-bg-light', surface ? surface.light : 'transparent');
+  root.style.setProperty('--chat-surface-bg-dark', surface ? surface.dark : 'transparent');
+  root.style.setProperty('--chat-surface-opacity', String(surface ? surface.opacity : 0));
+
+  // Prompt-bubble fill (light/dark pair). Defaults to a neutral tint.
+  const bubble = resolveChatBubbleCss(prefs);
+  root.style.setProperty('--chat-bubble-bg-light', bubble.light);
+  root.style.setProperty('--chat-bubble-bg-dark', bubble.dark);
 }
 
 function clearBackgroundFromDocument(): void {
@@ -734,6 +863,8 @@ function clearBackgroundFromDocument(): void {
   for (const name of [
     '--page-bg-image', '--app-bg-color', '--app-bg-image', '--app-bg-size', '--app-bg-repeat',
     '--app-bg-position', '--app-bg-zoom', '--app-bg-scrim',
+    '--chat-surface-bg-light', '--chat-surface-bg-dark', '--chat-surface-opacity',
+    '--chat-bubble-bg-light', '--chat-bubble-bg-dark',
   ]) {
     root.style.removeProperty(name);
   }
