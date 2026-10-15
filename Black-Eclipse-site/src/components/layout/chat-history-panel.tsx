@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
+  Clock,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -12,12 +13,16 @@ import {
   Search,
   X,
 } from '@/lib/icons';
+import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   buildChatHistoryView,
   collectTags,
   scoreConversation,
+  type ChatDateBucket,
   type ChatFolder,
+  type ChatGroupMode,
   type ChatOrganizationApi,
   type ChatSortMode,
   type Conversation,
@@ -35,6 +40,11 @@ export interface ChatHistoryPanelProps {
 }
 
 type RenameTarget = { kind: 'chat' | 'folder'; id: string } | null;
+
+/** Persisted grouping preference (Date vs Folders). */
+const GROUP_MODE_STORAGE_KEY = 'chat_group_by_v1';
+/** Sentinel value for the tag filter's "All" option (base-ui dislikes ""). */
+const ALL_TAGS = '__all__';
 
 export function ChatHistoryPanel({
   conversations,
@@ -54,6 +64,7 @@ export function ChatHistoryPanel({
 
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<ChatSortMode>('recent');
+  const [groupBy, setGroupBy] = useState<ChatGroupMode>('date');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const [renaming, setRenaming] = useState<RenameTarget>(null);
@@ -62,11 +73,53 @@ export function ChatHistoryPanel({
   const dragRef = useRef<{ id: string; kind: 'chat' | 'folder'; startX: number; startY: number; active: boolean; label: string } | null>(null);
   const didDragRef = useRef(false);
 
+  // Restore the persisted grouping preference once mounted (SSR-safe), then save.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(GROUP_MODE_STORAGE_KEY);
+      if (stored === 'date' || stored === 'folders') setGroupBy(stored);
+    } catch {
+      /* private mode: keep the default */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(GROUP_MODE_STORAGE_KEY, groupBy);
+    } catch {
+      /* private mode: preference is best-effort */
+    }
+  }, [groupBy]);
+
   const view = useMemo(
-    () => buildChatHistoryView(conversations, folders, { query, sort, scope: 'active', tag: tagFilter || null }),
-    [conversations, folders, query, sort, tagFilter],
+    () => buildChatHistoryView(conversations, folders, { query, sort, scope: 'active', tag: tagFilter || null, groupBy }),
+    [conversations, folders, query, sort, tagFilter, groupBy],
+  );
+  const bucketLabel = useMemo(
+    (): Record<ChatDateBucket, string> => ({
+      today: t('sidebar.dateToday'),
+      yesterday: t('sidebar.dateYesterday'),
+      week: t('sidebar.dateWeek'),
+      month: t('sidebar.dateMonth'),
+      older: t('sidebar.dateOlder'),
+    }),
+    [t],
+  );
+  const sortOptions = useMemo(
+    (): { value: ChatSortMode; label: string }[] => [
+      { value: 'recent', label: t('sidebar.sortRecent') },
+      { value: 'created', label: t('sidebar.sortCreated') },
+      { value: 'alpha', label: t('sidebar.sortAlpha') },
+    ],
+    [t],
   );
   const tags = useMemo(() => collectTags(conversations), [conversations]);
+  const tagOptions = useMemo(
+    (): { value: string; label: string }[] => [
+      { value: ALL_TAGS, label: t('sidebar.allTags') },
+      ...tags.map((tag) => ({ value: tag, label: tag })),
+    ],
+    [tags, t],
+  );
   const snippets = useMemo(() => {
     if (!query.trim()) return null;
     const map = new Map<string, string | null>();
@@ -244,6 +297,13 @@ export function ChatHistoryPanel({
     );
   };
 
+  const renderDateHeader = (bucket: ChatDateBucket, count: number) => (
+    <div className="flex items-center justify-between gap-1 px-1" style={{ paddingLeft: 4 }}>
+      <span className="truncate text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{bucketLabel[bucket]}</span>
+      <span className="shrink-0 text-[9px] text-muted-foreground/70">{count}</span>
+    </div>
+  );
+
   const dragging = ghost !== null;
   const hasAnything = view.pinned.length > 0 || view.groups.length > 0;
 
@@ -253,46 +313,49 @@ export function ChatHistoryPanel({
       <div className="flex items-center justify-between px-1">
         <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
         <div className="flex items-center gap-0.5">
-          <IconBtn title={t('sidebar.newFolder')} onClick={() => onCreateFolder()}><FolderPlus size={12} /></IconBtn>
+          {groupBy === 'folders' && <IconBtn title={t('sidebar.newFolder')} onClick={() => onCreateFolder()}><FolderPlus size={12} /></IconBtn>}
           <IconBtn title={t('sidebar.newChat')} onClick={onNewChat}><Plus size={12} /></IconBtn>
         </div>
       </div>
 
-      {/* Search + sort + tag */}
+      {/* Search */}
+      <div className="mx-1 flex items-center gap-1.5 rounded-lg glass-card-subtle border border-border/20 px-2 py-1">
+        <Search size={11} className="shrink-0 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('sidebar.searchChats')}
+          className="w-full min-w-0 bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/70 outline-none"
+        />
+        {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={11} /></button>}
+      </div>
+
+      {/* Controls: group-by (icon toggle) + optional tag filter + sort */}
       <div className="flex items-center gap-1 px-1">
-        <div className="flex flex-1 min-w-0 items-center gap-1.5 rounded-lg glass-card-subtle border border-border/20 px-2 py-1">
-          <Search size={11} className="shrink-0 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('sidebar.searchChats')}
-            className="w-full min-w-0 bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/70 outline-none"
-          />
-          {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={11} /></button>}
+        <div className="flex items-center gap-0.5 rounded-lg glass-card-subtle border border-border/20 p-0.5" role="group" aria-label={t('sidebar.groupBy')}>
+          <SegmentBtn active={groupBy === 'date'} title={t('sidebar.groupDate')} onClick={() => setGroupBy('date')}>
+            <Clock size={12} />
+          </SegmentBtn>
+          <SegmentBtn active={groupBy === 'folders'} title={t('sidebar.groupFolders')} onClick={() => setGroupBy('folders')}>
+            <Folder size={12} />
+          </SegmentBtn>
         </div>
-        {tags.length > 0 && (
-          <select
-            value={tagFilter}
-            onChange={(e) => setTagFilter(e.target.value)}
-            className="max-w-[62px] rounded-lg glass-card-subtle border border-border/20 py-1 pl-1.5 pr-4 text-[9px] text-muted-foreground outline-none cursor-pointer"
-            title={t('sidebar.filterTag')}
-          >
-            <option value="">{t('sidebar.allTags')}</option>
-            {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-          </select>
-        )}
-        <div className="relative flex items-center">
-          <select
+        <div className="ml-auto flex items-center gap-1">
+          {tags.length > 0 && (
+            <HistorySelect
+              value={tagFilter || ALL_TAGS}
+              options={tagOptions}
+              onChange={(v) => setTagFilter(v === ALL_TAGS ? '' : v)}
+              title={t('sidebar.filterTag')}
+              className="max-w-[76px]"
+            />
+          )}
+          <HistorySelect
             value={sort}
-            onChange={(e) => setSort(e.target.value as ChatSortMode)}
-            className="appearance-none rounded-lg glass-card-subtle border border-border/20 py-1 pl-1.5 pr-4 text-[10px] text-muted-foreground outline-none cursor-pointer"
+            options={sortOptions}
+            onChange={setSort}
             title={t('sidebar.sortBy')}
-          >
-            <option value="recent">{t('sidebar.sortRecent')}</option>
-            <option value="created">{t('sidebar.sortCreated')}</option>
-            <option value="alpha">{t('sidebar.sortAlpha')}</option>
-          </select>
-          <ChevronDown size={10} className="pointer-events-none absolute right-1 text-muted-foreground" />
+          />
         </div>
       </div>
 
@@ -309,6 +372,14 @@ export function ChatHistoryPanel({
         )}
 
         {view.groups.map((g) => {
+          if (g.bucket) {
+            return (
+              <div key={`bucket:${g.bucket}`} className="flex flex-col gap-0.5 rounded-lg">
+                {renderDateHeader(g.bucket, g.conversations.length)}
+                {g.conversations.map((c) => renderRow(c))}
+              </div>
+            );
+          }
           const key = g.folder ? `folder:${g.folder.id}` : 'unfiled';
           const isDropTarget = dropKey === key && dragging;
           return (
@@ -373,5 +444,64 @@ function IconBtn({ children, title, onClick, active }: { children: React.ReactNo
     >
       {children}
     </button>
+  );
+}
+
+/** One option of the icon-only segment toggle (group by date / folders). */
+function SegmentBtn({ active, title, onClick, children }: { active: boolean; title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      className={cn(
+        'flex h-6 w-6 items-center justify-center rounded-md cursor-pointer transition-colors',
+        active ? 'bg-white/[0.1] text-foreground' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A compact themed select built on the shared frosted `Select` — a native
+ *  <select> popup is OS-rendered and cannot adopt the glass design language. */
+function HistorySelect<T extends string>({
+  value,
+  options,
+  onChange,
+  title,
+  className,
+  align = 'end',
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  title: string;
+  className?: string;
+  align?: 'start' | 'center' | 'end';
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => v != null && onChange(v as T)}>
+      <SelectTrigger
+        size="sm"
+        title={title}
+        className={cn(
+          'glass-card-subtle border-border/20 text-[10px] text-muted-foreground hover:text-foreground',
+          className,
+        )}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align={align} side="bottom" alignItemWithTrigger={false} className="w-44 min-w-[176px]">
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value} className="text-[11px]">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

@@ -3,13 +3,16 @@ import {
   buildChatHistoryView,
   buildFolderTree,
   collectTags,
+  dateBucket,
   filterConversations,
   flattenFolderTree,
   folderSubtreeIds,
   groupConversations,
+  groupConversationsByDate,
   inScope,
   loadFolders,
   matchesQuery,
+  mostRecentConversation,
   normalizeConversation,
   normalizeConversations,
   normalizeFolders,
@@ -190,6 +193,65 @@ describe('groupConversations', () => {
     expect(groups.map((g) => [g.folder?.id ?? null, g.depth])).toEqual([['f1', 0], ['f2', 0], [null, 0]]);
     expect(groups[1].conversations).toEqual([]);
     expect(groups[2].conversations.map((c) => c.id)).toEqual(['b', 'c']);
+  });
+});
+
+describe('mostRecentConversation', () => {
+  it('picks the latest last-activity chat, skipping archived/trashed', () => {
+    const data = [
+      conv({ id: 'first', timestamp: 100 }),
+      conv({ id: 'newer', timestamp: 300 }),
+      conv({ id: 'archived', timestamp: 999, archivedAt: 1000 }),
+      conv({ id: 'trashed', timestamp: 888, deletedAt: 1000 }),
+    ];
+    expect(mostRecentConversation(data)?.id).toBe('newer');
+  });
+
+  it('returns null when nothing is active', () => {
+    expect(mostRecentConversation([conv({ id: 'a', archivedAt: 1 })])).toBeNull();
+    expect(mostRecentConversation([])).toBeNull();
+  });
+});
+
+describe('date grouping', () => {
+  const DAY = 86_400_000;
+  const now = new Date(2026, 0, 15, 12, 0, 0).getTime(); // Thu 15 Jan 2026, noon
+
+  it('buckets by whole calendar days from now', () => {
+    expect(dateBucket(now, now)).toBe('today');
+    expect(dateBucket(now - 3 * 60 * 60 * 1000, now)).toBe('today');
+    expect(dateBucket(now - DAY, now)).toBe('yesterday');
+    expect(dateBucket(now - 4 * DAY, now)).toBe('week');
+    expect(dateBucket(now - 14 * DAY, now)).toBe('month');
+    expect(dateBucket(now - 90 * DAY, now)).toBe('older');
+    expect(dateBucket(now + DAY, now)).toBe('today'); // future reads as today
+  });
+
+  it('groups in fixed order and drops empty buckets', () => {
+    const groups = groupConversationsByDate(
+      [
+        conv({ id: 'a', timestamp: now }),
+        conv({ id: 'b', timestamp: now - DAY }),
+        conv({ id: 'c', timestamp: now - 20 * DAY }),
+      ],
+      now,
+    );
+    expect(groups.map((g) => g.bucket)).toEqual(['today', 'yesterday', 'month']);
+    expect(groups[0].folder).toBeNull();
+    expect(groups[1].conversations.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('buildChatHistoryView groups by date when asked, keeping pinned separate', () => {
+    const realNow = Date.now();
+    const data = [
+      conv({ id: 'p', pinned: true, timestamp: realNow }),
+      conv({ id: 'a', timestamp: realNow }),
+      conv({ id: 'b', timestamp: realNow - 20 * DAY }),
+    ];
+    const view = buildChatHistoryView(data, [], { groupBy: 'date', sort: 'recent' });
+    expect(view.pinned.map((c) => c.id)).toEqual(['p']);
+    expect(view.groups.every((g) => g.folder === null && g.bucket)).toBe(true);
+    expect(view.groups.map((g) => g.bucket)).toEqual(['today', 'month']);
   });
 });
 

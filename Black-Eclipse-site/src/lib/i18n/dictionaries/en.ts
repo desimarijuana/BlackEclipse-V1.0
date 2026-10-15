@@ -559,6 +559,14 @@ export const en = {
   'sidebar.sortRecent': 'Recent',
   'sidebar.sortCreated': 'Created',
   'sidebar.sortAlpha': 'A-Z',
+  'sidebar.groupBy': 'Group by',
+  'sidebar.groupFolders': 'Folders',
+  'sidebar.groupDate': 'Date',
+  'sidebar.dateToday': 'Today',
+  'sidebar.dateYesterday': 'Yesterday',
+  'sidebar.dateWeek': 'Last week',
+  'sidebar.dateMonth': 'Last month',
+  'sidebar.dateOlder': 'Older',
   'sidebar.noMatches': 'No matching chats',
 
   // Settings — General

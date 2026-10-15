@@ -47,6 +47,10 @@ export interface ChatFolder {
 }
 
 export type ChatSortMode = 'recent' | 'created' | 'alpha';
+/** How the active history list is grouped: by folder tree, or by recency. */
+export type ChatGroupMode = 'folders' | 'date';
+/** Recency buckets used by date grouping (labels are owned by the i18n layer). */
+export type ChatDateBucket = 'today' | 'yesterday' | 'week' | 'month' | 'older';
 /** Which slice of history a view shows. */
 export type ChatScope = 'active' | 'archived' | 'trash';
 
@@ -56,6 +60,8 @@ export interface ChatHistoryGroup {
   /** Nesting depth (0 = root) for indentation. */
   depth: number;
   conversations: Conversation[];
+  /** Set only by date grouping, where `folder` is null and the header is a bucket. */
+  bucket?: ChatDateBucket;
 }
 
 export interface ChatHistoryView {
@@ -332,6 +338,20 @@ export function sortConversations(convs: Conversation[], mode: ChatSortMode): Co
   });
 }
 
+/**
+ * The most recently active conversation (latest last-activity stamp), or null.
+ * Active scope only, so archived/trashed chats are skipped when picking the
+ * chat to open on load.
+ */
+export function mostRecentConversation(convs: Conversation[]): Conversation | null {
+  let best: Conversation | null = null;
+  for (const c of convs) {
+    if (!inScope(c, 'active')) continue;
+    if (!best || (c.timestamp ?? 0) > (best.timestamp ?? 0)) best = c;
+  }
+  return best;
+}
+
 // ── Folder tree ──────────────────────────────────────────────────────────────
 
 function byOrder(a: ChatFolder, b: ChatFolder): number {
@@ -435,6 +455,54 @@ export function groupConversations(convs: Conversation[], folders: ChatFolder[])
   return groups;
 }
 
+// ── Date grouping ─────────────────────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+
+/** Local midnight for a timestamp, so buckets follow the user's calendar day. */
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Which recency bucket a last-activity stamp falls into. Whole calendar days:
+ * today, yesterday, the rest of the last week (2–7), the last month (8–30),
+ * then older. Future stamps count as today.
+ */
+export function dateBucket(ts: number, now: number = Date.now()): ChatDateBucket {
+  const days = Math.round((startOfDay(now) - startOfDay(ts)) / DAY_MS);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days <= 7) return 'week';
+  if (days <= 30) return 'month';
+  return 'older';
+}
+
+const BUCKET_ORDER: ChatDateBucket[] = ['today', 'yesterday', 'week', 'month', 'older'];
+
+/**
+ * Bucket conversations into recency groups, preserving the incoming (sorted)
+ * order within each bucket. Empty buckets are omitted; the bucket order is
+ * always today → yesterday → week → month → older.
+ */
+export function groupConversationsByDate(convs: Conversation[], now: number = Date.now()): ChatHistoryGroup[] {
+  const byBucket = new Map<ChatDateBucket, Conversation[]>();
+  for (const c of convs) {
+    const bucket = dateBucket(c.timestamp, now);
+    const list = byBucket.get(bucket) ?? [];
+    list.push(c);
+    byBucket.set(bucket, list);
+  }
+  return BUCKET_ORDER.filter((b) => byBucket.has(b)).map((b) => ({
+    folder: null,
+    depth: 0,
+    conversations: byBucket.get(b)!,
+    bucket: b,
+  }));
+}
+
 /**
  * The full rendered view: scope + tag pre-filter, then either a flat ranked
  * search result, a flat archive/trash list, or the pinned + folder-tree layout.
@@ -442,7 +510,7 @@ export function groupConversations(convs: Conversation[], folders: ChatFolder[])
 export function buildChatHistoryView(
   convs: Conversation[],
   folders: ChatFolder[],
-  opts: { query?: string; sort?: ChatSortMode; scope?: ChatScope; tag?: string | null } = {},
+  opts: { query?: string; sort?: ChatSortMode; scope?: ChatScope; tag?: string | null; groupBy?: ChatGroupMode } = {},
 ): ChatHistoryView {
   const scope = opts.scope ?? 'active';
   const tag = opts.tag ?? null;
@@ -466,5 +534,8 @@ export function buildChatHistoryView(
 
   const pinned = sorted.filter((c) => c.pinned);
   const rest = sorted.filter((c) => !c.pinned);
+  if ((opts.groupBy ?? 'folders') === 'date') {
+    return { pinned, groups: groupConversationsByDate(rest), total: convs.length, matches: sorted.length };
+  }
   return { pinned, groups: groupConversations(rest, folders), total: convs.length, matches: sorted.length };
 }
