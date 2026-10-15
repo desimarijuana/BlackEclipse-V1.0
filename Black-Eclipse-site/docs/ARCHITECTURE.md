@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 ---
 
 # Architecture
@@ -282,6 +282,24 @@ Two mechanisms:
       import each other (that would be a cycle); the theme store calls the
       background store's adapter instead. The default for new
       users is the shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`).
+      An **chat-conversation surface** (on by default:
+      `chatSurfaceEnabled` defaults true) paints a flat fill
+      (`chatSurfaceColor` dark / `chatSurfaceColorLight` light, empty → theme
+      `--card`) or a two-color gradient (`…`→`chatSurfaceColor2`, empty end →
+      brand tint) behind the ChatBot conversation — transcript + composer — at
+      `chatSurfaceOpacity` so the wallpaper can show through. The defaults are
+      `#0a0b0b` (dark) and a matte `#f4f4f5` (light), so replies sit on a calm
+      surface instead of a busy wallpaper. It is a scheme-aware
+      `.chat-surface-layer` at the same `z-0` tier as the wallpaper/wordmark
+      (below the `z-10` content), fed by `--chat-surface-bg-light/-dark` +
+      `--chat-surface-opacity`; it is independent of the page backdrop, renders
+      only once a conversation exists (so the landing wallpaper/wordmark still
+      show), and paints nothing when disabled.
+      The **prompt bubble** (the user's own messages) has its own scheme-aware
+      fill (`chatBubbleColor` dark / `chatBubbleColorLight` light; empty → a
+      neutral `color-mix(var(--foreground) 10%, transparent)` tint), applied as
+      `--chat-bubble-bg-light/-dark` onto a `.chat-bubble` class by
+      `ChatHistory`; unlike the surface it has no enable toggle.
       The giant landing wordmark (`ChatWordmark`) is **opt-in for Image** (the
       `textEnabled` pref defaults false, so the wallpaper shows alone) and
       **always on for Solid** (the wordmark is the point of that mode); the
@@ -394,8 +412,9 @@ Two design notes that matter:
   keyed by `assetId`; `NewsItem` has a `dedupKey`. Imports are idempotent upserts,
   not inserts.
 - **Auth-ready, not auth-ful.** The journal carries an optional owner concept so
-  a `User` relation can be added later without a rewrite. There are no accounts
-  today — the app is a guest app.
+  a `User` relation can be added later without a rewrite. There is still no user
+  auth — the app is a guest app — but the journal now surfaces **trading accounts**
+  (`TradingAccount`) for multi-account P&L separation.
 
 ### Earnings: one calendar, two embeds (no standalone page)
 
@@ -418,6 +437,32 @@ via `Shift+N`. It wraps the shared `TradeForm`, owns the
 calendar day. The Trades and Calendar tabs used to carry divergent inline copies
 (Trades had its own duplicated form-state type); both now open this one dialog,
 so the add-trade contract lives in one file.
+
+### Journal capabilities beyond the core ledger
+
+- **Costs are first-class.** `Trade` carries `commission` and `fee` plus a
+  stored `grossPnl`; the deterministic `pnl` is **net** (gross − commission −
+  fee). `computeTradeMath` owns this, so analytics and the discipline score see
+  the same net numbers.
+- **Multi-account.** `TradingAccount` rows are managed from the Journal header
+  **Settings** dialog (`journal-settings.tsx`) alongside the trader profile
+  (`currency`, `accountSize`, `riskPerTrade`). A trade's `accountId` is set in
+  the trade form. The profile's `accountSize × riskPerTrade` now drives the
+  **currency equity curve** and the discipline **risk rule** (replacing the old
+  hard-coded 1%-of-notional proxy).
+- **List controls.** The Trades tab filters on symbol/strategy/setup/account/
+  tag/emotion/session/direction/result/date-range, sorts by column, paginates,
+  and exports **CSV** (server route, round-trips through the importer) and
+  **PDF** (client-side jsPDF).
+- **Depth analytics** (`analytics/advanced.ts`): monthly returns, rolling
+  win-rate, MAE/MFE efficiency, confidence-vs-outcome scatter and holding-time
+  buckets — all deterministic.
+- **Journaling depth.** Free-form **Notebook** entries (`JournalEntry`), a
+  per-trade letter grade, a pre-trade checklist derived from the selected
+  strategy's rules, and inline custom-tag creation in the trade form.
+- **Execution history.** The trade detail shows the `TradeExecution` log
+  (created / stop & target modifications / edits) via
+  `GET /api/journal/trades/[id]/executions`.
 
 ### Journal demo data is real rows, clearly labelled
 
@@ -794,10 +839,10 @@ Because the overlay sits ABOVE the app shell, the shell's Aurora (`z-0`) is
 covered — so fullscreen mounts its own **`<AuroraGlow>`**
 (`src/components/layout/aurora-glow.tsx`). `AuroraGlow` is the single reusable
 glow: it owns the Market Regime subscription (`regime:<scope>:<market>` topics
-via `src/lib/regime/client.ts`) and the user palette, and renders the masked top
-band. The shell and fullscreen both use it, so the sentiment model stays in one
-place (`src/lib/regime/`). Any future full-viewport overlay must do the same —
-the shell's glow does not reach above it.
+via `src/lib/regime/client.ts`) and the user configuration (palette + motion +
+shape), and renders the masked top band. The shell and fullscreen both use it, so
+the sentiment model stays in one place (`src/lib/regime/`). Any future
+full-viewport overlay must do the same — the shell's glow does not reach above it.
 
 ### Market Regime (the Aurora sentiment model)
 
@@ -832,6 +877,24 @@ a frosted-glass panel showing regime/score/confidence/freshness, the
 contribution breakdown, "what changed since last update", drivers, and actions
 (open Market Overview, filter news, ask Eclipse, create a regime-change alert).
 
+### Aurora customization (Settings › Aurora)
+
+A user can recolor, reshape AND restyle the glow without ever touching the
+sentiment model. The full customization is an `AuroraConfig` in
+`src/lib/aurora/config.ts`: the **palette** (the three sentiment color pairs,
+unchanged), **motion** (intensity/speed/response multipliers), **shape** (height
+in px, softness, wave detail) and **style** (how the field is rendered). `motion`
+and `shape` are applied as **multipliers on top of** the baseline that
+`resolveAuroraVisuals(score, palette)` already produces (plus the `uNoiseScale`
+uniform), and `style` selects a fragment-shader branch — so how sentiment maps to
+color is never altered. Styles are `ribbon` (shipped), `dots` (LED dot matrix),
+`scanlines`, `pillars` and `blocks`; each non-ribbon style uses a `grid` cell size
+in px. The zustand store `src/lib/aurora/store.ts` holds the four slices and
+persists them as one config under `be_aurora_config_v2` (migrating a legacy v1
+palette forward); the panel is `src/components/screens/aurora-settings.tsx`,
+embedded in the Customization tab. `Aurora.tsx` accepts the scale/style props and
+updates the corresponding uniforms per frame (the WebGL context is never
+rebuilt). All changes apply live and are device-local — no server round-trip.
 
 ### Chat session workspaces (context documents + agent output)
 

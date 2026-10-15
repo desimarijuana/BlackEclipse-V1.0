@@ -8,6 +8,498 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: the transcript scrollbar is now draggable.** The native bar is hidden
+  (`scrollbar-hide`) and the short custom thumb was `pointer-events-none`, so it
+  looked like a scrollbar you couldn't grab — "not working". It's now an
+  interactive, grabbable thumb (`onBarPointerDown` drags `scrollTop`, wider hit
+  area, hover/active states). `chat-history.tsx` only. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **ChatBot Page settings: added a Prompt bubble color control.** The user's own
+  message bubble can now be colored from Customization › ChatBot Page › Chat
+  background › Prompt bubble (dark + light, "Default" = neutral tint). Backed by
+  `chatBubbleColor`/`chatBubbleColorLight` + `resolveChatBubbleCss` in
+  `backgrounds.ts` → `--chat-bubble-bg-light/-dark`, consumed by a new
+  `.chat-bubble` class on the `ChatHistory` prompt bubble. docs updated:
+  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`; plus `docs/CHANGELOG.md`.
+
+- **Chat: fixed invisible prompt bubbles.** The pure-white bubble was invisible on
+  the near-white light chat surface. The bubble is now a soft foreground tint
+  (`bg-foreground/10`, i.e. a light grey in light mode) with `dark:bg-white/10`
+  (a lighter translucent white in dark), so it reads clearly in both schemes.
+  `chat-history.tsx` only. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
+- **Chat: prompt bubble is now lighter in light mode too.** Follow-up to the
+  dark-mode fix: the bubble is an elevated lighter surface in both schemes now —
+  pure `bg-white` + soft shadow in light (over the matte `#f4f4f5` surface),
+  `dark:bg-white/10` in dark (over `#0a0b0b`). `chat-history.tsx` only. UI-only;
+  no doc change — `docs/CHANGELOG.md` only.
+
+- **Chat: prompt bubble no longer disappears on the dark chat surface.** With the
+  new `#0a0b0b` conversation background, the bubble's `var(--card)` fill blended
+  in. Swapped it to a scheme-aware translucent foreground tint (`bg-foreground/10`)
+  — slightly lighter in dark, slightly darker in light — so it stays distinct and
+  still border-free. `chat-history.tsx` only. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Chat background is now on by default with a dark/light pair.** The
+  conversation surface defaults to `#0a0b0b` in **dark** and a matte `#f4f4f5`
+  in **light**. Made it scheme-aware: added `chatSurfaceColorLight` and changed
+  `resolveChatSurfaceCss` to return per-scheme `background` values, applied as
+  `--chat-surface-bg-light/-dark` and consumed by `.chat-surface-layer`
+  (light base + `html.dark` override). Panel gains a light color control. The
+  layer renders only once a conversation exists so the landing wallpaper still
+  shows. docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`; plus
+  `docs/CHANGELOG.md`.
+
+- **B2 — the real restart seam (front door owns it).** A change under
+  `python/harness/**` only takes effect after a restart, and the runtime cannot
+  restart itself, so the front door now owns it: `restartPythonRuntime()`
+  (`src/lib/harness/python-runtime.ts`) kills the runtime listener, clears the
+  health cache, re-spawns and waits for `/health`; exposed at
+  `POST /api/harness/runtime/restart`. The chat promotion panel shows a
+  **"Restart Eclipse now"** button when the landing verdict requires it
+  (`restartHarnessRuntime` in `code-browser.ts`, i18n
+  `code.promote.restart{Now,ing,ed,Failed}`). The front door also auto-restarts
+  on a stale runtime (`ensurePythonRuntime` replaces a process started before the
+  newest harness source), so a landed self-edit takes effect on the next call.
+  Docs updated: `docs/harness/self-editing-harness-plan.md`,
+  `docs/harness/architecture.md`; plus `docs/CHANGELOG.md`.
+
+- **Self-edit end-to-end acceptance test (the original failure, measured).** New
+  `python/tests/test_self_edit_e2e.py` drives the WHOLE path with REAL components:
+  the `edit_verify` chat surface binds the write tools; `portfolio_create` (the
+  first reported failure) is admitted by the composed chain and requires a
+  single-use `portfolio_write` approval through a real `ApprovalStore`
+  (PENDING → APPROVED → consumed; one approval authorizes exactly one call; a
+  changed payload needs a new one). Program doc updated with the final status.
+  Docs updated: `docs/harness/self-editing-harness-plan.md`; plus
+  `docs/CHANGELOG.md`.
+
+- **Rollback + self-hosting verdict are now in the chat UI.** The promotion panel
+  (`src/components/chat/promote-change.tsx`) shows a **"Put the previous version
+  back"** control after a change lands (calling the new front-door route
+  `src/app/api/code/promotions/[rollbackId]/rollback/route.ts` →
+  `rollbackPromotion`), and surfaces the self-hosting verdict ("Eclipse will
+  restart/rebuild to apply this") from the new `landing` field on the
+  promotion preview/apply responses. New i18n keys `code.promote.{rollback,
+  rollingBack,rolledBack,restartNote,buildNote}`. Client types extended in
+  `code-client.ts`/`code-browser.ts` (`PromotionLanding`, `rollbackId`). tsc clean
+  on touched files; 375 TS tests pass. Docs updated:
+  `docs/harness/roadmap/phase-15-attachments-and-artifacts.md`; plus
+  `docs/CHANGELOG.md`.
+
+- **Self-edit hardening batch: the general advertised-but-dead guard, three dead
+  tools fixed, the terminal floor proven, and i18n.** (1) New
+  `python/tests/test_advertised_tool_admission_all.py` enumerates EVERY advertised
+  non-read tool across all agent allowlists + the chat code profile and asserts
+  each is admitted by the real chain with a permissive store — pinning only the
+  deliberately-deferred infra/cloud mutations. On first run it caught three real
+  bugs, now fixed: `code_rename_symbol` was mis-routed to the action authorizer
+  when a workspace was bound (`code/authorizers.py`); `image_generate` (paid
+  external) had no layer (new `vision/authorizers.py`, kind `vision_external`);
+  `learning_progress_update` had no layer (benign local-write admission). (2) New
+  `python/tests/test_terminal_floor.py` proves a `deny` command is refused before
+  any grant/approval — the hard floor below "always allow". (3) The `/eclipsesdk`
+  palette/badge strings are now i18n keys (`code.command.*`, wired via `useT`,
+  covered by `plain-language.test.ts`). (4) New program doc
+  `docs/harness/self-editing-harness-plan.md` + a NAVIGATION row. Tests added:
+  `test_advertised_tool_admission_all.py`, `test_terminal_floor.py`. Docs updated:
+  `docs/harness/self-editing-harness-plan.md`, `docs/NAVIGATION.md`,
+  `docs/harness/architecture.md`; plus `docs/CHANGELOG.md`.
+
+- **Self-hosting safety (Track B): a change to Eclipse's own live code is
+  health-gated.** New `python/harness/code/selfhost.py`. `classify_landing(paths)`
+  (pure) flags a `python/harness/**` change as needing a RUNTIME RESTART, a
+  `src/**` change as needing a BUILD gate, and a change to an AUTHORITY path
+  (`code/policy.py`, `code/authorizers.py`, `mcp/approvals.py`,
+  `skills/permissions.py`) as REFUSED (never hot-swapped — it could alter
+  Eclipse's own permissions). `guarded_land(preview, verify=, restart=, ...)`
+  orchestrates apply → (restart) → verify → rollback: a failed verify calls the
+  new `rollback_promotion` and refuses `SELFHOST_VERIFY_FAILED`. All side effects
+  are injected (the process restart is the one seam); the promote routes now
+  return a `landing` verdict. Tests: `python/tests/test_selfhost_landing.py`.
+  Docs updated: `docs/harness/architecture.md`; plus `docs/CHANGELOG.md`.
+
+- **Landing a change is now reversible: promotion rollback.** `apply_promotion`
+  (`python/harness/code/promotion.py`) captures the ORIGINAL contents of every
+  touched file under `.black-eclipse/promotions/<previewDigest>/` before it writes
+  and returns a `rollbackId`. New `rollback_promotion(rollback_id)` is the exact
+  inverse — a file the promotion CREATED is removed, an EDITED file restored, a
+  DELETED file recreated; a file changed after the promotion is refused
+  (`PROMOTION_BASE_CHANGED`), never clobbered; both versions survive (the backup
+  is kept). Reuses `code/patch.py` (confinement/protected-path/atomicity); a
+  failed apply discards its backup. Route:
+  `POST /code/promotions/{rollback_id}/rollback` (operator-gated). Tests:
+  `python/tests/test_code_promotion_rollback.py`. Docs updated:
+  `docs/harness/roadmap/phase-15-attachments-and-artifacts.md`; plus
+  `docs/CHANGELOG.md`.
+
+- **The extension layer: the agent can author its own skills (Track 4).** New
+  `python/harness/skills/manage_tools.py` — `skill_create` / `skill_update` /
+  `skill_delete`, Eclipse's `skill_manage` analogue. A skill is DECLARATIVE (a
+  validated manifest + bounded instructions), authored through the SAME
+  `SkillRegistry.create_user_skill`/`update_user_skill`/`delete_user_skill` a
+  person uses; `authoring.build_user_manifest` refuses any permission outside
+  `SAFE_PERMISSIONS` and editing makes a NEW version, so an agent-authored skill
+  can never widen its own authority. Gated by `make_skill_manage_authorizer`
+  (composed in `code/authorizers.py`): a single-use, digest-bound operator
+  approval per call (kinds `skill_create`/`skill_update`/`skill_delete`,
+  pause-in-card-mode included). The three names joined
+  `code.policy.ACQUISITION_WRITE_TOOLS` (removed at `plan_only`), the code agent +
+  chat profile, and are registered from `skills/install_tools.py` (kept off the
+  ratcheted `service.py`). Tests: `test_skill_manage_tools.py` (+ new admission
+  rows). Docs updated: `docs/harness/architecture.md`; plus `docs/CHANGELOG.md`.
+
+- **`/eclipsesdk` is a real composer command; the advertised-but-dead guard now
+  covers the whole portfolio family.** Follow-up to the portfolio fix. (1) The
+  chat composer (`src/components/chat/chat-input.tsx`) shows a slash-command
+  palette while a bare `/word` is typed (arrows navigate, Enter/Tab completes,
+  Escape clears) and an active-command badge once an instruction follows, driven
+  by `CHAT_COMMANDS` from `src/lib/harness/commands.ts` (client-safe). (2) The
+  synchronous path (`chatWithAgent`) now parses the command too, so
+  `/eclipsesdk` works on `/api/harness/chat` as well as the streaming path;
+  `StartRunOptions.command` carries the marker. (3) New
+  `python/tests/test_advertised_tool_admission.py` composes the REAL authorizer
+  chain with a permissive store and asserts every advertised mutation family
+  (execution/runtime, acquire, bot, git, skill/mcp install) and the ENTIRE
+  portfolio write+consequential set is admitted, while unknown and
+  deliberately-operator-only tools (k8s/helm/terraform/deploy) still fall through
+  — the regression guard for the `TOOL_FORBIDDEN`-while-advertised defect class.
+  Added classifier regression cases for "create an application within eclipse".
+  Tests: +34 admission, +42 vitest. Docs updated: `docs/harness/architecture.md`;
+  plus `docs/CHANGELOG.md`.
+
+- **Portfolio mutations are reachable again + Eclipse's first chat command
+  `/eclipsesdk`.** Two fixes. (1) `python/harness/portfolio/authorizers.py`
+  (`make_portfolio_authorizer`) is composed into the ONE effect chain
+  (`code/authorizers.py`), so every `portfolio_*` mutation is admitted and gated
+  by a single-use, digest-bound operator approval (kind `portfolio_write`) instead
+  of falling through to the MCP authorizer and returning `TOOL_FORBIDDEN` while
+  advertised — the same defect class `_admit_runtime_tools` fixed for the
+  execution family (measured before: `portfolio_create` refused). Admission is
+  conditional (grant / claim / request-then-pause), never a bypass. (2) A leading
+  `/command` in chat is parsed by the front door (`src/lib/harness/commands.ts`,
+  `parseChatCommand`): `/eclipsesdk` (alias `/esdk`, case-insensitive) forces the
+  chat code profile (`edit_verify`) + analysis sandbox and sends an additive
+  `RunRequest.command` marker (`schemas.py`), which the runtime never treats as
+  trivial (`graph_context.py`); the token is stripped before the run. Tests:
+  `python/tests/test_portfolio_authorizer.py` (+57), `test_run_command.py`,
+  `src/lib/harness/commands.test.ts`, `run-service.test.ts`. Docs updated:
+  `docs/harness/architecture.md` (authorizer chain + command),
+  `docs/portfolio-accounting.md`; plus `docs/CHANGELOG.md`.
+
+- **Chat: assistant replies now show how long the turn took.** Added a small
+  clock + duration badge on the LEFT of the hover action row (copy/regenerate/
+  feedback), right before the model badge. Turn time is measured client-side in
+  `stock-chat.tsx` / `chat-dock.tsx` (send → settled) and stored on the message as
+  optional `durationMs` (`types/chat.ts`); persisted with the transcript. New
+  `formatTurnDuration` helper. UI-only, additive message field — no doc change;
+  `docs/CHANGELOG.md` only.
+
+- **Customization: added a dedicated "Chat background" surface for the ChatBot
+  conversation.** The page backdrop painted the whole ChatBot page, but the
+  message/composer area had no separate color control. Added opt-in
+  `chatSurface*` prefs to `backgrounds.ts` (`chatSurfaceEnabled/Fill/Color/
+  Color2/Opacity` + `resolveChatSurfaceCss`), a `.chat-surface-layer` (globals.css)
+  painted behind the chat tab in `stock-chat.tsx`, and a `ChatBackgroundCard` in
+  Customization › ChatBot Page (flat/gradient, two colors, strength). Independent
+  of the page backdrop; off by default. docs updated:
+  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`; plus `docs/CHANGELOG.md`.
+
+- **Aurora styles reworked for a proper look (anti-aliased, intentional).** The
+  first pass overlaid a flat stencil on the ribbon (hard-edged `step` masks, an
+  over-bright scanline `mix(…,1.2)`), which read as a screen door. Refactored
+  the fragment shader around a shared `auroraField(uv)` + `fieldAlpha(f)` helper:
+  Dot matrix and Blocks now sample the field once per **cell centre** (real LED/
+  pixel grids, per-cell color), Pillars sample one field column per bar (true
+  equaliser), and Scanlines are thin bright CRT lines with dark gaps instead of
+  broad bands. Edges are smooth-stepped (no aliasing) and no style can exceed the
+  field brightness. Verified by rendering the real shader in headless Chromium
+  (Playwright) across all five styles. `src/components/ui/Aurora.tsx` only;
+  `docs/CHANGELOG.md` only.
+
+- **Aurora gained render styles: dot matrix, scanlines, pillars, blocks.** Added
+  a `style` slice (`AuroraStyleId` + `grid` px) to `AuroraConfig`, a `uStyle`/`uGrid`
+  uniform pair, and a style branch in the Aurora fragment shader. The sentiment
+  color field is identical across styles; the branch only reshapes how it is
+  drawn — `ribbon` (shipped), `dots` (LED dot matrix), `scanlines`, `pillars` and
+  `blocks`. `aurora-settings.tsx` gets a Style card (chips + a cell/line size
+  slider for non-ribbon modes); `Aurora.tsx` applies style per frame without
+  rebuilding the WebGL context; `aurora-glow.tsx` passes it through;
+  `AuroraConfig.style` is validated in `config.ts` and covered by
+  `src/lib/aurora/config.test.ts`. Docs updated: `docs/ARCHITECTURE.md`
+  (§ Aurora customization), `docs/NAVIGATION.md`.
+
+- **Flow block: proper heading.** The heading was offset because the "Full page"
+  button floated over the centered title (forced `pr-20`). The header is now a
+  `grid-cols-[1fr_auto_1fr]` row — heading truly centered in the middle column,
+  the button in its own right column — with the title as a centered `h3`
+  (`text-base font-semibold`, wrapping, divider below) above the description, so
+  it reads as a real section heading. UI-only. Docs: `docs/interactive-response-engine.md`.
+
+- **Flow block: full page is now a PROPER full page (portaled overlay).** The
+  overlay overlapped page elements because `position: fixed` was trapped inside a
+  transformed/filtered chat ancestor. The viewer is now portaled to
+  `document.body` (matching the app's `EventDossierOverlay`/`FullPageMap`
+  pattern): `fixed inset-0 z-[100]`, a `bg-black/70 backdrop-blur-md` backdrop
+  button, and a `h-[90vh] w-[94vw] max-w-6xl` card with a header bar — so it
+  cleanly covers the true viewport. Body scroll is locked while open. UI-only;
+  contract unchanged. Docs: `docs/interactive-response-engine.md` (flow entry).
+
+- **Flow block: full page is for the WHOLE FLOW, not the icons.** Replaced the
+  per-icon viewer with a visible **"Full page"** control on the block header that
+  opens the entire flow in a full-screen overlay — larger cards, centered, on a
+  frosted `backdrop-blur` over the page (the background behind it stays visible);
+  Escape / backdrop / Close dismiss. Icons are now plain white glyphs (no
+  click target, no badges). Kept the wider `max-w-3xl` layout and the proper
+  centered heading. UI-only; contract unchanged. Docs:
+  `docs/interactive-response-engine.md` (flow entry).
+
+- **Flow block follow-up: wider, a visible expand affordance, and a proper
+  heading.** Widened to `max-w-3xl` with more padding/step spacing (less
+  cramped); each step icon now shows a persistent corner **expand badge**
+  (`Maximize2`) so the full-screen icon view is discoverable rather than a hidden
+  icon click; the block heading is a centered `h3` (`text-[15px] font-semibold`)
+  with a divider and its description below. UI-only; contract unchanged. Docs:
+  `docs/interactive-response-engine.md` (flow entry).
+
+- **Flow block: centered + width-capped, white icons, and a full-screen icon
+  viewer.** `flow-block.tsx` no longer renders full-bleed — the card is
+  `mx-auto max-w-2xl` with its steps centered (`justify-center`, no stretching
+  step cards) and each card's content centered. Semantic icons now render WHITE
+  and uncoloured: the tone/status tint is removed from the glyph and its ring
+  (status stays readable as the small dot/check beside the label). Clicking any
+  step/path icon opens a full-screen frosted viewer (glass-card-strong) showing
+  that icon large, with Escape / backdrop / Close to dismiss. UI-only; block
+  contract unchanged. Docs: `docs/interactive-response-engine.md` (flow entry).
+
+- **Settings › Aurora gained motion & shape controls.** The glow was only
+  recolorable; the amplitude/speed/blend/noise-scale knobs were hardcoded in the
+  shader. Introduced `src/lib/aurora/config.ts` (`AuroraConfig` = existing palette
+  + `motion` intensity/speed/response + `shape` height/softness/noiseScale, with
+  slider bounds, normalization and a v1-palette → v2-config migration under
+  `be_aurora_config_v2`). The store now holds the three slices and persists one
+  config; `Aurora.tsx` accepts `intensityScale`/`speedScale`/`softnessScale`/
+  `noiseScale` props (multipliers on top of `resolveAuroraVisuals`, plus a new
+  `uNoiseScale` uniform) so the sentiment→color model is untouched;
+  `aurora-glow.tsx` applies the user height + scales, and `aurora-settings.tsx`
+  renders a Motion & Shape card. Tests: `src/lib/aurora/config.test.ts`. Docs
+  updated: `docs/ARCHITECTURE.md` (§ Aurora customization), `docs/NAVIGATION.md`.
+
+- **Chat: prompt bubbles gained hover actions — Copy, Redirect, Edit.** The user
+  message only had "Edit". Added a hover-revealed action row with a Copy icon and
+  a "Redirect" (re-send the prompt) option. New optional `onResendMessage` prop on
+  `ChatHistory`, wired in `stock-chat.tsx` (re-runs the prompt via the edit path)
+  and `chat-dock.tsx` (truncates and refills the composer). `chat-history.tsx`,
+  `stock-chat.tsx`, `chat-dock.tsx`. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Chat: activity steps are expanded by default.** `ActivityFeed` started
+  collapsed and auto-collapsed when the run finished. It now defaults to open
+  and stays open (auto-expand while working, but no auto-collapse); the header
+  toggle still lets the user collapse it. `activity-feed.tsx` only. UI-only; no
+  doc change — `docs/CHANGELOG.md` only.
+
+- **Chat: activity steps are now unboxed (Hermes-style).** The `ActivityFeed`
+  wrapped the tool/retrieval steps in a rounded, bordered, tinted card
+  (`rounded-xl border border-border/40 bg-accent/[0.12]`) with an inner divider.
+  Removed the surface, border and divider so the steps read as plain lines; kept
+  the collapsed summary + expand toggle and behavior. `activity-feed.tsx` only.
+  UI-only; no doc change — `docs/CHANGELOG.md` only.
+
+- **Chat: opening the app now resumes the most recently active chat.** On load
+  (and after deleting the active chat) it used `parsed[0]`/`updated[0]` — the
+  first stored row, not the latest. Added `mostRecentConversation()` (by
+  last-activity stamp, active scope only) to `chat-organization.ts` and used it
+  in `stock-chat.tsx`. Covered by new unit tests. Internal behavior change, no
+  data-shape/architecture change — no doc change; `docs/CHANGELOG.md` only.
+
+- **Chat: model badge now hover-revealed on the right, like the other actions.**
+  Rather than always-visible, the "answered by <model>" badge shares the
+  copy/regenerate/feedback row's hover-reveal and sits flush right (`w-full`
+  row + `ml-auto`), so it appears only on hover. `chat-history.tsx` only.
+  UI-only; no doc change — `docs/CHANGELOG.md` only.
+
+- **Chat: moved the model badge next to the response actions.** The
+  "answered by <model>" line used to sit above the output. It now shares the
+  copy / regenerate / feedback row, right-aligned (`ml-auto`), while the action
+  buttons stay hover-revealed. `chat-history.tsx` only. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Chat: removed the prompt-bubble border (real cause).** The earlier `border`
+  removal had no effect because `globals.css` forces `border: 2px solid` +
+  `border-radius: 24px` on **every** `.bg-card` element with `!important`. The
+  bubble used `bg-card`, so it kept the outline. Swapped it to
+  `bg-[var(--card)]` (same surface, escapes the global rule), so the bubble is
+  now border-free with its own tighter radius. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Response engine, Phase 5/6 — de-duplicated the block vocabulary + parity &
+  render-matrix CI.** Removed the last hand-copied block vocabularies so they can
+  no longer drift from `src/lib/response/contract.ts`:
+  (1) the static system prompt no longer enumerates block types — it points at the
+  generated `eclipse-response block schema` digest, and that digest now emits the
+  block-type menu GENERATED from the live contract (`response_tools.py`);
+  (2) the stale `_CHART_TYPES` in `python/harness/evaluation/tools.py` (it carried
+  `donut` and omitted `stacked_bar`/`grouped_bar`) is deleted — the offline smoke
+  check now asserts only structure and defers every field name/enum to the TS
+  contract. New CI guard `src/lib/response/contract-matrix.test.tsx`: it asserts
+  the contract's block types, the renderer registry (`REGISTERED_BLOCK_TYPES`,
+  newly exported) and a canonical sample per type are the SAME set, and renders
+  EVERY block type from its canonical payload with no repair/degrade/error — a new
+  block type cannot ship unrendered and a renamed field cannot silently break a
+  figure. Docs updated: `docs/interactive-response-engine.md`.
+
+- **Response engine, Phase 4 — the telemetry loop: the drift rate is now
+  measurable.** The runtime measures each run's FINAL structured answer through
+  the SAME render chokepoint the client uses and records the outcome. New bridge
+  op `response_contract` `"finalize"` (`response-bridge.ts`) runs
+  `finalizeFenceSource` and returns the render result (block count + repaired/
+  degraded counts and block types). New `emit_response_telemetry`
+  (`python/harness/response_tools.py`) is called once per run at the answer seam
+  (`graph.execute_run`, beside `run.completed`); it emits the new observability
+  hook `onResponseBlocks` (`observability/events.py`, `core.py`) which records
+  `eclipse_response_blocks_total{outcome,type}`. A recurring `type` label is the
+  closed-loop signal to add a normalization/repair rule. Best-effort and
+  read-only: a bridge miss or a prose answer is a no-op and never breaks a run.
+  Tests: `response-bridge.test.ts` (finalize op), `test_response_tools.py`
+  (telemetry hook + metric). Docs updated: `docs/interactive-response-engine.md`,
+  `docs/harness/observability.md`.
+
+- **Response engine, Phase 3 — every producer route passes the chokepoint.**
+  Audit found bots (`bot-chat.tsx`), group chat (`group-chat-room.tsx`) and the
+  workspace document viewer (`agent-workspace/viewer.tsx`) already render through
+  the same `Markdown` → `ResponseFence` path, so they inherit the guarantee with
+  no change; two gaps were closed. (1) The deterministic planner
+  (`planner.ts` `planMarkdown`) hand-builds blocks — it now re-validates them
+  through `finalizeResponse`, so a future contract change can neither drop nor
+  error a planner block. (2) Export (`export.ts` `responseToJson`/`responseToPdf`)
+  now runs `finalizeParsed` defensively, so a downloaded JSON/PDF or a saved
+  artifact can never contain an `unknown` block or an error diagnostic regardless
+  of caller. New tests pin both (`export.test.ts`, `planner.test.ts`). Docs
+  updated: `docs/interactive-response-engine.md`.
+
+- **Response engine, Phase 2 — schema-driven repair: drifted blocks render as
+  their intended visual, not degraded text.** Two new modules in
+  `src/lib/response/`: `schema-meta.ts` introspects `ResponseBlockSchema` live into
+  per-block metadata (required fields, kinds, enum values, array-item shapes), and
+  `repair.ts` uses it to make ONE deterministic repair attempt per rejected block —
+  generically, not per special case: a missing required field is rescued from a
+  same-kind non-schema sibling (`title`→`name`, `datasets`→`series`,
+  `headline`→`title`), an off enum value is aliased or nearest-matched
+  (`bars`→`bar`, `vertical`→`TB`), a single value is wrapped into a required
+  array, an object/array mismatch is unwrapped, and coercible scalars
+  (`"true"`, `"12.4"`) are coerced. `finalize.ts` now runs repair before its
+  Phase-1 degrade backstop and records the outcome (`BLOCK_REPAIRED` vs
+  `BLOCK_DEGRADED`) on the telemetry seam. Because `schema-meta.ts` is derived
+  from the contract, repair tracks the schema with no copy. New
+  `repair.test.ts` pins enum nearest-match, sibling rescue, array wrap, scalar
+  coercion, and repair-before-degrade end-to-end. Docs updated:
+  `docs/interactive-response-engine.md`, `docs/NAVIGATION.md`.
+
+- **Response engine, Phase 1 — the render guarantee: a rejected block can no
+  longer appear as an error, ever.** New chokepoint `src/lib/response/finalize.ts`
+  (`finalizeResponse`/`finalizeParsed`/`finalizeFenceSource`) is now the single
+  path to the renderer: it degrades every block the contract rejected to a
+  `markdown` block carrying the block's REAL content (prose/title, else a JSON
+  code fence) and downgrades every error diagnostic, so the renderer is a total
+  function from any input to a proper render. `ResponseView` finalizes on render;
+  `ResponseFence` degrades malformed settled JSON to a code fence instead of the
+  red "could not be parsed" card; the per-block "Unsupported block type" card and
+  the amber diagnostics panel are retired as user-visible states. Failures are
+  retained on `response.diagnostics` and emitted through a degrade-telemetry seam
+  (`setResponseDegradeReporter`) so the rate can be measured and driven to zero.
+  This supersedes ADR-043's "unknown/malformed blocks become diagnostics" display
+  behaviour (the fenced-block + registry decision itself is unchanged). New
+  `finalize.test.ts` pins the invariant over an adversarial corpus; `render.test.tsx`
+  updated at the three former error surfaces. Docs updated:
+  `docs/interactive-response-engine.md`, `docs/NAVIGATION.md`.
+
+- **Chat: slimmed the user-message bubble and dropped its border.** The prompt
+  bubble (`chat-history.tsx`) had a `border border-border` outline and generous
+  padding. Removed the border (the `bg-card` fill defines it now) and tightened
+  padding/type/radius (`px-3.5 py-2`, `text-[13px]`; compact `px-2.5 py-1.5`), so
+  it reads lighter instead of like a large box. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Chat history: fixed the dropdown position.** The sort/filter popup used
+  base-ui's `alignItemWithTrigger`, which jumped upward to overlay the selected
+  option on the trigger. `HistorySelect` now opens as a normal dropdown directly
+  below, right-aligned (`align="end"`, `alignItemWithTrigger={false}`), so it no
+  longer covers the list awkwardly. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Document Authoring: Eclipse can now CREATE Word/Excel/PowerPoint documents.**
+  New write-side subsystem `python/harness/documents/` + the `document_create`
+  agent tool. It builds REAL `.docx` / `.xlsx` / `.pptx` files (and Markdown / CSV /
+  JSON / `.txt`) from a neutral vocabulary (`blocks`/`sheets`/`slides`/`rows`) using
+  `python-docx` / `openpyxl` / `python-pptx` (imported lazily per format, so a
+  partial install reports an honest `DOCUMENT_LIBRARY_MISSING`), then registers the
+  bytes through the ONE `ArtifactService` for preview/download (no arbitrary path,
+  no macro). `document_create` joins `DOCUMENT_TOOLS` in `agents.py` (previously the
+  runtime could only READ these formats). Also added the TS tool label. Native PDF
+  is NOT added (chat responses already export to PDF client-side). Tests:
+  `python/tests/test_documents_authoring.py` (9). docs updated:
+  `docs/harness/document-intelligence.md` (Authoring section),
+  `docs/harness/artifact-center.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H195); `test_size_budget.py` `service.py` pin
+  ratcheted 1471→1479 for the boot wiring.
+
+- **Chat history: widened the sort/filter dropdown.** It was sized to the tiny
+  trigger (`w-(--anchor-width)`), so options looked cramped. `HistorySelect`'s
+  popup is now a fixed `w-44` / `min-w-[176px]`. UI-only; no doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Chat history: decluttered the controls row.** The group-by toggle was two
+  text buttons competing with the tag + sort selects in the narrow sidebar. It
+  is now an icon-only segmented control (Clock / Folder, with tooltips +
+  `aria-pressed`), and the tag/sort selects are grouped to the right, so the row
+  no longer reads as cramped. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
+- **Chat history: replaced the native sort/filter `<select>`s with the shared
+  frosted `Select`.** The `Recent` (and tag-filter) dropdown rendered the OS
+  popup, which can't adopt the glass design language. Both now use
+  `components/ui/select` (frosted `.glass-tooltip` popup) via a small local
+  `HistorySelect`; tag filter uses an `__all__` sentinel. UI-only; no doc change
+  — `docs/CHANGELOG.md` only.
+
+- **Response engine: killed the recurring producer schema drift (chart/flow/
+  citations vanishing as diagnostics).** Three faults were gaps in the
+  consumer-side normalizer, not the renderer: `chart` accepted `labels`→
+  `categories` but not Chart.js `datasets`→`series`; `citations` accepted
+  `name`→`title` but not `label`→`title`; and `tone` was never normalized, so a
+  semantic value (`trend-up`, `positive`) — correct for `icon`, invalid for
+  `tone` — hard-failed the block because `tone`'s schema default is defeated by a
+  PRESENT-but-invalid value. `normalize.ts` now aliases `datasets`→`series`,
+  `label`→`title`, and rewrites every `tone` (including nested steps/paths/nodes/
+  edges) to the status enum or drops it so the default applies. Root cause also
+  attacked at the source: each run that may emit structured blocks now gets a
+  live schema digest (exact field names + enum values, generated from the TS
+  contract over the bridge) appended to its system prompt via
+  `response_schema_prompt_block` composed in `graph.execute_run`, so the model no
+  longer has to remember to call `response_block_schema` and cannot guess a
+  drifted field. Regression tests pin the exact drifted payloads
+  (`contract-blocks.test.ts`, `test_response_tools.py`). Docs updated:
+  `docs/interactive-response-engine.md`.
+
+- **Chat history: added a Date / Folders "Group by" toggle; date is now the
+  default.** The sidebar chat list (`chat-history-panel.tsx`) previously grouped
+  only by folder. Added `ChatGroupMode` + `groupConversationsByDate` /
+  `dateBucket` to `chat-organization.ts`, bucketing by last-activity whole
+  calendar day (today, yesterday, last week, last month, older); pinned stays a
+  separate section. The choice persists in `localStorage`
+  (`chat_group_by_v1`). New `sidebar.groupBy|groupDate|groupFolders|date*` i18n
+  keys. Behavior/UI change, view contract extended additively (`bucket?` on
+  `ChatHistoryGroup`) — no architecture/data-shape doc change —
+  `docs/CHANGELOG.md` only.
+
+- **Chat: removed the assistant avatar (sparkles) bubble from messages.** The
+  `w-8 h-8` primary-tinted Sparkles badge above every non-compact assistant reply
+  in `chat-history.tsx` is gone, decluttering the transcript; the now-unused
+  `Sparkles` import was dropped. Layout-only change; no doc change —
+  `docs/CHANGELOG.md` only.
+
 - **Chat: computed-result and research-provenance panels now share a 50/50 row.**
   `ComputedResultPanel` ("This number has no record…") and
   `ResearchEvidencePanel` ("Sources consulted") were stacked full-width because
@@ -15,6 +507,60 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Wrapped both in a `flex md:flex-row` row so each child is `md:w-1/2`, stacking
   on mobile; zeroed the panels' own top margins via `[&>div]:mt-0` so they align.
   Layout-only change; no doc change — `docs/CHANGELOG.md` only.
+
+- **Fix: charts (and the whole client bundle) failed to render — repaired a
+  non-UTF-8 source file.** `src/lib/journal/analytics/advanced.ts` contained stray
+  Windows-1252 bytes (e.g. `0x97` for an em-dash) that are invalid UTF-8, so
+  Next/SWC refused to build the module (`stream did not contain valid UTF-8`) and
+  every route returned HTTP 500 — no client JS loaded, so response charts, which
+  render client-side, showed nothing. Re-encoded the invalid bytes to their
+  intended UTF-8 characters (no content loss; 0 replacement chars), verified the
+  file is now valid UTF-8 and `/login` returns 200. A repo-wide scan found this as
+  the only invalid-UTF-8 source file. no doc change — encoding repair of an
+  untracked file; `docs/CHANGELOG.md` only.
+
+- **Fix build: repaired invalid UTF-8 in `src/lib/journal/analytics/advanced.ts`.**
+  Three lone Windows-1252 bytes (`0x97`, `0xD7`) made Webpack fail with "stream
+  did not contain valid UTF-8". Replaced them with their proper UTF-8 equivalents
+  (em dash `U+2014`, multiplication sign `U+00D7`); file now decodes cleanly.
+
+- **Interactive response: new dependency-free `flow` block + route flows off
+  Mermaid.** Added a branching HTML/CSS process block (`flow`: ordered `steps` as
+  frosted cards joined by CSS connectors, each step optionally branching into
+  parallel `paths` as smaller cards; `direction` `LR`/`TB`) — distinct from
+  `workflow` (strictly linear) and `diagram`/`node_graph` (SVG graphs). Wired
+  through `contract.ts` (schema + limits + union + types), a new
+  `flow-block.tsx`, the `response-view.tsx` registry, and `normalize.ts`
+  (`process_flow`/`pipeline`→`flow`, `process`→`workflow`, `flow_graph`→`diagram`;
+  `stages`→`steps`, `branches`/`options`→`paths`, bare-string step coercion, nested
+  icon canonicalization). The agent prompt (`prompts.py`) now reserves `mermaid`
+  for sequence/ER/class/gantt and directs flow/flowchart answers to the native
+  `diagram`/`flow`/`workflow` blocks, so the heavy `mermaid` bundle stays unloaded
+  for ordinary process answers (prompt held at/under its ceiling). Tests:
+  `contract-blocks.test.ts` + `render.test.tsx`; `npx tsc --noEmit` clean; TS suite
+  2874 passing. docs updated: `docs/interactive-response-engine.md` (block
+  catalogue, aliases/field/icon notes, Mermaid routing, BLOCK-010),
+  `docs/CHANGELOG.md`.
+
+- **Trading Journal: closed the biggest feature gaps (fees, accounts, filtering,
+  export, depth analytics, journaling).** Additive schema work on `Trade`
+  (`commission`, `fee`, `grossPnl`, `grade`, `checklist`) and `TradingAccount`
+  (`broker`, `archived`); `pnl` is now NET (gross − commission − fee) via
+  `computeTradeMath`. New APIs: `GET|POST /api/journal/accounts`,
+  `PATCH|DELETE /api/journal/accounts/[id]`, `GET|PATCH /api/journal/profile`,
+  `GET /api/journal/trades/[id]/executions`, `GET|POST /api/journal/entries`,
+  `PATCH|DELETE /api/journal/entries/[id]`, `GET /api/journal/export` (CSV).
+  UI: advanced Trades filters + column sort + pagination + CSV/PDF export;
+  Journal **Settings** dialog (profile + trading-account CRUD); currency equity
+  toggle on Overview; depth charts (monthly returns, rolling win-rate, MAE/MFE
+  scatter, confidence scatter, holding-time buckets); free-form **Notebook** tab;
+  per-trade grade + pre-trade checklist + inline tags in the trade form;
+  execution-history panel in trade detail. The profile's
+  `accountSize × riskPerTrade` now drives currency equity and the discipline risk
+  rule. Tests: journal suite 50 passing; `npx tsc --noEmit` clean. Deferred
+  (still open): true open-position/unrealized-P&L (needs nullable exit),
+  partial-exit entry, live broker sync, watchlist/alerts. docs updated:
+  `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 
 - **Bots now keep PRIVATE per-conversation long-term memory.** A bot chat and
   each group-room member turn own a durable-memory bucket keyed by the
