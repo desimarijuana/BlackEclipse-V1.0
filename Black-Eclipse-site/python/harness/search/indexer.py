@@ -95,6 +95,11 @@ async def index_document(
         result.state = same_state or IndexState.INDEXED.value
         result.unchanged = True
         result.chunks = int(existing_same.get("chunkCount") or 0)
+        # Honest vector accounting: an unchanged keyword-only (STALE) document
+        # still has NO vectors. Reporting 0 missing here is what let a
+        # 54-chunk / 0-vector index masquerade as fully indexed.
+        if same_state == IndexState.STALE.value:
+            result.missing_vectors = result.chunks
         return result
 
     # Dedup: identical content already indexed under a different id ⇒ do not

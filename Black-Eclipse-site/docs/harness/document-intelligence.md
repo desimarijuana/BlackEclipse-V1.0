@@ -1,7 +1,7 @@
 ---
 title: Document Intelligence Subsystem
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-14
 ---
 
 # Document Intelligence Subsystem
@@ -70,8 +70,28 @@ as data), `Block`, `Table`/`TableCell`, `DocumentImage`, `Section`, `BBox`,
 | `archive` | zip, tar, gz, 7z | **lazy inspection only**; bomb guards before any extraction |
 
 OOXML/ODF are read with the stdlib (`zipfile` + `ElementTree`), with a bounded
-`lxml` recovery parser for a malformed part. No `openpyxl` / `python-docx` /
-`python-pptx` dependency is added.
+`lxml` recovery parser for a malformed part. The READ path adds no `openpyxl` /
+`python-docx` / `python-pptx` dependency. (The WRITE path — see *Authoring* below —
+is a separate subsystem and does use those three writers.)
+
+## Authoring (the write side)
+
+Document Intelligence only READS. Producing new documents is a separate, small
+subsystem: **Document Authoring** (`python/harness/documents/`, tool
+`document_create`, ADR-H192). It builds REAL Word (`.docx`), Excel (`.xlsx`) and
+PowerPoint (`.pptx`) files — plus Markdown, CSV, JSON and `.txt` — from a neutral
+content vocabulary (`blocks` for docx/markdown/txt, `sheets` for xlsx, `slides`
+for pptx, `rows` for csv/json) and records the bytes in the **Artifact Center**
+(`artifacts/`, ADR-H160) for preview and download.
+
+- Writers are `python-docx`, `openpyxl`, `python-pptx` (pure-Python OOXML; see
+  `python/requirements.txt`). They are imported lazily, so a partial install makes
+  ONE format report `DOCUMENT_LIBRARY_MISSING` instead of emitting a broken file.
+- It writes no arbitrary filesystem path and runs no macro: bytes go straight into
+  the confined artifact store through the ONE `ArtifactService`; a missing store
+  reports `ARTIFACT_UNAVAILABLE`.
+- It is the answer to "Word/Excel/PowerPoint cannot be created" — the read path
+  stays stdlib-only.
 
 ## Reuse (no forks)
 

@@ -1,25 +1,22 @@
-// ─── Chat slash commands (Eclipse's first command) ────────────────────────────
-// A leading `/` in a chat message may name a COMMAND. A command is a
-// deterministic, user-invoked switch that forces a run profile — the opposite of
-// the fuzzy classifier in `chat-capability.ts`, which infers intent from prose.
-// The front door parses the command here, strips it, and sends the remainder as
-// the run's instruction together with the forced profile.
+// ─── Chat slash commands (profile switches) ──────────────────────────────────
+// A leading `/` in a chat message may name a COMMAND. Most commands are routed
+// through the shared command executor (`command-router.ts`); a small class of
+// PROFILE commands (e.g. `/eclipsesdk`) instead force a deterministic run
+// profile — the opposite of the fuzzy classifier in `chat-capability.ts`, which
+// infers intent from prose. This module parses the profile-command subset, strips
+// it, and names the forced profile; the runtime still enforces the actual grant
+// (`code.policy.allowed_tools`), so a command can never widen authority.
 //
-// This module owns NO agentic logic: it parses a token and names a profile. The
-// runtime still enforces the actual grant (`code.policy.allowed_tools`), so a
-// command can never widen authority — it only selects the code path explicitly.
+// The canonical catalog lives in `command-registry.ts`; this module derives its
+// profile command list from it so the two can never disagree.
 //
 // The composer's `/` (command palette) is distinct from the global `/` search
 // shortcut, which is bound only when the composer is NOT focused.
 
 import type { TranslationKey } from "@/lib/i18n/types";
+import { COMMAND_REGISTRY, type ChatCommandProfile, type CommandSpec } from "./command-registry";
 
-export interface ChatCommandProfile {
-  /** The autonomy profile this command forces for the turn. */
-  autonomy: "plan_only" | "edit_verify";
-  /** Whether the analysis sandbox is enabled for the turn. */
-  analysisEnabled: boolean;
-}
+export type { ChatCommandProfile } from "./command-registry";
 
 export interface ChatCommand {
   /** Canonical name, no leading slash, lowercase. */
@@ -34,22 +31,31 @@ export interface ChatCommand {
   profile: ChatCommandProfile;
 }
 
-/**
- * `/eclipsesdk` — build or change something inside Eclipse.
- *
- * Forces the chat code profile (`edit_verify`: read + write + execute, no
- * external action) and the analysis sandbox, so a self-edit request is served by
- * the code capability instead of the finance surface. Case-insensitive.
- */
-export const ECLIPSESDK_COMMAND: ChatCommand = {
-  name: "eclipsesdk",
-  aliases: ["esdk"],
-  summaryKey: "code.command.eclipsesdk",
-  summary: "Build or change something inside Eclipse.",
-  profile: { autonomy: "edit_verify", analysisEnabled: true },
-};
+/** Project a registry spec that carries a forced profile into a `ChatCommand`. */
+function toChatCommand(spec: CommandSpec): ChatCommand {
+  return {
+    name: spec.name,
+    aliases: spec.aliases,
+    summaryKey: spec.summaryKey ?? ("code.command.eclipsesdk" as TranslationKey),
+    summary: spec.summary,
+    profile: spec.profile as ChatCommandProfile,
+  };
+}
 
-export const CHAT_COMMANDS: readonly ChatCommand[] = [ECLIPSESDK_COMMAND];
+function isProfileSpec(spec: CommandSpec): boolean {
+  return spec.handler.type === "profile" && !!spec.profile;
+}
+
+const PROFILE_SPECS = COMMAND_REGISTRY.filter(isProfileSpec);
+
+/** `/eclipsesdk` — build or change something inside Eclipse. */
+export const ECLIPSESDK_COMMAND: ChatCommand =
+  toChatCommand(PROFILE_SPECS.find((s) => s.name === "eclipsesdk")!);
+
+export const CHAT_COMMANDS: readonly ChatCommand[] = [
+  ECLIPSESDK_COMMAND,
+  ...PROFILE_SPECS.filter((s) => s.name !== "eclipsesdk").map(toChatCommand),
+];
 
 /** The instruction sent when a command carries no text after it. */
 export const COMMAND_EMPTY_INSTRUCTION =
@@ -64,11 +70,10 @@ export interface ParsedChatCommand {
 }
 
 /**
- * Parse a leading `/command` from a chat message.
- *
- * Returns null for ordinary text, for an unknown `/token`, and for a value that
- * only looks like a slash command (a path such as `/usr/bin` — the token must be
- * followed by whitespace or end-of-message). Never throws.
+ * Parse a leading `/command` from a chat message — but ONLY when it is a profile
+ * command. Returns null for ordinary text, for an unknown `/token`, for a
+ * non-profile command (those are routed by the command executor), and for a value
+ * that only looks like a slash command (a path such as `/usr/bin`). Never throws.
  */
 export function parseChatCommand(text: string | null | undefined): ParsedChatCommand | null {
   const match = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)(?:\s+([\s\S]*))?$/.exec(text ?? "");
@@ -80,7 +85,7 @@ export function parseChatCommand(text: string | null | undefined): ParsedChatCom
   return { command, instruction, query: instruction || COMMAND_EMPTY_INSTRUCTION };
 }
 
-/** Look up a command by its (case-insensitive) name or alias, or undefined. */
+/** Look up a profile command by its (case-insensitive) name or alias, or undefined. */
 export function findChatCommand(name: string): ChatCommand | undefined {
   const token = (name ?? "").replace(/^\//, "").toLowerCase();
   return CHAT_COMMANDS.find((c) => c.name === token || c.aliases.includes(token));

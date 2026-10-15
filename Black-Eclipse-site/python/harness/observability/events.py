@@ -35,6 +35,7 @@ HOOKS: frozenset[str] = frozenset({
     "onSkillLoaded", "onSkillExecuted",
     "onResearchStart", "onResearchEnd",
     "onEvidenceRetrieved", "onEvidenceValidated",
+    "onResponseBlocks",
     "onRecoveryStart", "onRecoveryEnd",
     "onApproval", "onSecurityEvent",
     "onAnomaly", "onSLOViolation", "onLoopDetected",

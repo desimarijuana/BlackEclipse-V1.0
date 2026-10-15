@@ -749,7 +749,21 @@ class SearchIndexStore:
 
     # ── Observability ───────────────────────────────────────────────────────
 
+    # Columns that already have a dedicated field; anything else in the event
+    # payload is folded into `detail` so a failure's `count`/`error` is not lost.
+    _EVENT_COLUMNS = frozenset({
+        "queryId", "runId", "agentId", "workspaceId", "namespace", "mode",
+        "latencyMs", "candidates", "results", "deduped", "cacheHit",
+        "provider", "model", "detail",
+    })
+
     def record_event(self, kind: str, data: dict[str, Any]) -> None:
+        detail = data.get("detail")
+        if detail is None:
+            # A producer that passed `{"count": …, "error": …}` (e.g. the
+            # embedder batcher) has no `detail` key; keep those fields so the
+            # reason a search degraded is not discarded.
+            detail = {k: v for k, v in data.items() if k not in self._EVENT_COLUMNS}
         with self._write_lock, self._db:
             self._db.execute(
                 "INSERT INTO SearchEvent (kind, queryId, runId, agentId, workspaceId, namespace, mode, latencyMs, "
@@ -760,7 +774,7 @@ class SearchIndexStore:
                     data.get("namespace"), data.get("mode"), data.get("latencyMs"), data.get("candidates"),
                     data.get("results"), data.get("deduped"),
                     1 if data.get("cacheHit") else 0, data.get("provider"), data.get("model"),
-                    _json(data.get("detail") or {}), now_iso(),
+                    _json(detail or {}), now_iso(),
                 ),
             )
 

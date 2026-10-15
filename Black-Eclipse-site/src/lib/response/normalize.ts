@@ -33,6 +33,14 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
   ranking: 'ranked_list',
   badges: 'badge_row',
   slides: 'carousel',
+  // Flow vocabulary. A producer reaching for the plain word "process" means the
+  // ordered icon-stage block; "pipeline"/"process_flow" mean the branching card
+  // flow; a raw "flow_graph" is a node/edge graph. Routing them to a NATIVE block
+  // keeps flows off Mermaid (which is reserved for sequence/ER/class/gantt).
+  process: 'workflow',
+  process_flow: 'flow',
+  pipeline: 'flow',
+  flow_graph: 'diagram',
 };
 
 /**
@@ -44,6 +52,29 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
  */
 const PROSE_FIELD_TYPES = new Set(['markdown', 'callout', 'details']);
 const CALLOUT_TONES = new Set(['info', 'note', 'success', 'warning', 'danger']);
+
+// The renderer's `tone` is a five-value STATUS enum on every tone-bearing block
+// EXCEPT `callout` (which also permits `note`). A producer that correctly uses
+// the semantic vocabulary for `icon` (`trend-up`, `positive`, `bearish`, …)
+// reaches for the same words for `tone` — but they are invalid there, and because
+// `tone` carries a schema default, a PRESENT-but-invalid value DEFEATS that
+// default and hard-fails the whole block (the exact bug that dropped the gold
+// `flow`). Map the known semantic synonyms onto the status enum, and DROP an
+// unrecognized value so the schema default applies: a wrong tone costs the
+// accent colour, never the block.
+const STATUS_TONES = new Set(['neutral', 'info', 'success', 'warning', 'danger']);
+const TONE_ALIASES: Record<string, string> = {
+  positive: 'success', good: 'success', up: 'success', rise: 'success', rising: 'success',
+  'trend-up': 'success', bullish: 'success', gain: 'success', gains: 'success', green: 'success',
+  ok: 'success', done: 'success', complete: 'success', completed: 'success', valid: 'success',
+  confirmed: 'success', active: 'success',
+  negative: 'danger', bad: 'danger', down: 'danger', fall: 'danger', falling: 'danger',
+  'trend-down': 'danger', bearish: 'danger', loss: 'danger', losses: 'danger', red: 'danger',
+  error: 'danger', critical: 'danger', fail: 'danger', failed: 'danger',
+  warn: 'warning', caution: 'warning', alert: 'warning', risk: 'warning',
+  information: 'info', normal: 'neutral', flat: 'neutral', side: 'neutral',
+  'trend-flat': 'neutral', pending: 'neutral',
+};
 
 // Non-ambiguous interval synonyms (lower-cased). A model often writes `1Y` for a
 // yearly view or `90d` for a three-month window, neither of which the
@@ -77,13 +108,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** `items`/`sources` entries may spell the label `name`; the contract wants `title`. */
+/** The status enum value for a producer `tone`, or `undefined` to drop it. */
+function normalizeToneValue(raw: unknown, callout: boolean): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const lower = raw.trim().toLowerCase();
+  if (!lower) return undefined;
+  const allowed = callout ? CALLOUT_TONES : STATUS_TONES;
+  if (allowed.has(lower)) return lower;
+  const mapped = TONE_ALIASES[lower];
+  return mapped && allowed.has(mapped) ? mapped : undefined;
+}
+
+/**
+ * Rewrite every `tone` in a block to the status enum (or drop it, letting the
+ * schema default apply). Recurses into nested arrays/objects so `steps[].tone`,
+ * `paths[].tone`, `nodes[].tone`, `edges[].tone` are all covered; a nested object
+ * carrying its own `type` selects its own vocabulary (so a `callout` inside a
+ * `tabs` tab keeps its `note` tone).
+ */
+function normalizeTonesDeep(node: unknown, callout: boolean): unknown {
+  if (Array.isArray(node)) return node.map((n) => normalizeTonesDeep(n, callout));
+  if (!isRecord(node)) return node;
+  const scoped = typeof node.type === 'string' ? node.type === 'callout' : callout;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'tone') {
+      const tone = normalizeToneValue(value, scoped);
+      if (tone !== undefined) out[key] = tone;
+      continue;
+    }
+    out[key] = normalizeTonesDeep(value, scoped);
+  }
+  return out;
+}
+
+/** `sources` entries may spell the label `name` or `label`; the contract wants `title`. */
 function normalizeCitationSources(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
   return value.map((item) => {
     if (!isRecord(item)) return item;
-    if (item.title === undefined && typeof item.name === 'string') return { ...item, title: item.name };
-    return item;
+    if (item.title !== undefined) return item;
+    const title = item.name ?? item.label;
+    return typeof title === 'string' ? { ...item, title } : item;
   });
 }
 
@@ -257,6 +323,9 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
       if (typeof ct === 'string') out.chartType = ct;
     }
     if (out.categories === undefined && out.labels !== undefined) out.categories = out.labels;
+    // Chart.js-style producers spell the series array `datasets`; the contract
+    // wants `series`. Without this the block fails with "series: expected array".
+    if (out.series === undefined && Array.isArray(out.datasets)) out.series = out.datasets;
     if (Array.isArray(out.series)) {
       out.series = out.series.map((s) => {
         if (!isRecord(s)) return s;
@@ -312,6 +381,32 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
   if (type === 'workflow' && out.stages === undefined && Array.isArray(out.steps)) {
     // The natural word for a workflow's stages is `steps`; accept it.
     out.stages = out.steps;
+  }
+
+  if (type === 'flow') {
+    // The natural word for a flow's steps is `stages`; accept it. A step may be a
+    // bare string (`steps: ["Fetch", "Validate"]`) — its only content is its
+    // label, so the string is complete: coerce rather than fail the block.
+    if (out.steps === undefined && Array.isArray(out.stages)) out.steps = out.stages;
+    if (Array.isArray(out.steps)) {
+      out.steps = out.steps.map((step) => {
+        if (typeof step === 'string') return { label: step };
+        if (!isRecord(step)) return step;
+        const next: Record<string, unknown> = { ...step };
+        if (next.icon !== undefined) {
+          const key = canonicalIconKey(next.icon);
+          if (key === undefined) delete next.icon;
+          else next.icon = key;
+        }
+        // A step's outgoing options may be spelled `branches`/`options`.
+        if (next.paths === undefined) {
+          if (Array.isArray(next.branches)) next.paths = next.branches;
+          else if (Array.isArray(next.options)) next.paths = next.options;
+        }
+        if (Array.isArray(next.paths)) next.paths = normalizeIconItems(next.paths);
+        return next;
+      });
+    }
   }
 
   if (type === 'metric_grid' && Array.isArray(out.metrics)) {
@@ -387,7 +482,9 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
     out[iconField] = normalizeIconItems(out[iconField]);
   }
 
-  return out;
+  // Tone is the last rewrite: every `tone` (including nested steps/paths/nodes/
+  // edges) is mapped to the status enum or dropped so its schema default applies.
+  return normalizeTonesDeep(out, type === 'callout') as Record<string, unknown>;
 }
 
 /**

@@ -160,11 +160,17 @@ class UiService:
         if blueprint_id:
             blueprint = self.get_blueprint(blueprint_id, owner_id=owner_id)
         elif path:
-            for summary, _ in [self._store.list_blueprints(ListBlueprintsQuery(limit=200))]:
-                for entry in summary:
-                    if entry.path == path:
-                        blueprint = self.get_blueprint(entry.id, owner_id=owner_id)
-                        break
+            # Resolve the path against the FULL blueprint, not the list summary:
+            # `BlueprintSummary` carries no `path`, so the previous `entry.path`
+            # read raised AttributeError and every path lookup failed.
+            summaries, _total = self._store.list_blueprints(
+                ListBlueprintsQuery(limit=200), owner_id=owner_id
+            )
+            for entry in summaries:
+                candidate = self._store.get_blueprint(entry.id, owner_id=owner_id)
+                if candidate is not None and candidate.path == path:
+                    blueprint = candidate
+                    break
         if blueprint is None:
             raise UiError("UI_BLUEPRINT_NOT_FOUND", "no matching page is available")
         return {

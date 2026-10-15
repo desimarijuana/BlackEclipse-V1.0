@@ -78,8 +78,13 @@ export function QuickAddTrade({
           confidence: form.confidence ? Number(form.confidence) : null,
           mistakes: form.mistakes,
           notes: form.notes || null,
+          grade: form.grade || null,
+          checklist: form.checklist && Object.keys(form.checklist).length ? form.checklist : null,
           strategyId: form.strategyId || null,
           setupId: form.setupId || null,
+          accountId: form.accountId || null,
+          commission: form.commission ? Number(form.commission) : 0,
+          fee: form.fee ? Number(form.fee) : 0,
           tagNames: form.tagNames,
         }),
       });

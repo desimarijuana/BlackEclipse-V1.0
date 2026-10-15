@@ -10,11 +10,20 @@ export const DISCIPLINE_VERSION = 1;
 // Weight budget (sums to 100).
 const WEIGHTS = { risk: 25, strategy: 25, stop: 20, overtrading: 15, execution: 15 };
 
+export interface DisciplineOptions {
+  /** Account size in currency — enables the true risk-per-trade rule. */
+  accountSize?: number | null;
+  /** Max fraction of the account risked per trade (e.g. 0.01 = 1%). */
+  riskPerTrade?: number | null;
+}
+
 /**
  * Compute the Eclipse Discipline Score for a set of trades.
  *
  * Components:
- *  - Risk (25): fraction of trades respecting the 1% risk rule.
+ *  - Risk (25): fraction of trades respecting the configured risk-per-trade
+ *    rule (account size × risk %). Falls back to a 1%-of-notional proxy when no
+ *    account size is configured.
  *  - Strategy (25): fraction of trades that have a strategy/setup assigned
  *    (a proxy for "followed a plan").
  *  - Stop (20): fraction of trades with a stop loss set.
@@ -23,16 +32,22 @@ const WEIGHTS = { risk: 25, strategy: 25, stop: 20, overtrading: 15, execution: 
  *  - Execution (15): penalizes recorded mistakes (early exits, stop moves,
  *    target moves, partial exits, revenge/overtrade tags).
  */
-export function computeDiscipline(trades: TradeRecord[]): DisciplineBreakdown {
+export function computeDiscipline(trades: TradeRecord[], options: DisciplineOptions = {}): DisciplineBreakdown {
   const closed = trades.filter((t) => t.status === "closed");
   const n = closed.length;
   if (n === 0) {
     return { risk: 0, strategy: 0, stop: 0, overtrading: 0, execution: 0, total: 0 };
   }
 
-  // Risk: trades whose risk ≤ 1% of notional.
+  // Risk: trades whose risk respects the configured rule. When an account size
+  // is known, the rule is riskAmount ≤ accountSize × riskPerTrade. Otherwise we
+  // fall back to the historic 1%-of-notional proxy (stop within 1% of entry).
+  const maxRisk = options.accountSize && options.accountSize > 0
+    ? options.accountSize * (options.riskPerTrade && options.riskPerTrade > 0 ? options.riskPerTrade : 0.01)
+    : null;
   const riskOk = closed.filter((t) => {
     if (t.riskAmount == null) return false;
+    if (maxRisk != null) return t.riskAmount <= maxRisk;
     const notional = t.entry * t.quantity;
     return notional > 0 && t.riskAmount / notional <= 0.01;
   }).length;

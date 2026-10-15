@@ -3,7 +3,7 @@
 // ── Journal Overview — "How am I trading?" ───────────────────────────────────
 // KPI strip + equity curve + best/worst dimensions + recent trades + insights.
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ShieldCheck } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
@@ -23,6 +23,7 @@ interface OverviewProps {
 
 export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalendar, onAddTrade }: OverviewProps) {
   const p = analytics?.performance;
+  const [equityCurrency, setEquityCurrency] = useState(false);
   const recent = useMemo(() => [...trades].sort((a, b) => Date.parse(b.exitTime) - Date.parse(a.exitTime)).slice(0, 8), [trades]);
   const rValues = useMemo(() => trades.filter((t) => t.status === 'closed').map((t) => t.rMultiple), [trades]);
 
@@ -66,7 +67,19 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
       {/* Equity curve + win/loss */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="rounded-2xl glass-card p-4 lg:col-span-2">
-          <EquityCurveChart equity={analytics.equity} height={260} />
+          <div className="mb-2 flex items-center justify-end gap-1.5">
+            {analytics.equityCurrency.length >= 2 && (
+              <div className="inline-flex rounded-lg border border-white/10 bg-white/[0.03] p-0.5 text-[10px] font-semibold">
+                <button onClick={() => setEquityCurrency(false)} className={cn('rounded-md px-2 py-0.5 cursor-pointer', !equityCurrency ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>R</button>
+                <button onClick={() => setEquityCurrency(true)} className={cn('rounded-md px-2 py-0.5 cursor-pointer', equityCurrency ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>Currency</button>
+              </div>
+            )}
+          </div>
+          <EquityCurveChart
+            equity={equityCurrency ? analytics.equityCurrency : analytics.equity}
+            currency={equityCurrency}
+            height={260}
+          />
         </div>
         <div className="rounded-2xl glass-card p-4">
           <WinLossChart wins={p.wins} losses={p.losses} breakevens={p.breakevens} height={200} />

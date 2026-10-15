@@ -52,6 +52,66 @@ def _fmt_schema(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _fmt_schema_prompt(payload: dict[str, Any]) -> str:
+    """A compact, prompt-ready digest of the block contract.
+
+    Unlike `_fmt_schema` (a tool reply the model reads on demand), this is
+    injected into the system prompt so the model is given the EXACT field names
+    and enum values up front and never has to guess. It is generated LIVE from
+    the TS contract over the bridge (`op: "schema"`), so it cannot drift from the
+    renderer. Field names are canonical; a trailing `?` marks an optional field;
+    `enum(a|b|c)` lists the ONLY accepted values.
+    """
+    blocks = payload.get("blocks") or []
+    if not blocks:
+        return ""
+    lines = [
+        "## eclipse-response block schema (authoritative — use these EXACT field "
+        "names and enum values; never invent a synonym)",
+    ]
+    # The block-type menu, GENERATED from the same live contract (not a hand copy),
+    # so a producer still sees every registered type even though the static system
+    # prompt no longer enumerates them.
+    type_names = [str(block.get("type")) for block in blocks if block.get("type")]
+    if type_names:
+        lines.append("Registered block types: " + ", ".join(type_names) + ".")
+    for block in blocks:
+        parts: list[str] = []
+        for field in block.get("fields") or []:
+            name = str(field.get("name"))
+            kind = str(field.get("kind") or "value")
+            items = field.get("itemFields")
+            detail = f"{kind}{{{','.join(str(i) for i in items)}}}" if items else kind
+            parts.append(f"{name}{'' if field.get('required') else '?'}:{detail}")
+        lines.append(f"- {block.get('type')}: " + "; ".join(parts))
+    icon_keys = [str(k) for k in payload.get("iconKeys") or []]
+    if icon_keys:
+        lines.append(
+            "`icon` (kind `icon-key`, including inside array items) accepts only: "
+            + ", ".join(icon_keys) + ". Never an emoji or made-up name."
+        )
+    return "\n".join(lines)
+
+
+async def response_schema_prompt_block(data_bridge: Any) -> str:
+    """Fetch the live block contract and format it for prompt injection.
+
+    Best-effort and read-only: a missing bridge, a transport failure or an
+    unexpected payload returns an empty string (the on-demand
+    `response_block_schema` tool remains the fallback) — it never raises into the
+    run and never fabricates a schema.
+    """
+    if data_bridge is None:
+        return ""
+    try:
+        payload = await data_bridge.fetch("response_contract", {"op": "schema"})
+    except Exception:  # noqa: BLE001 - a digest must never break the run
+        return ""
+    if not isinstance(payload, dict) or payload.get("status") != "OK":
+        return ""
+    return _fmt_schema_prompt(payload)
+
+
 def _fmt_validation(payload: dict[str, Any]) -> str:
     if payload.get("error") and not payload.get("blocks"):
         return f"Response check could not run: {payload.get('error')}"
@@ -162,4 +222,43 @@ def register_response_contract_tools(registry: ToolRegistry) -> None:
     )
 
 
-__all__ = ["register_response_contract_tools"]
+async def emit_response_telemetry(data_bridge: Any, markdown: str) -> None:
+    """Best-effort: measure the FINAL structured answer through the SAME render
+    chokepoint the client uses and record the outcome as an observability hook.
+
+    Calls the bridge `op: "finalize"` (which runs `finalizeFenceSource` — the
+    exact client path) and emits `onResponseBlocks` with counts + the block types
+    that were repaired/degraded. This is the closed-loop signal: a recurring
+    offender (a block type drifting in the same way) is visible and can be turned
+    into a repair/normalization rule. A bridge miss, a non-structured answer, or
+    any error is a silent no-op — telemetry never breaks a run, never fabricates.
+    """
+    if data_bridge is None or not markdown or "eclipse-response" not in markdown:
+        return
+    try:
+        payload = await data_bridge.fetch("response_contract", {"op": "finalize", "markdown": markdown})
+    except Exception:  # noqa: BLE001 - a telemetry read must never break the run
+        return
+    if not isinstance(payload, dict) or payload.get("status") != "OK":
+        return
+    blocks = int(payload.get("blocks") or 0)
+    if blocks == 0:
+        return
+    repaired = sorted(str(t) for t in (payload.get("repairedTypes") or []))
+    degraded = sorted(str(t) for t in (payload.get("degradedTypes") or []))
+    try:
+        from .observability import get_hub  # noqa: PLC0415
+
+        get_hub().emit(
+            "onResponseBlocks",
+            attributes={"blocks": blocks, "repaired": repaired, "degraded": degraded},
+        )
+    except Exception:  # noqa: BLE001 - telemetry must never break the run
+        pass
+
+
+__all__ = [
+    "register_response_contract_tools",
+    "response_schema_prompt_block",
+    "emit_response_telemetry",
+]

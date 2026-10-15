@@ -1205,6 +1205,27 @@ html:not(.dark) .glass-drawer {
     inset -1px 0 0 rgba(0, 0, 0, 0.06);
 }
 
+/* Chat slash-command popover — a deliberately NEAR-TRANSPARENT frosted panel
+ * (the solid background is removed; only the blur remains). Low tint (0.14),
+ * high blur + saturation so the content behind stays visible through real
+ * glass. Rendered via a portal at <body> so the blur samples the page instead
+ * of a scoped backdrop root. Keep the tint low — a higher alpha hides the blur. */
+.glass-command-popover {
+  background: rgb(var(--card-rgb, 18 18 20) / 0.14);
+  backdrop-filter: blur(26px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html:not(.dark) .glass-command-popover {
+  background: rgba(255, 255, 255, 0.20);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.60);
+}
+
 /* Frosted-glass button — translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
 .glass-button {
@@ -1315,6 +1336,7 @@ html.theme-glass-active .glass-card,
 html.theme-glass-active .glass-card-strong,
 html.theme-glass-active .glass-card-subtle,
 html.theme-glass-active .glass-drawer,
+html.theme-glass-active .glass-command-popover,
 html.theme-glass-active .glass-button,
 html.theme-glass-active .ws-glass,
 html.theme-glass-active .tab-bar-glass,
@@ -1333,6 +1355,7 @@ html:not(.dark).theme-glass-active .glass-card,
 html:not(.dark).theme-glass-active .glass-card-strong,
 html:not(.dark).theme-glass-active .glass-card-subtle,
 html:not(.dark).theme-glass-active .glass-drawer,
+html:not(.dark).theme-glass-active .glass-command-popover,
 html:not(.dark).theme-glass-active .glass-button,
 html:not(.dark).theme-glass-active .ws-glass,
 html:not(.dark).theme-glass-active .tab-bar-glass,
@@ -1372,6 +1395,7 @@ html.theme-glass-off .glass-card,
 html.theme-glass-off .glass-card-strong,
 html.theme-glass-off .glass-card-subtle,
 html.theme-glass-off .glass-drawer,
+html.theme-glass-off .glass-command-popover,
 html.theme-glass-off .glass-button,
 html.theme-glass-off .ws-glass,
 html.theme-glass-off .tab-bar-glass,
@@ -1389,6 +1413,7 @@ html:not(.dark).theme-glass-off .glass-card,
 html:not(.dark).theme-glass-off .glass-card-strong,
 html:not(.dark).theme-glass-off .glass-card-subtle,
 html:not(.dark).theme-glass-off .glass-drawer,
+html:not(.dark).theme-glass-off .glass-command-popover,
 html:not(.dark).theme-glass-off .glass-button,
 html:not(.dark).theme-glass-off .tab-bar-glass,
 html:not(.dark).theme-glass-off .tab-bar-subtle,
@@ -1623,12 +1648,14 @@ html:not(.dark).a11y-high-contrast {
 .a11y-high-contrast .glass-card,
 .a11y-high-contrast .glass-card-strong,
 .a11y-high-contrast .glass-card-subtle,
+.a11y-high-contrast .glass-command-popover,
 .a11y-high-contrast .ws-glass {
   border-color: rgba(255, 255, 255, 0.28);
 }
 html:not(.dark) .a11y-high-contrast .glass-card,
 html:not(.dark) .a11y-high-contrast .glass-card-strong,
 html:not(.dark) .a11y-high-contrast .glass-card-subtle,
+html:not(.dark) .a11y-high-contrast .glass-command-popover,
 html:not(.dark) .a11y-high-contrast .ws-glass {
   border-color: rgba(0, 0, 0, 0.22);
 }

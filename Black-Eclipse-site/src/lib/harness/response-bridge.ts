@@ -17,6 +17,7 @@
 
 import { parseResponsePayload, ResponseBlockSchema } from "@/lib/response/contract";
 import { splitResponseSegments } from "@/lib/response/parse";
+import { finalizeFenceSource } from "@/lib/response/finalize";
 import { RESPONSE_ICON_KEYS } from "@/lib/response/icon-vocabulary";
 import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
 
@@ -164,6 +165,37 @@ export async function responseContractCapability(
       blockCount: blocks.length,
       blocks,
       diagnostics: errors.map((d) => ({ code: d.code, message: d.message, blockIndex: d.blockIndex ?? null })),
+    };
+  }
+
+  if (op === "finalize") {
+    // Phase 4 telemetry read-back: run the answer through the SAME render
+    // chokepoint the client uses (`finalizeFenceSource`) and return the render
+    // OUTCOME — how many blocks had to be repaired or degraded, and which block
+    // types. This is what makes the drift rate measurable and feeds new rules.
+    const markdown = typeof params.markdown === "string" ? params.markdown : "";
+    if (!markdown.trim()) return { status: "UNAVAILABLE", error: "markdown is required" };
+    if (markdown.length > MAX_VALIDATE_CHARS) {
+      return { status: "UNAVAILABLE", error: "payload too large to finalize" };
+    }
+    const segment = splitResponseSegments(markdown).find((s) => s.kind === "response");
+    if (!segment && !markdown.trim().startsWith("{")) {
+      // No structured answer at all — nothing to measure.
+      return { status: "OK", op, blocks: 0, repaired: 0, degraded: 0, repairedTypes: [], degradedTypes: [] };
+    }
+    const finalized = finalizeFenceSource(segment ? segment.source : markdown.trim());
+    const records = finalized.degraded;
+    const repairedRecords = records.filter((r) => r.code === "BLOCK_REPAIRED");
+    const degradedRecords = records.filter((r) => r.code === "BLOCK_DEGRADED" || r.code === "MALFORMED_JSON");
+    const unique = (values: (string | undefined)[]) => [...new Set(values.filter((v): v is string => Boolean(v)))];
+    return {
+      status: "OK",
+      op,
+      blocks: finalized.response.blocks.length,
+      repaired: repairedRecords.length,
+      degraded: degradedRecords.length,
+      repairedTypes: unique(repairedRecords.map((r) => r.declaredType)),
+      degradedTypes: unique(degradedRecords.map((r) => r.declaredType ?? (r.code === "MALFORMED_JSON" ? "malformed" : "unknown"))),
     };
   }
 

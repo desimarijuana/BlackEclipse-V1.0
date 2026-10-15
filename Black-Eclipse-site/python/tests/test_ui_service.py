@@ -114,3 +114,19 @@ def test_application_map_and_operation_audit(ui):
     app_map = ui.get_application_map()
     assert app_map["pageCount"] == 1
     assert app_map["capabilities"]["componentCount"] >= 1
+
+
+def test_get_current_page_by_path_resolves_full_blueprint(ui):
+    # Regression: the path branch read `entry.path` off a BlueprintSummary (which
+    # has no `path`) and raised AttributeError, so no path lookup ever worked.
+    ui.create_page(CreatePageInput(title="Portfolio", path="/portfolio"))
+    page = ui.get_current_page(path="/portfolio")
+    assert page["blueprint"]["title"] == "Portfolio"
+    assert page["blueprint"]["path"] == "/portfolio"
+
+
+def test_get_current_page_unknown_path_is_not_found(ui):
+    _page(ui)
+    with pytest.raises(UiError) as exc:
+        ui.get_current_page(path="/does-not-exist")
+    assert exc.value.code == "UI_BLUEPRINT_NOT_FOUND"

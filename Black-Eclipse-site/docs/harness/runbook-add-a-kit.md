@@ -1,7 +1,7 @@
 ---
 title: Runbook — add a scaffold kit
 status: Current
-last-verified: 2026-10-01
+last-verified: 2026-10-14
 ---
 
 # Runbook — add a scaffold kit
@@ -32,8 +32,11 @@ acceptance check(s). A kit with **no acceptance test** or an **undeclared output
 is refused by the loader, never silently accepted.
 
 A kit also ships a draft skill wrapper under
-`python/harness/skills/library/system/<kit_id>/` (`status: draft`, never enabled)
-so it is discoverable without being active.
+`python/harness/skills/library/system/<kit_id>/` (`status: draft`) so it is
+discoverable without being active. The wrapper stays inert until an operator
+`skill.enable`s it; that decision now PERSISTS across a reload (bundled skills are
+lifecycle-managed by the store like authored/project skills), so a kit can
+actually be promoted instead of silently reverting to `draft`.
 
 ## 2. Add one
 

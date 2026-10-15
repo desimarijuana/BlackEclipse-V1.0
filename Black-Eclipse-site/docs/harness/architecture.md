@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 ---
 
 # Harness Architecture
@@ -1176,7 +1176,11 @@ and trusts the install root through the project-trust store, so the registry
 loads it as the `external` tier (`project > profile > external > bundled`;
 `load_all(installed_home=)` / `reload()`). `mcp_install` delegates to
 `mcp/install_ops.py` — the same operation as the operator route — and always
-writes a DISABLED, nothing-selected config. `code/policy.py`
+writes a DISABLED, nothing-selected config. `mcp_probe` (same authorizer, kind
+`mcp_probe`) runs the Settings "Test" path once — connect + discover in a
+temporary subprocess that is always torn down — and reports the observed result
+without persisting or activating anything; a missing credential is reported as
+`blocked-at-activation`, never a silent "installed". `code/policy.py`
 (`ACQUISITION_WRITE_TOOLS`) removes all five tools at `plan_only` and the
 unknown-profile fallback; they stay on the chat code profile. Installing widens
 what can be used, never what may be done — the skill permission/execution gate

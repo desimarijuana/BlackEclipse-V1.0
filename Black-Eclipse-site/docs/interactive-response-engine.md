@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 ---
 
 # Interactive Response Engine
@@ -81,10 +81,15 @@ Envelope: `schemaVersion?`, `responseId?`, `responseType?`, `title?`, `summary?`
 
 1. **The envelope is validated loosely** (unknown fields stripped) so a newer
    producer never bricks an older renderer.
-2. **Every block is validated individually.** One bad block degrades to an
-   `unknown` diagnostic card; it never discards the rest of the answer.
-3. **Unknown block types are preserved, not executed.** They render a diagnostic
-   with the raw JSON in a collapsed `<details>`.
+2. **Every block is validated individually.** One bad block never discards the
+   rest of the answer.
+3. **A rejected block degrades to readable content, never a user-visible error.**
+   The render chokepoint (`finalize.ts`) replaces any block the contract rejected
+   with a `markdown` block carrying the block's REAL content — its prose/title, or
+   a JSON code fence of its structure — so a wrong block costs its *visual*, never
+   the answer. The original failure is retained on `response.diagnostics` and
+   surfaced through the `degraded` telemetry records; it is never rendered as an
+   error card. Unknown block types are thus preserved, not executed.
 4. **Hard limits** are enforced at parse (`RESPONSE_LIMITS`): blocks 80, nested
    depth 4, series 24, points/series 5000, table rows 2000, columns 40, metrics
    60, sources 100, diagram nodes 120, edges 300, timeline events 200, tabs 12,
@@ -96,7 +101,60 @@ Envelope: `schemaVersion?`, `responseId?`, `responseType?`, `title?`, `summary?`
    to 1.0.
 
 `parseResponsePayload(value)` is total — malformed input yields a
-diagnostic-backed empty response, never a throw.
+diagnostic-backed empty response, never a throw. It is the *low-level* total
+parser: its per-block diagnostics feed the pre-send validation tool and telemetry.
+The **render path** runs everything through `finalize.ts` first —
+`finalizeResponse(raw)` / `finalizeParsed(response)` / `finalizeFenceSource(source)`
+— so the invariant holds: **the renderer is a total function from any input to a
+proper render, with no user-visible error state.** For a rejected block the
+chokepoint runs, in order:
+
+1. **Repair** (`repair.ts`, driven by `schema-meta.ts`). One deterministic,
+   schema-directed attempt to make the block valid so it renders as its intended
+   visual. It is generic, not a list of special cases: a missing required field is
+   rescued from a same-kind sibling (`title`→`name`, `datasets`→`series`,
+   `headline`→`title`); an off enum value is aliased or nearest-matched
+   (`bars`→`bar`, `vertical`→`TB`); a single value where an array is required is
+   wrapped; an object/array mismatch is unwrapped; a coercible scalar
+   (`"true"`, `"12.4"`) is coerced. `schema-meta.ts` is introspected LIVE from
+   `ResponseBlockSchema`, so repair tracks the contract with no copy.
+2. **Degrade** (the honest backstop). If repair still fails, the block becomes a
+   `markdown` block carrying its REAL content (prose/title, else a JSON code
+   fence) — a wrong block costs its visual, never the answer; nothing is invented.
+
+Either way, error diagnostics are downgraded and recorded (as `BLOCK_REPAIRED` /
+`BLOCK_DEGRADED`) on the `degraded` telemetry records, never rendered. Malformed
+JSON (a settled fence that is not valid JSON) degrades to a code fence of the
+source instead of the former red "could not be parsed" card.
+
+**The telemetry loop (Phase 4).** Once per run, at the answer seam, the runtime
+measures the final structured answer through the SAME chokepoint the client uses
+(bridge `response_contract` op `"finalize"` → `finalizeFenceSource`) and emits the
+`onResponseBlocks` observability hook + the `eclipse_response_blocks_total`
+metric, labelled by outcome (`repaired`/`degraded`) and block type. A recurring
+label is the signal to add a normalization/repair rule — that is how the rate is
+driven to zero. The client seam (`setResponseDegradeReporter` in `finalize.ts`)
+remains the render-time hook and can forward to a transport when one exists; the
+server-side signal is the durable, deduped (one per run) measurement today.
+
+**Guards (CI).** `contract-matrix.test.tsx` holds the line against drift: it
+asserts the contract's block types, the renderer registry (`REGISTERED_BLOCK_TYPES`)
+and a canonical sample per type are the SAME set, and it renders every type from
+its canonical payload asserting no repair, no degrade and no error affordance —
+so a new block type cannot ship unrendered, and a renamed field cannot silently
+break a figure. There is no hand-copied block vocabulary left in the prompt or the
+evaluator: the prompt points at the generated schema digest, and the offline
+response smoke check asserts only structure, deferring every field name and enum
+to the TS contract.
+
+**Every producer route passes the chokepoint.** The fence path finalizes via
+`finalizeFenceSource`; the deterministic planner (`planMarkdown`) re-validates
+its hand-built blocks through `finalizeResponse`; export (`responseToJson` /
+`responseToPdf`) finalizes defensively so an exported file or saved artifact can
+never contain a rejected block. Bots, group chat and the workspace document
+viewer render through the same `Markdown` component as chat, so their
+`eclipse-response` fences get the identical guarantee — there is no second
+renderer to keep in sync.
 
 ### Block catalogue
 
@@ -119,6 +177,7 @@ diagnostic-backed empty response, never a throw.
 | Process | `stepper` | numbered steps with per-step status (pending/active/done/error) |
 | | `infographic` | icon cards; `icon` is a semantic key resolved via `lib/response/icons.ts` |
 | | `workflow` | icon-driven **connected** process: ordered stages joined by directional connectors, each expandable to `detail` / `inputs` / `outputs`; a stage's follow-up re-enters the agent loop. Distinct from `stepper` (no icons/connectors) and `diagram`/`node_graph` (free-form graphs). `layout` is `vertical`/`horizontal`/`auto` (auto = horizontal when ≤4 stages, stacking to a column on narrow screens). |
+| | `flow` | dependency-free **HTML/CSS process flow**: ordered `steps` rendered as frosted cards joined by CSS connectors, each step optionally branching into parallel `paths` rendered as smaller cards. Unlike `workflow` it supports branching/parallel paths; unlike `diagram`/`node_graph` it is responsive cards (flex/grid), not an absolute-positioned SVG graph. `direction` is `LR` (default) / `TB`. The native answer for a flowchart — prefer it over a Mermaid flowchart. The block is **centered and width-capped** (`max-w-3xl`, never full-bleed); its step/path **icons render white** (tone/status no longer tints the glyph — status stays as the dot/check beside the label), and a visible **"Full page"** control opens the WHOLE FLOW in a full-screen overlay — larger, centered, over the blurred page; the overlay is portaled to `document.body` (like the app's other overlays) so a transformed chat ancestor cannot trap `position: fixed` and make it overlap; Escape / backdrop / Close to dismiss. |
 | | `report` | multi-section container; section `blocks` validated recursively |
 | Action | `action_group` | PROPOSED next steps; a click sends a follow-up prompt into the agent loop |
 | | `artifact` | a reference to the existing Artifact Center, linked to its download route |
@@ -137,7 +196,8 @@ and `execution_timeline`→`timeline` are normalized to their canonical block in
 types. The website-style family has matching synonyms: `stat`/`stats`→`stat_hero`,
 `progress`/`meter`→`gauge`, `comparison`→`comparison_grid`,
 `leaderboard`/`ranking`→`ranked_list`, `badges`→`badge_row` and
-`slides`→`carousel`.
+`slides`→`carousel`. Flow vocabulary resolves onto the native flow blocks:
+`process`→`workflow`, `process_flow`/`pipeline`→`flow` and `flow_graph`→`diagram`.
 
 **Field-name synonyms** are normalized the same way, *after* the type alias, so a
 producer is not punished for naming a field naturally. `normalizeBlockFields`
@@ -148,27 +208,37 @@ rewrites: `content`→`markdown` (markdown/callout/details), a scalar `text`→
 three real producer spellings of the one field, all observed in live runs;
 `content`/`code`/`source`→
 `diagram` (mermaid), `variant`→`tone` (callout, when the value is a valid tone),
-`items`→`sources` and `name`→`title` (citations), string `columns` + positional
+`items`→`sources` and `name`/`label`→`title` (citations), string `columns` + positional
 array `rows`→typed table columns/records (`data_table`), `note`→`hint`
 (metric cards), and common `timeframe` intervals (`1Y`, `YTD`, `MAX`, `1D`,
 `90d`, `3mo`, …) onto a supported `financial_chart` timeframe, and `steps`→
-`stages` for a `workflow`. It also coerces observed producer shapes that the
+`stages` for a `workflow`, and `stages`→`steps` / `branches`/`options`→`paths`
+(plus a bare-string step → `{ label }`) for a `flow`. It also coerces observed producer shapes that the
 strict schema would otherwise reject whole (each degrades only its own block):
 `key`/`name`→item `label` (`key_value`; its `value` is a display line and may
 run to 500 chars because producers attach a short source/citation),
 `points`/`values`→chart `data` with
-`{x,y}` / `{value}` point objects coerced to tuples/scalars and `labels`→
-`categories` (`chart`, whose `chart_type` spelling is also accepted),
+`{x,y}` / `{value}` point objects coerced to tuples/scalars, `labels`→
+`categories` and Chart.js-style `datasets`→`series` (`chart`, whose
+`chart_type` spelling is also accepted),
 `ticker`/`instrument`→`symbol` and `interval`/`range`→
 `timeframe` plus chart-type synonyms (`financial_chart`), and node
 `name`/`title`→`label` / edge `source`/`target`→`from`/`to` (`diagram`,
-`node_graph`). A value that is not itself valid is
-left untouched, so an unknown tone still falls back to the schema default rather
-than hard-failing.
+`node_graph`).
+
+**Tone.** Every `tone` (top-level and nested — `flow` steps/paths, `diagram`
+nodes/edges, …) is mapped onto the block's enum *or dropped* before validation.
+`tone` carries a schema default, so a PRESENT-but-invalid value (`trend-up`,
+`positive`, `bearish` — the semantic words that are correct for `icon` but not
+for `tone`) defeats that default and hard-fails the whole block; normalization
+instead maps the known semantic synonyms to the status enum
+(`positive`/`up`/`trend-up`→`success`, `negative`/`down`/`trend-down`→`danger`,
+…; `note` stays valid only on `callout`), and drops an unrecognized value so the
+default applies. A wrong tone costs the accent colour, never the block.
 
 **Icon values.** The optional `icon` on the icon-bearing item arrays (`infographic`
 cards, `workflow` stages, `action_group` actions, `stat_hero` stats, `ranked_list`
-items, `badge_row` badges) is canonicalized before validation against the allowlist
+items, `badge_row` badges, and a `flow`'s steps and their nested `paths`) is canonicalized before validation against the allowlist
 below: case/separator spellings (`TrendUp`, `trend_up`, `TREND UP`), common synonyms
 (`graph`, `money`, `alert`) and the emoji producers actually emit (`📈`, `⚠️`) all
 resolve to the canonical key. A string that is still unknown is kept as-is — the
@@ -206,7 +276,22 @@ format is now queryable and checkable before emission. It does not replace the
 consumer-side leniency above — normalization still catches drift the model never
 checked.
 
-**Mermaid repair.** Mermaid is producer-authored text, and Mermaid v12 rejects
+**The schema is also injected up front.** Relying on the model to *remember* to
+call `response_block_schema` proved fragile: a live run skipped it and guessed
+(`datasets` for `series`, a semantic `tone`), so the block rendered as a
+diagnostic. Every run whose resolved surface may emit structured blocks now has a
+compact digest of the exact field names and enum values appended to its
+byte-stable system prompt (`response_schema_prompt_block` in
+`python/harness/response_tools.py`, composed into the head in
+`graph.execute_run`). It is generated LIVE from the same bridge `op: "schema"`
+reply, so it cannot drift from the renderer; a bridge miss degrades silently to
+the on-demand tool and never blocks the run.
+
+**Mermaid repair.** Mermaid is reserved for the diagram families the native
+blocks do not cover — sequence, ER, class and gantt. A flow/flowchart is routed
+to the native `diagram`/`flow`/`workflow` blocks (the prompt says so explicitly),
+which keeps the heavy `mermaid` package unloaded for ordinary process answers.
+Mermaid is producer-authored text, and Mermaid v12 rejects
 small slips that a model makes routinely. Before rendering, `mermaid-repair.ts`
 (a pure, total, tested function) conservatively patches the observed cases — it
 decodes HTML entities once (`&gt;`→`>`), quotes an unquoted flowchart/state node
@@ -431,6 +516,7 @@ composing placeholder.
 | BLOCK-007 | Field leniency (`body`, `chart_type`, 500-char `key_value` values, bare-string badges) + block-level `unavailable` figures | `normalize.ts` + `visual-blocks.tsx` UNAVAILABLE state | contract-blocks.test.ts | Verified |
 | BLOCK-008 | Producer read-back: exact block schema + live icon vocabulary + pre-send validation (bridge capability `response_contract`) | `src/lib/harness/response-bridge.ts` + `python/harness/response_tools.py` | response-bridge.test.ts + test_response_tools.py | Verified |
 | BLOCK-009 | Icon-key canonicalization (spellings, synonyms, emoji) + non-string icon leniency, in the prompt vocabulary | `icon-vocabulary.ts` `canonicalIconKey` + `normalize.ts` + `prompts.py` | contract-blocks.test.ts | Verified |
+| BLOCK-010 | Branching HTML/CSS `flow` block (parallel-path cards) + native-flow routing over Mermaid | `contract.ts` + `flow-block.tsx` + `response-view.tsx` + `normalize.ts` + `prompts.py` | contract-blocks.test.ts + render.test.tsx | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
 | SEC-003 | Semantic icon allowlist (no component/import from model); vocabulary server-safe, component map client-only | `lib/response/icon-vocabulary.ts` + `lib/response/icons.ts` | contract-blocks.test.ts + route.test.ts | Verified |
 

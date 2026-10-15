@@ -34,7 +34,7 @@ tests; nothing is "planned" unless it says so.
 | 3 | i18n + plain-language for new copy | ✅ | `dictionaries/en.ts` (`code.command.*`, `code.promote.*`), `plain-language.test.ts` |
 | 2 | Rollback + restart/build verdict in the chat UI | ✅ | `src/components/chat/promote-change.tsx`, `src/app/api/code/promotions/[rollbackId]/rollback/route.ts` |
 | 7 | Self-edit E2E acceptance (real `ApprovalStore`) | ✅ | `python/tests/test_self_edit_e2e.py` |
-| B2 | Real restart seam (front door owns it) | ✅ | `python-runtime.ts::restartPythonRuntime`, `POST /api/harness/runtime/restart`, "Restart Eclipse now" in `promote-change.tsx`; the front door also auto-restarts on a stale runtime (`ensurePythonRuntimeUncached` detects harness source newer than the running process) |
+| B2 | Real restart seam (front door owns it) | ✅ | `python-runtime.ts::restartPythonRuntime`, `POST /api/harness/runtime/restart`, "Restart Eclipse now" in `promote-change.tsx`; the front door also auto-restarts on a stale runtime (`ensurePythonRuntimeUncached` detects harness source newer than the running process). **Durability:** a restart is DEFERRED while runs are in flight (`activeRuns` in `/health`), and a runtime that answered recently is treated as busy, not hung — so a self-edit paused on an approval is never orphaned mid-flight (`runtime-supervision.ts`). If a restart still catches a paused run, boot reports it honestly as `RUN_INTERRUPTED` (nothing applied), not a generic orphan (`run_recovery.py`). |
 
 ## Deliberately NOT done (and why)
 

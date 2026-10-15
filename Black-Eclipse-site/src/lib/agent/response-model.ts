@@ -320,6 +320,8 @@ const TOOL_LABELS: Record<string, string> = {
   document_compare: 'Comparing the documents',
   document_render: 'Rendering the document',
   document_capabilities: 'Checking document support',
+  // Document Authoring — the write side (Word / Excel / PowerPoint / text).
+  document_create: 'Creating the document',
 };
 
 /** Turn a raw tool name into a short, human label (fallback prettifies it). */

@@ -331,8 +331,23 @@ async def document_render(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
     except DocumentError as exc:
         return (_err_text(exc), exc.to_dict())
     if not renderer_available(validated.kind):
-        return (f"RENDERING UNAVAILABLE for {validated.kind}: install pypdfium2 (PDF) or LibreOffice (Office).",
-                {"status": "unavailable", "kind": validated.kind})
+        from .render import find_soffice
+
+        soffice = find_soffice()
+        # Do not dead-end on "install LibreOffice": the same file is still fully
+        # readable by the pure-Python adapters. Name the gap AND the working path.
+        return (
+            f"RENDERING UNAVAILABLE for {validated.kind}: page rendering needs pypdfium2 (PDF) "
+            f"and LibreOffice (soffice){'' if soffice else ' (not installed)'} for Office files. "
+            "The text and tables are still readable — use document_extract or document_analyze; "
+            "call document_capabilities to see what is available.",
+            {
+                "status": "unavailable",
+                "kind": validated.kind,
+                "soffice": soffice,
+                "alternativeTools": ["document_extract", "document_analyze", "document_capabilities"],
+            },
+        )
     try:
         rendered = render_page(data or b"", kind=validated.kind, page_index=int(args.get("page", 0) or 0),
                                 scale=float(args.get("scale", 2.0) or 2.0), name=name or "",

@@ -1,7 +1,7 @@
 ---
 title: UI Engineering Foundation
 status: Current
-last-verified: 2026-10-09
+last-verified: 2026-10-14
 ---
 
 # UI Engineering Foundation
@@ -106,6 +106,12 @@ properties inspector, AI command panel, revision history and diagnostics.
 
 **Tool naming:** the ToolRegistry rejects `.` in tool names, so the conceptual
 `ui.get_application_map` is registered as `ui_get_application_map` (and so on).
+
+**Naming a page from the agent surface:** `ui_list_blueprints` and
+`ui_get_application_map` print each page's `id` + title in their text line (the
+`id` is what every mutation tool requires), and `ui_get_current_page(path=…)`
+resolves the path against the FULL blueprint — the list summary
+(`BlueprintSummary`) intentionally carries no `path`.
 
 **Catalog source of truth:** the runtime seeds the *foundational* kinds so it is
 usable standalone; the browser then pushes the REAL dashboard widget specs

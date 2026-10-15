@@ -498,6 +498,10 @@ async def retrieve(
             else:
                 stats.semantic_available = False
                 result.warnings.append("query embedding failed; using keyword results")
+                # Record the degradation as a structured fallback (not just a
+                # warning string), so observability shows WHY results are
+                # keyword-only instead of a silent null.
+                stats.fallback = "keyword"
 
     # ── fuse + score ────────────────────────────────────────────────────────
     weights = config.resolved_weights()

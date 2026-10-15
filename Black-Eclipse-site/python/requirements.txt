@@ -89,6 +89,21 @@ Pillow>=10.0
 uiautomation>=2.0; sys_platform == "win32"
 winsdk>=1.0.0b10; sys_platform == "win32"
 
+# Document Authoring — native creation of Office documents (Word .docx, Excel
+# .xlsx, PowerPoint .pptx), the formats Document Intelligence can READ but not
+# write. Three small, pure-Python OOXML writers; nothing here executes a macro or
+# runs an Office runtime — they build the ZIP+XML container directly. OPTIONAL in
+# effect: a missing library makes `document_create` report an honest
+# DOCUMENT_LIBRARY_MISSING for that format rather than emitting a fake file, so a
+# partial install degrades one format at a time. Installed by default so Word /
+# Excel / PowerPoint creation works out of the box.
+# * python-docx  — WordprocessingML
+# * openpyxl     — SpreadsheetML
+# * python-pptx  — PresentationML (pulls lxml/Pillow/XlsxWriter, all present)
+python-docx>=1.1,<2
+openpyxl>=3.1,<4
+python-pptx>=0.6
+
 # Vision / Multimodal subsystem.
 # * pypdfium2: self-contained PDFium binding (no system binary) used to render
 #   PDF pages to images for document/PDF vision. Imported lazily; when absent,

@@ -285,10 +285,22 @@ class SkillRegistry:
         for loaded in self._skills.values():
             manifest = loaded.manifest
             existing = self.store.get_skill(manifest.id)
-            # authored + project + installed skills are lifecycle-managed by the
-            # store; a reload must not reset an operator's enable/disable decision.
-            managed = loaded.authored or loaded.provenance in ("project", "external")
+            # authored + project + installed + BUNDLED skills are lifecycle-managed
+            # by the store; a reload must not reset an operator's enable/disable
+            # decision. Before this, a bundled kit could be enabled and was silently
+            # walked back to `draft` on the next reload, so the drafting kits could
+            # never actually be promoted.
+            managed = loaded.authored or loaded.provenance in ("project", "external", "bundled")
             status = existing["status"] if existing and managed else manifest.status
+            # Reconcile the in-memory manifest with the persisted status so a
+            # reload reflects an operator's enable/disable. Without this the store
+            # said `enabled` while the live manifest still said `draft`, so
+            # discovery/executability stayed wrong within the session.
+            if managed and status != manifest.status:
+                try:
+                    loaded.manifest.status = status
+                except Exception:  # noqa: BLE001 - a frozen manifest must not break the load
+                    pass
             # A version created by a structured patch may be NEWER than the
             # catalog/UserSkill source manifest. The store's own SkillVersion rows
             # are authoritative for the active version, so a reload never walks
@@ -945,6 +957,14 @@ class SkillRegistry:
         target_version = version or self.resolve_version(skill_id) or manifest.version
         evaluation_status = "passed" if status == "enabled" else None
         self.store.set_version_status(skill_id, target_version, status, evaluation_status)
+        # Reflect the new status on the in-memory manifest so discovery and
+        # evaluation in THIS session see it without a full reload.
+        loaded = self._skills.get(skill_id)
+        if loaded is not None:
+            try:
+                loaded.manifest.status = status
+            except Exception:  # noqa: BLE001 - a frozen manifest must not break the transition
+                pass
         self.store.append_event(f"skill.{status}" if status in {"enabled", "disabled", "deprecated", "archived"} else "skill.status_changed",
                                 skill_id=skill_id, version=target_version,
                                 data={"status": status, "actor": actor.id})

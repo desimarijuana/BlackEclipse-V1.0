@@ -1,7 +1,7 @@
 ---
 title: Artifact Center
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-14
 ---
 
 # Artifact Center
@@ -87,6 +87,10 @@ Producers wired today:
   the durable evidence records instead of duplicating them (ADR-H162).
 - Agents directly: `artifact_register`, `artifact_add_version`, `artifact_list`,
   `artifact_get`, `artifact_tag`, `artifact_create_collection`.
+- `python/harness/documents/` — the Document Authoring `document_create` tool builds
+  Word/Excel/PowerPoint/Markdown/CSV/JSON files and registers the bytes here
+  (`register_bytes`, explicit MIME so the category/preview resolve correctly). See
+  `docs/harness/document-intelligence.md` › *Authoring*, ADR-H192.
 
 Terminal/filesystem discovery is the backstop: the bounded reconciler plus
 explicit `artifact_register` cover files a command wrote, without ever scanning

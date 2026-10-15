@@ -347,7 +347,7 @@ describe('mixed response ordering and isolation', () => {
     expect(iD).toBeGreaterThan(iB);
   });
 
-  it('isolates an unknown block without discarding its siblings', () => {
+  it('degrades an unknown block to readable content without an error, keeping siblings', () => {
     const out = view({
       blocks: [
         { type: 'markdown', markdown: 'SURVIVOR text' },
@@ -355,10 +355,12 @@ describe('mixed response ordering and isolation', () => {
       ],
     });
     expect(out).toContain('SURVIVOR text');
-    expect(out).toContain('Unsupported block type');
+    // The rejected block's real content survives as readable text …
     expect(out).toContain('hologram');
-    // The diagnostic panel lists the failure rather than swallowing it.
-    expect(out).toContain('BLOCK_INVALID');
+    // … and nothing presents as an error any more.
+    expect(out).not.toContain('Unsupported block type');
+    expect(out).not.toContain('BLOCK_INVALID');
+    expect(out).not.toContain('response diagnostic');
   });
 
   it('renders a nested report section with its own blocks', () => {
@@ -421,6 +423,41 @@ describe('workflow block (icon-driven connected process)', () => {
   it('does not crash on an unknown icon key', () => {
     const out = view({ blocks: [{ type: 'workflow', stages: [{ icon: 'not-real', title: 'Fallback stage' }] }] });
     expect(out).toContain('Fallback stage');
+  });
+});
+
+describe('flow block (branching HTML/CSS process cards)', () => {
+  it('renders each step and its branch paths through the registry', () => {
+    const out = view({
+      blocks: [
+        {
+          type: 'flow',
+          title: 'Trade approval',
+          steps: [
+            { icon: 'search', label: 'Intake', description: 'Capture the request' },
+            {
+              icon: 'warning',
+              label: 'Risk check',
+              paths: [
+                { label: 'Within limits', tone: 'success', status: 'done' },
+                { label: 'Breach', tone: 'danger', status: 'error', description: 'Escalate to desk' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    for (const t of ['Trade approval', 'Intake', 'Capture the request', 'Risk check', 'Within limits', 'Breach', 'Escalate to desk']) {
+      expect(out).toContain(t);
+    }
+    expect(out).not.toContain('Unsupported block type');
+  });
+
+  it('uses a horizontal-capable flow for LR and stacks for TB', () => {
+    const lr = view({ blocks: [{ type: 'flow', steps: [{ label: 'a' }, { label: 'b' }] }] });
+    expect(lr).toContain('sm:flex-row');
+    const tb = view({ blocks: [{ type: 'flow', direction: 'TB', steps: [{ label: 'a' }, { label: 'b' }] }] });
+    expect(tb).not.toContain('sm:flex-row');
   });
 });
 
@@ -546,9 +583,11 @@ describe('streaming and malformed fences', () => {
     expect(out).toContain('Composing structured response');
   });
 
-  it('shows an explicit diagnostic for malformed settled JSON (never a fake answer)', () => {
+  it('degrades malformed settled JSON to readable content, never an error card', () => {
     const out = html(<ResponseFence source={'{ not json }'} />);
-    expect(out).toContain('could not be parsed');
+    expect(out).not.toContain('could not be parsed');
+    // The raw source is preserved as a code fence so the answer is not gutted.
+    expect(out).toContain('not json');
   });
 
   it('renders a valid fence through the full Markdown → decode → render path', () => {
@@ -578,14 +617,15 @@ describe('diagnostics severity split (R3-06)', () => {
     expect(out).not.toContain('response diagnostic');
   });
 
-  it('a real error still raises the panel', () => {
+  it('a rejected block degrades to content — no error panel ever reaches the user', () => {
     const parsed = parseResponsePayload({
       blocks: [{ type: 'markdown', markdown: 'kept' }, { type: 'hologram' }],
     });
     const out = html(<ResponseView response={parsed} />);
     expect(out).toContain('kept');
-    expect(out).toContain('response diagnostic');
-    expect(out).toContain('BLOCK_INVALID');
+    expect(out).not.toContain('response diagnostic');
+    expect(out).not.toContain('BLOCK_INVALID');
+    expect(out).not.toContain('Unsupported block type');
   });
 
   it('an empty valid envelope says so quietly, not with an alarm', () => {

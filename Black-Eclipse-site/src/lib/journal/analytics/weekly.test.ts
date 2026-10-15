@@ -10,7 +10,7 @@ function trade(overrides: Partial<TradeRecord>): TradeRecord {
     id: 't1', symbol: 'XAUUSD', direction: 'LONG', entry: 100, exit: 110,
     stopLoss: 99, takeProfit: 120, quantity: 1,
     entryTime: '2026-09-01T09:30:00.000Z', exitTime: '2026-09-01T10:00:00.000Z',
-    status: 'closed', pnl: 10, pnlPct: 0.1, rMultiple: 2, riskAmount: 1,
+    status: 'closed', grossPnl: 10, commission: 0, fee: 0, pnl: 10, pnlPct: 0.1, rMultiple: 2, riskAmount: 1,
     rewardAmount: 21, actualRR: 2.1, durationSec: 1800, mfe: null, mae: null,
     emotion: 'Calm', confidence: 4, session: 'New York', timeframe: '15m', marketRegime: 'Trending',
     ...overrides,

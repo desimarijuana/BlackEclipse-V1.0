@@ -130,12 +130,11 @@ async def _run(args: dict[str, Any], ctx: ToolContext) -> str | tuple[str, dict[
     return (stdout or "(no output)"), {"exitCode": 0, "chars": len(stdout)}
 
 
-# The chart payload's structural minimum (the TS contract in
-# `src/lib/response/contract.ts` remains the authority; this is the offline
-# smoke check a scripted trace can be driven through).
-_CHART_TYPES = frozenset({"line", "bar", "area", "pie", "donut", "scatter", "histogram", "heatmap"})
-
-
+# The chart payload's STRUCTURAL minimum. The set of valid `chartType` values (and
+# every other field name / enum) is the TS contract's authority
+# (`src/lib/response/contract.ts`) — never re-listed here, so it cannot drift. This
+# offline smoke check a scripted trace is driven through only asserts the shape a
+# chart must have (a non-empty, named, data-carrying series).
 def _response_problems(blocks: Any) -> list[str]:
     problems: list[str] = []
     if not isinstance(blocks, list) or not blocks:
@@ -148,8 +147,6 @@ def _response_problems(blocks: Any) -> list[str]:
         if not isinstance(kind, str) or not kind:
             problems.append(f"block {i} has no type")
         elif kind == "chart":
-            if block.get("chartType") not in _CHART_TYPES:
-                problems.append(f"block {i}: chartType is invalid")
             series = block.get("series")
             if not isinstance(series, list) or not series:
                 problems.append(f"block {i}: chart needs at least one series")

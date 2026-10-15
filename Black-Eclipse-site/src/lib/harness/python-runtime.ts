@@ -14,6 +14,7 @@ import { existsSync, readdirSync, statSync } from "fs";
 import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
 import { PYTHON_RUNTIME_DEPS } from "./runtime-config";
+import { isRecentlyHealthy, shouldReplaceStaleRuntime } from "./runtime-supervision";
 
 // The URL is authoritative. When an operator overrides HARNESS_PY_URL, the
 // spawned uvicorn must bind the SAME host/port — otherwise health checks would
@@ -56,6 +57,10 @@ interface HealthInfo {
   ok?: boolean;
   service?: string;
   startedAtMs?: number;
+  /** OS pid of the runtime process (advisory; distinguishes two processes). */
+  pid?: number;
+  /** Agent runs in flight in that process. 0/absent = idle. */
+  activeRuns?: number;
 }
 
 async function getHealth(timeoutMs = 1500): Promise<HealthInfo | null> {
@@ -191,12 +196,10 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   if (health) {
     // A healthy runtime that started before our source was last edited is an
     // orphan serving stale code (e.g. one left by a previous `npm run dev`).
-    // Replace it so code changes actually take effect. Only do this for a
-    // runtime that identifies itself as ours — never kill an unrelated service.
-    const sourceMtime = harnessSourceMtimeMs();
-    const startedAt = health.startedAtMs ?? 0;
-    const isOurs = health.service === "harness-runtime";
-    if (isOurs && sourceMtime > 0 && startedAt > 0 && startedAt < sourceMtime) {
+    // Replace it so code changes actually take effect — but NEVER while it is
+    // actively serving runs, since a restart orphans them (see the helper).
+    // Only do this for a runtime that identifies itself as ours.
+    if (shouldReplaceStaleRuntime(health, harnessSourceMtimeMs())) {
       console.warn(
         "[harness] stale Python runtime detected (started before the latest harness code) — restarting it"
       );
@@ -218,8 +221,19 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   if (listenerPidsOnPort().length > 0) {
     const recheck = await getHealth(4_000);
     if (!recheck) {
-      killListenerOnPort();
-      await new Promise((r) => setTimeout(r, 300));
+      // A runtime that answered recently is far more likely to be BUSY than
+      // genuinely hung (a running agent can briefly delay a probe). Killing a
+      // busy runtime orphans its runs, so require that we have NOT seen it
+      // healthy inside the busy-grace window before clearing the port.
+      const recentlyHealthy = isRecentlyHealthy(g.__harnessPyHealthyAt, Date.now());
+      if (recentlyHealthy) {
+        console.warn(
+          "[harness] runtime port is silent but the runtime answered recently — treating it as busy, not killing it"
+        );
+      } else {
+        killListenerOnPort();
+        await new Promise((r) => setTimeout(r, 300));
+      }
     }
   }
 

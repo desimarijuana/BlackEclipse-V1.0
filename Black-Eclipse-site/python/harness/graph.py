@@ -1203,6 +1203,24 @@ async def execute_run(
         agent, registry, surface_settings, request.autonomy,
     )
 
+    # Response-contract schema digest: generated LIVE from the TS contract over
+    # the read-only bridge, so a surface that may emit structured blocks is given
+    # the EXACT field names and enum values up front — the model no longer has to
+    # remember to call `response_block_schema` and cannot guess a drifted field
+    # (e.g. `datasets` for `series`, or a semantic `tone`). It rides in the
+    # byte-stable system head for the whole run. Best-effort: a bridge miss or a
+    # surface without the response tools degrades silently to the on-demand tool
+    # and never blocks the run.
+    if allowed and "response_block_schema" in allowed:
+        try:
+            from .response_tools import response_schema_prompt_block  # noqa: PLC0415
+
+            _schema_digest = await response_schema_prompt_block(data_bridge)
+            if _schema_digest:
+                system_prompt = f"{system_prompt}\n\n{_schema_digest}"
+        except Exception:  # noqa: BLE001 - a digest must never break the run
+            pass
+
     # A test/operator seam: allows a deterministic tighter budget to be injected
     # (used to exercise the overflow-recovery path without a live provider). It
     # only narrows the derived allowance — it can never widen it.
@@ -1519,6 +1537,17 @@ async def execute_run(
             lineage.save_checkpoint(request.runId, "terminal_completed", _checkpoint_payload_of(final_state))
         except Exception:  # noqa: BLE001 - a checkpoint must never break a run
             pass
+    # Phase 4: response-contract telemetry. Measure the FINAL structured answer
+    # through the same render chokepoint the client uses (bridge op "finalize"),
+    # so a repaired/degraded block becomes a visible metric and the recurring
+    # block types can be fed back into repair/normalization rules. Best-effort:
+    # a bridge miss or a prose answer is a no-op and never breaks the run.
+    try:
+        from .response_tools import emit_response_telemetry  # noqa: PLC0415
+
+        await emit_response_telemetry(data_bridge, output)
+    except Exception:  # noqa: BLE001 - telemetry must never break a run
+        pass
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
     # An explicit "turn this into a skill" request is now turned into a real

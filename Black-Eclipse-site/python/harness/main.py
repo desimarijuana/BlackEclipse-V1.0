@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, AsyncIterator, Optional
 
@@ -155,6 +156,14 @@ def health() -> dict[str, Any]:
         "ok": True,
         "service": "harness-runtime",
         "startedAtMs": _STARTED_AT_MS,
+        # The OS pid, so an operator (or the front door) can tell two runtime
+        # processes apart instead of guessing from `startedAtMs` alone.
+        "pid": os.getpid(),
+        # In-flight agent runs in THIS process. The front door reads this BEFORE
+        # it replaces a "stale" runtime: a runtime that is actively serving runs
+        # is never killed out from under them, because that orphans the run —
+        # including one paused on an approval card, whose change is then lost.
+        "activeRuns": len(getattr(service, "_active", {}) or {}),
         "tools": service.registry.names(),
         "agents": list(AGENT_PRESETS.keys()),
         "defaultAgentId": DEFAULT_AGENT_ID,

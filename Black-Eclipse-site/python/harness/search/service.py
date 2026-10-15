@@ -43,7 +43,7 @@ from .retrieve import normalize_query, retrieve
 from .router import route_query
 from .store import SearchIndexStore
 
-_INDEX_ORIGINS = ("memory", "evidence", "documents", "skills")
+_INDEX_ORIGINS = ("memory", "evidence", "documents", "skills", "repository")
 
 
 class SearchService:
@@ -127,6 +127,41 @@ class SearchService:
             except Exception:  # noqa: BLE001
                 pass
 
+    def _maybe_backfill_vectors(self) -> None:
+        """Re-embed keyword-only documents once an embedding provider is available.
+
+        The boot warm-up runs with no provider (``configure(None)``), so every
+        document is indexed keyword-only (STALE) with zero stored vectors. A
+        later query resolves the provider from the run's credentials — but
+        nothing re-indexes, so the computed embeddings are discarded and search
+        stays keyword-only forever. This schedules ONE bounded background
+        re-index so the vectors are actually persisted. Best-effort, non-blocking.
+        """
+        if not self.embedder.available or getattr(self, "_backfill_started", False):
+            return
+        self._backfill_started = True
+        try:
+            stale = self.store.list_documents(state=IndexState.STALE.value, limit=1)
+        except Exception:  # noqa: BLE001 - a store error must not affect the query
+            return
+        if not stale:
+            return
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def _run() -> None:
+            try:
+                summary = await self.bulk_index()
+                self._emit("search.index.backfill", {"detail": summary})
+            except Exception as exc:  # noqa: BLE001 - backfill must never break a query
+                self._emit("search.index.backfill_failed", {"detail": {"error": str(exc)}})
+
+        loop.create_task(_run())
+
     # ── search ──────────────────────────────────────────────────────────────
 
     async def search(
@@ -140,6 +175,8 @@ class SearchService:
             self.configure(settings)
         elif not self.embedder.available and self.config.embedding_provider:
             self.configure(None)
+        # Persist vectors for keyword-only documents once a provider is available.
+        self._maybe_backfill_vectors()
         if not request.query_id:
             request.query_id = new_id("q")
 

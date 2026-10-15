@@ -383,6 +383,7 @@ ECLIPSE_AGENT = AgentConfig(
         "skill_delete",
         "mcp_integrations",
         "mcp_install",
+        "mcp_probe",
         # Full-session historical recall: read-only search/open over prior
         # sessions. Historical content is context, never current evidence.
         "session_search",
@@ -809,7 +810,7 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     # when the front door classifies a mixed turn as `code_change`.
     "skill_install", "skill_uninstall", "skill_sources",
     "skill_create", "skill_update", "skill_delete",
-    "mcp_integrations", "mcp_install",
+    "mcp_integrations", "mcp_install", "mcp_probe",
     # finance tools stay available: a code change may need the vault for a fixture
     "market_get_quote", "fundamentals_get_financials", "research_search",
     # Scheduling (Phase 17): a coding-turn run keeps the same scheduling surface as

@@ -65,4 +65,15 @@ describe('planMarkdown', () => {
     const response = planMarkdown(md);
     expect(response.blocks.some((b) => b.type === 'citations')).toBe(false);
   });
+
+  it('output is finalized: no `unknown` block and no error diagnostic (chokepoint)', () => {
+    const md = [
+      '| Metric | BTC | ETH |',
+      '| --- | ---: | ---: |',
+      '| Return | 12.4 | 8.1 |',
+    ].join('\n');
+    const response = planMarkdown(md);
+    expect(response.blocks.every((b) => b.type !== 'unknown')).toBe(true);
+    expect(response.diagnostics.every((d) => d.severity !== 'error')).toBe(true);
+  });
 });

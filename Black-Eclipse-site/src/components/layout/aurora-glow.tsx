@@ -41,18 +41,33 @@ export function useAuroraSentiment(): { score: number; dim: number } {
 export function AuroraGlow({ className }: { className?: string }) {
   useHydrateAuroraPalette();
   const palette = useAuroraPaletteStore((s) => s.palette);
+  const motion = useAuroraPaletteStore((s) => s.motion);
+  const shape = useAuroraPaletteStore((s) => s.shape);
+  const style = useAuroraPaletteStore((s) => s.style);
   const { score, dim } = useAuroraSentiment();
   return (
     <div
       data-aurora-glow
       className={cn('absolute top-0 left-0 right-0 h-56 z-0 pointer-events-none overflow-hidden', className)}
       style={{
+        height: shape.height,
         maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',
         WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',
       }}
       aria-hidden
     >
-      <Aurora sentiment={score} dim={dim} palette={palette} />
+      <Aurora
+        sentiment={score}
+        dim={dim}
+        palette={palette}
+        smoothing={motion.response}
+        intensityScale={motion.intensity}
+        speedScale={motion.speed}
+        softnessScale={shape.softness}
+        noiseScale={shape.noiseScale}
+        style={style.id}
+        grid={style.grid}
+      />
     </div>
   );
 }

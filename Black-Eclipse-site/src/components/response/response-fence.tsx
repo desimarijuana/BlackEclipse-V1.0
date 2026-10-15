@@ -7,8 +7,8 @@
 // malformed body renders an explicit diagnostic (never a fake answer).
 
 import { useMemo } from 'react';
-import { AlertTriangle } from '@/lib/icons';
 import { decodeResponseFence } from '@/lib/response/parse';
+import { finalizeFenceSource } from '@/lib/response/finalize';
 import { ResponseView } from './response-view';
 
 export interface ResponseFenceProps {
@@ -38,23 +38,11 @@ export function ResponseFence({ source, streaming = false, compact = false, onFo
     );
   }
 
-  return (
-    <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2 text-[12px] text-rose-200/90">
-      <div className="flex items-center gap-1.5 font-medium">
-        <AlertTriangle size={13} />
-        The structured response could not be parsed.
-      </div>
-      <p className="mt-0.5 font-mono text-[10px] opacity-70">{result.error}</p>
-      {source.trim() && (
-        <details className="mt-1.5">
-          <summary className="cursor-pointer select-none text-[11px] opacity-80">Show the raw content</summary>
-          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2 font-mono text-[10px] leading-relaxed text-rose-100/80">
-            {source}
-          </pre>
-        </details>
-      )}
-    </div>
-  );
+  // Settled + malformed JSON: degrade to readable content rather than an error
+  // card. The chokepoint shows the raw source as a code fence so the answer is
+  // never gutted, and the failure is reported for telemetry — never surfaced as
+  // a parse error.
+  return <ResponseView response={finalizeFenceSource(source).response} compact={compact} onFollowup={onFollowup} />;
 }
 
 export default ResponseFence;

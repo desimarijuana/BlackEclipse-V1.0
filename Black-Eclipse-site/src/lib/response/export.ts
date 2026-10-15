@@ -4,6 +4,7 @@
 // autotable) are dynamically imported so they never enter the chat bundle.
 
 import type { ParsedResponse, TableCell, ValidatedBlock } from './contract';
+import { finalizeParsed } from './finalize';
 import { getChart } from './chart-registry';
 import { inlineText, parseMarkdown } from '@/lib/chat/markdown';
 
@@ -33,7 +34,9 @@ function safeName(name: string, ext: string): string {
 }
 
 export function responseToJson(response: ParsedResponse): string {
-  return JSON.stringify(response, null, 2);
+  // Finalize defensively: an export must never contain a rejected (`unknown`)
+  // block or an error diagnostic, regardless of the caller.
+  return JSON.stringify(finalizeParsed(response).response, null, 2);
 }
 
 export function downloadResponseJson(response: ParsedResponse, name: string): void {
@@ -180,6 +183,9 @@ function accentColor(): [number, number, number] {
  * an appendix note rather than silently dropped.
  */
 export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
+  // Finalize first so the PDF is built from repaired/degraded blocks — never a
+  // rejected block or an error note.
+  const safe = finalizeParsed(response).response;
   const { default: JsPDF } = await import('jspdf');
   const { autoTable } = await import('jspdf-autotable');
   const doc = new JsPDF({ unit: 'pt', format: 'a4' });
@@ -214,13 +220,13 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
     });
   };
 
-  heading(response.title ?? 'Eclipse Response', 16);
-  if (response.summary) paragraph(response.summary);
+  heading(safe.title ?? 'Eclipse Response', 16);
+  if (safe.summary) paragraph(safe.summary);
   y += 4;
 
   const missing: string[] = [];
 
-  for (const block of response.blocks) {
+  for (const block of safe.blocks) {
     switch (block.type) {
       case 'heading':
         heading(block.text, 13);

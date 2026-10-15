@@ -432,6 +432,17 @@ class AgenticService:
         from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
 
         install_artifact_layer(self)
+        # Document Authoring: the WRITE side of the document capability. Registers
+        # `document_create`, which builds real Word/Excel/PowerPoint/Markdown/CSV
+        # files from a neutral vocabulary and records them in the Artifact Center
+        # above. It owns no store; a missing writer library or artifact service is
+        # reported honestly per call, so it never blocks boot.
+        try:
+            from .documents.tools import register_document_authoring_tools  # noqa: PLC0415
+
+            register_document_authoring_tools(self.registry)
+        except Exception:  # noqa: BLE001 - authoring is optional; never block boot
+            log.warning("document authoring subsystem unavailable", exc_info=True)
         # UI Engineering runtime: the component catalog + declarative blueprint
         # engine + `ui_*` agent tools, on the ONE agent-memory connection. A
         # failure only leaves `self.ui` None, so it never blocks boot.

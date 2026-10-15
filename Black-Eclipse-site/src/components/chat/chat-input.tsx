@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers } from '@/lib/icons';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -23,11 +24,18 @@ import {
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
 import { EffortControl } from './effort-control';
-import { CHAT_COMMANDS, type ChatCommand } from '@/lib/harness/commands';
+import {
+  commandArgHint,
+  isCommandAvailable,
+  searchCommands,
+  type CommandSpec,
+} from '@/lib/harness/command-registry';
 import { useT } from '@/lib/i18n/use-t';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
+// Cap the palette so typing a bare `/` never floods the list.
+const MAX_COMMAND_RESULTS = 12;
 
 /** One attached file shown as a chip above the composer. */
 export interface AttachmentChip {
@@ -132,17 +140,15 @@ export function ChatInput({
     if (/\s/.test(body)) return null; // past the command word: the rest is the instruction
     return body.toLowerCase();
   }, [query]);
-  const commandMatches = useMemo<ChatCommand[]>(() => {
+  const commandMatches = useMemo<CommandSpec[]>(() => {
     if (commandToken === null) return [];
-    return CHAT_COMMANDS.filter(
-      (c) => c.name.startsWith(commandToken) || c.aliases.some((a) => a.startsWith(commandToken)),
-    );
+    return searchCommands(commandToken).slice(0, MAX_COMMAND_RESULTS);
   }, [commandToken]);
   const commandMenuOpen = commandToken !== null && commandMatches.length > 0;
   useEffect(() => { setCommandHighlight(0); }, [commandToken]);
 
   const completeCommand = useCallback(
-    (c: ChatCommand) => {
+    (c: CommandSpec) => {
       setQuery(`/${c.name} `);
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
@@ -150,11 +156,13 @@ export function ChatInput({
   );
 
   // A recognized command already followed by an instruction: show a badge.
-  const activeCommand = useMemo<ChatCommand | null>(() => {
+  const activeCommand = useMemo<CommandSpec | null>(() => {
     const m = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)\s/.exec(query);
     if (!m) return null;
     const tok = m[1].toLowerCase();
-    return CHAT_COMMANDS.find((c) => c.name === tok || c.aliases.includes(tok)) ?? null;
+    return searchCommands(tok, { includeUnavailable: true }).find(
+      (c) => c.name === tok || c.aliases.includes(tok),
+    ) ?? null;
   }, [query]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -190,6 +198,35 @@ export function ChatInput({
   };
 
   const filled = Math.max(0, Math.min(1, contextFraction ?? 0));
+  const commandSummary = useCallback(
+    (c: CommandSpec) => (c.summaryKey ? t(c.summaryKey) : c.summary),
+    [t],
+  );
+
+  // The `/` palette is PORTALED to <body> so its backdrop blur samples the real
+  // page instead of a scoped backdrop root (the app shell's glass surfaces),
+  // which would silently flatten the frost. Its box is tracked to the composer.
+  const formRef = useRef<HTMLFormElement>(null);
+  const [paletteBox, setPaletteBox] = useState<{ left: number; width: number; bottom: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!commandMenuOpen) {
+      setPaletteBox(null);
+      return;
+    }
+    const el = formRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setPaletteBox({ left: r.left, width: r.width, bottom: window.innerHeight - r.top + 8 });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [commandMenuOpen]);
 
   return (
     <div className="w-full">
@@ -224,49 +261,77 @@ export function ChatInput({
       )}
       {activeCommand && (
         <div className="mb-2 flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
-            <Sparkles size={11} className="shrink-0" />
-            {t(activeCommand.summaryKey)}
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
+              isCommandAvailable(activeCommand)
+                ? 'border-primary/30 bg-primary/10 text-primary'
+                : 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+            )}
+          >
+            <Command size={11} className="shrink-0" />
+            {commandSummary(activeCommand)}
+            {!isCommandAvailable(activeCommand) && (
+              <span className="ml-1 text-[9px] uppercase tracking-wide opacity-80">not available</span>
+            )}
           </span>
         </div>
       )}
-      {commandMenuOpen && (
-        <div
-          role="listbox"
-          aria-label={t('code.command.paletteLabel')}
-          className="mb-2 overflow-hidden rounded-2xl glass-card border border-white/10 shadow-lg"
-        >
+      {commandMenuOpen && paletteBox && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="listbox"
+            aria-label={t('code.command.paletteLabel')}
+            style={{
+              position: 'fixed',
+              left: paletteBox.left,
+              width: paletteBox.width,
+              bottom: paletteBox.bottom,
+            }}
+            className="z-[120] max-h-[50vh] overflow-y-auto rounded-2xl glass-command-popover shadow-lg"
+          >
           <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
             {t('code.command.paletteLabel')}
           </div>
-          {commandMatches.map((c, i) => (
-            <button
-              key={c.name}
-              type="button"
-              role="option"
-              aria-selected={i === commandHighlight}
-              onMouseEnter={() => setCommandHighlight(i)}
-              // onMouseDown (not onClick) so the textarea does not blur/lose the
-              // selection before the command is inserted.
-              onMouseDown={(e) => { e.preventDefault(); completeCommand(c); }}
-              className={cn(
-                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                i === commandHighlight ? 'bg-accent/40' : 'hover:bg-accent/25',
-              )}
-            >
-              <Sparkles size={13} className="shrink-0 text-primary" />
-              <span className="font-mono text-xs">/{c.name}</span>
-              <span className="ml-1 min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-                {t(c.summaryKey)}
-              </span>
-              {c.aliases.length > 0 && (
-                <span className="shrink-0 text-[10px] text-muted-foreground/50">/{c.aliases[0]}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-      <form onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
+          {commandMatches.map((c, i) => {
+            const available = isCommandAvailable(c);
+            const hint = commandArgHint(c);
+            return (
+              <button
+                key={c.name}
+                type="button"
+                role="option"
+                aria-selected={i === commandHighlight}
+                aria-disabled={!available}
+                onMouseEnter={() => setCommandHighlight(i)}
+                // onMouseDown (not onClick) so the textarea does not blur/lose the
+                // selection before the command is inserted.
+                onMouseDown={(e) => { e.preventDefault(); completeCommand(c); }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                  i === commandHighlight ? 'bg-accent/40' : 'hover:bg-accent/25',
+                  !available && 'opacity-60',
+                )}
+              >
+                <Command size={13} className={cn('shrink-0', available ? 'text-primary' : 'text-amber-400/70')} />
+                <span className="font-mono text-xs">/{c.name}</span>
+                {hint && <span className="hidden font-mono text-[10px] text-muted-foreground/50 sm:inline">{hint}</span>}
+                <span className="ml-1 min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                  {commandSummary(c)}
+                </span>
+                <span className="shrink-0 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
+                  {c.category}
+                </span>
+                {!available && (
+                  <span className="shrink-0 text-[9px] uppercase tracking-wide text-amber-400/70">soon</span>
+                )}
+              </button>
+            );
+          })}
+          </div>,
+          document.body,
+        )}
+      <form ref={formRef} onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
         <Button
           type="button"
           variant="ghost"

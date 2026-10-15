@@ -24,9 +24,12 @@ const tooltipStyle = {
 
 // ── Equity curve (cumulative R) with drawdown shading ────────────────────────
 
-export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve', hint = 'CUMULATIVE R' }: { equity: EquityPoint[]; height?: number; title?: string; hint?: string }) {
+export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve', hint, currency = false }: { equity: EquityPoint[]; height?: number; title?: string; hint?: string; currency?: boolean }) {
   const palette = useChartPalette();
+  const resolvedHint = hint ?? (currency ? 'ACCOUNT BALANCE' : 'CUMULATIVE R');
   const option = useMemo<EChartsOption | null>(() => {
+    const sym = '\u0024';
+    const fmt = currency ? (v: number) => `${sym}${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : fmtR;
     if (equity.length < 2) return null;
     const dates = equity.map((p) => p.date.slice(0, 10));
     return {
@@ -38,7 +41,7 @@ export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve',
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const p = equity[idx];
-          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Equity: <b style="color:${palette.lines.primary}">${fmtR(p.equity)}</b><br/>Drawdown: <b style="color:${palette.candles.down}">${fmtR(-p.drawdown)}</b>`;
+          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Equity: <b style="color:${palette.lines.primary}">${fmt(p.equity)}</b><br/>Drawdown: <b style="color:${palette.candles.down}">${fmt(-p.drawdown)}</b>`;
         },
       },
       xAxis: {
@@ -52,14 +55,14 @@ export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve',
       yAxis: {
         type: 'value',
         scale: true,
-        axisLabel: { formatter: (v: number) => `${v}R`, color: '#7a7a7a', fontSize: 10, fontFamily: 'monospace' },
+        axisLabel: { formatter: (v: number) => (currency ? fmt(v) : `${v}R`), color: '#7a7a7a', fontSize: 10, fontFamily: 'monospace' },
         splitLine: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
       },
       series: [
         {
-          name: 'Equity (R)',
+          name: currency ? 'Equity (balance)' : 'Equity (R)',
           type: 'line',
           data: equity.map((p) => p.equity),
           showSymbol: false,
@@ -78,9 +81,9 @@ export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve',
         },
       ],
     };
-  }, [equity, palette]);
+  }, [equity, palette, currency]);
 
-  return <EChartsContainer option={option} deps={[equity, palette]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough closed trades to plot an equity curve." />;
+  return <EChartsContainer option={option} deps={[equity, palette, currency]} height={height} title={title} hint={resolvedHint} empty={equity.length < 2} emptyText="Not enough closed trades to plot an equity curve." />;
 }
 
 // ── Horizontal bar: net R by dimension (symbol / setup / session) ────────────
@@ -314,4 +317,109 @@ export function DailyPerformanceChart({ days, height = 200, title = 'Daily Perfo
   }, [days, palette]);
 
   return <EChartsContainer option={option} deps={[days, palette]} height={height} title={title} hint={hint} empty={days.length === 0} emptyText="No daily data yet." />;
+}
+
+// ── Generic scatter (MAE/MFE efficiency, confidence vs outcome) ──────────────
+
+export interface ScatterPoint { x: number; y: number; label?: string }
+
+export function ScatterChart({
+  points, xLabel, yLabel, title, hint, xFormatter, yFormatter, tooltipFormatter, height = 220,
+}: {
+  points: ScatterPoint[];
+  xLabel: string;
+  yLabel: string;
+  title?: string;
+  hint?: string;
+  xFormatter?: (v: number) => string;
+  yFormatter?: (v: number) => string;
+  tooltipFormatter?: (p: ScatterPoint) => string;
+  height?: number;
+}) {
+  const palette = useChartPalette();
+  const option = useMemo<EChartsOption | null>(() => {
+    if (points.length === 0) return null;
+    const xfmt = xFormatter ?? ((v: number) => String(v));
+    const yfmt = yFormatter ?? ((v: number) => String(v));
+    return {
+      ...journalBaseOption(),
+      tooltip: {
+        trigger: 'item',
+        ...tooltipStyle,
+        formatter: (params: unknown) => {
+          const d = (Array.isArray(params) ? params[0] : params) as { data: { value: [number, number]; point: ScatterPoint } };
+          const pt = d.data.point;
+          return tooltipFormatter
+            ? tooltipFormatter(pt)
+            : `${xLabel}: <b>${xfmt(pt.x)}</b><br/>${yLabel}: <b>${yfmt(pt.y)}</b>`;
+        },
+      },
+      xAxis: {
+        type: 'value', scale: true, name: xLabel,
+        nameLocation: 'middle', nameGap: 24,
+        nameTextStyle: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { formatter: (v: number) => xfmt(v), color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' },
+      },
+      yAxis: {
+        type: 'value', scale: true, name: yLabel,
+        nameTextStyle: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { formatter: (v: number) => yfmt(v), color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' },
+      },
+      series: [
+        {
+          type: 'scatter',
+          symbolSize: 9,
+          data: points.map((pt) => ({
+            value: [pt.x, pt.y],
+            point: pt,
+            itemStyle: { color: pt.y >= 0 ? palette.candles.up : palette.candles.down, opacity: 0.75 },
+          })),
+        },
+      ],
+    };
+  }, [points, palette, xLabel, yLabel, xFormatter, yFormatter, tooltipFormatter]);
+
+  return <EChartsContainer option={option} deps={[points, palette]} height={height} title={title} hint={hint} empty={points.length === 0} emptyText="Not enough data to plot this view." />;
+}
+
+// ── Rolling performance (trailing window) ─────────────────────────────────────
+
+export function RollingMetricsChart({ rolling, height = 220, title = 'Rolling Performance', hint = 'TRAILING 20 TRADES' }: { rolling: { date: string; winRate: number; expectancyR: number; netR: number }[]; height?: number; title?: string; hint?: string }) {
+  const palette = useChartPalette();
+  const option = useMemo<EChartsOption | null>(() => {
+    if (rolling.length === 0) return null;
+    const dates = rolling.map((p) => p.date.slice(0, 10));
+    return {
+      ...journalBaseOption(),
+      tooltip: {
+        trigger: 'axis',
+        ...tooltipStyle,
+        formatter: (params: unknown) => {
+          const arr = Array.isArray(params) ? params : [params];
+          const idx = (arr[0] as { dataIndex: number }).dataIndex;
+          const p = rolling[idx];
+          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Win rate: <b>${(p.winRate * 100).toFixed(0)}%</b><br/>Expectancy: <b style="color:${p.expectancyR >= 0 ? palette.candles.up : palette.candles.down}">${fmtR(p.expectancyR)}</b><br/>Net R (window): <b>${fmtR(p.netR)}</b>`;
+        },
+      },
+      xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' } },
+      yAxis: { type: 'value', scale: true, splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
+      series: [
+        {
+          name: 'Win rate',
+          type: 'line',
+          data: rolling.map((p) => p.winRate),
+          showSymbol: false,
+          smooth: 0.3,
+          lineStyle: { width: 2, color: palette.lines.primary },
+          itemStyle: { color: palette.lines.primary },
+        },
+      ],
+    };
+  }, [rolling, palette]);
+
+  return <EChartsContainer option={option} deps={[rolling, palette]} height={height} title={title} hint={hint} empty={rolling.length === 0} emptyText="Need at least 20 closed trades for a rolling view." />;
 }

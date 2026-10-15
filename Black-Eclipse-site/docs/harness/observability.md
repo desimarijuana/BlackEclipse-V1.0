@@ -124,9 +124,17 @@ the families the platform records: `eclipse_runs_total`, `eclipse_run_duration_m
 `eclipse_queue_depth`, `eclipse_events_total`, `eclipse_plugin_operations_total`,
 `eclipse_a2a_messages_total`, `eclipse_memory_operations_total`,
 `eclipse_research_total`, `eclipse_evidence_total`, `eclipse_recovery_total`,
-`eclipse_security_events_total`, `eclipse_telemetry_dropped_total`.
+`eclipse_security_events_total`, `eclipse_response_blocks_total`,
+`eclipse_telemetry_dropped_total`.
 
 Scrape the Prometheus text exposition at `GET /observability/metrics/prometheus`.
+
+The `onResponseBlocks` hook (Interactive-Response Engine, Phase 4) records
+`eclipse_response_blocks_total{outcome,type}` — how many structured-answer blocks
+had to be **repaired** or **degraded** by the render chokepoint, by block type. It
+is emitted once per run at the answer seam from the bridge `response_contract`
+op `"finalize"` (the exact client path), so the drift rate is measurable and a
+recurring `type` is the signal to add a normalization/repair rule.
 
 ## Costs
 

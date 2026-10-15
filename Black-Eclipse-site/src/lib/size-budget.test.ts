@@ -100,7 +100,10 @@ const RATCHET: Record<string, number> = {
   // program touches NO part of stock-chat.tsx. May only shrink from here.
   // Re-pinned 1390→1391: the same in-flight shared-tree edit added one more line
   // before it landed. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1391,
+  // Re-pinned 1391→1399: the concurrent "Aurora glow" chat-shell change (commit
+  // ab9b5eb2) added glow wiring to the ChatBot page; the slash-command work
+  // touches no part of stock-chat.tsx. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1399,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

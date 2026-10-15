@@ -10,9 +10,20 @@ import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
+import { parseCommandInvocation } from "@/lib/harness/command-parser";
+import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
+import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { newRunId } from "@/lib/harness/ids";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
 
 // POST /api/harness/chat/stream — streaming chat.
 //
@@ -36,6 +47,42 @@ export async function POST(request: Request) {
   const query = typeof body.query === "string" ? body.query.trim() : "";
   if (!query) return Response.json({ error: "query is required" }, { status: 400 });
   if (query.length > 4000) return Response.json({ error: "query too long (max 4000 chars)" }, { status: 400 });
+
+  // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the
+  // shared command router and streamed back as a synthetic terminal frame — no
+  // LLM provider is needed. Profile commands (`/eclipsesdk`) and ordinary prose
+  // fall through to the normal agent path. An unknown `/token` also falls through,
+  // so existing text that merely starts with a slash keeps working.
+  const invocation = parseCommandInvocation(query);
+  if (invocation?.spec && isRoutedCommand(invocation.spec)) {
+    const result = await executeCommandFromText(query, { operator: isOperatorRequest(request) });
+    if (result) {
+      const cmdRunId = newRunId();
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const send = (type: string, data: unknown) => {
+            controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+          };
+          send("client.run", { runId: cmdRunId, documentsUsed: [] });
+          send("client.final", {
+            runId: cmdRunId,
+            // A command that refused (unknown/invalid/unavailable/denied) still
+            // RAN and produced a readable explanation, so the turn settles as
+            // completed. Only a genuine execution failure surfaces as an error.
+            status: result.status === "failed" ? "failed" : "completed",
+            output: result.output,
+            ...(result.status === "failed" ? { error: result.error?.message } : {}),
+            provider: null,
+            model: null,
+          });
+          send("stream.end", {});
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: SSE_HEADERS });
+    }
+  }
 
   const rawHistory = body.history;
   const history = Array.isArray(rawHistory)
@@ -184,12 +231,5 @@ export async function POST(request: Request) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }

@@ -43,6 +43,7 @@ function breakdown(trades: TradeRecord[], extract: KeyExtractor): DimensionRow[]
 }
 
 export const bySymbol = (trades: TradeRecord[]) => breakdown(trades, (t) => t.symbol);
+export const byStrategy = (trades: TradeRecord[]) => breakdown(trades, (t) => t.strategyName ?? t.strategyId ?? null);
 export const bySetup = (trades: TradeRecord[]) => breakdown(trades, (t) => t.setupName ?? t.setupId ?? null);
 export const bySession = (trades: TradeRecord[]) => breakdown(trades, (t) => t.session ?? null);
 export const byDirection = (trades: TradeRecord[]) => breakdown(trades, (t) => t.direction);

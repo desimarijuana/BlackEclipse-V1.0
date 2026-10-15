@@ -66,12 +66,12 @@ export function toTradeRecord(t: {
   symbol: string;
   direction: string;
   entry: number;
-  exit: number;
+  exit: number | null;
   stopLoss: number | null;
   takeProfit: number | null;
   quantity: number;
   entryTime: Date;
-  exitTime: Date;
+  exitTime: Date | null;
   timeframe: string | null;
   session: string | null;
   marketRegime: string | null;
@@ -81,10 +81,16 @@ export function toTradeRecord(t: {
   confidence: number | null;
   mistakes: string | null;
   notes: string | null;
+  grade?: string | null;
+  checklist?: string | null;
   status: string;
   source?: string | null;
+  accountId?: string | null;
   strategyId: string | null;
   setupId: string | null;
+  grossPnl?: number | null;
+  commission?: number | null;
+  fee?: number | null;
   pnl: number;
   pnlPct: number;
   rMultiple: number;
@@ -96,6 +102,7 @@ export function toTradeRecord(t: {
   mae: number | null;
   strategy?: { name: string } | null;
   setup?: { name: string } | null;
+  account?: { name: string } | null;
   tags?: { tag: { name: string } }[];
 }): TradeRecord {
   return {
@@ -108,7 +115,7 @@ export function toTradeRecord(t: {
     takeProfit: t.takeProfit,
     quantity: t.quantity,
     entryTime: t.entryTime.toISOString(),
-    exitTime: t.exitTime.toISOString(),
+    exitTime: (t.exitTime ?? t.entryTime).toISOString(),
     timeframe: t.timeframe,
     session: t.session,
     marketRegime: t.marketRegime,
@@ -118,13 +125,20 @@ export function toTradeRecord(t: {
     confidence: t.confidence,
     mistakes: t.mistakes,
     notes: t.notes,
+    grade: t.grade ?? null,
+    checklist: t.checklist ?? null,
     status: t.status as TradeRecord["status"],
     source: (t.source === "demo" ? "demo" : "manual") as TradeRecord["source"],
     strategyId: t.strategyId,
     strategyName: t.strategy?.name,
     setupId: t.setupId,
     setupName: t.setup?.name,
+    accountId: t.accountId ?? null,
+    accountName: t.account?.name,
     tags: t.tags?.map((tt) => tt.tag.name),
+    grossPnl: t.grossPnl ?? t.pnl,
+    commission: t.commission ?? 0,
+    fee: t.fee ?? 0,
     pnl: t.pnl,
     pnlPct: t.pnlPct,
     rMultiple: t.rMultiple,
@@ -140,6 +154,7 @@ export function toTradeRecord(t: {
 const tradeInclude = {
   strategy: { select: { name: true } },
   setup: { select: { name: true } },
+  account: { select: { name: true } },
   tags: { include: { tag: { select: { name: true } } } },
   marketContext: true,
 } as const;
@@ -158,12 +173,14 @@ export interface CreateTradeInput {
   symbol: string;
   direction: "LONG" | "SHORT";
   entry: number;
-  exit: number;
+  /** Null/omitted → the position is open (no exit yet). */
+  exit?: number | null;
   stopLoss?: number | null;
   takeProfit?: number | null;
   quantity: number;
   entryTime: string;
-  exitTime: string;
+  /** Required when `exit` is set; ignored for open positions. */
+  exitTime?: string | null;
   timeframe?: string | null;
   session?: string | null;
   marketRegime?: string | null;
@@ -173,27 +190,39 @@ export interface CreateTradeInput {
   confidence?: number | null;
   mistakes?: string[] | null;
   notes?: string | null;
+  grade?: string | null;
+  checklist?: Record<string, boolean> | null;
   strategyId?: string | null;
   setupId?: string | null;
+  accountId?: string | null;
   tagNames?: string[];
+  commission?: number | null;
+  fee?: number | null;
+  /** Explicit status override. Defaults from whether an exit is present. */
+  status?: "open" | "closed";
   /** Provenance. Defaults to 'manual'; the demo seeder passes 'demo'. */
   source?: "manual" | "demo";
 }
 
 /** Create a trade, computing all derived metrics and linking the day. */
 export async function createTrade(profileId: string, input: CreateTradeInput) {
+  const isOpen = input.status === "open" || input.exit == null;
+  const effectiveExit = isOpen ? null : (input.exit as number);
+  const effectiveExitTime = isOpen ? input.entryTime : (input.exitTime ?? input.entryTime);
   const math = computeTradeMath({
     direction: input.direction,
     entry: input.entry,
-    exit: input.exit,
+    exit: effectiveExit,
     stopLoss: input.stopLoss ?? null,
     takeProfit: input.takeProfit ?? null,
     quantity: input.quantity,
     entryTime: input.entryTime,
-    exitTime: input.exitTime,
+    exitTime: effectiveExitTime,
+    commission: input.commission ?? 0,
+    fee: input.fee ?? 0,
   });
 
-  const dayDate = new Date(input.exitTime.slice(0, 10) + "T00:00:00Z");
+  const dayDate = new Date(effectiveExitTime.slice(0, 10) + "T00:00:00Z");
   const day = await prisma.journalDay.upsert({
     where: { profileId_date: { profileId, date: dayDate } },
     update: {},
@@ -206,12 +235,12 @@ export async function createTrade(profileId: string, input: CreateTradeInput) {
       symbol: input.symbol.toUpperCase(),
       direction: input.direction,
       entry: input.entry,
-      exit: input.exit,
+      exit: effectiveExit,
       stopLoss: input.stopLoss ?? null,
       takeProfit: input.takeProfit ?? null,
       quantity: input.quantity,
       entryTime: new Date(input.entryTime),
-      exitTime: new Date(input.exitTime),
+      exitTime: isOpen ? null : new Date(effectiveExitTime),
       timeframe: input.timeframe ?? null,
       session: input.session ?? null,
       marketRegime: input.marketRegime ?? null,
@@ -221,10 +250,17 @@ export async function createTrade(profileId: string, input: CreateTradeInput) {
       confidence: input.confidence ?? null,
       mistakes: input.mistakes ? JSON.stringify(input.mistakes) : null,
       notes: input.notes ?? null,
+      grade: input.grade ?? null,
+      checklist: input.checklist ? JSON.stringify(input.checklist) : null,
       strategyId: input.strategyId ?? null,
       setupId: input.setupId ?? null,
+      accountId: input.accountId ?? null,
+      status: isOpen ? "open" : "closed",
       source: input.source ?? "manual",
       dayId: day.id,
+      grossPnl: math.grossPnl,
+      commission: input.commission ?? 0,
+      fee: input.fee ?? 0,
       pnl: math.pnl,
       pnlPct: math.pnlPct,
       rMultiple: math.rMultiple,
@@ -261,12 +297,13 @@ export interface UpdateTradeInput {
   symbol?: string;
   direction?: "LONG" | "SHORT";
   entry?: number;
-  exit?: number;
+  /** Null closes-to-open (reopens the position). */
+  exit?: number | null;
   stopLoss?: number | null;
   takeProfit?: number | null;
   quantity?: number;
   entryTime?: string;
-  exitTime?: string;
+  exitTime?: string | null;
   timeframe?: string | null;
   session?: string | null;
   marketRegime?: string | null;
@@ -276,9 +313,14 @@ export interface UpdateTradeInput {
   confidence?: number | null;
   mistakes?: string[] | null;
   notes?: string | null;
+  grade?: string | null;
+  checklist?: Record<string, boolean> | null;
   strategyId?: string | null;
   setupId?: string | null;
+  accountId?: string | null;
   tagNames?: string[];
+  commission?: number | null;
+  fee?: number | null;
   /** Execution event kind to log (e.g. 'entry_modified', 'stop_modified', 'closed'). */
   eventKind?: string;
 }
@@ -291,16 +333,23 @@ export async function updateTrade(profileId: string, tradeId: string, input: Upd
   const existing = await prisma.trade.findFirst({ where: { id: tradeId, profileId } });
   if (!existing) return null;
 
+  const nextExit = input.exit !== undefined ? input.exit : existing.exit;
+  const providedExitTime = input.exitTime !== undefined
+    ? (input.exitTime ? new Date(input.exitTime) : null)
+    : existing.exitTime;
+  const isOpen = nextExit == null;
+  const nextExitTime = isOpen ? null : providedExitTime;
+
   const next = {
     symbol: input.symbol?.toUpperCase() ?? existing.symbol,
     direction: input.direction ?? existing.direction,
     entry: input.entry ?? existing.entry,
-    exit: input.exit ?? existing.exit,
+    exit: isOpen ? null : nextExit,
     stopLoss: input.stopLoss !== undefined ? input.stopLoss : existing.stopLoss,
     takeProfit: input.takeProfit !== undefined ? input.takeProfit : existing.takeProfit,
     quantity: input.quantity ?? existing.quantity,
     entryTime: input.entryTime ? new Date(input.entryTime) : existing.entryTime,
-    exitTime: input.exitTime ? new Date(input.exitTime) : existing.exitTime,
+    exitTime: nextExitTime,
     timeframe: input.timeframe !== undefined ? input.timeframe : existing.timeframe,
     session: input.session !== undefined ? input.session : existing.session,
     marketRegime: input.marketRegime !== undefined ? input.marketRegime : existing.marketRegime,
@@ -310,8 +359,14 @@ export async function updateTrade(profileId: string, tradeId: string, input: Upd
     confidence: input.confidence !== undefined ? input.confidence : existing.confidence,
     mistakes: input.mistakes !== undefined ? JSON.stringify(input.mistakes) : existing.mistakes,
     notes: input.notes !== undefined ? input.notes : existing.notes,
+    grade: input.grade !== undefined ? input.grade : existing.grade,
+    checklist: input.checklist !== undefined ? JSON.stringify(input.checklist) : existing.checklist,
     strategyId: input.strategyId !== undefined ? input.strategyId : existing.strategyId,
     setupId: input.setupId !== undefined ? input.setupId : existing.setupId,
+    accountId: input.accountId !== undefined ? input.accountId : existing.accountId,
+    commission: input.commission !== undefined ? (input.commission ?? 0) : existing.commission,
+    fee: input.fee !== undefined ? (input.fee ?? 0) : existing.fee,
+    status: isOpen ? "open" : "closed",
   };
 
   // Recompute derived metrics from the merged values.
@@ -323,13 +378,16 @@ export async function updateTrade(profileId: string, tradeId: string, input: Upd
     takeProfit: next.takeProfit,
     quantity: next.quantity,
     entryTime: next.entryTime.toISOString(),
-    exitTime: next.exitTime.toISOString(),
+    exitTime: (next.exitTime ?? next.entryTime).toISOString(),
+    commission: next.commission,
+    fee: next.fee,
   });
 
   const updated = await prisma.trade.update({
     where: { id: tradeId },
     data: {
       ...next,
+      grossPnl: math.grossPnl,
       pnl: math.pnl,
       pnlPct: math.pnlPct,
       rMultiple: math.rMultiple,
@@ -474,4 +532,221 @@ export async function saveAiReview(profileId: string, input: {
       source: "ai",
     },
   });
+}
+
+// ── Profile (settings vault) ─────────────────────────────────────────────────
+
+/** Read the guest profile (settings: name, currency, risk, account size). */
+export async function getProfile(profileId: string) {
+  return prisma.journalProfile.findUnique({ where: { id: profileId } });
+}
+
+export interface UpdateProfileInput {
+  name?: string;
+  currency?: string;
+  riskPerTrade?: number;
+  accountSize?: number;
+}
+
+/** Update the trader's settings. Only provided fields change. */
+export async function updateProfile(profileId: string, input: UpdateProfileInput) {
+  return prisma.journalProfile.update({ where: { id: profileId }, data: input });
+}
+
+// ── Trading accounts (multi-account support) ─────────────────────────────────
+
+export interface AccountInput {
+  name: string;
+  broker?: string | null;
+  currency?: string;
+  initialBalance?: number;
+}
+
+/** List a profile's trading accounts (oldest first). */
+export async function listAccounts(profileId: string) {
+  return prisma.tradingAccount.findMany({
+    where: { profileId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Create a trading account. */
+export async function createAccount(profileId: string, input: AccountInput) {
+  return prisma.tradingAccount.create({
+    data: {
+      profileId,
+      name: input.name,
+      broker: input.broker ?? null,
+      currency: input.currency ?? "USD",
+      initialBalance: input.initialBalance ?? 0,
+    },
+  });
+}
+
+export interface UpdateAccountInput {
+  name?: string;
+  broker?: string | null;
+  currency?: string;
+  initialBalance?: number;
+  archived?: boolean;
+}
+
+/** Update a trading account. Returns null when not found (or wrong profile). */
+export async function updateAccount(profileId: string, accountId: string, input: UpdateAccountInput) {
+  const existing = await prisma.tradingAccount.findFirst({ where: { id: accountId, profileId } });
+  if (!existing) return null;
+  return prisma.tradingAccount.update({ where: { id: accountId }, data: input });
+}
+
+/** Delete a trading account. Trades keep existing (accountId set null). */
+export async function deleteAccount(profileId: string, accountId: string): Promise<boolean> {
+  const result = await prisma.tradingAccount.deleteMany({ where: { id: accountId, profileId } });
+  return result.count > 0;
+}
+
+// ── Execution history (stop/target modifications, partial exits) ────────────
+
+/** List the execution log for a trade (newest first). */
+export async function listTradeExecutions(profileId: string, tradeId: string) {
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  if (!trade) return [];
+  return prisma.tradeExecution.findMany({ where: { tradeId }, orderBy: { createdAt: "desc" } });
+}
+
+// ── Free-form journal entries (Phase 5) ──────────────────────────────────────
+
+/** List free-form journal entries (newest first). */
+export async function listJournalEntries(profileId: string) {
+  return prisma.journalEntry.findMany({ where: { profileId }, orderBy: { createdAt: "desc" } });
+}
+
+export interface JournalEntryInput {
+  title: string;
+  body: string;
+}
+
+/** Create a free-form journal entry. */
+export async function createJournalEntry(profileId: string, input: JournalEntryInput) {
+  return prisma.journalEntry.create({
+    data: { profileId, title: input.title, body: input.body },
+  });
+}
+
+/** Update a free-form journal entry. */
+export async function updateJournalEntry(profileId: string, entryId: string, input: Partial<JournalEntryInput>) {
+  const existing = await prisma.journalEntry.findFirst({ where: { id: entryId, profileId } });
+  if (!existing) return null;
+  return prisma.journalEntry.update({ where: { id: entryId }, data: input });
+}
+
+/** Delete a free-form journal entry. */
+export async function deleteJournalEntry(profileId: string, entryId: string): Promise<boolean> {
+  const result = await prisma.journalEntry.deleteMany({ where: { id: entryId, profileId } });
+  return result.count > 0;
+}
+
+// ── Watchlist / pre-trade ideas / pending orders ─────────────────────────────
+
+/** List watchlist items (open intents first, newest first). */
+export async function listWatchlist(profileId: string) {
+  return prisma.watchlistItem.findMany({
+    where: { profileId },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+  });
+}
+
+export interface WatchlistInput {
+  symbol: string;
+  direction?: "LONG" | "SHORT";
+  idea?: string | null;
+  trigger?: number | null;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  note?: string | null;
+}
+
+/** Create a watchlist item. */
+export async function createWatchlistItem(profileId: string, input: WatchlistInput) {
+  return prisma.watchlistItem.create({
+    data: {
+      profileId,
+      symbol: input.symbol.toUpperCase(),
+      direction: input.direction ?? "LONG",
+      idea: input.idea ?? null,
+      trigger: input.trigger ?? null,
+      stopLoss: input.stopLoss ?? null,
+      takeProfit: input.takeProfit ?? null,
+      note: input.note ?? null,
+    },
+  });
+}
+
+export interface UpdateWatchlistInput extends Partial<WatchlistInput> {
+  status?: "watching" | "triggered" | "entered" | "expired";
+}
+
+/** Update a watchlist item. */
+export async function updateWatchlistItem(profileId: string, id: string, input: UpdateWatchlistInput) {
+  const existing = await prisma.watchlistItem.findFirst({ where: { id, profileId } });
+  if (!existing) return null;
+  return prisma.watchlistItem.update({
+    where: { id },
+    data: {
+      ...(input.symbol !== undefined ? { symbol: input.symbol.toUpperCase() } : {}),
+      ...(input.direction !== undefined ? { direction: input.direction } : {}),
+      ...(input.idea !== undefined ? { idea: input.idea } : {}),
+      ...(input.trigger !== undefined ? { trigger: input.trigger } : {}),
+      ...(input.stopLoss !== undefined ? { stopLoss: input.stopLoss } : {}),
+      ...(input.takeProfit !== undefined ? { takeProfit: input.takeProfit } : {}),
+      ...(input.note !== undefined ? { note: input.note } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+    },
+  });
+}
+
+/** Delete a watchlist item. */
+export async function deleteWatchlistItem(profileId: string, id: string): Promise<boolean> {
+  const result = await prisma.watchlistItem.deleteMany({ where: { id, profileId } });
+  return result.count > 0;
+}
+
+// ── Chart annotations (entry/stop/target/FVG/BOS/…) ──────────────────────────
+
+/** List annotations for a trade. */
+export async function listTradeAnnotations(profileId: string, tradeId: string) {
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  if (!trade) return [];
+  return prisma.tradeAnnotation.findMany({ where: { tradeId }, orderBy: { createdAt: "asc" } });
+}
+
+export interface AnnotationInput {
+  kind: string;
+  label?: string | null;
+  x?: number | null;
+  y?: number | null;
+}
+
+/** Add a chart annotation to a trade. */
+export async function addTradeAnnotation(profileId: string, tradeId: string, input: AnnotationInput) {
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  if (!trade) return null;
+  return prisma.tradeAnnotation.create({
+    data: {
+      tradeId,
+      kind: input.kind,
+      label: input.label ?? null,
+      x: input.x ?? null,
+      y: input.y ?? null,
+    },
+  });
+}
+
+/** Delete a chart annotation. */
+export async function deleteTradeAnnotation(profileId: string, annotationId: string): Promise<boolean> {
+  const ann = await prisma.tradeAnnotation.findUnique({ where: { id: annotationId } });
+  if (!ann) return false;
+  const trade = await prisma.trade.findFirst({ where: { id: ann.tradeId, profileId }, select: { id: true } });
+  if (!trade) return false;
+  await prisma.tradeAnnotation.delete({ where: { id: annotationId } });
+  return true;
 }

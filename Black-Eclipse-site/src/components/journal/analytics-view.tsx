@@ -3,8 +3,8 @@
 // ── Journal Analytics — dimensional performance breakdown ─────────────────────
 
 import React, { useMemo } from 'react';
-import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
-import { DimensionBarChart, RDistributionChart, EquityCurveChart } from './charts';
+import type { DimensionRow, JournalAnalytics, TradeRecord } from '@/lib/journal/types';
+import { DimensionBarChart, RDistributionChart, EquityCurveChart, ScatterChart, RollingMetricsChart, fmtR } from './charts';
 
 interface AnalyticsProps {
   analytics: JournalAnalytics | null;
@@ -21,10 +21,62 @@ export function JournalAnalyticsView({ analytics, trades }: AnalyticsProps) {
     return <EmptyState />;
   }
 
+  // Monthly returns reuse the DimensionRow bar chart shape.
+  const monthlyRows: DimensionRow[] = analytics.monthlyReturns.map((m) => ({
+    key: m.month,
+    trades: m.trades,
+    wins: Math.round(m.winRate * m.trades),
+    losses: m.trades - Math.round(m.winRate * m.trades),
+    winRate: m.winRate,
+    netR: m.netR,
+    netPnl: m.netPnl,
+    expectancy: m.trades > 0 ? m.netR / m.trades : 0,
+    profitFactor: 0,
+  }));
+
   return (
     <div className="flex flex-col gap-5">
       <div className="rounded-2xl glass-card p-4">
         <EquityCurveChart equity={analytics.equity} height={260} />
+      </div>
+
+      {/* Depth analytics (Phase 4) */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl glass-card p-4">
+          <DimensionBarChart rows={monthlyRows} title="Monthly Returns" hint="NET R / MONTH" height={Math.max(160, monthlyRows.length * 28)} />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          <RollingMetricsChart rolling={analytics.rolling} height={Math.max(160, monthlyRows.length * 28)} />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          <ScatterChart
+            points={analytics.mfeMae.map((p) => ({ x: p.mae, y: p.mfe, label: p.label }))}
+            xLabel="MAE (R)"
+            yLabel="MFE (R)"
+            title="MAE / MFE Efficiency"
+            hint="FAVOURABLE VS ADVERSE EXCURSION"
+            xFormatter={(v) => `${v.toFixed(1)}R`}
+            yFormatter={(v) => `${v.toFixed(1)}R`}
+            tooltipFormatter={(p) => `${p.label}<br/>MFE: <b>${fmtR(p.y)}</b><br/>MAE: <b>${fmtR(p.x)}</b>`}
+            height={220}
+          />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          <ScatterChart
+            points={analytics.confidenceScatter.map((p) => ({ x: p.confidence, y: p.rMultiple }))}
+            xLabel="Confidence (1-5)"
+            yLabel="R"
+            title="Confidence vs Outcome"
+            hint="EACH DOT = A TRADE"
+            xFormatter={(v) => String(v)}
+            yFormatter={(v) => `${v.toFixed(1)}R`}
+            tooltipFormatter={(p) => `Confidence: <b>${p.x}</b><br/>Result: <b>${fmtR(p.y)}</b>`}
+            height={220}
+          />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          <DimensionBarChart rows={analytics.durationBuckets} title="By Holding Time" hint="NET R" height={Math.max(160, analytics.durationBuckets.length * 28)} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

@@ -98,3 +98,44 @@ describe('response contract bridge — validation read-back', () => {
     expect(out.status).toBe('UNAVAILABLE');
   });
 });
+
+describe('response contract bridge — finalize telemetry (Phase 4)', () => {
+  it('reports a clean structured answer as neither repaired nor degraded', async () => {
+    const markdown = JSON.stringify({ blocks: [{ type: 'markdown', markdown: 'hi' }] });
+    const out = await responseContractCapability({ op: 'finalize', markdown });
+    expect(out.status).toBe('OK');
+    expect(out.blocks).toBe(1);
+    expect(out.repaired).toBe(0);
+    expect(out.degraded).toBe(0);
+  });
+
+  it('reports a schema-repaired block by type (the drift signal)', async () => {
+    const markdown = JSON.stringify({
+      blocks: [{ type: 'chart', chartType: 'bars', categories: ['a'], series: [{ title: 'P', data: [1] }] }],
+    });
+    const out = await responseContractCapability({ op: 'finalize', markdown });
+    expect(out.status).toBe('OK');
+    expect(out.repaired).toBe(1);
+    expect(out.repairedTypes).toEqual(['chart']);
+    expect(out.degraded).toBe(0);
+  });
+
+  it('reports a degraded block by type, and malformed JSON as `malformed`', async () => {
+    const degraded = await responseContractCapability({
+      op: 'finalize',
+      markdown: JSON.stringify({ blocks: [{ type: 'hologram', data: [1] }] }),
+    });
+    expect(degraded.degraded).toBe(1);
+    expect(degraded.degradedTypes).toEqual(['hologram']);
+
+    const malformed = await responseContractCapability({ op: 'finalize', markdown: '```eclipse-response\n{ not json }\n```' });
+    expect(malformed.degraded).toBe(1);
+    expect(malformed.degradedTypes).toEqual(['malformed']);
+  });
+
+  it('a prose answer (no structured blocks) measures nothing', async () => {
+    const out = await responseContractCapability({ op: 'finalize', markdown: 'just prose, no fence' });
+    expect(out.status).toBe('OK');
+    expect(out.blocks).toBe(0);
+  });
+});

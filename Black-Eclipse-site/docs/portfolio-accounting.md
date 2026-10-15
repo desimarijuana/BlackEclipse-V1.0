@@ -1,7 +1,7 @@
 ---
 title: Portfolio Accounting Engine
 status: Current
-last-verified: 2026-10-11
+last-verified: 2026-10-14
 ---
 
 # Portfolio Accounting Engine
@@ -44,6 +44,14 @@ who/what/when/why (see `PortfolioAuditEvent`).
 Positions are **derived**. `TaxLot` and `TaxLotMatch` rows are rebuilt from the
 ledger whenever a mutation touches a symbol and are never edited directly. They
 exist for audit and tax queries.
+
+**One source of truth for the UI.** The Portfolio screen previously had TWO books:
+the default view read a `localStorage` fund ledger while the Ledger view read
+this engine, so "what are my holdings" had two answers. `migrate-to-engine.ts`
+now mirrors the legacy book into the engine once (idempotent, with a
+`fund.id → portfolioId` map and a rollback-safe flag), and the screen prefers the
+engine view once it holds data. The engine is authoritative; there is no second
+book.
 
 ## Database
 

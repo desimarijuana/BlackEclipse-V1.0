@@ -450,6 +450,14 @@ so the add-trade contract lives in one file.
   the trade form. The profile's `accountSize × riskPerTrade` now drives the
   **currency equity curve** and the discipline **risk rule** (replacing the old
   hard-coded 1%-of-notional proxy).
+- **Known gap — no agent tool route.** The Journal (Prisma `Trade`/`JournalProfile`,
+  served at `/api/journal/*`) is reachable from the UI but has **no Python agent
+  tool**: the runtime's tool surface has no `journal_*` tool, so the agent cannot
+  add or read a trade against the screen's own store. Smallest change: add a
+  `journal_trades` (read) / `journal_add_trade` (write) tool in the runtime whose
+  handler the data bridge proxies to the existing `/api/journal/trades` route
+  (GET/POST) — the SAME Prisma store the screen reads; never a second book (cf.
+  the Portfolio migration in `portfolio-accounting.md`).
 - **List controls.** The Trades tab filters on symbol/strategy/setup/account/
   tag/emotion/session/direction/result/date-range, sorts by column, paginates,
   and exports **CSV** (server route, round-trips through the importer) and

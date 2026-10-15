@@ -10,16 +10,16 @@
 // (e.g. a chart) cannot destroy the surrounding answer — error isolation is the
 // whole point of rendering blocks independently.
 
-import React, { type ReactNode } from 'react';
+import React, { useMemo, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { AlertTriangle } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ParsedResponse, ValidatedBlock } from '@/lib/response/contract';
+import { degradeUnknownBlock, finalizeParsed, reportResponseDegrade } from '@/lib/response/finalize';
 import {
   CalloutBlock,
   CitationsBlock,
   DetailsBlock,
-  DiagnosticsPanel,
   HeadingBlock,
   KeyValueBlock,
   MarkdownBlock,
@@ -27,7 +27,6 @@ import {
   ResponseHeader,
   TabsBlock,
   TimelineBlock,
-  UnknownBlockCard,
 } from './blocks';
 import { DataTableBlock } from './data-table-block';
 import { DiagramBlock } from './diagram-block';
@@ -35,6 +34,7 @@ import { ControlsBlock } from './controls-block';
 import { NodeGraphBlock } from './node-graph-block';
 import { LearningMapBlock } from './learning-map-block';
 import { MermaidBlock } from './mermaid-block';
+import { FlowBlock } from './flow-block';
 import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock, WorkflowBlock } from './rich-blocks';
 import { GalleryBlockView } from './gallery-block';
 import {
@@ -150,6 +150,7 @@ const REGISTRY = {
   stepper: (b: BlockOf<'stepper'>) => <StepperBlock block={b} />,
   infographic: (b: BlockOf<'infographic'>) => <InfographicBlock block={b} />,
   workflow: (b: BlockOf<'workflow'>, ctx: RenderContext) => <WorkflowBlock block={b} onFollowup={ctx.onFollowup} />,
+  flow: (b: BlockOf<'flow'>) => <FlowBlock block={b} />,
   report: (b: BlockOf<'report'>, ctx: RenderContext) => <ReportBlock block={b} renderBlocks={ctx.renderBlocks} />,
   node_graph: (b: BlockOf<'node_graph'>) => <NodeGraphBlock block={b} />,
   learning_map: (b: BlockOf<'learning_map'>, ctx: RenderContext) => (
@@ -167,6 +168,11 @@ const REGISTRY = {
 } as const;
 
 type RegistryKey = keyof typeof REGISTRY;
+
+/** Every block type with a registered renderer — the CI parity check asserts this
+ *  equals the contract's block types, so a validated-but-unrenderable block type
+ *  cannot ship. */
+export const REGISTERED_BLOCK_TYPES = Object.keys(REGISTRY) as RegistryKey[];
 
 function isRegistered(type: string): type is RegistryKey {
   return type in REGISTRY;
@@ -232,20 +238,15 @@ function blockGapClass(
 }
 
 function renderBlock(block: ValidatedBlock, ctx: RenderContext, index: number): ReactNode {
+  // Defensive backstop: finalization already replaces rejected blocks, so this is
+  // unreachable in practice — but if an unknown block ever reaches here it is
+  // shown as readable content, never an error card.
   if (block.type === 'unknown') {
-    return (
-      <BlockBoundary blockType={block.declaredType} key={index}>
-        <UnknownBlockCard block={block} />
-      </BlockBoundary>
-    );
+    return <MarkdownBlock key={index} markdown={degradeUnknownBlock(block.raw).markdown} compact={ctx.compact} />;
   }
   const renderer = REGISTRY[block.type as RegistryKey] as ((b: ValidatedBlock, c: RenderContext) => ReactNode) | undefined;
   if (!renderer || !isRegistered(block.type)) {
-    return (
-      <BlockBoundary blockType={block.type} key={index}>
-        <UnknownBlockCard block={{ type: 'unknown', declaredType: block.type, raw: block }} />
-      </BlockBoundary>
-    );
+    return <MarkdownBlock key={index} markdown={degradeUnknownBlock(block).markdown} compact={ctx.compact} />;
   }
   return (
     <BlockBoundary blockType={block.type} key={index}>
@@ -263,6 +264,15 @@ export interface ResponseViewProps {
 }
 
 export function ResponseView({ response, compact = false, className, onFollowup }: ResponseViewProps) {
+  // THE CHOKEPOINT: every response rendered here is finalized first, so a
+  // rejected block becomes readable content and no error diagnostic survives to
+  // reach the UI. Failures are measured (telemetry), never shown as an error.
+  const finalized = useMemo(() => {
+    const result = finalizeParsed(response);
+    reportResponseDegrade(result.degraded);
+    return result.response;
+  }, [response]);
+
   const renderBlocks = (blocks: ValidatedBlock[]): ReactNode => (
     <>
       {blocks.map((block, i) => (
@@ -273,24 +283,12 @@ export function ResponseView({ response, compact = false, className, onFollowup 
     </>
   );
 
-  // Severity split (R3-06): only REAL problems raise the amber diagnostics panel.
-  // A non-fatal note (a future schema version, an empty envelope) must not make
-  // an otherwise-fine answer look broken.
-  const errors = response.diagnostics.filter((d) => d.severity === 'error');
-
-  if (response.blocks.length === 0) {
-    if (errors.length > 0) {
-      return (
-        <div className={cn('w-full', className)}>
-          <DiagnosticsPanel diagnostics={errors} />
-        </div>
-      );
-    }
+  if (finalized.blocks.length === 0) {
     // Nothing renderable and nothing wrong: say so quietly instead of an empty
     // region (the first note carries the honest reason when there is one).
     return (
       <div className={cn('w-full text-[12px] text-muted-foreground/80', className)}>
-        {response.diagnostics[0]?.message ?? 'No structured content was produced.'}
+        {finalized.diagnostics[0]?.message ?? 'No structured content was produced.'}
       </div>
     );
   }
@@ -298,14 +296,11 @@ export function ResponseView({ response, compact = false, className, onFollowup 
   return (
     <section className={cn('w-full', className)} aria-label="Structured response">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <ResponseHeader response={response} />
-        <ResponseActions response={response} />
+        <ResponseHeader response={finalized} />
+        <ResponseActions response={finalized} />
       </div>
       <div>
-        {renderBlocks(response.blocks)}
-      </div>
-      <div className="mt-2">
-        <DiagnosticsPanel diagnostics={errors} />
+        {renderBlocks(finalized.blocks)}
       </div>
     </section>
   );

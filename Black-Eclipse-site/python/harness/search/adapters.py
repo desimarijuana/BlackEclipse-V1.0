@@ -9,7 +9,9 @@ the search layer works before every subsystem has ever produced a row.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from pathlib import Path
 from typing import Any, Optional
 
 from .chunking import chunk_text
@@ -284,6 +286,99 @@ def documents_from_skills(conn: sqlite3.Connection, *, namespace: str = "skills"
     return docs
 
 
+# ── Repository source (search your own code) ─────────────────────────────────
+# The agent could inspect 87 components but could not search the codebase: the
+# only indexed document was an uploaded README. These roots are indexed so a
+# repository query returns real code. Bounded by count + per-file size; binary
+# or unreadable files are skipped, never indexed as garbage. Disable with
+# `HARNESS_SEARCH_INDEX_REPO=0`.
+_REPO_SOURCE_DIRS: tuple[str, ...] = ("python/harness", "src", "prisma")
+_REPO_EXTENSIONS: tuple[str, ...] = (".py", ".ts", ".tsx", ".prisma")
+_REPO_SKIP_DIRS = frozenset({
+    "node_modules", ".git", ".next", ".next-dev", ".black-eclipse", "__pycache__",
+    "dist", "build", "generated", "vendor", ".venv", ".mypy_cache", ".pytest_cache",
+})
+MAX_REPO_FILES = 4_000
+MAX_REPO_FILE_BYTES = 200_000
+
+
+def _repo_root() -> Optional[Path]:
+    try:
+        from ..eclipse_memory.config import repo_root  # noqa: PLC0415
+
+        return Path(repo_root())
+    except Exception:  # noqa: BLE001 - a missing root yields no repository documents
+        return None
+
+
+def _iter_repo_files(root: Path, limit: int) -> list[Path]:
+    out: list[Path] = []
+    for source in _REPO_SOURCE_DIRS:
+        base = root / source
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d not in _REPO_SKIP_DIRS and not d.startswith(".")]
+            for name in filenames:
+                if not name.endswith(_REPO_EXTENSIONS):
+                    continue
+                out.append(Path(dirpath) / name)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def documents_from_repository(
+    repo_root: Optional[Path] = None, *, namespace: str = "repository",
+    limit: int = MAX_REPO_FILES, max_file_bytes: int = MAX_REPO_FILE_BYTES,
+    chunk_target: int = 1_200, chunk_overlap: int = 150,
+) -> list[DocumentRecord]:
+    """Index the project's own source so the agent can search its code.
+
+    Bounded: only the source roots and text extensions above, a per-file byte
+    cap, and a hard file count. A binary/unreadable file is skipped honestly.
+    """
+    if os.environ.get("HARNESS_SEARCH_INDEX_REPO", "1").strip().lower() in ("0", "false", "no", "off"):
+        return []
+    root = Path(repo_root) if repo_root is not None else _repo_root()
+    if root is None or not Path(root).is_dir():
+        return []
+    docs: list[DocumentRecord] = []
+    for path in _iter_repo_files(Path(root), limit):
+        try:
+            rel = path.relative_to(Path(root)).as_posix()
+            text = path.read_text(encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError, ValueError):
+            continue
+        if len(text) > max_file_bytes:
+            text = text[:max_file_bytes]
+        document_id = f"repository:{rel}"
+        chunks = chunk_text(
+            text, document_id=document_id, target_chars=chunk_target,
+            overlap_chars=chunk_overlap, strategy="structural",
+        )
+        if not chunks:
+            continue
+        stripped = text.strip()
+        docs.append(
+            DocumentRecord(
+                document_id=document_id,
+                source_type="repository",
+                source_id=rel,
+                namespace=namespace,
+                title=rel,
+                description=(stripped.splitlines()[0][:200] if stripped else rel),
+                language="en",
+                document_type="code",
+                visibility="public",
+                content_hash=_hash(text),
+                metadata={"path": rel, "extension": path.suffix},
+                chunks=chunks,
+            )
+        )
+    return docs
+
+
 def collect_documents(conn: sqlite3.Connection, *, namespaces: Optional[list[str]] = None) -> list[DocumentRecord]:
     """Read every adapter and return the union, filtered by namespace if given."""
     everything: list[DocumentRecord] = []
@@ -291,6 +386,7 @@ def collect_documents(conn: sqlite3.Connection, *, namespaces: Optional[list[str
     everything.extend(documents_from_evidence(conn))
     everything.extend(documents_from_document_store(conn))
     everything.extend(documents_from_skills(conn))
+    everything.extend(documents_from_repository())
     if namespaces:
         wanted = set(namespaces)
         everything = [d for d in everything if d.namespace in wanted]
@@ -319,5 +415,6 @@ __all__ = [
     "documents_from_document_store",
     "documents_from_evidence",
     "documents_from_memory",
+    "documents_from_repository",
     "documents_from_skills",
 ]

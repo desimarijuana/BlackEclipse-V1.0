@@ -120,3 +120,118 @@ def test_both_tools_are_registered():
     reg = ToolRegistry()
     register_response_contract_tools(reg)
     assert {"response_block_schema", "response_validate"} <= set(reg.names())
+
+
+@pytest.mark.asyncio
+async def test_schema_prompt_block_carries_exact_names_and_enums():
+    from harness.response_tools import response_schema_prompt_block
+
+    bridge = _Bridge({
+        "status": "OK",
+        "blocks": [
+            {
+                "type": "chart",
+                "fields": [
+                    {"name": "chartType", "required": True, "kind": "enum(line|bar)"},
+                    {"name": "categories", "required": False, "kind": "string[]"},
+                    {"name": "series", "required": True, "kind": "object[]", "itemFields": ["name", "data"]},
+                ],
+            },
+            {
+                "type": "flow",
+                "fields": [
+                    {"name": "steps", "required": True, "kind": "object[]",
+                     "itemFields": ["id", "label", "tone"]},
+                ],
+            },
+        ],
+        "iconKeys": ["trend-up", "trend-down"],
+    })
+    digest = await response_schema_prompt_block(bridge)
+    assert "authoritative" in digest
+    assert "series?:" not in digest and "series:" in digest
+    assert "series:object[]{name,data}" in digest
+    assert "enum(line|bar)" in digest
+    assert "trend-up, trend-down" in digest
+    assert bridge.calls == [("response_contract", {"op": "schema"})]
+
+
+@pytest.mark.asyncio
+async def test_schema_prompt_block_degrades_quietly():
+    from harness.response_tools import response_schema_prompt_block
+
+    assert await response_schema_prompt_block(None) == ""
+    assert await response_schema_prompt_block(_Bridge({"status": "UNAVAILABLE"})) == ""
+    assert await response_schema_prompt_block(_Bridge({"status": "OK", "blocks": []})) == ""
+
+
+@pytest.mark.asyncio
+async def test_schema_prompt_block_survives_a_bridge_error():
+    from harness.response_tools import response_schema_prompt_block
+
+    class _Boom:
+        async def fetch(self, capability: str, params: dict) -> dict:  # noqa: ARG002
+            raise RuntimeError("bridge down")
+
+    assert await response_schema_prompt_block(_Boom()) == ""
+
+
+@pytest.mark.asyncio
+async def test_response_telemetry_reads_finalize_and_emits_the_hook():
+    from harness.observability.core import ObservabilityHub, HookEvent
+    from harness.observability import events as obs_events
+    from harness.response_tools import emit_response_telemetry
+
+    assert "onResponseBlocks" in obs_events.HOOKS
+
+    hub = ObservabilityHub()
+    hub_events: list[HookEvent] = []
+    hub.register_observer(lambda event: hub_events.append(event))
+
+    class _FinalizeBridge:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        async def fetch(self, capability: str, params: dict) -> dict:
+            self.calls.append((capability, params))
+            return {
+                "status": "OK", "blocks": 3,
+                "repaired": 1, "degraded": 1,
+                "repairedTypes": ["chart"], "degradedTypes": ["hologram"],
+            }
+
+    import harness.observability as obs
+
+    previous = obs._hub
+    obs.set_hub(hub)
+    try:
+        bridge = _FinalizeBridge()
+        await emit_response_telemetry(bridge, "```eclipse-response\n{}\n```")
+    finally:
+        obs.set_hub(previous)
+
+    assert bridge.calls == [("response_contract", {"op": "finalize", "markdown": "```eclipse-response\n{}\n```"})]
+    assert len(hub_events) == 1
+    assert hub_events[0].hook == "onResponseBlocks"
+    assert hub_events[0].attributes["repaired"] == ["chart"]
+    counters = hub.metrics.snapshot()["counters"]["eclipse_response_blocks_total"]
+    assert counters['{outcome="repaired",type="chart"}'] == 1
+    assert counters['{outcome="degraded",type="hologram"}'] == 1
+
+
+@pytest.mark.asyncio
+async def test_response_telemetry_is_a_noop_without_a_structured_answer():
+    from harness.response_tools import emit_response_telemetry
+
+    class _Bridge:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        async def fetch(self, capability: str, params: dict) -> dict:
+            self.calls.append((capability, params))
+            return {"status": "OK", "blocks": 0}
+
+    bridge = _Bridge()
+    await emit_response_telemetry(bridge, "plain prose, no fence")
+    await emit_response_telemetry(None, "```eclipse-response\n{}\n```")
+    assert bridge.calls == []

@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles } from '@/lib/icons';
+import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles, StickyNote } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { useSubroute } from '@/hooks/use-subroute';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
@@ -23,8 +23,10 @@ import { JournalInsights } from './insights';
 import { DailyJournal } from './daily-journal';
 import { DemoDataBanner } from './demo-banner';
 import { QuickAddTrade } from './quick-add-trade';
+import { JournalSettings } from './journal-settings';
+import { JournalNotebook } from './notebook';
 
-export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'psychology' | 'playbook' | 'reviews' | 'insights';
+export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'psychology' | 'playbook' | 'reviews' | 'insights' | 'notebook';
 
 const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -35,6 +37,7 @@ const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: 
   { id: 'playbook', label: 'Playbook', icon: BookOpen },
   { id: 'reviews', label: 'Reviews', icon: MessageSquareText },
   { id: 'insights', label: 'Insights', icon: Sparkles },
+  { id: 'notebook', label: 'Notebook', icon: StickyNote },
 ];
 
 export function JournalScreen() {
@@ -112,12 +115,15 @@ export function JournalScreen() {
           <p className="text-muted-foreground text-xs mt-0.5">Every trade becomes data. Every day becomes behavioral data.</p>
         </div>
         {!dailyOpen && (
-          <QuickAddTrade
-            onAdded={refresh}
-            defaultDate={selectedDate ?? undefined}
-            open={quickAddOpen}
-            onOpenChange={setQuickAddOpen}
-          />
+          <div className="flex items-center gap-2">
+            <JournalSettings onChanged={refresh} />
+            <QuickAddTrade
+              onAdded={refresh}
+              defaultDate={selectedDate ?? undefined}
+              open={quickAddOpen}
+              onOpenChange={setQuickAddOpen}
+            />
+          </div>
         )}
       </div>
 
@@ -155,6 +161,7 @@ export function JournalScreen() {
               {tab === 'playbook' && <JournalPlaybook />}
               {tab === 'reviews' && <JournalReviews />}
               {tab === 'insights' && <JournalInsights analytics={analytics} />}
+              {tab === 'notebook' && <JournalNotebook />}
             </>
           )}
         </div>

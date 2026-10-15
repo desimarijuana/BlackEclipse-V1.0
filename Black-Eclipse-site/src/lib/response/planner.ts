@@ -25,6 +25,7 @@ import {
   type TableCell,
   type ValidatedBlock,
 } from './contract';
+import { finalizeResponse } from './finalize';
 
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)\s*$/;
 const FENCE_CLOSE_RE = /^ {0,3}(?:`{3,}|~{3,})\s*$/;
@@ -187,7 +188,10 @@ export function planMarkdown(markdown: string): ParsedResponse {
     blocks.push({ type: 'markdown', markdown });
   }
 
-  return { schemaVersion: RESPONSE_SCHEMA_VERSION, blocks, diagnostics: [] };
+  // Route through the render chokepoint so the hand-built blocks are RE-VALIDATED
+  // against the live contract (and repaired/degraded if a contract change ever
+  // makes one invalid) — the same guarantee every other producer gets.
+  return finalizeResponse({ schemaVersion: RESPONSE_SCHEMA_VERSION, blocks }).response;
 }
 
 /** True when the planner found anything worth upgrading beyond raw markdown. */

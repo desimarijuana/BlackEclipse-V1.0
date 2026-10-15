@@ -490,6 +490,92 @@ describe('new rich blocks', () => {
   });
 });
 
+describe('flow block (branching HTML/CSS process cards)', () => {
+  it('validates a branching flow and defaults direction to LR', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'flow',
+          title: 'Trade approval',
+          steps: [
+            { label: 'Intake', icon: 'inbox', paths: [] },
+            {
+              label: 'Risk check',
+              icon: 'warning',
+              paths: [
+                { label: 'Within limits', tone: 'success', status: 'done' },
+                { label: 'Breach', tone: 'danger', status: 'error', description: 'Escalate to desk' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('flow');
+    if (block.type === 'flow') {
+      expect(block.direction).toBe('LR');
+      expect(block.steps).toHaveLength(2);
+      expect(block.steps[0].paths).toEqual([]);
+      expect(block.steps[1].icon).toBe('warning');
+      expect(block.steps[1].paths).toHaveLength(2);
+      expect(block.steps[1].paths[1].status).toBe('error');
+    }
+  });
+
+  it('coerces bare-string steps and `branches`/`stages` synonyms', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'flow',
+          direction: 'TB',
+          stages: [
+            'Fetch',
+            { label: 'Validate', branches: [{ label: 'OK', icon: 'TrendUp' }, { label: 'Retry' }] },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('flow');
+    if (block.type === 'flow') {
+      expect(block.direction).toBe('TB');
+      expect(block.steps[0].label).toBe('Fetch');
+      expect(block.steps[0].paths).toEqual([]);
+      expect(block.steps[1].paths).toHaveLength(2);
+      // Nested path icons are canonicalized to an allowlisted key.
+      expect(block.steps[1].paths[0].icon).toBe('trend-up');
+    }
+  });
+
+  it('routes `process_flow`/`pipeline` to flow and `process` to workflow', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'process_flow', steps: ['A', 'B'] },
+        { type: 'pipeline', steps: ['A'] },
+        { type: 'process', steps: [{ title: 'One' }] },
+      ],
+    });
+    expect(parsed.blocks[0].type).toBe('flow');
+    expect(parsed.blocks[1].type).toBe('flow');
+    expect(parsed.blocks[2].type).toBe('workflow');
+    expect(parsed.diagnostics).toHaveLength(0);
+  });
+
+  it('rejects an oversized flow without losing sibling blocks', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        { type: 'flow', steps: Array.from({ length: RESPONSE_LIMITS.maxFlowSteps + 1 }, (_, i) => ({ label: `s${i}` })) },
+        { type: 'markdown', markdown: 'survivor' },
+      ],
+    });
+    expect(parsed.blocks[0].type).toBe('unknown');
+    expect(parsed.blocks[1].type).toBe('markdown');
+  });
+});
+
 describe('website-style visual blocks', () => {
   it('validates a stat_hero with hero numbers and a delta', () => {
     const parsed = parseResponsePayload({
@@ -903,5 +989,93 @@ describe('learning_map block', () => {
     expect(() => validateBlock({ type: 'learning_map', nodes: [] })).not.toThrow();
     const parsed = parseResponsePayload({ blocks: [{ type: 'learning_map' }] });
     expect(parsed.blocks[0].type).toBe('unknown');
+  });
+});
+
+// Regression pins for the exact schema drifts that rendered as diagnostics in
+// live runs. Each payload is what the producer actually wrote; after
+// normalization each must render (zero error diagnostics).
+describe('schema-drift regression: producer payloads must render', () => {
+  it('chart: Chart.js-style `labels`/`datasets` → `categories`/`series`', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'chart',
+          title: 'P(reaching target)',
+          chartType: 'bar',
+          labels: ['4,000', '4,450'],
+          datasets: [{ label: 'P(>) 3m (%)', data: [53.8, 21.7] }],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('chart');
+    if (block.type === 'chart') {
+      expect(block.categories).toEqual(['4,000', '4,450']);
+      expect(block.series[0].name).toBe('P(>) 3m (%)');
+      expect(block.series[0].data).toEqual([53.8, 21.7]);
+    }
+  });
+
+  it('flow: semantic tones on steps/paths → status enum (never a hard fail)', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'flow',
+          steps: [
+            {
+              id: 'a',
+              label: 'A',
+              icon: 'trend-up',
+              tone: 'trend-up',
+              paths: [{ label: 'up', to: 'b', tone: 'negative' }],
+            },
+            { id: 'b', label: 'B', icon: 'trend-down', tone: 'trend-down' },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('flow');
+    if (block.type === 'flow') {
+      expect(block.steps[0].tone).toBe('success');
+      expect(block.steps[0].paths?.[0].tone).toBe('danger');
+      expect(block.steps[1].tone).toBe('danger');
+    }
+  });
+
+  it('flow: an unrecognized tone is dropped to the schema default, not failing', () => {
+    const parsed = parseResponsePayload({
+      blocks: [{ type: 'flow', steps: [{ id: 'a', label: 'A', tone: 'chartreuse' }] }],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    if (block.type === 'flow') expect(block.steps[0].tone).toBe('neutral');
+  });
+
+  it('citations: `items` with `label`/`source` → `sources` with required `title`', () => {
+    const parsed = parseResponsePayload({
+      blocks: [
+        {
+          type: 'citations',
+          items: [
+            {
+              label: 'CPI-U Sep 2026: +3.7% y/y',
+              source: 'BLS',
+              url: 'https://www.bls.gov/cpi/',
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.diagnostics).toHaveLength(0);
+    const block = parsed.blocks[0];
+    expect(block.type).toBe('citations');
+    if (block.type === 'citations') {
+      expect(block.sources[0].title).toBe('CPI-U Sep 2026: +3.7% y/y');
+      expect(block.sources[0].source).toBe('BLS');
+    }
   });
 });

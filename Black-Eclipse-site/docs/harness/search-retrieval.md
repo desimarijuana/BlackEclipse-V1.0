@@ -1,7 +1,7 @@
 ---
 title: Unified Retrieval / Search Intelligence Layer
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-14
 ---
 
 # Unified Retrieval / Search Intelligence Layer
@@ -95,8 +95,22 @@ Document → chunk → embed (batch + cache) → vectors + FTS → INDEXED
 
 `SearchService.bulk_index(namespaces=…)` reads the existing stores via
 `adapters.py` and indexes them idempotently. Adapters cover namespaces
-`memory`, `evidence`, `documents`, `skills`. Identical content (by SHA-256) is
+`memory`, `evidence`, `documents`, `skills`, and `repository`. The `repository`
+adapter (`documents_from_repository`) indexes the project's OWN source
+(`python/harness/**`, `src/**`, `prisma/**`; `.py`/`.ts`/`.tsx`/`.prisma`) so the
+agent can search its code — bounded by file count and size, binaries skipped;
+disable with `HARNESS_SEARCH_INDEX_REPO=0`. Identical content (by SHA-256) is
 deduplicated so a re-ingest does not create duplicate vectors.
+
+Because the boot warm-up runs with no embedding provider (keywords only, state
+`STALE`), the first query that resolves a provider schedules ONE background
+re-index (`SearchService._maybe_backfill_vectors`) so the embeddings are actually
+PERSISTED — previously they were computed and then discarded, leaving `vectors: 0`
+for every document. An unchanged keyword-only document now reports its chunks as
+missing vectors, and a hybrid query whose query-embedding fails records a
+structured `fallback: "keyword"` (not just a warning string), so a degraded search
+is never mistaken for a healthy one. Embedding-failure events keep their
+`count`/`error` in the event `detail`.
 
 States: `PENDING → PROCESSING → INDEXED | STALE | FAILED` (`STALE` = indexed for
 keyword but embeddings are missing/failed). Failures are recorded on the

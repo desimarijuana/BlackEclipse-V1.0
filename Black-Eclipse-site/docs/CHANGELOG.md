@@ -8,6 +8,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: the `/` command palette uses the Command (⌘) icon.** Replaced the
+  generic `Sparkles` glyph on the palette rows and the active-command badge with
+  the `Command` icon (already mapped in `src/lib/icons`), so slash commands read
+  as commands rather than as "AI magic". `chat-input.tsx` only. UI-only; no doc
+  change — `docs/CHANGELOG.md` only.
+
+- **Chat: the `/` command palette is now background-less frosted glass.** The
+  popup's solid tint was removed in favour of a near-transparent tint + strong
+  backdrop blur (new `.glass-command-popover` class, with light-mode + glass
+  on/off + high-contrast overrides). The palette is now portaled to `<body>` and
+  anchored to the composer so the blur samples the real page instead of a scoped
+  backdrop root (which would flatten the frost). `chat-input.tsx` +
+  `globals.css`. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
 - **Chat: Aurora glow shows on the ChatBot landing only.** Restrict the local
   in-panel `AuroraGlow` to the empty-transcript landing (not the conversation
   view, which keeps its calm chat surface). `stock-chat.tsx` only. UI-only; no
@@ -4538,3 +4552,82 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   pytest); the full `tsc` run flags only the concurrent worker's untracked
   `command-router.*`, not this change. docs updated:
   `docs/harness/self-editing-harness-plan.md`.
+
+- **Defect fix: the agent can now NAME the page it is asked to edit (UI blueprints).**
+  `ui_list_blueprints` and `ui_get_application_map` printed only a count, so the
+  agent could see "1 blueprint(s)" but never the `id` every mutation tool
+  (`ui_add_widget`/`ui_update_page`/…) requires; both now print `id  title` per
+  page. `ui_get_current_page(path=…)` raised
+  `AttributeError: 'BlueprintSummary' object has no attribute 'path'` because the
+  path branch read `entry.path` off the list summary; it now resolves the path
+  against the FULL blueprint (`python/harness/ui/service.py`). Surfaced by an
+  agent-side audit (it could inspect 87 components but could not target a page).
+  Tests: `python/tests/test_ui_service.py` (+2), `python/tests/test_ui_tools.py`
+  (+3). docs updated: `docs/ui-engineering.md`.
+
+- **Defect fix: the agent can search its own codebase (search was keyword-only over
+  one README).** Three root causes fixed. (1) *Vectors were never stored*: the boot
+  warm-up configured no embedding provider, so every document was keyword-only
+  (`STALE`) with `vectors: 0`, and a later query resolved a provider but never
+  re-indexed — the embeddings were computed and then discarded.
+  `SearchService._maybe_backfill_vectors` now schedules ONE background re-index
+  once a provider is available, persisting the vectors. (2) *The repository was
+  never indexed*: a new `repository` source adapter
+  (`search/adapters.py::documents_from_repository`) indexes the project's own
+  source — `python/harness/**`, `src/**`, `prisma/**` — bounded
+  by count/size, binaries skipped (`HARNESS_SEARCH_INDEX_REPO=0` disables). (3)
+  *Degradation was silent*: an unchanged keyword-only document now reports its
+  missing vectors, `hybrid_search` records `fallback: "keyword"` when query
+  embedding fails, and embedding-failure events keep their `count`/`error` in
+  `detail` (`search/store.py::record_event`). Tests
+  `python/tests/test_search_code_source.py` (5); the offline suite disables repo
+  indexing via `python/conftest.py`. docs updated:
+  `docs/harness/search-retrieval.md`.
+
+- **Defect fix: the drafting kits can actually be promoted; the LibreOffice dead-end
+  now names a working alternative.** (1) A bundled kit skill wrapper was reloaded as
+  `draft` on every `load_all` (bundled provenance was excluded from the
+  lifecycle-managed set), so an operator's `skill.enable` was silently undone and
+  `system.portfolio-analysis` + the other drafting kits could never be promoted. The
+  store's status is now authoritative for bundled skills too, and the in-memory
+  manifest is reconciled on load and on `set_status` (`python/harness/skills/registry.py`).
+  (2) `document_render` refused Office files with a bare "install LibreOffice"; it now
+  reports the `soffice` probe and points to the working fallback
+  (`document_extract`/`document_analyze`/`document_capabilities`) instead of a dead end
+  (`python/harness/document_intelligence/tools.py`). Tests:
+  `python/tests/test_skill_bundled_promotion.py` (2). docs updated:
+  `docs/harness/runbook-add-a-kit.md`.
+
+- **Defect fix: the agent can now PROBE an MCP integration (attach-this-API was install-only).**
+  A new agent tool `mcp_probe` runs the Settings "Test" path once — connect +
+  discover through `manager.test_server` in a temporary subprocess that is always
+  torn down — and reports the observed result (connected tool list, or the
+  diagnostic) WITHOUT persisting or activating anything. It is gated by the same
+  single-use, digest-bound operator approval as `mcp_install` (new kind
+  `mcp_probe`), and a missing credential is reported as `blocked-at-activation`,
+  so the agent can never silently enable a credentialed/paid source. Credentials
+  come only from the vault/env; the agent never supplies a secret value
+  (`python/harness/mcp/install_tools.py`, allowlists in `agents.py`). Tests:
+  `python/tests/test_mcp_install_tools.py` (+3). docs updated:
+  `docs/harness/architecture.md`.
+
+- **Defect fix: one portfolio book (the default view now shows the engine).** The
+  Portfolio screen had two sources of truth — the default view read a `localStorage`
+  fund ledger, the Ledger view read the Python engine — so "what are my holdings" had
+  two answers. A one-time, idempotent migration
+  (`src/lib/portfolio/migrate-to-engine.ts`) mirrors the legacy book into the engine
+  (with a `fund.id → portfolioId` map and a rollback-safe flag; a failure leaves the
+  legacy store intact and retries on the next load), and the screen now prefers the
+  engine view once it holds data, so a portfolio the agent creates appears with no
+  extra navigation. Tests: `src/lib/portfolio/migrate-to-engine.test.ts` (5).
+  docs updated: `docs/portfolio-accounting.md`.
+
+- **Defect 5 (named, not coded): the Journal/trade log has no agent tool route.**
+  Confirmed by inspection: the Journal persists to Prisma (`Trade`/`JournalProfile`)
+  via `/api/journal/*` (GET/POST `/api/journal/trades`), and the runtime has no
+  `journal_*` tool, so the agent cannot add or read a trade against the screen's own
+  store. Per the brief this defect is NAMED with the exact smallest change rather
+  than coded here: add a `journal_trades` (read) / `journal_add_trade` (write) runtime
+  tool whose handler the data bridge proxies to the existing `/api/journal/trades`
+  route — the SAME Prisma store the screen reads; never a second book.
+  docs updated: `docs/ARCHITECTURE.md`.

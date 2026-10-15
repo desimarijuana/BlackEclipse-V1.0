@@ -6,15 +6,25 @@ import type { Direction } from "./types";
 export interface TradeInput {
   direction: Direction;
   entry: number;
-  exit: number;
+  /** Null while the position is open. */
+  exit: number | null;
   stopLoss: number | null;
   takeProfit: number | null;
   quantity: number;
   entryTime: string;
   exitTime: string;
+  /** Round-turn commission in account currency (optional, defaults 0). */
+  commission?: number | null;
+  /** Other fees / swap / financing (optional, defaults 0). */
+  fee?: number | null;
 }
 
 export interface TradeMath {
+  /** Gross P&L before costs. */
+  grossPnl: number;
+  /** Total costs (commission + fee). */
+  fees: number;
+  /** Net P&L = grossPnl − fees. This is the value stored as Trade.pnl. */
   pnl: number;
   pnlPct: number;
   rMultiple: number;
@@ -60,24 +70,29 @@ export function computeRMultiple(pnl: number, riskAmount: number | null): number
 /** Full deterministic trade math. */
 export function computeTradeMath(input: TradeInput): TradeMath {
   const { direction, entry, exit, stopLoss, takeProfit, quantity, entryTime, exitTime } = input;
-  const pnl = computePnl(direction, entry, exit, quantity);
-  const pnlPct = computePnlPct(direction, entry, exit);
+  const isOpen = exit == null;
+  const grossPnl = isOpen ? 0 : computePnl(direction, entry, exit, quantity);
+  // Costs only bite once the position is closed.
+  const fees = isOpen ? 0 : (input.commission ?? 0) + (input.fee ?? 0);
+  const pnl = grossPnl - fees;
+  const pnlPct = isOpen ? 0 : computePnlPct(direction, entry, exit);
   const riskPerUnitVal = riskPerUnit(direction, entry, stopLoss);
   const rewardPerUnitVal = rewardPerUnit(direction, entry, takeProfit);
   const riskAmount = riskPerUnitVal != null ? riskPerUnitVal * quantity : null;
   const rewardAmount = rewardPerUnitVal != null ? rewardPerUnitVal * quantity : null;
-  const rMultiple = computeRMultiple(pnl, riskAmount);
+  const rMultiple = isOpen ? 0 : computeRMultiple(pnl, riskAmount);
   const actualRR = riskPerUnitVal != null && rewardPerUnitVal != null && riskPerUnitVal !== 0
     ? rewardPerUnitVal / riskPerUnitVal
     : null;
   const durationSec = (() => {
+    if (isOpen) return null;
     const a = Date.parse(entryTime);
     const b = Date.parse(exitTime);
     if (Number.isNaN(a) || Number.isNaN(b)) return null;
     return Math.max(0, Math.round((b - a) / 1000));
   })();
 
-  return { pnl, pnlPct, rMultiple, riskAmount, rewardAmount, actualRR, durationSec };
+  return { grossPnl, fees, pnl, pnlPct, rMultiple, riskAmount, rewardAmount, actualRR, durationSec };
 }
 
 /** Classify a trade result by R-multiple. */

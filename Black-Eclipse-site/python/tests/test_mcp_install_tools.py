@@ -14,7 +14,7 @@ import pytest
 from harness.eclipse_memory import EclipseMemoryService
 from harness.mcp.config import load_mcp_configs
 from harness.mcp.install_ops import install_integration, list_catalog
-from harness.mcp.install_tools import make_mcp_install_authorizer, mcp_install_handler
+from harness.mcp.install_tools import make_mcp_install_authorizer, mcp_install_handler, mcp_probe_handler
 
 
 @pytest.fixture()
@@ -105,3 +105,55 @@ async def test_mcp_install_of_an_unknown_id_never_creates_an_approval(service):
     tool = SimpleNamespace(name="mcp_install")
     assert await authorize(tool, {"integration_id": "nope"}, _Ctx(approvals)) is False
     assert [a for a in approvals.list() if a["kind"] == "mcp_install"] == []
+
+
+class _FakeManager:
+    def __init__(self, result):
+        self._result = result
+
+    async def test_server(self, config):
+        return self._result
+
+
+async def test_probe_reports_the_result_and_activates_nothing(service):
+    integration_id = _catalog_id()
+    ctx = SimpleNamespace(
+        mcp_manager=_FakeManager({
+            "state": "connected", "diagnostic": None, "tools": [{"name": "read_sheet"}],
+        })
+    )
+    text, data = await mcp_probe_handler({"integration_id": integration_id}, ctx)
+    assert data["status"] == "probed" and data["enabled"] is False
+    assert data["tools"] == ["read_sheet"]
+    assert "NOT enabled" in text
+    # A probe persists nothing.
+    configs, _ = load_mcp_configs()
+    assert not configs
+
+
+async def test_probe_reports_blocked_at_activation(service):
+    integration_id = _catalog_id()
+    ctx = SimpleNamespace(
+        mcp_manager=_FakeManager({"state": "failed", "diagnostic": "missing credential", "tools": []})
+    )
+    text, data = await mcp_probe_handler({"integration_id": integration_id}, ctx)
+    assert data["status"] == "blocked-at-activation" and data["enabled"] is False
+    assert "missing credential" in text
+
+
+async def test_probe_requires_a_single_use_approval(service):
+    from harness.mcp.approvals import ApprovalStore
+
+    approvals = ApprovalStore(service.store)
+    authorize = make_mcp_install_authorizer()
+    ctx = _Ctx(approvals)
+    tool = SimpleNamespace(name="mcp_probe")
+    args = {"integration_id": _catalog_id()}
+
+    assert await authorize(tool, args, ctx) is False
+    pending = [a for a in approvals.list(status="pending") if a["kind"] == "mcp_probe"]
+    assert len(pending) == 1
+
+    approvals.decide(pending[0]["id"], approve=True, decided_by="test")
+    assert await authorize(tool, args, ctx) is True
+    assert await authorize(tool, args, ctx) is False  # single-use

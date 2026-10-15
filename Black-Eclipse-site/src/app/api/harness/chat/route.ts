@@ -4,6 +4,10 @@ import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJ
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
+import { parseCommandInvocation } from "@/lib/harness/command-parser";
+import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
+import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { newRunId } from "@/lib/harness/ids";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -34,6 +38,23 @@ export async function POST(request: Request) {
     }
     if (query.length > 4000) {
       return NextResponse.json({ error: "query too long (max 4000 chars)" }, { status: 400 });
+    }
+
+    // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the
+    // shared command router. Profile commands (`/eclipsesdk`) and ordinary prose
+    // fall through to the normal agent path; an unknown `/token` falls through too.
+    const commandInvocation = parseCommandInvocation(query);
+    if (commandInvocation?.spec && isRoutedCommand(commandInvocation.spec)) {
+      const cmdResult = await executeCommandFromText(query, { operator: isOperatorRequest(request) });
+      if (cmdResult) {
+        return NextResponse.json({
+          success: cmdResult.ok,
+          content: cmdResult.output,
+          runId: newRunId(),
+          command: cmdResult.command,
+          documentsUsed: [],
+        });
+      }
     }
 
     const rawHistory = (body as Record<string, unknown>).history;

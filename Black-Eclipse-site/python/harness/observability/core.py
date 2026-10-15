@@ -278,6 +278,18 @@ class ObservabilityHub:
             m.inc_counter("eclipse_research_total", labels={"phase": "start" if hook.endswith("Start") else "end"})
         elif hook in ("onEvidenceRetrieved", "onEvidenceValidated"):
             m.inc_counter("eclipse_evidence_total", labels={"phase": "retrieved" if hook.endswith("Retrieved") else "validated"})
+        elif hook == "onResponseBlocks":
+            # Interactive-response render outcome (Phase 4). `repaired`/`degraded`
+            # are the block types that drifted; a recurring label is the signal to
+            # add a normalization/repair rule.
+            attrs = event.attributes or {}
+            for outcome in ("repaired", "degraded"):
+                for block_type in attrs.get(outcome) or []:
+                    m.inc_counter(
+                        "eclipse_response_blocks_total",
+                        labels={"outcome": outcome, "type": str(block_type)},
+                        help_text="Interactive-response blocks by render outcome",
+                    )
         elif hook in ("onRecoveryStart", "onRecoveryEnd"):
             m.inc_counter("eclipse_recovery_total", labels={"phase": "start" if hook.endswith("Start") else "end"})
         elif hook == "onSecurityEvent":

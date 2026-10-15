@@ -347,6 +347,7 @@ model JournalProfile {
   trades     Trade[]
   entries    JournalEntry[]
   reviews    Review[]
+  watchlist  WatchlistItem[]
 }
 
 // A trading account the journal tracks P&L against.
@@ -354,8 +355,10 @@ model TradingAccount {
   id             String   @id @default(cuid())
   profileId      String
   name           String
+  broker         String?
   currency       String   @default("USD")
   initialBalance Float    @default(0)
+  archived       Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
@@ -494,12 +497,14 @@ model Trade {
   symbol     String
   direction  String // 'LONG' | 'SHORT'
   entry      Float
-  exit       Float
+  // Null while the position is open. Set when the trade is closed; `status`
+  // then flips to 'closed' and derived P&L becomes non-zero.
+  exit       Float?
   stopLoss   Float?
   takeProfit Float?
   quantity   Float
   entryTime  DateTime
-  exitTime   DateTime
+  exitTime   DateTime?
 
   // Optional structured context.
   timeframe    String? // '1m' | '5m' | '15m' | '1h' | '1d' | ...
@@ -511,6 +516,9 @@ model Trade {
   confidence   Int? // 1-5
   mistakes     String? // JSON string[]
   notes        String?
+  // Optional per-trade letter grade (A–F) and pre-trade checklist state.
+  grade        String?
+  checklist    String? // JSON: { ruleId: boolean }
   status       String  @default("closed") // 'open' | 'closed'
   // Provenance: 'manual' (user-entered or CSV-imported) vs 'demo' (seeded
   // sample data). Demo rows are real records but clearly labelled, and can be
@@ -518,6 +526,10 @@ model Trade {
   source       String  @default("manual")
 
   // ── Auto-computed metrics (never user-entered) ────────────────────────
+  // Gross P&L excludes costs; `pnl` is NET (gross − commission − fee).
+  grossPnl     Float?
+  commission   Float   @default(0)
+  fee          Float   @default(0)
   pnl          Float
   pnlPct       Float
   rMultiple    Float
@@ -638,6 +650,27 @@ model JournalEntry {
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@index([profileId, createdAt])
+}
+
+// A watchlist item / pre-trade idea / pending order. Distinct from Trade:
+// it has no execution yet, just an intent with an optional trigger level.
+model WatchlistItem {
+  id         String   @id @default(cuid())
+  profileId  String
+  symbol     String
+  direction  String   @default("LONG") // 'LONG' | 'SHORT'
+  idea       String? // free-text thesis
+  trigger    Float? // pending-entry price level
+  stopLoss   Float?
+  takeProfit Float?
+  status     String   @default("watching") // 'watching' | 'triggered' | 'entered' | 'expired'
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, status])
 }
 
 // A review (weekly, monthly, or AI-generated trade review).

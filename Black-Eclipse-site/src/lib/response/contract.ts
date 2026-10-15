@@ -44,6 +44,8 @@ export const RESPONSE_LIMITS = {
   maxArtifacts: 24,
   maxImages: 24,
   maxWorkflowStages: 40,
+  maxFlowSteps: 24,
+  maxFlowPaths: 8,
   maxStats: 4,
   maxGauges: 24,
   maxCompareColumns: 6,
@@ -452,6 +454,41 @@ const workflowBlock = z.object({
   stages: z.array(workflowStageSchema).min(1).max(RESPONSE_LIMITS.maxWorkflowStages),
 });
 
+const flowPathSchema = z.object({
+  id: idString.optional(),
+  label: shortString,
+  description: boundedString.optional(),
+  icon: shortString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  status: z.enum(['pending', 'active', 'done', 'error']).optional(),
+});
+
+const flowStepSchema = z.object({
+  id: idString.optional(),
+  label: shortString,
+  description: boundedString.optional(),
+  icon: shortString.optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).default('neutral'),
+  // A step's outgoing paths. Empty means a single step card (a plain linear
+  // flow); two or more mean a branch rendered as stacked parallel cards.
+  paths: z.array(flowPathSchema).max(RESPONSE_LIMITS.maxFlowPaths).default([]),
+});
+
+// A dependency-free HTML/CSS process flow: ordered steps, each branching into
+// one or more parallel `paths` rendered as cards. Distinct from `workflow`
+// (a strictly LINEAR sequence of icon stages) by supporting parallel/branching
+// paths, and from `diagram`/`node_graph` (absolute-positioned SVG node/edge
+// graphs, not responsive cards). Producer returns structured data only — never
+// an image, SVG, HTML or code.
+const flowBlock = z.object({
+  type: z.literal('flow'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  direction: z.enum(['LR', 'TB']).default('LR'),
+  steps: z.array(flowStepSchema).min(1).max(RESPONSE_LIMITS.maxFlowSteps),
+});
+
 const reportSectionSchema = z.object({
   heading: shortString.optional(),
   markdown: boundedString.optional(),
@@ -787,6 +824,7 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   stepperBlock,
   infographicBlock,
   workflowBlock,
+  flowBlock,
   reportBlock,
   nodeGraphBlock,
   actionGroupBlock,
@@ -854,6 +892,9 @@ export type InfographicBlock = z.infer<typeof infographicBlock>;
 export type InfographicCard = z.infer<typeof infographicCardSchema>;
 export type WorkflowBlock = z.infer<typeof workflowBlock>;
 export type WorkflowStage = z.infer<typeof workflowStageSchema>;
+export type FlowBlock = z.infer<typeof flowBlock>;
+export type FlowStep = z.infer<typeof flowStepSchema>;
+export type FlowPath = z.infer<typeof flowPathSchema>;
 export type ReportBlock = z.infer<typeof reportBlock>;
 export type ReportSection = z.infer<typeof reportSectionSchema>;
 export type NodeGraphBlock = z.infer<typeof nodeGraphBlock>;

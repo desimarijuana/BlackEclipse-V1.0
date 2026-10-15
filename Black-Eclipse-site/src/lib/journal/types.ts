@@ -14,12 +14,15 @@ export interface TradeRecord {
   symbol: string;
   direction: Direction;
   entry: number;
-  exit: number;
+  /** Null while the position is open. */
+  exit: number | null;
   stopLoss: number | null;
   takeProfit: number | null;
   quantity: number;
   entryTime: string; // ISO
-  exitTime: string; // ISO
+  /** ISO. For open positions this falls back to entryTime so sorting/display
+   * always has a timestamp; gate on `status === 'open'` for true openness. */
+  exitTime: string;
   timeframe?: string | null;
   session?: string | null;
   marketRegime?: string | null;
@@ -29,6 +32,10 @@ export interface TradeRecord {
   confidence?: number | null;
   mistakes?: string | null; // JSON string[]
   notes?: string | null;
+  /** Optional letter grade (A–F) the trader assigned to their execution. */
+  grade?: string | null;
+  /** JSON: { [ruleId]: boolean } — pre-trade checklist state. */
+  checklist?: string | null;
   status: TradeStatus;
   /** 'manual' (user/CSV) or 'demo' (seeded sample). Never fabricated prices. */
   source?: TradeSource;
@@ -36,8 +43,13 @@ export interface TradeRecord {
   strategyName?: string | null;
   setupId?: string | null;
   setupName?: string | null;
+  accountId?: string | null;
+  accountName?: string | null;
   tags?: string[]; // tag names
   // Auto-computed metrics.
+  grossPnl: number;
+  commission: number;
+  fee: number;
   pnl: number;
   pnlPct: number;
   rMultiple: number;
@@ -128,6 +140,92 @@ export interface EquityPoint {
   drawdown: number; // drawdown from peak in R
 }
 
+/** Equity in account currency (derived from R × risk-per-trade). */
+export interface CurrencyEquityPoint {
+  date: string;
+  equity: number; // running balance in account currency
+  drawdown: number; // drawdown from peak in currency
+}
+
+/** One calendar month's performance. */
+export interface MonthlyReturn {
+  month: string; // YYYY-MM
+  trades: number;
+  netR: number;
+  netPnl: number;
+  winRate: number;
+}
+
+/** A point on the rolling-performance curve (trailing window). */
+export interface RollingPoint {
+  date: string;
+  winRate: number; // 0-1 over the trailing window
+  expectancyR: number;
+  netR: number;
+}
+
+/** MAE/MFE efficiency point — how much of the favourable move was captured. */
+export interface MfeMaePoint {
+  mfe: number; // max favourable excursion (R)
+  mae: number; // max adverse excursion (R)
+  rMultiple: number; // realized R
+  label: string;
+}
+
+/** Confidence vs outcome scatter point. */
+export interface ConfidencePoint {
+  confidence: number; // 1-5
+  rMultiple: number;
+  pnl: number;
+}
+
+/** Summary of a trading account's P&L for the account-switcher / equity panel. */
+export interface AccountSummary {
+  id: string;
+  name: string;
+  broker?: string | null;
+  currency: string;
+  initialBalance: number;
+  trades: number;
+  netPnl: number;
+  netR: number;
+  /** Running balance = initialBalance + netPnl. */
+  equity: number;
+}
+
+/** A watchlist item / pre-trade idea / pending order. */
+export interface WatchlistItem {
+  id: string;
+  symbol: string;
+  direction: Direction;
+  idea: string | null;
+  trigger: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  status: "watching" | "triggered" | "entered" | "expired";
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A deterministic risk/behaviour alert (no LLM). */
+export interface RiskAlert {
+  level: "info" | "warn" | "danger";
+  title: string;
+  detail: string;
+}
+
+/** One calendar year's realized report. */
+export interface YearReport {
+  year: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  netPnl: number;
+  netR: number;
+  fees: number;
+}
+
 export interface JournalAnalytics {
   performance: PerformanceStats;
   equity: EquityPoint[];
@@ -145,4 +243,20 @@ export interface JournalAnalytics {
   confidenceCorrelation: number | null;
   discipline: DisciplineBreakdown;
   days: DayAggregate[];
+  /** Depth analytics (Phase 4). */
+  monthlyReturns: MonthlyReturn[];
+  rolling: RollingPoint[];
+  mfeMae: MfeMaePoint[];
+  confidenceScatter: ConfidencePoint[];
+  durationBuckets: DimensionRow[];
+  /** Equity in account currency, if a risk-per-trade/account size is known. */
+  equityCurrency: CurrencyEquityPoint[];
+  /** System comparison: performance by strategy. */
+  byStrategy: DimensionRow[];
+  /** Per-account summaries (empty when no accounts are configured). */
+  accounts: AccountSummary[];
+  /** Deterministic risk / behaviour alerts. */
+  riskAlerts: RiskAlert[];
+  /** Realized P&L reports by calendar year (tax/reporting). */
+  yearReports: YearReport[];
 }

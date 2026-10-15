@@ -27,6 +27,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tes
 # databases. The real runtime leaves this unset (warm-up on); tests turn it off.
 os.environ.setdefault("HARNESS_SEARCH_WARM_INDEX", "0")
 
+# The repository source adapter walks the real source tree; a test that indexes
+# (e.g. the boot warm-index case) must not pay for that, and its document counts
+# must stay about the fixture rows. Production leaves this on (default "1").
+os.environ.setdefault("HARNESS_SEARCH_INDEX_REPO", "0")
+
 # Some test modules import `harness.main` at collection time, which constructs the
 # process-wide `AgenticService` before most modules have redirected their own temp
 # paths. Anchor the MCP server config to a temp file HERE (conftest imports before
