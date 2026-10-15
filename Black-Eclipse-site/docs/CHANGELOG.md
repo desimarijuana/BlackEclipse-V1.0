@@ -8,6 +8,59 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Redesigned the global crash screen (`ErrorBoundary`).** The full-page
+  "Something went wrong" fallback dropped its ⚠️ emoji and flat layout for a
+  frosted `.glass-card` with a rose wash, an `AlertTriangle` icon badge, and
+  primary "Try again" + secondary "Reload" actions; the panel is centred over a
+  `min-h-[100dvh]` region. Same treatment as the chat error card.
+  no doc change — visual/UI only, no contract change.
+
+- **Local hostname front door: reach the app at `http://blackeclipse`.** Added a
+  zero-dependency, loopback-only reverse proxy (`scripts/local-proxy.js`; Node's
+  built-in `http`/`net`) that listens on `127.0.0.1:80` and forwards to the
+  unchanged Next.js server on `:3000`, preserving the original `Host` and adding
+  `X-Forwarded-*`, and forwarding WebSocket/HMR upgrades. Paired with a
+  `scripts/local-proxy-stop.js`, the npm scripts `proxy` / `proxy:stop`, and a
+  LAN-safe `dev:local` (`next dev -H 127.0.0.1`); `dev` is unchanged. Because the
+  new hostname changes the browser origin, three small code points were made
+  hostname-aware: `src/lib/api-guard.ts` treats `blackeclipse` as a loopback
+  alias AND resolves the request host from the `Host`/`x-forwarded-host` header
+  instead of `request.url` (which Next rebuilds from its own bind address in dev,
+  so a fronted same-origin POST otherwise 403'd); `src/lib/auth/handlers.ts` uses
+  the shared `isLocalRequest` so the session cookie is not marked `Secure` over
+  plain http; `next.config.ts` lists `allowedDevOrigins` so Next dev does not flag
+  `/_next/*`/HMR as cross-origin. Verified live (homepage 200, `/api/news` 200,
+  same-origin POST 200, cross-site 403, HMR `101`, localhost:3000 still 200). docs
+  updated: `docs/local-hostname.md` (new), `docs/NAVIGATION.md`,
+  `docs/QUICKSTART.md`, this file.
+
+- **Redesigned the chat error/warning surface.** The assistant error card in
+  `chat-history.tsx` is now a frosted `.glass-card` with a rose wash, an icon
+  badge, a heading, an optional error-code chip and a clearer Retry action; the
+  separate "Something went wrong" status line is suppressed when the card shows,
+  and a new `restatesError` guard stops a failed command from printing the same
+  sentence twice (the router streams both a readable `output` and an
+  `error.message`). no doc change — visual/UI only, no contract change.
+
+- **Global "New chat" shortcut (Ctrl/Cmd+Alt+N).** Replaces the ChatBot-tab-only
+  `mod+n` page shortcut (`usePageShortcuts(chatRootRef, …)` in `stock-chat.tsx`)
+  with a shell-wide keydown handler: it switches to the ChatBot tab, clears the
+  transcript, and drops the caret in the composer via the existing `be:focus-chat`
+  event. `Ctrl/Cmd+N` was unusable for this — browsers reserve it for "new window".
+  The shortcuts overlay gained the row; the shell's size-budget pin was re-pinned
+  1441→1455 with justification.
+  no doc change — keybinding/UX only, no architecture or contract change.
+
+- **Search: embeddings are stored at boot, not only after a query.** The boot
+  warm-index now resolves the embedding provider from the front-door environment
+  (`HARNESS_JOB_*`, via `SearchService._boot_settings`) and EMBEDS at index time,
+  so `vectors` is non-zero as soon as the runtime boots with a provider —
+  previously the boot ran `configure(None)`, so every document stayed `vectors: 0`
+  until a later query re-configured a provider and triggered the backfill. A bare
+  runtime (no front-door env) still indexes honestly keyword-only. Tests:
+  `python/tests/test_search_code_source.py` (+2). docs updated:
+  `docs/harness/search-retrieval.md`.
+
 - **Plain `/` now focuses the chat composer; global search stays on Ctrl/Cmd+K.**
   `useCommandCenterKeybind` dropped its `slashShortcut` handling so the command
   center is toggled by `Ctrl/Cmd+K` alone; a new `useChatFocusKeybind`
@@ -23,6 +76,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   transcript, follow-up composer and the landing composer (`empty-state.tsx`)
   use `max-w-none` and span the full main panel; the shortcuts-overlay
   description was corrected to say "full-width focus view".
+  no doc change — layout/UX only, no architecture or contract change.
+
+- **Focus mode now also tucks away the right-docked Agent Workspace.** With the
+  left sidebar, header and terminal already hidden there, the still-docked
+  workspace was the last column splitting the page in two; it now unmounts in
+  focus mode (state lives in its store, so it returns on exit), giving the chat
+  the whole width. Same change scope as above.
   no doc change — layout/UX only, no architecture or contract change.
 
 - **Startup hardening: stop the spurious "runtime unavailable" 503 loop and the
@@ -89,6 +149,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
 
 ## 2026-10-14
+
+- **Slash commands: every command is now real (the `soon` badge is gone).**
+  Implemented the nine previously-unavailable commands against the SAME front-door
+  APIs the UI uses, via a new loopback `frontDoor` dependency in the router:
+  `/quote` (`/quotes`, JDdS quotes with honest freshness), `/research`,
+  `/deep-research`, `/web`, `/read` (web research engine → answer + sources),
+  `/backtest` (list strategies, or backtest one by id), `/code` (start a code
+  task), `/terminal` (`/run`, `/sh` — run a shell command, operator- and
+  effect-gated). No command re-implements an engine. Fixed a parser bug where
+  argument tokens like `ls -la` were mis-read as unknown flags (a short `-x` is
+  now a flag only when the command declares that alias). Split the dispatch table
+  into `command-handlers.ts` so `command-router.ts` stays under the 1200-line hard
+  ceiling. New registry/router tests for the wired commands + a synthetic
+  unavailable-spec test; full vitest 3074 passed; `npx tsc --noEmit` clean;
+  eslint clean; verified end-to-end (`/quote AAPL` → 200 with a quote table).
+  docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
+
+- **Chat: the `/` palette no longer hides commands.** The palette capped its
+  results at 12, so with ~29 registered commands (portfolio, memory, mcp, usage,
+  backtest, …) later-alphabetical commands never appeared. Removed the cap; the
+  list is scrollable, so every command is reachable and a prefix narrows it. Added
+  a registry test asserting the catalog exposes more than 20 commands and a bare
+  search returns them all. `chat-input.tsx` + `command-registry.test.ts`. UI-only;
+  no doc change — `docs/CHANGELOG.md` only.
 
 - **Chat: `/skill` now authors a skill for Eclipse (stored on the Skills page).**
   Repurposed `/skill <name> <what it should do>` from "execute a skill" to an

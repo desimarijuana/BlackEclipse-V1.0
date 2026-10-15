@@ -957,6 +957,25 @@ function StockChatContent() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+  // Ctrl/Cmd+Alt+N starts a new chat from ANY tab: switch to the ChatBot page,
+  // clear the transcript, then drop the caret in the composer via the global
+  // `be:focus-chat` event the composer already answers. Ctrl+N is NOT usable for
+  // this — browsers reserve it for "new window" and ignore `preventDefault`.
+  const newChatRef = useRef(handleNewChat);
+  newChatRef.current = handleNewChat;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!matchesShortcut(event, 'mod+alt+n') || !isKeyboardEventAvailable(event)) return;
+      if (useKeyboardShortcutsStore.getState().helpOpen || hasBlockingKeyboardDialog()) return;
+      event.preventDefault();
+      setActiveTab('chat');
+      newChatRef.current();
+      // The composer mounts on the next paint; focus it once it is on screen.
+      setTimeout(() => window.dispatchEvent(new CustomEvent('be:focus-chat')), 0);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const handleBack = () => {
     if (settingsOpen || mobileMenuOpen) return;
     const target = backTarget(navHistoryRef.current);
@@ -965,11 +984,6 @@ function StockChatContent() {
     setNavHistory(target.history);
     setActiveTab(target.tab);
   };
-  usePageShortcuts(chatRootRef, [
-    // New ChatBot page. Ctrl/Cmd+N (mod+n) is distinct from the layout/new-item
-    // `Shift+N` used by other screens (Command Center layouts, trades, alerts).
-    { id: 'chat.new', label: 'New chat', keys: 'mod+n', run: handleNewChat, enabled: activeTab === 'chat' && !settingsOpen && !mobileMenuOpen },
-  ]);
   usePageShortcuts(appRootRef, [
     { id: 'nav.back', label: 'Back', keys: 'Alt+ArrowLeft', run: handleBack, enabled: navHistory.length > 1 && !settingsOpen && !mobileMenuOpen },
   ]);
@@ -1395,8 +1409,8 @@ function StockChatContent() {
             in the row, so the main panel shrinks instead of being overlapped. */}
         </div>
         {/* The right-docked column: the execution Agent Workspace everywhere,
-            except in Bots mode where it carries the scheduled-jobs scheduler. */}
-        {activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />}
+            except Bots (jobs scheduler). Hidden in focus mode for a full page. */}
+        {!focusMode && (activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />)}
         <TerminalDock slot="right" />
       </div>
 

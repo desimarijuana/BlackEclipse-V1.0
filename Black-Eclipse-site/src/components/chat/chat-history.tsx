@@ -24,6 +24,22 @@ import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
+import type { TurnError } from '@/lib/agent/response-model';
+
+/**
+ * True when a turn's markdown merely restates its own error. A failed command
+ * streams BOTH a readable `output` (which becomes the turn text) and an
+ * `error.message`; without this the transcript shows the same sentence twice —
+ * once in the error card, once in the body. Compared with punctuation/whitespace
+ * stripped so `**Command failed.** <detail>` matches `<detail>`.
+ */
+function restatesError(content: string, error?: TurnError): boolean {
+  if (!error?.message) return false;
+  const strip = (s: string) => s.replace(/[*_`~>#\-\s]+/g, ' ').trim().toLowerCase();
+  const body = strip(content);
+  const message = strip(error.message);
+  return message.length > 0 && body.includes(message);
+}
 
 interface ChatHistoryProps {
   messages: Message[];
@@ -295,7 +311,10 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
               data-message-id={msg.id}
               className={`group animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
             >
-              {msg.role === 'assistant' && msg.status != null && !(msg.activities && msg.activities.length > 0) && (
+              {/* A settled error renders as the error card below (not the status
+                  line), so the failure reads once, not as two "something went
+                  wrong" lines stacked. */}
+              {msg.role === 'assistant' && msg.status != null && !msg.error && !(msg.activities && msg.activities.length > 0) && (
                 <div className={cn(msg.content ? 'mb-2' : '')}>
                   <ResponseStatusLine status={msg.status} activities={msg.activities} compact={compact} />
                 </div>
@@ -325,17 +344,37 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   {msg.error && (
                     <div
                       role="alert"
-                      className="w-full rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2.5 text-[13px] text-rose-200/90"
+                      className="relative w-full overflow-hidden rounded-2xl border border-rose-500/25 glass-card"
                     >
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle size={14} className="mt-0.5 shrink-0 text-rose-400" />
+                      {/* Rose wash sits OVER the glass so the surface still
+                          frosts (a solid rose fill would kill the blur). */}
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-rose-500/[0.14] via-rose-500/[0.05] to-transparent"
+                      />
+                      <div className="relative flex items-start gap-3 px-3.5 py-3">
+                        <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/15 text-rose-300">
+                          <AlertTriangle size={14} />
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <p className="break-words">{msg.error.message}</p>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <p className="text-[13px] font-semibold tracking-tight text-rose-100">
+                              Something went wrong
+                            </p>
+                            {msg.error.code && (
+                              <span className="rounded-full border border-rose-500/25 bg-rose-500/10 px-1.5 py-px font-mono text-[9.5px] uppercase tracking-wide text-rose-300/80">
+                                {msg.error.code}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 break-words text-[12.5px] leading-relaxed text-rose-200/80">
+                            {msg.error.message}
+                          </p>
                           {onRetryMessage && (
                             <button
                               type="button"
                               onClick={() => onRetryMessage(msg.id)}
-                              className="mt-2 inline-flex items-center gap-1 rounded-full border border-rose-500/30 px-2.5 py-1 text-[11px] font-medium text-rose-200 transition-colors hover:bg-rose-500/10 cursor-pointer"
+                              className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40 cursor-pointer"
                             >
                               <RotateCcw size={11} /> Retry
                             </button>
@@ -347,7 +386,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   {msg.changes && msg.changes.length > 0 && (
                     <ChangeCards changes={msg.changes} compact={compact} />
                   )}
-                  {msg.content && <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />}
+                  {msg.content && !restatesError(msg.content, msg.error) && (
+                    <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
+                  )}
                   <ChatCapabilityPanel
                     autonomy={msg.autonomy}
                     verification={msg.codeVerification}

@@ -13,6 +13,7 @@ const GLOBAL_SHORTCUTS = [
   { id: 'help', label: 'Toggle keyboard shortcuts', keys: 'Ctrl / Cmd + /', context: 'Global, outside other dialogs' },
   { id: 'search', label: 'Toggle global search', keys: 'Ctrl / Cmd + K', context: 'Global, outside other dialogs' },
   { id: 'focus-chat', label: 'Focus the chat composer', keys: '/', context: 'Global, not while typing' },
+  { id: 'chat-new', label: 'New chat', keys: 'Ctrl / Cmd + Alt + N', context: 'Global, switches to the ChatBot page and starts a new chat' },
   { id: 'mode-terminal', label: 'Sidebar menu: Terminal', keys: 'Alt + T', context: 'Global, switches the sidebar menu mode' },
   { id: 'mode-agentic', label: 'Sidebar menu: Agentic', keys: 'Alt + A', context: 'Global, switches the sidebar menu mode' },
   { id: 'terminal', label: 'Toggle visible terminal', keys: 'Ctrl / Cmd + `', context: 'Global' },

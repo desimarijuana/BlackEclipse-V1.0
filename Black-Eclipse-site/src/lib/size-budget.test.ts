@@ -110,7 +110,11 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1435→1441: routing the approval card's decision to the delegated
   // run when the pending approval belongs to an `@`-mention (the rest of that
   // feature lives in the hook). May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1441,
+  // Re-pinned 1441→1455: replacing the chat-scoped "New chat" page shortcut with
+  // a global Ctrl/Cmd+Alt+N handler (switch to ChatBot + new chat + focus the
+  // composer). May only shrink from here; the per-tab keep-alive blocks remain
+  // the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1455,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard
