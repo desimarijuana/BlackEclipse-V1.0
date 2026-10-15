@@ -87,4 +87,9 @@ export interface Message {
   error?: TurnError;
   /** User rating on an assistant turn, if given. Persisted with the message. */
   feedback?: 'up' | 'down';
+  /**
+   * Wall-clock time the turn took, from send to settled (ms). Computed
+   * client-side by the run owners; absent on user turns and legacy rows.
+   */
+  durationMs?: number;
 }

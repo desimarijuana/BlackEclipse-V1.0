@@ -18,7 +18,7 @@ import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
-import { CONVERSATIONS_STORAGE_KEY, normalizeConversations } from '@/lib/chat/chat-organization';
+import { CONVERSATIONS_STORAGE_KEY, mostRecentConversation, normalizeConversations } from '@/lib/chat/chat-organization';
 import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { useHydrateChatAppearance } from '@/lib/chat/appearance';
@@ -460,11 +460,13 @@ function StockChatContent() {
         const parsed = normalizeConversations(JSON.parse(saved));
         conversationsRef.current = parsed;
         setConversations(parsed);
-        if (parsed.length > 0) {
-          activeConversationIdRef.current = parsed[0].id;
-          setActiveConversationId(parsed[0].id);
-          setMessages(parsed[0].messages);
-          void restoreWorkspaceForChat(parsed[0].messages, parsed[0].id);
+        // Open the most recently active chat, not the first stored one.
+        const start = mostRecentConversation(parsed);
+        if (start) {
+          activeConversationIdRef.current = start.id;
+          setActiveConversationId(start.id);
+          setMessages(start.messages);
+          void restoreWorkspaceForChat(start.messages, start.id);
         } else {
           activeConversationIdRef.current = null;
           setActiveConversationId(null);
@@ -507,11 +509,12 @@ function StockChatContent() {
     const updated = conversationsRef.current.filter(c => c.id !== id);
     saveConversations(updated);
     if (activeConversationIdRef.current === id) {
-      if (updated.length > 0) {
-        activeConversationIdRef.current = updated[0].id;
-        setActiveConversationId(updated[0].id);
-        setMessages(updated[0].messages);
-        void restoreWorkspaceForChat(updated[0].messages, updated[0].id);
+      const next = mostRecentConversation(updated);
+      if (next) {
+        activeConversationIdRef.current = next.id;
+        setActiveConversationId(next.id);
+        setMessages(next.messages);
+        void restoreWorkspaceForChat(next.messages, next.id);
       } else {
         activeConversationIdRef.current = null;
         setActiveConversationId(null);
@@ -680,6 +683,7 @@ function StockChatContent() {
 
     // A placeholder assistant turn; the shared run hook fills its fields.
     const placeholderId = (Date.now() + 1).toString();
+    const startedAt = Date.now();
     appendAssistantReply(chatId, {
       id: placeholderId,
       role: 'assistant',
@@ -707,6 +711,8 @@ function StockChatContent() {
         model: turn.model,
         error: turn.error,
         pendingApproval: turn.pendingApproval,
+        // Elapsed turn time; finalised on the terminal frame.
+        durationMs: Math.max(0, Date.now() - startedAt),
       }, turn.done);    };
 
     setAgentBusy(true);
@@ -727,6 +733,7 @@ function StockChatContent() {
         content: '',
         status: 'error',
         error: { message: err instanceof Error ? err.message : String(err) },
+        durationMs: Math.max(0, Date.now() - startedAt),
       });
       sound.error();
     } finally {
@@ -810,6 +817,16 @@ function StockChatContent() {
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
     const newChatId = addMessageToActiveChat(userMsg);
     void runAgent(newChatId, content, userMsg);
+  };
+
+  /**
+   * Re-send a user prompt unchanged — the "Redirect" action on a prompt bubble.
+   * Reuses the edit path (truncate at that message and run it again).
+   */
+  const handleResendMessage = (id: string) => {
+    const chat = conversationsRef.current.find((c) => c.id === activeConversationIdRef.current);
+    const msg = chat?.messages.find((m) => m.id === id);
+    if (msg && msg.role === 'user') handleEditMessage(id, msg.content);
   };
 
   /** Inject a prompt and run it through the Eclipse Agent (the harness) so the
@@ -983,6 +1000,13 @@ function StockChatContent() {
           <div aria-hidden className="app-bg-layer" />
         )}
 
+        {/* Chat-conversation surface (Settings › ChatBot Page › Chat background).
+            On by default: paints a calm #0a0b0b (dark) / matte off-white (light)
+            behind the transcript + composer, over the wallpaper, so messages stay
+            readable. Rendered only once a conversation exists, so the landing
+            wallpaper/wordmark still show. No-op (opacity 0) if disabled. */}
+        {activeTab === 'chat' && messages.length > 0 && <div aria-hidden className="chat-surface-layer" />}
+
         {/* Giant ChatBot wordmark (Settings › General › Background). Painted
             above the wallpaper but below the transcript/composer, landing only. */}
         {activeTab === 'chat' && messages.length === 0 && <ChatWordmark />}
@@ -1062,6 +1086,7 @@ function StockChatContent() {
 <ChatHistory
   messages={messages}
   onEditMessage={handleEditMessage}
+  onResendMessage={handleResendMessage}
   onRetryMessage={handleRetryMessage}
   onFeedback={handleFeedback}
   onFollowup={handleFollowup}

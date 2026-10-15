@@ -374,6 +374,7 @@ export function ChatDock({
 
     const userMsg: Message = { id: newId(), role: 'user', content: userText };
     const assistantId = newId();
+    const startedAt = Date.now();
     // Seed an empty assistant turn the shared run hook fills (status, streamed
     // text, activities) — the answer appears as it is written.
     append([
@@ -404,6 +405,7 @@ export function ChatDock({
               runId: turn.runId,
               model: turn.model,
               pendingApproval: turn.pendingApproval,
+              durationMs: Math.max(0, Date.now() - startedAt),
             }
           : m,
       );
@@ -586,6 +588,13 @@ export function ChatDock({
                   if (idx === -1) return;
                   append(msgs.slice(0, idx));
                   setQuery(content);
+                }}
+                onResendMessage={(id) => {
+                  const msgs = messagesRef.current;
+                  const idx = msgs.findIndex(m => m.id === id);
+                  if (idx === -1) return;
+                  append(msgs.slice(0, idx));
+                  setQuery(msgs[idx].content);
                 }}
                 onRetryMessage={retryMessage}
                 onFeedback={feedbackMessage}

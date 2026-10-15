@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ArrowDown, Cpu, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
+import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
@@ -35,6 +35,8 @@ interface ChatHistoryProps {
    * re-send) — the component only reports the new text.
    */
   onEditMessage?: (id: string, content: string) => void;
+  /** Re-send a user prompt as-is (the "redirect" action on a user bubble). */
+  onResendMessage?: (id: string) => void;
   /** Retry a failed assistant turn (re-runs its preceding user prompt). */
   onRetryMessage?: (id: string) => void;
   /** Rate an assistant turn. The caller persists the choice on the message. */
@@ -45,6 +47,15 @@ interface ChatHistoryProps {
 
 /** How close to the bottom counts as "following the stream". */
 const NEAR_BOTTOM_PX = 96;
+
+/** Compact, honest turn duration: "820ms", "2.3s", "1m 5s". */
+function formatTurnDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return `${m}m ${s}s`;
+}
 
 /**
  * Assistant prose is the expensive part to render (full Markdown parse). It only
@@ -80,7 +91,7 @@ const AssistantContent = memo(function AssistantContent({
   return <Markdown content={content} compact={compact} streaming={streaming} onFollowup={onFollowup} className="w-full" />;
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onRetryMessage, onFeedback, onFollowup }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -129,6 +140,38 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
     atBottomRef.current = true;
     setAtBottom(true);
   }, []);
+
+  // Drag the custom scroll thumb: the transcript hides the native bar
+  // (`scrollbar-hide`), so this thumb IS the scrollbar — it must be grabbable,
+  // not just an indicator, or scrolling reads as broken.
+  const [barDragging, setBarDragging] = useState(false);
+  const onBarPointerDown = useCallback((e: { clientY: number; preventDefault: () => void }) => {
+    const el = scrollRef.current;
+    if (!el || !bar) return;
+    const track = el.clientHeight - bar.height;
+    const overflow = el.scrollHeight - el.clientHeight;
+    if (track <= 0 || overflow <= 0) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startTop = el.scrollTop;
+    setBarDragging(true);
+    const move = (ev: PointerEvent) => {
+      const delta = ev.clientY - startY;
+      el.scrollTop = startTop + (delta / track) * overflow;
+      onScroll();
+    };
+    const up = () => {
+      setBarDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }, [bar, onScroll]);
 
   useEffect(() => {
     if (!atBottomRef.current) return;
@@ -209,12 +252,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
               data-message-id={msg.id}
               className={`group animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
             >
-              {msg.role === 'assistant' && !compact && (
-                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary mb-2 border border-primary/20">
-                  <Sparkles size={14} />
-                </div>
-              )}
-
               {msg.role === 'assistant' && msg.status != null && !(msg.activities && msg.activities.length > 0) && (
                 <div className={cn(msg.content ? 'mb-2' : '')}>
                   <ResponseStatusLine status={msg.status} activities={msg.activities} compact={compact} />
@@ -257,24 +294,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   {msg.changes && msg.changes.length > 0 && (
                     <ChangeCards changes={msg.changes} compact={compact} />
                   )}
-                  {!working && msg.model?.model && (
-                    <div
-                      className={cn(
-                        'mb-1.5 inline-flex max-w-full items-center gap-1.5 font-mono text-muted-foreground/70',
-                        compact ? 'text-[10px]' : 'text-[11px]',
-                      )}
-                      title={`Answered by ${msg.model.model}${msg.model.provider ? ` · ${msg.model.provider}` : ''}`}
-                    >
-                      <Cpu size={compact ? 10 : 11} className="shrink-0 text-primary/60" />
-                      <span className="truncate">{msg.model.model}</span>
-                      {msg.model.provider && (
-                        <>
-                          <span className="text-muted-foreground/40">·</span>
-                          <span className="truncate text-muted-foreground/50">{msg.model.provider}</span>
-                        </>
-                      )}
-                    </div>
-                  )}
                   {msg.content && <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />}
                   <ChatCapabilityPanel
                     autonomy={msg.autonomy}
@@ -308,58 +327,92 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   {msg.memory ? (
                     <MemoryActionPanel memory={msg.memory} runId={msg.runId} compact={compact} />
                   ) : null}
-                  {!working && msg.content && (
-                    <div className="hover-reveal mt-1 flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() => void copyMessage(msg)}
-                        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-                        title="Copy response"
-                        aria-label="Copy response"
-                      >
-                        {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
-                        {copiedId === msg.id ? 'Copied' : 'Copy'}
-                      </button>
-                      {onRetryMessage && (
-                        <button
-                          type="button"
-                          onClick={() => onRetryMessage(msg.id)}
-                          className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-                          title="Regenerate response"
-                          aria-label="Regenerate response"
+                  {!working && (msg.content || msg.model?.model || msg.durationMs != null) && (
+                    <div className="hover-reveal mt-1 flex w-full flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      {msg.durationMs != null && (
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 font-mono text-muted-foreground/60 tabular-nums',
+                            compact ? 'text-[10px]' : 'text-[11px]',
+                          )}
+                          title="Time this reply took"
                         >
-                          <RotateCcw size={11} /> Regenerate
-                        </button>
-                      )}
-                      {onFeedback && (
-                        <span className="ml-0.5 flex items-center gap-0.5 border-l border-border/40 pl-1.5">
-                          <button
-                            type="button"
-                            onClick={() => onFeedback(msg.id, 'up')}
-                            aria-pressed={msg.feedback === 'up'}
-                            className={cn(
-                              'rounded-full p-1.5 transition-colors cursor-pointer hover:bg-accent',
-                              msg.feedback === 'up' ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-                            )}
-                            title="Good response"
-                            aria-label="Good response"
-                          >
-                            <ThumbsUp size={11} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onFeedback(msg.id, 'down')}
-                            aria-pressed={msg.feedback === 'down'}
-                            className={cn(
-                              'rounded-full p-1.5 transition-colors cursor-pointer hover:bg-accent',
-                              msg.feedback === 'down' ? 'text-rose-400' : 'text-muted-foreground hover:text-foreground',
-                            )}
-                            title="Bad response"
-                            aria-label="Bad response"
-                          >
-                            <ThumbsDown size={11} />
-                          </button>
+                          <Clock size={compact ? 10 : 11} className="shrink-0 opacity-70" />
+                          {formatTurnDuration(msg.durationMs)}
                         </span>
+                      )}
+                      {msg.content && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void copyMessage(msg)}
+                            className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                            title="Copy response"
+                            aria-label="Copy response"
+                          >
+                            {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
+                            {copiedId === msg.id ? 'Copied' : 'Copy'}
+                          </button>
+                          {onRetryMessage && (
+                            <button
+                              type="button"
+                              onClick={() => onRetryMessage(msg.id)}
+                              className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                              title="Regenerate response"
+                              aria-label="Regenerate response"
+                            >
+                              <RotateCcw size={11} /> Regenerate
+                            </button>
+                          )}
+                          {onFeedback && (
+                            <span className="ml-0.5 flex items-center gap-0.5 border-l border-border/40 pl-1.5">
+                              <button
+                                type="button"
+                                onClick={() => onFeedback(msg.id, 'up')}
+                                aria-pressed={msg.feedback === 'up'}
+                                className={cn(
+                                  'rounded-full p-1.5 transition-colors cursor-pointer hover:bg-accent',
+                                  msg.feedback === 'up' ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                                title="Good response"
+                                aria-label="Good response"
+                              >
+                                <ThumbsUp size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onFeedback(msg.id, 'down')}
+                                aria-pressed={msg.feedback === 'down'}
+                                className={cn(
+                                  'rounded-full p-1.5 transition-colors cursor-pointer hover:bg-accent',
+                                  msg.feedback === 'down' ? 'text-rose-400' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                                title="Bad response"
+                                aria-label="Bad response"
+                              >
+                                <ThumbsDown size={11} />
+                              </button>
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {msg.model?.model && (
+                        <div
+                          className={cn(
+                            'ml-auto inline-flex max-w-full items-center gap-1.5 font-mono text-muted-foreground/70',
+                            compact ? 'text-[10px]' : 'text-[11px]',
+                          )}
+                          title={`Answered by ${msg.model.model}${msg.model.provider ? ` · ${msg.model.provider}` : ''}`}
+                        >
+                          <Cpu size={compact ? 10 : 11} className="shrink-0 text-primary/60" />
+                          <span className="truncate">{msg.model.model}</span>
+                          {msg.model.provider && (
+                            <>
+                              <span className="text-muted-foreground/40">·</span>
+                              <span className="truncate text-muted-foreground/50">{msg.model.provider}</span>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
@@ -398,26 +451,54 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
               ) : (
                 <div className={cn('group flex flex-col', 'items-end', 'w-full')}>
                   <div className={cn(
-                    'leading-relaxed break-words whitespace-pre-wrap bg-card text-foreground border border-border',
+                    // `.chat-bubble` paints a scheme-aware fill from
+                    // `--chat-bubble-bg-light/-dark` (Settings › ChatBot Page ›
+                    // Chat background › Prompt bubble), defaulting to a neutral
+                    // tint that reads on both the light and dark chat surfaces.
+                    'chat-bubble leading-relaxed break-words whitespace-pre-wrap text-foreground',
                     compact
-                      ? 'px-3 py-2 max-w-[90%] text-[13px] rounded-2xl'
+                      ? 'px-2.5 py-1.5 max-w-[90%] text-[12px] rounded-2xl'
                       // Grow with the text up to the full column width: short
                       // prompts stay a compact pill, long ones use every pixel
                       // instead of wrapping early inside a fixed-size bubble.
-                      : 'w-fit max-w-full px-4 py-3 md:px-5 md:py-3.5 text-[14px] md:text-[15px] rounded-2xl md:rounded-3xl',
+                      : 'w-fit max-w-full px-3.5 py-2 md:px-4 md:py-2.5 text-[13px] md:text-[14px] rounded-2xl',
                   )}>
                     {msg.content}
                   </div>
-                  {onEditMessage && (
+                  <div className="hover-reveal mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <button
                       type="button"
-                      onClick={() => startEdit(msg)}
-                      className="hover-reveal mt-1 flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground hover:bg-accent group-hover:opacity-100 focus-within:opacity-100 cursor-pointer"
-                      title="Edit prompt"
+                      onClick={() => void copyMessage(msg)}
+                      className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                      title="Copy prompt"
+                      aria-label="Copy prompt"
                     >
-                      <Pencil size={11} /> Edit
+                      {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
+                      {copiedId === msg.id ? 'Copied' : 'Copy'}
                     </button>
-                  )}
+                    {onResendMessage && (
+                      <button
+                        type="button"
+                        onClick={() => onResendMessage(msg.id)}
+                        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        title="Redirect — re-send this prompt"
+                        aria-label="Redirect"
+                      >
+                        <RotateCcw size={11} /> Redirect
+                      </button>
+                    )}
+                    {onEditMessage && (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(msg)}
+                        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        title="Edit prompt"
+                        aria-label="Edit prompt"
+                      >
+                        <Pencil size={11} /> Edit
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -426,12 +507,16 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
       </div>
       </div>
 
-      {/* Short custom scroll indicator — capped thumb, inset from the edges so it
-          never runs the full height or under the header. */}
+      {/* Custom scroll indicator — a drag-grabbable thumb (the native bar is
+          hidden), inset from the edges so it never runs under the header. */}
       {bar && (
         <div
-          aria-hidden
-          className="pointer-events-none absolute right-1.5 z-20 w-1 rounded-full bg-foreground/20 transition-[top,height] duration-100 ease-out"
+          aria-label="Scroll conversation"
+          onPointerDown={onBarPointerDown}
+          className={cn(
+            'absolute right-1.5 z-20 w-1.5 rounded-full bg-foreground/20 transition-colors cursor-grab touch-none hover:bg-foreground/40',
+            barDragging ? 'bg-foreground/50 cursor-grabbing' : 'transition-[top,height] duration-100 ease-out',
+          )}
           style={{ top: bar.top, height: bar.height }}
         />
       )}
