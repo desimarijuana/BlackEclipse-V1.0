@@ -8,6 +8,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Fix: Aurora glow was missing on the ChatBot page.** The shell's `AuroraGlow`
+  sits at the root `z-0`, but the chat panel (`z-10`) now paints an opaque chat
+  surface / wallpaper over it, so the glow was covered. Mounted a local
+  `AuroraGlow` inside the chat panel — above the surface, below the transcript —
+  when the chat tab is active (mirrors the fullscreen Command Center overlay).
+  `stock-chat.tsx` only. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
 - **Chat: message action buttons are icon-only.** Copy / Redirect / Regenerate /
   Edit dropped their text labels (the word "Copied" shows via the check icon and
   tooltip instead) to save space in the compact action row. `chat-history.tsx`

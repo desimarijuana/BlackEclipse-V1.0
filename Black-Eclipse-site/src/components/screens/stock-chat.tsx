@@ -1007,6 +1007,14 @@ function StockChatContent() {
             wallpaper/wordmark still show. No-op (opacity 0) if disabled. */}
         {activeTab === 'chat' && messages.length > 0 && <div aria-hidden className="chat-surface-layer" />}
 
+        {/* Aurora on the chat tab. The shell's AuroraGlow sits at the root (z-0),
+            but the chat panel is z-10 and now paints an opaque chat surface /
+            wallpaper over it, so the glow is covered. Mount a local copy inside
+            the panel — above the surface (same z-0, later in DOM) but below the
+            transcript (z-10) — so the ambient market-state glow still shows on
+            the ChatBot page. Mirrors the fullscreen Command Center overlay. */}
+        {activeTab === 'chat' && <AuroraGlow />}
+
         {/* Giant ChatBot wordmark (Settings › General › Background). Painted
             above the wallpaper but below the transcript/composer, landing only. */}
         {activeTab === 'chat' && messages.length === 0 && <ChatWordmark />}
