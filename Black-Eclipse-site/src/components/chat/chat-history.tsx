@@ -540,8 +540,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
         <div
           aria-label="Scroll conversation"
           onPointerDown={onBarPointerDown}
-          onPointerEnter={() => { setBarVisible(true); clearBarTimer(); }}
-          onPointerLeave={() => scheduleBarHide(600)}
           className={cn(
             'absolute right-1.5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
             barDragging && 'bg-foreground/50 cursor-grabbing',
