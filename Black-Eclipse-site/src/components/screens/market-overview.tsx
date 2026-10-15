@@ -1531,7 +1531,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 h-full">
+          <div className="grid grid-cols-1 gap-4 h-full sm:grid-cols-2">
             {loadingDashboard ? (
               <div className="col-span-full flex items-center justify-center py-6">
                 <TableLoading pct={45} label="loading shifters" />

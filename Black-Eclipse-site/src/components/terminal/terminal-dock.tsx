@@ -55,7 +55,17 @@ function TerminalPopout({
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    // Clamp on mount too — the initial 760px window overflows a phone until the
+    // first resize event would otherwise fire.
+    setGeom((g) => ({
+      ...g,
+      x: Math.max(0, Math.min(g.x, window.innerWidth - 80)),
+      w: Math.min(g.w, window.innerWidth - 16),
+      h: Math.min(g.h, window.innerHeight - 16),
+    }));
+  }, []);
 
   // Keep it on-screen if the viewport shrinks.
   useEffect(() => {

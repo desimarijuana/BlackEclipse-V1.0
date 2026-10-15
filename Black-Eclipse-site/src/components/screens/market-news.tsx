@@ -1239,7 +1239,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 {totalItems > 0 && <> · <span className="text-foreground font-bold">{totalItems}</span> articles</>}
               </span>
 
-              <div className="flex items-center gap-1.5 order-1 sm:order-2">
+              <div className="flex flex-wrap items-center justify-center gap-1.5 order-1 sm:order-2">
                 {navBtn('Prev', page - 1, page <= 1, <span aria-hidden>&larr;</span>)}
                 {pageNumbers.map((n, idx) =>
                   n === '…' ? (

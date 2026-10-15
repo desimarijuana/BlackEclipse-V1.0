@@ -62,8 +62,8 @@ export function ComputedResultPanel({ result, compact = false }: { result: unkno
             <ul className="space-y-0.5">
               {rows.map(([key, value]) => (
                 <li key={key} className="flex items-baseline justify-between gap-2 text-muted-foreground">
-                  <span>{key}</span>
-                  <span className="font-mono text-foreground/90">{formatValue(value)}</span>
+                  <span className="min-w-0 break-words">{key}</span>
+                  <span className="min-w-0 break-words text-right font-mono text-foreground/90">{formatValue(value)}</span>
                 </li>
               ))}
             </ul>

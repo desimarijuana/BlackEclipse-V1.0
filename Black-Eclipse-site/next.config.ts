@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
   // pointer events, which blocks automated UI checks (Playwright) against
   // controls underneath it.
   devIndicators: false,
+  // A local hostname alias (e.g. http://blackeclipse, added to the Windows
+  // hosts file and fronted by `scripts/local-proxy.js`) makes the browser's
+  // dev origin differ from the dev server's own address, which Next would
+  // otherwise flag as cross-origin for /_next/* and HMR. Listing it here keeps
+  // dev requests same-origin. Dev only; unused by production builds.
+  allowedDevOrigins: ["blackeclipse", "blackeclipse.local", "*.blackeclipse.local"],
   serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "pdfjs-dist"],
   // Dev only. On a memory-constrained host a cold `next dev` compile of the
   // ~19k-module graph can take longer than webpack's default 120s client

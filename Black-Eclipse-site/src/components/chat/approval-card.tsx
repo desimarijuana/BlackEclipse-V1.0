@@ -99,6 +99,8 @@ export function ApprovalCard({ approval, anchor, onDecide }: ApprovalCardProps) 
         left: rect.left,
         top: rect.top - 10,
         width: Math.min(rect.width, 720),
+        maxHeight: Math.max(200, rect.top - 16),
+        overflowY: 'auto',
         transform: 'translate(-50%, -100%)',
       }}
       className="z-50 animate-fade-in"

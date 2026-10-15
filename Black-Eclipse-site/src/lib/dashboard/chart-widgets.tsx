@@ -13,6 +13,7 @@ import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-e
 import { usePortfolioPerformance, useFundComparison } from './portfolio-store';
 import { useMarketLeadSymbol } from './market-views';
 import { getTradingViewSymbol } from '@/lib/utils';
+import { useDarkScheme } from '@/hooks/use-dark-scheme';
 import { defaultChartState, type ChartState } from '@/lib/chart/types';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 import { ChartWidget } from '@/components/chart/chart-widget';
@@ -328,6 +329,9 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
   const { market, symbol: leadSymbol } = useMarketLeadSymbol(placement);
   const [symbol, setSymbol] = React.useState((placement?.config?.symbol as string) || leadSymbol);
   const [touched, setTouched] = React.useState(false);
+  // The embedded TradingView chart themes itself, so it must be told which
+  // scheme the app is in — otherwise it renders a black chart on a white page.
+  const isDark = useDarkScheme();
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // Restore the last-viewed symbol for this widget instance on mount — but only
@@ -367,7 +371,7 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
       symbol: tvSymbol,
       interval: 'D',
       timezone: 'Etc/UTC',
-      theme: 'dark',
+      theme: isDark ? 'dark' : 'light',
       style: '1',
       locale: 'en',
       allow_symbol_change: true,
@@ -377,7 +381,7 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
     });
     container.appendChild(script);
     return () => { container.innerHTML = ''; };
-  }, [symbol]);
+  }, [symbol, isDark]);
 
   return (
     <div className="flex h-full flex-col p-4">

@@ -160,7 +160,10 @@ export function MessageRail({
               aria-current={active ? "true" : undefined}
               aria-label={`Jump to: ${label || "message"}`}
               className={cn(
-                "block h-[2px] rounded-none transition-all duration-150 ease-out cursor-pointer",
+                "relative block h-[2px] rounded-none transition-all duration-150 ease-out cursor-pointer",
+                // Expand the tap target on touch without changing the visual
+                // footprint (the visible tick stays 2px tall).
+                "before:absolute before:-inset-x-2 before:-inset-y-[6px] before:content-['']",
                 // Neutral grey ticks — no brand accent. WIDTH grows only on
                 // HOVER; the active/reading tick stays its size and only
                 // brightens to the foreground grey.

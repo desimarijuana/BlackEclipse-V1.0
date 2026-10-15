@@ -101,11 +101,20 @@ export function AgentWorkspace({ showExplain = false }: { showExplain?: boolean 
   const [viewing, setViewing] = useState<ArtifactRef | null>(null);
   const [width, setWidth] = useState(DEFAULT_W);
   const resizeRef = useRef<number | null>(null);
+  // The docked column keeps its user-resized width only on desktop. Below the
+  // `md` breakpoint it must be a full-width strip, so the inline width is gated
+  // (an inline `width` would otherwise beat the `w-full` class).
+  const [isWide, setIsWide] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     setWidth(readWidth());
     hydrateWorkspaceStore();
+    const mq = window.matchMedia('(min-width: 768px)');
+    const update = () => setIsWide(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
   }, []);
 
   const onDecide = useMemo(
@@ -191,7 +200,7 @@ export function AgentWorkspace({ showExplain = false }: { showExplain?: boolean 
     <div
       role="complementary"
       aria-label={t('workspace.title')}
-      style={{ width }}
+      style={isWide ? { width } : undefined}
       className={cn(
         // A real docked column beside the main panel: full height on desktop,
         // a full-width strip below the content on narrow screens (never an

@@ -64,7 +64,11 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 
 | Script | What it does |
 |---|---|
-| `npm run dev` | Dev server (`predev` runs the doctor + frees the port) |
+| `npm run dev` | App + local proxy together, shown as `http://blackeclipse` (`predev` runs the doctor + frees the port) |
+| `npm run dev:next` | The raw, unchanged `next dev` on all interfaces (no proxy) |
+| `npm run dev:local` | Dev server bound to `127.0.0.1` only (keeps it off the LAN, no proxy) |
+| `npm run proxy` / `npm run proxy:stop` | Loopback reverse proxy on `:80` so `http://blackeclipse` reaches `:3000` — see [`local-hostname.md`](./local-hostname.md) |
+| `npm run setup:hostname` | Adds `127.0.0.1 blackeclipse` to the Windows hosts file (self-elevating) |
 | `npm run up` | Doctor + `scripts/up.js` (the "just make it work" path) |
 | `npm run build` / `npm start` | Production build / serve |
 | `npm test` | Vitest unit tests |

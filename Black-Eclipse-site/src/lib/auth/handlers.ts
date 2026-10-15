@@ -9,19 +9,20 @@ import { getAuthStore } from "./store";
 import { getAuthContext } from "./server";
 import { signSessionToken, sessionCookie, clearedSessionCookie } from "./token";
 import { tokenHash } from "./session";
-import { guardMutation } from "@/lib/api-guard";
+import { guardMutation, isLocalRequest } from "@/lib/api-guard";
 
 function bad(status: number, error: string, code: string) {
   return NextResponse.json({ error, code }, { status });
 }
 
 function secureFor(request: Request): boolean {
-  try {
-    const host = new URL(request.url).hostname;
-    return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
-  } catch {
-    return true;
-  }
+  // A Secure cookie is dropped by the browser over plain http. Any local host
+  // (loopback aliases — and the `blackeclipse` hosts-file alias, which also
+  // resolves to loopback) is served over http, so it must NOT be marked
+  // Secure. Everything else is treated as remote and cookie-protected. The host
+  // is read Host-aware (x-forwarded-host / host), not from `request.url`, so
+  // this is correct behind the local reverse proxy too.
+  return !isLocalRequest(request);
 }
 
 async function readCredentials(request: Request): Promise<{ username: string; password: string } | null> {

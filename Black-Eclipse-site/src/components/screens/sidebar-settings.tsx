@@ -190,7 +190,7 @@ function SortableRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "flex items-center gap-2 sm:gap-3 px-2.5 sm:px-3 py-2.5 rounded-xl border transition-all",
+        "flex flex-wrap items-center gap-2 sm:gap-3 px-2.5 sm:px-3 py-2.5 rounded-xl border transition-all",
         isDragging
           ? "opacity-40 border-primary/40 bg-primary/5"
           : "border-border/20 glass-card-subtle hover:border-border/40",
@@ -218,8 +218,8 @@ function SortableRow({
         <span className="text-[9px] text-muted-foreground tracking-wide truncate">{id}</span>
       </div>
 
-      {/* Shortcut assignment */}
-      <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+      {/* Shortcut assignment — full row on mobile, inline on sm+ */}
+      <div className="flex w-full items-center justify-end gap-1.5 shrink-0 sm:w-auto sm:justify-start">
         <Keyboard size={13} className="text-muted-foreground" />
         <Select
           value={shortcut || "__none__"}

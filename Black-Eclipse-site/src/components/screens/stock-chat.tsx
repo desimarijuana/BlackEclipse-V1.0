@@ -174,9 +174,9 @@ function StockChatContent() {
   // Full-screen theme preview (Settings › Customization) hides the modal so the
   // real app can be auditioned; the panel stays mounted to keep its draft.
   const themePreviewMode = useThemeStore((s) => s.previewMode);
-  // Boot tab: Settings › General can pin a start screen (or "Last screen"). The
-  // URL deep link below always overrides this when one is present.
-  const [activeTab, setActiveTab] = useState<AppTab>(() => resolveStartTab(loadGeneralPrefs()) ?? 'chat');
+  // Boot tab (Settings › General); the URL deep link below overrides it. Applied
+  // after mount so the server and the first client render stay identical.
+  const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
   const [discoveryMarket, setDiscoveryMarket] = useState<string | undefined>(undefined);
@@ -364,10 +364,15 @@ function StockChatContent() {
       if (dest) apply(dest);
     };
 
-    // Boot from the URL (deep link / refresh / new tab).
+    // Boot from the URL; otherwise honor the saved start screen after mount, so
+    // the server and first client render stay identical.
     try {
       const boot = parseDeepLink(window.location.search);
       if (boot) apply(boot);
+      else {
+        const start = resolveStartTab(loadGeneralPrefs());
+        if (start && start !== 'chat') setActiveTab(start);
+      }
     } catch { /* ignore malformed URLs */ }
     bootDoneRef.current = true;
 
@@ -1055,16 +1060,10 @@ function StockChatContent() {
             wallpaper/wordmark still show. No-op (opacity 0) if disabled. */}
         {activeTab === 'chat' && messages.length > 0 && <div aria-hidden className="chat-surface-layer" />}
 
-        {/* Aurora on the ChatBot landing. The shell's AuroraGlow sits at the root
-            (z-0), but the chat panel is z-10 and paints an opaque wallpaper over
-            it, so the glow is covered. Mount a local copy inside the panel — above
-            the wallpaper, below the wordmark/composer — but only on the LANDING
-            (empty transcript); the conversation view keeps its calm chat surface
-            without the glow. Mirrors the fullscreen Command Center overlay. */}
-        {activeTab === 'chat' && messages.length === 0 && <AuroraGlow />}
-
         {/* Giant ChatBot wordmark (Settings › General › Background). Painted
-            above the wallpaper but below the transcript/composer, landing only. */}
+            above the backdrop but below the transcript/composer, landing only.
+            The landing keeps a simple, uncluttered backdrop — no Aurora glow
+            over it — so the solid fill / wallpaper plus wordmark read cleanly. */}
         {activeTab === 'chat' && messages.length === 0 && <ChatWordmark />}
 
         <TopBar 

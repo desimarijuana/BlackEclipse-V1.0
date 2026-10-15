@@ -82,11 +82,11 @@ export function CodeScreen() {
 
   return (
     <div className="space-y-3 p-4">
-      <header className="flex items-center justify-between gap-2">
+      <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-[15px] font-medium text-foreground">{t('code.task.heading')}</h2>
         </div>
-        <div className="flex shrink-0 gap-1.5">
+        <div className="flex shrink-0 flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => setView('tasks')}

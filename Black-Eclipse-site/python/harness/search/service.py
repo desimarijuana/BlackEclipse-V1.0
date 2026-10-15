@@ -74,12 +74,35 @@ class SearchService:
         self._configured_settings = settings or self._configured_settings
         self.embedder.configure(self._configured_settings, overrides)
 
+    def _boot_settings(self) -> Any:
+        """The process default model settings, read from the environment the front
+        door put in the runtime's env (`HARNESS_JOB_*`).
+
+        This lets the BOOT warm-index actually embed and store vectors instead of
+        indexing keyword-only: without it the boot ran `configure(None)`, so every
+        document had `vectors: 0` until some later query re-configured the provider
+        and triggered a backfill. Absent the env (a bare `python` runtime) this is
+        None and the index stays honestly keyword-only.
+        """
+        import os
+        from types import SimpleNamespace
+
+        provider = (os.environ.get("HARNESS_JOB_PROVIDER") or "").strip()
+        if not provider:
+            return None
+        return SimpleNamespace(
+            provider=provider,
+            api_key=os.environ.get("HARNESS_JOB_API_KEY"),
+            base_url=os.environ.get("HARNESS_JOB_BASE_URL"),
+            model=os.environ.get("HARNESS_JOB_MODEL"),
+        )
+
     async def warm_index(self, *, namespaces: Optional[list[str]] = None) -> dict[str, Any]:
-        """Resolve the embedding provider from the environment and index sources.
+        """Resolve an embedding provider (boot env or config) and index sources.
 
         Used by the boot warm-up; safe to call repeatedly (incremental).
         """
-        self.configure(None)
+        self.configure(self._boot_settings())
         return await self.bulk_index(namespaces=namespaces)
 
     def schedule_warm_index(self, *, namespaces: Optional[list[str]] = None) -> Any:

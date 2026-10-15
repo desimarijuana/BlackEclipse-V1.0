@@ -74,6 +74,9 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
 
   return (
     <div className="cal-shell rounded-2xl p-2.5 sm:p-3">
+      {/* Horizontal scroll on narrow screens keeps the 7 day columns legible. */}
+      <div className="overflow-x-auto scrollbar-hide">
+      <div className="min-w-[560px] sm:min-w-0">
       {/* Weekday header */}
       <div className="mb-2 grid grid-cols-[repeat(7,minmax(0,1fr))_auto] gap-1.5">
         {WEEKDAYS.map((d) => (
@@ -188,6 +191,8 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
             </div>
           );
         })}
+      </div>
+      </div>
       </div>
 
       {/* Legend + month total */}

@@ -102,15 +102,16 @@ agent can search its code — bounded by file count and size, binaries skipped;
 disable with `HARNESS_SEARCH_INDEX_REPO=0`. Identical content (by SHA-256) is
 deduplicated so a re-ingest does not create duplicate vectors.
 
-Because the boot warm-up runs with no embedding provider (keywords only, state
-`STALE`), the first query that resolves a provider schedules ONE background
-re-index (`SearchService._maybe_backfill_vectors`) so the embeddings are actually
-PERSISTED — previously they were computed and then discarded, leaving `vectors: 0`
-for every document. An unchanged keyword-only document now reports its chunks as
-missing vectors, and a hybrid query whose query-embedding fails records a
-structured `fallback: "keyword"` (not just a warning string), so a degraded search
-is never mistaken for a healthy one. Embedding-failure events keep their
-`count`/`error` in the event `detail`.
+Because the boot warm-up now resolves the embedding provider from the front-door
+environment (`HARNESS_JOB_*`, via `SearchService._boot_settings`), it EMBEDS and
+stores vectors at index time. When no provider is configured the index stays
+honestly keyword-only (`STALE`), and the first query that resolves one schedules
+ONE background re-index (`SearchService._maybe_backfill_vectors`) to add the
+vectors — so embeddings are persisted, never computed and then discarded. An
+unchanged keyword-only document reports its chunks as missing vectors, and a
+hybrid query whose query-embedding fails records a structured `fallback: "keyword"`
+(not just a warning string). Embedding-failure events keep their `count`/`error` in
+the event `detail`.
 
 States: `PENDING → PROCESSING → INDEXED | STALE | FAILED` (`STALE` = indexed for
 keyword but embeddings are missing/failed). Failures are recorded on the

@@ -148,6 +148,12 @@ describe('handleSidebarModeShortcut', () => {
     expect(useSidebarConfigStore.getState().mode).toBe('terminal');
   });
 
+  it('switches to Bots on Alt+B', () => {
+    useSidebarConfigStore.setState({ mode: 'terminal' });
+    expect(handleSidebarModeShortcut(keyEvent({ key: 'b', altKey: true }))).toBe(true);
+    expect(useSidebarConfigStore.getState().mode).toBe('bots');
+  });
+
   it('ignores the plain key without the Alt modifier', () => {
     useSidebarConfigStore.setState({ mode: 'terminal' });
     expect(handleSidebarModeShortcut(keyEvent({ key: 'a' }))).toBe(false);

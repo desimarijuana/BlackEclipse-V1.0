@@ -8,6 +8,73 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Responsive pass across the shell and screens.** Fixed the app-wide mobile
+  breakage: the Agent Workspace dock's inline `width` (300–760px) no longer
+  overrides `w-full` below `md`; removed the duplicate floating hamburger in the
+  sidebar that overlapped the TopBar's menu button on phones; made the TopBar
+  search flex-grow and capped the model selector/dropdowns; the Command Center's
+  Watchlist/Market rails now stack below the board instead of `hidden`, its
+  header actions collapse to icons, and the workspace canvas only applies pinned
+  zone widths + resizers from `lg` up. Shared `DialogContent` now scrolls
+  (`max-h-[calc(100dvh-2rem)]`) and `TabsList` scrolls horizontally. Settings
+  gained a mobile search field and a filtering pill row, the F-key shortcut
+  selector is no longer hidden on phones, and several non-wrapping grids/rows
+  (security approvals, background OptionGrid, density, data-source/providers/MCP
+  headers) were made wrap or responsive. Chat: the composer no longer clips the
+  input, popovers are viewport-capped, the approval card is height-clamped, the
+  message-rail ticks got a touch hit-area, and the dock respects safe-area.
+  Market screens: the Chart Workspace reflows to a single column below `md`,
+  month/mini calendars no longer squeeze, volume-analytics hides columns, and
+  several unwrapped tables/tab strips now scroll. Terminal pop-out clamps its
+  width on mount. Verified: `npx tsc --noEmit` clean; vitest 3077 passed.
+  (Python/evals scripts exceeded the run window in this env.)
+  no doc change — UI/layout fixes only; no architecture, data-shape, contract,
+  setup or folder change.
+
+- **Investor Eye map/globe and embedded charts now follow light mode.** The
+  world map is canvas/WebGL and the TradingView widget hardcoded `theme: 'dark'`,
+  so both stayed black on a white page. `WorldMap` now observes the app's `dark`
+  class (`useDarkScheme`) and drives a light geo palette, sky backdrop, tooltip
+  and globe surface when the scheme is light (the starfield is not mounted); the
+  TradingView embed follows the scheme too. Also hardened `--glass-tint-light`
+  (`lightGlassTint`) so a stored dark glass tint can no longer render dark
+  widget-card glass in light mode. `tsc` clean; theme + investor-eye vitest
+  suites pass. docs updated: `docs/investor-eye-architecture.md`.
+
+- **Command Center popups: fixed the cramped, cut-off persona pickers.** The
+  onboarding "Build your workspace" dialog and the "New layout" preset dialog
+  inherited `sm:max-w-sm` from the shared `DialogContent` base, which — because
+  Tailwind emits responsive variants last — overrode the page's `max-w-2xl` /
+  `max-w-lg`, collapsing the preset grid to ~384px (3 skinny columns of
+  wrapped-to-death text). Both are now explicitly `sm:max-w-*` and constrained to
+  `max-h-[calc(100dvh-2rem)]` as a flex column whose body scrolls, so a tall
+  grid no longer pushes the title and confirm button off-screen (previously the
+  dialog measured 1106px tall at `top:-153px` with no scroll). Verified live
+  against the running dev server: onboarding 672px, new-layout 512px, both fit
+  the viewport and scroll internally. `tsc` clean; vitest 3077 passed.
+  no doc change — bug fix, no contract/architecture change.
+
+- **`blackeclipse` is now the default start.** Added `scripts/local-host.js`, a
+  combined launcher that starts the Next.js app bound to `127.0.0.1` **and** the
+  local proxy on `:80` together, and rewrites the child's output so the only
+  address shown is `http://blackeclipse` (Next's own `Local:`/`Network:` lines are
+  rewritten on the fly). Wired into `npm run dev`, `npm run up`, and the `black` /
+  `black dev` CLI; `Ctrl+C` stops both. The original raw server is preserved as
+  `npm run dev:next` (all interfaces) alongside `npm run dev:local` (loopback, no
+  proxy). Hardened `scripts/local-proxy.js` so a transient post-listen server
+  error no longer kills the proxy. Verified live: default launcher binds `:80`,
+  banner shows only `blackeclipse`, and `curl http://blackeclipse/` → `200`.
+  docs updated: `docs/local-hostname.md`, `docs/QUICKSTART.md`,
+  `docs/NAVIGATION.md`, this file.
+
+- **Sidebar mode switcher: added the missing Bots hotkey and surfaced all three
+  shortcuts on the tabs.** The switcher offered `Alt+T` (Terminal) and `Alt+A`
+  (Agentic) but no key for Bots; added `Alt+B` to `MODE_SHORTCUTS`, which sets the
+  mode and opens the Bots workspace (mirroring the dropdown click), and allowed
+  `bots` to persist/restore on hydrate. Each switcher entry now shows its key
+  badge, and the keyboard-shortcuts help dialog lists a Bots row.
+  docs updated: this file. No architecture/contract change, so no other doc edit.
+
 - **`npm run setup:hostname` — one-command, self-elevating local hostname.**
   Added `scripts/setup-hostname.ps1` (re-launches itself via UAC, appends
   `127.0.0.1 blackeclipse` to the Windows hosts file only when missing, flushes
@@ -158,6 +225,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   re-pinned 1399→1441 in the size ratchet (the bulk was extracted to the hook).
   docs updated: `docs/harness/mentions.md` (new),
   `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
+
+- **ChatBot landing: fresh install now defaults to a Solid backdrop, not a
+  wallpaper.** `DEFAULT_BACKGROUND.mode` flipped `'image'` → `'solid'`, so a new
+  instance paints the theme fill plus the wordmark and loads **no** image
+  until the user opts into one (Settings › General › Background → Image, where
+  Eclipse I stays pre-selected). Fixes the wallpaper appearing by default.
+  Updated `backgrounds.test.ts` (customized-flag now keys off image mode).
+  docs updated: `docs/ARCHITECTURE.md`.
+
+- **ChatBot landing: simpler backdrop, smaller default wordmark.** Dropped the
+  in-panel `AuroraGlow` from the ChatBot landing (`stock-chat.tsx`) so the new
+  Solid default reads as a clean fill + wordmark instead of a cluttered
+  glow-over-backdrop; the shell-level Aurora is untouched and still shows on the
+  other tabs. Shrank the shipped default wordmark `textScale` 16 → 7 (vw), so it
+  reads as a modest centered label rather than a full-bleed backdrop.
+  docs updated: `docs/ARCHITECTURE.md`.
+
+- **Fix React 19 hydration mismatches on the chat landing.** (1) `activeTab` no
+  longer reads localStorage inside its `useState` initializer (`stock-chat.tsx`):
+  it starts on `chat` for both the server and the first client render and applies
+  the saved start screen in the boot effect after mount, so a custom start tab no
+  longer desyncs SSR. (2) `suppressHydrationWarning` added to `<html>`
+  (`layout.tsx`) — the pre-paint theme script mutates its `dark` class before React
+  hydrates. (3) `suppressHydrationWarning` added to the two Base UI triggers that
+  lacked it — `SelectTrigger` (`ui/select.tsx`) and the Effort `PopoverTrigger`
+  (`chat/effort-control.tsx`) — matching the existing pattern on
+  `DropdownMenuTrigger`/`TooltipTrigger` and silencing the spurious `base-ui-*`
+  id diffs. Reproduced and verified fixed with headless Chromium across
+  fresh / light-theme / custom-start-tab / conversation scenarios (zero errors).
+  no doc change — bug fix, no contract change.
 
 ## 2026-10-14
 

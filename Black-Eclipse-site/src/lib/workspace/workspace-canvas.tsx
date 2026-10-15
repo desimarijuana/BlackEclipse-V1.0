@@ -89,6 +89,18 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   const [activeWidth, setActiveWidth] = useState(360);
   const [target, setTarget] = useState<DropTargetInfo | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Side-zone widths only apply once the zones sit in a row again (lg+). Below
+  // that the zones stack full-width, so a user-pinned pixel width must not leak
+  // through (it would overflow the stacked column).
+  const [zonesSideBySide, setZonesSideBySide] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const update = () => setZonesSideBySide(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -714,8 +726,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
               <div
                 key={zone}
                 data-zone={zone}
-                style={w != null ? { width: w, flexShrink: 0 } : undefined}
-                className={cn('shrink-0', cfg.className ?? 'w-72')}
+                style={zonesSideBySide && w != null ? { width: w, flexShrink: 0 } : undefined}
+                className={cn(
+                  'shrink-0',
+                  // Stacked below the main canvas on mobile, a side column from lg up.
+                  zone === 'left' ? 'order-2 lg:order-none' : 'order-3 lg:order-none',
+                  cfg.className ?? 'w-72',
+                )}
               >
                 {cfg.header}
                 {renderZone(sections)}
@@ -728,10 +745,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
           );
 
           return (
-            <div ref={zoneRowRef} className={cn('flex items-start', dense ? 'gap-1.5' : 'gap-4')}>
+            <div ref={zoneRowRef} className={cn('flex flex-col items-stretch lg:flex-row lg:items-start', dense ? 'gap-1.5' : 'gap-4')}>
               {showLeft && leftCfg && zoneColumn('left', leftSections, leftCfg)}
               {showLeft && !leftCfg?.collapsed && resizer('left')}
-              <div className="min-w-0 flex-1">{renderMain()}</div>
+              <div className="order-1 min-w-0 flex-1 lg:order-none">{renderMain()}</div>
               {showRight && !rightCfg?.collapsed && resizer('right')}
               {showRight && rightCfg && zoneColumn('right', rightSections, rightCfg)}
             </div>
@@ -1043,7 +1060,7 @@ function ZoneResizer({ zone, onCommit }: {
       onPointerDown={onPointerDown}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
-      className={cn('group/zres shrink-0 self-stretch cursor-ew-resize', 'w-2 -mx-1 rounded-full transition-colors')}
+      className={cn('group/zres shrink-0 self-stretch cursor-ew-resize hidden lg:block', 'w-2 -mx-1 rounded-full transition-colors')}
       title={`Drag to resize ${zone} panel`}
       data-nodrag
     >

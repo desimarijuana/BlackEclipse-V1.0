@@ -120,7 +120,7 @@ export function FactorLabScreen() {
             Deterministic factor research — real formulas, real IC, real portfolio accounting.
           </p>
         </div>
-        <div className="glass-card-subtle flex gap-1 rounded-lg p-1">
+        <div className="glass-card-subtle flex gap-1 overflow-x-auto scrollbar-hide rounded-lg p-1">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -324,6 +324,7 @@ export function FactorLabScreen() {
               </div>
               <div className="glass-card rounded-xl p-4">
                 <h3 className="mb-2 text-xs font-medium">Factor decay</h3>
+                <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="text-white/40">
                     <tr><th className="py-1">Horizon</th><th>Mean IC</th><th>IR</th><th>Hit rate</th><th>Periods</th></tr>
@@ -340,6 +341,7 @@ export function FactorLabScreen() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
               {evaluation.warnings.length > 0 && (
                 <div className="glass-card-subtle rounded-lg p-3 text-xs text-amber-200/80">
@@ -411,6 +413,7 @@ export function FactorLabScreen() {
               </div>
               <div className="glass-card rounded-xl p-4">
                 <h3 className="mb-2 text-xs font-medium">Quantile mean period returns</h3>
+                <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="text-white/40">
                     <tr><th className="py-1">Quantile</th><th>Total return</th><th>Sharpe</th><th>Max DD</th><th>Hit rate</th></tr>
@@ -427,6 +430,7 @@ export function FactorLabScreen() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
               <div className="glass-card rounded-xl p-4">
                 <h3 className="mb-2 text-xs font-medium">Final long-short weights (top {Math.min(10, portfolio.finalWeights.length)})</h3>

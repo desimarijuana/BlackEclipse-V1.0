@@ -10,7 +10,7 @@
 // had no width class, so each cell stretched to fill its column and the
 // "squares" became large rectangles.
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import type { DayAggregate } from '@/lib/journal/types';
@@ -81,11 +81,22 @@ export function MiniCalendar({
 }: MiniCalendarProps) {
   const [hovered, setHovered] = useState<{ day: DayAggregate | null; date: string } | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  // A 39-week strip squeezes each day to a few pixels on phones; show ~a
+  // quarter instead and let the parent keep its full-range data.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  const effWeeks = narrow ? Math.min(weeks, 13) : weeks;
   const m = metrics(cellSize);
   // In fill mode the columns share the width, but each cell is capped so a wide
   // card doesn't produce enormous squares. The grid is then centred.
   const gridStyle = fill
-    ? { gap: 4, width: '100%', maxWidth: `${weeks * (maxCell + 4)}px` }
+    ? { gap: 4, width: '100%', maxWidth: `${effWeeks * (maxCell + 4)}px` }
     : { gap: m.gap };
 
   const dayMap = useMemo(() => new Map(days.map((d) => [d.date, d])), [days]);
@@ -100,8 +111,8 @@ export function MiniCalendar({
 
     const cols: { date: string; inFuture: boolean; day: DayAggregate | null }[][] = [];
     const cursor = new Date(end);
-    cursor.setUTCDate(cursor.getUTCDate() - (weeks * 7 - 1));
-    for (let w = 0; w < weeks; w++) {
+    cursor.setUTCDate(cursor.getUTCDate() - (effWeeks * 7 - 1));
+    for (let w = 0; w < effWeeks; w++) {
       const col: { date: string; inFuture: boolean; day: DayAggregate | null }[] = [];
       for (let d = 0; d < 7; d++) {
         const iso = cursor.toISOString().slice(0, 10);
@@ -111,7 +122,7 @@ export function MiniCalendar({
       cols.push(col);
     }
     return cols;
-  }, [dayMap, weeks]);
+  }, [dayMap, effWeeks]);
 
   // Month labels sit above the first column whose week contains that month's 1st.
   const monthLabels = useMemo(() => {
@@ -141,7 +152,7 @@ export function MiniCalendar({
     <div className="flex flex-col">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="font-serif text-sm font-semibold text-foreground">
-          Last {weeks} Weeks
+          Last {effWeeks} Weeks
         </h3>
         <span className={cn('font-mono text-[10px] font-bold', totalR > 0 ? 'text-emerald-400' : totalR < 0 ? 'text-rose-400' : 'text-muted-foreground/70')}>
           {fmtR(totalR)}

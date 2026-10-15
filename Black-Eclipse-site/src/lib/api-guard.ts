@@ -18,7 +18,14 @@
 // not a loopback host, and treating a request whose Host is `0.0.0.0` as local
 // would let a non-loopback deployment skip the secret requirement. Only true
 // loopback hosts are local.
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+//
+// `blackeclipse` is the repo's local hostname alias (a hosts-file entry mapping
+// it to 127.0.0.1, fronted by `scripts/local-proxy.js`). It resolves to loopback
+// on the operator's machine, so it is the same local origin as `localhost` —
+// without this, requests arriving through the hostname would be judged remote
+// (blocking no-Origin programmatic calls and forcing a Secure cookie over plain
+// http). See `docs/local-hostname.md`.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "blackeclipse"]);
 
 /**
  * The hostname of a host:port pair, lowercased, brackets removed. Handles IPv6
@@ -53,6 +60,19 @@ function normalizeHost(host: string): string {
 }
 
 function requestHost(request: Request): string {
+  // Prefer the host the request was actually addressed to. `request.url` is a
+  // poor source behind a proxy: Next.js rebuilds it from its own bind address
+  // in dev (e.g. `http://127.0.0.1:3000/...`) even when the browser used a
+  // different hostname, which would make a same-origin POST look cross-origin.
+  // The Host header (and, behind a proxy, x-forwarded-host) is what the browser
+  // sent and is what same-origin comparison must use.
+  const forwarded = request.headers.get("x-forwarded-host");
+  if (forwarded) {
+    const first = forwarded.split(",")[0].trim();
+    if (first) return first;
+  }
+  const host = request.headers.get("host");
+  if (host) return host;
   try {
     return new URL(request.url).host;
   } catch {
@@ -70,8 +90,13 @@ function originHost(request: Request): string | null {
   }
 }
 
-function isLocalHost(host: string): boolean {
+export function isLocalHost(host: string): boolean {
   return LOCAL_HOSTS.has(hostnameOf(host));
+}
+
+/** True when the request was addressed to a loopback/local host (Host-aware). */
+export function isLocalRequest(request: Request): boolean {
+  return isLocalHost(requestHost(request));
 }
 
 function timingSafeEqual(a: string, b: string): boolean {

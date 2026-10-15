@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
+import { MODE_SHORTCUTS } from '@/hooks/use-sidebar-keybinds';
+import { formatShortcutKeys } from '@/lib/keyboard';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { useNotificationsStore, unreadCountsByTab, totalUnread } from '@/lib/notifications/store';
 import { useT, navLabelKey } from '@/lib/i18n';
@@ -35,6 +37,10 @@ const NAV_MODES: Array<{ id: NavSwitcherId; labelKey: 'sidebar.terminal' | 'side
   { id: 'agentic', labelKey: 'sidebar.agentic', icon: BrainCircuit },
   { id: 'bots', labelKey: 'nav.bots', icon: Ghost },
 ];
+
+/** Display labels for the mode hotkeys, shown on each switcher entry so the
+ *  shortcuts are discoverable without opening the help dialog. */
+const MODE_SHORTCUT_LABELS = new Map(MODE_SHORTCUTS.map((s) => [s.mode, formatShortcutKeys(s.keys)] as const));
 
 // The tab vocabulary lives ONCE in `lib/app-tabs.ts`; this shell re-exports it so
 // `lib/search/types.ts` (which mirrors it) can never silently drift.
@@ -269,6 +275,11 @@ export function Sidebar({
                   >
                     <Icon size={14} className="shrink-0" />
                     <span className="flex-1">{t(labelKey)}</span>
+                    {MODE_SHORTCUT_LABELS.has(id) && (
+                      <span className="shrink-0 rounded-md border border-border/40 px-1 py-0.5 text-[9px] font-mono font-bold leading-none text-muted-foreground">
+                        {MODE_SHORTCUT_LABELS.get(id)}
+                      </span>
+                    )}
                     {isActive && <Check size={13} className="shrink-0 opacity-70" />}
                   </DropdownMenuItem>
                 );
@@ -403,16 +414,6 @@ export function Sidebar({
 
   return (
     <>
-      {/* Mobile drawer header toggle */}
-      <div className="md:hidden fixed top-3 left-4 z-50">
-        <button
-          onClick={onCloseMobile}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card shadow-sm hover:bg-accent text-foreground cursor-pointer"
-        >
-          <Menu size={16} />
-        </button>
-      </div>
-
       {/* Desktop sidebar */}
       <div className={`hidden md:block h-screen select-none z-50 shrink-0 transition-all duration-300 ${
         isCollapsed ? 'w-12' : 'w-60'
@@ -424,7 +425,7 @@ export function Sidebar({
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-40 flex">
           <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={onCloseMobile} />
-          <div className="relative flex w-60 h-full animate-slide-in">
+          <div className="relative flex w-60 max-w-[80vw] h-full animate-slide-in">
             {sidebarContent}
             <button
               onClick={onCloseMobile}

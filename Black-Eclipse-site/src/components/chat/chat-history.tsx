@@ -299,7 +299,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
         onScroll={onScroll}
         className={cn(
           'h-full w-full overflow-y-auto min-h-0 scrollbar-hide',
-          compact ? 'space-y-3 p-3 pr-1.5' : 'px-4 md:px-6 pr-3 md:pr-5 space-y-6 pb-6',
+          compact ? 'space-y-3 p-3 pr-1.5' : 'px-4 md:px-6 pr-6 md:pr-5 space-y-6 pb-6',
         )}
       >
       <div className={compact ? 'space-y-3' : 'space-y-6'}>
@@ -606,7 +606,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
           aria-label="Scroll conversation"
           onPointerDown={onBarPointerDown}
           className={cn(
-            'absolute right-1.5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
+            'absolute right-5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
             barDragging && 'bg-foreground/50 cursor-grabbing',
             barVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
           )}

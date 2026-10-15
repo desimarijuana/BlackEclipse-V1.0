@@ -501,8 +501,8 @@ export function MCPSettingsPanel() {
       />
       <MCPDiagnosticsPanel busy={busy} />
 
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-mono">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground font-mono">
           <span>{summary.configured} configured</span>
           <span>·</span>
           <span>{summary.connected} connected</span>

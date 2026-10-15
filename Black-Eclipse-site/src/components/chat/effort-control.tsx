@@ -77,6 +77,7 @@ export function EffortControl({ value, index, onIndexChange, disabled = false }:
   return (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger
+        suppressHydrationWarning
         disabled={disabled}
         title={`Effort: ${selected.label}${isOverride ? "" : " (Auto)"} — set thinking for this question`}
         aria-label="Reasoning effort for this question"
@@ -106,8 +107,8 @@ export function EffortControl({ value, index, onIndexChange, disabled = false }:
         <span className="relative">
           <EnergyBrain size={13} />
         </span>
-        <span className="relative max-w-[76px] truncate">{selected.label}</span>
-        <ChevronDown size={13} className="relative shrink-0 opacity-70" />
+        <span className="relative hidden max-w-[76px] truncate sm:inline">{selected.label}</span>
+        <ChevronDown size={13} className="relative hidden shrink-0 opacity-70 sm:block" />
       </PopoverPrimitive.Trigger>
 
       <PopoverPrimitive.Portal>

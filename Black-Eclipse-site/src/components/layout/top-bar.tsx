@@ -6,7 +6,6 @@ import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
 import { PriceRibbon } from '@/components/layout/price-ribbon';
 import { useT } from '@/lib/i18n';
-import { useThemeStore, BRAND_MARK_SRC } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { useTerminalStore } from '@/lib/terminal/store';
 import { AgentWorkspaceToggle } from '@/components/agent-workspace/workspace';
@@ -38,8 +37,6 @@ const TAB_PLACEHOLDER: Record<string, string> = {
 
 export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps) {
   const t = useT();
-  const appName = useThemeStore((s) => s.theme.appName);
-  const markSrc = useThemeStore((s) => s.theme.logoUrl) || BRAND_MARK_SRC;
   const [modKey, setModKey] = useState('Ctrl');
   const [indexed, setIndexed] = useState(0);
 
@@ -64,20 +61,19 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
 
   return (
     <div className={cn('w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0', activeTab === 'bots' && 'md:hidden')}>
-       {/* Mobile Logo & Menu Toggle */}
+       {/* Mobile menu toggle. The brand already lives in the sidebar drawer, so
+           the header shows ONLY this icon on small screens — no duplicate
+           wordmark competing with the search field. */}
        <div className="flex items-center gap-2 shrink-0">
          {onToggleMenu && (
            <button
              onClick={onToggleMenu}
+             aria-label={t('a11y.openMenu')}
              className="md:hidden p-1.5 text-muted-foreground hover:text-foreground rounded-xl hover:bg-accent cursor-pointer transition-colors"
            >
              <Menu size={20} />
            </button>
          )}
-          <div className="flex md:hidden items-center gap-2 text-primary font-medium">
-            <img src={markSrc} alt={appName} className="h-6 w-6 object-contain" />
-            <span className="text-foreground text-xs font-mono font-bold tracking-tight">{appName}</span>
-          </div>
        </div>
 
          {/* Live price ribbon (flexible, fills the middle) + search + terminal */}
@@ -85,7 +81,7 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
             <PriceRibbon className="flex-1" />
             <button
               onClick={() => useCommandStore.getState().setOpen(true)}
-              className="command-glass-bar group flex w-[38%] min-w-0 max-w-md shrink items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
+              className="command-glass-bar group flex flex-1 min-w-0 max-w-md shrink items-center gap-2.5 rounded-xl px-3 sm:px-4 py-2.5 transition-all cursor-pointer text-left"
               title="Search & command center (⌘K)"
             >
               <Search size={16} className="text-muted-foreground/70 shrink-0 transition-colors group-hover:text-primary" />

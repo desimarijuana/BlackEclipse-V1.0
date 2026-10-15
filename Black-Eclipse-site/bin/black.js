@@ -20,10 +20,9 @@ const {
   needsBuild,
   build,
   nextBin,
-  startServer,
-  startDev,
   isUp,
 } = require("../scripts/lib/server");
+const { runLocalHost } = require("../scripts/local-host");
 
 const PORT = process.env.PORT || "3000";
 
@@ -45,7 +44,7 @@ function projectRoot() {
 async function status() {
   const code = await isUp(PORT);
   if (code) {
-    log(`site is UP on http://localhost:${PORT} (HTTP ${code})`);
+    log(`site is UP → http://blackeclipse (HTTP ${code})`);
   } else {
     log(`site is DOWN — run "black eclipse" to start it`);
   }
@@ -65,7 +64,7 @@ async function stop() {
 
 // ─── black eclipse ─────────────────────────────────────────────────────────
 async function eclipse() {
-  log(`starting Black Eclipse → http://localhost:${PORT}`);
+  log(`starting Black Eclipse → http://blackeclipse`);
 
   // 1. Self-heal the environment (deps, prisma client, DB, python bridge).
   try {
@@ -88,9 +87,9 @@ async function eclipse() {
     log("build is up to date — skipping");
   }
 
-  // 3. Foreground start (Ctrl+C stops it).
-  log("site starting — press Ctrl+C to stop");
-  startServer(PORT);
+  // 3. Foreground start of BOTH the app (loopback) and the local proxy; the
+  //    only advertised address is http://blackeclipse. Ctrl+C stops both.
+  runLocalHost({ mode: "start", port: PORT });
 }
 
 // ─── black doctor ──────────────────────────────────────────────────────────
@@ -197,7 +196,7 @@ async function main() {
       await eclipse();
       break;
     case "dev":
-      startDev(argValue("-p", PORT));
+      runLocalHost({ mode: "dev", port: argValue("-p", PORT) });
       break;
     case "stop":
       await stop();

@@ -140,7 +140,7 @@ export function DashboardScreen() {
       dense
       zones={{
         left: {
-          className: 'hidden xl:block w-64',
+          className: 'w-full lg:w-64',
           collapsed: !watchlistOpen,
           onToggle: () => setWatchlistOpen(v => !v),
           header: (
@@ -159,7 +159,7 @@ export function DashboardScreen() {
           ),
         },
         right: {
-          className: 'hidden lg:block w-72',
+          className: 'w-full lg:w-72',
           collapsed: !marketOpen,
           onToggle: () => setMarketOpen(v => !v),
           header: (
@@ -250,7 +250,7 @@ export function DashboardScreen() {
             <ChevronDown size={13} />
           </button>
           {switcherOpen && (
-            <div className="absolute left-0 top-full z-40 mt-2 w-64 rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong shadow-2xl shadow-black/40 p-2 animate-fade-in">
+            <div className="absolute right-0 top-full z-40 mt-2 w-64 max-w-[90vw] rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong shadow-2xl shadow-black/40 p-2 animate-fade-in">
               <div className="flex flex-col gap-1">
                 {dashboards.list.map(d => (
                   <div
@@ -297,13 +297,13 @@ export function DashboardScreen() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={toggleFullscreen}
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Fullscreen (Shift+F)"
           >
-            <Maximize2 size={13} /> Fullscreen
+            <Maximize2 size={13} /> <span className="hidden sm:inline">Fullscreen</span>
           </button>
           <button
             onClick={() => {
@@ -321,7 +321,7 @@ export function DashboardScreen() {
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Export this dashboard layout"
           >
-            <Download size={13} /> Export
+            <Download size={13} /> <span className="hidden sm:inline">Export</span>
           </button>
           <button
             onClick={() => {
@@ -339,14 +339,14 @@ export function DashboardScreen() {
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Import a dashboard layout"
           >
-            <Upload size={13} /> Import
+            <Upload size={13} /> <span className="hidden sm:inline">Import</span>
           </button>
           <button
             onClick={() => dashboards.reset(dashboards.activeId!)}
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Reset this dashboard to its template"
           >
-            <RotateCcw size={13} /> Reset
+            <RotateCcw size={13} /> <span className="hidden sm:inline">Reset</span>
           </button>
         </div>
       </div>

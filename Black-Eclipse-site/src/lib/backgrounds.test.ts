@@ -145,7 +145,7 @@ describe('normalizeBackgroundPrefs', () => {
 
   it('drops the removed pattern mode back to the default mode', () => {
     // The flat/gradient/grid pattern type was removed; a saved 'pattern' pref
-    // must resolve to the shipped default mode (the Eclipse I wallpaper).
+    // must resolve to the shipped default mode (solid).
     expect(normalizeBackgroundPrefs({ mode: 'pattern' }).mode).toBe(DEFAULT_BACKGROUND.mode);
     expect(normalizeBackgroundPrefs({ mode: 'pattern', pattern: 'grid' })).toEqual({
       ...DEFAULT_BACKGROUND,
@@ -344,7 +344,7 @@ describe('resolveBackgroundCss', () => {
 describe('helpers', () => {
   it('flags non-default backdrops as customized', () => {
     expect(isBackgroundCustomized(DEFAULT_BACKGROUND)).toBe(false);
-    expect(isBackgroundCustomized({ ...DEFAULT_BACKGROUND, mode: 'solid' })).toBe(true);
+    expect(isBackgroundCustomized({ ...DEFAULT_BACKGROUND, mode: 'image' })).toBe(true);
   });
 
   it('shows the wordmark in solid mode, or image mode when opted in', () => {

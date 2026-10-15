@@ -15,8 +15,8 @@ const {
   killPort,
   needsBuild,
   build,
-  startServer,
 } = require("./lib/server");
+const { runLocalHost } = require("./local-host");
 
 const PORT = process.env.PORT || "3000";
 
@@ -33,5 +33,5 @@ if (needsBuild()) {
 } else {
   log("build is up to date — skipping");
 }
-log(`starting production server on http://localhost:${PORT}`);
-startServer(PORT);
+log(`starting production server → http://blackeclipse (bound to 127.0.0.1)`);
+runLocalHost({ mode: "start", port: PORT });

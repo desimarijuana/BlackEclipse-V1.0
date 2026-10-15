@@ -143,7 +143,7 @@ export function SecuritySettingsPanel() {
               const id = String(a.id ?? "");
               const risk = String(a.risk ?? "").toLowerCase();
               return (
-                <li key={id} className="flex items-start gap-3 px-3 py-2">
+                <li key={id} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-start sm:gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12px]">{String(a.actionSummary ?? a.tool ?? id)}</div>
                     {risk && (
@@ -152,7 +152,7 @@ export function SecuritySettingsPanel() {
                       </span>
                     )}
                   </div>
-                  <div className="flex shrink-0 gap-1.5">
+                  <div className="flex shrink-0 flex-wrap gap-1.5 sm:justify-end">
                     <button
                       type="button"
                       disabled={busy}

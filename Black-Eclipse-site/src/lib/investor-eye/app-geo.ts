@@ -209,8 +209,9 @@ const TEXTURE_H = 2048;
 const TEXTURE_SCALE = TEXTURE_W / 2048;
 
 /** Surface palettes. `MapSkin` lives in the store; kept structural here so this
- *  module stays free of UI-state imports. */
-export type GlobeSkin = 'black' | 'glow';
+ *  module stays free of UI-state imports. `light` is the light-scheme planet
+ *  (used when the app is in light mode), independent of the dark `MapSkin`. */
+export type GlobeSkin = 'black' | 'glow' | 'light';
 
 interface GlobePalette {
   ocean: Array<[number, string]>;
@@ -280,6 +281,27 @@ const GLOBE_PALETTES: Record<GlobeSkin, GlobePalette> = {
       [1, '#4b5058'],
     ],
     coastline: 'rgba(255,255,255,0.55)',
+    coastlineWidth: 1,
+    stipple: null,
+  },
+  light: {
+    // The light-scheme planet. Under `lambert` lighting a pure-white sphere
+    // washes out, so the ocean is a soft blue-grey and the land a slightly
+    // darker slate; dark coastlines keep the continents legible on white.
+    ocean: [
+      [0, '#eef2f7'],
+      [0.5, '#e2e8f0'],
+      [1, '#eef2f7'],
+    ],
+    band: [[0, 'rgba(148,163,184,0.16)'], [1, 'rgba(0,0,0,0)']],
+    graticule: 'rgba(15,23,42,0.08)',
+    bloom: null,
+    land: [
+      [0, '#cbd5e1'],
+      [0.5, '#dbe3ee'],
+      [1, '#cbd5e1'],
+    ],
+    coastline: 'rgba(15,23,42,0.5)',
     coastlineWidth: 1,
     stipple: null,
   },

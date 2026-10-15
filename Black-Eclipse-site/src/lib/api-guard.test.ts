@@ -94,6 +94,28 @@ describe("checkMutationAllowed", () => {
     const r = new Request("http://0.0.0.0:3000/api/refresh", { method: "POST", headers: {} });
     expect(checkMutationAllowed(r).allowed).toBe(false);
   });
+
+  it("treats the local hostname alias as the same local origin", () => {
+    // `blackeclipse` is a hosts-file alias to 127.0.0.1 (scripts/local-proxy.js).
+    // The browser sends Origin: http://blackeclipse and the proxied request.url
+    // reports host `blackeclipse`; both must be accepted.
+    const same = new Request("http://blackeclipse/api/x", {
+      method: "POST",
+      headers: { origin: "http://blackeclipse" },
+    });
+    expect(checkMutationAllowed(same).allowed).toBe(true);
+
+    // No Origin (curl/script through the proxy) is local too.
+    const noOrigin = new Request("http://blackeclipse/api/x", { method: "POST", headers: {} });
+    expect(checkMutationAllowed(noOrigin).allowed).toBe(true);
+
+    // Still cross-site when the Origin is a real remote host.
+    const cross = new Request("http://blackeclipse/api/x", {
+      method: "POST",
+      headers: { origin: "https://evil.example" },
+    });
+    expect(checkMutationAllowed(cross).allowed).toBe(false);
+  });
 });
 
 describe("deploymentExposure", () => {

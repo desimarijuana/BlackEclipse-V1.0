@@ -176,14 +176,14 @@ export function SearchScreen() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <SearchIcon className="h-5 w-5 text-primary" />
         <h1 className="text-lg font-semibold">Search Intelligence</h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           {embedding && (
             <span
               className={cn(
-                'glass-card-subtle rounded-md px-2 py-1 text-xs',
+                'glass-card-subtle max-w-full truncate rounded-md px-2 py-1 text-xs',
                 embedding.available ? 'text-emerald-400' : 'text-amber-400',
               )}
             >

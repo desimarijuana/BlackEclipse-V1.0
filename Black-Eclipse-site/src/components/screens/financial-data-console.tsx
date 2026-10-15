@@ -175,7 +175,7 @@ export function FinancialDataConsole() {
 
       {providers.length > 0 && (
         <>
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
             <Stat label="Providers" value={String(payload?.providerCount ?? providers.length)} />
             <Stat label="Implemented" value={String(payload?.implementedCount ?? implemented.length)} />
             <Stat label="Capabilities" value={String(payload?.capabilities?.length ?? 0)} />

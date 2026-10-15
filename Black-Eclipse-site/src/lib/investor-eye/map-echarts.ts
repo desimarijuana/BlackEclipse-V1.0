@@ -83,6 +83,18 @@ const GLASS_TOOLTIP = {
     'box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
 };
 
+/** Light-scheme twin of {@link GLASS_TOOLTIP} — same frosted recipe, light tint. */
+const LIGHT_TOOLTIP = {
+  backgroundColor: 'rgba(255,255,255,0.62)',
+  borderColor: 'rgba(0,0,0,0.10)',
+  borderWidth: 1,
+  padding: [8, 10] as [number, number],
+  textStyle: { color: '#18181b', fontSize: 11 },
+  extraCssText:
+    'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; ' +
+    'box-shadow: 0 8px 30px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.55);',
+};
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -185,6 +197,13 @@ const GLOBE_HALO_OPACITY = 0.22;
  */
 export type MapMode = '2d' | 'globe';
 export type MapSkin = 'black' | 'glow';
+/**
+ * Color scheme the map is rendered in. The map's own geo fills are canvas-drawn,
+ * so they cannot follow the app's CSS tokens — the scheme is passed in from
+ * `WorldMap` (which observes the `dark` class) so a light-mode page gets a light
+ * landmass/backdrop instead of the hard-coded dark terminal surface.
+ */
+export type MapScheme = 'dark' | 'light';
 
 /**
  * Globe surface radius in world units. Purely a modelling constant — the camera
@@ -290,18 +309,44 @@ const GEO_BY_SKIN = {
 } as const;
 
 /**
- * The 2D base map, per skin (see `MapSkin`).
+ * Light-scheme 2D base map. Same structure as {@link GEO_BY_SKIN} but with a
+ * light landmass and dark hairline borders so the map reads on a white page.
+ * The `black`/`glow` skins are dark-surface looks; in light mode both collapse
+ * to this one legible light palette.
+ */
+const GEO_LIGHT = {
+  itemStyle: {
+    areaColor: '#e3e8ef',
+    borderColor: 'rgba(15,23,42,0.28)',
+    borderWidth: 0.5,
+    shadowColor: 'rgba(0,0,0,0)',
+    shadowBlur: 0,
+  },
+  emphasis: {
+    label: { show: false },
+    itemStyle: { areaColor: '#cbd5e1', borderColor: 'rgba(15,23,42,0.55)', borderWidth: 1, shadowBlur: 0 },
+  },
+  select: {
+    label: { show: false },
+    itemStyle: { areaColor: '#bfdbfe', borderColor: '#2563eb' },
+  },
+} as const;
+
+/**
+ * The 2D base map, per skin (see `MapSkin`) and scheme. In light mode the dark
+ * skins (`black`/`glow`) are replaced by {@link GEO_LIGHT} so the map is legible
+ * on a white page.
  *
  * The map is the hero: no competing labels until a country is hovered, and
  * hover/select brighten rather than recolour so the glow language holds.
  */
-function baseGeo(skin: MapSkin) {
+function baseGeo(skin: MapSkin, scheme: MapScheme = 'dark') {
   return {
     map: WORLD_MAP_NAME,
     roam: true,
     zoom: 1.15,
     silent: false,
-    ...GEO_BY_SKIN[skin],
+    ...(scheme === 'light' ? GEO_LIGHT : GEO_BY_SKIN[skin]),
     label: { show: false },
   };
 }
@@ -347,9 +392,15 @@ export interface MapOptionOptions {
   mode?: MapMode;
   /**
    * Surface skin. `black` is the flat terminal look, `glow` the blue lit planet.
-   * Defaults to `glow`.
+   * Defaults to `glow`. Ignored for the 2D map when `scheme` is `light`.
    */
   skin?: MapSkin;
+  /**
+   * App color scheme. Defaults to `dark` (the shipped look). `light` swaps the
+   * canvas-drawn geo fills and the tooltip to light-surface variants, since the
+   * map cannot follow the app's CSS tokens.
+   */
+  scheme?: MapScheme;
   /**
    * Globe-only: the equirectangular world texture drawn from the same GeoJSON.
    * Produced asynchronously (`worldGlobeTexture()`), so it is passed in rather
@@ -396,6 +447,8 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
   const { layers } = options;
   const mode: MapMode = options.mode ?? '2d';
   const skin: MapSkin = options.skin ?? 'glow';
+  const scheme: MapScheme = options.scheme ?? 'dark';
+  const isLight = scheme === 'light';
   const isGlow = skin === 'glow';
   const enabled = layers.filter((l) => l.enabled).sort((a, b) => a.zIndex - b.zIndex);
 
@@ -867,21 +920,29 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
           // `lambert` keeps the land/shadows legible; `color` ignored the texture.
           shading: 'lambert' as const,
           // The sphere's untextured base. The texture supplies every visible
-          // surface detail, so this only matters behind it.
-          color: isGlow ? '#0b2f66' : '#2a2d33',
+          // surface detail, so this only matters behind it. In light mode a
+          // pale blue-grey keeps the sphere from reading as a black hole.
+          color: isLight ? '#dbe3ee' : isGlow ? '#0b2f66' : '#2a2d33',
           // `black` is the plain grey planet: a mid-grey texture needs enough
           // ambient to actually read as grey rather than collapsing to black
           // under `lambert`. `glow` wants its blue surface lit, so it lifts the
           // ambient further and drops the shadowing.
-          light: isGlow
+          light: isLight
             ? {
-                ambient: { intensity: 0.62 },
-                main: { intensity: 0.7, shadow: false, alpha: 35, beta: 150 },
+                // A light planet needs a flat, bright ambient so the pale
+                // texture reads as a solid sphere rather than a shaded blob.
+                ambient: { intensity: 1 },
+                main: { intensity: 0.45, shadow: false, alpha: 35, beta: 150 },
               }
-            : {
-                ambient: { intensity: 0.85 },
-                main: { intensity: 0.5, shadow: false, alpha: 35, beta: 150 },
-              },
+            : isGlow
+              ? {
+                  ambient: { intensity: 0.62 },
+                  main: { intensity: 0.7, shadow: false, alpha: 35, beta: 150 },
+                }
+              : {
+                  ambient: { intensity: 0.85 },
+                  main: { intensity: 0.5, shadow: false, alpha: 35, beta: 150 },
+                },
           // ATMOSPHERE OFF ON PURPOSE. echarts-gl's atmosphere paints
           // `glowColor * pow(1 - dot(normal, viewDir), glowPower)`, which peaks
           // EXACTLY on the silhouette — a hard cyan ring hugging the sphere.
@@ -899,7 +960,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
            * `black` disables the layer entirely: an aura over a flat terminal
            * planet defeats the point of the plain skin.
            */
-          layers: isGlow && options.globeGlowTexture
+          layers: isGlow && !isLight && options.globeGlowTexture
             ? [{
                 type: 'blend' as const,
                 blendTo: 'emission' as const,
@@ -909,10 +970,12 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
                 intensity: 0.85,
               }]
             : [],
+          // The glow/bloom is a dark-planet language; a light page wants the
+          // plain matte sphere, so it is disabled in light mode.
           postEffect: {
-            enable: isGlow,
+            enable: isGlow && !isLight,
             bloom: {
-              enable: isGlow,
+              enable: isGlow && !isLight,
               bloomIntensity: 0.26,
               bloomRadius: 0.5,
               bloomThreshold: 0.25,
@@ -937,7 +1000,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       }
     : {
         geo: {
-          ...baseGeo(skin),
+          ...baseGeo(skin, scheme),
           selectedMode: false,
         },
       };
@@ -948,7 +1011,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
     animationDuration: 300,
     ...base,
     tooltip: {
-      ...GLASS_TOOLTIP,
+      ...(isLight ? LIGHT_TOOLTIP : GLASS_TOOLTIP),
       trigger: 'item',
       appendTo: 'body',
       confine: false,

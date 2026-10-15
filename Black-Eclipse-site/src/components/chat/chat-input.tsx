@@ -319,7 +319,7 @@ export function ChatInput({
           {attachments.map((file) => (
             <span
               key={file.name}
-              className="group inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 py-1 pl-2 pr-1 text-[11px] text-foreground/90"
+              className="group inline-flex max-w-[70vw] sm:max-w-[240px] items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 py-1 pl-2 pr-1 text-[11px] text-foreground/90"
               title={file.name}
             >
               {file.uploading ? (
@@ -483,7 +483,7 @@ export function ChatInput({
           </div>,
           document.body,
         )}
-      <form ref={formRef} onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
+      <form ref={formRef} onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-visible">
         <Button
           type="button"
           variant="ghost"
@@ -534,7 +534,7 @@ export function ChatInput({
             type="button" 
             variant="ghost" 
             size="icon" 
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none"
+            className="hidden p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none sm:flex"
           >
             <Mic size={16} />
           </Button>
@@ -611,13 +611,13 @@ export function ModelSelector({ state }: { state: ChatModelState }) {
     <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger
         title={`Model: ${state.displayModel || "default"} · provider ${state.providerLabel}`}
-        className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 h-7 max-w-[180px] rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 h-7 max-w-none sm:max-w-[180px] sm:px-3 rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
       >
         <Sparkles size={12} className="text-primary shrink-0" />
-        <span className="truncate font-mono">{label}</span>
+        <span className="hidden truncate font-mono sm:inline">{label}</span>
         <ChevronDown size={13} className="shrink-0 opacity-70" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
+      <DropdownMenuContent align="end" className="w-72 max-w-[calc(100vw-1.5rem)]">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="flex items-center justify-between gap-2">
             <span>Model</span>
@@ -742,7 +742,7 @@ export function ModelSelector({ state }: { state: ChatModelState }) {
             <Cpu size={13} className="shrink-0" />
             <span>Provider</span>
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-64">
+          <DropdownMenuSubContent className="w-64 max-w-[calc(100vw-1.5rem)]">
             <div className="max-h-72 overflow-y-auto">
               {state.providers.map((p) => (
                 <DropdownMenuItem

@@ -66,6 +66,17 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   const gridRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState({ w: 100, h: 100 });
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Below `md`, the 12-column kernel cannot reflow; every panel stacks to a
+  // single full-width column so nothing is crushed off-screen.
+  const [narrow, setNarrow] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   // Grid track sizing: presets use equal tracks; custom uses a fixed row height
   // so panels resize freely without collapsing rows.
@@ -310,7 +321,13 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   // more rows than fit, each track stays readable at >= 380px and the page
   // scrolls. `recomputeRows` keeps layout.rows equal to the content height, so
   // there is never phantom scroll space below the last panel.
-  const gridStyle: React.CSSProperties = isCustom
+  const gridStyle: React.CSSProperties = narrow
+    ? {
+        gridTemplateColumns: 'minmax(0, 1fr)',
+        gridAutoRows: 'minmax(340px, auto)',
+        gridAutoFlow: 'row',
+      }
+    : isCustom
     ? {
         gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
         gridAutoRows: `${CUSTOM_ROW_HEIGHT}px`,
@@ -323,6 +340,8 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
       };
 
   const panelStyle = (panel: MarketPanel, override?: PanelRect): React.CSSProperties => {
+    // Stacked single-column mode ignores per-panel grid placement entirely.
+    if (narrow) return {};
     const r = override ?? panel.rect;
     return {
       gridColumn: `${r.col + 1} / span ${r.colSpan}`,
@@ -436,14 +455,22 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
 
   // Full page: every row is an equal fraction of the FULL viewport height, so
   // charts expand to use all the reclaimed space (no compact, no letterboxing).
-  const fullPageGridStyle: React.CSSProperties = {
-    gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${fullPageRows}, minmax(0, 1fr))`,
-    gridAutoRows: 'minmax(0, 1fr)',
-    height: '100%',
-    minHeight: 0,
-    flex: '1 1 0%',
-  };
+  const fullPageGridStyle: React.CSSProperties = narrow
+    ? {
+        gridTemplateColumns: 'minmax(0, 1fr)',
+        gridAutoRows: 'minmax(300px, 1fr)',
+        height: '100%',
+        minHeight: 0,
+        overflowY: 'auto',
+      }
+    : {
+        gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${fullPageRows}, minmax(0, 1fr))`,
+        gridAutoRows: 'minmax(0, 1fr)',
+        height: '100%',
+        minHeight: 0,
+        flex: '1 1 0%',
+      };
 
   // The panel grid is shared between normal and full-page modes.
   const gridEl = (
@@ -506,7 +533,7 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   // That was the green box around the page in full page/fullscreen mode.
   const fullPageOverlay = fullPage && typeof document !== 'undefined'
     ? createPortal(
-        <div ref={fullPageRef} tabIndex={-1} data-keyboard-scope="Chart workspace full page" className="fixed inset-0 z-[70] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background p-2 outline-none">
+        <div ref={fullPageRef} tabIndex={-1} data-keyboard-scope="Chart workspace full page" className="fixed inset-0 z-[70] flex h-[100dvh] w-full flex-col overflow-hidden bg-background p-2 outline-none">
           <div className="pointer-events-none absolute right-3 top-3 z-[75] flex items-center gap-1.5">
             <button
               onClick={() => { ops.setFullPage(false); onRequestExitFullPage?.(); }}

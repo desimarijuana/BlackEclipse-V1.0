@@ -16,6 +16,7 @@ const GLOBAL_SHORTCUTS = [
   { id: 'chat-new', label: 'New chat', keys: 'Ctrl / Cmd + Alt + N', context: 'Global, switches to the ChatBot page and starts a new chat' },
   { id: 'mode-terminal', label: 'Sidebar menu: Terminal', keys: 'Alt + T', context: 'Global, switches the sidebar menu mode' },
   { id: 'mode-agentic', label: 'Sidebar menu: Agentic', keys: 'Alt + A', context: 'Global, switches the sidebar menu mode' },
+  { id: 'mode-bots', label: 'Sidebar menu: Bots', keys: 'Alt + B', context: 'Global, switches the sidebar menu mode and opens the Bots workspace' },
   { id: 'terminal', label: 'Toggle visible terminal', keys: 'Ctrl / Cmd + `', context: 'Global' },
   { id: 'workspace', label: 'Toggle Agent Workspace sidebar', keys: 'Ctrl / Cmd + Shift + E', context: 'Global, not while typing' },
   { id: 'focus-mode', label: 'Toggle focus mode (chat)', keys: 'Ctrl + Alt + X', context: 'ChatBot tab, hides header and sidebar for a full-width focus view' },

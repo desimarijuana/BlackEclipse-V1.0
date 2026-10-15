@@ -277,7 +277,7 @@ export function UiBuilderScreen() {
           <h1 className="font-serif text-2xl font-semibold text-foreground">UI Builder</h1>
           <p className="text-xs text-muted-foreground">Compose pages, workspaces and widgets over the live UI runtime.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => void refreshList()} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground">Refresh</button>
           <button type="button" onClick={() => void syncCoreCatalog(true).then((r) => { note(`Synced ${r.registered}/${r.total} components`, r.failed === 0); void refreshList(); })} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground">Sync catalog</button>
           <button type="button" onClick={() => void handleExport()} disabled={!selectedId} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground disabled:opacity-50">Export</button>

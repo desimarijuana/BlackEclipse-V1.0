@@ -275,7 +275,7 @@ function ProviderRegistryRow({
               {connected ? (envOwned ? "Env" : keyStatus?.stored ? "Stored" : "Connected") : "Not configured"}
             </span>
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {provider.docsUrl && (
               <a
                 href={provider.docsUrl}

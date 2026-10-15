@@ -7,6 +7,7 @@
 // bulk) calls the artifact API. No mock cards, no local-only state.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle, ChartLine, Check, Download, FileCode2,
   FileText, Filter, FolderOpen, Image as ImageIcon, LayoutGrid, List,
@@ -333,7 +334,7 @@ function DetailDrawer({
     setDetail(updated);
   });
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <aside className="relative glass-card-strong w-full max-w-lg h-full overflow-y-auto p-5 flex flex-col gap-4">
@@ -437,7 +438,8 @@ function DetailDrawer({
 
         {busy ? <div className="text-[11px] text-muted-foreground/60 flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Working…</div> : null}
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -608,7 +610,7 @@ export function ArtifactsScreen() {
       ) : null}
 
       {selected.size > 0 ? (
-        <div className="glass-card rounded-xl px-3 py-2 flex items-center gap-2 text-xs">
+        <div className="glass-card rounded-xl px-3 py-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-foreground">{t('artifacts.selected', { n: selected.size })}</span>
           <button type="button" onClick={() => runBulk('favorite')} className="glass-card-subtle rounded-lg px-2 py-1 hover:bg-white/5">{t('artifacts.favorite')}</button>
           <button type="button" onClick={() => runBulk('archive')} className="glass-card-subtle rounded-lg px-2 py-1 hover:bg-white/5">{t('artifacts.bulkArchive')}</button>

@@ -68,7 +68,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
-    <html lang="en" className={cn("dark", "font-sans", wordmarkFontVars)}>
+    <html lang="en" suppressHydrationWarning className={cn("dark", "font-sans", wordmarkFontVars)}>
       <body suppressHydrationWarning>
         {/* Pre-paint scheme sync. The default document is `dark` (matches the
          * shipped Eclipse theme, no flash). If the user saved a light-scheme

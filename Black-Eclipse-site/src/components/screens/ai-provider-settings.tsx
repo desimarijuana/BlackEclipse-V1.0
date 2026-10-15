@@ -205,7 +205,7 @@ function ActiveSetup({
 
   return (
     <div className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-5 space-y-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
             <Cpu className="text-primary" size={18} />
@@ -219,7 +219,7 @@ function ActiveSetup({
         </div>
         <div className="text-right min-w-0">
           <p className="text-[10px] text-muted-foreground">Model</p>
-          <p className="text-sm font-mono font-semibold text-primary truncate max-w-[16rem]" title={llm.model}>
+          <p className="text-sm font-mono font-semibold text-primary truncate max-w-full sm:max-w-[16rem]" title={llm.model}>
             {llm.model || "—"}
           </p>
         </div>

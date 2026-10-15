@@ -45,7 +45,7 @@ function OptionGrid<T extends string>({
   cols?: 2 | 3 | 4;
 }) {
   return (
-    <div className={cn("grid gap-2", cols === 2 ? "grid-cols-2" : cols === 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3")}>
+    <div className={cn("grid gap-2", cols === 2 ? "grid-cols-2" : cols === 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3")}>
       {options.map((opt) => (
         <button
           key={opt.id}
@@ -521,7 +521,7 @@ export function BackgroundSettingsPanel() {
                 </Field>
 
                 <Field label="Align">
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {BACKGROUND_WORDMARK_ALIGN_OPTIONS.map((opt) => (
                       <button
                         key={opt.id}

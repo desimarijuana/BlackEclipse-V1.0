@@ -47,10 +47,10 @@ export function NewLayoutDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-lg sm:max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">New layout</DialogTitle>
 
-        <div className="p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary">
               <LayoutGrid size={18} />
@@ -83,7 +83,7 @@ export function NewLayoutDialog({
             <label className="block text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
               Starting preset
             </label>
-            <div className="mt-2 grid max-h-[19rem] grid-cols-2 gap-2 overflow-y-auto scrollbar-hide sm:grid-cols-3">
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {DASHBOARD_TEMPLATES.map(t => {
                 const Icon = PRESET_ICON[t.id] ?? LayoutGrid;
                 const sel = preset === t.id;
@@ -114,7 +114,7 @@ export function NewLayoutDialog({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border/10 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/10 px-5 py-4">
           <button
             type="button"
             onClick={onClose}

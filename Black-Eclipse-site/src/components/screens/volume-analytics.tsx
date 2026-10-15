@@ -182,7 +182,7 @@ export function VolumeAnalyticsPanel({
           {rows.map((c, i) => (
             <div
               key={c.symbol}
-              className="relative flex items-center gap-3 overflow-hidden rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2"
+              className="relative flex items-center gap-2 overflow-hidden rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 sm:gap-3"
             >
               {/* Share bar behind the row */}
               <div
@@ -191,12 +191,12 @@ export function VolumeAnalyticsPanel({
                 aria-hidden
               />
               <span className="relative w-5 shrink-0 font-mono text-[10px] text-muted-foreground/60">#{i + 1}</span>
-              <span className="relative w-16 shrink-0 truncate font-mono text-[11px] font-bold text-primary">{c.symbol}</span>
-              <span className="relative min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{c.name}</span>
-              <span className="relative w-24 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+              <span className="relative w-12 shrink-0 truncate font-mono text-[11px] font-bold text-primary sm:w-16">{c.symbol}</span>
+              <span className="relative hidden min-w-0 flex-1 truncate text-[10px] text-muted-foreground sm:block">{c.name}</span>
+              <span className="relative hidden w-24 shrink-0 text-right font-mono text-[10px] text-muted-foreground sm:block">
                 {fmtNumber(c.volume)} {summary.unit === 'notional' ? 'notional' : 'shs'}
               </span>
-              <span className="relative w-20 shrink-0 text-right font-mono text-[11px] font-semibold text-foreground">
+              <span className="relative w-16 shrink-0 text-right font-mono text-[11px] font-semibold text-foreground sm:w-20">
                 {fmtCompact(c.turnover, summary.currency)}
               </span>
               <span className="relative w-12 shrink-0 text-right font-mono text-[10px] font-bold text-foreground">

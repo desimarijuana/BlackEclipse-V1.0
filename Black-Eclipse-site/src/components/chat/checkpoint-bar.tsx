@@ -121,7 +121,7 @@ export function CheckpointBar({ chatId, messages, onRestore, className }: Checkp
       </div>
 
       {open && (
-        <div className="absolute right-0 top-8 z-10 max-h-[min(50vh,320px)] w-72 overflow-y-auto rounded-xl border border-white/12 dark:border-white/8 glass-card-strong p-2 shadow-2xl shadow-black/50">
+        <div className="absolute right-0 top-8 z-10 max-h-[min(50vh,320px)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-white/12 dark:border-white/8 glass-card-strong p-2 shadow-2xl shadow-black/50">
           {error && <p className="px-2 py-1 text-[10px] text-rose-400">{error}</p>}
           {checkpoints.length === 0 ? (
             <p className="px-2 py-2 text-[11px] text-muted-foreground">

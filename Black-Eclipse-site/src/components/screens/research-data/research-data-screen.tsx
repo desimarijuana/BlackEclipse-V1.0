@@ -312,6 +312,7 @@ function QualityView() {
         <button type="button" onClick={() => void load()} className="text-xs text-muted-foreground hover:text-foreground">Refresh</button>
       }>
         {events.length === 0 ? <p className="text-xs text-muted-foreground">No findings recorded.</p> : (
+          <div className="overflow-x-auto">
           <table className="w-full text-left text-[11px]">
             <thead className="text-muted-foreground"><tr><th>Symbol</th><th>Kind</th><th>Severity</th><th>Detail</th></tr></thead>
             <tbody>
@@ -325,11 +326,13 @@ function QualityView() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
         <ErrorNote message={error} />
       </Panel>
       <Panel title={`Stored series (${series.length})`}>
         {series.length === 0 ? <p className="text-xs text-muted-foreground">No normalized bars stored yet.</p> : (
+          <div className="overflow-x-auto">
           <table className="w-full text-left text-[11px]">
             <thead className="text-muted-foreground"><tr><th>Symbol</th><th>Interval</th><th>Provider</th><th>Bars</th><th>Range</th></tr></thead>
             <tbody>
@@ -344,6 +347,7 @@ function QualityView() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
     </div>
@@ -370,6 +374,7 @@ function ProvidersView() {
     <Panel title={`Providers (${providers.length})`} actions={
       <button type="button" onClick={() => void load()} className="text-xs text-muted-foreground hover:text-foreground">Refresh</button>
     }>
+      <div className="overflow-x-auto">
       <table className="w-full text-left text-[11px]">
         <thead className="text-muted-foreground"><tr><th>Provider</th><th>Timeliness</th><th>Entitlement</th><th>Intervals</th><th>Adj</th><th>Configured</th></tr></thead>
         <tbody>
@@ -385,6 +390,7 @@ function ProvidersView() {
           ))}
         </tbody>
       </table>
+      </div>
       <ErrorNote message={error} />
     </Panel>
   );
@@ -481,14 +487,14 @@ export function ResearchDataScreen() {
   const [view, setView] = useState<View>('datasets');
   return (
     <div className="w-full space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-base font-medium text-foreground">Quant Research Data</h2>
           <p className="text-xs text-muted-foreground">
             Immutable datasets, independent verification, provenance and data-quality — served by the Eclipse runtime.
           </p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide">
           {VIEWS.map((v) => (
             <button
               key={v.id}

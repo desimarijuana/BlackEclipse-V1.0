@@ -152,7 +152,7 @@ export function AddTransactionDialog({ onAdd, onClose }: {
     >
       <div>
         <label className={labelCls}>Type</label>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {(['BUY', 'SELL', 'DIVIDEND', 'DEPOSIT', 'WITHDRAWAL'] as TxType[]).map(t => (
             <button key={t} onClick={() => setType(t)}
               className={cn('rounded-xl border px-2.5 py-1.5 text-[10px] font-bold cursor-pointer transition-all',

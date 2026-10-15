@@ -51,7 +51,7 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem(SIDEBAR_MODE_KEY);
-        if (saved === 'terminal' || saved === 'agentic') mode = saved;
+        if (saved === 'terminal' || saved === 'agentic' || saved === 'bots') mode = saved;
       } catch { /* private mode — keep the default */ }
     }
     set({ config, hydrated: true, mode });

@@ -134,7 +134,7 @@ function DocumentDetail({ document }: { document: DocumentRunDocument }) {
             <FileText size={11} className="shrink-0 text-primary" />
             <span className="font-semibold text-foreground">Processing</span>
           </div>
-          <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 px-1">
+          <ul className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-0.5 px-1 sm:grid-cols-2">
             {Object.entries(document.capabilities).map(([key, value]) => (
               <li key={key} className="flex items-center gap-1.5">
                 <span className={cn(FAIL.has(value) ? 'text-amber-500/90' : 'text-emerald-500/90')}>

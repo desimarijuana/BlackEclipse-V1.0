@@ -337,7 +337,7 @@ export function MlLabScreen() {
         </button>
       </div>
 
-      <div className="glass-card-subtle flex gap-1 rounded-lg p-1">
+      <div className="glass-card-subtle flex gap-1 overflow-x-auto scrollbar-hide rounded-lg p-1">
         {TABS.map((t) => (
           <button
             key={t.id}

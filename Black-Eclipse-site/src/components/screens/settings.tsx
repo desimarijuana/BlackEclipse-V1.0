@@ -592,30 +592,47 @@ export function Settings({
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto scrollbar-hide p-5 md:p-8">
           <div className="max-w-3xl mx-auto">
-            {/* Mobile: horizontal, scrollable pill row (thumb-friendly) instead
-                of a dropdown, so switching sections is one tap. */}
-            <div className="md:hidden -mx-5 px-5 mb-4 overflow-x-auto scrollbar-hide">
-              <div className="flex gap-2 w-max">
-                {NAV.map((item) => {
-                  const Icon = item.icon;
-                  const active = section === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      data-sound="tick"
-                      onClick={() => setSection(item.id)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer",
-                        active
-                          ? "bg-white/[0.08] text-foreground border-border/30"
-                          : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60"
-                      )}
-                    >
-                      <Icon size={13} className={active ? "text-foreground" : "text-muted-foreground"} />
-                      {item.label}
-                    </button>
-                  );
-                })}
+            {/* Mobile: a search field + horizontal, scrollable pill row
+                (thumb-friendly) instead of the desktop rail, so searching and
+                switching sections both work on phones. */}
+            <div className="md:hidden mb-4 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search settings…"
+                  className="w-full h-9 rounded-xl border border-border/30 bg-transparent pl-8 pr-2.5 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+                />
+              </div>
+              <div className="-mx-5 px-5 overflow-x-auto scrollbar-hide">
+                <div className="flex gap-2 w-max">
+                  {visibleNav.length === 0 && (
+                    <p className="px-1 py-2 text-[10px] text-muted-foreground">
+                      No settings match “{query}”.
+                    </p>
+                  )}
+                  {visibleNav.map((item) => {
+                    const Icon = item.icon;
+                    const active = section === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        data-sound="tick"
+                        onClick={() => setSection(item.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer",
+                          active
+                            ? "bg-white/[0.08] text-foreground border-border/30"
+                            : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60"
+                        )}
+                      >
+                        <Icon size={13} className={active ? "text-foreground" : "text-muted-foreground"} />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -942,16 +959,16 @@ export function Settings({
         {/* Status strip — there is no Save button: every control applies
             instantly. This line reports the real save state (or the last
             error) so the user always knows whether their change persisted. */}
-        <div className="shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3">
+        <div className="shrink-0 border-t border-border/10 glass-card px-4 md:px-8 py-3 flex flex-wrap items-center justify-between gap-2">
           {toast ? (
             <span
               className={cn(
-                "text-xs flex items-center gap-1.5",
+                "text-xs flex items-center gap-1.5 min-w-0",
                 toast.kind === "error" ? "text-rose-400" : "text-primary"
               )}
             >
-              {toast.kind === "error" ? <AlertCircle className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
-              {toast.text}
+              {toast.kind === "error" ? <AlertCircle className="w-3.5 h-3.5 shrink-0" /> : <Check className="w-3.5 h-3.5 shrink-0" />}
+              <span className="truncate">{toast.text}</span>
             </span>
           ) : saving ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1.5">

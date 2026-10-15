@@ -512,7 +512,7 @@ export function ChatDock({
   const dock = hostVisible && visible && mounted && typeof document !== 'undefined' && createPortal(
     <div
       className={cn(
-        'pointer-events-none fixed inset-x-0 bottom-3 z-[90] flex flex-col items-center px-3',
+        'pointer-events-none fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[90] flex flex-col items-center px-3',
         className,
       )}
       data-nodrag

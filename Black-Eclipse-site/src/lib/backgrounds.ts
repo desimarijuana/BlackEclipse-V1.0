@@ -160,14 +160,15 @@ export interface BackgroundPrefs {
   chatBubbleColorLight: string;
 }
 
-/** The official first-run background for new users. */
+/** The wallpaper the Image picker selects by default (DEFAULT_BACKGROUND_ID). */
 export const DEFAULT_BACKGROUND_ID = 'eclipse-1';
 
 export const DEFAULT_BACKGROUND: BackgroundPrefs = {
-  // The official Eclipse I wallpaper (DEFAULT_BACKGROUND_ID) ships on by
-  // default for new users. It paints on the ChatBot landing only; every other
-  // tab keeps the plain themed surface.
-  mode: 'image',
+  // A fresh install lands on a SOLID backdrop (with the giant wordmark), not a
+  // wallpaper — no image paints until the user explicitly picks one from
+  // Settings › General › Background. `preset` still carries the shipped Eclipse I
+  // wallpaper so switching to Image mode pre-selects it.
+  mode: 'solid',
   preset: DEFAULT_BACKGROUND_ID,
   customKey: '',
   fit: 'cover',
@@ -184,9 +185,10 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   solidPattern: 'grid',
   solidPatternOpacity: 18,
   solidPatternScale: 22,
-  // The wallpaper ships alone; the giant wordmark is opt-in for image mode (and
-  // forced on in solid mode). The authored text is kept so a user can flip it on
-  // from Settings › General › Background without retyping it.
+  // The wordmark is opt-in for image mode (and forced on in solid mode, the
+  // shipped default). At 7vw it reads as a modest centered label rather than a
+  // full-bleed backdrop; the authored text is kept so a user can flip it on from
+  // Settings › General › Background without retyping it.
   textEnabled: false,
   text: DEFAULT_WORDMARK_TEXT,
   textFont: DEFAULT_WORDMARK_FONT,
@@ -197,7 +199,7 @@ export const DEFAULT_BACKGROUND: BackgroundPrefs = {
   textWidth: 100,
   textItalic: false,
   textUppercase: false,
-  textScale: 16,
+  textScale: 7,
   textOpacity: 90,
   textPositionY: 50,
   textAlign: 'center',

@@ -88,6 +88,31 @@ describe("setup + login + logout", () => {
     const after = await meHandler(new Request("http://localhost/api/auth/me"));
     expect((await after.json()).setupRequired).toBe(false);
   });
+
+  it("does not mark the session cookie Secure for a local hostname alias", async () => {
+    // Through `http://blackeclipse` (hosts-file alias to loopback, fronted by
+    // scripts/local-proxy.js) the cookie is served over plain http. A Secure
+    // cookie would be dropped by the browser and login would silently fail.
+    await setupHandler(post("/api/auth/setup", { username: "ada", password: "password123" }));
+    const local = await loginHandler(
+      new Request("http://blackeclipse/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://blackeclipse" },
+        body: JSON.stringify({ username: "ada", password: "password123" }),
+      })
+    );
+    expect(local.headers.get("set-cookie")).not.toContain("Secure");
+
+    // A genuinely remote host still gets a Secure cookie.
+    const remote = await loginHandler(
+      new Request("https://eclipse.example.com/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://eclipse.example.com" },
+        body: JSON.stringify({ username: "ada", password: "password123" }),
+      })
+    );
+    expect(remote.headers.get("set-cookie")).toContain("Secure");
+  });
 });
 
 describe("tenancy: the session scope is authoritative", () => {

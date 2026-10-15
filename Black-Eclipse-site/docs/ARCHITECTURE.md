@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-15
 ---
 
 # Architecture
@@ -281,7 +281,12 @@ Two mechanisms:
       theme's own `--page-bg-image`. The theme store and background store do not
       import each other (that would be a cycle); the theme store calls the
       background store's adapter instead. The default for new
-      users is the shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`).
+      users is a **Solid** backdrop (no image): `DEFAULT_BACKGROUND.mode` is
+      `solid`, so a fresh install paints the theme fill plus a modest centered
+      wordmark (`textScale` 7) and never loads a wallpaper until the user picks
+      one. The shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`) stays
+      the pre-selected entry in Image mode. The landing keeps an uncluttered
+      backdrop: no Aurora glow is mounted over it.
       An **chat-conversation surface** (on by default:
       `chatSurfaceEnabled` defaults true) paints a flat fill
       (`chatSurfaceColor` dark / `chatSurfaceColorLight` light, empty → theme

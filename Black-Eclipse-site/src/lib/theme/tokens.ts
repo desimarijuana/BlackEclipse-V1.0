@@ -763,6 +763,19 @@ export const STRUCTURAL_THEME_VARS: ReadonlySet<string> = new Set([
 // frosted recipe unless the user switches to light and recolors there.
 
 /**
+ * Force a glass tint to a LIGHT surface by mixing toward white until it is
+ * genuinely light. This keeps the promise that a custom dark tint never leaks
+ * into light mode (which otherwise rendered dark card/panel glass on a white
+ * page). A tint that is already light is returned unchanged, so shipped light
+ * presets (tint = white surface) are unaffected.
+ */
+function lightGlassTint(tint: string): string {
+  let out = tint;
+  for (let i = 0; i < 8 && luminance(out) < 0.8; i++) out = mixHex(out, '#ffffff', 0.6);
+  return out;
+}
+
+/**
  * Flatten a theme to the CSS custom properties that drive the app. Injected
  * through a managed stylesheet, these override the shipped tokens, so one
  * object recolors every surface (including charts, which read these vars).
@@ -872,9 +885,10 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     '--glass-tint': glassTint,
     '--glass-shadow': SHADOW[n.shadow],
     '--glass-enabled': glass.enabled ? '1' : '0',
-    // Light-mode tint: default white, or a lightened version of the custom tint.
+    // Light-mode tint: default white, or a custom tint forced to a light surface
+    // (see `lightGlassTint`) so it can never render dark glass in light mode.
     '--glass-tint-light': glass.enabled && glass.tint !== DEFAULT_ECLIPSE_THEME.glass.tint
-      ? hexToRgbTriplet(mixHex(glass.tint, '#ffffff', 0.12))
+      ? hexToRgbTriplet(lightGlassTint(glass.tint))
       : '255 255 255',
 
     // Page background treatment (image layers over the `--background` color)

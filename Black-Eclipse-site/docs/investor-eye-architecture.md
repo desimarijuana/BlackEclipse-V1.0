@@ -1,7 +1,7 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-10-12
+last-verified: 2026-10-15
 ---
 
 # Investor Eye — Architecture & Audit
@@ -1211,6 +1211,29 @@ globe texture is **keyed by skin** (`globeTextureRef = { skin, url }`) — the
 obvious `if (globeTextureRef.current) return` guard silently kept the blue planet
 in the black skin after a switch. `texVersion` state bumps when a texture
 finishes drawing so the update effect re-renders without rebuilding the chart.
+
+### Light mode is a second axis, not a skin (scheme-aware surface)
+
+The map is canvas/WebGL, so it cannot read the app's CSS tokens the way the rest
+of the UI does — without help it stayed a black terminal surface on a white page.
+`WorldMap` therefore observes the app's `dark` class (`useDarkScheme`) and passes
+a `scheme ('dark' | 'light')` into `buildMapOption`, alongside a scheme-matched
+backdrop. This is independent of `MapSkin`:
+
+- In light mode both dark skins (`black`/`glow`) collapse to one legible light
+  geo palette (`GEO_LIGHT`): pale land, dark hairline borders.
+- The tooltip swaps to the light frosted recipe (`LIGHT_TOOLTIP`); the sky
+  backdrop becomes a light radial gradient and the starfield is **not mounted**.
+- The globe uses a `light` texture palette (`GlobeSkin` gained `'light'`), so the
+  sphere is a pale matte planet instead of a black ball.
+- The globe texture key now includes the scheme
+  (`globeTextureRef = { key: "<scheme>:<skin>", url }`) so toggling the theme
+  rebuilds the surface.
+
+The TradingView chart widget follows the scheme too (`theme: 'light' | 'dark'`),
+and a custom dark glass tint is forced light (`--glass-tint-light` via
+`lightGlassTint` in `theme/tokens.ts`) so it can no longer render dark
+widget-card glass on a white page.
 
 ### The pin glyphs were wrong, and it was three bugs
 

@@ -45,10 +45,10 @@ export function DashboardOnboarding({
     <Dialog open={open} onOpenChange={() => { /* modal — no dismiss */ }}>
       <DialogContent
         showCloseButton={false}
-        className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden"
+        className="w-[calc(100%-2rem)] max-w-2xl sm:max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden"
       >
         <DialogTitle className="sr-only">Build your workspace</DialogTitle>
-        <div className="p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <h2 className="font-serif text-xl font-semibold text-foreground">Build your workspace</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             What do you use BlackEclipse for? We&apos;ll set up a starting template — you can change everything later.
@@ -81,7 +81,7 @@ export function DashboardOnboarding({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border/10 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/10 px-6 py-4">
           <button
             onClick={() => onComplete({ templateId: selected ?? 'trader', name: selected ?? 'Trader' })}
             disabled={!selected}

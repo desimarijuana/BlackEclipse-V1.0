@@ -95,3 +95,27 @@ def test_record_event_keeps_failure_detail():
     assert detail["count"] == 3
     assert detail["error"] == "boom"
     service.close()
+
+
+def test_boot_settings_reads_the_job_env(monkeypatch):
+    service, _ = make_service(rerank_enabled=False)
+    # A bare runtime (no front-door env) stays honestly keyword-only.
+    assert service._boot_settings() is None
+    monkeypatch.setenv("HARNESS_JOB_PROVIDER", "ollama")
+    monkeypatch.setenv("HARNESS_JOB_BASE_URL", "http://localhost:11434/v1")
+    settings = service._boot_settings()
+    assert settings.provider == "ollama"
+    assert settings.base_url.endswith("/v1")
+
+
+@pytest.mark.asyncio
+async def test_warm_index_configures_from_the_boot_env(monkeypatch):
+    # The boot warm-index must EMBED (store vectors), not run keyword-only: it
+    # configures the provider from the front-door env before indexing.
+    service, _ = make_service(rerank_enabled=False)
+    seen: dict = {}
+    monkeypatch.setattr(service, "configure", lambda settings=None, overrides=None: seen.update(settings=settings))
+    monkeypatch.setenv("HARNESS_JOB_PROVIDER", "ollama")
+    await service.warm_index()
+    assert seen["settings"] is not None and seen["settings"].provider == "ollama"
+    service.close()

@@ -371,7 +371,7 @@ export function BacktestScreen() {
 
           <div className="rounded-xl border border-white/10 p-2">
             <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Execution costs</div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
                 Comm %
                 <input type="number" step="0.01" value={commission}
