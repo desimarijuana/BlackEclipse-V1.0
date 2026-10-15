@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **`npm run setup:hostname` — one-command, self-elevating local hostname.**
+  Added `scripts/setup-hostname.ps1` (re-launches itself via UAC, appends
+  `127.0.0.1 blackeclipse` to the Windows hosts file only when missing, flushes
+  DNS) and the npm script `setup:hostname`. Root cause of "cannot see
+  `blackeclipse`": the hosts entry is required for the name to resolve and a
+  normal shell cannot write the protected file. Verified on this machine: entry
+  added, `ping blackeclipse` → `127.0.0.1`, and `http://blackeclipse/` →
+  `200` (`x-powered-by: Next.js`) with `localhost:3000` still `200`.
+  docs updated: `docs/local-hostname.md`, `docs/QUICKSTART.md`,
+  `docs/NAVIGATION.md`, this file.
+
 - **Redesigned the global crash screen (`ErrorBoundary`).** The full-page
   "Something went wrong" fallback dropped its ⚠️ emoji and flat layout for a
   frosted `.glass-card` with a rose wash, an `AlertTriangle` icon badge, and
@@ -149,6 +160,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
 
 ## 2026-10-14
+
+- **Slash commands: fix the wired commands found broken end-to-end.**
+  `/market` was calling the browser-only `market-client` (relative fetch) from
+  the server — it now goes through the router's loopback `frontDoor`
+  (`/api/harness/market/{providers,health}`). `/research`, `/deep-research`,
+  `/web`, `/read` used a double-prefixed path (`/api/research/web/run`); the
+  research front door already prepends `/research/web/`, so the path is now
+  `/api/research/run`. `/code` was broken for everyone: the `/api/code/tasks`
+  route never supplied the required `callbackBaseUrl`/callback token to Python
+  (now injected server-side, like a chat run), and `code-client` crashed
+  redacting a non-string `detail` (now handled). `/code` now defaults to
+  `plan_only` (fast) with `--autonomy edit_verify` opt-in. Verified every command
+  end-to-end against the running server (all `completed`). docs updated:
+  `docs/harness/slash-commands.md`.
 
 - **Slash commands: every command is now real (the `soon` badge is gone).**
   Implemented the nine previously-unavailable commands against the SAME front-door

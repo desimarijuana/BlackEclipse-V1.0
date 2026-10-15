@@ -55,7 +55,10 @@ export async function POST(request: Request) {
   // so existing text that merely starts with a slash keeps working.
   const invocation = parseCommandInvocation(query);
   if (invocation?.spec && isRoutedCommand(invocation.spec)) {
-    const result = await executeCommandFromText(query, { operator: isOperatorRequest(request) });
+    const result = await executeCommandFromText(query, {
+      operator: isOperatorRequest(request),
+      origin: new URL(request.url).origin,
+    });
     if (result) {
       const cmdRunId = newRunId();
       const encoder = new TextEncoder();

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
 import { listCodeTasks, createCodeTask, type Autonomy } from "@/lib/harness/code-client";
 import { resolveRunModelSettings } from "@/lib/harness/run-service";
+import { runtimeBaseUrl, runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
       workspaceId?: string;
       modelSettings?: Record<string, unknown>;
       callbackBaseUrl?: string;
+      callbackToken?: string;
       direct?: boolean;
     };
     if (typeof body.query !== "string" || !body.query.trim()) {
@@ -52,7 +54,11 @@ export async function POST(request: Request) {
       autonomy,
       workspaceId: body.workspaceId,
       modelSettings,
-      callbackBaseUrl: body.callbackBaseUrl,
+      // The runtime requires a callback base URL + token to reach the front door
+      // (data bridge, approvals). The browser has no vault access, so the front
+      // door supplies them server-side — the same values a chat run uses.
+      callbackBaseUrl: body.callbackBaseUrl ?? runtimeBaseUrl(),
+      callbackToken: body.callbackToken ?? runtimeCallbackToken(),
       direct: body.direct === true,
     });
     return NextResponse.json({ success: true, task });

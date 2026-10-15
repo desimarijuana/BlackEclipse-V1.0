@@ -217,24 +217,23 @@ export function bindArgs(spec: CommandSpec, tokenResult: TokenizeResult): BoundA
     }
     if (isShortFlag(token) && !/^-\d/.test(token)) {
       const alias = findAlias(token.slice(1));
-      if (!alias) {
-        errors.push({ code: "UNKNOWN_FLAG", message: `Unknown flag \`${token}\`.`, arg: token.slice(1) });
+      // A `-x` token is a flag ONLY when the command declares that alias.
+      // Otherwise it is an ordinary argument (e.g. `ls -la` for `/terminal`).
+      if (alias) {
+        if (alias.type === "boolean") {
+          flags[alias.name] = true;
+          i += 1;
+          continue;
+        }
+        if (i + 1 < tokens.length) {
+          flags[alias.name] = tokens[i + 1];
+          i += 2;
+          continue;
+        }
+        errors.push({ code: "MISSING_FLAG_VALUE", message: `Flag \`${token}\` needs a value.`, arg: alias.name });
         i += 1;
         continue;
       }
-      if (alias.type === "boolean") {
-        flags[alias.name] = true;
-        i += 1;
-        continue;
-      }
-      if (i + 1 < tokens.length) {
-        flags[alias.name] = tokens[i + 1];
-        i += 2;
-        continue;
-      }
-      errors.push({ code: "MISSING_FLAG_VALUE", message: `Flag \`${token}\` needs a value.`, arg: alias.name });
-      i += 1;
-      continue;
     }
     positionalTokens.push(token);
     i += 1;

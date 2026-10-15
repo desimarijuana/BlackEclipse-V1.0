@@ -76,7 +76,15 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detail = (body as { detail?: string }).detail || `runtime HTTP ${res.status}`;
+    // A Python error detail may be a string OR a structured object
+    // (`{ code, message }`); never pass a non-string to redactSecrets.
+    const raw = (body as { detail?: unknown }).detail;
+    const detail =
+      typeof raw === "string"
+        ? raw
+        : raw && typeof raw === "object" && "message" in raw
+          ? String((raw as { message: unknown }).message)
+          : `runtime HTTP ${res.status}`;
     throw new Error(redactSecrets(detail));
   }
   return body as T;

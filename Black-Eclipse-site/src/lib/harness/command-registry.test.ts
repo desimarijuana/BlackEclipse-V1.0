@@ -18,6 +18,14 @@ describe("command registry", () => {
     expect(detectRegistryConflicts()).toEqual([]);
   });
 
+  it("exposes the whole catalog to the palette (more than an arbitrary cap)", () => {
+    // Guards the composer palette: it must not cap the list so low that real
+    // commands become unreachable.
+    expect(allCommands().length).toBeGreaterThan(20);
+    // A bare search returns every command (the palette filters by relevance).
+    expect(searchCommands("").length).toBe(allCommands().length);
+  });
+
   it("resolves commands by name, alias, and a leading slash", () => {
     expect(resolveCommand("skills")?.id).toBe("skills.list");
     expect(resolveCommand("/skill")?.id).toBe("skill.author");
@@ -27,18 +35,25 @@ describe("command registry", () => {
     expect(resolveCommand("nope")).toBeUndefined();
   });
 
-  it("marks only handler-backed commands as available", () => {
-    expect(isCommandAvailable(resolveCommand("skills")!)).toBe(true);
-    expect(isCommandAvailable(resolveCommand("skill")!)).toBe(true);
-    expect(isCommandAvailable(resolveCommand("help")!)).toBe(true);
-    const backtest = resolveCommand("backtest")!;
-    expect(backtest.status).toBe("unavailable");
-    expect(isCommandAvailable(backtest)).toBe(false);
-    expect(backtest.unavailabilityReason).toBeTruthy();
-    // Newly wired commands are available.
-    expect(isCommandAvailable(resolveCommand("market")!)).toBe(true);
-    expect(isCommandAvailable(resolveCommand("portfolio")!)).toBe(true);
-    expect(isCommandAvailable(resolveCommand("usage")!)).toBe(true);
+  it("exposes every registered command as runnable (all handler-backed)", () => {
+    expect(allCommands().length).toBeGreaterThan(20);
+    expect(allCommands().every((c) => isCommandAvailable(c))).toBe(true);
+    // Every handler target is implemented (no unsupported placeholders).
+    expect(allCommands().every((c) => c.handler.type !== "unsupported")).toBe(true);
+  });
+
+  it("wires the research/markets/quant/dev commands to real handlers", () => {
+    expect(resolveCommand("quote")?.handler.target).toBe("markets.quote");
+    expect(resolveCommand("research")?.handler.target).toBe("research.run");
+    expect(resolveCommand("deep-research")?.handler.target).toBe("research.run");
+    expect(resolveCommand("web")?.handler.target).toBe("research.web");
+    expect(resolveCommand("read")?.handler.target).toBe("research.read");
+    expect(resolveCommand("backtest")?.handler.target).toBe("quant.backtest");
+    expect(resolveCommand("code")?.handler.target).toBe("code.task");
+    expect(resolveCommand("terminal")?.handler.target).toBe("runtime.terminal");
+    // `/run` is an alias of `/terminal`.
+    expect(resolveCommand("run")?.name).toBe("terminal");
+    expect(resolveCommand("sh")?.name).toBe("terminal");
   });
 
   it("searches by prefix, substring, tag, and fuzzy subsequence", () => {

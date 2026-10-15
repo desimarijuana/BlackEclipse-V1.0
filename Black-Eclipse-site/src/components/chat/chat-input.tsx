@@ -41,8 +41,6 @@ import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
-// Cap the palette so typing a bare `/` never floods the list.
-const MAX_COMMAND_RESULTS = 12;
 // Cap the `@` palette the same way.
 const MAX_MENTION_RESULTS = 8;
 
@@ -176,7 +174,9 @@ export function ChatInput({
   }, [query]);
   const commandMatches = useMemo<CommandSpec[]>(() => {
     if (commandToken === null) return [];
-    return searchCommands(commandToken).slice(0, MAX_COMMAND_RESULTS);
+    // No cap: the palette is scrollable, so every command is reachable. Typing a
+    // prefix narrows the list.
+    return searchCommands(commandToken);
   }, [commandToken]);
   const commandMenuOpen = commandToken !== null && commandMatches.length > 0;
   useEffect(() => { setCommandHighlight(0); }, [commandToken]);

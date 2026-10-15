@@ -135,36 +135,6 @@ export interface CommandSpec {
 
 const V = "1.0.0";
 
-/** Compact builder for a declared-but-not-yet-wired command. */
-function unsupported(
-  name: string,
-  category: CommandCategory,
-  summary: string,
-  reason: string,
-  tags: readonly string[] = [],
-): CommandSpec {
-  return {
-    id: `${name}.command`,
-    name,
-    aliases: [],
-    summary,
-    description: `${summary} This command is registered but its handler is not implemented yet.`,
-    category,
-    tags,
-    version: V,
-    status: "unavailable",
-    args: [],
-    flags: [],
-    handler: { type: "unsupported", target: `${name}.command` },
-    permissions: { approval: "none" },
-    risk: "low",
-    executionMode: "sync",
-    output: { type: "markdown", summary: "An explicit unsupported-capability error." },
-    examples: [`/${name}`],
-    unavailabilityReason: reason,
-  };
-}
-
 // ─── Implemented commands ────────────────────────────────────────────────────
 
 const HELP: CommandSpec = {
@@ -673,21 +643,182 @@ const MCP: CommandSpec = {
   examples: ["/mcp"],
 };
 
-// ─── Declared-but-unavailable commands ───────────────────────────────────────
-// Registered so the palette and `/help` are complete and honest; each returns a
-// structured unsupported-capability error rather than pretending to work.
+// ─── Research, markets, quant, dev commands ──────────────────────────────────
 
-const PLANNED: readonly CommandSpec[] = [
-  unsupported("research", "research", "Run the evidence-driven research engine.", "Wire the web research engine.", ["research"]),
-  unsupported("deep-research", "research", "Run multi-pass deep research.", "Wire the web research engine.", ["research"]),
-  unsupported("quote", "markets", "Get a quote.", "Wire a market quote client.", ["markets"]),
-  unsupported("backtest", "quant", "Backtest a strategy.", "Wire the quant engine runner with a strategy spec.", ["quant"]),
-  unsupported("web", "web", "Fetch and summarize a web page.", "Wire the browser runtime.", ["web"]),
-  unsupported("read", "web", "Read/summarize a document.", "Wire document intelligence.", ["documents"]),
-  unsupported("code", "dev", "Edit code in the workspace.", "Wire the code agent surface.", ["dev"]),
-  unsupported("terminal", "dev", "Run a terminal command.", "Deliberately not exposed as a chat command; use the code capability under approval.", ["dev"]),
-  unsupported("run", "dev", "Run a command or script.", "Deliberately not exposed as a chat command; use the execution sandbox under approval.", ["dev"]),
-];
+const QUOTE: CommandSpec = {
+  id: "markets.quote",
+  name: "quote",
+  aliases: ["quotes"],
+  summary: "Get quotes for one or more symbols.",
+  description:
+    "Resolve symbols across all markets in JDdS and return the live/delayed/stale price with its real freshness. A symbol that does not resolve is reported as unavailable, never invented.",
+  category: "markets",
+  tags: ["markets", "quote", "jdds"],
+  version: V,
+  status: "available",
+  args: [{ name: "symbols", description: "One or more symbols (e.g. AAPL BTC OGDC).", variadic: true }],
+  flags: [],
+  handler: { type: "native", target: "markets.quote" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 30_000,
+  idempotent: true,
+  output: { type: "response", summary: "A quote table with freshness." },
+  examples: ["/quote AAPL", "/quote AAPL BTC OGDC"],
+};
+
+const RESEARCH: CommandSpec = {
+  id: "research.run",
+  name: "research",
+  aliases: [],
+  summary: "Answer a question with cited web research.",
+  description:
+    "Run the evidence-driven web research engine and return its synthesized answer with sources. Citations are required by default.",
+  category: "research",
+  tags: ["research", "web", "evidence"],
+  version: V,
+  status: "available",
+  args: [{ name: "question", description: "What to research.", variadic: true }],
+  flags: [{ name: "depth", description: "Research depth.", type: "string", values: ["quick", "standard", "deep"] }],
+  handler: { type: "native", target: "research.run" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 900_000,
+  output: { type: "response", summary: "An answer with cited sources." },
+  examples: ['/research "NVIDIA competitive position"', "/research impact of rate cuts on banks --depth deep"],
+};
+
+const DEEP_RESEARCH: CommandSpec = {
+  id: "research.deep",
+  name: "deep-research",
+  aliases: ["deep"],
+  summary: "Run multi-pass, cross-validated research.",
+  description:
+    "Run the web research engine at DEPTH with cross-validation required, so conflicting sources are surfaced rather than smoothed over.",
+  category: "research",
+  tags: ["research", "web", "deep"],
+  version: V,
+  status: "available",
+  args: [{ name: "question", description: "What to research in depth.", variadic: true }],
+  flags: [],
+  handler: { type: "native", target: "research.run" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 900_000,
+  output: { type: "response", summary: "An answer with cross-validated sources." },
+  examples: ['/deep-research "Is the semiconductor cycle turning?"'],
+};
+
+const WEB: CommandSpec = {
+  id: "research.web",
+  name: "web",
+  aliases: ["browse"],
+  summary: "Research and summarize a URL or query.",
+  description: "Run a bounded web research pass over a URL or query and summarize the findings with sources.",
+  category: "web",
+  tags: ["web", "research"],
+  version: V,
+  status: "available",
+  args: [{ name: "target", description: "A URL or a query.", variadic: true }],
+  flags: [],
+  handler: { type: "native", target: "research.web" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 120_000,
+  output: { type: "response", summary: "A summary with sources." },
+  examples: ["/web https://example.com/article", "/web latest AI chip announcements"],
+};
+
+const READ: CommandSpec = {
+  id: "research.read",
+  name: "read",
+  aliases: ["summarize"],
+  summary: "Extract and summarize a document.",
+  description: "Fetch a URL/document and extract its content into a summary with the source it came from.",
+  category: "web",
+  tags: ["documents", "extract"],
+  version: V,
+  status: "available",
+  args: [{ name: "target", description: "A URL or document reference.", variadic: true }],
+  flags: [],
+  handler: { type: "native", target: "research.read" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 120_000,
+  output: { type: "response", summary: "A document summary with its source." },
+  examples: ["/read https://example.com/report.pdf"],
+};
+
+const BACKTEST: CommandSpec = {
+  id: "quant.backtest",
+  name: "backtest",
+  aliases: [],
+  summary: "List strategies or backtest one by id.",
+  description:
+    "With no argument, list the saved strategies. With a strategy id, run the quant engine's backtest and report its metrics. Never invents a result when no strategy matches.",
+  category: "quant",
+  tags: ["quant", "backtest"],
+  version: V,
+  status: "available",
+  args: [{ name: "strategyId", description: "A saved strategy id to backtest (optional).", required: false }],
+  flags: [],
+  handler: { type: "native", target: "quant.backtest" },
+  permissions: { approval: "none" },
+  risk: "medium",
+  executionMode: "sync",
+  timeoutMs: 300_000,
+  output: { type: "response", summary: "A strategy list, or backtest metrics." },
+  examples: ["/backtest", "/backtest momentum_v1"],
+};
+
+const CODE: CommandSpec = {
+  id: "code.task",
+  name: "code",
+  aliases: [],
+  summary: "Start a coding task.",
+  description:
+    "Create a code task for the coding agent (autonomy defaults to plan_only; pass `--autonomy edit_verify` to edit) in a disposable workspace; track it in the Code screen. Operator-gated.",
+  category: "dev",
+  tags: ["dev", "code"],
+  version: V,
+  status: "available",
+  args: [{ name: "task", description: "What to build or change.", variadic: true }],
+  flags: [{ name: "autonomy", description: "Autonomy profile.", type: "string", values: ["plan_only", "edit_verify"] }],
+  handler: { type: "native", target: "code.task" },
+  permissions: { approval: "operator" },
+  risk: "high",
+  executionMode: "async",
+  timeoutMs: 300_000,
+  output: { type: "response", summary: "The created task id and status." },
+  examples: ["/code add a loading state to the watchlist widget"],
+};
+
+const TERMINAL: CommandSpec = {
+  id: "runtime.terminal",
+  name: "terminal",
+  aliases: ["run", "sh"],
+  summary: "Run a shell command.",
+  description:
+    "Execute a shell command through the terminal subsystem (operator-gated, effect-gated) and show its output. Never run untrusted content as a command.",
+  category: "dev",
+  tags: ["dev", "terminal", "shell"],
+  version: V,
+  status: "available",
+  args: [{ name: "command", description: "The command to run.", variadic: true }],
+  flags: [],
+  handler: { type: "native", target: "runtime.terminal" },
+  permissions: { approval: "operator" },
+  risk: "high",
+  executionMode: "sync",
+  timeoutMs: 900_000,
+  output: { type: "response", summary: "stdout/stderr and the exit code." },
+  examples: ["/terminal ls -la", "/run git status"],
+};
 
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   HELP,
@@ -706,11 +837,18 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   TOOLS,
   USAGE,
   MARKET,
+  QUOTE,
   PORTFOLIO,
   MEMORY,
   MCP,
+  RESEARCH,
+  DEEP_RESEARCH,
+  WEB,
+  READ,
+  BACKTEST,
+  CODE,
+  TERMINAL,
   ECLIPSESDK,
-  ...PLANNED,
 ];
 
 // ─── Pure queries ────────────────────────────────────────────────────────────

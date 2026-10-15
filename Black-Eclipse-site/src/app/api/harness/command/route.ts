@@ -66,6 +66,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const result: CommandResult | null = await executeCommandFromText(text, {
     operator: isOperatorRequest(request),
+    origin: new URL(request.url).origin,
   });
 
   if (!result) {

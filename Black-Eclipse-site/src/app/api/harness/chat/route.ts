@@ -45,7 +45,10 @@ export async function POST(request: Request) {
     // fall through to the normal agent path; an unknown `/token` falls through too.
     const commandInvocation = parseCommandInvocation(query);
     if (commandInvocation?.spec && isRoutedCommand(commandInvocation.spec)) {
-      const cmdResult = await executeCommandFromText(query, { operator: isOperatorRequest(request) });
+      const cmdResult = await executeCommandFromText(query, {
+        operator: isOperatorRequest(request),
+        origin: new URL(request.url).origin,
+      });
       if (cmdResult) {
         return NextResponse.json({
           success: cmdResult.ok,

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 
 import {
+  executeCommand,
   executeCommandFromText,
   isRoutedCommand,
   type CommandDeps,
 } from "./command-router";
+import { bindArgs, tokenizeArgs } from "./command-parser";
 import { resolveCommand } from "./command-registry";
 import type { SkillDetail, SkillDraft, SkillExecutionResult, SkillSummary } from "./skills-types";
 
@@ -77,6 +79,19 @@ function execution(overrides: Partial<SkillExecutionResult> = {}): SkillExecutio
 
 function makeDeps(overrides: Partial<CommandDeps["skills"]> = {}): CommandDeps {
   return {
+    frontDoor: {
+      request: vi.fn(async (path: string) => {
+        if (path.startsWith("/api/quote")) {
+          return { ok: true, status: 200, data: { quotes: [{ symbol: "AAPL", name: "Apple", price: 100, changePercent: 1.5, currency: "$", freshness: "live", found: true }] } };
+        }
+        if (path === "/api/backtest/strategies") return { ok: true, status: 200, data: { strategies: [{ id: "s1", name: "Momentum", version: "1" }] } };
+        if (path === "/api/backtest/backtest") return { ok: true, status: 200, data: { result: { sharpe: 1.2, totalReturn: 0.3 } } };
+        if (path === "/api/research/run") return { ok: true, status: 200, data: { success: true, result: { answer: "Answer text", sources: [{ title: "S", url: "https://e.com" }], status: { state: "completed" }, claims: [] } } };
+        if (path === "/api/terminal/execute") return { ok: true, status: 200, data: { stdout: "ok\n", stderr: "", exitCode: 0 } };
+        if (path === "/api/code/tasks") return { ok: true, status: 200, data: { task: { id: "task_1", status: "created" } } };
+        return { ok: true, status: 200, data: {} };
+      }),
+    },
     skills: {
       list: vi.fn(async () => [summary("crypto-onchain-research", { category: "research" })]),
       discover: vi.fn(async () => [summary("crypto-onchain-research")]),
@@ -161,9 +176,76 @@ describe("executeCommandFromText", () => {
   });
 
   it("reports an unavailable command explicitly, never as functional", async () => {
-    const res = (await executeCommandFromText("/backtest", ctx, makeDeps()))!;
+    const spec = {
+      ...resolveCommand("help")!,
+      id: "x.fake",
+      name: "fake",
+      aliases: [],
+      status: "unavailable" as const,
+      handler: { type: "unsupported" as const, target: "x.fake" },
+      unavailabilityReason: "not wired yet",
+    };
+    const res = await executeCommand(
+      { spec, name: "fake", rest: "", unknown: false, raw: "/fake" },
+      bindArgs(spec, tokenizeArgs("")),
+      ctx,
+      makeDeps(),
+    );
     expect(res.status).toBe("unavailable");
     expect(res.output).toContain("not available");
+  });
+
+  it("gets quotes via the front door", async () => {
+    const deps = makeDeps();
+    const res = (await executeCommandFromText("/quote AAPL", ctx, deps))!;
+    expect(res.status).toBe("completed");
+    expect(res.output).toContain("AAPL");
+    expect(deps.frontDoor.request).toHaveBeenCalledWith(
+      expect.stringContaining("/api/quote?symbols=AAPL"),
+      expect.anything(),
+    );
+  });
+
+  it("runs research and renders the answer with sources", async () => {
+    const deps = makeDeps();
+    const res = (await executeCommandFromText('/research "NVIDIA position"', ctx, deps))!;
+    expect(res.status).toBe("completed");
+    expect(res.output).toContain("Answer text");
+    expect(deps.frontDoor.request).toHaveBeenCalledWith(
+      "/api/research/run",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("lists strategies when /backtest has no id, and backtests with one", async () => {
+    const deps = makeDeps();
+    const list = (await executeCommandFromText("/backtest", ctx, deps))!;
+    expect(list.status).toBe("completed");
+    expect(list.output).toContain("Momentum");
+    const run = (await executeCommandFromText("/backtest s1", ctx, deps))!;
+    expect(run.status).toBe("completed");
+    expect(run.output).toContain("sharpe");
+  });
+
+  it("runs a terminal command and shows its output", async () => {
+    const deps = makeDeps();
+    const res = (await executeCommandFromText("/terminal ls -la", opCtx, deps))!;
+    expect(res.status).toBe("completed");
+    expect(res.output).toContain("ok");
+  });
+
+  it("denies /terminal for a non-operator", async () => {
+    const deps = makeDeps();
+    const res = (await executeCommandFromText("/terminal ls", ctx, deps))!;
+    expect(res.status).toBe("denied");
+    expect(deps.frontDoor.request).not.toHaveBeenCalled();
+  });
+
+  it("creates a code task", async () => {
+    const deps = makeDeps();
+    const res = (await executeCommandFromText("/code add a loading state", opCtx, deps))!;
+    expect(res.status).toBe("completed");
+    expect(deps.frontDoor.request).toHaveBeenCalledWith("/api/code/tasks", expect.objectContaining({ method: "POST" }));
   });
 
   it("executes /help from the registry only", async () => {

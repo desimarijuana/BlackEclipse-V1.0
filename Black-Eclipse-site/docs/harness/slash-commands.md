@@ -70,9 +70,11 @@ every routed command.
 4. **Authorize** — a command declaring `approval: "operator"` is denied unless the
    caller passed the operator gate (transport/token). This is defense in depth:
    the Python runtime re-enforces its own default-deny policy.
-5. **Execute** — dispatch on `handler.target` to a handler that calls the
-   **existing** systems (`skills-client`, `tasks-client`, `workflows-client`, the
-   Python runtime). The router owns no agent loop, task queue, or skill database.
+5. **Execute** — dispatch on `handler.target` to a handler in
+   `src/lib/harness/command-handlers.ts` that calls the **existing** systems
+   (skills-client, tasks-client, workflows-client, python-client, and loopback
+   calls to the app's own `/api/...` front doors). The router owns no agent loop,
+   task queue, or skill database.
 6. **Render** — build validated `eclipse-response` blocks (`command-render.ts`);
    each block is checked against `src/lib/response/contract.ts` before it is
    emitted.
@@ -106,20 +108,25 @@ Backed by real handlers/endpoints:
   `/workflows`, `/agents`, `/models` (alias `/providers`), `/tools`,
   `/usage` (alias `/cost`).
 - Markets / portfolio / memory / MCP: `/market` (gateway providers + health),
-  `/portfolio` (real portfolios), `/memory` (overview + recent), `/mcp`
-  (configured servers).
+  `/quote` (`/quotes` — JDdS quotes with honest freshness), `/portfolio` (real
+  portfolios), `/memory` (overview + recent), `/mcp` (configured servers).
+- Research / web: `/research`, `/deep-research` (alias `/deep`), `/web`
+  (alias `/browse`), `/read` (alias `/summarize`) — all through the web research
+  engine, returning the answer with its sources.
+- Quant: `/backtest` — lists saved strategies, or backtests one by id.
+- Dev: `/code` (start a code task), `/terminal` (aliases `/run`, `/sh` — run a
+  shell command; operator- and effect-gated).
 - Skills: `/skills` (list/search/category/show/**run**/test/validate),
   `/skill` (**author a new skill** — agent turn), `/skill-explain`, `/skill-test`,
   `/skill-enable`, `/skill-disable`, `/skill-create` (learning-engine draft).
 - Profile: `/eclipsesdk` (alias `/esdk`).
 - Agent-turn: `/skill` (authors a skill for Eclipse; see Skill integration).
 
-Registered but **not yet wired** (return an explicit unsupported error; they are
-listed so discovery is complete): `research`, `deep-research`, `quote`,
-`backtest`, `web`, `read`, `code`, `terminal`, `run`. Wiring one means adding a
-handler and flipping its `status` to `available` — nothing else changes.
-(`/terminal` and `/run` are deliberately not exposed as chat commands: shell
-execution stays in the code capability under approval.)
+Every registered command has a real handler (the palette `soon` badge is gone).
+Commands that call a subsystem (research, quant, code, terminal, quotes) reuse
+the **same front-door APIs the UI uses** — the router makes a loopback call to
+`/api/...`, so a command never re-implements an engine. `/terminal` requires the
+operator gate; a non-operator is refused before anything runs.
 
 ## Skill integration
 
@@ -181,14 +188,16 @@ explicit command surfaces.
 
 ## Known gaps / follow-ups
 
-- The remaining planned commands need handlers; each is currently honest about
-  being unavailable.
-- `/skills` run/list and `/skill` authoring require the Python runtime; without it
-  they report a runtime-unavailable error (never a fabricated result).
+- `/skills`, `/research`, `/backtest`, `/code`, `/terminal`, `/market`,
+  `/portfolio`, `/memory`, `/mcp` require the Python runtime up; without it they
+  report a clean runtime-unavailable error (never a fabricated result).
+- `/quote` reads JDdS directly (no runtime needed) and labels a stale price as
+  stale.
 - The direct `POST /api/harness/command` path runs `/skill` non-streaming, so the
   `skill_create` approval is deny-and-retry there; use the chat surfaces for the
   approval-card flow.
-- `/terminal` and `/run` are intentionally not chat commands.
+- `command-handlers.ts` is the largest module in the family (~860 lines); the next
+  extraction candidate is the per-domain renderers (research/quant/dev).
 - **Mentions (`@`).** The `@` sibling — naming a bot or group chat so the main
   chat delegates the turn to it — is a separate surface documented in
   `docs/harness/mentions.md`.
