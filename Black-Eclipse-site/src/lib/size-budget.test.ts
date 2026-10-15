@@ -107,7 +107,10 @@ const RATCHET: Record<string, number> = {
   // mentionable list + a dispatch branch into its send paths. The turn lifecycle
   // and the bulk of the logic were EXTRACTED to `lib/bots/use-bot-delegation.ts`,
   // so the residual growth is only composer plumbing. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1435,
+  // Re-pinned 1435→1441: routing the approval card's decision to the delegated
+  // run when the pending approval belongs to an `@`-mention (the rest of that
+  // feature lives in the hook). May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1441,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

@@ -17,7 +17,7 @@ const GLOBAL_SHORTCUTS = [
   { id: 'mode-agentic', label: 'Sidebar menu: Agentic', keys: 'Alt + A', context: 'Global, switches the sidebar menu mode' },
   { id: 'terminal', label: 'Toggle visible terminal', keys: 'Ctrl / Cmd + `', context: 'Global' },
   { id: 'workspace', label: 'Toggle Agent Workspace sidebar', keys: 'Ctrl / Cmd + Shift + E', context: 'Global, not while typing' },
-  { id: 'focus-mode', label: 'Toggle focus mode (chat)', keys: 'Ctrl + Alt + X', context: 'ChatBot tab, hides header and sidebar for a centered focus view' },
+  { id: 'focus-mode', label: 'Toggle focus mode (chat)', keys: 'Ctrl + Alt + X', context: 'ChatBot tab, hides header and sidebar for a full-width focus view' },
   { id: 'chart-cancel', label: 'Cancel drawing / cursor tool', keys: 'Escape', context: 'Active chart drawing tools' },
   { id: 'chart-delete', label: 'Delete selected drawing', keys: 'Delete / Backspace', context: 'Active chart with a selected drawing' },
   { id: 'chart-undo', label: 'Undo drawing', keys: 'Ctrl / Cmd + Z', context: 'Active chart drawing history' },

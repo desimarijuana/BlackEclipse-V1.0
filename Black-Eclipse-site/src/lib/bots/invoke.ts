@@ -13,6 +13,7 @@
 
 import { getAgentProvider } from '@/lib/agent/registry';
 import type { ChatMessage } from '@/lib/agent/types';
+import type { HarnessUiEvent } from '@/lib/agent/events';
 import type { AutomationView } from '@/lib/harness/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 
@@ -108,6 +109,8 @@ export interface RunBotTurnArgs {
   model?: string;
   signal?: AbortSignal;
   onDelta?: (chunk: string) => void;
+  /** Typed harness events for this turn (approvals etc.), when the caller needs them. */
+  onEvent?: (event: HarnessUiEvent) => void;
 }
 
 /**
@@ -115,13 +118,14 @@ export interface RunBotTurnArgs {
  * placeholder message and the transcript; it streams `onDelta` into it.
  */
 export async function runBotTurn(args: RunBotTurnArgs): Promise<string> {
-  const { bot, text, prior, model, signal, onDelta } = args;
+  const { bot, text, prior, model, signal, onDelta, onEvent } = args;
   return getAgentProvider().chat(buildBotMessages(bot, text, prior), undefined, {
     chatId: botChatId(bot.id),
     memoryScope: 'conversation',
     model: model || undefined,
     signal,
     onDelta,
+    onEvent,
   });
 }
 
@@ -133,6 +137,8 @@ export interface RunGroupMemberTurnArgs {
   model?: string;
   signal?: AbortSignal;
   onDelta?: (chunk: string) => void;
+  /** Typed harness events for this turn (approvals etc.), when the caller needs them. */
+  onEvent?: (event: HarnessUiEvent) => void;
 }
 
 /**
@@ -140,12 +146,13 @@ export interface RunGroupMemberTurnArgs {
  * reply: each streams into its own message via `onDelta`.
  */
 export async function runGroupMemberTurn(args: RunGroupMemberTurnArgs): Promise<string> {
-  const { group, bot, text, prior, model, signal, onDelta } = args;
+  const { group, bot, text, prior, model, signal, onDelta, onEvent } = args;
   return getAgentProvider().chat(buildGroupMemberMessages(group, bot, text, prior), undefined, {
     chatId: groupMemberChatId(group.id, bot.id),
     memoryScope: 'conversation',
     model: model || undefined,
     signal,
     onDelta,
+    onEvent,
   });
 }

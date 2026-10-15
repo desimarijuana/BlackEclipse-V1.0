@@ -89,14 +89,32 @@ list (it hydrates the bot + group stores). On send:
 - Shared run: `src/lib/bots/invoke.ts`.
 - Attribution: `src/types/chat.ts` (`Message.author`), `src/components/chat/chat-history.tsx`.
 
+## Bots-tab mirroring
+
+A completed delegated exchange is also written into the bot's or room's own
+thread (`useBotChatStore` / `useBotGroupsStore`), so the Bots tab reflects it — a
+room's user turn is written once no matter how many members reply. Memory was
+already shared via the run's `conversation` scope; the mirror is the visible
+thread. It is written on **success** only (a failed delegated turn stays in the
+main transcript as an honest error).
+
+## Approvals mid-delegation
+
+A bot/room turn can block on an operator approval. The invoker forwards the
+typed harness events (`runBotTurn` / `runGroupMemberTurn` accept `onEvent`), so the
+delegation hook sees `approval.requested` and sets `pendingApproval` on that
+turn's message — the main chat's existing `ApprovalCard` then renders it for free.
+The decision is routed to the delegation hook (`useBotDelegation.decide`) when the
+pending approval belongs to a delegated turn, and to `useAgentRun.decide` when it
+belongs to the main run; both POST the single-use
+`/api/harness/mcp/approvals/{id}/decide` and restore the card on failure.
+
 ## Not (yet) built
 
-- A delegated turn is **not** mirrored into the bot's/room's own Bots-tab thread;
-  it lives in the main transcript. Memory is still shared via the run's
-  conversation scope.
-- Approvals raised mid-delegation are not surfaced as a card in the main chat (the
-  Bots workspace has the same limitation); a bot that needs approval will not
-  complete through this path.
+- Only the most recent delegated approval is tracked at a time; a batch that
+  raises several blocking approvals simultaneously surfaces them one at a time.
+- A delegated turn streams into the main transcript only (it is not rendered
+  live inside the Bots-tab thread; that thread receives the finished exchange).
 
 ## Tests
 

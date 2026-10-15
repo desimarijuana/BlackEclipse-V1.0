@@ -20,7 +20,7 @@ interface EmptyStateProps {
   /** The assistant is working (rare here, but keeps the composer consistent). */
   busy?: boolean;
   onCancel?: () => void;
-  /** Focus mode — narrower centered column; composer stays pinned to the bottom. */
+  /** Focus mode — full-width column; composer stays pinned to the bottom. */
   focus?: boolean;
   /** The composer's real model selector state. */
   modelState?: ChatModelState;
@@ -40,7 +40,7 @@ export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onR
       <div
         className={cn(
           'animate-fade-in-up w-full mx-auto transition-[max-width] duration-500 ease-out',
-          focus ? 'max-w-[860px]' : 'max-w-[1400px]',
+          focus ? 'max-w-none' : 'max-w-[1400px]',
         )}
         data-chat-composer
       >

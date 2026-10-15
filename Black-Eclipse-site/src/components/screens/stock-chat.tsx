@@ -751,7 +751,7 @@ function StockChatContent() {
   // path as the Bots workspace (no second agent loop, nothing fabricated). The
   // hook hydrates the mentionable list and owns the turn lifecycle, keeping this
   // shell small; the host hands over the transcript writers it already owns.
-  const { mentionTargets, run: runDelegation, abort: abortDelegation } = useBotDelegation({
+  const { mentionTargets, run: runDelegation, abort: abortDelegation, decide: decideDelegation } = useBotDelegation({
     model: chatModel.displayModel || undefined,
     getMessages: (id) => conversationsRef.current.find((c) => c.id === id)?.messages ?? [],
     appendAssistantReply,
@@ -1124,7 +1124,7 @@ function StockChatContent() {
                 ) : (
                   <div className={cn(
                     'flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between transition-[max-width] duration-500 ease-out',
-                    focusMode && 'max-w-[860px] mx-auto',
+                    focusMode && 'max-w-none mx-auto',
                   )}>
 <ChatHistory
   messages={messages}
@@ -1136,7 +1136,7 @@ function StockChatContent() {
 />
                     <div className={cn(
                       'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 transition-[max-width] duration-500 ease-out',
-                      focusMode ? 'max-w-[860px]' : 'max-w-[1400px]',
+                      focusMode ? 'max-w-none' : 'max-w-[1400px]',
                     )} ref={setComposerEl}>
                       <ChatInput
                         query={query}
@@ -1164,7 +1164,13 @@ function StockChatContent() {
                         <ApprovalCard
                           approval={pendingApproval}
                           anchor={composerEl}
-                          onDecide={agentRun.decide}
+                          // A card from the main run decides via `agentRun`; one from a
+                          // delegated (@-mentioned) run decides via the delegation hook.
+                          onDecide={(approve, remember) => {
+                            void (agentRun.turn.pendingApproval
+                              ? agentRun.decide(approve, remember)
+                              : decideDelegation(approve, remember));
+                          }}
                         />
                       )}
                       <div className="mt-1.5 flex items-center gap-2">

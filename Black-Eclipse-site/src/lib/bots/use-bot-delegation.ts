@@ -6,6 +6,12 @@
 // streams each reply into its own attributed message. It is the SAME runtime path
 // the Bots workspace uses — no second agent loop, nothing fabricated.
 //
+// Two things keep a delegated turn faithful to a Bots-tab turn:
+//   * the exchange is MIRRORED into the bot's/room's own thread (so the Bots tab
+//     shows it), and
+//   * a mid-run approval is surfaced on the message (the main chat's existing
+//     ApprovalCard renders it) and can be decided here.
+//
 // Extracted from the SPA shell (`stock-chat.tsx`) to keep that file small; the
 // host passes only the few transcript closures it already owns.
 
@@ -13,9 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Message } from '@/types/chat';
+import type { HarnessUiEvent } from '@/lib/agent/events';
 import type { AutomationView } from '@/lib/harness/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
+import { useBotChatStore } from '@/lib/bots/chat-store';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { buildMentionTargets, type MentionTarget } from '@/lib/bots/mentions';
 import {
@@ -52,6 +60,14 @@ export interface BotDelegation {
   run: (chatId: string, userText: string, targets: readonly MentionTarget[]) => Promise<void>;
   /** Abort every in-flight delegated turn. Returns true when something was aborted. */
   abort: () => boolean;
+  /** Answer a pending approval raised by a delegated run. Resolves true on success. */
+  decide: (approve: boolean, remember?: boolean) => Promise<boolean>;
+}
+
+/** Where a delegated run's blocking approval lives, so it can be decided. */
+interface PendingRef {
+  chatId: string;
+  messageId: string;
 }
 
 export function useBotDelegation(host: BotDelegationHost): BotDelegation {
@@ -59,6 +75,7 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
   const hostRef = useRef(host);
   hostRef.current = host;
   const controllersRef = useRef<AbortController[]>([]);
+  const pendingRef = useRef<PendingRef | null>(null);
 
   // The mentionable list: the live bots + group rooms. Hydrated once so the `@`
   // palette has real data everywhere the composer is reachable.
@@ -117,6 +134,8 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
     h.setBusy(true);
     sound.tick();
 
+    // A room's user turn is mirrored ONCE no matter how many members reply.
+    const mirroredGroups = new Set<string>();
     const controllers: AbortController[] = [];
     controllersRef.current = controllers;
 
@@ -135,19 +154,42 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
       const controller = new AbortController();
       controllers.push(controller);
       let streamed = '';
+
+      // A mid-run approval is surfaced on THIS message so the main chat's existing
+      // ApprovalCard renders (it reads a message's `pendingApproval`); `pendingRef`
+      // remembers where it lives so `decide()` can answer it.
+      const onEvent = (ev: HarnessUiEvent) => {
+        if (ev.kind === 'approval_request') {
+          pendingRef.current = { chatId, messageId: placeholderId };
+          h.replaceAssistantReply(chatId, placeholderId, {
+            ...base, content: streamed, status: 'awaiting_approval', pendingApproval: ev.approval,
+          }, false);
+        } else if (ev.kind === 'approval_resolved') {
+          if (pendingRef.current?.messageId === placeholderId) pendingRef.current = null;
+          h.replaceAssistantReply(chatId, placeholderId, {
+            ...base, content: streamed, status: 'streaming', pendingApproval: undefined,
+          }, false);
+        }
+      };
+
       try {
         const onDelta = (chunk: string) => {
           streamed += chunk;
           h.replaceAssistantReply(chatId, placeholderId, { ...base, content: streamed, status: 'streaming' }, false);
         };
         const reply = task.group
-          ? await runGroupMemberTurn({ group: task.group, bot, text: userText, prior: priorGroup, signal: controller.signal, onDelta })
-          : await runBotTurn({ bot, text: userText, prior: priorBot, model: h.model || undefined, signal: controller.signal, onDelta });
+          ? await runGroupMemberTurn({ group: task.group, bot, text: userText, prior: priorGroup, signal: controller.signal, onDelta, onEvent })
+          : await runBotTurn({ bot, text: userText, prior: priorBot, model: h.model || undefined, signal: controller.signal, onDelta, onEvent });
         const final = reply || streamed;
         const durationMs = Math.max(0, Date.now() - startedAt);
-        h.replaceAssistantReply(chatId, placeholderId, final
-          ? { ...base, content: final, status: 'completed', durationMs }
-          : { ...base, content: `${bot.name} did not return a reply.`, status: 'error', error: { message: `${bot.name} did not return a reply.` }, durationMs });
+        if (final) {
+          h.replaceAssistantReply(chatId, placeholderId, { ...base, content: final, status: 'completed', durationMs });
+          // Mirror the exchange into the bot's / room's own thread so the Bots tab
+          // shows it (memory is already shared via the run's conversation scope).
+          mirrorTurn(task, placeholderId, userText, final, mirroredGroups);
+        } else {
+          h.replaceAssistantReply(chatId, placeholderId, { ...base, content: `${bot.name} did not return a reply.`, status: 'error', error: { message: `${bot.name} did not return a reply.` }, durationMs });
+        }
       } catch (err) {
         const durationMs = Math.max(0, Date.now() - startedAt);
         h.replaceAssistantReply(chatId, placeholderId, controller.signal.aborted
@@ -163,6 +205,7 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
       sound.message();
     } finally {
       controllersRef.current = [];
+      pendingRef.current = null;
       h.setInFlight(false);
       h.setBusy(false);
       h.persist();
@@ -172,8 +215,67 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
   const abort = useCallback(() => {
     if (controllersRef.current.length === 0) return false;
     controllersRef.current.forEach((c) => c.abort());
+    pendingRef.current = null;
     return true;
   }, []);
 
-  return { mentionTargets, run, abort };
+  const decide = useCallback(async (approve: boolean, remember = false): Promise<boolean> => {
+    const p = pendingRef.current;
+    if (!p) return false;
+    const h = hostRef.current;
+    const msg = h.getMessages(p.chatId).find((m) => m.id === p.messageId);
+    const approval = msg?.pendingApproval;
+    if (!approval) return false;
+    // Clear the card optimistically; restore it if the decision POST fails so the
+    // operator can retry (mirrors the main `useAgentRun.decide` contract).
+    h.replaceAssistantReply(p.chatId, p.messageId, { ...(msg as Message), pendingApproval: undefined, status: 'streaming' }, true);
+    pendingRef.current = null;
+    try {
+      const res = await fetch(
+        `/api/harness/mcp/approvals/${encodeURIComponent(approval.id)}/decide`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approve, remember: approve && remember }),
+        },
+      );
+      if (!res.ok) throw new Error(`decision failed (${res.status})`);
+      return true;
+    } catch {
+      h.replaceAssistantReply(p.chatId, p.messageId, { ...(msg as Message) }, true);
+      pendingRef.current = p;
+      return false;
+    }
+  }, []);
+
+  return { mentionTargets, run, abort, decide };
+}
+
+/**
+ * Append a completed delegated exchange to the bot's or room's own thread so the
+ * Bots tab reflects it. A room's user turn is written once (guarded by `seen`).
+ */
+function mirrorTurn(
+  task: { bot: AutomationView; group?: BotGroup },
+  messageId: string,
+  userText: string,
+  final: string,
+  seen: Set<string>,
+): void {
+  const at = new Date().toISOString();
+  if (task.group) {
+    const store = useBotGroupsStore.getState();
+    if (!seen.has(task.group.id)) {
+      seen.add(task.group.id);
+      store.appendMessage(task.group.id, { id: `${messageId}-u`, role: 'user', content: userText, at });
+    }
+    store.appendMessage(task.group.id, {
+      id: messageId, role: 'assistant', content: final, at,
+      authorId: task.bot.id, authorName: task.bot.name,
+    });
+  } else {
+    const store = useBotChatStore.getState();
+    store.append(task.bot.id, { id: `${messageId}-u`, role: 'user', content: userText, at });
+    store.append(task.bot.id, { id: messageId, role: 'assistant', content: final, at });
+  }
 }

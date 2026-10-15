@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Plain `/` now focuses the chat composer; global search stays on Ctrl/Cmd+K.**
+  `useCommandCenterKeybind` dropped its `slashShortcut` handling so the command
+  center is toggled by `Ctrl/Cmd+K` alone; a new `useChatFocusKeybind`
+  (`src/hooks/use-chat-focus-keybind.ts`) broadcasts a `be:focus-chat` window
+  event on `/`, which the visible composer answers (`ChatInput` guards with
+  `isKeyboardScopeVisible`, `ChatDock` ignores while suppressed and restores from
+  the minimized pill first). Mounted once with `GlobalSearch`, so it covers every
+  route. The shortcuts overlay row was relabeled accordingly.
+  no doc change — keybinding/UX only, no architecture or contract change.
+
+- **Focus mode (Ctrl/Cmd+Alt+X) now fills the page instead of a centered
+  column.** The chat tab's focus branch dropped its `max-w-[860px]` caps, so the
+  transcript, follow-up composer and the landing composer (`empty-state.tsx`)
+  use `max-w-none` and span the full main panel; the shortcuts-overlay
+  description was corrected to say "full-width focus view".
+  no doc change — layout/UX only, no architecture or contract change.
+
 - **Startup hardening: stop the spurious "runtime unavailable" 503 loop and the
   dev chunk-load overlay.** The Python runtime is now pre-started (non-blocking)
   by `src/instrumentation.ts` instead of only lazily on the first harness
@@ -56,14 +73,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   SAME runtime path the Bots workspace uses — a bot answers as itself (persona +
   private `bot-<id>` memory), and a mentioned room has every member answer in its
   own voice. Replies stream into the transcript attributed to their author
-  (`Message.author`, rendered in `chat-history.tsx`). Pure mention registry/parser
-  `src/lib/bots/mentions.ts` (+ `mentions.test.ts`); shared turn invoker
-  `src/lib/bots/invoke.ts` (extracted from `bot-chat.tsx` / `group-chat-room.tsx`,
-  which now call it); lifecycle hook `src/lib/bots/use-bot-delegation.ts`; routing
-  through `dispatchTurn` in `stock-chat.tsx` (send / follow-up / edit / injected
-  prompts). v1 does not mirror a delegated turn back into the bot's own Bots-tab
-  thread. `stock-chat.tsx` re-pinned 1399→1435 in the size ratchet (the bulk was
-  extracted to the hook). docs updated: `docs/harness/mentions.md` (new),
+  (`Message.author`, rendered in `chat-history.tsx`). A completed exchange is
+  MIRRORED into the bot's/room's own Bots-tab thread (`useBotChatStore` /
+  `useBotGroupsStore`), and a mid-run approval is surfaced on the message and
+  decided by the delegation hook — the invoker now forwards typed harness events
+  via `onEvent`, and `stock-chat.tsx` routes the ApprovalCard decision to the
+  delegated run when the pending approval belongs to it. Pure mention
+  registry/parser `src/lib/bots/mentions.ts` (+ `mentions.test.ts`); shared turn
+  invoker `src/lib/bots/invoke.ts` (extracted from `bot-chat.tsx` /
+  `group-chat-room.tsx`, which now call it); lifecycle hook
+  `src/lib/bots/use-bot-delegation.ts`; routing through `dispatchTurn` in
+  `stock-chat.tsx` (send / follow-up / edit / injected prompts). `stock-chat.tsx`
+  re-pinned 1399→1441 in the size ratchet (the bulk was extracted to the hook).
+  docs updated: `docs/harness/mentions.md` (new),
   `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
 
 ## 2026-10-14
