@@ -8,6 +8,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: scrollbar only shows while actually in use.** The previous pass also
+  revealed the thumb on hovering the whole transcript, so it never hid (the
+  pointer is usually over the chat). It now appears only while scrolling or
+  dragging (and lingers briefly on the thumb itself), then fades out otherwise.
+  `chat-history.tsx` only. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
 - **Chat: the scrollbar auto-hides and reappears when in use.** The transcript
   thumb is now an overlay: it reveals while scrolling, hovering the transcript or
   dragging, then fades out when idle. `chat-history.tsx` only. UI-only; no doc

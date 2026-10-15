@@ -118,7 +118,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   // transcript or dragging, then fades out when idle.
   const [barVisible, setBarVisible] = useState(true);
   const barHideTimer = useRef<number | null>(null);
-  const barHoverRef = useRef(false);
   const barDraggingRef = useRef(false);
   const clearBarTimer = useCallback(() => {
     if (barHideTimer.current != null) {
@@ -129,7 +128,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   const scheduleBarHide = useCallback((delay = 1200) => {
     clearBarTimer();
     barHideTimer.current = window.setTimeout(() => {
-      if (!barHoverRef.current && !barDraggingRef.current) setBarVisible(false);
+      if (!barDraggingRef.current) setBarVisible(false);
     }, delay);
   }, [clearBarTimer]);
   const revealBar = useCallback(() => {
@@ -262,8 +261,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       ref={rootRef}
       className="relative flex-1 min-h-0 w-full"
       style={{ fontFamily: 'var(--chat-font, var(--font-sans))' }}
-      onPointerEnter={() => { barHoverRef.current = true; setBarVisible(true); clearBarTimer(); }}
-      onPointerLeave={() => { barHoverRef.current = false; scheduleBarHide(800); }}
     >
       <div
         ref={scrollRef}
@@ -543,6 +540,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
         <div
           aria-label="Scroll conversation"
           onPointerDown={onBarPointerDown}
+          onPointerEnter={() => { setBarVisible(true); clearBarTimer(); }}
+          onPointerLeave={() => scheduleBarHide(600)}
           className={cn(
             'absolute right-1.5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
             barDragging && 'bg-foreground/50 cursor-grabbing',
