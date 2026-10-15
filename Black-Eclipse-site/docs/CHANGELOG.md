@@ -8,6 +8,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: scrollbar is hidden by default and appears only on user scroll/drag.**
+  It no longer shows on load or during auto-follow of streamed messages
+  (programmatic scrolls are flagged so they don't reveal it); it appears while
+  the user scrolls or drags the thumb, then fades out when idle.
+  `chat-history.tsx` only. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
 - **Chat: no hover reveal on the scrollbar.** Hovering (including the thumb) no
   longer shows it — the thumb appears only while scrolling or dragging and fades
   when idle. `chat-history.tsx` only. UI-only; no doc change —

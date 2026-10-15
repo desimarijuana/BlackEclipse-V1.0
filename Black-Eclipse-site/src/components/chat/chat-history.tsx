@@ -116,9 +116,12 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   const [bar, setBar] = useState<{ top: number; height: number } | null>(null);
   // The thumb is an auto-hiding overlay: it appears while scrolling, hovering the
   // transcript or dragging, then fades out when idle.
-  const [barVisible, setBarVisible] = useState(true);
+  const [barVisible, setBarVisible] = useState(false);
   const barHideTimer = useRef<number | null>(null);
   const barDraggingRef = useRef(false);
+  // True while the transcript is scrolled by code (auto-follow), so those scroll
+  // events don't reveal the scrollbar.
+  const programmaticScrollRef = useRef(false);
   const clearBarTimer = useCallback(() => {
     if (barHideTimer.current != null) {
       window.clearTimeout(barHideTimer.current);
@@ -153,7 +156,10 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     atBottomRef.current = next;
     setAtBottom(next);
     updateBar();
-    revealBar();
+    // Auto-follow (new/streamed messages) moves the transcript programmatically;
+    // that is not "using" the scrollbar, so it must not reveal it. Only genuine
+    // user scrolling/dragging does.
+    if (!programmaticScrollRef.current) revealBar();
   }, [updateBar, revealBar]);
 
   const scrollToBottom = useCallback((smooth = false) => {
@@ -204,14 +210,19 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     if (!atBottomRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
+    programmaticScrollRef.current = true;
     el.scrollTop = el.scrollHeight;
+    // Clear on the next frame, after the resulting scroll event has fired.
+    const id = requestAnimationFrame(() => { programmaticScrollRef.current = false; });
+    return () => cancelAnimationFrame(id);
   }, [messages]);
 
-  // Show the scrollbar from the very first paint if the thread already overflows,
-  // instead of waiting for a scroll event that may never fire.
+  // Keep the thumb's size/position current on layout changes. It stays HIDDEN
+  // here (no `revealBar()`) — the scrollbar only appears once the user actually
+  // scrolls or drags it.
   useLayoutEffect(() => {
-    onScroll();
-  }, [onScroll, messages]);
+    updateBar();
+  }, [updateBar, messages]);
 
   // Keep the portaled "Latest" pill aligned with the transcript box, and keep
   // the short scroll thumb sized to the (possibly resized) transcript.
