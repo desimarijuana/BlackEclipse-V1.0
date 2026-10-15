@@ -8,6 +8,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Chat: message action buttons are icon-only.** Copy / Redirect / Regenerate /
+  Edit dropped their text labels (the word "Copied" shows via the check icon and
+  tooltip instead) to save space in the compact action row. `chat-history.tsx`
+  only. UI-only; no doc change — `docs/CHANGELOG.md` only.
+
+- **Slash command system: canonical registry + shared execution router + real
+  skill integration.** Added a canonical `CommandSpec` registry
+  (`src/lib/harness/command-registry.ts`) consumed by both the chat composer
+  palette and a shared router (`command-router.ts`), plus a real tokenizer/parser
+  (`command-parser.ts`) supporting quoted args, Unicode, filenames with spaces,
+  and pass-through `--key value` flags. The router runs Parse -> Resolve ->
+  Validate -> Authorize -> Execute -> Render -> Audit and dispatches only to
+  existing systems (skills-client, tasks-client, workflows-client, the Python
+  runtime); unavailable commands return an explicit unsupported error and are
+  never advertised as functional. Implemented `/help`, `/status`, `/tasks`,
+  `/workflows`, `/agents`, `/models`, the skill family (`/skills`,
+  `/skill`, `/skill-explain`, `/skill-test`, `/skill-enable`, `/skill-disable`,
+  `/skill-create`) and kept `/eclipsesdk` as a profile switch. Wired into
+  `/api/harness/chat` and `/api/harness/chat/stream` (synthetic terminal frame)
+  and a direct `/api/harness/command` route. Tests: 52 new vitest cases across
+  `command-{registry,parser,router}.test.ts`; `npx tsc --noEmit` clean; full
+  vitest suite 3025 passed. docs updated: `docs/harness/slash-commands.md`,
+  `docs/NAVIGATION.md`.
+
 - **Self-editing harness — release gate green.** `npx tsc --noEmit` reports 0
   errors and `npm run test` passes end-to-end (vitest 2981, python 6227 passed /
   16 skipped, eval gates ALL PASS). Gate hardening in this pass: journal null

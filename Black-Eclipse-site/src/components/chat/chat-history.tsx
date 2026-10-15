@@ -384,22 +384,21 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                           <button
                             type="button"
                             onClick={() => void copyMessage(msg)}
-                            className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-                            title="Copy response"
+                            className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                            title={copiedId === msg.id ? 'Copied' : 'Copy response'}
                             aria-label="Copy response"
                           >
                             {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
-                            {copiedId === msg.id ? 'Copied' : 'Copy'}
                           </button>
                           {onRetryMessage && (
                             <button
                               type="button"
                               onClick={() => onRetryMessage(msg.id)}
-                              className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                              className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
                               title="Regenerate response"
                               aria-label="Regenerate response"
                             >
-                              <RotateCcw size={11} /> Regenerate
+                              <RotateCcw size={11} />
                             </button>
                           )}
                           {onFeedback && (
@@ -507,33 +506,32 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     <button
                       type="button"
                       onClick={() => void copyMessage(msg)}
-                      className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-                      title="Copy prompt"
+                      className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                      title={copiedId === msg.id ? 'Copied' : 'Copy prompt'}
                       aria-label="Copy prompt"
                     >
                       {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
-                      {copiedId === msg.id ? 'Copied' : 'Copy'}
                     </button>
                     {onResendMessage && (
                       <button
                         type="button"
                         onClick={() => onResendMessage(msg.id)}
-                        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
                         title="Redirect — re-send this prompt"
                         aria-label="Redirect"
                       >
-                        <RotateCcw size={11} /> Redirect
+                        <RotateCcw size={11} />
                       </button>
                     )}
                     {onEditMessage && (
                       <button
                         type="button"
                         onClick={() => startEdit(msg)}
-                        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
                         title="Edit prompt"
                         aria-label="Edit prompt"
                       >
-                        <Pencil size={11} /> Edit
+                        <Pencil size={11} />
                       </button>
                     )}
                   </div>
