@@ -3,11 +3,11 @@
 // ── Trade Detail — market context, replay chart, and similar trades ──────────
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, Activity, Layers, ImagePlus, Trash2, PencilLine, Check } from '@/lib/icons';
+import { X, Activity, Layers, ImagePlus, Trash2, PencilLine, Check, History } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
 import { TradeReplayChart, type ReplayBar, type ReplayTrade } from './trade-replay';
-import { fmtR } from './charts/echarts-container';
+import { fmtR, fmtMoney } from './charts/echarts-container';
 import { AiReview } from './ai-review';
 
 interface TradeDetailProps {
@@ -45,6 +45,13 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
   const [screenshots, setScreenshots] = useState<{ id: string; url: string; phase?: string | null; caption?: string | null }[]>([]);
   const [shotUrl, setShotUrl] = useState('');
   const [shotPhase, setShotPhase] = useState('during');
+  const [executions, setExecutions] = useState<{ id: string; kind: string; detail: string | null; createdAt: string }[]>([]);
+
+  const loadExecutions = useCallback(async () => {
+    const res = await fetch(`/api/journal/trades/${trade.id}/executions`);
+    const data = await res.json();
+    setExecutions(data.executions ?? []);
+  }, [trade.id]);
 
   const loadScreenshots = useCallback(async () => {
     const res = await fetch(`/api/journal/screenshots?tradeId=${trade.id}`);
@@ -127,12 +134,13 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadScreenshots(); }, [loadScreenshots]);
+  useEffect(() => { void loadExecutions(); }, [loadExecutions]);
 
   const replayTrade: ReplayTrade = {
     symbol: trade.symbol,
     direction: trade.direction,
     entry: trade.entry,
-    exit: trade.exit,
+    exit: trade.exit ?? trade.entry,
     stopLoss: trade.stopLoss,
     takeProfit: trade.takeProfit,
     entryTime: trade.entryTime,
@@ -199,6 +207,10 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
           <Stat label="Exit" value={String(trade.exit)} />
           <Stat label="R" value={fmtR(trade.rMultiple)} tone={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
           <Stat label="Duration" value={fmtDuration(trade.durationSec)} />
+          <Stat label="Gross P&L" value={fmtMoney(trade.grossPnl)} />
+          <Stat label="Costs" value={trade.commission + trade.fee > 0 ? fmtMoney(-(trade.commission + trade.fee)) : '—'} tone={trade.commission + trade.fee > 0 ? 'text-rose-400' : undefined} />
+          <Stat label="Net P&L" value={fmtMoney(trade.pnl)} tone={trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+          <Stat label="Grade" value={trade.grade ?? '—'} />
         </div>
 
         {/* Replay chart */}
@@ -270,6 +282,27 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
             buttonLabel="AI Trade Review"
           />
         </div>
+
+        {/* Execution history — stop/target moves, partial exits, edits */}
+        {executions.length > 0 && (
+          <div className="rounded-2xl bg-white/[0.02] p-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <History size={14} className="text-primary" />
+              <h3 className="font-serif text-sm font-semibold text-foreground">Execution History</h3>
+            </div>
+            <ol className="flex flex-col gap-2">
+              {executions.map((e) => (
+                <li key={e.id} className="flex items-start gap-3 text-[11px]">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+                  <div className="min-w-0">
+                    <p className="font-mono font-semibold text-foreground">{e.kind.replace(/_/g, ' ')}</p>
+                    <p className="font-mono text-[10px] text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
 
         {/* Screenshots */}
         <div className="rounded-2xl bg-white/[0.02] p-4">

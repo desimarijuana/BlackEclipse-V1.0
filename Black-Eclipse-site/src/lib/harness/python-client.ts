@@ -55,6 +55,12 @@ export interface RunRequestPayload {
   /** Phase 8 (optional): enable the analysis sandbox for this turn. */
   analysisEnabled?: boolean;
   /**
+   * The slash command that forced this turn's profile (e.g. "eclipsesdk"), when
+   * the user invoked one. Additive/optional: an ordinary turn omits it. The
+   * runtime never treats a command turn as trivial.
+   */
+  command?: string;
+  /**
    * Approval cards (optional): "ask" makes a non-read tool with no matching
    * approval PAUSE the run until the operator decides via the approvals decide
    * route, then resume in place. Absent keeps the deny-and-retry default.

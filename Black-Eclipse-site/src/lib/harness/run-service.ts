@@ -8,6 +8,7 @@
 import { getLLMConfig } from "@/lib/settings";
 import { assertChatAutonomy, assertRunInput, validateWorkspaceRef } from "./validation";
 import { resolveChatCodeProfile } from "./chat-capability";
+import { parseChatCommand } from "./commands";
 import { getAgentPreset } from "./agent-presets";
 import { runViaRuntime, startRunBackground, type RunRequestPayload } from "./python-client";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
@@ -33,6 +34,8 @@ export interface StartRunOptions {
   // Validated here; the runtime enforces the actual grant.
   autonomy?: "plan_only" | "edit_verify";
   analysisEnabled?: boolean;
+  /** The slash command that forced this turn's profile (e.g. "eclipsesdk"). */
+  command?: string;
   /** A model id picked for this turn (composer), overriding the saved model. */
   model?: string;
   /**
@@ -84,18 +87,21 @@ export async function chatWithAgent(
 }> {
   // Phase 14: the non-streaming chat path must resolve the code profile too —
   // otherwise a coding request typed into `/api/harness/chat` reached the model
-  // with NO code tool bound and the model honestly refused ("no filesystem or
-  // shell tool is bound"). Only the streaming path had this wiring. A classifier
-  // failure is an ordinary turn (null), never a guess.
+  // with NO code tool bound and the model honestly refused. A command
+  // (`/eclipsesdk`) forces the profile deterministically; otherwise the
+  // classifier decides. A classifier failure is an ordinary turn (null).
+  const parsedCommand = parseChatCommand(query);
+  const effectiveQuery = parsedCommand ? parsedCommand.query : query;
   let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
   try {
-    capability = await resolveChatCodeProfile(query, history);
+    capability = await resolveChatCodeProfile(effectiveQuery, history);
   } catch {
     capability = null;
   }
+  const forced = parsedCommand?.command.profile;
   const result = await startRun({
     input: {
-      query,
+      query: effectiveQuery,
       history,
       documents: documents.length ? documents : undefined,
       ...(uiContext && typeof uiContext === "object" ? { context: { ui: uiContext } } : {}),
@@ -104,14 +110,13 @@ export async function chatWithAgent(
     runId,
     model,
     reasoningEffort,
-    // The chat workspace id is the session id, so a chat turn belongs to a
-    // long-lived session and shows up in the Sessions tab (M3).
     sessionId,
-    // Bot chats and group-member turns opt into PRIVATE per-conversation memory:
-    // the conversation id IS the session id (`bot-<id>` / `group-...`).
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
-    ...(capability?.autonomy ? { autonomy: capability.autonomy } : {}),
-    ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
+    ...(forced || capability?.autonomy
+      ? { autonomy: forced?.autonomy ?? capability!.autonomy! }
+      : {}),
+    ...(forced?.analysisEnabled || capability?.analysisEnabled ? { analysisEnabled: true } : {}),
+    ...(parsedCommand ? { command: parsedCommand.command.name } : {}),
     ...(identityHeaders ? { identityHeaders } : {}),
   });
 
@@ -227,8 +232,13 @@ export async function startChatRun(
   uiContext?: Record<string, unknown>,
   memoryScope?: "conversation",
 ): Promise<string> {
+  // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
+  // parse it, strip it, and force the command's profile — do NOT ask the
+  // classifier. An unknown `/token` or ordinary text falls through unchanged.
+  const parsedCommand = parseChatCommand(query);
+  const effectiveQuery = parsedCommand ? parsedCommand.query : query;
   const input = assertRunInput({
-    query,
+    query: effectiveQuery,
     history,
     documents: documents.length ? documents : undefined,
     // Presentation-only UI focus (which page the user is on). The runtime
@@ -257,17 +267,27 @@ export async function startChatRun(
     );
   }
   const id = runId ?? newRunId();
-  // Phase 14: ask the runtime's deterministic classifier whether this turn is a
-  // coding request. A failure to classify is an ordinary turn (null), never a
-  // guess — an unavailable classifier must not hand out a code profile.
-  let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
-  try {
-    capability = await resolveChatCodeProfile(query, history);
-  } catch {
-    capability = null;
+  // Phase 14: a chat turn recognised as a coding request is narrowed with a code
+  // profile. A command (`/eclipsesdk`) forces that profile deterministically;
+  // otherwise the runtime's deterministic classifier decides. A classifier
+  // failure is an ordinary turn (null), never a guess — an unavailable classifier
+  // must not hand out a code profile.
+  let autonomy: "plan_only" | "edit_verify" | undefined;
+  let analysisEnabled = false;
+  if (parsedCommand) {
+    autonomy = assertChatAutonomy(parsedCommand.command.profile.autonomy);
+    analysisEnabled = parsedCommand.command.profile.analysisEnabled;
+  } else {
+    let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
+    try {
+      capability = await resolveChatCodeProfile(effectiveQuery, history);
+    } catch {
+      capability = null;
+    }
+    // `null` autonomy = a data task: no profile switch, analysis sandbox only.
+    autonomy = capability?.autonomy ? assertChatAutonomy(capability.autonomy) : undefined;
+    analysisEnabled = Boolean(capability?.analysisEnabled);
   }
-  // `null` autonomy = a data task: no profile switch, analysis sandbox only.
-  const autonomy = capability?.autonomy ? assertChatAutonomy(capability.autonomy) : undefined;
   const payload: RunRequestPayload = {
     runId: id,
     input,
@@ -278,7 +298,10 @@ export async function startChatRun(
     // the conversation id IS the session id (`bot-<id>` / `group-...`).
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
     ...(autonomy ? { autonomy } : {}),
-    ...(capability?.analysisEnabled ? { analysisEnabled: true } : {}),
+    ...(analysisEnabled ? { analysisEnabled: true } : {}),
+    // The command marker, when a command forced this turn. The runtime never
+    // treats a command turn as trivial and records what selected the profile.
+    ...(parsedCommand ? { command: parsedCommand.command.name } : {}),
     // Approval cards: chat runs pause for the operator when a step needs an
     // approval, instead of the model retrying later.
     approvalMode: "ask",
@@ -341,6 +364,7 @@ export async function startRun(
     // turn. Absent for an ordinary finance turn, which is unchanged.
     ...(options.autonomy ? { autonomy: options.autonomy } : {}),
     ...(options.analysisEnabled ? { analysisEnabled: true } : {}),
+    ...(options.command ? { command: options.command } : {}),
     // Approval cards are OPT-IN per call site: only a streaming surface (whose
     // SSE stream can carry `approval.requested` and whose UI has the decide
     // control) sets it. A synchronous/headless run keeps the deny-and-retry

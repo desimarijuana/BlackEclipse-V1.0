@@ -60,6 +60,12 @@ def build_effect_authorizer(
     # bridge under its own budget (W3 slice of phase 16).
     code_authorizer = _admit_collect_tools(code_authorizer)
 
+    # Benign LOCAL writes that carry no dedicated approval kind and whose handler
+    # already enforces the binding/autonomy/grant (they persist to the user's own
+    # store). Admitted here so they are not dead; without this branch they fell
+    # through to the MCP authorizer and were refused while advertised.
+    code_authorizer = _admit_local_writes(code_authorizer)
+
     # Generic terminal: an `allow` command runs, an `ask` command needs a
     # single-use workspace-bound approval, a `deny` is refused.
     from .terminal_tools import make_terminal_authorizer  # noqa: PLC0415
@@ -99,6 +105,30 @@ def build_effect_authorizer(
 
     code_authorizer = make_computer_authorizer(code_authorizer)
 
+    # The Vision external action: `image_generate` is a paid, external provider
+    # call. Admitted HERE and gated by a single-use operator approval (kind
+    # `vision_external`); without this branch it fell through to the MCP authorizer
+    # and was refused while advertised.
+    from ..vision.authorizers import make_vision_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_vision_authorizer(
+        approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
+    )
+
+    # The Portfolio Accounting Engine: a `portfolio_*` mutation (the
+    # `portfolio.write` family and the consequential proposals) is admitted HERE
+    # and requires a single-use, digest-bound operator approval
+    # (kind `portfolio_write`). Without this branch the family fell through to the
+    # MCP authorizer, which refuses any tool without an MCP server id — leaving the
+    # tools advertised to ECLIPSE_AGENT but dead (measured 2026-10-14:
+    # `portfolio_create` → TOOL_FORBIDDEN; identical to the runtime-family defect
+    # fixed by `_admit_runtime_tools`).
+    from ..portfolio.authorizers import make_portfolio_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_portfolio_authorizer(
+        approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
+    )
+
     # The Automation subsystem: the autonomous-schedule tools (bot_create/update/
     # enable/resume) are admitted HERE; the HANDLER claims or requests a single-use
     # operator approval (kind `bot_schedule`) before a schedule is created or
@@ -115,6 +145,14 @@ def build_effect_authorizer(
     from ..skills.install_tools import make_skill_authorizer  # noqa: PLC0415
 
     code_authorizer = make_skill_authorizer(code_authorizer)
+
+    # The extension layer: agent-authored skills (`skill_create`/`skill_update`/
+    # `skill_delete`) are DECLARATIVE (a validated manifest + bounded
+    # instructions, never code) and each needs a single-use, digest-bound operator
+    # approval. Composed here so the tools participate in the ONE chain.
+    from ..skills.manage_tools import make_skill_manage_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_skill_manage_authorizer(code_authorizer)
     from ..mcp.install_tools import make_mcp_install_authorizer  # noqa: PLC0415
 
     code_authorizer = make_mcp_install_authorizer(code_authorizer)
@@ -129,7 +167,14 @@ def build_effect_authorizer(
     async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
         name = str(getattr(tool, "name", ""))
         if name.startswith("code_"):
-            return bool(await action_authorizer(tool, args, ctx))
+            # A `code_*` EXTERNAL action (commit/push/open_pr/deploy) is owned by
+            # the action authorizer; every other `code_*` tool (e.g. the CIUE
+            # `code_rename_symbol`) is NOT — sending it only here refused it while
+            # advertised. Try the action authorizer, then fall through to the full
+            # code chain (which admits `is_code_write` names via its handler gate).
+            if bool(await action_authorizer(tool, args, ctx)):
+                return True
+            return bool(await code_authorizer(tool, args, ctx))
         return bool(await code_authorizer(tool, args, ctx))
 
     return _wrap_with_security(authorize, run_id, workspace_id)
@@ -165,6 +210,25 @@ def _admit_collect_tools(inner: Any) -> Any:
     async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
         name = str(getattr(tool, "name", ""))
         if name in policy.DATA_COLLECT_TOOLS:
+            return True
+        return bool(await inner(tool, args, ctx))
+
+    return authorize
+
+
+# Benign LOCAL writes with no dedicated approval kind. The HANDLER enforces the
+# binding, the autonomy profile and the grant; the tool persists to the user's own
+# store. Admitted at this seam so an advertised tool is never dead. (The audit's
+# visibility scan flags the class; adding a name here is the ONE change needed.)
+_ADMIT_LOCAL_WRITES: frozenset[str] = frozenset({"learning_progress_update"})
+
+
+def _admit_local_writes(inner: Any) -> Any:
+    """Admit the benign local-write family at this seam (handler-gated)."""
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name in _ADMIT_LOCAL_WRITES:
             return True
         return bool(await inner(tool, args, ctx))
 

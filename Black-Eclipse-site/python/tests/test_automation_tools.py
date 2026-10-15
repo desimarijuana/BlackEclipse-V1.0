@@ -22,10 +22,26 @@ os.environ.setdefault("HARNESS_CALLBACK_URL", "http://127.0.0.1:3000")
 @pytest.fixture(scope="module")
 def ctx():
     from harness import main as main_module
+    from harness.automation.tools import set_automation_service
+    from harness.persistence import AgentMemoryStore
+    from harness.service import AgenticService
     from harness.tools import ToolContext, ToolRegistry  # noqa: F401
 
+    # Self-contained: a PRIOR test's app shutdown runs `boot._shutdown`, which
+    # closes the process-wide store; the cached automation singleton would then
+    # hold a CLOSED database (order-dependent `Cannot operate on a closed
+    # database`). Build this module's own live service + store so it never depends
+    # on the shared singleton's lifecycle.
     with TestClient(main_module.app):
-        yield ToolContext(run_id="test-run", log=lambda *a, **k: None)
+        store = AgentMemoryStore(
+            os.path.join(tempfile.mkdtemp(prefix="be-bot-tools-local-"), "agent-memory.db")
+        )
+        svc = AgenticService(store=store)
+        set_automation_service(svc.automation_service())
+        try:
+            yield ToolContext(run_id="test-run", log=lambda *a, **k: None)
+        finally:
+            store.close()
 
 
 def run(coro):

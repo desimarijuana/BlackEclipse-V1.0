@@ -27,6 +27,9 @@ root, never a caller-supplied path.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import shutil
 from pathlib import Path
 from typing import Any, Optional
 
@@ -43,6 +46,10 @@ PROMOTION_KIND = "code_promote"
 # Bounds. A promotion is an exact, bounded set of files, never a bulk move.
 MAX_PROMOTION_FILES = 200
 MAX_PROMOTION_BYTES = patch_mod.MAX_TOTAL_BYTES_PER_APPLY
+
+# Where the ORIGINAL contents of a promoted change are kept, so it can be put
+# back exactly. Inside the repo's gitignored `.black-eclipse/`, never tracked.
+ROLLBACK_ROOT_RELPATH = ".black-eclipse/promotions"
 
 
 class PromotionError(Exception):
@@ -286,6 +293,11 @@ def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:
                 content=text, expect_hash=f.get("beforeHash"),
             ))
 
+    # Capture the ORIGINAL contents BEFORE writing, so the change can be put back
+    # exactly (inverse promotion). Reads only; a failure here aborts before any
+    # write. Both versions survive: the backup directory is kept after apply.
+    rollback_id = _capture_backup(checkout, preview, files)
+
     binding_id = "promote_" + hashlib.sha256(str(checkout).encode("utf-8")).hexdigest()[:16]
     binding = WorkspaceBinding(id=binding_id, root=checkout, base_revision="", strategy="direct")
     resolved = ResolvedWorkspace(
@@ -295,8 +307,10 @@ def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:
     try:
         result = patch_mod.apply(resolved, ops, scope=(), binding=binding, actor=actor)
     except PatchError as exc:
+        _discard_backup(checkout, rollback_id)
         raise _map_patch_error(exc.code, exc.reason) from exc
     if not result.get("ok"):
+        _discard_backup(checkout, rollback_id)
         refused = result.get("refused") or {}
         raise _map_patch_error(str(refused.get("code") or ""), str(refused.get("reason") or ""))
 
@@ -312,14 +326,136 @@ def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:
         "totalBytes": int(result.get("totalBytes") or 0),
         "applied": applied,
         "previewDigest": preview.get("previewDigest"),
+        # The id to put this exact change back (rollback_promotion).
+        "rollbackId": rollback_id,
+    }
+
+
+def _rollback_dir(checkout: Path, rollback_id: str) -> Path:
+    return checkout / ROLLBACK_ROOT_RELPATH / rollback_id
+
+
+def _capture_backup(checkout: Path, preview: dict[str, Any], files: list[dict[str, Any]]) -> str:
+    """Save the ORIGINAL contents of every file the promotion will touch.
+
+    Returns the rollback id (the preview digest). Only reads the checkout, so the
+    caller can abort before any write if this raises.
+    """
+    rollback_id = str(preview.get("previewDigest") or "")
+    if not rollback_id:
+        raise PromotionError("PROMOTION_FAILED", "The prepared change is missing its identity.")
+    directory = _rollback_dir(checkout, rollback_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    originals: list[dict[str, Any]] = []
+    for f in files:
+        rel = str(f.get("path") or "")
+        op = str(f.get("op") or "")
+        entry: dict[str, Any] = {
+            "path": rel, "op": op, "existed": op != "create",
+            "beforeHash": f.get("beforeHash"), "afterHash": f.get("afterHash"),
+        }
+        if op != "create":
+            text = _read_text_strict(checkout / rel)
+            backup_name = rel.replace("/", "__")
+            (directory / backup_name).write_text(text, encoding="utf-8")
+            entry["backup"] = backup_name
+        originals.append(entry)
+    manifest = {
+        "rollbackId": rollback_id,
+        "checkoutRoot": str(checkout),
+        "previewDigest": preview.get("previewDigest"),
+        "workspaceId": preview.get("workspaceId"),
+        "runId": preview.get("runId"),
+        "files": originals,
+    }
+    (directory / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return rollback_id
+
+
+def _discard_backup(checkout: Path, rollback_id: str) -> None:
+    try:
+        shutil.rmtree(_rollback_dir(checkout, rollback_id))
+    except OSError:
+        pass
+
+
+def rollback_promotion(rollback_id: str, *, checkout_root: Optional[Path] = None) -> dict[str, Any]:
+    """Put a previously-promoted change back — the exact original contents.
+
+    The inverse of `apply_promotion`: a file the promotion CREATED is removed, a
+    file it EDITED is restored from the saved backup, and a file it DELETED is
+    recreated. Both versions survive (the backup is kept, never discarded).
+    Reuses `code/patch.py` (path confinement, protected paths, atomicity) and
+    refuses if a restored file changed since the promotion (`PROMOTION_BASE_CHANGED`).
+    """
+    checkout = Path(checkout_root) if checkout_root is not None else default_root()
+    if checkout is None:
+        raise PromotionError("PROMOTION_UNAVAILABLE", "There's no project folder to put the change back into.")
+    checkout = Path(checkout)
+    directory = _rollback_dir(checkout, rollback_id)
+    manifest_path = directory / "manifest.json"
+    if not manifest_path.is_file():
+        raise PromotionError("PROMOTION_NO_ROLLBACK", "There's no saved version to put back for this change.")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise PromotionError("PROMOTION_NO_ROLLBACK", "The saved version is unreadable.") from exc
+    recorded = str(manifest.get("checkoutRoot") or "")
+    if recorded and Path(os.path.realpath(recorded)) != Path(os.path.realpath(checkout)):
+        raise PromotionError("PROMOTION_OUT_OF_SCOPE", "The saved version belongs to a different project folder.")
+
+    ops: list[PatchOp] = []
+    restored: list[str] = []
+    for f in manifest.get("files") or []:
+        rel = str(f.get("path") or "")
+        op = str(f.get("op") or "")
+        if not rel:
+            continue
+        if policy.is_protected(rel) or policy.is_ignored(rel):
+            raise PromotionError("PROMOTION_OUT_OF_SCOPE", "This change touches a file Eclipse isn't allowed to change.")
+        if op == "create":
+            # The promotion created the file; putting it back removes it.
+            ops.append(PatchOp(op="delete", path=rel, reason="Put the previous version back."))
+        elif op == "delete":
+            text = (directory / str(f.get("backup"))).read_text(encoding="utf-8")
+            ops.append(PatchOp(op="create", path=rel, reason="Put the previous version back.", content=text))
+        else:  # overwrite — restore the saved original, refusing if the file moved on
+            text = (directory / str(f.get("backup"))).read_text(encoding="utf-8")
+            ops.append(PatchOp(op="overwrite", path=rel, reason="Put the previous version back.",
+                               content=text, expect_hash=f.get("afterHash")))
+        restored.append(rel)
+
+    if not ops:
+        raise PromotionError("PROMOTION_NO_ROLLBACK", "There's nothing to put back for this change.")
+
+    binding_id = "rollback_" + hashlib.sha256(str(checkout).encode("utf-8")).hexdigest()[:16]
+    binding = WorkspaceBinding(id=binding_id, root=checkout, base_revision="", strategy="direct")
+    resolved = ResolvedWorkspace(
+        id=binding_id, root=checkout, base_revision="", strategy="direct", binding=binding,
+    )
+    actor = _operator_actor(binding_id)
+    try:
+        result = patch_mod.apply(resolved, ops, scope=(), binding=binding, actor=actor)
+    except PatchError as exc:
+        raise _map_patch_error(exc.code, exc.reason) from exc
+    if not result.get("ok"):
+        refused = result.get("refused") or {}
+        raise _map_patch_error(str(refused.get("code") or ""), str(refused.get("reason") or ""))
+    return {
+        "ok": True,
+        "rollbackId": rollback_id,
+        "restored": sorted(restored),
+        "filesChanged": int(result.get("filesChanged") or 0),
     }
 
 
 __all__ = [
     "MAX_PROMOTION_FILES",
     "PROMOTION_KIND",
+    "ROLLBACK_ROOT_RELPATH",
     "PromotionError",
     "apply_promotion",
     "build_preview",
     "promotion_digest",
+    "rollback_promotion",
 ]

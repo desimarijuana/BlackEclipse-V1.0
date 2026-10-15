@@ -10,7 +10,16 @@ last-verified: 2026-10-11
 > **Progress (2026-10-13).** The **promotion slice is Done** under **ADR-H176**
 > (`python/harness/code/promotion.py`, `POST /code/tasks/{id}/promote/preview` +
 > `.../promote`, the additive `patch.py` `overwrite` op, the chat/Code-Tasks
-> control, `python/tests/test_code_promotion.py`). The **document extractors
+> control, `python/tests/test_code_promotion.py`). **Rollback added (2026-10-14):**
+> `apply_promotion` now captures the ORIGINAL contents under
+> `.black-eclipse/promotions/<digest>/` before writing and returns a `rollbackId`;
+> `rollback_promotion(rollback_id)` is the inverse (a created file is removed, an
+> edited file restored, a deleted file recreated; a file changed after the
+> promotion is refused, never clobbered; both versions survive) — route
+> `POST /code/promotions/{rollback_id}/rollback`, tests
+> `python/tests/test_code_promotion_rollback.py`, and a **"Put the previous
+> version back"** control in the chat promotion panel (`promote-change.tsx`) that
+> also shows the restart/build requirement for a self-edit. The **document extractors
 > (§6.1–§6.2) are Done** — `extract.ts` handles text/code (100+ extensions), PDF
 > (pdfjs), Office ZIP+XML (docx/xlsx/pptx/odt/ods/odp/epub), RTF, and a
 > readable-string scan for legacy binary, bounded against zip bombs; the 2026-10-11

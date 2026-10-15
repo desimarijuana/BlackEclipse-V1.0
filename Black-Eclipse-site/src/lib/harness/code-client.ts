@@ -178,10 +178,17 @@ export interface PromotionApproval {
   actionSummary: string | null;
 }
 
+/** Self-hosting verdict for a promoted change (Track B). */
+export interface PromotionLanding {
+  restartRequired: boolean;
+  buildRequired: boolean;
+  authorities: string[];
+}
+
 /** Preview exactly what a task's change would put into the real project. */
 export async function previewPromotion(
   taskId: string,
-): Promise<{ preview: PromotionPreview; approval: PromotionApproval | null }> {
+): Promise<{ preview: PromotionPreview; approval: PromotionApproval | null; landing?: PromotionLanding }> {
   return request(`/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, {
     method: "POST",
     timeoutMs: 60_000,
@@ -193,8 +200,8 @@ export async function applyPromotion(
   taskId: string,
   approvalId: string,
   previewDigest: string,
-): Promise<{ ok: boolean; filesChanged: number; previewDigest: string }> {
-  const body = await request<{ promotion: { ok: boolean; filesChanged: number; previewDigest: string } }>(
+): Promise<{ ok: boolean; filesChanged: number; previewDigest: string; rollbackId?: string | null; landing?: PromotionLanding }> {
+  const body = await request<{ promotion: { ok: boolean; filesChanged: number; previewDigest: string; rollbackId?: string | null }; landing?: PromotionLanding }>(
     `/code/tasks/${encodeURIComponent(taskId)}/promote`,
     {
       method: "POST",
@@ -202,7 +209,18 @@ export async function applyPromotion(
       timeoutMs: 120_000,
     },
   );
-  return body.promotion;
+  return { ...body.promotion, landing: body.landing };
+}
+
+/** Put a previously-promoted change back — the exact original contents. */
+export async function rollbackPromotion(
+  rollbackId: string,
+): Promise<{ ok: boolean; rollbackId: string; restored: string[]; filesChanged: number }> {
+  const body = await request<{ rollback: { ok: boolean; rollbackId: string; restored: string[]; filesChanged: number } }>(
+    `/code/promotions/${encodeURIComponent(rollbackId)}/rollback`,
+    { method: "POST", timeoutMs: 120_000 },
+  );
+  return body.rollback;
 }
 
 export async function listCodeApprovals(): Promise<CodeApproval[]> {

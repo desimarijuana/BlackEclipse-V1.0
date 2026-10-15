@@ -23,6 +23,8 @@ import {
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
 import { EffortControl } from './effort-control';
+import { CHAT_COMMANDS, type ChatCommand } from '@/lib/harness/commands';
+import { useT } from '@/lib/i18n/use-t';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
@@ -99,6 +101,8 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // The REAL configured provider, never a fabricated model list.
   const providerLabel = useMemo(() => getAgentProvider().label, []);
+  // Translated copy for the command palette / badge (i18n keys, not literals).
+  const t = useT();
 
   // Auto-grow the composer with its content up to a cap, then scroll. A long
   // prompt no longer stays clipped on one line.
@@ -115,7 +119,69 @@ export function ChatInput({
 
   useEffect(() => { resize(); }, [query, resize]);
 
+  // ── Slash-command palette ──────────────────────────────────────────────
+  // Typing a bare `/word` (no space yet) opens a small menu of matching chat
+  // commands. Selecting one inserts `/name ` and focuses the composer so the
+  // user types the instruction. Distinct from the global `/` search shortcut,
+  // which only fires when the composer is NOT focused.
+  const [commandHighlight, setCommandHighlight] = useState(0);
+  const commandToken = useMemo(() => {
+    const t = query.trimStart();
+    if (!t.startsWith('/')) return null;
+    const body = t.slice(1);
+    if (/\s/.test(body)) return null; // past the command word: the rest is the instruction
+    return body.toLowerCase();
+  }, [query]);
+  const commandMatches = useMemo<ChatCommand[]>(() => {
+    if (commandToken === null) return [];
+    return CHAT_COMMANDS.filter(
+      (c) => c.name.startsWith(commandToken) || c.aliases.some((a) => a.startsWith(commandToken)),
+    );
+  }, [commandToken]);
+  const commandMenuOpen = commandToken !== null && commandMatches.length > 0;
+  useEffect(() => { setCommandHighlight(0); }, [commandToken]);
+
+  const completeCommand = useCallback(
+    (c: ChatCommand) => {
+      setQuery(`/${c.name} `);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [setQuery],
+  );
+
+  // A recognized command already followed by an instruction: show a badge.
+  const activeCommand = useMemo<ChatCommand | null>(() => {
+    const m = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)\s/.exec(query);
+    if (!m) return null;
+    const tok = m[1].toLowerCase();
+    return CHAT_COMMANDS.find((c) => c.name === tok || c.aliases.includes(tok)) ?? null;
+  }, [query]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // While the command menu is open, the arrows navigate it and Enter/Tab
+    // completes the highlighted command (instead of sending).
+    if (commandMenuOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setCommandHighlight((h) => (h + 1) % commandMatches.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setCommandHighlight((h) => (h - 1 + commandMatches.length) % commandMatches.length);
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        completeCommand(commandMatches[commandHighlight]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setQuery('');
+        return;
+      }
+    }
     // Enter sends; Shift+Enter inserts a newline. Ignore IME composition.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -153,6 +219,50 @@ export function ChatInput({
                 </button>
               )}
             </span>
+          ))}
+        </div>
+      )}
+      {activeCommand && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+            <Sparkles size={11} className="shrink-0" />
+            {t(activeCommand.summaryKey)}
+          </span>
+        </div>
+      )}
+      {commandMenuOpen && (
+        <div
+          role="listbox"
+          aria-label={t('code.command.paletteLabel')}
+          className="mb-2 overflow-hidden rounded-2xl glass-card border border-white/10 shadow-lg"
+        >
+          <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+            {t('code.command.paletteLabel')}
+          </div>
+          {commandMatches.map((c, i) => (
+            <button
+              key={c.name}
+              type="button"
+              role="option"
+              aria-selected={i === commandHighlight}
+              onMouseEnter={() => setCommandHighlight(i)}
+              // onMouseDown (not onClick) so the textarea does not blur/lose the
+              // selection before the command is inserted.
+              onMouseDown={(e) => { e.preventDefault(); completeCommand(c); }}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                i === commandHighlight ? 'bg-accent/40' : 'hover:bg-accent/25',
+              )}
+            >
+              <Sparkles size={13} className="shrink-0 text-primary" />
+              <span className="font-mono text-xs">/{c.name}</span>
+              <span className="ml-1 min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                {t(c.summaryKey)}
+              </span>
+              {c.aliases.length > 0 && (
+                <span className="shrink-0 text-[10px] text-muted-foreground/50">/{c.aliases[0]}</span>
+              )}
+            </button>
           ))}
         </div>
       )}

@@ -248,9 +248,14 @@ names):
 | `portfolio_rebalance`, `portfolio_optimize`, `portfolio_construct` | consequential | `portfolio.rebalance_proposal` |
 
 Read tools run freely. Mutating and consequential tools go through the run's
-effect authorizer (a single-use, digest-bound operator approval) — with no
-authorizer they are refused, the safe default. The HTTP surface is
-operator-gated (loopback or the runtime token).
+effect authorizer — the `make_portfolio_authorizer` layer in
+`python/harness/portfolio/authorizers.py`, composed in
+`python/harness/code/authorizers.py`. Admission is not a bypass: a mutation is
+authorized only by a standing grant or a single-use, digest-bound operator
+approval (kind `portfolio_write`), keyed to the portfolio/workspace + tool +
+canonicalized arguments, so a changed payload needs a new approval. With no
+authorizer (or no matching approval) they are refused — the safe default. The
+HTTP surface is operator-gated (loopback or the runtime token).
 
 ## HTTP routes
 

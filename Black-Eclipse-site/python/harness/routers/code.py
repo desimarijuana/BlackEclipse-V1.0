@@ -410,7 +410,7 @@ def request_task_action(
 @router.post("/code/tasks/{task_id}/promote/preview")
 def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Preview exactly what a task's change would put into the user's project."""
-    from ..code import promotion  # noqa: PLC0415
+    from ..code import promotion, selfhost  # noqa: PLC0415
 
     if service.get_run(task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -434,7 +434,8 @@ def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[s
             risk="high",
         )
     view = {k: v for k, v in preview.items() if k != "worktreeRoot"}
-    return {"success": True, "preview": view, "approval": approval}
+    verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
+    return {"success": True, "preview": view, "approval": approval, "landing": verdict.to_dict()}
 
 
 @router.post("/code/tasks/{task_id}/promote")
@@ -442,7 +443,7 @@ def promote_apply(
     task_id: str, body: PromoteRequest, _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     """Confirm a previewed change and put it into the user's real project."""
-    from ..code import promotion  # noqa: PLC0415
+    from ..code import promotion, selfhost  # noqa: PLC0415
 
     if service.approvals is None:
         raise HTTPException(status_code=503, detail="approvals unavailable")
@@ -469,7 +470,28 @@ def promote_apply(
         result = promotion.apply_promotion(preview)
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=409, detail=exc.code) from exc
-    return {"success": True, "promotion": result}
+    # Tell the front door whether this change needs a runtime restart / build gate
+    # (self-hosting). The route cannot restart the process, so it reports the
+    # requirement; `code/selfhost.py` owns the health-gated apply when a restart
+    # seam is available.
+    verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
+    return {"success": True, "promotion": result, "landing": verdict.to_dict()}
+
+
+@router.post("/code/promotions/{rollback_id}/rollback")
+def rollback_promotion_route(rollback_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Put a previously-promoted change back — the exact original contents.
+
+    The inverse of promotion: a created file is removed, an edited file is
+    restored, a deleted file is recreated. Both versions are kept.
+    """
+    from ..code import promotion  # noqa: PLC0415
+
+    try:
+        result = promotion.rollback_promotion(rollback_id)
+    except promotion.PromotionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code) from exc
+    return {"success": True, "rollback": result}
 
 
 __all__ = ["router"]

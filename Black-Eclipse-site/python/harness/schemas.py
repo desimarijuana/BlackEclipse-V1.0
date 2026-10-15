@@ -212,6 +212,11 @@ class RunRequest(BaseModel):
     # Default False — discovery is not activation. A computed number is always
     # labelled "worked out by Eclipse" and never presented as retrieved data.
     analysisEnabled: bool = False  # noqa: N815
+    # A recognized chat command that FORCED this run's profile (e.g.
+    # "eclipsesdk"), when the user invoked one. Additive/optional: an ordinary
+    # turn omits it. A command turn is never treated as trivial, and the profile
+    # was selected by the command rather than inferred by the classifier.
+    command: Optional[str] = None
     # Approval cards (additive, optional): "ask" makes a non-read tool with no
     # matching approval PAUSE the run and wait for the operator's decision via the
     # approvals decide route, then resume in place. Absent/None keeps the default

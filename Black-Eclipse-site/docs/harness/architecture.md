@@ -1182,8 +1182,75 @@ unknown-profile fallback; they stay on the chat code profile. Installing widens
 what can be used, never what may be done — the skill permission/execution gate
 is unchanged.
 
+**The portfolio family (`portfolio/authorizers.py`).** The Portfolio Accounting
+Engine's mutations (`portfolio.write`: create/add/remove/update position and the
+rest; the consequential `portfolio.rebalance_proposal` proposals) are admitted by
+`make_portfolio_authorizer`, composed in `code/authorizers.py` beside the git/
+browser/computer/bot layers. Like the Git layer, it is NOT an unconditional
+admission: a mutation is authorized only by the call-scope digest already being
+authorized, a standing grant (`portfolio_write` kind), or a single-use
+digest-bound approval of kind `portfolio_write` (consume, or request-then-pause
+for the operator's decision) — otherwise it is refused. The digest binds
+scope (portfolio/workspace) + tool + canonicalized args, so a changed payload
+needs a NEW approval. Before this layer, the family fell through to the MCP
+authorizer and was refused (`TOOL_FORBIDDEN`) while advertised — the same defect
+class `_admit_runtime_tools` fixed for the execution family.
+
+**The `/eclipsesdk` chat command (`src/lib/harness/commands.ts`).** A leading
+`/command` in a chat message is a DETERMINISTIC profile switch, parsed by the
+front door (`parseChatCommand`) and stripped before the run; the remainder is the
+instruction. `/eclipsesdk` (alias `/esdk`, case-insensitive) forces the chat code
+profile (`edit_verify`) and the analysis sandbox, so a self-edit/build request is
+served by the code capability instead of the prose classifier. It sends the
+additive `RunRequest.command` marker (`schemas.py`); the runtime never treats a
+command turn as trivial (`graph_context.py`). A command selects the code path —
+it never widens authority; the runtime still enforces the grant. An unknown
+`/token` or a path (`/usr/bin`) is ordinary chat. The composer
+(`src/components/chat/chat-input.tsx`) shows a command palette while a bare
+`/word` is typed (arrows navigate, Enter/Tab completes, Escape clears) and an
+active-command badge once an instruction follows; both are client-side only.
+The streaming (`startChatRun`) and synchronous (`chatWithAgent`) paths both parse
+the command.
+
+**The extension layer (`skills/manage_tools.py`).** The agent may author, edit and
+delete its own procedural **skills** — Eclipse's `skill_manage` analogue. A skill
+is DECLARATIVE (a validated `SkillManifest` plus bounded instructions), never code
+and never a new tool; authoring rides the SAME `SkillRegistry.create_user_skill` /
+`update_user_skill` / `delete_user_skill` a person uses, so versioning, discovery
+and the permission policy are unchanged. `authoring.build_user_manifest` refuses
+any permission outside `SAFE_PERMISSIONS`, so an agent-authored skill can never
+widen its own authority; editing makes a NEW version and a built-in can never be
+edited or deleted. The three tools (`skill_create`/`skill_update`/`skill_delete`)
+are `write`-permission members of `code.policy.ACQUISITION_WRITE_TOOLS` (removed
+at `plan_only`) and are gated by `make_skill_manage_authorizer` — a single-use,
+digest-bound operator approval per call (pause-in-card-mode included). The older
+inert-draft path (`_create_explicit_skill_draft` → `skills/draft.py`) remains for
+the "turn this into a skill" intent; both land in the same reviewable store.
+
+**Self-hosting safety (`code/selfhost.py`, Track B).** A change that reaches
+Eclipse's OWN live code carries hazards a disposable-worktree task does not, so
+landing it goes through an extra gate. `classify_landing(paths)` is pure: a path
+under `python/harness/**` needs a RUNTIME RESTART, a path under `src/**` needs a
+BUILD gate, and a path in `AUTHORITY_PATHS` (`code/policy.py`,
+`code/authorizers.py`, `mcp/approvals.py`, `skills/permissions.py`) is REFUSED —
+never hot-swapped, because it could alter Eclipse's own permissions. `guarded_land`
+orchestrates apply → (restart) → `verify()` → rollback: on a failed verify it calls
+`rollback_promotion` and refuses (`SELFHOST_VERIFY_FAILED`). Every side effect is
+injected, so the policy is tested without a live process; the process restart is
+owned by the FRONT DOOR (the runtime cannot cleanly restart itself):
+`restartPythonRuntime()` (`src/lib/harness/python-runtime.ts`) kills the runtime
+listener and re-spawns it, waiting for `/health`, and is exposed at
+`POST /api/harness/runtime/restart` (the "Restart Eclipse now" button in the chat
+promotion panel). The front door ALSO auto-restarts on its own: `ensurePythonRuntime`
+detects a running runtime whose process started before the newest harness source
+and replaces it, so a landed self-edit takes effect on the next call.
+The promote routes report the verdict (`landing`) so the
+front door can raise a restart/build requirement; `test_selfhost_landing.py`.
+
 | To add… | Do this |
 |---|---|
+| A chat slash command | Add a `ChatCommand` to `CHAT_COMMANDS` in `src/lib/harness/commands.ts` (name, aliases, summary, forced `profile`); the front door parses/strips it in `startChatRun`. No runtime change unless the command needs a new marker. |
+| An agent-authored skill / extension | No code change: the agent calls `skill_create`/`skill_update`/`skill_delete` (approval-gated). To add a new *kind* of extension tool, add a handler + `ToolDefinition` in `python/harness/skills/manage_tools.py`, gate it in `make_skill_manage_authorizer`, and add its name to `code.policy.ACQUISITION_WRITE_TOOLS`. |
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
 | A file system operation / tool | Add the operation in `python/harness/code/fs/operations.py` (or `editing.py`) taking an `FsContext`; add the tool in `python/harness/code/fs_tools.py`; if it mutates, add its name to `code/policy.FS_WRITE_TOOLS`. See `docs/harness/code-filesystem.md`. |
 | A tool that needs JDdS data | Add a capability to `data-bridge.ts` + a `DataCapability` union member; call `ctx.data_bridge.fetch(...)`. |

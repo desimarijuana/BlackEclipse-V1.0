@@ -43,10 +43,11 @@ async def _memory_context(
     except Exception:  # noqa: BLE001 - a policy read failure fails closed to no memory
         return ""
     # Trivial turns skip retrieval too (no stale context attaches to a one-word
-    # reply). The gate is pure and writes nothing.
+    # reply). The gate is pure and writes nothing. A command turn is never
+    # trivial, whatever text followed the command.
     from .eclipse_memory.is_trivial import is_trivial_turn  # noqa: PLC0415
 
-    if is_trivial_turn(request.input.query):
+    if is_trivial_turn(request.input.query) and not getattr(request, "command", None):
         return ""
     try:
         # The recall budget is the OPERATOR policy (`context_budget_chars`,
@@ -212,10 +213,11 @@ async def _apply_memory_intent(
     # Trivial-prompt gate (Milestone 5): a bare greeting/acknowledgement, a slash
     # command or empty input skips the memory decision entirely. An explicit
     # remember/forget/correct is never trivial, so the always-on intent path still
-    # runs. Nothing is written and the reply is unaffected.
+    # runs. Nothing is written and the reply is unaffected. A recognized chat
+    # command (e.g. `/eclipsesdk`, which forces a code profile) is never trivial.
     from .eclipse_memory.is_trivial import is_trivial_turn  # noqa: PLC0415
 
-    if is_trivial_turn(request.input.query):
+    if is_trivial_turn(request.input.query) and not getattr(request, "command", None):
         try:
             await emitter.emit("memory.trivial_skipped", {"runId": request.runId})
         except Exception:  # noqa: BLE001

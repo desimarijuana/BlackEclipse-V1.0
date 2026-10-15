@@ -301,6 +301,11 @@ EXPECTED = (
     'skill_install',
     'skill_uninstall',
     'skill_sources',
+    # The extension layer: author/edit/delete Eclipse's own skills (declarative,
+    # single-use approval-gated; removed at plan_only via ACQUISITION_WRITE_TOOLS).
+    'skill_create',
+    'skill_update',
+    'skill_delete',
     'mcp_integrations',
     'mcp_install',
     'market_get_quote',

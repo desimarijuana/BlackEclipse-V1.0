@@ -28,6 +28,11 @@ from harness.code.request_intent import CodeIntent, classify_code_request
         ("build me a report", "not_code"),
         ("tell me about NVDA's margins", "not_code"),
         ("what is the market cap of MSFT", "not_code"),
+        # Building something INSIDE Eclipse (the `/eclipsesdk` class of request)
+        # is a change: a directive verb + a software object in one clause.
+        ("create an application within eclipse", "code_change"),
+        ("add a new page to eclipse", "code_change"),
+        ("build a plugin for eclipse", "code_change"),
     ],
 )
 def test_labelled_verdicts(query: str, verdict: str) -> None:

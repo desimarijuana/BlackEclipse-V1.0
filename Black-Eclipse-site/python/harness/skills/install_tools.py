@@ -215,6 +215,13 @@ def register_skill_install_tools(registry: ToolRegistry) -> None:
             timeout_ms=10_000,
         )
     )
+    # The extension layer (agent-authored skills: create/update/delete) is
+    # registered alongside the acquire loop; its effect authorizer is composed in
+    # `code/authorizers.py`. Kept here (not `service.py`) to leave that ratcheted
+    # file unchanged.
+    from .manage_tools import register_skill_manage_tools  # noqa: PLC0415
+
+    register_skill_manage_tools(registry)
 
 
 def make_skill_authorizer(inner: Any = None):

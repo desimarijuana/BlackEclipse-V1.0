@@ -6765,3 +6765,37 @@ persistence path.
 `bot-chat.tsx`, `group-chat-room.tsx`, `bot-detail.tsx`, new `bot-memory-section.tsx`,
 i18n `en.ts`. +9 tests (`python/tests/test_memory_conversation.py`). Conversation ids
 are local labels, not security identities. Mirrors app-level ADR-044.
+
+## ADR-H195 — Document Authoring is a distinct write subsystem: real Office files via lazily-imported OOXML writers, registered through the ONE Artifact Center
+
+**Decision.** Creating documents is the mirror of Document Intelligence, kept as a
+separate subsystem (`python/harness/documents/`) rather than folded into the
+read-only reader. One agent tool, `document_create`, builds real Word (`.docx`),
+Excel (`.xlsx`) and PowerPoint (`.pptx`) files — plus Markdown, CSV, JSON and
+`.txt` — from a neutral content vocabulary (`blocks`/`sheets`/`slides`/`rows`) and
+records the bytes in the ONE Artifact Center.
+
+1. Builders (`authoring.py`) are pure: neutral content in, file bytes out. They use
+   `python-docx` / `openpyxl` / `python-pptx`, imported **lazily per format**, so a
+   partial install makes exactly one format report `DOCUMENT_LIBRARY_MISSING`
+   instead of emitting a broken file.
+2. The tool writes through `ArtifactService.register_bytes` with an explicit MIME
+   type — no arbitrary filesystem path, no storage key, no macro execution. The
+   artifact then previews/downloads like any other; a missing service reports
+   `ARTIFACT_UNAVAILABLE`.
+3. `document_create` joins `DOCUMENT_TOOLS` in `agents.py`, so the model may reach
+   it; the read path (`document_*`) stays stdlib-only and unchanged.
+
+**Why.** The runtime could READ `.docx`/`.xlsx`/`.pptx` but not WRITE them, and it
+had no honest way to say "I made you a Word document." The write path genuinely
+needs the three writers, whereas the read path deliberately avoids them; keeping
+them in one module would have forced an unjustified dependency onto the reader.
+
+**Consequences.** `python/harness/documents/{authoring,tools,__init__}.py`; boot
+wiring in `service.py`; allowlist `agents.py`; TS tool label `response-model.ts`;
+`python/requirements.txt` (+3 writers); tests `test_documents_authoring.py`;
+docs `docs/harness/document-intelligence.md` (Authoring), `docs/harness/artifact-center.md`,
+`docs/NAVIGATION.md`, ADR-H195. The size-budget pin for `service.py` is ratcheted for
+the boot wiring. Native PDF authoring is deliberately NOT added — chat responses
+already export to PDF client-side (jsPDF), and a Python PDF writer would be a fourth
+writer for a format already covered.

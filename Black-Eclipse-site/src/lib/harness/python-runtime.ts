@@ -303,3 +303,20 @@ export function stopPythonRuntime(): void {
   g.__harnessPyHealthyAt = undefined;
   g.__harnessPyEnsure = undefined;
 }
+
+/**
+ * Force the managed Python runtime to restart — the self-hosting seam (Track B).
+ *
+ * A change under `python/harness/**` only takes effect after a restart, and the
+ * runtime cannot cleanly restart itself. The FRONT DOOR owns it: kill whatever is
+ * listening on the runtime port (only our own service is spawned here), clear the
+ * health cache, then spawn a fresh process and wait for `/health`. Returns true
+ * only when the new runtime is healthy; false means "it did not come back", which
+ * `code/selfhost.py`'s guarded landing treats as a rollback trigger.
+ */
+export async function restartPythonRuntime(): Promise<boolean> {
+  killListenerOnPort();
+  await new Promise((r) => setTimeout(r, 500));
+  stopPythonRuntime();
+  return ensurePythonRuntimeUncached();
+}

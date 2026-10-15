@@ -419,6 +419,10 @@ APP_RUNTIME_K8S_WRITE_TOOLS: tuple[str, ...] = (
 # single-use operator approval in the effect authorizer chain).
 ACQUISITION_WRITE_TOOLS: tuple[str, ...] = (
     "skill_install", "skill_uninstall", "mcp_install",
+    # Agent-authored extension skills (the extension layer, `skills/manage_tools.py`).
+    # Declarative only (a validated manifest + bounded instructions, never code);
+    # each call still requires a single-use operator approval in the effect chain.
+    "skill_create", "skill_update", "skill_delete",
 )
 
 # ── Bulk data acquisition (Phase 16, first slice) ─────────────────────────────

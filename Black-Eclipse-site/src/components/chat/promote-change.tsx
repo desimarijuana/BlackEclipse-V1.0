@@ -14,10 +14,10 @@ import { Check, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
-import { previewPromotion, applyPromotion } from '@/lib/harness/code-browser';
-import type { PromotionPreview } from '@/lib/harness/code-browser';
+import { previewPromotion, applyPromotion, rollbackPromotion, restartHarnessRuntime } from '@/lib/harness/code-browser';
+import type { PromotionPreview, PromotionLanding } from '@/lib/harness/code-browser';
 
-type Phase = 'idle' | 'loading' | 'preview' | 'applying' | 'done' | 'error';
+type Phase = 'idle' | 'loading' | 'preview' | 'applying' | 'done' | 'rolling_back' | 'rolled_back' | 'error';
 
 const MAX_SHOWN_FILES = 12;
 
@@ -47,12 +47,15 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [preview, setPreview] = useState<PromotionPreview | null>(null);
   const [approvalId, setApprovalId] = useState<string | null>(null);
+  const [rollbackId, setRollbackId] = useState<string | null>(null);
+  const [landing, setLanding] = useState<PromotionLanding | null>(null);
+  const [restart, setRestart] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [messageKey, setMessageKey] = useState<TranslationKey>('code.promote.error.generic');
 
   async function review() {
     setPhase('loading');
     try {
-      const { preview: result, approval } = await previewPromotion(runId);
+      const { preview: result, approval, landing: verdict } = await previewPromotion(runId);
       if (!result || result.filesChanged === 0 || !approval?.id) {
         setMessageKey('code.promote.empty');
         setPhase('error');
@@ -60,6 +63,7 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
       }
       setPreview(result);
       setApprovalId(approval.id);
+      setLanding(verdict ?? null);
       setPhase('preview');
     } catch (err) {
       setMessageKey(errorKey(err instanceof Error ? err.message : ''));
@@ -71,7 +75,9 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
     if (!preview || !approvalId) return;
     setPhase('applying');
     try {
-      await applyPromotion(runId, approvalId, preview.previewDigest);
+      const result = await applyPromotion(runId, approvalId, preview.previewDigest);
+      setRollbackId(result.rollbackId ?? null);
+      if (result.landing) setLanding(result.landing);
       setPhase('done');
     } catch (err) {
       setMessageKey(errorKey(err instanceof Error ? err.message : ''));
@@ -79,10 +85,34 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
     }
   }
 
+  async function rollback() {
+    if (!rollbackId) return;
+    setPhase('rolling_back');
+    try {
+      await rollbackPromotion(rollbackId);
+      setPhase('rolled_back');
+    } catch (err) {
+      setMessageKey(errorKey(err instanceof Error ? err.message : ''));
+      setPhase('error');
+    }
+  }
+
+  async function doRestart() {
+    setRestart('working');
+    try {
+      const ok = await restartHarnessRuntime();
+      setRestart(ok ? 'done' : 'error');
+    } catch {
+      setRestart('error');
+    }
+  }
+
   function reset() {
     setPhase('idle');
     setPreview(null);
     setApprovalId(null);
+    setRollbackId(null);
+    setLanding(null);
   }
 
   const size = compact ? 'text-[10.5px]' : 'text-[11.5px]';
@@ -102,19 +132,63 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
     );
   }
 
-  if (phase === 'loading' || phase === 'applying') {
+  if (phase === 'loading' || phase === 'applying' || phase === 'rolling_back') {
+    const key: TranslationKey =
+      phase === 'loading' ? 'code.promote.reviewing'
+      : phase === 'rolling_back' ? 'code.promote.rollingBack'
+      : 'code.promote.working';
     return (
       <div className={cn('mt-2 text-muted-foreground', size)}>
-        {t(phase === 'loading' ? 'code.promote.reviewing' : 'code.promote.working')}
+        {t(key)}
+      </div>
+    );
+  }
+
+  if (phase === 'rolled_back') {
+    return (
+      <div className={cn('glass-card-subtle mt-2 flex items-center gap-2 rounded-lg border border-border/40 px-3 py-1.5 text-foreground', size)}>
+        <Check size={compact ? 11 : 12} className="shrink-0 text-primary" />
+        <span>{t('code.promote.rolledBack')}</span>
       </div>
     );
   }
 
   if (phase === 'done') {
     return (
-      <div className={cn('glass-card-subtle mt-2 flex items-center gap-2 rounded-lg border border-border/40 px-3 py-1.5 text-foreground', size)}>
-        <Check size={compact ? 11 : 12} className="shrink-0 text-primary" />
-        <span>{t('code.promote.done')}</span>
+      <div className={cn('glass-card-subtle mt-2 rounded-lg border border-border/40 px-3 py-1.5 text-foreground', size)}>
+        <div className="flex items-center gap-2">
+          <Check size={compact ? 11 : 12} className="shrink-0 text-primary" />
+          <span>{t('code.promote.done')}</span>
+        </div>
+        {landing?.restartRequired && (
+          <div className="mt-1 text-muted-foreground/80">
+            {t('code.promote.restartNote')}
+            {restart === 'idle' && (
+              <button
+                type="button"
+                onClick={() => void doRestart()}
+                className="ml-2 rounded-lg border border-border/40 px-2.5 py-0.5 text-foreground hover:bg-accent"
+              >
+                {t('code.promote.restartNow')}
+              </button>
+            )}
+            {restart === 'working' && <span className="ml-2">{t('code.promote.restarting')}</span>}
+            {restart === 'done' && <span className="ml-2 text-primary">{t('code.promote.restarted')}</span>}
+            {restart === 'error' && <span className="ml-2 text-destructive">{t('code.promote.restartFailed')}</span>}
+          </div>
+        )}
+        {landing?.buildRequired && (
+          <div className="mt-1 text-muted-foreground/80">{t('code.promote.buildNote')}</div>
+        )}
+        {rollbackId && (
+          <button
+            type="button"
+            onClick={() => void rollback()}
+            className="mt-1.5 rounded-lg border border-border/40 px-2.5 py-0.5 text-muted-foreground hover:bg-accent"
+          >
+            {t('code.promote.rollback')}
+          </button>
+        )}
       </div>
     );
   }

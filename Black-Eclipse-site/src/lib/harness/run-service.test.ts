@@ -339,3 +339,51 @@ describe("approval cards", () => {
     expect(runViaRuntime.mock.calls[0][0].approvalMode).toBe("ask");
   });
 });
+
+describe("chat slash command (/eclipsesdk)", () => {
+  it("forces the edit_verify profile and strips the command token", async () => {
+    // Even with the classifier returning nothing, the command forces the profile.
+    resolveChatCodeProfile.mockResolvedValue(null);
+    await startChatRun("/eclipsesdk create a page", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect(payload.autonomy).toBe("edit_verify");
+    expect(payload.analysisEnabled).toBe(true);
+    expect(payload.command).toBe("eclipsesdk");
+    expect(payload.input.query).toBe("create a page");
+    // The classifier is never consulted for a command turn.
+    expect(resolveChatCodeProfile).not.toHaveBeenCalled();
+  });
+
+  it("is case-insensitive", async () => {
+    await startChatRun("/ECLIPSESDK fix the bug", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect(payload.autonomy).toBe("edit_verify");
+    expect(payload.command).toBe("eclipsesdk");
+    expect(payload.input.query).toBe("fix the bug");
+  });
+
+  it("sends a clarifying default query for a bare command", async () => {
+    await startChatRun("/eclipsesdk", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect(payload.command).toBe("eclipsesdk");
+    expect(payload.input.query.length).toBeGreaterThan(0);
+  });
+
+  it("leaves an unknown /token as ordinary chat", async () => {
+    resolveChatCodeProfile.mockResolvedValue(null);
+    await startChatRun("/foo do something", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
+    expect("command" in payload).toBe(false);
+    expect(payload.input.query).toBe("/foo do something");
+    expect(resolveChatCodeProfile).toHaveBeenCalled();
+  });
+
+  it("leaves ordinary text unchanged", async () => {
+    resolveChatCodeProfile.mockResolvedValue(null);
+    await startChatRun("what is AAPL trading at", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect("command" in payload).toBe(false);
+    expect(payload.input.query).toBe("what is AAPL trading at");
+  });
+});

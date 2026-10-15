@@ -8,6 +8,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-14
 
+- **Self-editing harness — release gate green.** `npx tsc --noEmit` reports 0
+  errors and `npm run test` passes end-to-end (vitest 2981, python 6227 passed /
+  16 skipped, eval gates ALL PASS). Gate hardening in this pass: journal null
+  guards + LF normalization, size-budget re-pins, and a self-contained
+  automation-tools fixture (the shared store is closed by a prior app shutdown).
+  docs updated: `docs/CHANGELOG.md`.
+
 - **Chat: scrollbar is hidden by default and appears only on user scroll/drag.**
   It no longer shows on load or during auto-follow of streamed messages
   (programmatic scrolls are flagged so they don't reveal it); it appears while

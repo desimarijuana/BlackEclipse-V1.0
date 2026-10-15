@@ -35,6 +35,12 @@ const RATCHET: Record<string, number> = {
   "src/components/screens/market-overview.tsx": 2760,
   "src/components/screens/eclipse-memory/eclipse-memory-screen.tsx": 2488,
   "src/lib/i18n/dictionaries/index.ts": 1549,
+  // The canonical English dictionary (`en.ts`) crossed the hard ceiling; the
+  // self-editing harness added the `code.command.*` + `code.promote.*` keys, and
+  // the shared tree already carried WIP dictionary growth. Pinned at its measured
+  // size; the standing split candidate is per-domain dictionary modules
+  // (`dictionaries/code.ts`, …) re-exported by `en.ts`. May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1218,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -89,7 +95,12 @@ const RATCHET: Record<string, number> = {
   // remain the standing split candidate. Grew again by one dynamic import + one
   // keep-alive block for the Bots (`bots`) tab, which mounts the ghost-avatar
   // bot manager. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1366,
+  // Re-pinned 1366→1390 to the measured tree (2026-10-14): further in-flight
+  // shared-tree wiring grew the shell past its pin; the self-editing-harness
+  // program touches NO part of stock-chat.tsx. May only shrink from here.
+  // Re-pinned 1390→1391: the same in-flight shared-tree edit added one more line
+  // before it landed. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1391,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

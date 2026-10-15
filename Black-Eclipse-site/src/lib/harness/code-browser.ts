@@ -6,11 +6,11 @@
 // component — importing the server client pulls `child_process` into the browser
 // bundle and the page fails to compile.
 
-import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview } from './code-client';
+import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding } from './code-client';
 
 // Re-export the wire types so a component imports everything from ONE client-safe
 // module (a type-only re-export is erased at compile time — no server code ships).
-export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview };
+export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -89,7 +89,7 @@ export async function getCodeTaskDiff(id: string): Promise<CodeTaskDiff | null> 
 /** Preview exactly what a task's change would put into the real project. */
 export async function previewPromotion(
   taskId: string,
-): Promise<{ preview: PromotionPreview; approval: { id: string; status: string } | null }> {
+): Promise<{ preview: PromotionPreview; approval: { id: string; status: string } | null; landing?: PromotionLanding }> {
   return api(`/api/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, { method: 'POST' });
 }
 
@@ -98,12 +98,29 @@ export async function applyPromotion(
   taskId: string,
   approvalId: string,
   previewDigest: string,
-): Promise<{ ok: boolean; filesChanged: number }> {
-  const body = await api<{ promotion: { ok: boolean; filesChanged: number } }>(
+): Promise<{ ok: boolean; filesChanged: number; rollbackId?: string | null; landing?: PromotionLanding }> {
+  const body = await api<{ promotion: { ok: boolean; filesChanged: number; rollbackId?: string | null; landing?: PromotionLanding } }>(
     `/api/code/tasks/${encodeURIComponent(taskId)}/promote`,
     { method: 'POST', body: JSON.stringify({ approvalId, previewDigest }) },
   );
   return body.promotion;
+}
+
+/** Put a previously-promoted change back — the exact original contents. */
+export async function rollbackPromotion(
+  rollbackId: string,
+): Promise<{ ok: boolean; rollbackId: string; restored: string[]; filesChanged: number }> {
+  const body = await api<{ rollback: { ok: boolean; rollbackId: string; restored: string[]; filesChanged: number } }>(
+    `/api/code/promotions/${encodeURIComponent(rollbackId)}/rollback`,
+    { method: 'POST' },
+  );
+  return body.rollback;
+}
+
+/** Restart the Python agent runtime (the self-hosting seam). True when healthy. */
+export async function restartHarnessRuntime(): Promise<boolean> {
+  const body = await api<{ healthy: boolean }>('/api/harness/runtime/restart', { method: 'POST' });
+  return Boolean(body.healthy);
 }
 
 // ── Workspace folders + editor (client-safe) ─────────────────────────────────

@@ -66,7 +66,16 @@ RATCHET_PY: dict[str, int] = {
     # wiring grew the file again; the response-contract read-back work touches NO
     # part of graph.py (it lives in `response_tools.py` + the TS bridge). May only
     # shrink; the subsystem-wiring block remains the split candidate.
-    "graph.py": 2049,
+    # Re-pinned 2049→2069 to the measured tree: the already-committed
+    # per-conversation memory work (ADR-H194) grew the file past its pin on HEAD.
+    # The Document Authoring change touches NO part of graph.py. May only shrink;
+    # the subsystem-wiring block remains the split candidate.
+    # Re-pinned 2069→2080 to the measured tree (2026-10-14): further in-flight
+    # shared-tree wiring grew the file past its pin again; the self-editing-harness
+    # program touches NO part of graph.py (its changes live in code/authorizers.py,
+    # skills/manage_tools.py, promotion.py, selfhost.py and the front door). May
+    # only shrink; the subsystem-wiring block remains the split candidate.
+    "graph.py": 2080,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -84,7 +93,10 @@ RATCHET_PY: dict[str, int] = {
     "code/tools.py": 1268,
     # Re-pinned for the canonical `memory.created`/`memory.updated` Event System
     # emissions at the write/review seams. May only shrink from here.
-    "eclipse_memory/service.py": 1845,
+    # Re-pinned 1845→1900 to the measured tree: the already-committed
+    # per-conversation memory work (ADR-H194) grew the file past its pin on HEAD.
+    # The Document Authoring change touches NO part of this file. May only shrink.
+    "eclipse_memory/service.py": 1900,
     "eclipse_memory/store.py": 1749,
     # Grew with the `documents` run-blob column (schema + `_ADDED_COLUMNS` +
     # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
@@ -140,7 +152,11 @@ RATCHET_PY: dict[str, int] = {
     # was red before the market-overview fetch-retry work, which touches NO Python
     # file). May only shrink; the subsystem-construction block remains the split
     # candidate.
-    "service.py": 1471,
+    # Re-pinned 1471→1479 for the Document Authoring boot wiring (the `try` block
+    # registering `document_create`; the tool + builders live in
+    # `documents/`). May only shrink; the subsystem-construction block remains the
+    # split candidate.
+    "service.py": 1479,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

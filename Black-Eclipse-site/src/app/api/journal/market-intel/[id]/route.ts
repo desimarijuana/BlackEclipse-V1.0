@@ -32,17 +32,20 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const hist = await histRes.json().catch(() => ({}));
     const series: PricePoint[] = Array.isArray(hist.series) ? hist.series : [];
 
-    // Compute MFE/MAE.
-    const mfeMae = computeMfeMae(
-      series,
-      trade.entry,
-      trade.stopLoss,
-      trade.direction as "LONG" | "SHORT",
-      trade.entryTime.toISOString(),
-      trade.exitTime.toISOString(),
-    );
-    if (mfeMae.mfe != null || mfeMae.mae != null) {
-      await updateTradeMfeMae(profileId, trade.id, mfeMae.mfe, mfeMae.mae);
+    // Compute MFE/MAE (only meaningful once the trade has closed).
+    let mfeMae: ReturnType<typeof computeMfeMae> | null = null;
+    if (trade.exitTime) {
+      mfeMae = computeMfeMae(
+        series,
+        trade.entry,
+        trade.stopLoss,
+        trade.direction as "LONG" | "SHORT",
+        trade.entryTime.toISOString(),
+        trade.exitTime.toISOString(),
+      );
+      if (mfeMae.mfe != null || mfeMae.mae != null) {
+        await updateTradeMfeMae(profileId, trade.id, mfeMae.mfe, mfeMae.mae);
+      }
     }
 
     // Compute market context.
@@ -70,8 +73,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         entryTime: trade.entryTime,
         exitTime: trade.exitTime,
         rMultiple: trade.rMultiple,
-        mfe: mfeMae.mfe,
-        mae: mfeMae.mae,
+        mfe: mfeMae?.mfe ?? null,
+        mae: mfeMae?.mae ?? null,
       },
       series,
       marketContext: savedCtx ?? trade.marketContext,

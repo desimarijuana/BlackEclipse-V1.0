@@ -140,10 +140,13 @@ VISION_TOOLS = [
 #: The Document Intelligence toolset (spec §27): open/inspect/search/extract/
 #: analyze/query/compare/render documents. All READ-ONLY; they reuse the vision
 #: subsystem for OCR/rendering and the EvidenceStore for provenance.
+#: `document_create` is the WRITE side (Document Authoring): it builds real
+#: Word/Excel/PowerPoint/Markdown/CSV files and records them in the Artifact Center.
 DOCUMENT_TOOLS = [
     "document_open", "document_inspect", "document_search", "document_extract",
     "document_analyze", "document_query", "document_compare", "document_render",
     "document_capabilities",
+    "document_create",
 ]
 
 
@@ -373,6 +376,11 @@ ECLIPSE_AGENT = AgentConfig(
         "skill_install",
         "skill_uninstall",
         "skill_sources",
+        # The extension layer: author/edit/delete Eclipse's own procedural skills
+        # (declarative, never code; each call is single-use approval-gated).
+        "skill_create",
+        "skill_update",
+        "skill_delete",
         "mcp_integrations",
         "mcp_install",
         # Full-session historical recall: read-only search/open over prior
@@ -800,6 +808,7 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     # MCP integration" is a valid code request and must not fall off the surface
     # when the front door classifies a mixed turn as `code_change`.
     "skill_install", "skill_uninstall", "skill_sources",
+    "skill_create", "skill_update", "skill_delete",
     "mcp_integrations", "mcp_install",
     # finance tools stay available: a code change may need the vault for a fixture
     "market_get_quote", "fundamentals_get_financials", "research_search",

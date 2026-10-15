@@ -800,6 +800,12 @@ export const en = {
   'code.chat.scheduleStarted': 'Scheduled. It stays off until you turn it on.',
   'code.chat.actionFailed': 'I couldn’t start that just now. Try again in a moment.',
 
+  // Chat slash commands — the composer palette + the active-command badge. The
+  // user sees the job ("build or change something inside Eclipse"), never a
+  // mechanism word.
+  'code.command.paletteLabel': 'Commands',
+  'code.command.eclipsesdk': 'Build or change something inside Eclipse.',
+
   // Promotion (Phase 15) — the user's own decision to put a made change into
   // their real project. The user sees the job ("put this change in"), never a
   // patch, a diff, a repository or an approval mechanism.
@@ -814,6 +820,15 @@ export const en = {
   'code.promote.cancel': 'Not now',
   'code.promote.working': 'Putting the change in…',
   'code.promote.done': 'Done — your project now has the change.',
+  'code.promote.rollback': 'Put the previous version back',
+  'code.promote.rollingBack': 'Putting the previous version back…',
+  'code.promote.rolledBack': 'Done — the previous version is back.',
+  'code.promote.restartNote': 'Eclipse will restart to apply this.',
+  'code.promote.buildNote': 'Eclipse will rebuild to apply this.',
+  'code.promote.restartNow': 'Restart Eclipse now',
+  'code.promote.restarting': 'Restarting Eclipse…',
+  'code.promote.restarted': 'Eclipse restarted — the change is live.',
+  'code.promote.restartFailed': 'I couldn’t restart Eclipse just now.',
   'code.promote.empty': 'There’s no change to put in.',
   'code.promote.error.base': 'Your project changed since you looked. Look it over again.',
   'code.promote.error.scope': 'That change can’t be put into your project.',
