@@ -114,6 +114,29 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   // right edge and under the header. It is hidden and replaced by this compact
   // thumb (capped at ~28% of the track) that tracks the reading position.
   const [bar, setBar] = useState<{ top: number; height: number } | null>(null);
+  // The thumb is an auto-hiding overlay: it appears while scrolling, hovering the
+  // transcript or dragging, then fades out when idle.
+  const [barVisible, setBarVisible] = useState(true);
+  const barHideTimer = useRef<number | null>(null);
+  const barHoverRef = useRef(false);
+  const barDraggingRef = useRef(false);
+  const clearBarTimer = useCallback(() => {
+    if (barHideTimer.current != null) {
+      window.clearTimeout(barHideTimer.current);
+      barHideTimer.current = null;
+    }
+  }, []);
+  const scheduleBarHide = useCallback((delay = 1200) => {
+    clearBarTimer();
+    barHideTimer.current = window.setTimeout(() => {
+      if (!barHoverRef.current && !barDraggingRef.current) setBarVisible(false);
+    }, delay);
+  }, [clearBarTimer]);
+  const revealBar = useCallback(() => {
+    setBarVisible(true);
+    scheduleBarHide();
+  }, [scheduleBarHide]);
+  useEffect(() => () => clearBarTimer(), [clearBarTimer]);
   const updateBar = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -131,7 +154,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     atBottomRef.current = next;
     setAtBottom(next);
     updateBar();
-  }, [updateBar]);
+    revealBar();
+  }, [updateBar, revealBar]);
 
   const scrollToBottom = useCallback((smooth = false) => {
     const el = scrollRef.current;
@@ -155,6 +179,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     const startY = e.clientY;
     const startTop = el.scrollTop;
     setBarDragging(true);
+    barDraggingRef.current = true;
+    revealBar();
     const move = (ev: PointerEvent) => {
       const delta = ev.clientY - startY;
       el.scrollTop = startTop + (delta / track) * overflow;
@@ -162,6 +188,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     };
     const up = () => {
       setBarDragging(false);
+      barDraggingRef.current = false;
+      scheduleBarHide(500);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
@@ -171,7 +199,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
-  }, [bar, onScroll]);
+  }, [bar, onScroll, revealBar, scheduleBarHide]);
 
   useEffect(() => {
     if (!atBottomRef.current) return;
@@ -234,6 +262,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       ref={rootRef}
       className="relative flex-1 min-h-0 w-full"
       style={{ fontFamily: 'var(--chat-font, var(--font-sans))' }}
+      onPointerEnter={() => { barHoverRef.current = true; setBarVisible(true); clearBarTimer(); }}
+      onPointerLeave={() => { barHoverRef.current = false; scheduleBarHide(800); }}
     >
       <div
         ref={scrollRef}
@@ -514,8 +544,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
           aria-label="Scroll conversation"
           onPointerDown={onBarPointerDown}
           className={cn(
-            'absolute right-1.5 z-20 w-1.5 rounded-full bg-foreground/20 transition-colors cursor-grab touch-none hover:bg-foreground/40',
-            barDragging ? 'bg-foreground/50 cursor-grabbing' : 'transition-[top,height] duration-100 ease-out',
+            'absolute right-1.5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
+            barDragging && 'bg-foreground/50 cursor-grabbing',
+            barVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
           )}
           style={{ top: bar.top, height: bar.height }}
         />
