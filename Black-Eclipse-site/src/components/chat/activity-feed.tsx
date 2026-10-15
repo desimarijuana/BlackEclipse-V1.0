@@ -1,10 +1,9 @@
 'use client';
 
 // ── ActivityFeed — the tools/retrieval a turn used, as a collapsible group ───
-// Sits above the assistant prose. Collapsed by default: one line summarising
-// "Used N tools" (and any failure), so a normal answer stays uncluttered. While
-// a run is live it auto-expands so the user watches the agent work; once it
-// finishes it collapses back to the summary, with the details one click away.
+// Sits above the assistant prose. Expanded by default: the steps are visible,
+// with a one-line header summarising "N steps · N sources" (and any failure).
+// The header stays clickable to collapse/expand; a live run keeps it open.
 //
 // Two presentation modes share this one component:
 //   compact  — the floating dock (tight rows)
@@ -44,7 +43,7 @@ function sourceCount(items: ActivityItem[]): number {
 }
 
 export function ActivityFeed({ activities, status, compact = false, autoExpand = true, capability }: ActivityFeedProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const userToggled = useRef(false);
   const feedId = useId();
 
@@ -52,11 +51,11 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
   const failures = useMemo(() => activities.filter((a) => a.status === 'failed').length, [activities]);
   const sources = useMemo(() => sourceCount(activities), [activities]);
 
-  // While the agent is working, show the steps; when it finishes, collapse so
-  // the answer takes focus — unless the user manually opened/closed it.
+  // Expanded by default (the steps stay visible). While the agent works we keep
+  // it open; a user who collapses it keeps that choice for the turn.
   useEffect(() => {
     if (!autoExpand || userToggled.current) return;
-    setOpen(working && activities.length > 0);
+    if (working && activities.length > 0) setOpen(true);
   }, [working, activities.length, autoExpand]);
 
   // Phase 14: a coding turn with no tool activity still shows its capability
@@ -87,18 +86,13 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
   })();
 
   return (
-    <div
-      className={cn(
-        'w-full overflow-hidden rounded-xl border border-border/40 bg-accent/[0.12]',
-        compact ? 'mb-2 text-[11px]' : 'mb-3',
-      )}
-    >
+    <div className={cn('w-full', compact ? 'mb-2 text-[11px]' : 'mb-3')}>
       <button
         type="button"
         onClick={toggle}
         aria-expanded={open}
         aria-controls={feedId}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/30 cursor-pointer"
+        className="flex w-full items-center gap-2 px-0.5 py-1 text-left transition-colors cursor-pointer"
       >
         <span className={cn('shrink-0', working ? 'text-primary' : failures > 0 ? 'text-amber-400' : 'text-muted-foreground/70')}>
           {working ? <Loader2 size={compact ? 11 : 13} className="animate-spin" />
@@ -118,10 +112,7 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
       {open && (
         <div
           id={feedId}
-          className={cn(
-            'border-t border-border/30',
-            compact ? 'space-y-0.5 p-1.5' : 'space-y-1 p-2',
-          )}
+          className={cn(compact ? 'space-y-0.5' : 'space-y-1')}
           // The feed scrolls past a long tool list rather than growing without
           // bound and pushing the answer off screen.
           style={{ maxHeight: 280, overflowY: 'auto' }}
