@@ -1,7 +1,7 @@
 ---
 title: Deployment — Production Container
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-16
 ---
 
 # Deployment — Production Container
@@ -73,7 +73,13 @@ Back up `/data`; do not bake it into the image.
 ## Health & operations
 
 - Healthcheck: `GET /login` (always public) — the container reports healthy once
-  the app answers, which is after `instrumentation.register()` finishes boot.
+  the app answers. `instrumentation.register()` now awaits only a short critical
+  path (the deployment-exposure log + the LLM-config flag the client reads); the
+  heavy boot pipeline (DB seed, cron registration, warm-up, ingests, the Python
+  runtime pre-start) runs AFTER it returns, so the app is reachable immediately
+  while that work finishes in the background. (Formerly the heavy steps were
+  awaited inside `register()`, which delayed first-request readiness on every
+  boot.)
 - Logs: `docker compose logs -f app`.
 - Rebuild after a code change: `docker compose up -d --build`.
 - **Runtime port (`127.0.0.1:8765`):** only one Python runtime may own it; a

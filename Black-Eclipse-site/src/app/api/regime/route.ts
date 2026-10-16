@@ -377,6 +377,55 @@ async function buildPositioning(): Promise<RawComponent> {
   };
 }
 
+// ── In-memory SWR cache of the raw components ────────────────────────────────
+// Building the five components reads index quotes, up to 2000 asset-sector rows,
+// 400 news rows and the economics calendar on EVERY request (~0.8s of synchronous
+// better-sqlite3 work on the single SQLite thread). Regime inputs carry freshness
+// budgets of 10 min (price breadth) up to 30 days, so a short TTL sits well
+// inside their tolerance. Only the COMPONENTS are cached; `assembleRegime()`
+// re-runs per request so `builtAt` and every derived age stay current — the UI's
+// freshness labels never misreport how old a reading is.
+const COMPONENT_TTL_MS = 60_000;
+
+type RegimeComponents = { raw: RawComponent[]; drivers: RegimeDriver[] };
+const componentCache = new Map<string, { t: number; data: RegimeComponents }>();
+const componentRebuilding = new Set<string>();
+
+async function buildComponents(market: string): Promise<RegimeComponents> {
+  const [price, volatility, macro, news, positioning] = await Promise.all([
+    buildPriceBreadth(market),
+    buildVolatility(market),
+    buildMacro(market),
+    buildNews(market),
+    buildPositioning(),
+  ]);
+  return {
+    raw: [price.component, volatility, macro.component, news.component, positioning],
+    drivers: [...news.drivers, ...macro.drivers].slice(0, 6),
+  };
+}
+
+function startComponentRebuild(market: string) {
+  if (componentRebuilding.has(market)) return;
+  componentRebuilding.add(market);
+  buildComponents(market)
+    .then((data) => componentCache.set(market, { t: Date.now(), data }))
+    .catch((err) => console.error("[api/regime] component rebuild error:", err))
+    .finally(() => componentRebuilding.delete(market));
+}
+
+async function getComponents(market: string): Promise<RegimeComponents> {
+  const hit = componentCache.get(market);
+  if (hit) {
+    if (Date.now() - hit.t < COMPONENT_TTL_MS) return hit.data;
+    startComponentRebuild(market); // serve stale, refresh quietly
+    return hit.data;
+  }
+  const data = await buildComponents(market);
+  componentCache.set(market, { t: Date.now(), data });
+  return data;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const scopeParam = searchParams.get("scope");
@@ -386,20 +435,14 @@ export async function GET(request: Request) {
   const market = scope === "global" ? "GLOBAL" : resolveRegimeMarket(scope, selectedMarket);
 
   try {
-    const [price, volatility, macro, news, positioning] = await Promise.all([
-      buildPriceBreadth(market),
-      buildVolatility(market),
-      buildMacro(market),
-      buildNews(market),
-      buildPositioning(),
-    ]);
+    const components = await getComponents(market);
 
     const result: RegimeResult = assembleRegime({
       scope,
       market,
       benchmarkSymbol: benchmarkFor(market === "GLOBAL" ? "US" : market),
-      raw: [price.component, volatility, macro.component, news.component, positioning],
-      drivers: [...news.drivers, ...macro.drivers].slice(0, 6),
+      raw: components.raw,
+      drivers: components.drivers,
     });
 
     return NextResponse.json(result);

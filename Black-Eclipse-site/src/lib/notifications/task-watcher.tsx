@@ -39,11 +39,16 @@ function announce(notification: TaskNotification): void {
 export function TaskCompletionWatcher() {
   const statusesRef = useRef<Map<string, string>>(new Map());
   const seededRef = useRef(false);
+  const lastPollRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
     const poll = async () => {
+      // Throttle while the tab is hidden — no point polling every 15s in the
+      // background for notifications nobody can see right now.
+      if (document.hidden && Date.now() - lastPollRef.current < 60_000) return;
+      lastPollRef.current = Date.now();
       try {
         const res = await fetch(`/api/tasks?limit=${MAX_TASKS}`, { cache: 'no-store' });
         if (!res.ok || cancelled) return;

@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { AgentationToolbar } from "@/components/layout/agentation-toolbar";
 import { GlobalLoader } from "@/components/ui/global-loader";
-import { GlobalSearch } from "@/components/layout/global-search";
+import { GlobalSearchMount } from "@/components/layout/global-search-mount";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
 import { TaskCompletionWatcher } from "@/lib/notifications/task-watcher";
@@ -83,7 +83,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <GlobalLoader />
         {children}
         {process.env.NEXT_PUBLIC_AGENTATION === '1' && <AgentationToolbar />}
-        <GlobalSearch />
+        <GlobalSearchMount />
         <KeyboardShortcuts />
         <TerminalKeybind />
         <WorkspaceKeybind />

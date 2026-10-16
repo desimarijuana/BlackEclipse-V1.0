@@ -136,11 +136,28 @@ class SoundManager {
     for (const name of SOUND_NAMES) void this.loadBuffer(ctx, this.resolveSrc(name));
   }
 
-  /** Preload the shared context. Safe on mount — needs no gesture. */
+  /**
+   * Create the shared AudioContext so it is armed before the first gesture.
+   * The cue set is NOT decoded here — see `warmIdle` — because warming fetches
+   * and decodes the whole pack (~340KB of WAV); that must not sit on the
+   * critical path of the first paint.
+   */
   preload = (): void => {
     if (typeof window === 'undefined') return;
     this.getContext();
-    this.warm();
+  };
+
+  /**
+   * Decode the active pack once the browser is idle. Called on mount so the
+   * first cue is instant WITHOUT paying the download during the initial load;
+   * the first user gesture (`unlock`) warms immediately too, and `play` still
+   * loads a cue on demand if it is not warm yet.
+   */
+  warmIdle = (): void => {
+    if (typeof window === 'undefined') return;
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (idle) idle(() => this.warm());
+    else window.setTimeout(() => this.warm(), 3000);
   };
 
   /**

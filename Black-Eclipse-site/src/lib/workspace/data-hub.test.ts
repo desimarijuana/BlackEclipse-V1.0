@@ -69,3 +69,23 @@ describe("DataHub provenance envelopes", () => {
     expect(dataHub.get("t:hist").source).toBe("HISTORICAL");
   });
 });
+
+describe("DataHub visibility catch-up", () => {
+  it("refreshVisible refreshes subscribed topics and skips dormant ones", async () => {
+    let subCalls = 0;
+    let dormantCalls = 0;
+    registerTopic({ id: "t:v-sub", ttl: 60_000, fetch: async () => { subCalls += 1; return [1]; } });
+    registerTopic({ id: "t:v-dormant", ttl: 60_000, fetch: async () => { dormantCalls += 1; return [2]; } });
+
+    const unsub = dataHub.subscribe("t:v-sub", () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(subCalls).toBe(1); // initial fetch on subscribe
+
+    dataHub.refreshVisible();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(subCalls).toBe(2); // refreshed because it has a listener
+    expect(dormantCalls).toBe(0); // never fetched — nobody is watching it
+
+    unsub();
+  });
+});

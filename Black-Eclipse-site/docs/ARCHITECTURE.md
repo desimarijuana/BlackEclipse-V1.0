@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-16
 ---
 
 # Architecture
@@ -26,8 +26,13 @@ whole routing story for the app: **one page**.
 
 - the `activeTab` state machine,
 - keep-alive tabs (mount on first visit, then `display:none`),
-- conversation persistence in `localStorage` (`chats_guest`), plus the
-  chat-history organization layer owned by `src/lib/chat/chat-organization.ts`
+- conversation persistence: `localStorage` (`chats_guest`) is only the instant
+  cache; a **durable per-conversation transcript** is written server-side to
+  `.black-eclipse/sessions/<chatId>/transcript.json` and hydrated on boot (see
+  "Chat session workspaces" below), so history survives a server restart or a
+  change of browser origin — `localStorage` is origin-scoped, so a different
+  host/port (or cleared storage) otherwise dropped every chat. The
+  chat-history organization layer is owned by `src/lib/chat/chat-organization.ts`
   (conversation + folder types — nested folders via `parentId`/`order`, tags,
   archive + trash stamps, color/pin — persisted-storage helpers, ranked search,
   folder tree, and the pure filter/sort/group view logic),
@@ -611,6 +616,11 @@ They coordinate through mutex flags (`isRunning`, `syncBusy`, `warmUpBusy`) so
 two heavy SQLite write storms never run at once. This is not incidental — running
 them concurrently is what used to freeze the API.
 
+They are all kicked off from `runBackgroundBootTasks()` AFTER
+`instrumentation.register()` resolves, so boot readiness (and the first page
+load) never waits on a heavy job — `register()` itself awaits only the
+deployment-exposure log and the LLM-config flag the client reads.
+
 ### Alert delivery
 
 A fired price alert is dispatched from `src/lib/alerts/notifier.ts`
@@ -926,9 +936,22 @@ attaches as context and the answers the agent produces:
 
 ```
 <Black-Eclipse-site>/.black-eclipse/sessions/<chatId>/
-  context/   files the user added (extracted to text, injected into runs)
-  output/    files the agent produced (one `answer-<stamp>.md` per run)
+  context/         files the user added (extracted to text, injected into runs)
+  output/          files the agent produced (one `answer-<stamp>.md` per run)
+  transcript.json  the conversation's durable transcript (server-side copy)
 ```
+
+- **The transcript is durable and origin-independent.** The ChatBot tab's
+  conversation lives in browser `localStorage` (`chats_guest`) as an instant
+  cache, but `src/lib/chat/transcript-client.ts` also mirrors each conversation
+  to `transcript.json` through the route `api/chat/transcript` (GET one/all,
+  POST upsert, DELETE), backed by `readTranscript`/`writeTranscript`/
+  `listTranscripts`/`deleteTranscript` in `src/lib/chat/session-store.ts`. On
+  boot `stock-chat.tsx` hydrates from the server and merges it with the local
+  cache (server wins per id, local-only conversations are pushed up), so a chat
+  survives a server restart, a different origin, or cleared storage. Sync is
+  debounced; conversation deletions remove the server copy. This is what fixes
+  the "chat is deleted when the server restarts / the URL changes" class of bug.
 
 - **The front door owns the filesystem; the Python runtime stays read-only.**
   Every harness tool is `permission="read"` and `tools.py` hard-rejects writes,
@@ -1154,8 +1177,11 @@ widget (auto, filling the column) or to a per-placement pinned height.
 
 ## The command center (⌘K)
 
-`src/components/layout/global-search.tsx` (palette) + `src/components/layout/top-bar.tsx`
-(header trigger) sit on top of `src/lib/search/`. The flow is two pure steps:
+`src/components/layout/global-search-mount.tsx` (the always-mounted keybinds) owns
+the `⌘K` toggle and the `/` chat-focus shortcut, and lazily loads
+`src/components/layout/global-search.tsx` (`GlobalSearchOverlay`, the palette UI)
+as a separate chunk; `src/components/layout/top-bar.tsx` (header trigger) also
+opens it. Both sit on top of `src/lib/search/`. The flow is two pure steps:
 
 1. **Grammar** (`search/grammar.ts`) — `parseQuery(raw)` splits the raw query into a
    *scope* (a leading prefix: `>` commands, `#` symbols, `@` indicators, `/` pages,
@@ -1766,7 +1792,10 @@ Do not introduce raw `backdrop-blur-*` or flat fills for cards.
 `src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over the **Web
 Audio API** (no Howler dependency): one `AudioContext` is created on mount and
 kept for the life of the page. `SoundProvider` (mounted once in
-`src/app/layout.tsx`) preloads/decodes the cue set on mount and *arms* playback
+`src/app/layout.tsx`) creates the context on mount (so it is armed before the
+first gesture) and decodes the cue pack only once the browser is idle
+(`sound.warmIdle()` — warming fetches + decodes ~340KB of WAV, so it is kept off
+the first paint), and *arms* playback
 on **every** pointer/key interaction and on every visibility/focus restore —
 not just the first gesture. `play()` resumes a suspended context itself and
 waits for the resume before starting the decoded buffer, so an async cue (a

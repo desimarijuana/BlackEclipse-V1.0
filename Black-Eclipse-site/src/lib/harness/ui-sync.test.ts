@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const registerComponent = vi.hoisted(() => vi.fn(async () => ({})));
+const registerComponents = vi.hoisted(() =>
+  vi.fn(async () => ({ total: 2, registered: 2, failed: [] as { componentId: string; error: string }[] })),
+);
 
-vi.mock('@/lib/harness/ui-client', () => ({ registerComponent }));
+vi.mock('@/lib/harness/ui-client', () => ({ registerComponents }));
 vi.mock('@/lib/ui-engineering/registry-catalog', () => ({
   dashboardComponentSpecs: () => [{ id: 'a' }, { id: 'b' }],
 }));
@@ -10,19 +12,30 @@ vi.mock('@/lib/ui-engineering/registry-catalog', () => ({
 import { syncCoreCatalog } from './ui-sync';
 
 describe('syncCoreCatalog', () => {
-  beforeEach(() => registerComponent.mockReset());
+  beforeEach(() => registerComponents.mockReset());
 
-  it('registers every spec and counts failures', async () => {
-    registerComponent.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('runtime down'));
+  it('registers the whole catalog in one batched request and counts failures', async () => {
+    registerComponents.mockResolvedValueOnce({
+      total: 2,
+      registered: 1,
+      failed: [{ componentId: 'b', error: 'runtime down' }],
+    });
     const result = await syncCoreCatalog(true);
     expect(result).toEqual({ total: 2, registered: 1, failed: 1 });
-    expect(registerComponent).toHaveBeenCalledTimes(2);
+    expect(registerComponents).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports every spec failed when the runtime rejects the batch', async () => {
+    registerComponents.mockRejectedValueOnce(new Error('runtime down'));
+    const result = await syncCoreCatalog(true);
+    expect(result).toEqual({ total: 2, registered: 0, failed: 2 });
   });
 
   it('is a no-op once synced (without force)', async () => {
-    registerComponent.mockResolvedValue({});
+    registerComponents.mockResolvedValue({ total: 2, registered: 2, failed: [] });
     await syncCoreCatalog(true);
     const again = await syncCoreCatalog();
     expect(again).toEqual({ total: 0, registered: 0, failed: 0 });
+    expect(registerComponents).toHaveBeenCalledTimes(1);
   });
 });

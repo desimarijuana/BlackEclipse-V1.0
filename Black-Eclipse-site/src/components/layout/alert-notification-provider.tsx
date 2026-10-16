@@ -49,6 +49,7 @@ export function AlertNotificationProvider() {
   useHydrateNotifications();
   const seenRef = useRef<Set<string>>(new Set());
   const seededRef = useRef(false);
+  const lastPollRef = useRef(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const pushToast = useCallback((title: string, body: string) => {
@@ -86,6 +87,10 @@ export function AlertNotificationProvider() {
     let cancelled = false;
 
     const poll = async () => {
+      // Throttle while the tab is hidden: keep alerts reasonably timely but
+      // stop the every-10s request storm when nobody is looking at the app.
+      if (document.hidden && Date.now() - lastPollRef.current < 60_000) return;
+      lastPollRef.current = Date.now();
       try {
         const res = await fetch('/api/alerts/live', { cache: 'no-store' });
         if (!res.ok || cancelled) return;

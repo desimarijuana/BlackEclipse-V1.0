@@ -8,6 +8,189 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-16
 
+- **Proactive monitors (Fiduciary Gate, Phase 3): portfolio conditions that run
+  unattended.** The Automation Engine's condition triggers gained a portfolio
+  lens: a `CompositeFactProvider` now composes the market provider with a new
+  `PortfolioFactProvider` (`python/harness/automation/facts.py`) that resolves
+  `pf.<portfolioId>.<field>` (`weight`, `unrealized`, `cash_pct`,
+  `concentration_hhi`, `total_value`, `position_count`) through the ONE portfolio
+  engine — a failed read yields NO fact, so a condition evaluates UNAVAILABLE and
+  never fires on a guess. Added a closed monitor catalogue
+  (`python/harness/advisory/monitors.py`: `position_weight_breach`,
+  `tax_loss_harvest`, `cash_buffer_watch`, `concentration_watch`) that builds
+  ordinary `condition` + `run_agent` automations, always saved OFF; exposed via
+  `AutomationService.list_monitors`/`create_monitor` and `GET/POST
+  /automations/monitors`. Added `portfolio/harvest.py` + the read tool
+  `portfolio_harvest_candidates` (proposal-only, wash-sale limitation stated).
+  No second scheduler, no second analysis engine; nothing places a trade.
+  Tests `test_automation_facts.py` (7), `test_advisory_monitors.py` (8),
+  `test_portfolio_harvest.py` (6), plus monitor API cases. docs updated:
+  `docs/fiduciary-advice.md`, `docs/harness/decisions.md` (ADR-H198),
+  `docs/NAVIGATION.md`, `docs/portfolio-accounting.md`.
+
+- **Advisory Ledger (Fiduciary Gate, Phase 2): every recommendation is now a
+  durable, auditable decision.** The Fiduciary Gate's verdict is persisted on the
+  ONE `agent-memory.db` connection as `AdvisoryDecision` / `AdvisoryBasis` /
+  `AdvisoryOutcome` (new `python/harness/advisory/{store,service,tools,bootstrap}.py`),
+  recorded idempotently at the answer seam (a resumed run never double-counts). A
+  decision carries what was advised, its basis (the `portfolio_*` computation
+  and/or the consulted source URLs, or `none`), and an appended outcome
+  (realized vs benchmark → right/wrong/neutral, caller-supplied — never
+  invented). Read back via `advisory_list`/`advisory_get`/`advisory_scorecard`
+  agent tools and operator-gated `/advisory/*` routes; boot wiring
+  `install_advisory_layer` in `service.py`; router registered in `main.py`; a
+  deterministic `advisory_scorecard` (counts by status, hit rate, avg realized vs
+  benchmark). Never places a trade. Tests `python/tests/test_advisory_ledger.py`
+  (12); size budgets re-pinned for the seam (graph.py, service.py; main.py kept
+  under the hard ceiling by a reclaimed blank line).
+  docs updated: `docs/fiduciary-advice.md`, `docs/harness/decisions.md` (ADR-H197),
+  `docs/NAVIGATION.md`.
+
+- **Fix: chat conversations no longer vanish when the server restarts or the app
+  origin changes.** Transcripts lived only in browser `localStorage` (`chats_guest`),
+  which is origin-scoped — closing the server, opening the app at a different
+  host/port (http vs https, hostname vs IP), or clearing storage silently dropped
+  every conversation, and a follow-up then had no thread. Conversations are now
+  also persisted server-side to `.black-eclipse/sessions/<chatId>/transcript.json`
+  (reusing the existing per-conversation session folder). New
+  `src/lib/chat/transcript-client.ts` + `src/app/api/chat/transcript/route.ts`
+  (GET one/all, POST upsert, DELETE) over `readTranscript`/`writeTranscript`/
+  `listTranscripts`/`deleteTranscript` in `src/lib/chat/session-store.ts`;
+  `src/components/screens/stock-chat.tsx` hydrates from the server on boot, merges
+  with the localStorage cache (server wins per id, local-only chats are pushed up),
+  and debounces writes/deletes. `localStorage` writes are now guarded so a blocked
+  cache can never break a send. Verified live: a chat created at one origin
+  restores in a fresh, empty-storage context; `tsc` clean; vitest 3149 passed.
+  docs updated: `docs/ARCHITECTURE.md`.
+
+- **Perf: `/api/regime` now caches its raw components (SWR).** The route rebuilt
+  all five regime components on EVERY request — index quotes, up to 2000
+  asset-sector rows, 400 news rows and the economics calendar (~0.8s of
+  synchronous better-sqlite3 work on the single thread). Added a 60s
+  stale-while-revalidate cache of the components (`src/app/api/regime/route.ts`),
+  keyed by market; `assembleRegime()` still runs per request so `builtAt`/ages
+  stay honest. Response contract unchanged. Covered by a new
+  `src/app/api/regime/route.test.ts` (cache hit + per-market isolation).
+  no doc change — internal cache, no architecture/data-shape/contract change.
+
+- **Perf: widget data polling pauses while the tab is hidden.** The `DataHub`
+  (`src/lib/workspace/data-hub.ts`) started an auto-refresh `setInterval` per
+  subscribed topic (the dashboard registers ~20, many every 30–120 s), so a
+  backgrounded tab kept hammering the single-threaded SQLite server forever. The
+  interval callback now skips its tick while `document.hidden` (the interval
+  itself keeps running, so it resumes instantly on return), and a
+  `visibilitychange` handler runs a one-shot `refreshVisible()` that catches up
+  ONLY the topics that currently have listeners — dormant topics are never
+  woken. Covered by a new `refreshVisible` test in `data-hub.test.ts`.
+  no doc change — internal polling behaviour, no architecture/contract change.
+
+- **Perf: command-palette search no longer ships FlexSearch on every route.**
+  `src/lib/search/universe.ts` statically imported `flexsearch`, and the root
+  layout pulls that module in on every route (`search/store` → `universe` via
+  `GlobalSearch`), so the whole FlexSearch bundle sat on the initial critical
+  path even though it is only needed once the palette first loads the universe.
+  Made the import dynamic inside `buildIndex` (cached ctor promise), so
+  FlexSearch is now a lazy chunk fetched on first palette open. Behaviour is
+  unchanged; `searchUniverse`/`getUniverseBySymbol` still return `[]` until the
+  index loads. Covered by a new `src/lib/search/universe.test.ts`.
+  no doc change — internal code-splitting, no architecture/contract change.
+
+- **Perf: server boot no longer waits on the heavy pipeline.** `instrumentation
+  .register()` was awaited by Next during startup and awaited `seedUniverse`, the
+  six cron `start*` registrations, provider-key apply, the journal seed, the
+  production warm-up and the ingests — so every boot delayed the moment the app
+  could answer its FIRST request (the ~10s "Ready" in the dev log was largely
+  this). Split boot into a short awaited critical path (deployment-exposure log +
+  the LLM-config flag the client reads) and `runBackgroundBootTasks()`, which now
+  runs AFTER `register()` resolves. Same jobs, same order, same guards — just off
+  the readiness path. Measured behaviour changes require a rebuild to observe.
+  docs updated: `docs/DEPLOYMENT.md` (health/boot wording),
+  `docs/ARCHITECTURE.md` (Background workers section).
+
+- **Perf: command-palette overlay is code-split off every route.** The root
+  layout statically imported the whole `GlobalSearch` (the dialog UI + the search
+  library), so all of it shipped on every route's initial bundle. Split the two
+  lightweight keybinds into a new always-mounted `GlobalSearchMount`
+  (`src/components/layout/global-search-mount.tsx`) which lazily loads the heavy
+  palette as `GlobalSearchOverlay` (`global-search.tsx`) via `next/dynamic`
+  (`ssr: false`). `⌘K` and `/` still work on the first keypress; the overlay only
+  reacts to `store.open`. Layout now renders `GlobalSearchMount`.
+  docs updated: `docs/ARCHITECTURE.md` (command-center section).
+
+- **Perf: UI cue pack no longer decoded on first paint.** `SoundProvider` called
+  `sound.preload()` on mount, which warmed (fetched + decoded) the whole active
+  pack — ~340KB of WAV, ~20% of the first-load bytes — even if the user never
+  triggers a sound. `preload()` now only creates the `AudioContext` (so it is
+  armed before the first gesture) and a new `warmIdle()` decodes the pack once
+  the browser is idle. The first gesture (`unlock`) still warms immediately, and
+  `play()` loads a cue on demand if it is not warm yet.
+  docs updated: `docs/ARCHITECTURE.md` (UI sounds section).
+
+- **The Fiduciary Gate: an actionable recommendation is now disclosed unless a
+  computation backs it.** Added `python/harness/advisory/` — a deterministic,
+  no-model-call gate at the answer seam that extracts actionable claims (a
+  directive verb + a symbol or numeric target) and labels each `COMPUTED` (a
+  `portfolio_*` computation the run actually performed backs it), `SOURCED` (a
+  symbol the run consulted), or `UNVERIFIED` (neither → an appended
+  `Advisory note: …` disclosure; never stripped, never a trade). A new
+  `AdvisoryCollector` records every `portfolio_*` tool call through
+  `ToolContext.advisory_sink` (wired in `graph.py`), and the verdict is emitted
+  as `advisory.gate` and attached to the run blob as `metadata.advisoryIntegrity`.
+  Sits alongside the finance-fact and citation gates — one verifies figures, one
+  advice, one citations. Tests `python/tests/test_advisory_gate.py` (18);
+  `tsc` clean; graph/tools/portfolio/finance/release-gate suites green.
+  docs updated: `docs/fiduciary-advice.md` (new), `docs/harness/decisions.md`
+  (ADR-H196), `docs/NAVIGATION.md`.
+
+- **Fix: Command Center board collapsed on mobile.** Section columns
+  (`workspace-canvas.tsx`) applied `flexBasis:0` + `flexGrow:weight` inline at
+  every breakpoint while the section row flipped to `flex-col` below `md`. In a
+  column-direction parent `flex-basis:0` is a *height* of 0, clamped only by
+  `min-h-[40px]`, so each stacked column became a 40px box whose widgets
+  overflowed and overlapped the next column. Scoped the track weights to `md+`
+  via a `--col-w` CSS var (`md:grow-[var(--col-w)] md:basis-0`) and made stacked
+  columns `w-full` with `items-stretch` on the row, so they size to content on
+  phones and remain weighted horizontal tracks from `md` up. Shared engine, so
+  portfolio fund workspaces are fixed too.
+  no doc change — responsive bug fix, layout contract unchanged.
+
+- **Perf: stop the per-page widget-catalog request storm.** `UiCatalogSync`
+  (mounted on the main app route) pushed the dashboard widget specs one POST at a
+  time (`syncCoreCatalog()` → `POST /ui/components`), so every full page load
+  fired ~80 sequential browser→Next→Python round-trips and saturated the runtime.
+  Added a batched `POST /ui/components/batch` (`python/harness/routers/ui.py`,
+  `src/lib/harness/ui-client.ts`) and switched `syncCoreCatalog` to it, collapsing
+  a page-load seed to ONE idempotent request. `src/lib/harness/ui-sync.test.ts`
+  updated to the batch contract.
+  docs updated: docs/ui-engineering.md.
+
+- **Perf: background pollers back off when the tab is hidden.** The three
+  root-mounted watchers (`alert-notification-provider`, `task-watcher`,
+  `bots-run-watcher`) polled every 10/15/30 s unconditionally; each now throttles
+  while `document.hidden` (60/60/120 s), cutting idle server load on the
+  single-threaded SQLite backend without changing visible-tab behaviour.
+  no doc change — internal throttle, no architecture or contract change.
+
+- **Repo hygiene: removed an 825 MB stray installer from the web root.** Deleted
+  `public/backgrounds/local-10.1.2-windows.exe`, a mis-placed Windows installer
+  sitting in the served `public/` directory; it is not part of the UI.
+  no doc change — removal of a non-code stray asset.
+
+- **UI composition: certified end to end and repo-wide.** Added two proofs on
+  top of the earlier hardening: (1) a cross-subsystem HTTP test
+  (`python/tests/test_ui_portfolio_e2e.py`) that drives the REAL `harness.main`
+  app — create an engine portfolio, add a position, read it via the same route
+  the browser resolver calls (`/portfolio/{id}/query`), then create a UI page
+  with a `data-table` + `metric-card` bound to it and confirm
+  `/ui/blueprints/{id}/verify` reports it renderable; (2) a server-render test
+  (`src/lib/workspace/generic-widgets.render.test.tsx`) proving resolved source
+  data actually becomes table rows and a metric value on screen.
+  Certification run: `npx tsc --noEmit` clean; `vitest run` — 3146 passed / 297
+  files (the single-process full-Python run hit a native OOM at ~49%, so it was
+  run in two file-halves: 3484 + 2847 = **6331 passed, 16 skipped, 0 failed**).
+  no doc change — tests + verification only; no architecture, data-shape,
+  contract or setup change.
+
 - **Composer `/` and `@` palettes: keyboard highlight now scrolls into view.**
   Arrowing through a long, scrollable command/mention palette left the scroll
   position fixed, so the highlighted option could move off-screen. Added an
@@ -16,6 +199,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   inside each portaled listbox (`src/components/chat/chat-input.tsx`, both the
   command and mention palettes).
   no doc change — bug fix, no architecture or contract change.
+
+- **Chat transcripts: durable server copy + shell kept within its size budget.**
+  The ChatBot transcript store gained a server copy (`GET/POST/DELETE
+  /api/chat/transcript`, `src/lib/chat/transcript-client.ts`): on boot the shell
+  hydrates from the server, unions it with the localStorage cache (server wins on
+  a newer timestamp, local-only rows are migrated up), and mirrors subsequent
+  changes with a debounced upsert/delete diff gated on a successful load so a
+  failed load can never delete server rows. The localStorage write is now
+  guarded (private mode / sandboxed origin) so a cache failure can never break
+  the in-memory chat. Because that logic (and the pre-existing local-cache load)
+  pushed `src/components/screens/stock-chat.tsx` past its pinned 1474-line
+  budget, both were EXTRACTED, behavior-preserving, to
+  `src/lib/chat/use-conversation-persistence.ts`; the shell now sits at 1457 and
+  the size-budget guard passes. Also gave the whole-repo line-ending scan in
+  `src/lib/gitignore-guard.test.ts` a 30 s budget (it reads every tracked file
+  and was timing out under load, not detecting a real mixed-ending file).
+  no doc change — internal persistence/refactor; API route contract is new but
+  no architecture or setup step changes.
 
 ## 2026-10-15
 

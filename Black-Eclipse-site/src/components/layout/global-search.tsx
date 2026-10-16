@@ -50,8 +50,6 @@ import { universeCount } from '@/lib/search/universe';
 import { getPage } from '@/lib/search/registry';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
-import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
-import { useChatFocusKeybind } from '@/hooks/use-chat-focus-keybind';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
 
 /**
@@ -213,7 +211,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-export function GlobalSearch() {
+export function GlobalSearchOverlay() {
   const store = useCommandStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -221,15 +219,10 @@ export function GlobalSearch() {
   // Whether the results list can still scroll down (drives the bottom fade).
   const [canScrollDown, setCanScrollDown] = useState(false);
 
-  // Ctrl/Cmd+K opens the command center; plain `/` focuses the chat composer
-  // (see below) — the two shortcuts never overlap.
-  useCommandCenterKeybind({
-    open: store.open,
-    onToggle: store.toggle,
-  });
-  // Mounted once with the command center (which lives in the root layout), so
-  // `/` reaches the composer on every route, including the standalone pages.
-  useChatFocusKeybind();
+  // The Ctrl/Cmd+K toggle and the plain `/` chat-focus shortcut live in
+  // `GlobalSearchMount` (the lightweight root-mount) so this heavy overlay can
+  // be code-split out of the initial bundle while the shortcuts still work on
+  // the first keypress. The overlay only REACTS to `store.open`.
 
   // Load the universe index + economic calendar + server-side entities.
   useEffect(() => {

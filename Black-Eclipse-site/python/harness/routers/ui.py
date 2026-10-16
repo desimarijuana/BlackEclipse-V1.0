@@ -152,6 +152,18 @@ class RegisterComponentBody(RegisterComponentInput):
     pass
 
 
+class RegisterComponentsBody(BaseModel):
+    """Batch registration of many core specs in ONE request.
+
+    The app shell seeds the dashboard widget catalog on load. Doing that as one
+    POST per spec meant ~80 sequential browser→Next→Python round-trips on every
+    page open, saturating the runtime and event loop. Registering the whole set
+    in a single call keeps the same idempotent upsert semantics with one hop.
+    """
+
+    specs: list[UiComponentSpec] = Field(default_factory=list)
+
+
 class ClassifyBody(BaseModel):
     text: str = Field(..., min_length=1)
     blueprintId: Optional[str] = None  # noqa: N815
@@ -251,6 +263,25 @@ def register_component(request: Request, body: RegisterComponentBody, _: bool = 
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, "component": spec.model_dump(by_alias=True)}
+
+
+@router.post("/ui/components/batch")
+def register_components(request: Request, body: RegisterComponentsBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Register many components in one call (idempotent upsert per spec).
+
+    Never fails the whole batch for one bad spec: each is registered
+    independently and failures are reported per-component so the caller can
+    count them, exactly like the previous per-spec loop but without N hops.
+    """
+    registered = 0
+    failed: list[dict[str, str]] = []
+    for spec in body.specs:
+        try:
+            _service().register_component(spec)
+            registered += 1
+        except Exception as exc:  # noqa: BLE001
+            failed.append({"componentId": getattr(spec, "id", "?"), "error": str(exc)})
+    return {"success": True, "total": len(body.specs), "registered": registered, "failed": failed}
 
 
 @router.get("/ui/components/{component_id}")

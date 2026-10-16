@@ -166,6 +166,13 @@ export function inspectComponent(componentId: string) {
 export function registerComponent(spec: unknown) {
   return req<{ component: UiComponentSpec }>("/components", { method: "POST", body: JSON.stringify({ spec }) });
 }
+/** Register many specs in ONE request (idempotent upsert per spec). */
+export function registerComponents(specs: unknown[]) {
+  return req<{ total: number; registered: number; failed: { componentId: string; error: string }[] }>(
+    "/components/batch",
+    { method: "POST", body: JSON.stringify({ specs }) },
+  );
+}
 
 export function listBlueprints(query: Record<string, string | number | undefined> = {}) {
   const qs = new URLSearchParams();

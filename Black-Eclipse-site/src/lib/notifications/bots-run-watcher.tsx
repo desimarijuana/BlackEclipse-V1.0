@@ -43,11 +43,17 @@ function announce(notification: BotRunNotification): void {
 export function BotsRunWatcher() {
   const trackedRef = useRef(new Map<string, { executionId: string | null; state: string }>());
   const seededRef = useRef(false);
+  const lastPollRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
     const poll = async () => {
+      // Throttle while hidden: this tick is the most expensive of the three
+      // watchers (list + one status call per active bot), so backing off to
+      // every 2 min in the background saves a real fan-out.
+      if (document.hidden && Date.now() - lastPollRef.current < 120_000) return;
+      lastPollRef.current = Date.now();
       try {
         const automations = await listAutomations();
         if (cancelled) return;

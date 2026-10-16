@@ -8,7 +8,7 @@
 // survive restarts. Idempotent: `register_component` upserts by id.
 
 import { dashboardComponentSpecs } from '@/lib/ui-engineering/registry-catalog';
-import { registerComponent } from '@/lib/harness/ui-client';
+import { registerComponents } from '@/lib/harness/ui-client';
 
 let synced = false;
 
@@ -23,16 +23,17 @@ export async function syncCoreCatalog(force = false): Promise<SyncResult> {
   } catch {
     return { total: 0, registered: 0, failed: 0 };
   }
-  let registered = 0;
-  let failed = 0;
-  for (const spec of specs) {
-    try {
-      await registerComponent(spec);
-      registered += 1;
-    } catch {
-      failed += 1;
-    }
+  if (specs.length === 0) return { total: 0, registered: 0, failed: 0 };
+  // ONE batched request instead of one POST per spec. The app shell mounts on
+  // every full page load, so the old per-spec loop fired ~80 sequential
+  // browser→Next→Python round-trips each load and saturated the runtime; the
+  // runtime upserts idempotently either way, so batching is behaviour-preserving.
+  try {
+    const res = await registerComponents(specs);
+    const registered = res.registered ?? 0;
+    if (registered > 0) synced = true;
+    return { total: res.total ?? specs.length, registered, failed: res.failed?.length ?? 0 };
+  } catch {
+    return { total: specs.length, registered: 0, failed: specs.length };
   }
-  if (registered > 0) synced = true;
-  return { total: specs.length, registered, failed };
 }

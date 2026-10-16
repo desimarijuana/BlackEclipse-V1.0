@@ -4,20 +4,41 @@
 // payload is cached in sessionStorage (keyed by version) so revisits skip the
 // network entirely. No LLM, no per-keystroke I/O.
 
-import FlexSearch from 'flexsearch';
 import type { SearchEntity } from './types';
 
 // FlexSearch 0.7 runtime exposes a named `Index` constructor (runtime has it,
 // but the bundled TS types only declare the default `FlexSearch` class with
-// `create`). We use the runtime constructor via a typed wrapper.
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const FlexIndexCtor: any = (FlexSearch as any).Index ?? FlexSearch;
+// `create`). It is DYNAMICALLY imported: the root layout pulls this module in
+// on every route (`search/store` → `universe`), but the library is only needed
+// once the command-center palette first loads the universe — so a static import
+// put the whole FlexSearch bundle on the initial critical path for no reason.
 
 /** FlexSearch 0.7 `Index` — numeric id + string content. */
+interface FlexIndexImpl {
+  add(id: number, content: string): void;
+  search(query: string, limit?: number): number[];
+}
+
+/** Wrapper combining the symbol + name indices under one search. */
 interface FlexIndex {
   add(id: number, content: string): void;
   search(query: string, limit?: number): number[];
+}
+
+type FlexCtor = new (opts: { tokenize: string; cache: boolean }) => FlexIndexImpl;
+
+let flexCtorPromise: Promise<FlexCtor> | null = null;
+
+function getFlexIndexCtor(): Promise<FlexCtor> {
+  if (!flexCtorPromise) {
+    flexCtorPromise = import('flexsearch').then((mod) => {
+      const m = mod as unknown as { Index?: FlexCtor; default?: { Index?: FlexCtor } & FlexCtor };
+      const ctor = m.default?.Index ?? m.Index ?? m.default;
+      if (!ctor) throw new Error('flexsearch Index constructor not found');
+      return ctor;
+    });
+  }
+  return flexCtorPromise;
 }
 
 export interface UniverseRow {
@@ -48,7 +69,8 @@ let loading: Promise<void> | null = null;
 let loadError: Error | null = null;
 
 /** Build the FlexSearch index (two fields: symbol + name) from a payload. */
-function buildIndex(payload: UniversePayload): void {
+async function buildIndex(payload: UniversePayload): Promise<void> {
+  const FlexIndexCtor = await getFlexIndexCtor();
   const idx = new FlexIndexCtor({ tokenize: 'forward', cache: true });
   const nameIdx = new FlexIndexCtor({ tokenize: 'forward', cache: true });
   doc = { add: idx.add.bind(idx), search: (q: string, limit?: number) => {
@@ -106,7 +128,7 @@ export function loadUniverseIndex(): Promise<void> {
     const cached = cachedPayload();
     if (cached && cached.count > 0) {
       try {
-        buildIndex(cached);
+        await buildIndex(cached);
         return;
       } catch {
         /* corrupt cache — fall through to network */
@@ -117,7 +139,7 @@ export function loadUniverseIndex(): Promise<void> {
       const res = await fetch('/api/search/index', { cache: 'no-store' });
       if (!res.ok) throw new Error(`index fetch ${res.status}`);
       const payload = (await res.json()) as UniversePayload;
-      buildIndex(payload);
+      await buildIndex(payload);
       cachePayload(payload);
     } catch (err) {
       loadError = err instanceof Error ? err : new Error('failed to load universe');

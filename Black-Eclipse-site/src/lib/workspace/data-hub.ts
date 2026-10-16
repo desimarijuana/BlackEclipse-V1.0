@@ -83,6 +83,19 @@ function normalizePayload<T>(returned: T | TopicPayload<T> | null): TopicPayload
 class DataHub {
   private topics = new Map<string, TopicState>();
 
+  constructor() {
+    // A backgrounded tab must not keep every auto-refresh topic polling the
+    // single-threaded server. The interval itself pauses while hidden (see
+    // subscribe); becoming visible again triggers ONE catch-up refresh of the
+    // topics that currently have listeners, so data is fresh on return without
+    // waking dormant topics nobody is watching.
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) this.refreshVisible();
+      });
+    }
+  }
+
   /** Register a topic definition (idempotent). */
   register(topic: HubTopic): void {
     if (this.topics.has(topic.id)) return;
@@ -105,7 +118,14 @@ class DataHub {
     // Start the auto-refresh timer if configured and not already running.
     const topic = this.topicDef(id);
     if (topic?.interval && !state.timer) {
-      state.timer = setInterval(() => void this.refresh(id), topic.interval);
+      state.timer = setInterval(() => {
+        // Skip the tick while the tab is hidden — the interval keeps running so
+        // it resumes instantly on return, but no request goes out in the
+        // background. `refresh` also guards with inFlight, so a catch-up on
+        // visibility never double-fetches.
+        if (typeof document !== "undefined" && document.hidden) return;
+        void this.refresh(id);
+      }, topic.interval);
     }
     // Kick off a fetch if we have nothing yet.
     if (state.entry.data === null) void this.refresh(id);
@@ -160,6 +180,17 @@ class DataHub {
   /** Force-refresh every registered topic (F5 fan-out). */
   refreshAll(): void {
     for (const id of this.topics.keys()) void this.refresh(id);
+  }
+
+  /**
+   * Refresh only the topics that currently have listeners. Used when the tab
+   * becomes visible again after being hidden, so a backgrounded dashboard
+   * catches up exactly the topics on screen — never dormant ones.
+   */
+  refreshVisible(): void {
+    for (const [id, state] of this.topics) {
+      if (state.listeners.size > 0) void this.refresh(id);
+    }
   }
 
   /** Read the current entry for a topic (for non-hook consumers). */

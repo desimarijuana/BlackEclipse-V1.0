@@ -31,11 +31,13 @@ export function SoundProvider() {
   const hydrate = useSoundStore((s) => s.hydrate);
 
   // Hydrate persisted preferences (no-op on first render to keep SSR stable)
-  // and preload/decode the cue set. The shared AudioContext is created here so
-  // it is ready before the first gesture; decoding does not need a gesture.
+  // and create the shared AudioContext so it is armed before the first gesture.
+  // The cue pack is decoded only once the browser is idle — warming fetches +
+  // decodes ~340KB of WAV, which must not compete with the first paint.
   useEffect(() => {
     hydrate();
     sound.preload();
+    sound.warmIdle();
   }, [hydrate]);
 
   // Keep the audio context armed. `unlock` is idempotent and cheap, so we run

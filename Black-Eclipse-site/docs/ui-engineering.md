@@ -1,7 +1,7 @@
 ---
 title: UI Engineering Foundation
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-16
 ---
 
 # UI Engineering Foundation
@@ -223,7 +223,9 @@ remount). Window focus and a slow 60s poll are fallbacks if the stream drops.
 usable standalone; the browser then pushes the REAL dashboard widget specs
 (`src/lib/ui-engineering/registry-catalog.ts` → `dashboardComponentSpecs()`) into
 the runtime via `syncCoreCatalog()` (`src/lib/harness/ui-sync.ts`) → `POST
-/ui/components`. The runtime upserts them by id on `agent-memory.db`, so there is
+/ui/components/batch` (one request for the whole set; the single-spec `POST
+/ui/components` remains for individual registration). The runtime upserts them
+by id on `agent-memory.db`, so there is
 never a second hand-maintained copy of the widget registry in Python and the
 real widgets persist across restarts. The UI Builder syncs on mount (and via a
 "Sync catalog" button).
@@ -237,6 +239,8 @@ structural card.
 
 **Boot sync:** `UiCatalogSync` (mounted on the main app route) calls
 `syncCoreCatalog()` once, so the catalog is seeded without opening the Builder.
+It seeds the whole set in ONE batched request, so an app load never fans out
+into one POST per widget.
 
 **Live Pages (bridge to the app):** blueprints are rendered as real pages, not
 only in the Builder. The **Pages** tab
