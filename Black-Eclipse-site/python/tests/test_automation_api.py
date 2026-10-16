@@ -139,3 +139,30 @@ def test_legacy_jobs_are_the_same_automations(client):
     assert automation.status_code == 200
     assert automation.json()["automation"]["id"] == job["id"]
     client.delete(f"/jobs/{job['id']}")
+
+
+def test_monitor_catalogue_is_listed(client):
+    res = client.get("/automations/monitors")
+    assert res.status_code == 200
+    monitors = res.json()["monitors"]
+    assert len(monitors) == 4
+    assert {m["id"] for m in monitors} >= {"cash_buffer_watch", "concentration_watch"}
+
+
+def test_a_monitor_is_created_switched_off(client):
+    res = client.post("/automations/monitors", json={
+        "monitorId": "cash_buffer_watch",
+        "params": {"portfolio_id": "pf_1", "threshold": 0.05},
+    })
+    assert res.status_code == 200
+    automation = res.json()["automation"]
+    assert automation["state"] == "disabled"
+    assert automation["trigger"]["condition"]["expression"] == "pf.pf_1.cash_pct < 0.05"
+    client.delete(f"/automations/{automation['id']}")
+
+
+def test_a_monitor_missing_a_parameter_is_refused(client):
+    res = client.post("/automations/monitors", json={
+        "monitorId": "position_weight_breach", "params": {"portfolio_id": "pf_1"},
+    })
+    assert res.status_code == 400

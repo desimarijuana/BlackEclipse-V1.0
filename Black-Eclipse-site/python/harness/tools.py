@@ -275,6 +275,14 @@ class ToolContext:
     # tool calls `image_sink(images)` so the run carries a bounded, validated
     # image blob the chat renders INLINE. None = no collection attached.
     image_sink: Any = None
+    # The per-run advisory collector (the Fiduciary Gate). Set by the graph; every
+    # `portfolio_*` tool call is handed here so the answer seam can verify an
+    # actionable recommendation against a computation the run actually performed.
+    # None = no advisory verification attached.
+    advisory_sink: Any = None
+    # The Advisory Ledger service. Set by the graph; `advisory_*` tools reach the
+    # ONE ledger through it. None = the ledger tools report unavailable.
+    advisory_service: Any = None
     # The Portfolio Accounting Engine service (ledger + valuation). Set by the
     # graph from the service; None = the `portfolio_*` tools report unavailable.
     portfolio_service: Any = None
@@ -537,6 +545,16 @@ class ToolRegistry:
             return self._failure(call_id, name, "TOOL_ERROR", str(exc), started)
 
         text, data = output if isinstance(output, tuple) else (output, None)
+        # Fiduciary Gate provenance: record every `portfolio_*` call (a computation
+        # or a consult) so the answer seam can verify actionable advice against
+        # what the run actually did. Additive and best-effort — it never changes
+        # the result.
+        advisory_sink = getattr(ctx, "advisory_sink", None)
+        if advisory_sink is not None and name.startswith("portfolio_"):
+            try:
+                advisory_sink(name, clean, data)
+            except Exception:  # noqa: BLE001 - collection must not break a run
+                pass
         # Bound the model-facing text at this single seam; `data` is untouched.
         bounded_text, truncated, shown_chars, total_chars = bound_tool_text(str(text))
         return ToolResult(

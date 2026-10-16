@@ -51,6 +51,7 @@ from .routers.application import router as application_router
 from .routers.artifacts import router as artifacts_router
 from .routers.a2a import router as a2a_router
 from .routers.team import router as team_router
+from .routers.advisory import router as advisory_router
 from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
 from .routers.computer import router as computer_router
@@ -97,6 +98,7 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=li
 # Route groups extracted into `harness/routers/` (public surface: `harness.main:app`).
 app.include_router(a2a_router)
 app.include_router(team_router)
+app.include_router(advisory_router)
 app.include_router(application_router)
 app.include_router(artifacts_router)
 app.include_router(automation_router)
@@ -318,7 +320,6 @@ def get_receipt(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Receipt not found")
     return {"success": True, "receipt": receipt}
 
-
 @app.get("/models")
 def models() -> dict[str, Any]:
     return {"success": True, "providers": list_providers()}
@@ -507,7 +508,6 @@ def explain_run_endpoint(run_id: str) -> dict[str, Any]:
     with its prompt plan/profile/bundle events. Changes nothing at runtime.
     """
     from .run_observability import explain_run  # noqa: PLC0415
-
     if not service.get_run(run_id):
         raise HTTPException(status_code=404, detail="Run not found")
     retrievals = service.memory_store.list_retrievals(limit=1, run_id=run_id)

@@ -75,7 +75,15 @@ RATCHET_PY: dict[str, int] = {
     # program touches NO part of graph.py (its changes live in code/authorizers.py,
     # skills/manage_tools.py, promotion.py, selfhost.py and the front door). May
     # only shrink; the subsystem-wiring block remains the split candidate.
-    "graph.py": 2080,
+    # Re-pinned 2080→2101 (2026-10-16): the Fiduciary Gate (ADR-H196) adds the
+    # `advisory_sink` ToolContext seam (param + binding) and the answer-seam gate
+    # call; the collector/gate logic lives in `python/harness/advisory/`, and the
+    # per-tool recording lives in `tools.py`, so graph.py grows by the seam only.
+    # Re-pinned 2102→2124 for the Advisory Ledger (ADR-H196 Phase 2): the `advisory`
+    # run/service param, the `advisory_service` ToolContext seam and the seam
+    # `record_verdict` call (the ledger logic lives in `python/harness/advisory/`).
+    # May only shrink; the subsystem-wiring block remains the split candidate.
+    "graph.py": 2124,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -159,7 +167,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1479→1485 for the Journal agent tools registration (two lines
     # calling `register_journal_tools`, plus its comment; the tools live in
     # `journal_tools.py`). May only shrink from here.
-    "service.py": 1485,
+    # Re-pinned 1485→1493 for the Advisory Ledger boot wiring (ADR-H196 Phase 2):
+    # `install_advisory_layer(self)` + its comment and the `advisory` run kwarg;
+    # the service/store/tools live in `python/harness/advisory/`. May only shrink.
+    "service.py": 1493,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

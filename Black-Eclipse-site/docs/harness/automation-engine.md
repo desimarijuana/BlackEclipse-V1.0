@@ -91,8 +91,14 @@ with a code — never silently accepted.
   matching field of the event's `data` (bare `ticker`, dotted `data.x`, or an
   `event.` field), and a non-matching event is not consumed.
 - **Condition** — a deterministic expression evaluated on a tick against facts
-  from a `FactProvider` (market gateway by default). No LLM evaluates a financial
-  or operational condition.
+  from a `FactProvider`. The default is a `CompositeFactProvider` over the market
+  gateway (`<SYM>.<field>`) and the portfolio engine
+  (`pf.<portfolioId>.<field>`: `weight`, `unrealized`, `cash_pct`,
+  `concentration_hhi`, …); a provider that cannot resolve a variable contributes
+  no fact, so the condition evaluates `UNAVAILABLE` rather than firing on a guess.
+  No LLM evaluates a financial or operational condition. A closed catalogue of
+  portfolio monitors builds such conditions for the user
+  (`advisory/monitors.py`, `GET/POST /automations/monitors`).
 - **Manual** — `run_now` / the API / a webhook. Manual execution NEVER alters the
   schedule; it records a separate execution with `triggerType = manual`.
 

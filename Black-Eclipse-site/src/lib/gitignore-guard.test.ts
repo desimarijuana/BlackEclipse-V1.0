@@ -138,5 +138,8 @@ describe("line-ending normalization", () => {
       if (bareLf) mixed.push(rel);
     }
     expect(mixed.slice(0, 20), `tracked text files mixing CRLF and bare LF: ${mixed.length} (${mixed.slice(0, 5).join(", ")})`).toEqual([]);
-  });
+    // This scan reads every tracked file (`git ls-files`), so it is many orders
+    // of magnitude heavier than a unit test; the default 5 s budget times out on
+    // a loaded machine (dev server + runtime running) even with zero mixed files.
+  }, 30000);
 });

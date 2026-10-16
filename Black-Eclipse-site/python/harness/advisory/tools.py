@@ -1,0 +1,111 @@
+"""Agent-facing Advisory Ledger tools (flat `advisory_*` names, all read-only).
+
+The ledger is a record of what the agent recommended and how it turned out; the
+tools let the agent recall its own past calls. Nothing here mutates it — outcomes
+are recorded by the runtime, never by a model tool call.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+READ = "read"
+
+
+def _service(ctx: Any) -> Any:
+    service = getattr(ctx, "advisory_service", None)
+    if service is None:
+        raise RuntimeError("the advisory ledger is not available in this run")
+    return service
+
+
+def _owner(ctx: Any) -> Any:
+    return getattr(ctx, "user_id", None)
+
+
+async def advisory_list(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    service = _service(ctx)
+    rows = service.list_decisions(
+        portfolio_id=args.get("portfolio_id"),
+        owner_id=args.get("owner_id") or _owner(ctx),
+        status=args.get("status"),
+        limit=int(args.get("limit") or 50),
+    )
+    lines = [f"{len(rows)} recorded recommendation(s):"]
+    for r in rows:
+        symbols = " ".join(r.get("symbols") or []) or "-"
+        lines.append(f"  - [{r['status']}] {r['action']} {symbols} ({r['createdAt']})")
+    return "\n".join(lines), {"decisions": rows}
+
+
+async def advisory_get(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    service = _service(ctx)
+    record = service.get_decision(args["decision_id"])
+    if record is None:
+        return f"No recommendation {args['decision_id']}.", {"status": "NOT_FOUND"}
+    outcome = record.get("outcome")
+    verdict = f"; outcome {outcome['verdict']}" if outcome else ""
+    return (
+        f"Recommendation {record['id']}: {record['action']} "
+        f"{' '.join(record.get('symbols') or []) or 'the portfolio'} "
+        f"[{record['status']}]{verdict}.",
+        record,
+    )
+
+
+async def advisory_scorecard(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    service = _service(ctx)
+    card = service.scorecard(
+        portfolio_id=args.get("portfolio_id"),
+        owner_id=args.get("owner_id") or _owner(ctx),
+    )
+    hit = card["hitRate"]
+    text = (
+        f"{card['total']} recommendation(s): {card['byStatus']['computed']} computed, "
+        f"{card['byStatus']['sourced']} sourced, {card['byStatus']['unverified']} unverified; "
+        f"{card['evaluated']} evaluated"
+        + (f", hit rate {hit:.0%}" if hit is not None else "") + "."
+    )
+    return text, card
+
+
+def register_advisory_tools(registry: Any) -> None:
+    from ..tools import ToolDefinition
+
+    def _def(name: str, description: str, handler: Any, schema: dict[str, Any]) -> None:
+        registry.register(ToolDefinition(
+            name=name, description=description, input_schema=schema, handler=handler,
+            permission=READ, risk="none",
+        ))
+
+    _def("advisory_list",
+         "List the recommendations this agent has recorded (the Advisory Ledger), "
+         "with each one's verification status (computed/sourced/unverified).",
+         advisory_list,
+         {"type": "object", "properties": {
+             "portfolio_id": {"type": "string"}, "owner_id": {"type": "string"},
+             "status": {"type": "string", "enum": ["computed", "sourced", "unverified"]},
+             "limit": {"type": "integer"}}})
+    _def("advisory_get",
+         "Read one recorded recommendation: what was advised, on what basis, and how it turned out.",
+         advisory_get,
+         {"type": "object", "properties": {"decision_id": {"type": "string"}},
+          "required": ["decision_id"]})
+    _def("advisory_scorecard",
+         "Summarise recorded recommendations and their outcomes: counts by status, "
+         "evaluated count, hit rate and average realized vs benchmark return.",
+         advisory_scorecard,
+         {"type": "object", "properties": {
+             "portfolio_id": {"type": "string"}, "owner_id": {"type": "string"}}})
+
+
+# The canonical tool names, imported by `agents.py` so the allowlist cannot drift.
+ADVISORY_TOOLS: tuple[str, ...] = (
+    "advisory_list", "advisory_get", "advisory_scorecard",
+)
+
+__all__ = [
+    "ADVISORY_TOOLS",
+    "advisory_get", "advisory_list", "advisory_scorecard",
+    "register_advisory_tools",
+]

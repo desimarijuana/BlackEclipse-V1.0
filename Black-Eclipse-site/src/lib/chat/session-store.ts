@@ -13,6 +13,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { Message } from "@/types/chat";
 import { extractText, extractDocumentText, isTextExtractable } from "./extract";
 import { SESSION_LIMITS, type SessionFile, type SessionFileKind, type SessionInfo } from "./session-types";
 
@@ -221,6 +222,106 @@ export async function deleteSessionFile(chatId: string, kind: SessionFileKind, n
  * MARKED (`truncated` + `originalChars`) so the runtime states the limit in the
  * turn instead of answering from only the first part.
  */
+// ── Conversation transcripts (server-side durability) ────────────────────────
+//
+// The transcript used to live ONLY in browser localStorage (keyed by origin), so
+// closing the server, changing the app origin (http vs https, hostname vs IP) or
+// clearing storage silently dropped every conversation. A copy now lives on disk
+// beside the session's files, keyed by the same chatId, and the ChatBot tab
+// hydrates from it on boot. localStorage stays as an instant cache; the server
+// copy is what makes a conversation survive.
+
+const TRANSCRIPT_FILE = "transcript.json";
+// A bounded transcript: an extremely long chat cannot grow the file without
+// limit. 400 turns is far beyond any real conversation.
+const MAX_TRANSCRIPT_MESSAGES = 400;
+
+export interface StoredTranscript {
+  id: string;
+  title: string;
+  messages: Message[];
+  timestamp: number;
+  createdAt: number;
+  /** Server write stamp (epoch ms); the hydration merge prefers the newer copy. */
+  updatedAt: number;
+  folderId?: string | null;
+  color?: string | null;
+  pinned?: boolean;
+  tags?: string[];
+  archivedAt?: number | null;
+  deletedAt?: number | null;
+}
+
+function transcriptPath(chatId: string): string {
+  return path.join(sessionDir(chatId), TRANSCRIPT_FILE);
+}
+
+/** Read one conversation's persisted transcript, or null when absent/unusable. */
+export async function readTranscript(chatId: string): Promise<StoredTranscript | null> {
+  try {
+    const raw = await fs.readFile(transcriptPath(chatId), "utf8");
+    const parsed = JSON.parse(raw) as Partial<StoredTranscript> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (typeof parsed.id !== "string" || !Array.isArray(parsed.messages)) return null;
+    return parsed as StoredTranscript;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist one conversation's transcript (creates the session dir if needed). */
+export async function writeTranscript(
+  chatId: string,
+  data: Omit<StoredTranscript, "updatedAt">,
+): Promise<StoredTranscript> {
+  await ensureSessionDirs(chatId);
+  const messages = Array.isArray(data.messages)
+    ? data.messages.slice(-MAX_TRANSCRIPT_MESSAGES)
+    : [];
+  const stored: StoredTranscript = {
+    id: chatId,
+    title: typeof data.title === "string" ? data.title : "",
+    messages,
+    timestamp: typeof data.timestamp === "number" ? data.timestamp : Date.now(),
+    createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
+    updatedAt: Date.now(),
+    folderId: data.folderId ?? null,
+    color: data.color ?? null,
+    pinned: data.pinned === true,
+    tags: Array.isArray(data.tags) ? data.tags : [],
+    archivedAt: data.archivedAt ?? null,
+    deletedAt: data.deletedAt ?? null,
+  };
+  await fs.writeFile(transcriptPath(chatId), JSON.stringify(stored), "utf8");
+  return stored;
+}
+
+/** Every persisted conversation, most recently updated first. */
+export async function listTranscripts(): Promise<StoredTranscript[]> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(sessionsRoot(), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: StoredTranscript[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !CHAT_ID_RE.test(entry.name)) continue;
+    const stored = await readTranscript(entry.name);
+    if (stored) out.push(stored);
+  }
+  return out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+}
+
+/** Delete one conversation's persisted transcript (files remain). */
+export async function deleteTranscript(chatId: string): Promise<void> {
+  try {
+    await fs.unlink(transcriptPath(chatId));
+  } catch {
+    // Already absent — nothing to do.
+  }
+}
+
 export async function loadContextDocuments(chatId: string): Promise<
   Array<{ name: string; text: string; truncated?: boolean; originalChars?: number }>
 > {

@@ -23,7 +23,7 @@ def test_all_tools_register():
     reg = _registry()
     names = set(reg.names())
     assert set(PORTFOLIO_READ_TOOLS) | set(PORTFOLIO_WRITE_TOOLS) | set(PORTFOLIO_CONSEQUENTIAL_TOOLS) <= names
-    assert len(names) == 39
+    assert len(names) == 40
 
 
 def test_write_tools_declare_an_effect():

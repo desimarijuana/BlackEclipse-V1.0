@@ -6799,3 +6799,109 @@ docs `docs/harness/document-intelligence.md` (Authoring), `docs/harness/artifact
 the boot wiring. Native PDF authoring is deliberately NOT added — chat responses
 already export to PDF client-side (jsPDF), and a Python PDF writer would be a fourth
 writer for a format already covered.
+
+## ADR-H196 — Actionable advice is verified at the answer seam: COMPUTED from the run's own portfolio engine, SOURCED from what it consulted, else disclosed UNVERIFIED
+
+**Decision.** The runtime gains a third answer-seam gate, sibling to the finance-fact
+gate (`finance_facts/enforce.py`) and the citation release gate
+(`research/release_gate.py`). The **Fiduciary Gate** (`python/harness/advisory/`)
+extracts actionable recommendations from the final answer (a directive verb plus a
+symbol or numeric target) and labels each one:
+
+1. **COMPUTED** — a `portfolio_*` computation the run actually performed backs it.
+   A new `AdvisoryCollector`, wired through `ToolContext.advisory_sink`, records
+   every `portfolio_*` tool call (tool, symbols, numbers) as the run works, so the
+   gate can match a claim's symbol and target against what the engine produced. A
+   target that contradicts the computation is UNVERIFIED, never silently corrected.
+2. **SOURCED** — a symbol the run consulted through a portfolio read, with no
+   numeric target: grounded in the user's own ledger.
+3. **UNVERIFIED** — neither; an `Advisory note: …` disclosure is appended (never
+   stripped), the verdict emitted as `advisory.gate`, and attached to the run blob
+   as `metadata.advisoryIntegrity`.
+
+The gate is deterministic (no model call), additive (wrapped so it can never fail a
+run; a claim-free answer is byte-unchanged), and **proposal-only** — it never places
+a trade.
+
+**Why.** A finance assistant that improvises actionable recommendations is worse
+than useless: the user cannot tell a computed, reproducible call from a plausible
+sentence. GPUs/cloud chatbots assert; Eclipse verifies. This extends the product's
+honesty invariant ("never fabricate financial data") from *figures* to *advice*,
+reusing the ONE portfolio engine rather than a second analysis implementation.
+
+**Consequences.** `python/harness/advisory/{__init__,model,claims,collector,gate}.py`;
+`ToolContext.advisory_sink` in `tools.py`; wiring in `graph.py` (`build_graph`
+param, `tools_node` recording, the answer-seam gate); tests
+`python/tests/test_advisory_gate.py`; doc `docs/fiduciary-advice.md`,
+`docs/NAVIGATION.md`. Scope is deliberately strict (a directive + a
+symbol/target), so ordinary conversation is never flagged. The Advisory
+Ledger/scorecard (persisting decisions + outcomes) and the "works while you're
+gone" monitors are planned follow-ups on this seam.
+
+## ADR-H197 — Advisory decisions are a durable, immutable record: one decision per (run, claim), an appended outcome, never a rewritten basis
+
+**Decision.** The Fiduciary Gate's verdicts are persisted as a first-class ledger
+on the ONE `agent-memory.db` connection — `AdvisoryDecision` (action, symbols,
+target, thesis, status, run/portfolio/owner), `AdvisoryBasis` (the `portfolio_*`
+computation and/or consulted source URLs that justified it, or `none`), and
+`AdvisoryOutcome` (realized vs benchmark → right/wrong/neutral). Three rules:
+
+1. **One decision per (run, action, symbols, target).** The id is a deterministic
+   hash, so re-recording the same answer (a resumed run, a retried seam) is a
+   no-op — the ledger never double-counts a recommendation.
+2. **Basis is immutable; an outcome is appended.** A decision is written once and
+   an outcome `UPSERT`s onto it. The "why did I make it" record is never rewritten,
+   matching the portfolio ledger's append-only discipline.
+3. **Outcomes are caller-supplied.** A jurisdiction-neutral engine records the
+   realized and benchmark returns it is told; it never infers a market result. A
+   missing decision yields `None`, not a fabricated outcome.
+
+**Why.** The Fiduciary Gate proves a recommendation is computed/sourced at the
+moment it is made; the ledger makes that proof durable and answerable later
+("was that call right?"). Reusing the ONE agent-memory connection (never a second
+DB, never committed) keeps it private, and the deterministic id makes the answer
+seam idempotent without a dedup pass.
+
+**Consequences.** `python/harness/advisory/{store,service,tools,bootstrap}.py`;
+`routers/advisory.py` (`/advisory/*`, operator-gated); boot wiring in `service.py`;
+allowlist `agents.py` (`ADVISORY_TOOLS`); the answer seam records the verdict
+(`graph.py`). Automatic outcome evaluation from market history is deliberately
+NOT added here — it needs price-history plumbing and is a planned follow-up; a
+scheduled monitor (Phase 3) will record outcomes explicitly. Docs
+`docs/fiduciary-advice.md`, `docs/NAVIGATION.md`.
+
+## ADR-H198 — Portfolio conditions are a second fact provider; proactive monitors are a closed catalogue saved off
+
+**Decision.** Condition triggers gain a portfolio lens by adding a
+`PortfolioFactProvider` behind a `CompositeFactProvider` (the engine's default
+provider), not by inventing a new scheduler. A `pf.<portfolioId>.<field>`
+condition (`weight.<SYM>`, `unrealized.<SYM>`, `cash_pct`, `concentration_hhi`,
+`total_value`, `position_count`) is resolved through the ONE `PortfolioService`
+read. A failed read or an unpriced position contributes **no fact**, so the
+three-valued engine reports `UNAVAILABLE` and a monitor never fires on a guess.
+
+Proactive monitors are a CLOSED catalogue (`python/harness/advisory/monitors.py`):
+`position_weight_breach`, `tax_loss_harvest`, `cash_buffer_watch`,
+`concentration_watch`. Each builds an ordinary `condition` automation with a
+`run_agent` action and is created **`state="disabled"`** — only the operator arms
+it, matching the "always saved off" rule for agent-created schedules. Exposed via
+`GET/POST /automations/monitors`; `AutomationService.list_monitors` /
+`create_monitor` build from the catalogue. `portfolio/harvest.py`
+(`portfolio_harvest_candidates`) is the deterministic, proposal-only raw material
+for a tax-loss decision.
+
+**Why.** The Fiduciary Gate and ledger make a recommendation trustworthy at the
+moment it is made; monitors make the same discipline run unattended. Reusing the
+existing automation engine (rather than a second scheduler) and the existing
+portfolio engine (rather than a second analysis) keeps the surface small, and a
+closed catalogue means the agent can arm a monitor without free-form condition
+authoring.
+
+**Consequences.** `automation/facts.py` (Composite + Portfolio providers, default
+composition); `advisory/monitors.py`; `automation/service.py`
+(`list_monitors`/`create_monitor`); `routers/automation.py` (monitor routes);
+`portfolio/harvest.py` + the `portfolio_harvest_candidates` read tool; tests
+`test_automation_facts.py`, `test_advisory_monitors.py`, `test_portfolio_harvest.py`.
+Automatic outcome recording from a monitor into the ledger (closing the
+evaluation loop) remains a follow-up. Docs `docs/fiduciary-advice.md`,
+`docs/NAVIGATION.md`.

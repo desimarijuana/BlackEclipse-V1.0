@@ -21,8 +21,9 @@ import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
-import { CONVERSATIONS_STORAGE_KEY, mostRecentConversation, normalizeConversations } from '@/lib/chat/chat-organization';
+import { CONVERSATIONS_STORAGE_KEY, mostRecentConversation } from '@/lib/chat/chat-organization';
 import { useChatOrganization } from '@/lib/chat/use-chat-organization';
+import { useConversationPersistence } from '@/lib/chat/use-conversation-persistence';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { useHydrateChatAppearance } from '@/lib/chat/appearance';
 import { Message } from '@/types/chat';
@@ -450,7 +451,14 @@ function StockChatContent() {
   const saveConversations = (updated: Conversation[]) => {
     conversationsRef.current = updated;
     setConversations(updated);
-    localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(updated));
+    // Best-effort cache. localStorage can be unavailable (private mode, a
+    // sandboxed iframe, a blocked origin) — a cache write must NEVER break the
+    // in-memory chat, which is why this is guarded.
+    try {
+      localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      /* cache unavailable: the server transcript below is the durable copy */
+    }
   };
 
   // Chat organization (folders / colors / pin / rename / move) is owned by a
@@ -460,43 +468,18 @@ function StockChatContent() {
     (update) => saveConversations(update(conversationsRef.current)),
   );
   const loadChatOrganization = chatOrganization.load;
-  // Load conversations + folders from local storage
-  useEffect(() => {
-    if (!mounted) return;
-    loadChatOrganization();
-    const saved = localStorage.getItem(CONVERSATIONS_STORAGE_KEY);
-    if (saved) {
-      try {
-        // Normalize on load: backfills createdAt + folder/color/pin fields on
-        // legacy rows so older transcripts gain organization support cleanly.
-        const parsed = normalizeConversations(JSON.parse(saved));
-        conversationsRef.current = parsed;
-        setConversations(parsed);
-        // Open the most recently active chat, not the first stored one.
-        const start = mostRecentConversation(parsed);
-        if (start) {
-          activeConversationIdRef.current = start.id;
-          setActiveConversationId(start.id);
-          setMessages(start.messages);
-          void restoreWorkspaceForChat(start.messages, start.id);
-        } else {
-          activeConversationIdRef.current = null;
-          setActiveConversationId(null);
-          setMessages([]);
-          useWorkspaceStore.getState().clear();
-        }
-      } catch (err) {
-        console.error('Error loading conversations:', err);
-      }
-    } else {
-      conversationsRef.current = [];
-      setConversations([]);
-      activeConversationIdRef.current = null;
-      setActiveConversationId(null);
-      setMessages([]);
-      useWorkspaceStore.getState().clear();
-    }
-  }, [mounted, loadChatOrganization]);
+  // Local cache + server-transcript durability (hydration, merge, mirror) is
+  // owned by the persistence hook; the shell only supplies its store + refs.
+  useConversationPersistence({
+    mounted,
+    conversations,
+    conversationsRef,
+    activeConversationIdRef,
+    setConversations: (updated) => setConversations(updated),
+    setActiveConversationId: (id) => setActiveConversationId(id),
+    setMessages: (msgs) => setMessages(msgs),
+    loadOrganization: loadChatOrganization,
+  });
 
   const handleSelectConversation = (id: string) => {
     activeConversationIdRef.current = id;

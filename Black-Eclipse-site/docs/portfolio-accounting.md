@@ -289,6 +289,7 @@ names):
 |---|---|---|
 | `portfolio_list`, `portfolio_get` | read | — |
 | `portfolio_calculate_pnl` / `_exposure` / `_allocation` / `_risk` / `_tax_lots` | read | — |
+| `portfolio_harvest_candidates` (`harvest.py`) | read | — (proposal-only; wash-sale rules not modelled) |
 | `portfolio_reconcile`, `portfolio_list_reconciliations` | read | — |
 | `portfolio_attribution`, `portfolio_factor_exposure`, `portfolio_hedge`, `portfolio_aggregate` | read | — |
 | `portfolio_estimate_inputs`, `portfolio_risk_contributions`, `portfolio_stress_test`, `portfolio_transaction_costs` | read | — |

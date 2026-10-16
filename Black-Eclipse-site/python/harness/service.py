@@ -125,6 +125,13 @@ class AgenticService:
         from .portfolio.bootstrap import install_portfolio_layer  # noqa: PLC0415
 
         install_portfolio_layer(self)
+        # The Advisory Ledger: every Fiduciary Gate verdict becomes a durable
+        # decision (+ basis + outcome). Boot wiring lives in `advisory/bootstrap.py`;
+        # it reuses the ONE agent-memory connection and registers its read tools on
+        # the SAME registry.
+        from .advisory.bootstrap import install_advisory_layer  # noqa: PLC0415
+
+        install_advisory_layer(self)
         # The Quant Engine: strategy specs → event-driven backtests → metrics →
         # experiments. Boot wiring lives in `quant/bootstrap.py`; it reuses the
         # ONE agent-memory connection (strategies + experiment metadata) and the
@@ -1142,6 +1149,7 @@ class AgenticService:
             "mcp_manager": self.mcp, "code_store": self.code_store,
             "market": self._market_bundle(),
             "portfolio": self._portfolio_bundle(),
+            "advisory": getattr(self, "advisory", None),
             "quant": self._quant_bundle(),
             "code_intel_runtime": getattr(self, "code_intel", None),
             "evidence_store": getattr(self, "evidence_store", None),

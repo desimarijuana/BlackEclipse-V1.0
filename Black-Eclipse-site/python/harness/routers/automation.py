@@ -54,6 +54,26 @@ def create_automation(body: dict[str, Any] = Body(...), _: bool = Depends(requir
     return {"success": True, "automation": definition.public()}
 
 
+@router.get("/automations/monitors")
+def list_monitors(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The closed catalogue of proactive portfolio monitors."""
+    return {"success": True, "monitors": _svc().list_monitors()}
+
+
+@router.post("/automations/monitors")
+def create_monitor(body: dict[str, Any] = Body(...), _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Arm a monitor from the catalogue; it is saved OFF until the operator enables it."""
+    monitor_id = body.get("monitorId") or body.get("monitor")
+    try:
+        definition = _svc().create_monitor(
+            monitor_id, body.get("params") or {}, name=body.get("name"),
+            objective=body.get("objective"), created_by="operator",
+        )
+    except AutomationError as exc:
+        raise _domain_error(exc) from exc
+    return {"success": True, "automation": definition.public()}
+
+
 @router.get("/automations/{automation_id}")
 def get_automation(automation_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
     definition = _svc().get(automation_id)

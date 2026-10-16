@@ -5,9 +5,15 @@ Facts are supplied by a `FactProvider`; the engine never invents a value. When a
 provider cannot resolve a variable, the value is absent and the condition
 evaluates UNAVAILABLE — it does NOT fire on fabricated data.
 
-`MarketFactProvider` resolves `<SYMBOL>.<field>` paths through the ONE Market
-Data Gateway (the read-only provider path), so a market condition is grounded in
-real market data. Any failure yields no facts (honest UNAVAILABLE).
+Three providers run behind a `CompositeFactProvider` (the engine's default):
+
+  * `MarketFactProvider` — `<SYMBOL>.<field>` through the ONE Market Data Gateway,
+    so a market condition is grounded in real market data.
+  * `PortfolioFactProvider` — `pf.<portfolioId>.<field>` through the ONE portfolio
+    engine, so a portfolio condition (`weight`, `cash_pct`, `concentration`…) is
+    grounded in the user's own ledger.
+
+Any failure yields no facts (honest UNAVAILABLE).
 """
 
 from __future__ import annotations
@@ -19,6 +25,12 @@ _MARKET_FIELDS = frozenset({
     "price", "change", "change_pct", "changePct", "volume", "average_volume",
     "averageVolume", "day_high", "dayHigh", "day_low", "dayLow", "open",
     "previous_close", "previousClose", "market_cap", "marketCap",
+})
+
+# Portfolio fields a `pf.<id>.<field>[.<SYM>]` condition may reference.
+_PORTFOLIO_FIELDS = frozenset({
+    "total_value", "totalValue", "cash_pct", "cashPct", "position_count",
+    "positionCount", "concentration_hhi", "concentrationHhi", "weight", "unrealized",
 })
 
 
@@ -111,13 +123,136 @@ class MarketFactProvider:
         return facts
 
 
+class PortfolioFactProvider:
+    """Resolves `pf.<portfolioId>.<field>` variables through the portfolio engine.
+
+    Reads the portfolio's live positions/valuation (the SAME `PortfolioService.read`
+    the `portfolio_*` tools and the UI use) and derives the fact. A missing
+    portfolio, a failed read, an unpriced position or an unknown field yields NO
+    fact — the condition then evaluates UNAVAILABLE, never a fabricated number.
+    """
+
+    def __init__(self, service: Any) -> None:
+        self._service = service
+
+    async def snapshot(self, variables: Iterable[str]) -> dict[str, Any]:
+        portfolio = getattr(self._service, "portfolio", None)
+        if portfolio is None:
+            return {}
+        by_portfolio: dict[str, list[str]] = {}
+        for path in variables:
+            parts = str(path).split(".")
+            if len(parts) >= 3 and parts[0] == "pf" and parts[1]:
+                by_portfolio.setdefault(parts[1], []).append(str(path))
+        facts: dict[str, Any] = {}
+        for portfolio_id, paths in by_portfolio.items():
+            try:
+                reading = await portfolio.read(
+                    portfolio_id, include=["positions", "cash"],
+                    gateway=getattr(self._service, "market_gateway", None),
+                )
+            except Exception:  # noqa: BLE001 - a failed read is no fact, not a crash
+                continue
+            facts.update(_portfolio_facts(reading, paths))
+        return facts
+
+
+def _portfolio_facts(reading: dict[str, Any], paths: list[str]) -> dict[str, Any]:
+    positions = list(reading.get("positions") or [])
+    valuation = reading.get("valuation") or {}
+    total = _float_or_none(valuation.get("totalValue"))
+    cash = _float_or_none((reading.get("cash") or {}).get("balance"))
+    by_symbol = {str(p.get("symbol", "")).upper(): p for p in positions}
+    weights = [float(p["weight"]) / 100.0 for p in positions
+               if isinstance(p.get("weight"), (int, float))]
+    hhi = sum(w * w for w in weights)
+
+    facts: dict[str, Any] = {}
+    for path in paths:
+        parts = path.split(".")
+        field = parts[2] if len(parts) > 2 else ""
+        symbol = parts[3].upper() if len(parts) > 3 else None
+        value = _resolve_portfolio_field(field, symbol, positions, by_symbol, total, cash, hhi)
+        if value is not None:
+            facts[path] = value
+    return facts
+
+
+def _resolve_portfolio_field(
+    field: str, symbol: Optional[str], positions: list[dict[str, Any]],
+    by_symbol: dict[str, dict[str, Any]], total: Optional[float], cash: Optional[float],
+    hhi: float,
+) -> Any:
+    lowered = field.lower()
+    if lowered in ("total_value", "totalvalue"):
+        return total
+    if lowered in ("cash_pct", "cashpct"):
+        if total and cash is not None and total > 0:
+            return cash / total
+        return None
+    if lowered in ("position_count", "positioncount"):
+        return len(positions)
+    if lowered in ("concentration_hhi", "concentrationhhi"):
+        return hhi
+    if lowered == "weight" and symbol:
+        position = by_symbol.get(symbol)
+        weight = position.get("weight") if position else None
+        return float(weight) / 100.0 if isinstance(weight, (int, float)) else None
+    if lowered == "unrealized" and symbol:
+        position = by_symbol.get(symbol)
+        return _float_or_none(position.get("unrealizedPnlBase")) if position else None
+    return None
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+class CompositeFactProvider:
+    """Merges several providers; the first to resolve a variable wins.
+
+    A provider that cannot resolve a variable contributes nothing — the engine
+    then sees the variable as missing (UNAVAILABLE). A provider that raises is
+    skipped, never allowed to break the tick.
+    """
+
+    def __init__(self, providers: Iterable[FactProvider]) -> None:
+        self._providers = list(providers)
+
+    async def snapshot(self, variables: Iterable[str]) -> dict[str, Any]:
+        remaining = set(variables)
+        facts: dict[str, Any] = {}
+        for provider in self._providers:
+            if not remaining:
+                break
+            try:
+                resolved = await provider.snapshot(remaining)
+            except Exception:  # noqa: BLE001 - one provider failing is not fatal
+                continue
+            for key, value in (resolved or {}).items():
+                if key in remaining and value is not None:
+                    facts[key] = value
+                    remaining.discard(key)
+        return facts
+
+
 def default_fact_provider(service: Any) -> FactProvider:
-    return MarketFactProvider(service)
+    return CompositeFactProvider([
+        MarketFactProvider(service),
+        PortfolioFactProvider(service),
+    ])
 
 
 __all__ = [
+    "CompositeFactProvider",
     "FactProvider",
     "MarketFactProvider",
+    "PortfolioFactProvider",
     "StaticFactProvider",
     "default_fact_provider",
 ]

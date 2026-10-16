@@ -883,10 +883,12 @@ function SectionRow({
         </div>
       )}
 
-      {/* items-start (not stretch): a short column must NOT grow to the height
-          of its tallest sibling — that is what produced blank tail space under
-          short widgets. Each card owns its own pinned height. */}
-      <div className={cn('flex flex-col md:flex-row items-start', dense ? 'gap-1.5' : 'gap-2.5')}>
+      {/* Stacked below `md` (full-width, content-height columns); side-by-side
+          as horizontal tracks from `md` up. `items-start` on desktop only: a
+          short column must NOT grow to the height of its tallest sibling (that
+          produced blank tail space). `items-stretch` while stacked so columns
+          span the section width instead of shrinking to fit. */}
+      <div className={cn('flex flex-col items-stretch md:flex-row md:items-start', dense ? 'gap-1.5' : 'gap-2.5')}>
         {section.columns.map((column, colIdx) => (
           <React.Fragment key={column.id}>
             <ColumnDroppable
@@ -982,14 +984,18 @@ function ColumnDroppable({
         onEmptyColumnClick({ x: e.clientX, y: e.clientY });
       } : undefined}
       className={cn(
-        'relative flex flex-col min-h-[40px] min-w-0 flex-1 transition-all',
+        // Stacked (< md): a full-width block that sizes to its own content — no
+        // flex grow/basis, which in a column-direction parent would collapse the
+        // column to `min-h` and let widgets overflow onto the next one.
+        // Side-by-side (md+): a horizontal track with the column's width weight.
+        'relative flex flex-col min-h-[40px] min-w-0 w-full transition-all md:shrink md:grow-[var(--col-w)] md:basis-0',
         dense ? 'gap-1.5' : 'gap-2.5',
         editMode && 'rounded-2xl outline-1 outline-dashed outline-border/20 p-1.5 -m-1.5',
         dragging && 'rounded-2xl outline-1 outline-dashed outline-border/30',
         colIsTarget && 'rounded-2xl outline-1 outline-dashed outline-primary/50',
         grabbedId && column.widgets.length === 0 && 'cursor-pointer',
       )}
-      style={{ flexGrow: column.weight, flexBasis: 0 }}
+      style={{ '--col-w': column.weight } as React.CSSProperties}
     >
       {widgets}
 

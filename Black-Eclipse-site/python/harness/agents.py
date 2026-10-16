@@ -45,6 +45,9 @@ from .factors.tools import FACTOR_TOOLS
 # imported as the ONE canonical list so the allowlist cannot drift. A `portfolio_`
 # name whose layer failed to install is simply unregistered and never advertised.
 from .portfolio.tools import PORTFOLIO_TOOLS
+# The Advisory Ledger tools (`advisory_*`). Registered by `advisory/bootstrap.py`;
+# imported as the ONE canonical list so the allowlist cannot drift.
+from .advisory.tools import ADVISORY_TOOLS
 # The ML Research Lab tools (`ml_*`). Registered by `ml/bootstrap.py` on the SAME
 # registry; imported as the ONE canonical list so the allowlist cannot drift.
 from .ml.tools import ML_TOOLS
@@ -351,6 +354,9 @@ ECLIPSE_AGENT = AgentConfig(
         # Read/compute tools are always available; the rebalance/optimize/construct
         # proposals are effect-gated (they never place trades).
         *PORTFOLIO_TOOLS,
+        # Advisory Ledger: recall past recommendations and their outcomes
+        # (read-only; the ledger is written by the runtime, not a model call).
+        *ADVISORY_TOOLS,
         # ML Research Lab: leakage-safe dataset construction, chronological/walk-
         # forward/purged splits, native + optional model adapters, experiment runs,
         # metric evaluation and a versioned model registry with reproduction.

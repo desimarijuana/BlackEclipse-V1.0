@@ -153,6 +153,27 @@ async def portfolio_calculate_allocation(args: dict[str, Any], ctx: Any) -> tupl
     return text, {"portfolio": reading["portfolio"], "allocation": reading["allocation"], "dimension": dimension}
 
 
+async def portfolio_harvest_candidates(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    from .harvest import harvest_candidates
+    service = _service(ctx)
+    try:
+        reading = await service.read(
+            args["portfolio_id"], include=["positions", "cash"],
+            gateway=getattr(ctx, "market_gateway", None), actor_id=_actor(ctx),
+        )
+    except PortfolioError as exc:
+        return _fail(exc)
+    result = harvest_candidates(
+        reading["positions"], threshold=args.get("threshold") or 0.0,
+        base_currency=reading["portfolio"]["baseCurrency"], limit=args.get("limit"),
+    )
+    text = (
+        f"{result['count']} tax-loss harvest candidate(s) with an unrealized loss of at "
+        f"least {result['threshold']} {result['baseCurrency']}. {result['note']}"
+    )
+    return text, result
+
+
 async def portfolio_calculate_risk(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     service = _service(ctx)
     try:
@@ -700,6 +721,14 @@ def register_portfolio_tools(registry: Any) -> None:
          portfolio_calculate_tax_lots,
          {"type": "object", "properties": {**pid, "symbol": {"type": "string"}}, "required": ["portfolio_id"]},
          READ)
+    _def("portfolio_harvest_candidates",
+         "Positions with an unrealized loss beyond a threshold — the raw material for a "
+         "tax-loss harvest. Proposal only; wash-sale rules are not modelled.",
+         portfolio_harvest_candidates,
+         {"type": "object", "properties": {
+             **pid, "threshold": {"type": "number"},
+             "limit": {"type": "integer"}}, "required": ["portfolio_id"]},
+         READ)
     _def("portfolio_add_position",
          "Add a position by recording a BUY (or TRANSFER_IN) transaction; tax lots and the derived "
          "position are updated. Never a blind quantity UPDATE.",
@@ -1051,6 +1080,7 @@ PORTFOLIO_READ_TOOLS = [
     "portfolio_transaction_costs", "portfolio_compare_allocations",
     "portfolio_estimate_factor_loadings", "portfolio_simulate_rebalancing",
     "portfolio_list_runs", "portfolio_get_run", "portfolio_factor_risk",
+    "portfolio_harvest_candidates",
 ]
 PORTFOLIO_WRITE_TOOLS = [
     "portfolio_create", "portfolio_add_position", "portfolio_remove_position",

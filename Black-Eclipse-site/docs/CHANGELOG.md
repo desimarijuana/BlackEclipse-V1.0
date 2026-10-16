@@ -8,6 +8,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-16
 
+- **Fix: boot build error `Module not found: Can't resolve 'fs'`.** The boot
+  refactor moved the deferred pipeline's dynamic imports out of the constant
+  `if (process.env.NEXT_RUNTIME === "nodejs")` block into a top-level helper, so
+  webpack followed `investor-eye/scheduler → @/lib/db →
+  @prisma/adapter-better-sqlite3 → better-sqlite3/bindings → fs` into the Edge
+  bundle (the app ships a middleware). Rewrapped the whole helper body in the
+  constant `nodejs` guard so webpack's ConstPlugin drops the server-only import
+  graph from the Edge build; deferred-boot behaviour is unchanged.
+  no doc change — build-config bug fix, no architecture or contract change.
+
 - **Proactive monitors (Fiduciary Gate, Phase 3): portfolio conditions that run
   unattended.** The Automation Engine's condition triggers gained a portfolio
   lens: a `CompositeFactProvider` now composes the market provider with a new

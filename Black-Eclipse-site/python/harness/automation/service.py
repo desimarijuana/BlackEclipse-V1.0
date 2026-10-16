@@ -124,6 +124,27 @@ class AutomationService:
     def list(self, *, limit: int = 200, scope_id: Optional[str] = None, state: Optional[str] = None) -> list[AutomationDefinition]:
         return self._store.list_automations(limit=limit, scope_id=scope_id, state=state)
 
+    # ── Proactive monitors (§ Phase 3) ────────────────────────────────────────
+    def list_monitors(self) -> list[dict[str, Any]]:
+        """The closed catalogue of portfolio monitors a user may arm."""
+        from ..advisory.monitors import list_monitors  # noqa: PLC0415
+
+        return list_monitors()
+
+    def create_monitor(
+        self, monitor_id: str, params: dict[str, Any], *,
+        name: Optional[str] = None, objective: Optional[str] = None,
+        created_by: Optional[str] = None,
+    ) -> AutomationDefinition:
+        """Arm a monitor from the catalogue. Saved OFF; the operator turns it on."""
+        from ..advisory.monitors import build_definition  # noqa: PLC0415
+
+        try:
+            definition = build_definition(monitor_id, params or {}, name=name, objective=objective)
+        except ValueError as exc:
+            raise AutomationError("INVALID_MONITOR", str(exc)) from exc
+        return self.create_definition(definition, created_by=created_by)
+
     def update(
         self, automation_id: str, patch: dict[str, Any], *, updated_by: Optional[str] = None,
     ) -> AutomationDefinition:

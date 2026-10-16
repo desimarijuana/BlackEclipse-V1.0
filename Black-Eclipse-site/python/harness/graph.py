@@ -401,10 +401,19 @@ def build_graph(
     # The run's internet-image result collector, so an `image_search`/`render_
     # image_gallery` tool's validated results reach the chat's inline gallery.
     image_sink: Optional[Any] = None,
+    # The run's advisory collector (the Fiduciary Gate), so every `portfolio_*`
+    # tool call is recorded and an actionable recommendation in the final answer
+    # can be verified against a computation the run actually performed.
+    advisory_sink: Optional[Any] = None,
+    # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
+    advisory_service: Optional[Any] = None,
     market: Optional[Any] = None,
     # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
     # the ONE ledger/valuation service (reusing the per-run market gateway).
     portfolio: Optional[Any] = None,
+    # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger and
+    # the answer seam can persist each Fiduciary Gate verdict as a decision.
+    advisory: Optional[Any] = None,
     # The Quant Engine bundle (store), so the `quant_*` tools can persist
     # strategies and experiments on the ONE agent-memory connection.
     quant: Optional[Any] = None,
@@ -556,6 +565,11 @@ def build_graph(
         # The run's internet-image collector: `image_search` hands validated
         # results here so they render inline in the chat (never fabricated).
         image_sink=image_sink,
+        # The run's advisory collector: every `portfolio_*` tool call is recorded
+        # here so the answer seam can verify actionable advice (the Fiduciary Gate).
+        advisory_sink=advisory_sink,
+        # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
+        advisory_service=advisory_service,
         # The Market Data Layer: gateway (routing + quality), durable snapshot/
         # instrument store and stream manager, as one bundle. Shared process-wide.
         market_gateway=getattr(market, "gateway", None),
@@ -1059,6 +1073,7 @@ async def execute_run(
     learning_store: Optional[Any] = None,
     market: Optional[Any] = None,
     portfolio: Optional[Any] = None,
+    advisory: Optional[Any] = None,
     quant: Optional[Any] = None,
     search: Optional[Any] = None,
     artifact_service: Optional[Any] = None,
@@ -1291,6 +1306,13 @@ async def execute_run(
 
     source_collector = SourceCollector()
 
+    # Ordinary-run advisory collection (the Fiduciary Gate): every `portfolio_*`
+    # tool call is recorded so an actionable recommendation in the final answer
+    # can be checked against a computation the run ACTUALLY performed.
+    from .advisory import integration as advisory_seam  # noqa: PLC0415
+
+    advisory_collector = advisory_seam.new_collector()
+
     # Ordinary-run vision collection: a `vision_*` tool hands its structured
     # result here so the run carries a bounded vision blob for the right sidebar
     # (asset ids, regions, OCR, confidence, provenance). Additive and best-effort.
@@ -1374,8 +1396,10 @@ async def execute_run(
             vision_sink=vision_collector.add,
             document_sink=document_collector.add,
             image_sink=image_collector.add,
+            advisory_sink=advisory_collector.add,
             market=market,
             portfolio=portfolio,
+            advisory_service=advisory,
             quant=quant,
             search=search,
             artifact_service=artifact_service,
@@ -1505,6 +1529,23 @@ async def execute_run(
     output, evidence_release = await release_gate.apply(
         output, source_collector, emitter=emitter, user_text=request.input.query,
     )
+    # Fiduciary Gate (advisory): an actionable recommendation must be backed by a
+    # portfolio computation the run performed, or grounded in a source/symbol it
+    # consulted; otherwise it is disclosed as unverified advice. Never places a trade.
+    output, advisory_verdict = await advisory_seam.verify(output, advisory_collector, emitter)
+    # Persist each verdict as a durable decision in the Advisory Ledger (the
+    # "what did I recommend, on what basis" record). Best-effort and idempotent.
+    if advisory is not None and advisory_verdict and advisory_verdict.get("claims"):
+        try:
+            advisory.record_verdict(
+                run_id=request.runId, verdict=advisory_verdict,
+                portfolio_id=advisory_collector.portfolio_id(),
+                conversation_id=getattr(request, "conversationId", None),
+                owner_id=request.userId,
+                sources=sorted(source_collector.known_urls())[:20],
+            )
+        except Exception:  # noqa: BLE001 - recording must never fail a run
+            pass
     context_blob = _context_budget_blob(
         final_budget, request, kind="completed", retried=retry_budget is not None,
     )
@@ -1513,6 +1554,9 @@ async def execute_run(
     # run's collected blob carries status `collected`, distinct from a gated
     # research run's `accepted`/`partial`/`rejected`.
     research_blob = release_gate.attach(source_collector.to_research_blob(), evidence_release)
+    # Attach the advisory verdict to the run blob so the panel can show which
+    # recommendations were computed/sourced vs. disclosed as unverified.
+    research_blob = advisory_seam.attach(research_blob, advisory_verdict)
     # Vision results collected from this run's `vision_*` tool calls (None when no
     # vision tool ran), shaped for the right sidebar.
     vision_blob = vision_collector.to_blob()
