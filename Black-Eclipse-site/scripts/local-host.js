@@ -108,7 +108,7 @@ function runLocalHost({ mode = "dev", port = process.env.PORT || "3000" } = {}) 
     log("tip: run `npm run setup:tls` once to serve https and enable desktop notifications.");
   }
 
-  const args = [nextBin(), mode === "start" ? "start" : "dev", "-p", String(port), "-H", APP_HOST];
+  const args = [nextBin(), mode === "start" ? "start" : "dev", ...(mode === "start" ? [] : ["--turbopack"]), "-p", String(port), "-H", APP_HOST];
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
     stdio: ["inherit", "pipe", "pipe"],

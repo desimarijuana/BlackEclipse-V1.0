@@ -8,6 +8,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-16
 
+- **Dev/ops: `next dev` now runs on Turbopack; production is the fast path.**
+  Running the app under the webpack `next dev` server compiled ~19k modules on
+  demand AND ballooned the process to ~6.6GB, pushing the host to its commit
+  limit (25/30GB) so a page load took MINUTES. Added `--turbopack` to the dev
+  commands (`dev:next`, `dev:local`, and the `local-host.js` dev spawn): ready in
+  ~3s (vs ~10s) and first-page compile ~34s (vs ~71s) with a small heap.
+  Production (`npm run up` / `black eclipse`) remains the recommended way to USE
+  the app — prebuilt chunks serve in ~40–130ms with a ~430MB process.
+  docs updated: `docs/QUICKSTART.md` (dev commands + dev-vs-up note).
+
 - **Fix: boot build error `Module not found: Can't resolve 'fs'`.** The boot
   refactor moved the deferred pipeline's dynamic imports out of the constant
   `if (process.env.NEXT_RUNTIME === "nodejs")` block into a top-level helper, so

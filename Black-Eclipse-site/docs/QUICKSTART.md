@@ -64,9 +64,9 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 
 | Script | What it does |
 |---|---|
-| `npm run dev` | App + local proxy together, shown as `http://blackeclipse` (`predev` runs the doctor + frees the port) |
-| `npm run dev:next` | The raw, unchanged `next dev` on all interfaces (no proxy) |
-| `npm run dev:local` | Dev server bound to `127.0.0.1` only (keeps it off the LAN, no proxy) |
+| `npm run dev` | App + local proxy together, shown as `http://blackeclipse` (`predev` runs the doctor + frees the port); Next runs on **Turbopack** |
+| `npm run dev:next` | `next dev --turbopack` on all interfaces (no proxy) |
+| `npm run dev:local` | Dev server on **Turbopack**, bound to `127.0.0.1` only (keeps it off the LAN, no proxy) |
 | `npm run proxy` / `npm run proxy:stop` | Loopback reverse proxy on `:80` so `http://blackeclipse` reaches `:3000` — see [`local-hostname.md`](./local-hostname.md) |
 | `npm run setup:hostname` | Adds `127.0.0.1 blackeclipse` to the Windows hosts file (self-elevating) |
 | `npm run up` | Doctor + `scripts/up.js` (the "just make it work" path) |
@@ -74,14 +74,18 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 | `npm test` | Vitest unit tests |
 | `npm run lint` | ESLint |
 
-> **`next dev` vs `npm run up` on a loaded machine.** `next dev` compiles the
-> ~19k-module graph on demand. Under memory pressure a cold route compile can
-> exceed the browser's chunk-load budget and surface as a `ChunkLoadError` or an
-> "Invalid or unexpected token" overlay in the browser — that is a slow compile,
-> **not** a syntax error in your source (`npx tsc --noEmit` and `next build`
-> both pass). The dev chunk budget is raised in `next.config.ts`, but if you only
-> need to *use* the app, prefer `npm run up`: production chunks are prebuilt and
-> serve instantly.
+> **`next dev` vs `npm run up` on a loaded machine.** `npm run dev` now runs
+> Next on **Turbopack** (`--turbopack`): ready in ~3s and a first-page compile of
+> ~34s instead of the old webpack dev server's ~10s-ready + ~71s compile — and it
+> no longer balloons to multiple GB of heap. It still compiles the ~19k-module
+> graph on demand, so the FIRST visit to a route takes tens of seconds and a cold
+> build under memory pressure can exceed the browser's chunk-load budget,
+> surfacing as a `ChunkLoadError` or an "Invalid or unexpected token" overlay —
+> that is a slow compile, **not** a syntax error in your source
+> (`npx tsc --noEmit` and `next build` both pass; the `next.config.ts` webpack
+> chunk budget is ignored under Turbopack and no longer needed). If you only need
+> to *use* the app, prefer `npm run up`: production chunks are prebuilt and serve
+> instantly (first paint ~200ms, no per-route compile).
 
 ### Headless one-shot (scripting / CI)
 
