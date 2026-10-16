@@ -242,6 +242,9 @@ class UiBlueprint(BaseModel):
     owner: BlueprintOwner = Field(default_factory=BlueprintOwner)
     scope: BlueprintScope = BlueprintScope.PERSONAL
     path: Optional[str] = Field(None, max_length=MAX_PATH)
+    #: A page-level icon NAME resolved by the host icon registry (a name, never
+    #: code/URL). Distinct from the chat response-block icon enum.
+    icon: Optional[str] = Field(None, max_length=60)
     tags: Optional[list[str]] = None
     layout: WorkspaceLayout = Field(default_factory=WorkspaceLayout)
     revision: int = Field(1, ge=1)
@@ -266,6 +269,7 @@ class BlueprintSummary(BaseModel):
     scope: BlueprintScope
     owner_id: str
     path: Optional[str] = None
+    icon: Optional[str] = None
     revision: int
     updated_at: str
     widget_count: int
@@ -317,6 +321,7 @@ class CreatePageInput(BaseModel):
     kind: BlueprintKind = BlueprintKind.PAGE
     scope: BlueprintScope = BlueprintScope.PERSONAL
     path: Optional[str] = Field(None, max_length=MAX_PATH)
+    icon: Optional[str] = Field(None, max_length=60)
     tags: list[str] = Field(default_factory=list)
     idempotency_key: Optional[str] = Field(None, max_length=200)
 
@@ -327,6 +332,7 @@ class UpdatePageInput(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=MAX_TITLE)
     description: Optional[str] = Field(None, max_length=MAX_DESCRIPTION)
     path: Optional[str] = Field(None, max_length=MAX_PATH)
+    icon: Optional[str] = Field(None, max_length=60)
     tags: Optional[list[str]] = None
 
 

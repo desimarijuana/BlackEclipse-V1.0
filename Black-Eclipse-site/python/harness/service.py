@@ -949,15 +949,15 @@ class AgenticService:
         # Orphaned agent runs: the runtime executes runs in-process, so any run
         # left `created`/`running` by a previous process can never finish. Mark
         # it failed with a durable run.failed event so a watching client sees a
-        # terminal state instead of waiting forever.
+        # terminal state instead of waiting forever. Guarded so a duplicate
+        # process that is about to fail its port bind does NOT reconcile (and
+        # orphan) the runs a live runtime is executing — see `run_recovery`.
         try:
-            from .run_recovery import fail_orphaned_runs  # noqa: PLC0415
+            from .run_recovery import reconcile_orphaned_runs  # noqa: PLC0415
 
-            result["orphanedRuns"] = {
-                "failed": fail_orphaned_runs(
-                    self.store, "the agent runtime restarted while this run was in flight"
-                )
-            }
+            result["orphanedRuns"] = reconcile_orphaned_runs(
+                self.store, "the agent runtime restarted while this run was in flight"
+            )
         except Exception:  # noqa: BLE001 - reconciliation must never block boot
             log.warning("orphaned run reconciliation failed", exc_info=True)
             result["orphanedRuns"] = {"ok": False, "error": "reconciliation failed"}

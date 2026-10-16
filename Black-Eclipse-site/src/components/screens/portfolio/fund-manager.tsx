@@ -234,7 +234,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Portfolio</h1>
           <p className="text-muted-foreground text-xs mt-0.5">Funds, ledgers and custom workspaces — everything is stored locally on this device.</p>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5 pr-40">
           <input
             ref={fileRef} type="file" accept=".json,.csv" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImportFile(f); e.target.value = ''; }}

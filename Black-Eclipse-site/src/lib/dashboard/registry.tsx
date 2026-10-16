@@ -56,6 +56,7 @@ import {
   LiveIntelligenceWidget, LIVE_INTELLIGENCE_MUTED_FIELD, LIVE_INTELLIGENCE_AUTOPLAY_FIELD,
 } from './live-intelligence-widget';
 import { MARKET_RAIL_WIDGETS, marketPanelIcon } from './market-rail-widgets';
+import { SOURCE_WIDGETS } from '@/lib/workspace/generic-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
 // fetches per topic and only subscribes for visible widgets.
@@ -240,6 +241,13 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   // templates (templates.ts) keep pointing at the same widgets.
   def('investor-eye-map', 'intelligence', 'Investor Eye Map', 'Interactive world map / 3D globe of the live event layers.', 'map-pin', ['medium', 'large', 'full'], (p) => <InvestorEyeMapWidget placement={p} />, ['investor-eye:state:24'],
     [INVESTOR_EYE_MAP_RANGE_FIELD], { range: '24h' }),
+
+  // ── Generic source-driven primitives (appended LAST to preserve index-based
+  //    persona templates). These render whatever `data-source.ts` resolves for
+  //    their `source` config, so an agent can surface a portfolio (or any other
+  //    allow-listed source) on ANY page, not just the Command Center. See
+  //    `src/lib/workspace/generic-widgets.tsx`. ──
+  ...SOURCE_WIDGETS,
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
@@ -249,8 +257,27 @@ export function getWidgetDefinition(id: string): WidgetDefinition | undefined {
 }
 export function renderDashboardWidget(widgetId: string, placement: WidgetPlacement): React.ReactNode {
   const def = getWidgetDefinition(widgetId);
-  if (!def) return <div className="p-4 text-xs text-muted-foreground">Unknown widget: {widgetId}</div>;
-  return def.render ? def.render(placement) : <div className="p-4 text-xs text-muted-foreground">No renderer for {widgetId}</div>;
+  if (!def || !def.render) {
+    // A widget that exists in a blueprint but has no host renderer yet (an
+    // agent-added or engineered component). Keep it VISIBLE with an honest
+    // state instead of silently dropping it.
+    return (
+      <div className="flex h-full flex-col p-4">
+        <div className="flex items-center justify-between gap-2 border-b border-border/10 pb-2.5 mb-3">
+          <h3 className="truncate font-serif text-sm font-semibold text-foreground">Needs a renderer</h3>
+          <span className="shrink-0 rounded border border-amber-500/25 bg-amber-500/10 px-1 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wide text-amber-400">
+            unavailable
+          </span>
+        </div>
+        <div className="flex flex-1 items-center justify-center text-center">
+          <p className="max-w-[30ch] text-xs italic text-amber-400/80">
+            The component “{widgetId}” is in this page but has no installed renderer yet. The Engineer path can add one.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return def.render(placement);
 }
 
 function UnavailableStub(label: string) {

@@ -29,6 +29,11 @@ describe('pageStorageKey', () => {
   it('is derived from the blueprint id', () => {
     expect(pageStorageKey('uibp_1')).toBe('be_ui_page_uibp_1');
   });
+
+  it('scopes the cache by revision so a new revision seeds fresh', () => {
+    expect(pageStorageKey('uibp_1', 3)).toBe('be_ui_page_uibp_1_r3');
+    expect(pageStorageKey('uibp_1', 4)).not.toBe(pageStorageKey('uibp_1', 3));
+  });
 });
 
 describe('blueprintLayoutToKernel', () => {

@@ -10,6 +10,7 @@
 //   ONE-SHOT — a poll watch deactivates itself after firing (row survives)
 
 import { prisma } from "@/lib/db";
+import { getConfigJSON, setConfigJSON } from "@/lib/settings";
 import { evaluateConditions, describeFire, needsCandles, type ConditionDetail } from "./conditionEvaluator";
 import {
   MIN_INTERVAL_SEC,
@@ -28,11 +29,38 @@ interface WatchRuntime {
   timer: NodeJS.Timeout | null;
   running: boolean; // reentrancy flag
   armed: Map<string, boolean>; // symbol → last condition state (edge gate)
+  /** Whether `armed` has been hydrated from durable state yet. */
+  armedLoaded: boolean;
   removed: boolean;
 }
 
 const runtimes = new Map<string, WatchRuntime>();
 let started = false;
+
+/** Durable per-symbol edge state, so a restart/edit does not refire an already
+ *  true condition. Keyed per watch in SystemConfig (no schema change). */
+function armedKey(id: string): string {
+  return `alerts:armed:${id}`;
+}
+
+async function loadArmed(id: string): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
+  try {
+    const stored = await getConfigJSON<Record<string, boolean>>(armedKey(id), {});
+    for (const [sym, val] of Object.entries(stored)) map.set(sym, Boolean(val));
+  } catch {
+    /* unreadable config → treat as no prior state */
+  }
+  return map;
+}
+
+async function saveArmed(id: string, armed: Map<string, boolean>): Promise<void> {
+  try {
+    await setConfigJSON(armedKey(id), Object.fromEntries(armed));
+  } catch {
+    /* persistence is best-effort; the in-memory gate still works */
+  }
+}
 
 export const HEADLESS_ENV = process.env.BE_HEADLESS_SELFTEST === "1";
 
@@ -73,7 +101,7 @@ export function isWatchRunning(id: string): boolean {
 export function startWatch(id: string): void {
   if (HEADLESS_ENV) return;
   stopWatch(id);
-  const rt: WatchRuntime = { timer: null, running: false, armed: new Map(), removed: false };
+  const rt: WatchRuntime = { timer: null, running: false, armed: new Map(), armedLoaded: false, removed: false };
   runtimes.set(id, rt);
   const tick = async () => {
     await evaluateOnce(id, rt);
@@ -114,6 +142,14 @@ export async function evaluateOnce(id: string, rtIn?: WatchRuntime): Promise<voi
   if (rt) rt.running = true;
 
   try {
+    // Hydrate durable edge state once per runtime so a restart, edit or boot
+    // does not re-fire a condition that was already true (anti-spam).
+    if (rt && !rt.armedLoaded) {
+      const stored = await loadArmed(id);
+      for (const [sym, val] of stored) rt.armed.set(sym, val);
+      rt.armedLoaded = true;
+    }
+
     const symbols = JSON.parse(alert.symbols) as string[];
     const conditions = JSON.parse(alert.conditions);
     const logic = (alert.logic === "OR" ? "OR" : "AND") as Logic;
@@ -136,7 +172,7 @@ export async function evaluateOnce(id: string, rtIn?: WatchRuntime): Promise<voi
       }
     }
 
-    const snaps = await fetchSnapshots(alert.market, symbols);
+    const snaps = await fetchSnapshots(alert.market, symbols, alert.dataSource);
     if (snaps.size === 0) {
       await setStatus(id, "error", "no snapshot data available");
       return;
@@ -144,6 +180,7 @@ export async function evaluateOnce(id: string, rtIn?: WatchRuntime): Promise<voi
 
     const firedNow: Array<{ symbol: string; details: ConditionDetail[] }> = [];
     const anyError = { v: false };
+    let armedChanged = false;
 
     for (const [symbol, snap] of snaps) {
       const window = snapshotWindow(snap);
@@ -158,6 +195,7 @@ export async function evaluateOnce(id: string, rtIn?: WatchRuntime): Promise<voi
       const prevArmed = rt?.armed.get(symbol) ?? false; // new watch: prev state unknown → treat as false so an already-true condition fires once
       const edgeOk = !prevArmed; // fresh false→true only
       // Update arm state BEFORE dispatch so a mid-fire removal stays consistent.
+      if (rt && (rt.armed.get(symbol) ?? false) !== result.triggered) armedChanged = true;
       rt?.armed.set(symbol, result.triggered);
 
       if (!result.triggered || !edgeOk) continue;
@@ -170,6 +208,10 @@ export async function evaluateOnce(id: string, rtIn?: WatchRuntime): Promise<voi
 
       firedNow.push({ symbol, details: result.details });
     }
+
+    // Persist the edge state only when it moved, so a restart/edit re-arms
+    // faithfully instead of re-firing an already-true condition.
+    if (rt && armedChanged) await saveArmed(id, rt.armed);
 
     if (firedNow.length > 0) {
       for (const f of firedNow) {
@@ -191,6 +233,10 @@ export async function evaluateOnce(id: string, rtIn?: WatchRuntime): Promise<voi
           active: false,
         },
       });
+      // Clearing the durable edge state means re-enabling this watch starts a
+      // fresh arm (it may fire once again), rather than being permanently muted
+      // by a stored "already true".
+      await saveArmed(id, new Map());
       stopWatch(id);
       return;
     }

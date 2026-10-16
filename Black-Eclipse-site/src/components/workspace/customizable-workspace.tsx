@@ -32,6 +32,12 @@ export interface CustomizableWorkspaceProps {
   defaultLayout: WorkspaceLayout;
   /** Widget definitions for this page. */
   widgets: WidgetDefinition[];
+  /**
+   * Widget ids the workspace should KEEP even if they have no definition (e.g.
+   * a widget an agent added that the host registry does not render yet). Defaults
+   * to the ids of `widgets`. Pass a superset to avoid silently dropping them.
+   */
+  knownWidgetIds?: string[];
   /** Resolve a widget's icon by name (lucide). */
   widgetIcon: (name: string) => React.ComponentType<{ size?: number; className?: string }>;
   /** Render a widget's content. */
@@ -74,6 +80,7 @@ export function CustomizableWorkspace({
   storageKey,
   defaultLayout,
   widgets,
+  knownWidgetIds,
   widgetIcon,
   renderWidget,
   editBarExtra,
@@ -90,7 +97,7 @@ export function CustomizableWorkspace({
   className,
 }: CustomizableWorkspaceProps) {
   const widgetIds = useMemo(() => widgets.map(w => w.id), [widgets]);
-  const workspace = useWorkspace({ storageKey, defaultLayout, knownWidgetIds: widgetIds });
+  const workspace = useWorkspace({ storageKey, defaultLayout, knownWidgetIds: knownWidgetIds ?? widgetIds });
   // Merge the legacy rail* aliases into zones.right so old callers keep working.
   const resolvedZones = useMemo(() => {
     const hasLegacyRight = Boolean(railClassName || railHeader || railCollapsed || onToggleRail);

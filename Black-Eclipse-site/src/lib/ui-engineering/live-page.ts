@@ -23,9 +23,14 @@ import type {
 /** localStorage key under which a live page's user arrangement is cached. */
 export const LIVE_PAGE_STORAGE_PREFIX = 'be_ui_page_';
 
-/** The per-page caches live render entries under. Derived from the blueprint id. */
-export function pageStorageKey(blueprintId: string): string {
-  return `${LIVE_PAGE_STORAGE_PREFIX}${blueprintId}`;
+/**
+ * The per-page cache key. Derived from the blueprint id AND (when given) its
+ * revision, so a new durable revision — an agent edit, or the user's own
+ * "Save to page" — seeds a fresh workspace instead of being shadowed by a
+ * stale local arrangement. Omitting the revision keeps the legacy key.
+ */
+export function pageStorageKey(blueprintId: string, revision?: number): string {
+  return `${LIVE_PAGE_STORAGE_PREFIX}${blueprintId}${revision != null ? `_r${revision}` : ''}`;
 }
 
 function asZone(value: unknown): WorkspaceZone | undefined {

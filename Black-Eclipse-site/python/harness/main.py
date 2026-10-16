@@ -77,7 +77,7 @@ from .routers.quant import router as quant_router
 from .routers.research import router as research_router
 from .routers.research_data import router as research_data_router
 from .routers.search import router as search_router
-from .routers.security import router as security_router
+from .routers.security import router as security_router, security_health_safe
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.tasks import router as tasks_router
@@ -203,7 +203,7 @@ def health() -> dict[str, Any]:
         # Browser Automation Runtime: honest availability + the provider list.
         # Content-free; a missing Playwright/Chromium reads as available:false.
         "browser": browser_health(),
-        "security": (service.security.health() if getattr(service, "security", None) is not None else {"ok": False, "available": False}),
+        "security": security_health_safe(),
     }
 
 def _runtime_readiness() -> dict[str, Any]:

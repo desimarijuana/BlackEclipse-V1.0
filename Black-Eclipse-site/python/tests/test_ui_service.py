@@ -17,6 +17,7 @@ from harness.ui.model import (
     SaveLayoutInput,
     UiComponentSpec,
     UpdateConfigInput,
+    UpdatePageInput,
     WorkspaceColumn,
     WorkspaceLayout,
     WorkspaceSection,
@@ -193,6 +194,15 @@ def test_get_blueprint_owner_mismatch_is_distinct(ui):
     assert missing.value.code == "UI_BLUEPRINT_NOT_FOUND"
 
 
+def test_page_icon_round_trips(ui):
+    page_id = ui.create_page(CreatePageInput(title="With icon", icon="wallet")).id
+    assert ui.get_blueprint(page_id).icon == "wallet"
+    listed = next(b for b in ui.list_blueprints()["blueprints"] if b["id"] == page_id)
+    assert listed["icon"] == "wallet"
+    updated = ui.update_page(page_id, UpdatePageInput(icon="activity"))
+    assert updated.icon == "activity"
+
+
 def test_blueprint_summary_carries_path_and_components(ui):
     # Defect 4: pages that share a title are distinguishable via path + widgets.
     ui.create_page(CreatePageInput(title="Main", path="/main-a"))
@@ -202,6 +212,66 @@ def test_blueprint_summary_carries_path_and_components(ui):
     match = next(b for b in listed if b["id"] == page_id)
     assert match["path"] == "/main-b"
     assert match["componentIds"] == ["metric-card"]
+
+
+def test_verify_page_validates_every_source_family(ui):
+    page = ui.create_page(CreatePageInput(title="Sources")).id
+    _add(ui, page, "line-chart", "c1")
+    ui.update_widget_config(UpdateConfigInput(blueprint_id=page, instance_id="c1", patch={"source": "market:nope:AAPL"}))
+    bad = ui.verify_page(page)
+    assert bad["renderable"] is False
+    inst = next(i for i in bad["instances"] if i["instanceId"] == "c1")
+    assert inst["sourceValid"] is False
+    assert "market" in (inst["sourceReason"] or "")
+
+    ui.update_widget_config(UpdateConfigInput(blueprint_id=page, instance_id="c1", patch={"source": "market:price:AAPL"}))
+    assert ui.verify_page(page)["renderable"] is True
+
+    _add(ui, page, "data-table", "t1")
+    ui.update_widget_config(UpdateConfigInput(blueprint_id=page, instance_id="t1", patch={"source": "tasks:list"}))
+    assert ui.verify_page(page)["renderable"] is True
+
+    ui.update_widget_config(UpdateConfigInput(blueprint_id=page, instance_id="t1", patch={"source": "bogus:list"}))
+    assert ui.verify_page(page)["renderable"] is False
+
+
+def test_builtin_catalog_is_exactly_the_renderable_set(ui):
+    # Cross-language parity: the seed catalog must equal RENDERABLE_COMPONENTS so
+    # the runtime never advertises a component the host cannot render. The same
+    # list is asserted on the TS side (`src/lib/workspace/generic-widgets.test.ts`).
+    from harness.ui.catalog import RENDERABLE_COMPONENTS, builtin_specs
+
+    ids = {spec.id for spec in builtin_specs()}
+    assert ids == set(RENDERABLE_COMPONENTS)
+
+
+def test_verify_page_reports_renderable_widgets_and_sources(ui):
+    page_id = ui.create_page(CreatePageInput(title="Ledger")).id
+    _add(ui, page_id, "data-table", "t1")
+    ui.update_widget_config(UpdateConfigInput(
+        blueprint_id=page_id, instance_id="t1",
+        patch={"source": "portfolio:pf_7586246984d44b11bfb8:positions"},
+    ))
+    _add(ui, page_id, "metric-card", "m1")
+    ui.update_widget_config(UpdateConfigInput(
+        blueprint_id=page_id, instance_id="m1",
+        patch={"portfolioId": "pf_7586246984d44b11bfb8"},
+    ))
+    result = ui.verify_page(page_id)
+    assert result["renderable"] is True
+    by_id = {i["instanceId"]: i for i in result["instances"]}
+    assert by_id["t1"]["sourceValid"] is True
+    assert by_id["m1"]["componentAvailable"] is True
+
+    # A malformed portfolio source is reported as not renderable.
+    ui.update_widget_config(UpdateConfigInput(
+        blueprint_id=page_id, instance_id="t1", patch={"source": "portfolio:nope"},
+    ))
+    bad = ui.verify_page(page_id)
+    assert bad["renderable"] is False
+    flagged = next(i for i in bad["instances"] if i["instanceId"] == "t1")
+    assert flagged["sourceValid"] is False
+    assert flagged["sourceReason"]
 
 
 def test_data_source_registry_documents_portfolio_sources(ui):

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS UiBlueprint (
   ownerId     TEXT NOT NULL DEFAULT 'operator',
   scope       TEXT NOT NULL DEFAULT 'personal',
   path        TEXT,
+  icon        TEXT,
   tags        TEXT NOT NULL DEFAULT '[]',
   layout      TEXT NOT NULL DEFAULT '{}',
   revision    INTEGER NOT NULL DEFAULT 1,
@@ -132,7 +133,15 @@ class UiStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._db.executescript(_SCHEMA)
+        self._migrate()
         self._db.commit()
+
+    def _migrate(self) -> None:
+        """Idempotent additive migrations (CREATE TABLE IF NOT EXISTS cannot add
+        a column to a table that already exists)."""
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(UiBlueprint)").fetchall()}
+        if "icon" not in columns:
+            self._db.execute("ALTER TABLE UiBlueprint ADD COLUMN icon TEXT")
 
     @property
     def _db(self):
@@ -149,19 +158,19 @@ class UiStore:
         self._db.execute(
             """
             INSERT INTO UiBlueprint
-              (id, title, description, kind, ownerKind, ownerId, scope, path, tags, layout,
+              (id, title, description, kind, ownerKind, ownerId, scope, path, icon, tags, layout,
                revision, createdAt, updatedAt)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
               title=excluded.title, description=excluded.description, kind=excluded.kind,
               ownerKind=excluded.ownerKind, ownerId=excluded.ownerId, scope=excluded.scope,
-              path=excluded.path, tags=excluded.tags, layout=excluded.layout,
+              path=excluded.path, icon=excluded.icon, tags=excluded.tags, layout=excluded.layout,
               revision=excluded.revision, updatedAt=excluded.updatedAt
             """,
             (
                 blueprint.id, blueprint.title, blueprint.description, blueprint.kind.value,
                 blueprint.owner.kind.value, blueprint.owner.id, blueprint.scope.value,
-                blueprint.path, _json(blueprint.tags or []), _json(payload["layout"]),
+                blueprint.path, blueprint.icon, _json(blueprint.tags or []), _json(payload["layout"]),
                 blueprint.revision, created_at, now,
             ),
         )
@@ -359,7 +368,7 @@ class UiStore:
             kind=_enum(BlueprintKind, row["kind"], BlueprintKind.PAGE),
             owner=BlueprintOwner(kind=_enum(OwnershipKind, row["ownerKind"], OwnershipKind.USER), id=row["ownerId"]),
             scope=_enum(BlueprintScope, row["scope"], BlueprintScope.PERSONAL),
-            path=row["path"], tags=_loads(row["tags"], []),
+            path=row["path"], icon=row["icon"], tags=_loads(row["tags"], []),
             layout=WorkspaceLayout.model_validate(_loads(row["layout"], {"version": 2, "sections": []})),
             revision=row["revision"], created_at=row["createdAt"], updated_at=row["updatedAt"],
         )
@@ -370,7 +379,7 @@ class UiStore:
         return BlueprintSummary(
             id=row["id"], title=row["title"], kind=_enum(BlueprintKind, row["kind"], BlueprintKind.PAGE),
             scope=_enum(BlueprintScope, row["scope"], BlueprintScope.PERSONAL), owner_id=row["ownerId"],
-            path=row["path"], revision=row["revision"], updated_at=row["updatedAt"],
+            path=row["path"], icon=row["icon"], revision=row["revision"], updated_at=row["updatedAt"],
             widget_count=len(components), component_ids=components,
         )
 

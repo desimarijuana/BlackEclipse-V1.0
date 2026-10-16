@@ -125,7 +125,7 @@ export function adaptWidgetDefinition(
     tags: opts.tags ?? tokenize(`${def.label} ${def.desc} ${def.category}`),
     configSchema,
     defaultConfig: { ...(def.defaultConfig ?? {}) },
-    dataSources: [...(def.dataDeps ?? [])],
+    dataSources: [...(def.catalogDataSources ?? def.dataDeps ?? [])],
     actions: [...COMPONENT_ACTIONS],
     layout: {
       sizes: [...def.sizes],

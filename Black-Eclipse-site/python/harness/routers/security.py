@@ -12,6 +12,7 @@ do without performing the action.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -24,6 +25,8 @@ from ..security.models import (
     PolicyProfile,
 )
 from ..security.ratelimit import default_limiter
+
+log = logging.getLogger("harness")
 
 router = APIRouter(tags=["security"])
 
@@ -48,6 +51,23 @@ def _gateway():
     if gateway is None:
         raise HTTPException(status_code=503, detail="security subsystem unavailable")
     return gateway
+
+
+def security_health_safe() -> dict[str, Any]:
+    """Liveness-safe security health for `/health`: never raises.
+
+    `/health` is the front door's liveness probe; a 500 there makes it treat a
+    live runtime as down and restart it (orphaning in-flight runs). A fault in
+    the security subsystem must degrade to an honest failure, not the endpoint.
+    """
+    gateway = getattr(service, "security", None)
+    if gateway is None:
+        return {"ok": False, "available": False}
+    try:
+        return gateway.health()
+    except Exception:  # noqa: BLE001 - a health fault is reported, never fatal
+        log.exception("security health failed")
+        return {"ok": False, "available": True, "error": "health check failed"}
 
 
 def _build_request(payload: dict[str, Any]) -> AuthorizationRequest:

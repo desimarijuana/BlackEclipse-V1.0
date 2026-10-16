@@ -135,11 +135,6 @@ async function sendEmail(c: ChannelConfig, msg: string) {
     throw new Error("email send failed (check SMTP host/port/credentials)");
   }
 }
-/** In-app notice ring buffer (latest 100) — served to the UI via /api/alerts/live. */
-const inAppNotices: Array<{ msg: string; firedAt: string; test?: boolean }> = [];
-export function recentNotices() {
-  return [...inAppNotices].reverse();
-}
 
 export interface JobMessageArgs {
   /** The i18n key the runtime sent — never a composed sentence. */
@@ -210,7 +205,9 @@ export async function dispatchAlert(args: DispatchArgs): Promise<{ delivered: st
     }
   }
 
-  // Always record history + in-app notice, even with zero channels configured.
+  // Always record history. The `PriceAlertEvent` row IS the durable in-app
+  // notice (served to the UI via /api/alerts/live) — no separate in-process
+  // ring buffer, which would reset on restart and diverge across workers.
   await prisma.priceAlertEvent.create({
     data: {
       alertId: args.alertId,
@@ -218,10 +215,6 @@ export async function dispatchAlert(args: DispatchArgs): Promise<{ delivered: st
       detail: msg + (failed.length ? ` [delivery failed: ${failed.join("; ")}]` : ""),
     },
   });
-  if (cfg.inApp) {
-    inAppNotices.push({ msg, firedAt: new Date().toISOString(), test: args.test });
-    if (inAppNotices.length > 100) inAppNotices.shift();
-  }
 
   return { delivered, failed };
 }

@@ -66,6 +66,18 @@ PORTFOLIO_VIEWS: tuple[str, ...] = (
 )
 
 
+#: The component ids the host registry can actually render
+#: (`src/lib/workspace/generic-widgets.tsx` + `src/lib/workspace/generic-charts.tsx`
+#: + `src/lib/workspace/generic-content.tsx`, registered in
+#: `src/lib/dashboard/registry.tsx`). `builtin_specs()` must be exactly this set;
+#: a parity test enforces it so the catalog can never advertise a dead widget.
+RENDERABLE_COMPONENTS = frozenset({
+    "metric-card", "data-table", "list",
+    "line-chart", "area-chart", "bar-chart", "pie-chart",
+    "markdown", "status-indicator", "empty-state", "error-state",
+})
+
+
 def portfolio_source(portfolio_id: str, view: str = "summary") -> str:
     """Build the canonical portfolio data-source string.
 
@@ -94,6 +106,58 @@ def parse_portfolio_source(source: str) -> Optional[tuple[str, str]]:
     return pid, view
 
 
+#: The data-source families the runtime advertises. Kept in lockstep with the
+#: browser resolver (`src/lib/workspace/data-source.ts`); the registry
+#: (`UiService.list_data_sources`) returns their patterns.
+SOURCE_FAMILIES: tuple[str, ...] = (
+    "portfolio", "market", "news", "agent", "tasks", "artifacts", "research", "jdds",
+)
+
+_MARKET_KINDS = ("quote", "indices", "price")
+
+
+def validate_source(source: str) -> tuple[bool, Optional[str]]:
+    """Validate a source string against the known families.
+
+    Returns ``(ok, reason)``. Mirrors the browser resolver's grammar so an agent
+    can be told a source is malformed BEFORE it lands in a blueprint. A blank
+    string is "not a source" and is reported ``(False, reason)`` by callers that
+    require one; here a blank returns ``(False, "empty source")``.
+    """
+    raw = (source or "").strip()
+    if not raw:
+        return False, "empty source"
+    parts = raw.split(":")
+    family = parts[0]
+
+    def _base(value: str) -> str:
+        return value.split(".", 1)[0].strip()
+
+    if family == "portfolio":
+        if len(parts) != 3 or not parts[1].strip() or _base(parts[2]) not in PORTFOLIO_VIEWS:
+            return False, f'expected "portfolio:<portfolio_id>:<view>" (views: {", ".join(PORTFOLIO_VIEWS)})'
+        return True, None
+    if family == "market":
+        if len(parts) != 3 or parts[1] not in _MARKET_KINDS or not _base(parts[2]):
+            return False, 'expected "market:<quote|indices|price>:<arg>"'
+        return True, None
+    if family == "news":
+        return (len(parts) == 2 and parts[1] == "latest"), 'expected "news:latest"'
+    if family == "agent":
+        return (len(parts) == 2 and parts[1] == "activity"), 'expected "agent:activity"'
+    if family == "tasks":
+        return (len(parts) == 2 and parts[1] in ("list", "plans")), 'expected "tasks:list" or "tasks:plans"'
+    if family == "artifacts":
+        return (len(parts) == 2 and parts[1] == "list"), 'expected "artifacts:list"'
+    if family == "research":
+        return (len(parts) == 2 and parts[1] == "list"), 'expected "research:list"'
+    if family == "jdds":
+        if len(parts) != 3 or parts[1] != "search" or not _base(parts[2]):
+            return False, 'expected "jdds:search:<query>"'
+        return True, None
+    return False, f'unknown source family "{family}" (known: {", ".join(SOURCE_FAMILIES)})'
+
+
 def _field(key: str, label: str, kind: str, **kw: Any) -> ConfigFieldSpec:
     return ConfigFieldSpec(key=key, label=label, kind=kind, **kw)  # type: ignore[arg-type]
 
@@ -117,12 +181,17 @@ def _spec(
 
 def builtin_specs() -> list[UiComponentSpec]:
     """The foundational component kinds every Eclipse UI can compose."""
+    # ONLY ids the host can render (see `src/lib/workspace/generic-widgets.tsx`
+    # and `src/lib/dashboard/registry.tsx`). The parity test
+    # (`python/tests/test_ui_service.py`) asserts this set equals
+    # `RENDERABLE_COMPONENTS`; a component that is not renderable is not
+    # advertised, so the agent can never compose a widget that never appears.
     return [
-        _spec("metric-card", "metrics", "Metric Card", "A single headline metric with a label, value and optional delta.", "activity",
+        _spec("metric-card", "metrics", "Metric Card", "A single headline metric with a label, value and optional format/currency.", "activity",
               data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
                   _field("label", "Label", "text"),
-                  _field("metric", "Metric key", "text", placeholder="e.g. portfolio:<portfolioId>:summary"),
-                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (sets a portfolio:<id>:<view> metric)"),
+                  _field("metric", "Metric / source", "text", placeholder="portfolio:<portfolioId>:summary.totalValue"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (with metric = field name)"),
                   _field("format", "Format", "select", options=[{"value": "number", "label": "Number"}, {"value": "percent", "label": "Percent"}, {"value": "currency", "label": "Currency"}]),
               ], sizes=["small", "medium"], default_height=140),
         _spec("data-table", "tables", "Data Table", "A sortable, pageable table over a data source.", "table",
@@ -132,66 +201,44 @@ def builtin_specs() -> list[UiComponentSpec]:
                   _field("pageSize", "Page size", "number", min=1, max=500, default=25),
                   _field("dense", "Dense rows", "boolean"),
               ], sizes=["large", "full"], default_height=360),
-        _spec("line-chart", "charts", "Line Chart", "A time-series line chart.", "line-chart",
-              data_sources=["any"], fields=[
-                  _field("source", "Data source", "text"),
-                  _field("symbol", "Symbol", "symbol"),
-                  _field("series", "Series", "symbols"),
+        _spec("line-chart", "charts", "Line Chart", "A time series over a source (e.g. market:price:AAPL).", "line-chart",
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("source", "Data source", "text", placeholder="market:price:AAPL"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (shorthand)"),
               ], sizes=["large", "full"], default_height=320),
-        _spec("bar-chart", "charts", "Bar Chart", "A categorical bar chart.", "bar-chart",
-              data_sources=["any"], fields=[
-                  _field("source", "Data source", "text"),
-                  _field("symbol", "Symbol", "symbol"),
+        _spec("area-chart", "charts", "Area Chart", "A filled time series over a source.", "line-chart",
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("source", "Data source", "text", placeholder="market:price:AAPL"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (shorthand)"),
+              ], sizes=["large", "full"], default_height=320),
+        _spec("bar-chart", "charts", "Bar Chart", "A categorical bar chart over a source.", "bar-chart",
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("source", "Data source", "text", placeholder="portfolio:<portfolioId>:allocation"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (shorthand)"),
               ], sizes=["large", "full"], default_height=320),
         _spec("pie-chart", "charts", "Pie Chart", "A proportional / allocation pie chart.", "pie",
-              data_sources=["any"], fields=[_field("source", "Data source", "text")],
-              sizes=["medium", "large"], default_height=320),
-        _spec("area-chart", "charts", "Area Chart", "A stacked or overlaid area chart.", "line-chart",
-              data_sources=["any"], fields=[_field("source", "Data source", "text")],
-              sizes=["large", "full"], default_height=320),
-        _spec("filter-bar", "filters", "Filter Bar", "A row of filters that scope a page's data.", "layers",
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("source", "Data source", "text", placeholder="portfolio:<portfolioId>:allocation"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (shorthand)"),
+              ], sizes=["medium", "large"], default_height=320),
+        _spec("list", "tables", "List", "A compact card list over any row source.", "layers",
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("source", "Data source", "text", placeholder="portfolio:<portfolioId>:positions"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (shorthand for positions)"),
+              ], sizes=["medium", "large"], default_height=340),
+        _spec("markdown", "content", "Markdown", "Rendered Markdown content (a safe subset).", "file-text",
               fields=[
-                  _field("field", "Field", "text"),
-                  _field("mode", "Mode", "select", options=[{"value": "single", "label": "Single"}, {"value": "multi", "label": "Multi"}]),
-              ], sizes=["full"], default_height=64),
-        _spec("form", "forms", "Form", "A validated input form.", "file-text",
-              fields=[_field("submitLabel", "Submit label", "text")],
-              sizes=["medium", "large"]),
-        _spec("timeline", "timelines", "Timeline", "A vertical event timeline.", "calendar",
-              data_sources=["any"], fields=[_field("source", "Data source", "text")],
-              sizes=["medium", "large"], default_height=360),
-        _spec("status-indicator", "status", "Status Indicator", "A coloured status pill with a label.", "heart",
+                  _field("title", "Title", "text"),
+                  _field("text", "Markdown", "text"),
+              ], sizes=["medium", "large", "full"]),
+        _spec("status-indicator", "status", "Status Indicator", "A single coloured status pill with a label.", "heart",
               fields=[
+                  _field("label", "Label", "text"),
                   _field("status", "Status", "select", options=[
                       {"value": "ok", "label": "OK"}, {"value": "warning", "label": "Warning"},
                       {"value": "error", "label": "Error"}, {"value": "unknown", "label": "Unknown"},
                   ]),
-                  _field("label", "Label", "text"),
               ], sizes=["small"], default_height=120),
-        _spec("tree", "trees", "Tree", "A collapsible hierarchical tree.", "layers",
-              data_sources=["any"], fields=[_field("source", "Data source", "text")],
-              sizes=["medium", "large"], default_height=360),
-        _spec("log-viewer", "logs", "Log Viewer", "A streaming log / output viewer.", "file-text",
-              data_sources=["any"], fields=[
-                  _field("source", "Data source", "text"),
-                  _field("tail", "Tail lines", "number", min=10, max=5000, default=200),
-              ], sizes=["large", "full"], default_height=360),
-        _spec("agent-graph", "agents", "Agent Graph", "A graph of agents and their delegation edges.", "bot",
-              data_sources=["agent:activity"], fields=[_field("source", "Data source", "text")],
-              sizes=["large", "full"], default_height=420),
-        _spec("task-board", "tasks", "Task Board", "A board of tasks grouped by status.", "layers",
-              data_sources=["tasks"], fields=[_field("groupBy", "Group by", "text")],
-              sizes=["large", "full"], default_height=420),
-        _spec("markdown", "content", "Markdown", "Rendered Markdown content.", "file-text",
-              fields=[_field("text", "Markdown", "text")], sizes=["medium", "large", "full"]),
-        _spec("artifact-preview", "content", "Artifact Preview", "An inline preview of an artifact.", "file-text",
-              data_sources=["artifacts"], fields=[_field("artifactId", "Artifact id", "text")],
-              sizes=["medium", "large"], default_height=360),
-        _spec("plugin-panel", "plugins", "Plugin Panel", "A panel contributed by a plugin.", "layers",
-              fields=[
-                  _field("pluginId", "Plugin id", "text"),
-                  _field("panelId", "Panel id", "text"),
-              ], sizes=["medium", "large"], default_height=320),
         _spec("empty-state", "content", "Empty State", "A deliberate empty placeholder.", "dashboard",
               fields=[
                   _field("title", "Title", "text"),
@@ -202,38 +249,6 @@ def builtin_specs() -> list[UiComponentSpec]:
                   _field("title", "Title", "text"),
                   _field("message", "Message", "text"),
               ], sizes=["small", "medium"], default_height=160),
-
-        # ── Portfolio (Ledger) components ─────────────────────────────────────
-        # Backed by the Portfolio Accounting Engine. Each takes a `portfolioId`
-        # and reads one `portfolio:<id>:<view>` source (see PORTFOLIO_VIEWS).
-        # These are the Ledger-intended kinds; a generic `data-table` or
-        # `metric-card` may target the same source strings directly.
-        _spec("portfolio-summary", "portfolio", "Portfolio Summary", "Totals for one engine portfolio: value, cost basis, P&L and cash.", "wallet",
-              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
-                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
-              ], sizes=["medium", "large"], default_height=180),
-        _spec("portfolio-open-positions", "portfolio", "Open Positions", "Open positions of one engine portfolio (quantity, cost, value).", "table",
-              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
-                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
-                  _field("asOf", "As of (ISO date)", "text", placeholder="optional valuation date"),
-              ], sizes=["large", "full"], default_height=380),
-        _spec("portfolio-holdings", "portfolio", "Holdings", "Holdings of one engine portfolio with pricing and P&L detail.", "table",
-              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
-                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
-              ], sizes=["large", "full"], default_height=380),
-        _spec("portfolio-today-pnl", "portfolio", "Today P&L", "Today's realised/unrealised P&L for one engine portfolio.", "activity",
-              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
-                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
-              ], sizes=["small", "medium"], default_height=140),
-        _spec("portfolio-performance", "portfolio", "Portfolio Performance", "Time-series NAV/returns for one engine portfolio.", "line-chart",
-              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
-                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
-                  _field("benchmark", "Benchmark symbol", "text", placeholder="optional, e.g. SPY"),
-              ], sizes=["large", "full"], default_height=320),
-        _spec("portfolio-risk-metrics", "portfolio", "Portfolio Risk", "Volatility, beta, drawdown and risk contribution for one engine portfolio.", "activity",
-              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
-                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
-              ], sizes=["medium", "large"], default_height=220),
     ]
 
 
@@ -343,9 +358,12 @@ __all__ = [
     "CatalogError",
     "PORTFOLIO_DATA_SOURCE",
     "PORTFOLIO_VIEWS",
+    "RENDERABLE_COMPONENTS",
+    "SOURCE_FAMILIES",
     "UiCatalog",
     "builtin_specs",
     "parse_portfolio_source",
     "portfolio_source",
     "validate_component_config",
+    "validate_source",
 ]

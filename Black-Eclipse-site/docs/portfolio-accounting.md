@@ -82,12 +82,14 @@ Example: `portfolio:pf_7586246984d44b11bfb8:positions`.
 The runtime advertises these strings via
 `get_capabilities()["dataSourceRegistry"]` (and the `ui_get_capabilities` tool)
 and validates them with `catalog.portfolio_source(id, view)` /
-`catalog.parse_portfolio_source(source)`. A `data-table` sets its `source`, a
-`metric-card` its `metric`; the dedicated Ledger kinds
-(`portfolio-summary`, `portfolio-open-positions`, `portfolio-holdings`,
-`portfolio-today-pnl`, `portfolio-performance`, `portfolio-risk-metrics`) take a
-`portfolioId` field. `portfolio.positions` / `portfolio.totalValue` are **not**
-valid source strings — only the colon form above resolves.
+`catalog.parse_portfolio_source(source)`. The rendered components are the host
+`data-table` (config `source`, or `portfolioId`) and `metric-card` (config
+`metric`/`source` + `portfolioId`); a single metric adds a field suffix, e.g.
+`portfolio:pf_7586246984d44b11bfb8:summary.totalValue`. The render path is the
+UI data-source resolver (`src/lib/workspace/data-source.ts`) over the front
+door's read routes (`/api/portfolio/{id}/query`, `/history`, `/tax-lots`);
+`portfolio.positions` / `portfolio.totalValue` are **not** valid source strings —
+only the colon form above resolves.
 
 The engine's `POST /portfolio/{id}/bridge` is **not** part of this read path: it
 is a write that moves a quantity of one symbol out and the bridged quantity of

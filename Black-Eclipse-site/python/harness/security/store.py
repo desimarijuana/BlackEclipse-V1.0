@@ -32,6 +32,20 @@ def _json(value: Any) -> Optional[str]:
     return text
 
 
+def _as_int(value: Any) -> Optional[int]:
+    """Coerce a SQL aggregate to int, returning None for NULL/unparseable values.
+
+    Used only for read-side summaries (audit counts) so a single malformed row
+    degrades to "skipped", never a raised exception on the `/health` path.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _load(text: Any, default: Any) -> Any:
     if text in (None, ""):
         return default
@@ -219,20 +233,28 @@ class SecurityStore:
         return [self._row(r) for r in rows]
 
     def audit_counts(self) -> dict[str, int]:
+        # Every value is coerced defensively. `COUNT(*)` is always an integer, but
+        # this method is called from `/health` — a 500 there makes the front door
+        # treat a live runtime as down and restart it (orphaning in-flight runs).
+        # A NULL/absent count is therefore skipped, never allowed to raise.
         total = self._db.execute("SELECT COUNT(*) AS c FROM SecurityAuditEvent").fetchone()
         by_decision: dict[str, int] = {}
         for row in self._db.execute(
             "SELECT decision, COUNT(*) AS c FROM SecurityAuditEvent GROUP BY decision"
         ).fetchall():
-            if row["decision"]:
-                by_decision[str(row["decision"])] = int(row["c"])
+            count = _as_int(row["c"])
+            if row["decision"] and count is not None:
+                by_decision[str(row["decision"])] = count
         by_category: dict[str, int] = {}
         for row in self._db.execute(
             "SELECT category, COUNT(*) AS c FROM SecurityAuditEvent GROUP BY category"
         ).fetchall():
-            by_category[str(row["category"])] = int(row["c"])
+            count = _as_int(row["c"])
+            if count is not None:
+                by_category[str(row["category"])] = count
+        total_count = _as_int(total["c"]) if total is not None else 0
         return {
-            "total": int(total["c"]) if total else 0,
+            "total": total_count or 0,
             "byDecision": by_decision,
             "byCategory": by_category,
         }

@@ -84,8 +84,11 @@ interface NoticeRow {
   test?: boolean;
 }
 
-const SNAPSHOT_INDICATORS = ["CLOSE", "OPEN", "VOLUME", "CHANGE_PCT", "MARKET_CAP", "PE", "EPS", "SECTOR"];
-const CANDLE_INDICATORS = ["SMA", "EMA", "RSI"];
+// Quote indicators come from the live snapshot; OHLC + SMA/EMA/RSI are computed
+// from the candle cache (so OPEN/HIGH/LOW are candle-backed, like the engine).
+const QUOTE_INDICATORS = ["CLOSE", "VOLUME", "CHANGE_PCT", "MARKET_CAP", "PE", "EPS", "SECTOR"];
+const OHLC_INDICATORS = ["OPEN", "HIGH", "LOW"];
+const COMPUTED_INDICATORS = ["SMA", "EMA", "RSI"];
 const OPERATORS: Operator[] = [">", "<", ">=", "<=", "==", "crosses_above", "crosses_below", "rising", "falling", "between"];
 const OP_LABELS: Record<Operator, string> = {
   ">": "above", "<": "below", ">=": "at or above", "<=": "at or below",
@@ -890,15 +893,17 @@ function ConditionTree({ group, onChange, logic, onLogicChange, depth = 0 }: {
                   const ind = v ?? "CLOSE";
                   const children = [...group.children];
                   const next = { ...leaf, indicator: ind } as Leaf;
-                  if (!SNAPSHOT_INDICATORS.includes(ind) && !CANDLE_INDICATORS.includes(ind)) next.params = { n: 14 };
+                  if (COMPUTED_INDICATORS.includes(ind)) next.params = { n: 14 };
+                  else delete next.params;
                   children[i] = next;
                   onChange({ ...group, children });
                 }}
               >
                 <SelectTrigger className="h-9 w-40 rounded-xl"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {SNAPSHOT_INDICATORS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  {CANDLE_INDICATORS.map((s) => <SelectItem key={s} value={s}>{s} (candles)</SelectItem>)}
+                  {QUOTE_INDICATORS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  {OHLC_INDICATORS.map((s) => <SelectItem key={s} value={s}>{s} (daily bar)</SelectItem>)}
+                  {COMPUTED_INDICATORS.map((s) => <SelectItem key={s} value={s}>{s} (candles)</SelectItem>)}
                 </SelectContent>
               </Select>
               {leaf.params && (
@@ -961,7 +966,7 @@ function ConditionTree({ group, onChange, logic, onLogicChange, depth = 0 }: {
 }
 
 function isCandleIndicator(ind: string) {
-  return !SNAPSHOT_INDICATORS.includes(ind);
+  return OHLC_INDICATORS.includes(ind) || COMPUTED_INDICATORS.includes(ind);
 }
 
 function ChildRemove({ group, onChange, i }: { group: Group; onChange: (g: Group) => void; i: number }) {

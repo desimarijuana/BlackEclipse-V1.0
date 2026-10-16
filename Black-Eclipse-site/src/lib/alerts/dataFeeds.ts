@@ -29,6 +29,16 @@ export interface SnapshotWindow {
 export const MAX_CANDLE_CHUNK = 50;
 export const MIN_INTERVAL_SEC = 30;
 
+export type AlertDataSource = "Auto" | "TradingView" | "yfinance";
+
+/** Normalize the stored `dataSource` to a known value (default Auto). */
+export function normalizeDataSource(value: string | null | undefined): AlertDataSource {
+  const v = (value ?? "").trim().toLowerCase();
+  if (v === "tradingview" || v === "tv") return "TradingView";
+  if (v === "yfinance" || v === "yahoo") return "yfinance";
+  return "Auto";
+}
+
 /** Map an alert's symbols/market to TradingView scan rows + yfinance quotes. */
 export interface SymbolSnapshot {
   symbol: string;
@@ -52,26 +62,37 @@ export function chunk<T>(arr: T[], size: number): T[][] {
 
 /**
  * Fetch snapshots for a set of symbols in one market.
- * Prefers the cached TradingView market scan (one round-trip per market,
- * already cached 10min by the scraper); falls back to the yfinance bridge
- * for symbols TV does not cover.
+ *
+ * `dataSource` (from the watch config) selects the source:
+ *   * `Auto` (default) — the cached TradingView scan, then the yfinance bridge
+ *     for symbols TradingView does not cover.
+ *   * `TradingView` — ONLY the cached scan (no bridge fallback).
+ *   * `yfinance` — ONLY the bridge.
+ * A source that returns nothing leaves the symbol out (honest "no data"),
+ * never a fabricated quote.
  */
 export async function fetchSnapshots(
   market: string,
-  symbols: string[]
+  symbols: string[],
+  dataSource: string | null = "Auto"
 ): Promise<Map<string, SymbolSnapshot>> {
   const out = new Map<string, SymbolSnapshot>();
   if (symbols.length === 0) return out;
+  const source = normalizeDataSource(dataSource);
+  const useTradingView = source !== "yfinance";
+  const useYfinance = source !== "TradingView";
 
   let scanRows: import("@/lib/scraper/types").ScanRow[] = [];
-  try {
-    scanRows = await getCachedMarketScan(market);
-  } catch {
-    scanRows = [];
+  if (useTradingView) {
+    try {
+      scanRows = await getCachedMarketScan(market);
+    } catch {
+      scanRows = [];
+    }
   }
   const bySymbol = new Map(scanRows.map((r) => [r.symbol, r]));
 
-  const missing = symbols.filter((s) => !bySymbol.has(s));
+  const missing = useYfinance ? symbols.filter((s) => !bySymbol.has(s)) : [];
   if (missing.length > 0) {
     for (const batch of chunk(missing, MAX_CANDLE_CHUNK)) {
       try {

@@ -136,21 +136,88 @@ HTTP read routes; only mutations scope to the invoking owner.
 
 **Data-source vocabulary.** Component configs accept a free-text `source`, but
 the runtime advertises the valid structured strings via
-`get_capabilities()["dataSourceRegistry"]` (also `ui_get_capabilities`). The one
-family today is **`portfolio:<portfolio_id>:<view>`** — see
-[`portfolio-accounting.md`](portfolio-accounting.md). A `data-table` (its
-`source`) or a `metric-card` (its `metric`), or the dedicated Ledger kinds
-(`portfolio-summary`, `portfolio-open-positions`, `portfolio-holdings`,
-`portfolio-today-pnl`, `portfolio-performance`, `portfolio-risk-metrics`), can
-target a specific engine portfolio. Helper: `catalog.portfolio_source(id, view)`.
+`get_capabilities()["dataSourceRegistry"]` (also `ui_get_capabilities`). The
+allow-listed families are:
 
-**Known gap (scoped, not built): page-level icons.** The persisted layout has
-no icon field — `WidgetPlacement`/`WorkspaceColumn`/`WorkspaceSection`/
-`WorkspaceLayout` end at config/hidden, and `UiBlueprint` has no `icon`. A
-page-level icon therefore requires a new field (on `UiBlueprint` or
-`WidgetPlacement`) **plus** renderer support; it is deliberately **not** wired
-to the chat response-block icon enum (sparkles, coins, wallet, …), which is a
-different surface.
+| family | pattern | renders |
+|---|---|---|
+| portfolio | `portfolio:<id>:<view>` | table (positions, holdings, …) |
+| portfolio metric | `portfolio:<id>:<view>.<field>` | a single value |
+| market quote | `market:quote:<SYMBOLS>` | quote table (`market:quote:AAPL.price` = a value) |
+| market indices | `market:indices:<MARKET>` | index table |
+| market price | `market:price:<SYMBOL>` | a time series (charts) |
+| news | `news:latest` | the latest news table |
+| agent | `agent:activity` | recent agent runs |
+| tasks | `tasks:list` / `tasks:plans` | task / plan tables |
+| artifacts | `artifacts:list` | the Artifact Center table |
+| research | `research:list` | recent web-research runs |
+| jdds | `jdds:search:<QUERY>` | JDDS instrument search (rows or `.<field>`) |
+
+Portfolio views: summary, positions, holdings, transactions, pnl, performance,
+risk, allocation, tax-lots — see [`portfolio-accounting.md`](portfolio-accounting.md).
+Helpers: `catalog.portfolio_source(id, view)` / `parse_portfolio_source(source)`.
+
+**Source-driven widgets (the end-to-end render path).** A composed widget
+actually renders because the host registers generic primitives whose ids match
+the runtime catalog:
+- `data-table`, `list` (row sources), `metric-card` (a `source`/`metric` + optional `.field`);
+- `line-chart`, `area-chart`, `bar-chart`, `pie-chart` (series or rows);
+- `markdown`, `status-indicator`, `empty-state`, `error-state` (config-only).
+
+They live in `src/lib/workspace/generic-widgets.tsx` / `generic-charts.tsx` /
+`generic-content.tsx` and are registered in `src/lib/dashboard/registry.tsx`, so
+the workspace kernel keeps them. `src/lib/workspace/data-source.ts` is the ONE
+resolver: it parses an allow-listed source (never an arbitrary URL), fetches
+through the existing front door (`/api/portfolio/*` via
+`src/lib/portfolio/engine-read.ts`, plus `/api/quote`, `/api/indices`,
+`/api/price-history`, `/api/news`, `/api/agent/activity`), caches it on a
+dynamic DataHub topic, and returns rows/value/series — or an explicit
+UNAVAILABLE with the reason. So an agent can add a `data-table` with
+`source: "portfolio:pf_…:positions"`, a `metric-card` with
+`metric: "portfolio:pf_…:summary.totalValue"`, a `line-chart` with
+`source: "market:price:AAPL"`, etc. to ANY page and it renders live data.
+
+**Catalog ↔ host parity.** `builtin_specs()` in `catalog.py` advertises EXACTLY
+`RENDERABLE_COMPONENTS` — the ids the host registry defines. A dead widget is
+never advertised, so the agent cannot compose something that never appears.
+Enforced by `python/tests/test_ui_service.py` and
+`src/lib/workspace/generic-widgets.test.ts` (the same list on both sides).
+
+**Read-back before claiming success.** `ui_verify_page` (the `ui_verify_page`
+tool / `UiService.verify_page`, HTTP `GET /ui/blueprints/{id}/verify`) reads a
+blueprint back and reports, per instance, whether its component id is in the
+catalog and whether any declared source string is well-formed — ALL families,
+via `catalog.validate_source` (portfolio, market, news, agent, tasks, artifacts,
+research, jdds). So the agent verifies a page it composed rather than asserting
+success. It does not fetch the data (the front door does); it names what it can
+and cannot verify.
+
+**No silent drops.** A blueprint may reference a widget id the host registry
+does not render yet (an agent-added or engineered component). The Pages surface
+passes the workspace a `knownWidgetIds` set that is the host registry PLUS every
+id present in the blueprint, so the kernel keeps it, and `renderDashboardWidget`
+draws an explicit "Needs a renderer" card for it — never a silent disappearance.
+
+**Engineer → Compose closure (proven).** `POST /ui/engineering/{task_id}/components`
+registers an engineered component in the ONE catalog; `test_ui_api.py`
+(`test_engineering_workflow`) then discovers it via `GET /ui/components`, adds it
+to a page, and `GET /ui/blueprints/{id}/verify` reports it renderable — the full
+loop, end to end. (A genuinely new *visual* kind still needs the code path to add
+its host renderer; the catalog/verify step is what the runtime owns.)
+
+**Page-level icon.** `UiBlueprint` (and `BlueprintSummary`) carry an `icon`
+field — an icon NAME resolved by the host registry (`widgetIcon`), never code
+or a URL, and deliberately distinct from the chat response-block icon enum. It
+is set via `ui_create_page`/`ui_update_page` (`icon`) or `POST`/`PATCH
+/ui/blueprints`, stored (with an idempotent add-column migration), and shown in
+the Pages list and header. Adding it did not touch `WidgetPlacement`.
+
+**Pages refresh (live).** `GET /api/ui/stream` is a Server-Sent-Events stream
+that watches the runtime's most-recently-updated blueprint (`id:revision:updatedAt`)
+and emits a `changed` event when it moves. The Pages surface listens and reloads
+the open blueprint ONLY when its durable revision actually changed — a no-op
+otherwise, so a user's unsaved local arrangement is never yanked (no change → no
+remount). Window focus and a slow 60s poll are fallbacks if the stream drops.
 
 **Catalog source of truth:** the runtime seeds the *foundational* kinds so it is
 usable standalone; the browser then pushes the REAL dashboard widget specs

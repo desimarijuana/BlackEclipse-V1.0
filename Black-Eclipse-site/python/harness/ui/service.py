@@ -18,8 +18,10 @@ from .catalog import (
     CatalogError,
     PORTFOLIO_DATA_SOURCE,
     PORTFOLIO_VIEWS,
+    RENDERABLE_COMPONENTS,
     UiCatalog,
     validate_component_config,
+    validate_source,
 )
 from .engine import apply_ops as engine_apply_ops, diff_blueprints, validate_blueprint, widget_count
 from .engineering import UiEngineering
@@ -163,9 +165,51 @@ class UiService:
             "portfolio": {
                 "family": PORTFOLIO_DATA_SOURCE,
                 "pattern": f"{PORTFOLIO_DATA_SOURCE}:<portfolio_id>:<view>",
+                "metricPattern": f"{PORTFOLIO_DATA_SOURCE}:<portfolio_id>:<view>.<field>",
                 "example": f"{PORTFOLIO_DATA_SOURCE}:pf_7586246984d44b11bfb8:positions",
+                "metricExample": f"{PORTFOLIO_DATA_SOURCE}:pf_7586246984d44b11bfb8:summary.totalValue",
                 "views": list(PORTFOLIO_VIEWS),
             },
+            "market": {
+                "family": "market",
+                "patterns": ["market:quote:<SYMBOLS>", "market:indices:<MARKET>", "market:price:<SYMBOL>"],
+                "examples": ["market:quote:AAPL,MSFT", "market:indices:US", "market:price:AAPL"],
+                "note": "quote/indices render as tables (or .<field> as a metric); price renders as a chart series.",
+            },
+            "news": {
+                "family": "news",
+                "patterns": ["news:latest"],
+                "examples": ["news:latest"],
+            },
+            "agent": {
+                "family": "agent",
+                "patterns": ["agent:activity"],
+                "examples": ["agent:activity"],
+            },
+            "tasks": {
+                "family": "tasks",
+                "patterns": ["tasks:list", "tasks:plans"],
+                "examples": ["tasks:list", "tasks:plans"],
+            },
+            "artifacts": {
+                "family": "artifacts",
+                "patterns": ["artifacts:list"],
+                "examples": ["artifacts:list"],
+            },
+            "research": {
+                "family": "research",
+                "patterns": ["research:list"],
+                "examples": ["research:list"],
+            },
+            "jdds": {
+                "family": "jdds",
+                "patterns": ["jdds:search:<QUERY>"],
+                "examples": ["jdds:search:apple"],
+                "note": "JDDS instrument-universe search; renders rows (or .<field> as a metric).",
+            },
+            # The components that render these sources live in the host registry
+            # (`src/lib/workspace/generic-*.tsx`).
+            "components": sorted(RENDERABLE_COMPONENTS),
         }
 
     def classify_request(self, text: str, *, blueprint_id: Optional[str] = None, owner_id: Optional[str] = None) -> dict[str, Any]:
@@ -315,6 +359,54 @@ class UiService:
                     })
         return out
 
+    def verify_page(self, blueprint_id: str, *, owner_id: Optional[str] = None) -> dict[str, Any]:
+        """Read a page back and report whether each widget can actually render.
+
+        The honest check a composer needs before claiming success: is each
+        widget's component id present in the catalog (renderable), and — where a
+        `portfolio:<id>:<view>` source is declared — is it a well-formed source
+        string? It reports what it can verify and names what it cannot; it never
+        asserts the live data was fetched (that is the front door's job).
+        """
+        blueprint = self.get_blueprint(blueprint_id, owner_id=owner_id)
+        instances: list[dict[str, Any]] = []
+        all_available = True
+        for instance in self._instances(blueprint):
+            spec = self._catalog.get(instance["componentId"])
+            config = instance.get("config") or {}
+            raw_source = config.get("source") or config.get("metric")
+            source = str(raw_source) if isinstance(raw_source, str) and raw_source.strip() else None
+            source_valid: Optional[bool] = None
+            source_reason: Optional[str] = None
+            if source and ":" in source:
+                # A full source string — validate its shape against the grammar.
+                source_valid, source_reason = validate_source(source)
+            elif config.get("portfolioId"):
+                # `portfolioId` (+ an optional bare field in `metric`) implies a
+                # portfolio source; validate that shape so a typo in the field is
+                # still surfaced.
+                pid = str(config["portfolioId"]).strip()
+                field = f".{source}" if source else ""
+                implied = f"{PORTFOLIO_DATA_SOURCE}:{pid}:summary{field}"
+                source_valid, source_reason = validate_source(implied)
+            available = spec is not None
+            all_available = all_available and available and source_valid is not False
+            instances.append({
+                "instanceId": instance["instanceId"],
+                "componentId": instance["componentId"],
+                "componentAvailable": available,
+                "source": source,
+                "sourceValid": source_valid,
+                "sourceReason": source_reason,
+            })
+        return {
+            "blueprintId": blueprint.id,
+            "title": blueprint.title,
+            "revision": blueprint.revision,
+            "renderable": all_available,
+            "instances": instances,
+        }
+
     def get_operation_status(self, operation_id: str) -> UiOperation:
         operation = self._store.get_operation(operation_id)
         if operation is None:
@@ -395,7 +487,7 @@ class UiService:
         blueprint = UiBlueprint(
             id=new_id("uibp"), title=input_model.title, description=input_model.description,
             kind=input_model.kind, scope=input_model.scope, path=input_model.path,
-            tags=input_model.tags or None, layout=_empty_layout(),
+            icon=input_model.icon, tags=input_model.tags or None, layout=_empty_layout(),
             owner=BlueprintOwner(kind="user", id=owner_id),
             revision=1, created_at=now_iso(), updated_at=now_iso(),
         )
@@ -417,6 +509,8 @@ class UiService:
             meta["description"] = input_model.description
         if input_model.path is not None:
             meta["path"] = input_model.path
+        if input_model.icon is not None:
+            meta["icon"] = input_model.icon
         if input_model.tags is not None:
             meta["tags"] = input_model.tags
         return self._mutate(blueprint_id, [meta], "update_page", owner_id=owner_id, actor=actor, expected_revision=expected_revision, event=UiEventType.PAGE_UPDATED)

@@ -190,6 +190,14 @@ export function ChatInput({
   const commandMenuOpen = commandToken !== null && commandMatches.length > 0;
   useEffect(() => { setCommandHighlight(0); }, [commandToken]);
 
+  // Keep the keyboard-highlighted option visible as the user arrows through a
+  // long, scrollable palette (otherwise the list scrolls but never follows).
+  const commandListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = commandListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [commandHighlight, commandMenuOpen]);
+
   const completeCommand = useCallback(
     (c: CommandSpec) => {
       setQuery(`/${c.name} `);
@@ -222,6 +230,12 @@ export function ChatInput({
   }, [mentionToken, mentionTargets]);
   const mentionMenuOpen = mentionToken !== null && mentionMatches.length > 0;
   useEffect(() => { setMentionHighlight(0); }, [mentionToken]);
+
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = mentionListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [mentionHighlight, mentionMenuOpen]);
 
   const completeMention = useCallback(
     (m: MentionTarget) => {
@@ -392,6 +406,7 @@ export function ChatInput({
       {commandMenuOpen && paletteBox && typeof document !== 'undefined' &&
         createPortal(
           <div
+            ref={commandListRef}
             role="listbox"
             aria-label={t('code.command.paletteLabel')}
             style={{
@@ -446,6 +461,7 @@ export function ChatInput({
       {mentionMenuOpen && paletteBox && typeof document !== 'undefined' &&
         createPortal(
           <div
+            ref={mentionListRef}
             role="listbox"
             aria-label={t('bots.mentions.paletteLabel')}
             style={{

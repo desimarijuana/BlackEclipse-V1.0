@@ -44,6 +44,13 @@ vi.mock("@/lib/db", () => ({
 const dispatchAlert = vi.fn(async (..._a: unknown[]) => ({ delivered: [] as string[], failed: [] as string[] }));
 vi.mock("@/lib/alerts/notifier", () => ({ dispatchAlert: (...a: unknown[]) => dispatchAlert(...a) }));
 
+const getConfigJSON = vi.fn(async (..._a: unknown[]) => ({}) as Record<string, boolean>);
+const setConfigJSON = vi.fn(async (..._a: unknown[]) => undefined);
+vi.mock("@/lib/settings", () => ({
+  getConfigJSON: (...a: unknown[]) => getConfigJSON(...a),
+  setConfigJSON: (...a: unknown[]) => setConfigJSON(...a),
+}));
+
 const fetchSnapshots = vi.fn(async (..._a: unknown[]) => new Map<string, { symbol: string; close: number }>());
 vi.mock("@/lib/alerts/dataFeeds", () => ({
   MIN_INTERVAL_SEC: 30,
@@ -78,7 +85,7 @@ function row(partial: Partial<Row> & { id: string }): Row {
 }
 
 function runtime() {
-  return { timer: null, running: false, armed: new Map<string, boolean>(), removed: false };
+  return { timer: null, running: false, armed: new Map<string, boolean>(), armedLoaded: false, removed: false };
 }
 
 describe("alertMonitor.evaluateOnce", () => {
@@ -86,6 +93,9 @@ describe("alertMonitor.evaluateOnce", () => {
     state.rows.clear();
     state.updates = [];
     dispatchAlert.mockClear();
+    getConfigJSON.mockReset();
+    getConfigJSON.mockResolvedValue({});
+    setConfigJSON.mockReset();
     fetchSnapshots.mockReset();
     fetchSnapshots.mockResolvedValue(new Map([["AAPL", { symbol: "AAPL", close: 150 }]]));
   });
@@ -137,5 +147,29 @@ describe("alertMonitor.evaluateOnce", () => {
     expect(dispatchAlert).not.toHaveBeenCalled();
     expect(state.rows.get("a4")!.status).toBe("error");
     expect(state.rows.get("a4")!.statusMsg).toContain("no snapshot");
+  });
+
+  it("does not refire a condition that durable state says was already true", async () => {
+    state.rows.set("a5", row({ id: "a5" }));
+    getConfigJSON.mockResolvedValue({ AAPL: true });
+    await evaluateOnce("a5", runtime() as never);
+    expect(dispatchAlert).not.toHaveBeenCalled();
+    expect(getConfigJSON).toHaveBeenCalled();
+  });
+
+  it("persists the edge state when it flips", async () => {
+    state.rows.set("a6", row({
+      id: "a6",
+      conditions: JSON.stringify([{ indicator: "CLOSE", operator: ">", compareMode: "value", value: 200 }]),
+    }));
+    // false now, durable state says false → flip detection persists false→false = no change
+    await evaluateOnce("a6", runtime() as never);
+    // then a true pass flips false→true and must be persisted
+    state.rows.set("a6", row({ id: "a6" }));
+    await evaluateOnce("a6", runtime() as never);
+    expect(setConfigJSON).toHaveBeenCalledWith(
+      expect.stringContaining("alerts:armed:a6"),
+      expect.objectContaining({ AAPL: true }),
+    );
   });
 });

@@ -10,9 +10,10 @@
 // same floating stack.
 //
 // It reuses the SAME chat stack as the full ChatBot tab — `ChatHistory` /
-// `ChatInput`, `getAgentProvider()`, and `/api/agent/research` — so there is one
-// chat implementation, not a second one. It owns its own conversation
-// (`be_chat_dock_v1`) so it never fights the ChatBot tab's shell-owned state.
+// `ChatInput` (`ModelSelector`), `useChatModel()`, and `/api/agent/research` —
+// so there is one chat implementation, not a second one. It owns its own
+// conversation (`be_chat_dock_v1`) so it never fights the ChatBot tab's
+// shell-owned state.
 //
 // Portaled to <body> (the app shell's glass-card backdrop-filter traps fixed
 // positioning otherwise). It is NOT marked `data-keyboard-overlay` — it is
@@ -31,14 +32,17 @@ import { cn } from '@/lib/utils';
 import { sound } from '@/lib/sounds';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
-import { getAgentProvider } from '@/lib/agent/registry';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
+import { useChatModel } from '@/lib/agent/use-chat-model';
+import { useReasoningEffort } from '@/lib/agent/use-reasoning-effort';
 import type { AssistantTurn } from '@/lib/agent/response-model';
 import { turnText } from '@/lib/agent/response-model';
 import { uploadSessionFile } from '@/lib/chat/session-client';
 import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
+import { ModelSelector } from './chat-input';
+import { EffortControl } from './effort-control';
 import { CheckpointBar } from './checkpoint-bar';
 import { ApprovalCard } from './approval-card';
 
@@ -123,11 +127,6 @@ function loadDockSessionId(): string {
   }
 }
 
-/** The configured provider's real label (never a fabricated model name). */
-function useProviderLabel(): string {
-  return React.useMemo(() => getAgentProvider().label, []);
-}
-
 export interface ChatDockProps {
   /** Extra classes for the floating stack (e.g. to clear the fullscreen Exit). */
   className?: string;
@@ -166,7 +165,6 @@ export function ChatDock({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>('dock-temp');
   const attachRef = useRef<HTMLInputElement>(null);
-  const providerLabel = useProviderLabel();
 
   // One place the turn lifecycle lives (shared with the ChatBot tab). The hook
   // reports the AssistantTurn; the sink maps it onto this dock's own message
@@ -175,17 +173,22 @@ export function ChatDock({
   const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
   useEffect(() => { setBusy(agentRun.active); }, [agentRun.active]);
 
+  // The same real, persisted model picker the full ChatBot composer uses. The
+  // dock's assistant can therefore change its model — the choice is persisted to
+  // the settings vault and sent per-turn (belt-and-suspenders), exactly as on
+  // the ChatBot tab. Without this the floating assistant was stuck on whatever
+  // model Settings last saved.
+  const chatModel = useChatModel();
+  // The composer's per-question "model intelligence" override, shared with the
+  // ChatBot tab. Auto (undefined) sends no requirement — the run falls back to
+  // the saved default and the runtime's task profile.
+  const reasoningEffort = useReasoningEffort();
+
   // The action the agent is blocked on, if any (approval card), and the composer
   // element the portaled card floats above.
   const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
   const pendingApproval = agentRun.turn.pendingApproval
     ?? [...messages].reverse().find(m => m.role === 'assistant' && m.pendingApproval)?.pendingApproval;
-
-  // The REAL model that served the latest turn, once the run reports it. Falls
-  // back to the last assistant message so reloading a persisted transcript keeps
-  // showing which model answered. `undefined` until one is known — never faked.
-  const activeModel = agentRun.turn.model?.model
-    ?? [...messages].reverse().find(m => m.role === 'assistant' && m.model?.model)?.model?.model;
 
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
   // hidden with `display:none`. A portal to <body> is NOT hidden by an ancestor
@@ -432,7 +435,13 @@ export function ChatDock({
 
     setBusy(true);
     try {
-      const finalTurn = await agentRun.start({ history, userText, chatId: sessionIdRef.current });
+      const finalTurn = await agentRun.start({
+        history,
+        userText,
+        chatId: sessionIdRef.current,
+        model: chatModel.displayModel || undefined,
+        reasoningEffort: reasoningEffort.effort,
+      });
       // A finished reply is an incoming message, not a generic success.
       if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
     } catch {
@@ -673,15 +682,22 @@ export function ChatDock({
               <Minus size={17} />
             </button>
 
-            {/* Model pill — the REAL model that answered (from the run), falling
-                back to the configured provider label. Never a made-up model. */}
-            <span
-              className="ml-1 hidden items-center gap-1.5 rounded-full border border-border/25 bg-accent/25 px-2.5 py-1 text-[10px] font-bold text-muted-foreground sm:inline-flex"
-              title={activeModel ? `Model: ${activeModel}` : `Chat provider: ${providerLabel}`}
-            >
-              <Bot size={11} className="text-primary" />
-              <span className="max-w-[160px] truncate">{activeModel ?? providerLabel}</span>
-            </span>
+            {/* Model selector — the same real, persisted model picker the full
+                ChatBot composer uses. Changing it here switches the assistant's
+                model for the next turn and persists it to the settings vault.
+                Always rendered (the trigger self-hides its label on small
+                screens) so the model is changeable on mobile too. */}
+            <div className="ml-1">
+              <ModelSelector state={chatModel} />
+            </div>
+            {/* Per-question reasoning effort — the model selector's sibling, the
+                same control the full ChatBot composer offers. */}
+            <EffortControl
+              value={reasoningEffort.effort}
+              index={reasoningEffort.index}
+              onIndexChange={reasoningEffort.setIndex}
+              disabled={busy}
+            />
 
             <div className="ml-auto flex items-center gap-1.5">
               <button

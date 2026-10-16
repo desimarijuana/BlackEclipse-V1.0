@@ -74,6 +74,7 @@ export interface UiBlueprint {
   owner: { kind: OwnershipKind; id: string };
   scope: BlueprintScope;
   path?: string | null;
+  icon?: string | null;
   tags?: string[] | null;
   layout: WorkspaceLayout;
   revision: number;
@@ -88,6 +89,7 @@ export interface BlueprintSummary {
   scope: BlueprintScope;
   ownerId: string;
   path?: string | null;
+  icon?: string | null;
   revision: number;
   updatedAt: string;
   widgetCount: number;
@@ -170,13 +172,13 @@ export function listBlueprints(query: Record<string, string | number | undefined
   for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== "") qs.set(k, String(v));
   return req<{ blueprints: BlueprintSummary[]; total: number }>(`/blueprints?${qs.toString()}`);
 }
-export function createPage(input: { title: string; description?: string; kind?: BlueprintKind; scope?: BlueprintScope; path?: string; tags?: string[]; idempotencyKey?: string }) {
+export function createPage(input: { title: string; description?: string; kind?: BlueprintKind; scope?: BlueprintScope; path?: string; icon?: string; tags?: string[]; idempotencyKey?: string }) {
   return req<{ blueprint: UiBlueprint }>("/blueprints", { method: "POST", body: JSON.stringify(input) });
 }
 export function getBlueprint(blueprintId: string) {
   return req<{ blueprint: UiBlueprint }>(`/blueprints/${encodeURIComponent(blueprintId)}`);
 }
-export function updatePage(blueprintId: string, patch: { title?: string; description?: string; path?: string; tags?: string[] }) {
+export function updatePage(blueprintId: string, patch: { title?: string; description?: string; path?: string; icon?: string; tags?: string[] }) {
   return req<{ blueprint: UiBlueprint }>(`/blueprints/${encodeURIComponent(blueprintId)}`, { method: "PATCH", body: JSON.stringify(patch) });
 }
 export function deleteBlueprint(blueprintId: string) {

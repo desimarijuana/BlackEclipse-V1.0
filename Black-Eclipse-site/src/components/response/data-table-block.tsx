@@ -169,7 +169,7 @@ export function DataTableBlock({
         </div>
       )}
 
-      <div className="w-full overflow-x-auto">
+      <div className="glass-card-subtle w-full overflow-x-auto rounded-xl">
         <table className="w-full border-collapse text-left text-[13px]">
           <thead>
             <tr>
@@ -181,21 +181,29 @@ export function DataTableBlock({
                     scope="col"
                     title={col.hint}
                     className={cn(
-                      'border-b border-white/10 px-3 py-2 text-[12px] font-medium tracking-tight text-muted-foreground',
-                      sortable && 'cursor-pointer select-none transition-colors hover:text-foreground',
+                      'border-b border-white/10 bg-black/[0.03] px-3 py-2.5 text-[12.5px] font-semibold tracking-tight transition-colors dark:bg-white/[0.04]',
+                      active ? 'text-primary' : 'text-foreground/75',
+                      sortable && 'group/th cursor-pointer select-none hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]',
                     )}
                     style={{ textAlign: col.align }}
                     onClick={() => toggleSort(col.key)}
                     aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : sortable ? 'none' : undefined}
                   >
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1.5">
                       {renderInline(parseInline(col.label))}
                       {sortable && (
-                        active ? (
-                          sort!.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
-                        ) : (
-                          <ArrowUpDown size={11} className="opacity-40" />
-                        )
+                        <span
+                          className={cn(
+                            'inline-flex h-3.5 w-3.5 items-center justify-center transition-opacity',
+                            active ? 'text-primary opacity-100' : 'opacity-0 group-hover/th:opacity-60',
+                          )}
+                        >
+                          {active ? (
+                            sort!.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
+                          ) : (
+                            <ArrowUpDown size={11} />
+                          )}
+                        </span>
                       )}
                     </span>
                   </th>

@@ -58,7 +58,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
         </div>
 
         {/* Key stats ribbon */}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 pr-40">
           <div className="hidden sm:flex items-center gap-2">
             <StatChip label="Value" value={fmtUsd(s.totalValue)} loading={loading} />
             <StatChip label="Unreal. P/L" value={fmtUsd(s.unrealizedPnL)} tone={s.unrealizedPnL} sub={fmtPct(s.roiPercent)} loading={loading} />

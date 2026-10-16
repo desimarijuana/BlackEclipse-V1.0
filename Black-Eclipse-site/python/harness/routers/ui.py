@@ -77,6 +77,7 @@ class CreatePageBody(BaseModel):
     kind: BlueprintKind = BlueprintKind.PAGE
     scope: BlueprintScope = BlueprintScope.PERSONAL
     path: Optional[str] = None
+    icon: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
     idempotencyKey: Optional[str] = None  # noqa: N815
 
@@ -85,6 +86,7 @@ class UpdatePageBody(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     path: Optional[str] = None
+    icon: Optional[str] = None
     tags: Optional[list[str]] = None
 
 
@@ -289,7 +291,7 @@ def create_page(request: Request, body: CreatePageBody, _: bool = Depends(requir
         blueprint = _service().create_page(
             CreatePageInput(
                 title=body.title, description=body.description, kind=body.kind, scope=body.scope,
-                path=body.path, tags=body.tags, idempotency_key=body.idempotencyKey,
+                path=body.path, icon=body.icon, tags=body.tags, idempotency_key=body.idempotencyKey,
             ),
             owner_id=_owner(request),
         )
@@ -314,7 +316,7 @@ def update_page(blueprint_id: str, request: Request, body: UpdatePageBody, _: bo
 
         blueprint = _service().update_page(
             blueprint_id,
-            UpdatePageInput(title=body.title, description=body.description, path=body.path, tags=body.tags),
+            UpdatePageInput(title=body.title, description=body.description, path=body.path, icon=body.icon, tags=body.tags),
         )
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
@@ -343,6 +345,15 @@ def duplicate_page(blueprint_id: str, request: Request, body: DuplicateBody, _: 
 def current_page(blueprint_id: str, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         result = _service().get_current_page(blueprint_id=blueprint_id)
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, **result}
+
+
+@router.get("/ui/blueprints/{blueprint_id}/verify")
+def verify_page(blueprint_id: str, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _service().verify_page(blueprint_id)
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, **result}

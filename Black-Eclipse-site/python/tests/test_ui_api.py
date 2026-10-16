@@ -72,6 +72,13 @@ def test_current_page_route_resolves_without_path_segment():
     assert default.json()["blueprint"]["id"] == created
 
 
+def test_page_icon_create_and_read_back():
+    created = client.post("/ui/blueprints", json={"title": "Iconic", "icon": "wallet"}).json()["blueprint"]
+    assert created["icon"] == "wallet"
+    listed = client.get("/ui/blueprints", params={"q": "Iconic"}).json()["blueprints"]
+    assert any(b["id"] == created["id"] and b["icon"] == "wallet" for b in listed)
+
+
 def test_unknown_component_is_rejected():
     blueprint_id = client.post("/ui/blueprints", json={"title": "Reject"}).json()["blueprint"]["id"]
     resp = client.post(f"/ui/blueprints/{blueprint_id}/widgets", json={"componentId": "ghost"})
@@ -136,6 +143,21 @@ def test_engineering_workflow():
     compose = client.post("/ui/engineering", json={"text": "add a widget"})
     assert compose.status_code == 200
     assert compose.json()["created"] is False
+
+    # Engineer -> Compose closure, end to end: the newly registered component is
+    # discoverable, addable to a page, and the page verifies as renderable.
+    catalog = client.get("/ui/components", params={"text": "eng"}).json()["components"]
+    assert any(c["id"] == "eng-widget" for c in catalog)
+
+    page_id = client.post("/ui/blueprints", json={"title": "Engineered"}).json()["blueprint"]["id"]
+    added = client.post(f"/ui/blueprints/{page_id}/widgets", json={"componentId": "eng-widget", "instanceId": "e1"})
+    assert added.status_code == 200, added.text
+
+    verified = client.get(f"/ui/blueprints/{page_id}/verify")
+    assert verified.status_code == 200, verified.text
+    body = verified.json()
+    assert body["renderable"] is True
+    assert body["instances"][0]["componentId"] == "eng-widget"
 
 
 def test_export_import_roundtrip():

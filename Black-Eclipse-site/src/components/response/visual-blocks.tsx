@@ -232,14 +232,16 @@ export function ComparisonGridBlock({ block }: { block: ComparisonGridBlockType 
         <div className="glass-card-subtle overflow-x-auto rounded-xl">
           <table className="w-full border-collapse text-left">
             <thead>
-              <tr className="border-b border-white/10">
-                <th className="px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70" />
+              <tr className="border-b border-white/10 bg-black/[0.03] dark:bg-white/[0.04]">
+                <th className="px-3 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/50" />
                 {block.columns.map((col, i) => (
                   <th
                     key={i}
                     className={cn(
-                      'px-3 py-2 text-center text-[12px] font-semibold text-foreground',
-                      col.highlight && 'bg-primary/[0.08]',
+                      'px-3 py-2.5 text-center text-[12.5px] font-semibold tracking-tight',
+                      col.highlight
+                        ? 'border-t-2 border-primary/60 bg-primary/10 text-primary'
+                        : 'text-foreground/85',
                     )}
                   >
                     {col.label}

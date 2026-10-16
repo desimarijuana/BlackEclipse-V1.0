@@ -615,10 +615,11 @@ them concurrently is what used to freeze the API.
 
 A fired price alert is dispatched from `src/lib/alerts/notifier.ts`
 (`dispatchAlert`, the single dispatch point). It always writes a
-`PriceAlertEvent` (history) and, when `inApp` is on, pushes to a server-side
-ring buffer served by `GET /api/alerts/live` — then sends to every enabled AND
-configured external channel (Telegram / Discord / ntfy / Email / webhook, config
-under `SystemConfig["alert_channels"]`).
+`PriceAlertEvent` — the durable in-app notice **and** history that
+`GET /api/alerts/live` serves directly (there is no separate in-process ring
+buffer, which would reset on restart and diverge across workers) — then sends to
+every enabled AND configured external channel (Telegram / Discord / ntfy /
+Email / webhook, config under `SystemConfig["alert_channels"]`).
 
 Two client surfaces consume the fired-alert stream:
 
@@ -1102,8 +1103,13 @@ uses). Invariants:
   *blocking dialog* and would disable every page shortcut while the dock is
   mounted. The dock is therefore only `data-nodrag`; the focused composer input
   already suppresses shortcuts via the editable-element guard.
-- **Never fabricate a model name.** The provider pill renders
-  `getAgentProvider().label` — the real configured provider.
+- **The assistant can change its model — and its reasoning effort.** The
+  composer renders the SAME `ModelSelector` and `EffortControl` the full ChatBot
+  composer uses, wired to `useChatModel()` and `useReasoningEffort()`. Selecting
+  a model persists it to the settings vault and is also sent per-turn
+  (`agentRun.start({ model, reasoningEffort })`) — so the dock is never stuck on
+  whatever model Settings last saved. The selector labels the real, persisted
+  choice; it never fabricates a model name.
 - **Glass tier is `.glass-card`, not `-strong`.** The pill, transcript and
   composer use `.glass-card` (tint 0.55 + blur 18). `.glass-card-strong`'s 0.85
   tint is above the frosted threshold, so its blur is invisible and the dock read

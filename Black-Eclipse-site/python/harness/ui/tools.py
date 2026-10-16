@@ -115,6 +115,25 @@ async def _get_current_page(args: dict[str, Any], ctx: ToolContext) -> Any:
     )
 
 
+async def _verify_page(args: dict[str, Any], ctx: ToolContext) -> Any:
+    try:
+        result = _service(ctx).verify_page(str(args.get("blueprintId") or ""), owner_id=None)
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+    bad = [i for i in result["instances"] if not i["componentAvailable"] or i["sourceValid"] is False]
+    if not bad:
+        return _ok(
+            f'Page {result["title"]!r} (r{result["revision"]}) is renderable: '
+            f'{len(result["instances"])} widget(s) all resolve.',
+            result,
+        )
+    names = ", ".join(i["instanceId"] for i in bad)
+    return _ok(
+        f'Page {result["title"]!r} (r{result["revision"]}) has {len(bad)} widget(s) that will not render: {names}.',
+        result,
+    )
+
+
 async def _get_component_catalog(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
         query = CatalogQuery(
@@ -264,6 +283,7 @@ async def _create_page(args: dict[str, Any], ctx: ToolContext) -> Any:
                 kind=args.get("kind") or "page",
                 scope=args.get("scope") or "personal",
                 path=args.get("path"),
+                icon=args.get("icon"),
                 tags=list(args.get("tags") or []),
                 idempotency_key=args.get("idempotencyKey"),
             ),
@@ -278,7 +298,7 @@ async def _update_page(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
         blueprint = _service(ctx).update_page(
             str(args.get("blueprintId") or ""),
-            UpdatePageInput(title=args.get("title"), description=args.get("description"), path=args.get("path"), tags=args.get("tags")),
+            UpdatePageInput(title=args.get("title"), description=args.get("description"), path=args.get("path"), icon=args.get("icon"), tags=args.get("tags")),
             owner_id=_owner(ctx),
         )
     except Exception as exc:  # noqa: BLE001
@@ -441,6 +461,7 @@ async def _preview_change(args: dict[str, Any], ctx: ToolContext) -> Any:
 _DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ("ui_get_application_map", "Get the current UI map: the saved pages/workspaces and the component catalog summary.", {"type": "object", "properties": {}}),
     ("ui_get_current_page", "Get the page the user is viewing with its widget instances. Identify it by blueprintId, path or title; with none, resolves the owner's most recently updated page and says which it chose.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "path": {"type": "string"}, "title": {"type": "string"}}}),
+    ("ui_verify_page", "Read a page back and verify each widget is renderable: its component id exists in the catalog and any portfolio source string is well-formed. Use after composing to confirm before claiming success.", {"type": "object", "properties": {"blueprintId": {"type": "string"}}, "required": ["blueprintId"]}),
     ("ui_get_component_catalog", "List/search the components available to compose. Filter by text, category or data source.", {"type": "object", "properties": {"text": {"type": "string"}, "category": {"type": "string"}, "dataSource": {"type": "string"}, "limit": {"type": "integer"}}}),
     ("ui_inspect_component", "Inspect one component's full schema: its configuration fields, data sources and actions.", {"type": "object", "properties": {"componentId": {"type": "string"}}, "required": ["componentId"]}),
     ("ui_get_layout", "Get the workspace layout tree of a blueprint by id.", {"type": "object", "properties": {"blueprintId": {"type": "string"}}, "required": ["blueprintId"]}),
@@ -453,8 +474,8 @@ _DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ("ui_engineering_status", "Get the status of a UI engineering plan (tasks, criteria, progress).", {"type": "object", "properties": {"planId": {"type": "string"}}, "required": ["planId"]}),
     ("ui_register_engineered_component", "After engineering a new component, register it in the UI catalog so Compose can use it, and satisfy the task's catalog criterion (engineer→compose closure).", {"type": "object", "properties": {"taskId": {"type": "string"}, "spec": {"type": "object"}}, "required": ["taskId", "spec"]}),
     ("ui_link_engineering_artifact", "Attach an engineering artifact (diff, screenshot, report) as evidence on an engineering task.", {"type": "object", "properties": {"taskId": {"type": "string"}, "uri": {"type": "string"}, "kind": {"type": "string"}, "label": {"type": "string"}}, "required": ["taskId", "uri"]}),
-    ("ui_create_page", "Create a new page or workspace blueprint. Then add widgets to it.", {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}, "kind": {"type": "string", "enum": ["page", "workspace"]}, "scope": {"type": "string", "enum": ["personal", "shared"]}, "path": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "idempotencyKey": {"type": "string"}}, "required": ["title"]}),
-    ("ui_update_page", "Update a page's title, description, path or tags.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "path": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["blueprintId"]}),
+    ("ui_create_page", "Create a new page or workspace blueprint. Then add widgets to it.", {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}, "kind": {"type": "string", "enum": ["page", "workspace"]}, "scope": {"type": "string", "enum": ["personal", "shared"]}, "path": {"type": "string"}, "icon": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "idempotencyKey": {"type": "string"}}, "required": ["title"]}),
+    ("ui_update_page", "Update a page's title, description, path, icon or tags.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "path": {"type": "string"}, "icon": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["blueprintId"]}),
     ("ui_duplicate_page", "Duplicate an existing page/workspace.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "title": {"type": "string"}}, "required": ["blueprintId"]}),
     ("ui_add_widget", "Add a registered component to a blueprint. Discovers ids via ui_get_component_catalog; validates config against the component schema.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "componentId": {"type": "string"}, "instanceId": {"type": "string"}, "target": {"type": "object"}, "config": {"type": "object"}, "zone": {"type": "string", "enum": ["left", "main", "right"]}, "height": {"type": "number"}, "expectedRevision": {"type": "integer"}}, "required": ["blueprintId", "componentId"]}),
     ("ui_remove_widget", "Remove a widget instance from a blueprint.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "instanceId": {"type": "string"}, "expectedRevision": {"type": "integer"}}, "required": ["blueprintId", "instanceId"]}),
@@ -473,6 +494,7 @@ _DEFS: list[tuple[str, str, dict[str, Any]]] = [
 _HANDLERS = {
     "ui_get_application_map": _get_application_map,
     "ui_get_current_page": _get_current_page,
+    "ui_verify_page": _verify_page,
     "ui_get_component_catalog": _get_component_catalog,
     "ui_inspect_component": _inspect_component,
     "ui_get_layout": _get_layout,
@@ -503,7 +525,7 @@ _HANDLERS = {
 }
 
 READ_TOOLS = frozenset({
-    "ui_get_application_map", "ui_get_current_page", "ui_get_component_catalog",
+    "ui_get_application_map", "ui_get_current_page", "ui_verify_page", "ui_get_component_catalog",
     "ui_inspect_component", "ui_get_layout", "ui_get_capabilities", "ui_get_blueprint",
     "ui_get_operation_status", "ui_list_blueprints", "ui_preview_change",
     "ui_classify_request", "ui_start_engineering", "ui_engineering_status",

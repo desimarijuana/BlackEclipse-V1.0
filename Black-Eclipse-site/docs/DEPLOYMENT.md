@@ -1,7 +1,7 @@
 ---
 title: Deployment — Production Container
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-15
 ---
 
 # Deployment — Production Container
@@ -76,6 +76,16 @@ Back up `/data`; do not bake it into the image.
   the app answers, which is after `instrumentation.register()` finishes boot.
 - Logs: `docker compose logs -f app`.
 - Rebuild after a code change: `docker compose up -d --build`.
+- **Runtime port (`127.0.0.1:8765`):** only one Python runtime may own it; a
+  second one fails to bind (`WinError 10048`) and exits. In the container a fresh
+  process tree starts on every `up`, so this is self-contained. On a bare host
+  (dev or `npm start`), a runtime spawned by a previous run can survive on
+  Windows and hold the port — `scripts/kill-port.js` (run by `predev` and
+  `prestart`) clears both `3000` and the runtime port at launch, so startup
+  always begins from a clean runtime. The runtime resolves the port from
+  `HARNESS_PY_URL` / `HARNESS_PY_PORT` (default `8765`); set the same value in
+  `.env` if you change it. Do not run `next dev` in production — it self-restarts
+  under memory pressure, which kills any agent run in flight.
 
 ## Notes / known limits
 

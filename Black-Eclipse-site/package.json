@@ -19,7 +19,7 @@
     "dev:local": "next dev -H 127.0.0.1",
     "proxy": "node scripts/local-proxy.js",
     "proxy:stop": "node scripts/local-proxy-stop.js",
-    "prestart": "node scripts/doctor.js",
+    "prestart": "node scripts/doctor.js && node scripts/kill-port.js",
     "up": "node scripts/doctor.js && node scripts/up.js",
     "build": "next build",
     "start": "next start",

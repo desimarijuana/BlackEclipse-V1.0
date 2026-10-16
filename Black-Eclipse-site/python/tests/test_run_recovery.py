@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import socket
 import tempfile
 
 import pytest
 
 from harness.persistence import AgentMemoryStore, DB_FILENAME
-from harness.run_recovery import fail_orphaned_runs
+from harness.run_recovery import fail_orphaned_runs, reconcile_orphaned_runs
 
 
 @pytest.fixture()
@@ -71,3 +72,47 @@ def test_fail_orphaned_runs_labels_approval_wait_as_interrupted(store):
     assert events[-1]["type"] == "run.failed"
     assert events[-1]["data"]["code"] == "RUN_INTERRUPTED"
     assert store.get_run("run_busy")["error"]["code"] == "RUN_ORPHANED"
+
+
+def test_reconcile_skips_while_another_runtime_owns_the_port(store):
+    # A duplicate process that is about to fail its port bind must NOT reconcile:
+    # its lifespan runs before the bind, so reconciling would orphan the runs the
+    # live runtime is executing.
+    store.create_run("run_live", "eclipse-agent", {"query": "x"})
+    store.update_run("run_live", status="running")
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    os.environ["HARNESS_PY_HOST"] = "127.0.0.1"
+    os.environ["HARNESS_PY_PORT"] = str(port)
+    try:
+        report = reconcile_orphaned_runs(store, "restarted")
+        assert report["failed"] == 0
+        assert "skipped" in report
+        assert store.get_run("run_live")["status"] == "running"
+    finally:
+        listener.close()
+        os.environ.pop("HARNESS_PY_HOST", None)
+        os.environ.pop("HARNESS_PY_PORT", None)
+
+
+def test_reconcile_runs_when_the_port_is_free(store):
+    # Pick a port and release it, so this process would own it: reconciliation
+    # proceeds and the orphaned run reaches a terminal state.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    store.create_run("run_orphan", "eclipse-agent", {"query": "x"})
+    store.update_run("run_orphan", status="running")
+    os.environ["HARNESS_PY_HOST"] = "127.0.0.1"
+    os.environ["HARNESS_PY_PORT"] = str(port)
+    try:
+        report = reconcile_orphaned_runs(store, "restarted")
+        assert report["failed"] == 1
+        assert store.get_run("run_orphan")["status"] == "failed"
+    finally:
+        os.environ.pop("HARNESS_PY_HOST", None)
+        os.environ.pop("HARNESS_PY_PORT", None)

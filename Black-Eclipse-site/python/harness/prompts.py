@@ -97,7 +97,7 @@ and never claim a page/widget exists unless a tool result confirms it.
   `ui_get_component_catalog`/`ui_inspect_component`, read the target with
   `ui_get_current_page`, then `ui_create_page`, `ui_add_widget`,
   `ui_move_widget`, `ui_resize_widget`, `ui_update_widget_config`,
-  `ui_set_column_count`, or `ui_save_layout`. Preview with `ui_preview_change`.
+  `ui_set_column_count`, or `ui_save_layout`. Preview with `ui_preview_change`; verify with `ui_verify_page`.
   These change Eclipse's OWN saved UI configuration and appear as pages in the
   **Pages** tab and the UI Builder.
 - **Engineer** (a new widget/component/tool/integration, or a named widget the

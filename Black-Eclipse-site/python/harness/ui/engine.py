@@ -371,6 +371,8 @@ def apply_ops(
                 updated.description = op["description"]
             if op.get("path") is not None:
                 updated.path = op["path"]
+            if op.get("icon") is not None:
+                updated.icon = op["icon"] or None
             if op.get("tags") is not None:
                 updated.tags = list(op["tags"])
     updated.revision = blueprint.revision + 1
@@ -415,7 +417,7 @@ def diff_blueprints(before: UiBlueprint, after: UiBlueprint) -> list[BlueprintCh
             changes.append(BlueprintChange(type=ChangeType.RESIZE_WIDGET, instance_id=instance_id, component_id=nxt[3].widget_id, detail=f"resized {nxt[3].widget_id}"))
         if json.dumps(prev[3].config or {}, sort_keys=True) != json.dumps(nxt[3].config or {}, sort_keys=True):
             changes.append(BlueprintChange(type=ChangeType.CONFIG_CHANGED, instance_id=instance_id, component_id=nxt[3].widget_id, detail=f"reconfigured {nxt[3].widget_id}"))
-    if (before.title, before.description, before.path, before.tags) != (after.title, after.description, after.path, after.tags):
+    if (before.title, before.description, before.path, before.icon, before.tags) != (after.title, after.description, after.path, after.icon, after.tags):
         changes.append(BlueprintChange(type=ChangeType.META_CHANGED, detail="updated page metadata"))
     shape_before = [(s.id, len(s.columns), tuple(c.weight for c in s.columns)) for s in before.layout.sections]
     shape_after = [(s.id, len(s.columns), tuple(c.weight for c in s.columns)) for s in after.layout.sections]

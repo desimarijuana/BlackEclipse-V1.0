@@ -21,7 +21,9 @@ export type WidgetCategory =
   | 'tools'
   | 'geopolitics'
   | 'alerts'
-  | 'journal';
+  | 'journal'
+  | 'tables'
+  | 'metrics';
 
 export const WIDGET_CATEGORY_LABEL: Record<WidgetCategory, string> = {
   markets: 'Markets',
@@ -36,6 +38,8 @@ export const WIDGET_CATEGORY_LABEL: Record<WidgetCategory, string> = {
   geopolitics: 'Geopolitics',
   alerts: 'Alerts',
   journal: 'Journal',
+  tables: 'Tables',
+  metrics: 'Metrics',
 };
 
 /** A single configurable field rendered by the config panel. */
@@ -79,6 +83,14 @@ export interface WidgetDefinition {
   configFields?: WidgetConfigField[];
   /** Data dependencies (keys into a data service). */
   dataDeps?: string[];
+  /**
+   * Data sources advertised to the UI-Engineering catalog. Distinct from
+   * `dataDeps`: `dataDeps` are DataHub topics the workspace subscribes, while
+   * this is the catalog vocabulary (e.g. `['any', 'portfolio']`) reported by
+   * `adaptWidgetDefinition`. Use it for widgets that read a `source` config via
+   * the data-source resolver rather than a fixed topic.
+   */
+  catalogDataSources?: string[];
   refreshPolicy?: RefreshPolicy;
   /** Heavy widgets (WebGL etc.) load only when placed. */
   lazy?: boolean;

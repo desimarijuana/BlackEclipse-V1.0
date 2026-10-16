@@ -232,13 +232,14 @@ function Block({
           <div className="w-full overflow-x-auto scrollbar-hide">
             <table className="w-full border-collapse text-left">
               <thead>
-                {/* No fill, no container chrome: the table should read as part of
-                    the reply. Just a hairline under a larger, quieter header. */}
+                {/* A quiet tinted header strip + hairline: the table still reads
+                    as part of the reply, but the header row is legible and
+                    clearly distinguished from the body. */}
                 <tr>
                   {block.header.map((cell, ci) => (
                     <th
                       key={ci}
-                      className="border-b border-white/15 px-3 pb-2 pt-3 text-[1.05em] font-medium tracking-tight text-foreground dark:border-white/15"
+                      className="border-b border-white/15 bg-black/[0.03] px-3 pb-2 pt-3 text-[1.05em] font-semibold tracking-tight text-foreground dark:border-white/15 dark:bg-white/[0.04]"
                       style={{ textAlign: block.align[ci] ?? undefined }}
                     >
                       {renderInline(cell)}

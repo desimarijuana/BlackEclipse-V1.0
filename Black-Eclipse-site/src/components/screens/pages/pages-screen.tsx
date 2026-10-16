@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Plus, RefreshCw, RotateCcw, Save } from '@/lib/icons';
-import { DASHBOARD_WIDGETS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
+import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
 import { CustomizableWorkspace } from '@/components/workspace';
 import { loadWorkspace, clearWorkspace } from '@/lib/workspace/persistence';
 import {
@@ -78,10 +78,69 @@ export function PagesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open the first page once on mount
   }, [refreshList, openPage]);
 
+  // Live refresh: the runtime pushes a `changed` event over SSE
+  // (`/api/ui/stream`) when a blueprint's revision moves; we then re-list and
+  // reload the open page ONLY if its durable revision actually changed — a
+  // no-op otherwise, so a user's unsaved local arrangement is never yanked.
+  // Window focus is a fallback; a slow poll covers a dropped stream.
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { blueprints: list } = await listBlueprints({ limit: 100 });
+        if (cancelled) return;
+        setBlueprints(list);
+        const current = list.find((b) => b.id === selectedId);
+        if (current && (!blueprint || current.revision !== blueprint.revision)) {
+          await openPage(selectedId!);
+        }
+      } catch {
+        /* best-effort: keep the current view */
+      }
+    };
+    window.addEventListener('focus', check);
+
+    let source: EventSource | null = null;
+    let fallback: ReturnType<typeof setInterval> | null = null;
+    const startFallback = () => {
+      if (!fallback) fallback = setInterval(() => void check(), 60_000);
+    };
+    try {
+      source = new EventSource('/api/ui/stream');
+      source.addEventListener('changed', () => void check());
+      source.addEventListener('error', () => {
+        // Browser will auto-reconnect; add a poll as a safety net meanwhile.
+        startFallback();
+      });
+    } catch {
+      startFallback();
+    }
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', check);
+      source?.close();
+      if (fallback) clearInterval(fallback);
+    };
+  }, [selectedId, blueprint, openPage]);
+
   const defaultLayout = useMemo(
     () => blueprintLayoutToKernel(blueprint?.layout),
     [blueprint],
   );
+
+  // Keep every id present in the blueprint — including ones the host registry
+  // does not render yet (an agent-added or engineered widget) — so the kernel
+  // does not silently drop it. Unknown ids render a visible placeholder.
+  const knownWidgetIds = useMemo(() => {
+    const ids = new Set<string>(DASHBOARD_WIDGET_IDS);
+    for (const section of blueprint?.layout.sections ?? []) {
+      for (const column of section.columns ?? []) {
+        for (const widget of column.widgets ?? []) ids.add(widget.widgetId);
+      }
+    }
+    return [...ids];
+  }, [blueprint]);
 
   const handleCreate = async () => {
     setBusy(true);
@@ -102,7 +161,7 @@ export function PagesScreen() {
     if (!selectedId || !blueprint) return;
     setBusy(true);
     try {
-      const { layout } = loadWorkspace(pageStorageKey(selectedId), defaultLayout);
+      const { layout } = loadWorkspace(pageStorageKey(selectedId, blueprint.revision), defaultLayout);
       const { blueprint: saved } = await saveLayout(selectedId, kernelLayoutToWire(layout), blueprint.revision);
       setBlueprint(saved);
       setNote(`Saved arrangement to “${saved.title}” (r${saved.revision})`);
@@ -117,10 +176,18 @@ export function PagesScreen() {
   // Discard the local cache and re-seed from the blueprint.
   const handleRevert = () => {
     if (!selectedId) return;
-    clearWorkspace(pageStorageKey(selectedId));
+    clearWorkspace(pageStorageKey(selectedId, blueprint?.revision));
     setNote('Reverted to the page’s saved arrangement');
     // Force the workspace to remount and re-seed from the blueprint.
     setRemount((n) => n + 1);
+  };
+
+  // Refresh re-lists pages AND reloads the open one, so an edit the agent just
+  // made to the blueprint shows up without reopening the page.
+  const handleRefresh = async () => {
+    const list = await refreshList();
+    const target = selectedId && list.some((b) => b.id === selectedId) ? selectedId : list[0]?.id;
+    if (target) await openPage(target);
   };
 
   return (
@@ -133,7 +200,7 @@ export function PagesScreen() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void refreshList()} className="glass-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-foreground">
+          <button type="button" onClick={() => void handleRefresh()} className="glass-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-foreground">
             <RefreshCw size={13} /> Refresh
           </button>
           <button type="button" onClick={() => void handleCreate()} disabled={busy} className="glass-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-foreground disabled:opacity-50">
@@ -150,20 +217,26 @@ export function PagesScreen() {
           <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Your pages</h2>
           <div className="flex-1 space-y-1 overflow-y-auto">
             {blueprints.length === 0 && <p className="text-xs text-muted-foreground">No pages yet. Create one, or ask Eclipse to.</p>}
-            {blueprints.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => void openPage(b.id)}
-                className={cn(
-                  'w-full rounded-lg px-2.5 py-2 text-left text-xs transition-colors',
-                  selectedId === b.id ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/5',
-                )}
-              >
-                <span className="block truncate font-medium text-foreground">{b.title}</span>
-                <span className="text-[10px] text-muted-foreground">{b.kind} · r{b.revision} · {b.widgetCount} widgets</span>
-              </button>
-            ))}
+            {blueprints.map((b) => {
+              const PageIcon = widgetIcon(b.icon ?? 'dashboard');
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => void openPage(b.id)}
+                  className={cn(
+                    'w-full rounded-lg px-2.5 py-2 text-left text-xs transition-colors',
+                    selectedId === b.id ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/5',
+                  )}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <PageIcon size={12} className="shrink-0 text-primary/80" />
+                    <span className="truncate font-medium text-foreground">{b.title}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{b.kind} · r{b.revision} · {b.widgetCount} widgets</span>
+                </button>
+              );
+            })}
           </div>
         </aside>
 
@@ -172,7 +245,8 @@ export function PagesScreen() {
           {blueprint && (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-medium text-foreground">
+                <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  {(() => { const HIcon = widgetIcon(blueprint.icon ?? 'dashboard'); return <HIcon size={15} className="text-primary" />; })()}
                   {blueprint.title} <span className="text-xs text-muted-foreground">(r{blueprint.revision})</span>
                 </h2>
                 <div className="flex items-center gap-2">
@@ -187,9 +261,10 @@ export function PagesScreen() {
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <CustomizableWorkspace
                   key={`${blueprint.id}:${blueprint.revision}:${blueprint.updatedAt}:${remount}`}
-                  storageKey={pageStorageKey(blueprint.id)}
+                  storageKey={pageStorageKey(blueprint.id, blueprint.revision)}
                   defaultLayout={defaultLayout}
                   widgets={DASHBOARD_WIDGETS}
+                  knownWidgetIds={knownWidgetIds}
                   widgetIcon={widgetIcon}
                   renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
                   toolbar="icons"
