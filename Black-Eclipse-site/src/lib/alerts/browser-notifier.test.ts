@@ -3,13 +3,16 @@ import {
   isEnabled,
   isSupported,
   permission,
+  secureContext,
   setEnabled,
   showAlertNotification,
 } from './browser-notifier';
 
 const created: Array<{ title: string; options?: NotificationOptions }> = [];
 
-function installWindow(opts: { permission?: NotificationPermission; supported?: boolean } = {}) {
+function installWindow(
+  opts: { permission?: NotificationPermission; supported?: boolean; secure?: boolean } = {},
+) {
   const store = new Map<string, string>();
   const listeners = new Map<string, Set<(e: unknown) => void>>();
   const g = globalThis as Record<string, unknown>;
@@ -25,6 +28,7 @@ function installWindow(opts: { permission?: NotificationPermission; supported?: 
   };
 
   g.window = {
+    isSecureContext: opts.secure ?? true,
     Notification: opts.supported === false ? undefined : NotificationMock,
     localStorage: {
       getItem: (k: string) => store.get(k) ?? null,
@@ -59,9 +63,17 @@ afterEach(() => {
 describe('browser-notifier', () => {
   it('reports unsupported without a window/Notification', () => {
     expect(isSupported()).toBe(false);
+    expect(secureContext()).toBe(false);
     expect(permission()).toBe('unsupported');
     expect(isEnabled()).toBe(false);
     expect(showAlertNotification({ msg: 'x' })).toBe(false);
+  });
+
+  it('distinguishes a secure origin from an insecure one', () => {
+    installWindow({ secure: true });
+    expect(secureContext()).toBe(true);
+    installWindow({ secure: false });
+    expect(secureContext()).toBe(false);
   });
 
   it('defaults to OFF (opt-in) and persists the choice', async () => {

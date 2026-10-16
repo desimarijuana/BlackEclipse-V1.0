@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from '@/lib/icons';
 import { useDarkScheme } from '@/hooks/use-dark-scheme';
 import { repairMermaid } from '@/lib/response/mermaid-repair';
+import { NoticeCard } from './blocks';
 
 function useStableId(): string {
   const ref = useRef<string | null>(null);
@@ -79,12 +80,9 @@ export function MermaidBlock({ diagram, title, description }: MermaidBlockProps)
     <figure className="w-full">
       {title && <figcaption className="mb-2 text-sm font-semibold text-foreground">{title}</figcaption>}
       {error ? (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2 text-[12px] text-rose-200/90">
-          <div className="flex items-center gap-1.5 font-medium">
-            <AlertTriangle size={13} /> Diagram could not be rendered
-          </div>
-          <p className="mt-0.5 font-mono text-[10px] opacity-70">{error}</p>
-        </div>
+        <NoticeCard tone="danger" icon={AlertTriangle} title="Diagram could not be rendered">
+          <p className="mt-1 font-mono text-[10px] text-foreground/60">{error}</p>
+        </NoticeCard>
       ) : (
         <div className="glass-card-subtle overflow-auto rounded-xl p-3">
           <div ref={containerRef} className="[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full" />

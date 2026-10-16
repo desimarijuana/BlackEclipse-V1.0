@@ -55,6 +55,9 @@ log = logging.getLogger("harness.automation.engine")
 TICK_SECONDS = 30.0
 DEFAULT_MAX_IN_FLIGHT = 4
 LEASE_SLACK_S = 60.0
+# A stored run output is the answer a person reads back; bounded so a runaway
+# answer cannot bloat the execution ledger.
+_OUTPUT_MAX_CHARS = 20_000
 # Terminal failure statuses that count toward the breaker.
 _FAILURE_STATES = frozenset({"failed", "timed_out"})
 _DEDUP_RETENTION_DAYS = 30
@@ -502,6 +505,7 @@ class AutomationEngine:
         self._store.finish_execution(
             execution_id, state=state, outcome_reason=reason, error_class=error_class,
             run_id=run_id_out, cost=cost, tokens=tokens,
+            output=self._bounded_output(result.output if result else None),
         )
         self._store.append_execution_event(execution_id, state, {"reason": reason, "errorClass": error_class})
         await self._deliver(definition, execution_id, run_id_out, state, result.output if result else None)
@@ -536,6 +540,14 @@ class AutomationEngine:
         if limits.max_cost is not None and result.cost is not None and result.cost > limits.max_cost:
             return f"the run cost {result.cost}, above the limit of {limits.max_cost}"
         return None
+
+    def _bounded_output(self, output: Optional[str]) -> Optional[str]:
+        """The run's answer, bounded for storage. A completed automation's output
+        is persisted so it can be READ later (run history + completion notice):
+        the report/delivery surfaces used to drop it and the run looked empty."""
+        if not output:
+            return None
+        return output if len(output) <= _OUTPUT_MAX_CHARS else output[:_OUTPUT_MAX_CHARS] + "…"
 
     # ── Breaker ──────────────────────────────────────────────────────────────
     def _breaker_state(self, definition: AutomationDefinition) -> str:

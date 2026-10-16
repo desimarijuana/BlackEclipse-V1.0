@@ -43,6 +43,19 @@ describe('selectBotRunTransitions', () => {
     expect(next.get('a')).toEqual({ executionId: 'e1', state: 'completed' });
   });
 
+  it('uses the run output as the notification body when present', () => {
+    const prev = seedBotRuns([view({ automationId: 'a', executionId: 'e1', state: 'running' })]);
+    const { notifications } = selectBotRunTransitions(
+      [view({ automationId: 'a', executionId: 'e1', state: 'completed', output: 'The answer is 42.' })],
+      prev,
+    );
+    expect(notifications[0]).toMatchObject({
+      id: 'bot-run:a:e1',
+      body: 'Research Bot — The answer is 42.',
+      ok: true,
+    });
+  });
+
   it('never notifies on first sight of an automation (even if terminal)', () => {
     const { notifications } = selectBotRunTransitions(
       [view({ automationId: 'new', executionId: 'e9', state: 'completed' })],

@@ -1,7 +1,7 @@
 ---
 title: Portfolio Accounting Engine
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-15
 ---
 
 # Portfolio Accounting Engine
@@ -52,6 +52,47 @@ now mirrors the legacy book into the engine once (idempotent, with a
 `fund.id → portfolioId` map and a rollback-safe flag), and the screen prefers the
 engine view once it holds data. The engine is authoritative; there is no second
 book.
+
+### Surfacing a portfolio on a UI page (Ledger widgets)
+
+A page widget reads a portfolio through the UI runtime's data-source string, not
+by triggering the one-shot migration. The exact, parseable form is:
+
+```
+portfolio:<portfolio_id>:<view>
+```
+
+where `<portfolio_id>` is the engine id (from `GET /portfolio/list` or the
+`portfolio_*` tools, e.g. `pf_7586246984d44b11bfb8`) and `<view>` is one of:
+
+| view | engine read |
+|---|---|
+| `summary` | totals: value, cost basis, P&L, cash |
+| `positions` | open positions (quantity, cost, value) |
+| `holdings` | positions with pricing/valuation detail |
+| `transactions` | the transaction ledger |
+| `pnl` | realised/unrealised P&L (e.g. today's) |
+| `performance` | NAV/returns time series |
+| `risk` | volatility, beta, drawdown, risk contribution |
+| `allocation` | weights by symbol |
+| `tax-lots` | open tax lots per symbol |
+
+Example: `portfolio:pf_7586246984d44b11bfb8:positions`.
+
+The runtime advertises these strings via
+`get_capabilities()["dataSourceRegistry"]` (and the `ui_get_capabilities` tool)
+and validates them with `catalog.portfolio_source(id, view)` /
+`catalog.parse_portfolio_source(source)`. A `data-table` sets its `source`, a
+`metric-card` its `metric`; the dedicated Ledger kinds
+(`portfolio-summary`, `portfolio-open-positions`, `portfolio-holdings`,
+`portfolio-today-pnl`, `portfolio-performance`, `portfolio-risk-metrics`) take a
+`portfolioId` field. `portfolio.positions` / `portfolio.totalValue` are **not**
+valid source strings — only the colon form above resolves.
+
+The engine's `POST /portfolio/{id}/bridge` is **not** part of this read path: it
+is a write that moves a quantity of one symbol out and the bridged quantity of
+another in across chains at the carried cost basis (no gain/loss), and is
+exposed for cross-chain custody transfers only.
 
 ## Database
 

@@ -639,11 +639,16 @@ Two client surfaces consume the fired-alert stream:
    path that reaches the laptop itself. It is **opt-in** (localStorage
    `be_alerts_browser_v1`, default OFF), requests permission only from an
    explicit user gesture, and is a no-op unless permission is actually granted —
-   the Settings toggle reports `blocked`/`off`/`on` honestly. There is **no
-   service worker**, so notifications appear only while a BlackEclipse page is
-   open in the browser; the UI states this rather than hiding it. Toggle + "Send
-   test notification" live in Settings › Alerts/Notifications
-   (`alert-notifications-settings.tsx`).
+   the Settings toggle reports `blocked`/`off`/`on` honestly. The API also
+   requires a **secure context** (`https://…`, or the loopback names
+   `localhost`/`127.0.0.1`): on the plain-HTTP `http://blackeclipse` alias
+   `window.Notification` is undefined, so it needs the local HTTPS front door
+   (`npm run setup:tls` → `https://blackeclipse`; see `docs/local-hostname.md`).
+   The Settings panel names this when the origin is insecure (`secureContext()`
+   in `browser-notifier.ts`). There is **no service worker**, so notifications
+   appear only while a BlackEclipse page is open in the browser; the UI states
+   this rather than hiding it. Toggle + "Send test notification" live in Settings
+   › Alerts/Notifications (`alert-notifications-settings.tsx`).
 
 **The notification center.** Every raise also lands in an app-wide ledger —
 `src/lib/notifications/store.ts` (zustand, persisted at `be_notifications_v1`,
@@ -677,8 +682,14 @@ watcher: `bots-run-watcher.tsx` (also mounted in the root layout) sweeps
 and diffs each bot's `lastExecution` via the pure `bots-run-diff.ts`; a run that
 reaches a notifiable terminal state gets a `bots`-tab notification (completed →
 `taskdone`, failed/timed out/blocked → the alert cue; cancelled/skipped stay
-quiet). A finished chat reply raised while the operator is on another tab is
-announced the same way from `use-agent-run.ts` (ChatBot tab, `taskdone` cue);
+quiet). Separately, the bot chat surface (`bot-chat.tsx`) polls the selected
+bot's execution history and mirrors every terminal run that produced an answer
+INTO the conversation thread as a tagged **Auto run** assistant turn —
+idempotently, keyed by execution id (`useBotChatStore.appendScheduled`) — so an
+unattended run is readable in the thread itself, not only in Details → Run
+history and a toast. A finished chat reply raised while the operator is on
+another tab is announced the same way from `use-agent-run.ts` (ChatBot tab,
+`taskdone` cue);
 while the ChatBot is visible the surfaces keep their soft `message` cue.
 
 ## The two workspace systems (read this twice)

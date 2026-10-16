@@ -54,7 +54,14 @@ def _owner(request: Request) -> str:
 
 def _raise(exc: Exception) -> None:
     if isinstance(exc, UiError):
-        code = 404 if exc.code.endswith("NOT_FOUND") else 409 if exc.code == "UI_CONFLICT" else 400
+        if exc.code.endswith("NOT_FOUND"):
+            code = 404
+        elif exc.code.endswith("OWNER_MISMATCH"):
+            code = 403
+        elif exc.code == "UI_CONFLICT":
+            code = 409
+        else:
+            code = 400
         detail: Any = {"code": exc.code, "message": exc.message}
         if exc.issues:
             detail["issues"] = exc.issues
@@ -190,6 +197,28 @@ def application_map(request: Request, _: bool = Depends(require_operator)) -> di
 def capabilities(request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         result = _service().get_capabilities()
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, **result}
+
+
+@router.get("/ui/current-page")
+def resolve_current_page(
+    request: Request,
+    blueprintId: Optional[str] = None,  # noqa: N803
+    path: Optional[str] = None,
+    title: Optional[str] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Resolve the current page with no path segment required.
+
+    Exists because ``GET /ui/blueprints/current`` would be swallowed by the
+    ``/ui/blueprints/{blueprint_id}`` route. Identify by ``blueprintId``,
+    ``path`` or ``title``; with none, the owner's most recently updated page is
+    chosen and the response names it (``resolution`` + ``candidates``).
+    """
+    try:
+        result = _service().get_current_page(blueprint_id=blueprintId, path=path, title=title)
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, **result}

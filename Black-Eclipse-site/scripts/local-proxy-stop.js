@@ -1,13 +1,23 @@
 #!/usr/bin/env node
 // Stop the local hostname proxy — `npm run proxy:stop`.
 //
-// Finds whatever is listening on the proxy port (default 80) and terminates it.
-// This is intentionally NOT a Windows service or scheduled task: the proxy is a
-// plain foreground process you start and stop yourself.
+// Finds whatever is listening on the proxy's port(s) and terminates it. In TLS
+// mode the proxy serves HTTPS on :443 AND an http→https redirect on :80, so both
+// are stopped; in plain-http mode only :80. This is intentionally NOT a Windows
+// service or scheduled task: the proxy is a plain foreground process you start
+// and stop yourself.
 
 const { execSync } = require("child_process");
+const { tlsAvailable } = require("./lib/tls");
 
-const PORT = parseInt(process.env.BE_PROXY_PORT || "80", 10);
+const TLS_DISABLED = ["0", "false", "no", "off"].includes(
+  String(process.env.BE_PROXY_TLS || "").trim().toLowerCase()
+);
+const useTls = !TLS_DISABLED && tlsAvailable();
+
+const ports = new Set();
+ports.add(parseInt(process.env.BE_PROXY_PORT || (useTls ? "443" : "80"), 10));
+if (useTls) ports.add(parseInt(process.env.BE_PROXY_REDIRECT_PORT || "80", 10));
 
 function findListeners(port) {
   const pids = new Set();
@@ -30,18 +40,21 @@ function findListeners(port) {
   return pids;
 }
 
-const pids = findListeners(PORT);
-if (pids.size === 0) {
-  console.log(`[proxy:stop] nothing is listening on port ${PORT}.`);
-  process.exit(0);
-}
-
-for (const pid of pids) {
-  console.log(`[proxy:stop] killing PID ${pid} on port ${PORT}...`);
-  try {
-    execSync(process.platform === "win32" ? `taskkill /F /PID ${pid}` : `kill -9 ${pid}`);
-  } catch {
-    console.warn(`[proxy:stop] could not kill PID ${pid} (already gone?)`);
+let any = false;
+for (const port of ports) {
+  const pids = findListeners(port);
+  if (pids.size === 0) {
+    console.log(`[proxy:stop] nothing is listening on port ${port}.`);
+    continue;
+  }
+  for (const pid of pids) {
+    any = true;
+    console.log(`[proxy:stop] killing PID ${pid} on port ${port}...`);
+    try {
+      execSync(process.platform === "win32" ? `taskkill /F /PID ${pid}` : `kill -9 ${pid}`);
+    } catch {
+      console.warn(`[proxy:stop] could not kill PID ${pid} (already gone?)`);
+    }
   }
 }
-console.log(`[proxy:stop] port ${PORT} is free.`);
+if (any) console.log(`[proxy:stop] stopped.`);

@@ -1,7 +1,7 @@
 ---
 title: UI Engineering Foundation
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-15
 ---
 
 # UI Engineering Foundation
@@ -109,9 +109,48 @@ properties inspector, AI command panel, revision history and diagnostics.
 
 **Naming a page from the agent surface:** `ui_list_blueprints` and
 `ui_get_application_map` print each page's `id` + title in their text line (the
-`id` is what every mutation tool requires), and `ui_get_current_page(path=…)`
-resolves the path against the FULL blueprint — the list summary
-(`BlueprintSummary`) intentionally carries no `path`.
+`id` is what every mutation tool requires). `BlueprintSummary` now also carries
+`path` and `componentIds`, so pages that share a title are distinguishable from
+the list alone, and `ui_get_current_page` can resolve `path` against the full
+blueprint.
+
+**Resolving "the current page" (`get_current_page`).** The lookup takes an
+explicit `blueprintId`, else `path`, else `title`; with **none** of them it
+falls back to the owner's **most recently updated** page (`list_blueprints`
+orders `updatedAt DESC, id ASC`). It never silently returns row 1: the response
+carries `resolution` (`explicit_id` | `path` | `title` | `title_ambiguous` |
+`default_most_recent`) and, when a choice was made among several candidates,
+a `candidates` list of the others. Paths are normalised (trim, leading slash,
+no trailing slash, case-insensitive); an unset path (`None`) never matches. A
+lookup that matches nothing raises `UI_BLUEPRINT_PATH_UNASSIGNED` when pages
+exist without a path (actionable: use id/title) and `UI_BLUEPRINT_NOT_FOUND`
+otherwise. HTTP: `GET /ui/current-page?blueprintId=|path=|title=`
+(the path-segment form `GET /ui/blueprints/{id}/current` still exists).
+
+**One owner policy.** `get_blueprint` fetches unscoped and applies the owner
+rule in the service, so `get_current_page` / `get_layout` / `preview` share it.
+A mismatch is the distinct `UI_BLUEPRINT_OWNER_MISMATCH` (HTTP 403), never
+`unknown blueprint`. The read tools (`ui_get_current_page`, `ui_get_layout`,
+`ui_get_blueprint`, `ui_preview_change`) pass **no** owner scope, matching the
+HTTP read routes; only mutations scope to the invoking owner.
+
+**Data-source vocabulary.** Component configs accept a free-text `source`, but
+the runtime advertises the valid structured strings via
+`get_capabilities()["dataSourceRegistry"]` (also `ui_get_capabilities`). The one
+family today is **`portfolio:<portfolio_id>:<view>`** — see
+[`portfolio-accounting.md`](portfolio-accounting.md). A `data-table` (its
+`source`) or a `metric-card` (its `metric`), or the dedicated Ledger kinds
+(`portfolio-summary`, `portfolio-open-positions`, `portfolio-holdings`,
+`portfolio-today-pnl`, `portfolio-performance`, `portfolio-risk-metrics`), can
+target a specific engine portfolio. Helper: `catalog.portfolio_source(id, view)`.
+
+**Known gap (scoped, not built): page-level icons.** The persisted layout has
+no icon field — `WidgetPlacement`/`WorkspaceColumn`/`WorkspaceSection`/
+`WorkspaceLayout` end at config/hidden, and `UiBlueprint` has no `icon`. A
+page-level icon therefore requires a new field (on `UiBlueprint` or
+`WidgetPlacement`) **plus** renderer support; it is deliberately **not** wired
+to the chat response-block icon enum (sparkles, coins, wallet, …), which is a
+different surface.
 
 **Catalog source of truth:** the runtime seeds the *foundational* kinds so it is
 usable standalone; the browser then pushes the REAL dashboard widget specs

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from harness.persistence import AgentMemoryStore
@@ -126,7 +128,85 @@ def test_get_current_page_by_path_resolves_full_blueprint(ui):
 
 
 def test_get_current_page_unknown_path_is_not_found(ui):
-    _page(ui)
+    # A page WITH a path exists, but none matches -> genuinely not found (as
+    # opposed to there being no path assigned anywhere — see the test below).
+    ui.create_page(CreatePageInput(title="Portfolio", path="/portfolio"))
     with pytest.raises(UiError) as exc:
         ui.get_current_page(path="/does-not-exist")
     assert exc.value.code == "UI_BLUEPRINT_NOT_FOUND"
+
+
+def test_get_current_page_default_is_most_recent_and_surfaces_choice(ui):
+    # Defect 1: with neither id nor path, the lookup must resolve a real default
+    # (most recently updated) and name it, never silently return row 1.
+    first = ui.create_page(CreatePageInput(title="Main")).id
+    time.sleep(0.01)  # ensure updatedAt differs (now_iso has ms resolution)
+    second = ui.create_page(CreatePageInput(title="Main")).id
+    page = ui.get_current_page()
+    assert page["resolution"] == "default_most_recent"
+    assert page["blueprint"]["id"] == second
+    assert second != first
+    assert any(c["id"] == first for c in page["candidates"])
+
+
+def test_get_current_page_title_resolves_and_disambiguates(ui):
+    first = ui.create_page(CreatePageInput(title="Main")).id
+    time.sleep(0.01)
+    second = ui.create_page(CreatePageInput(title="Main")).id
+    # Ambiguous title -> most recently updated, with the others offered.
+    page = ui.get_current_page(title="Main")
+    assert page["resolution"] == "title_ambiguous"
+    assert page["blueprint"]["id"] == second
+    assert [c["id"] for c in page["candidates"]] == [first]
+    # Exact/unique title -> unambiguous.
+    ui.create_page(CreatePageInput(title="Ledger"))
+    only = ui.get_current_page(title="ledger")  # case-insensitive
+    assert only["resolution"] == "title"
+    assert only["blueprint"]["title"] == "Ledger"
+    assert only["candidates"] == []
+
+
+def test_get_current_page_path_is_normalised(ui):
+    ui.create_page(CreatePageInput(title="Portfolio", path="/Portfolio/"))
+    page = ui.get_current_page(path="portfolio")
+    assert page["resolution"] == "path"
+    assert page["blueprint"]["path"] == "/Portfolio/"
+
+
+def test_get_current_page_path_unassigned_is_distinct(ui):
+    # Defect 2: every page here has path=None, so a path lookup must say so
+    # (actionable) rather than claim a matching page does not exist.
+    _page(ui)
+    with pytest.raises(UiError) as exc:
+        ui.get_current_page(path="/portfolio")
+    assert exc.value.code == "UI_BLUEPRINT_PATH_UNASSIGNED"
+
+
+def test_get_blueprint_owner_mismatch_is_distinct(ui):
+    # Defect 3: a scope mismatch must be its own error, never "unknown blueprint".
+    blueprint_id = ui.create_page(CreatePageInput(title="Mine"), owner_id="alice").id
+    with pytest.raises(UiError) as exc:
+        ui.get_blueprint(blueprint_id, owner_id="bob")
+    assert exc.value.code == "UI_BLUEPRINT_OWNER_MISMATCH"
+    with pytest.raises(UiError) as missing:
+        ui.get_current_page(blueprint_id="does-not-exist", owner_id="bob")
+    assert missing.value.code == "UI_BLUEPRINT_NOT_FOUND"
+
+
+def test_blueprint_summary_carries_path_and_components(ui):
+    # Defect 4: pages that share a title are distinguishable via path + widgets.
+    ui.create_page(CreatePageInput(title="Main", path="/main-a"))
+    page_id = ui.create_page(CreatePageInput(title="Main", path="/main-b")).id
+    _add(ui, page_id, "metric-card", "m1")
+    listed = ui.list_blueprints()["blueprints"]
+    match = next(b for b in listed if b["id"] == page_id)
+    assert match["path"] == "/main-b"
+    assert match["componentIds"] == ["metric-card"]
+
+
+def test_data_source_registry_documents_portfolio_sources(ui):
+    registry = ui.list_data_sources()["portfolio"]
+    assert registry["example"] == "portfolio:pf_7586246984d44b11bfb8:positions"
+    assert "positions" in registry["views"]
+    assert ui.list_components(CatalogQuery(data_source="portfolio"))
+    assert "portfolio" in ui.get_capabilities()["dataSources"]

@@ -87,9 +87,16 @@ export interface BlueprintSummary {
   kind: BlueprintKind;
   scope: BlueprintScope;
   ownerId: string;
+  path?: string | null;
   revision: number;
   updatedAt: string;
   widgetCount: number;
+  componentIds: string[];
+}
+
+export interface CurrentPageResolution {
+  resolution: "explicit_id" | "path" | "title" | "title_ambiguous" | "default_most_recent";
+  candidates: { id: string; title: string; path?: string | null; updatedAt: string }[];
 }
 
 export interface BlueprintChange {
@@ -179,7 +186,12 @@ export function duplicatePage(blueprintId: string, title?: string) {
   return req<{ blueprint: UiBlueprint }>(`/blueprints/${encodeURIComponent(blueprintId)}/duplicate`, { method: "POST", body: JSON.stringify({ title }) });
 }
 export function getCurrentPage(blueprintId: string) {
-  return req<{ blueprint: UiBlueprint; revision: number; instances: UiInstance[] }>(`/blueprints/${encodeURIComponent(blueprintId)}/current`);
+  return req<{ blueprint: UiBlueprint; revision: number; instances: UiInstance[]; resolution: "explicit_id"; candidates: [] }>(`/blueprints/${encodeURIComponent(blueprintId)}/current`);
+}
+export function resolveCurrentPage(input: { blueprintId?: string; path?: string; title?: string } = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(input)) if (v) qs.set(k, v);
+  return req<{ blueprint: UiBlueprint; revision: number; instances: UiInstance[] } & CurrentPageResolution>(`/current-page?${qs.toString()}`);
 }
 export function getLayout(blueprintId: string) {
   return req<{ blueprintId: string; revision: number; layout: WorkspaceLayout }>(`/blueprints/${encodeURIComponent(blueprintId)}/layout`);

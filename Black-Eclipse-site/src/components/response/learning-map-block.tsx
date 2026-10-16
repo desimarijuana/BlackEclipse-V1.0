@@ -22,6 +22,7 @@ import {
   AlertCircle,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { NoticeCard } from './blocks';
 import type { LearningMapBlock as LearningMapBlockType, LearningNode, LearningResourceRef } from '@/lib/response/contract';
 
 type NodeStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
@@ -171,16 +172,19 @@ export function LearningMapBlock({
       </header>
 
       {block.issues.length > 0 ? (
-        <div className="mb-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] px-2.5 py-1.5">
-          <p className="flex items-center gap-1 text-[10px] font-medium text-amber-200/90">
-            <AlertCircle size={11} /> {block.issues.length} curriculum gap(s)
-          </p>
-          <ul className="mt-0.5 list-disc pl-4 text-[10px] text-amber-200/70">
+        <NoticeCard
+          tone="warning"
+          icon={AlertCircle}
+          dense
+          className="mb-3"
+          title={<span className="text-[11px]">{block.issues.length} curriculum gap(s)</span>}
+        >
+          <ul className="mt-0.5 list-disc pl-4 text-[10px] text-foreground/70">
             {block.issues.slice(0, 6).map((issue, i) => (
               <li key={i}>{issue}</li>
             ))}
           </ul>
-        </div>
+        </NoticeCard>
       ) : null}
 
       <div className="flex snap-x gap-2.5 overflow-x-auto pb-1">

@@ -39,6 +39,61 @@ class CatalogError(Exception):
         self.message = message
 
 
+#: The declared data-source FAMILY for anything backed by the Portfolio
+#: Accounting Engine. A portfolio-scoped source is an exact, parseable string:
+#:
+#:     portfolio:<portfolio_id>:<view>
+#:
+#: e.g. ``portfolio:pf_7586246984d44b11bfb8:positions``. The id is the engine's
+#: portfolio id (as returned by ``GET /portfolio/list`` / ``portfolio_*`` tools);
+#: the view is one of :data:`PORTFOLIO_VIEWS`. This is the ONLY portfolio source
+#: form the runtime advertises — a free-text value like ``portfolio.positions``
+#: is not a valid source string.
+PORTFOLIO_DATA_SOURCE = "portfolio"
+
+#: The closed set of portfolio views a source string may name. Each view maps to
+#: the read the engine performs (see `docs/portfolio-accounting.md`).
+PORTFOLIO_VIEWS: tuple[str, ...] = (
+    "summary",       # totals: value, cost basis, P&L, cash
+    "positions",     # open positions with quantity, cost, value
+    "holdings",      # positions incl. pricing/valuation detail
+    "transactions",  # the ledger of transactions
+    "pnl",           # realized/unrealized P&L (e.g. today-pnl)
+    "performance",   # time-series NAV / returns
+    "risk",          # volatility, beta, drawdown, risk contribution
+    "allocation",    # weights by symbol
+    "tax-lots",      # open tax lots per symbol
+)
+
+
+def portfolio_source(portfolio_id: str, view: str = "summary") -> str:
+    """Build the canonical portfolio data-source string.
+
+    Raises ``CatalogError`` for an unknown view so a typo can never silently
+    become a source the engine does not serve.
+    """
+    pid = (portfolio_id or "").strip()
+    if not pid:
+        raise CatalogError("UI_SOURCE_INVALID", "a portfolio source requires a portfolio id")
+    if view not in PORTFOLIO_VIEWS:
+        raise CatalogError(
+            "UI_SOURCE_INVALID",
+            f'unknown portfolio view "{view}" (valid: {", ".join(PORTFOLIO_VIEWS)})',
+        )
+    return f"{PORTFOLIO_DATA_SOURCE}:{pid}:{view}"
+
+
+def parse_portfolio_source(source: str) -> Optional[tuple[str, str]]:
+    """Return ``(portfolio_id, view)`` for a valid portfolio source, else None."""
+    parts = (source or "").split(":")
+    if len(parts) != 3 or parts[0] != PORTFOLIO_DATA_SOURCE:
+        return None
+    pid, view = parts[1], parts[2]
+    if not pid or view not in PORTFOLIO_VIEWS:
+        return None
+    return pid, view
+
+
 def _field(key: str, label: str, kind: str, **kw: Any) -> ConfigFieldSpec:
     return ConfigFieldSpec(key=key, label=label, kind=kind, **kw)  # type: ignore[arg-type]
 
@@ -64,14 +119,16 @@ def builtin_specs() -> list[UiComponentSpec]:
     """The foundational component kinds every Eclipse UI can compose."""
     return [
         _spec("metric-card", "metrics", "Metric Card", "A single headline metric with a label, value and optional delta.", "activity",
-              data_sources=["any"], fields=[
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
                   _field("label", "Label", "text"),
-                  _field("metric", "Metric key", "text", placeholder="e.g. portfolio.totalValue"),
+                  _field("metric", "Metric key", "text", placeholder="e.g. portfolio:<portfolioId>:summary"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (sets a portfolio:<id>:<view> metric)"),
                   _field("format", "Format", "select", options=[{"value": "number", "label": "Number"}, {"value": "percent", "label": "Percent"}, {"value": "currency", "label": "Currency"}]),
               ], sizes=["small", "medium"], default_height=140),
         _spec("data-table", "tables", "Data Table", "A sortable, pageable table over a data source.", "table",
-              data_sources=["any"], fields=[
-                  _field("source", "Data source", "text"),
+              data_sources=["any", PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("source", "Data source", "text", placeholder="portfolio:<portfolioId>:positions"),
+                  _field("portfolioId", "Portfolio id", "text", placeholder="pf_… (e.g. pf_7586246984d44b11bfb8)"),
                   _field("pageSize", "Page size", "number", min=1, max=500, default=25),
                   _field("dense", "Dense rows", "boolean"),
               ], sizes=["large", "full"], default_height=360),
@@ -145,6 +202,38 @@ def builtin_specs() -> list[UiComponentSpec]:
                   _field("title", "Title", "text"),
                   _field("message", "Message", "text"),
               ], sizes=["small", "medium"], default_height=160),
+
+        # ── Portfolio (Ledger) components ─────────────────────────────────────
+        # Backed by the Portfolio Accounting Engine. Each takes a `portfolioId`
+        # and reads one `portfolio:<id>:<view>` source (see PORTFOLIO_VIEWS).
+        # These are the Ledger-intended kinds; a generic `data-table` or
+        # `metric-card` may target the same source strings directly.
+        _spec("portfolio-summary", "portfolio", "Portfolio Summary", "Totals for one engine portfolio: value, cost basis, P&L and cash.", "wallet",
+              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
+              ], sizes=["medium", "large"], default_height=180),
+        _spec("portfolio-open-positions", "portfolio", "Open Positions", "Open positions of one engine portfolio (quantity, cost, value).", "table",
+              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
+                  _field("asOf", "As of (ISO date)", "text", placeholder="optional valuation date"),
+              ], sizes=["large", "full"], default_height=380),
+        _spec("portfolio-holdings", "portfolio", "Holdings", "Holdings of one engine portfolio with pricing and P&L detail.", "table",
+              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
+              ], sizes=["large", "full"], default_height=380),
+        _spec("portfolio-today-pnl", "portfolio", "Today P&L", "Today's realised/unrealised P&L for one engine portfolio.", "activity",
+              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
+              ], sizes=["small", "medium"], default_height=140),
+        _spec("portfolio-performance", "portfolio", "Portfolio Performance", "Time-series NAV/returns for one engine portfolio.", "line-chart",
+              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
+                  _field("benchmark", "Benchmark symbol", "text", placeholder="optional, e.g. SPY"),
+              ], sizes=["large", "full"], default_height=320),
+        _spec("portfolio-risk-metrics", "portfolio", "Portfolio Risk", "Volatility, beta, drawdown and risk contribution for one engine portfolio.", "activity",
+              data_sources=[PORTFOLIO_DATA_SOURCE], fields=[
+                  _field("portfolioId", "Portfolio id", "text", required=True, placeholder="pf_7586246984d44b11bfb8"),
+              ], sizes=["medium", "large"], default_height=220),
     ]
 
 
@@ -250,4 +339,13 @@ class UiCatalog:
         return [spec for _, spec in scored[: query.limit]]
 
 
-__all__ = ["CatalogError", "UiCatalog", "builtin_specs", "validate_component_config"]
+__all__ = [
+    "CatalogError",
+    "PORTFOLIO_DATA_SOURCE",
+    "PORTFOLIO_VIEWS",
+    "UiCatalog",
+    "builtin_specs",
+    "parse_portfolio_source",
+    "portfolio_source",
+    "validate_component_config",
+]

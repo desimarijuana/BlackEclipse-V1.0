@@ -346,7 +346,7 @@ class Dispatcher:
             portfolio_service=getattr(self._service, "portfolio", None),
             search=getattr(self._service, "search", None),
         )
-        result = await registry.execute(action.tool_name, dict(action.tool_args), ctx)
+        result = await registry.execute(action.tool_name, f"call_{run_id}", dict(action.tool_args), ctx)
         ok = bool(getattr(result, "ok", False))
         text = getattr(result, "text", "")
         error = getattr(result, "error", None)

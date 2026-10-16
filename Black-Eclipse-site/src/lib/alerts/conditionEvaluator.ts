@@ -233,20 +233,6 @@ function evaluateLeaf(leaf: ConditionLeaf, window: SeriesMap): ConditionDetail {
       }
       return { ...base, ok: prevLhs >= prevRhs && lhs < rhs };
     }
-    case "rising": {
-      base.ok = finite(prevLhs) && lhs > prevLhs;
-      if (!finite(prevLhs)) {
-        return { ...base, ok: false, error: "insufficient history for rising" };
-      }
-      return base;
-    }
-    case "falling": {
-      base.ok = finite(prevLhs) && lhs < prevLhs;
-      if (!finite(prevLhs)) {
-        return { ...base, ok: false, error: "insufficient history for falling" };
-      }
-      return base;
-    }
     case "between": {
       const lo = Math.min(leaf.value ?? NaN, leaf.value2 ?? NaN);
       const hi = Math.max(leaf.value ?? NaN, leaf.value2 ?? NaN);
@@ -328,9 +314,6 @@ export function evaluateConditions(
  */
 const SNAPSHOT_INDICATORS = new Set([
   "CLOSE",
-  "OPEN",
-  "HIGH",
-  "LOW",
   "VOLUME",
   "CHANGE_PCT",
   "MARKET_CAP",

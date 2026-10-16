@@ -8,6 +8,143 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **UI page targeting: a resolvable current-page default, distinguishable page
+  summaries, one owner policy, and a portfolio data-source registry.** Fixes
+  five defects found while trying to point an agent at ONE of fifteen
+  blueprints all titled "Main" and surface a portfolio book on it.
+  `get_current_page` now resolves by `blueprintId`/`path`/`title` and, with
+  none, falls back to the owner's most recently updated page — always reporting
+  `resolution` + `candidates`, never silently row 1; a new `GET /ui/current-page`
+  route exposes it. Path matching is normalised and `None` never matches, with a
+  distinct `UI_BLUEPRINT_PATH_UNASSIGNED` vs `UI_BLUEPRINT_NOT_FOUND`.
+  `BlueprintSummary` gained `path` + `componentIds` (and `q` searches path). A
+  scope mismatch is now `UI_BLUEPRINT_OWNER_MISMATCH` (HTTP 403), never "unknown
+  blueprint", and the read tools no longer scope owners (matching the HTTP read
+  routes) so `preview` accepts ids `get_current_page` accepted. The runtime now
+  advertises valid structured data sources — `portfolio:<portfolio_id>:<view>` —
+  via `get_capabilities()["dataSourceRegistry"]`, with Ledger component kinds
+  and a `portfolioId` field. Page-level icons are scoped as a documented gap
+  (need a model field + renderer), not built. Docs updated:
+  `docs/ui-engineering.md`, `docs/portfolio-accounting.md`, ADR-045
+  (`docs/DECISIONS.md` + `skills/ARCHITECT.md`). Tests:
+  `python/tests/test_ui_{service,tools,api}.py`.
+
+- **Scheduled/autonomous bot runs now post their output INTO the bot chat
+  thread.** A bot's answer from a schedule/event/condition/"Run now" execution
+  finished inside the runtime and was readable only in Details → Run history and
+  a toast — the conversation itself only ever showed turns you typed, so the bot
+  looked like it "ran in the background with no output". `bot-chat.tsx` now polls
+  the selected bot's execution history and appends each terminal run that
+  produced an answer into the thread as a tagged **Scheduled run** assistant turn
+  (`useBotChatStore.appendScheduled`, idempotent by execution id; the first sweep
+  seeds from history and surfaces only the latest so an old thread is not dumped
+  in). Autonomous turns carry no regenerate/retry. Added key `bots.chat.autoRun`
+  (en.ts re-pinned 1219→1220; `size-budget.test.ts` + `chat-store.test.ts`).
+  docs updated: `docs/ARCHITECTURE.md`.
+
+- **Price alerts: fixed two defects found while testing, added integration
+  coverage.** (1) `GET /api/alerts/:id` returned EVERY watch's event history —
+  the `priceAlertEvent.findMany` query had no `where: { alertId }`, so one
+  watch's detail page showed unrelated events. (2) `OPEN`/`HIGH`/`LOW`
+  conditions could never fire: they were classified as *snapshot* indicators, but
+  no snapshot ever carried OHL (TradingView scan rows have none), so every such
+  alert reported `error`. They are now candle-backed (`needsCandles` treats them
+  as candle data) and `indicatorWindow` exposes O/H/L series from the candle
+  cache. Also removed a dead duplicate `rising`/`falling` `switch` case in
+  `conditionEvaluator.ts`. New tests: `alertMonitor.test.ts` (poll→evaluate→
+  edge/one-shot/warmup/error→dispatch, previously untested),
+  `dataFeeds.test.ts` (OHL classification + series), and `api/alerts/[id]/route
+  .test.ts` (per-watch event filter). Verified: alerts slice 41 passed (was 34),
+  `tsc` clean, eslint clean.
+  no doc change — bug fixes and tests; no architecture, data-shape, contract or
+  setup change.
+
+- **Desktop notifications on Windows: the local hostname now serves HTTPS.**
+  The browser's Web Notification API only exists in a *secure context* —
+  `https://…` or the loopback names `localhost`/`127.0.0.1`/`[::1]`. The
+  `http://blackeclipse` hosts-file alias is NOT one, so
+  Settings › Alerts/Notifications showed the toggle unsupported
+  (`window.Notification` undefined) and no OS notification could ever fire.
+  Added a one-command local certificate (`npm run setup:tls` →
+  `scripts/setup-tls.ps1`: a self-signed cert for `blackeclipse` in the current
+  user's `My` + `Root` stores — no admin, and it adds to Root via the .NET store
+  API so it never blocks on the Windows trust dialog) exporting
+  `PFX + passphrase` under `.black-eclipse/certs/` (gitignored), plus TLS
+  termination in `scripts/local-proxy.js` (serves `https://blackeclipse` on
+  :443, 301-redirects plain http on :80, and sets `x-forwarded-proto: https`).
+  `scripts/local-host.js` auto-detects the certificate — HTTPS when present,
+  plain HTTP otherwise, so zero-config is preserved; `scripts/lib/tls.js` is the
+  shared resolver. `src/lib/alerts/browser-notifier.ts` gained `secureContext()`
+  and the Settings panel now explains the insecure-origin case instead of a bare
+  "not supported". Auth session cookies are marked `Secure` over the local HTTPS
+  front door (`src/lib/auth/handlers.ts`). Verified: `npm run setup:tls` is
+  idempotent; live `https://blackeclipse` → `200` with `isSecureContext === true`
+  and `typeof Notification === "function"` (previously `undefined` over http);
+  `http://blackeclipse` → `301` to https. 3085 Vitest passed, `tsc` clean. Docs
+  updated: `docs/local-hostname.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
+
+- **Redesigned the response `callout` block.** The old look was a flat
+  tone-tinted box with a full border and tone-coloured body text, which read as
+  a heavy, low-contrast block. Callouts now use the frosted `.glass-card-subtle`
+  surface with a 3px tone accent bar on the left, a small tone-tinted icon chip,
+  a tone-coloured title, and neutral `text-foreground/85` body copy for
+  readability. Style-only; contract/tone vocabulary unchanged.
+  no doc change — visual block styling only.
+
+- **Unified every response-renderer notice/warning surface on one design.**
+  Added an exported `NoticeCard` (tone accent bar + tone-tinted icon chip +
+  tone title on a frosted `.glass-card-subtle` surface) and routed the
+  `callout` block, `UnknownBlockCard`, `DiagnosticsPanel`, the `BlockBoundary`
+  render-failure card (`response-view.tsx`), the Mermaid error card, the
+  node-graph node-detail card and the learning-map curriculum-gap list through
+  it — replacing the flat `border-<tone>-500/30 bg-<tone>-500/[0.06]` boxes.
+  Style-only; contract/tone vocabulary unchanged.
+  no doc change — visual block styling only.
+
+- **Stripped the response data-table chrome (ChatGPT-style, honest table).**
+  `DataTableBlock` no longer sits in a `rounded-xl border border-white/10`
+  container and the header row lost its `bg-accent/20` fill; the header is now
+  quiet `text-muted-foreground` with a single hairline underneath and rows keep
+  only a faint separator — matching the borderless markdown-table style already
+  used in the chat renderer. Sort affordance kept via a hover text shift.
+  Style-only; no contract/interaction change.
+  no doc change — visual table styling only.
+
+- **Added per-tone depth to the notice cards.** The five callout tones
+  (`info` sky, `note` violet, `success` emerald, `warning` amber, `danger`
+  rose) now each carry a soft corner glow, a gradient accent bar and a ringed
+  icon chip instead of a flat colour bar — so the yellow (warning) and purple
+  (note/tip) notices read as distinct, finished surfaces. Each card also got a
+  left-to-right tone wash, an inset rounded accent bar (no longer a hard
+  full-height stripe), a slightly larger shadowed icon chip, and a hairline
+  inset ring. Style-only.
+  no doc change — visual block styling only.
+
+- **Restyled the bot chat composer to match the app's canonical frosted-glass
+  composer.** The bot chat input was a flat bordered textarea with detached
+  model selector and send button, so it looked out of place next to the main
+  chat surface. It now uses the same single `glass-card rounded-3xl` container
+  with the textarea, model selector and round send/stop buttons nested inside,
+  matching `chat-input.tsx`. Style-only; no contract change.
+  no doc change — visual/composer styling only.
+
+- **Fixed scheduled bot runs producing no visible output.** A completed
+  unattended run produced an answer but it was never persisted: `finish_execution`
+  dropped `DispatchResult.output`, and the default `in_app` delivery only
+  published a template key — so the run history and the completion notice showed
+  "completed" with nothing to read. The engine now persists the bounded run
+  `output` on the execution (`AutomationExecution.output`, additive column +
+  idempotent `_ensure_column` migration), the `ExecutionView` carries it, the Bots
+  run history renders it under **Summary**, and the completion notification uses
+  it as the body. Also fixed `Dispatcher._call_tool` calling
+  `ToolRegistry.execute` with the wrong arity (missing `call_id`), which made
+  every `call_tool`/`run_code`/`browser_action`/`custom_action` automation fail
+  with `INTERNAL_ERROR`. Verified live end-to-end: a `call_tool` bot run
+  completed and its output is returned by `/automations/{id}/history` and
+  `/automations/executions/{id}`. Tests:
+  `test_completed_run_stores_its_output`, `bots-run-diff.test.ts`.
+  docs updated: `docs/harness/automation-engine.md`.
+
 - **Size-budget ratchet re-pinned for the new seconds-cadence key.** The
   sub-minute scheduler added one i18n key (`bots.seconds`) to `en.ts`, taking it
   to 1219 lines — one over its 1218 pin — so the graduated size guard failed
@@ -443,7 +580,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`chat/effort-control.tsx`) — matching the existing pattern on
   `DropdownMenuTrigger`/`TooltipTrigger` and silencing the spurious `base-ui-*`
   id diffs. Reproduced and verified fixed with headless Chromium across
-  fresh / light-theme / custom-start-tab / conversation scenarios (zero errors).
+   fresh / light-theme / custom-start-tab / conversation scenarios (zero errors).
+   no doc change — bug fix, no contract change.
+
+- **Fix spurious `RUN_ORPHANED` on every chat output.** When the Python runtime
+  port was silent but had answered `/health` inside the busy-grace window, the
+  supervisor warned "treating it as busy, not killing it" and then *fell through
+  to spawn a second uvicorn anyway*. That child could not bind the still-held
+  port (`WinError 10048`), yet uvicorn runs the FastAPI lifespan (`_boot` →
+  `run_startup_maintenance` → `fail_orphaned_runs`) *before* the bind — so each
+  doomed spawn marked the run the real runtime was actively executing as
+  `RUN_ORPHANED`. `src/lib/harness/python-runtime.ts` now `return true` in the
+  busy branch so a recently-healthy runtime is treated as up and no duplicate
+  spawn (nor its boot-time reconciliation) occurs; a genuinely hung listener is
+  still cleared once it is past the grace window.
   no doc change — bug fix, no contract change.
 
 ## 2026-10-14

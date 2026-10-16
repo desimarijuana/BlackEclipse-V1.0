@@ -250,6 +250,14 @@ class UiBlueprint(BaseModel):
 
 
 class BlueprintSummary(BaseModel):
+    """A compact, agent-facing view of a blueprint.
+
+    Carries `path` (so path lookups and disambiguation are possible from the
+    list) and the ordered `component_ids` actually placed on the page — the two
+    facts that let an agent tell apart pages that share a title. It deliberately
+    stays small: full layout/config lives on the blueprint, not here.
+    """
+
     model_config = _CAMEL
 
     id: str
@@ -257,9 +265,11 @@ class BlueprintSummary(BaseModel):
     kind: BlueprintKind
     scope: BlueprintScope
     owner_id: str
+    path: Optional[str] = None
     revision: int
     updated_at: str
     widget_count: int
+    component_ids: list[str] = Field(default_factory=list)
 
 
 class BlueprintChange(BaseModel):

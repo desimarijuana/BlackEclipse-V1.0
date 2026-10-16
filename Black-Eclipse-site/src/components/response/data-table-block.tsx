@@ -169,10 +169,10 @@ export function DataTableBlock({
         </div>
       )}
 
-      <div className="w-full overflow-x-auto rounded-xl border border-white/10">
+      <div className="w-full overflow-x-auto">
         <table className="w-full border-collapse text-left text-[13px]">
           <thead>
-            <tr className="bg-accent/20">
+            <tr>
               {columns.map((col) => {
                 const active = sort?.key === col.key;
                 return (
@@ -181,8 +181,8 @@ export function DataTableBlock({
                     scope="col"
                     title={col.hint}
                     className={cn(
-                      'border-b border-white/15 px-3 py-2 font-medium tracking-tight text-foreground',
-                      sortable && 'cursor-pointer select-none hover:bg-accent/30',
+                      'border-b border-white/10 px-3 py-2 text-[12px] font-medium tracking-tight text-muted-foreground',
+                      sortable && 'cursor-pointer select-none transition-colors hover:text-foreground',
                     )}
                     style={{ textAlign: col.align }}
                     onClick={() => toggleSort(col.key)}

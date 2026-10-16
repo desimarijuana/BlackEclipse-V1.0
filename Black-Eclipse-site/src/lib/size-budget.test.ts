@@ -41,9 +41,10 @@ const RATCHET: Record<string, number> = {
   // size; the standing split candidate is per-domain dictionary modules
   // (`dictionaries/code.ts`, …) re-exported by `en.ts`. May only shrink.
   // Re-pinned 1218→1219: the scheduler's seconds cadence needed one new key
-  // (`bots.seconds`) alongside the existing every/minutes/hours/days set. May
-  // only shrink from here.
-  "src/lib/i18n/dictionaries/en.ts": 1219,
+  // (`bots.seconds`) alongside the existing every/minutes/hours/days set.
+  // Re-pinned 1219→1220: one key (`bots.chat.autoRun`) tags an autonomous run's
+  // answer in the bot thread. May only shrink from here.
+  "src/lib/i18n/dictionaries/en.ts": 1220,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

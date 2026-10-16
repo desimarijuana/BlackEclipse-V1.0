@@ -152,6 +152,19 @@ async def test_interval_cadence_is_not_drifted_by_run_duration(env):
         assert (slot - anchor).total_seconds() % 60 == 0, slot.isoformat()
 
 
+async def test_completed_run_stores_its_output(env):
+    # Regression: a completed unattended run must persist WHAT it produced, so
+    # the run history and completion notice can show the answer (it used to be
+    # dropped, and a bot appeared to run with no output).
+    _save(env)
+    env.clock.advance(minutes=61)
+    await env.engine._tick()
+    await env.engine.wait_idle()
+    execution = env.auto_store.last_execution("auto_test")
+    assert execution["state"] == "completed"
+    assert execution["output"] == "ok"
+
+
 async def test_event_trigger_deduplicates(env):
     _save(env, trigger={"type": "event", "event_type": "filing.created", "timezone": "UTC"})
     event = {"id": "evt-abc", "type": "filing.created", "data": {"ticker": "AAPL"}}

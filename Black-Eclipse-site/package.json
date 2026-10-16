@@ -11,6 +11,8 @@
     "setup:python": "node scripts/setup-python.js",
     "setup:git": "node scripts/install-git-hooks.js",
     "setup:hostname": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hostname.ps1",
+    "setup:tls": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-tls.ps1",
+    "tls:remove": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-tls.ps1 -Uninstall",
     "predev": "node scripts/doctor.js && node scripts/kill-port.js",
     "dev": "node scripts/local-host.js dev",
     "dev:next": "next dev",

@@ -206,9 +206,10 @@ table: this rides the ONE Eclipse-Memory pipeline.
 ## Observability
 
 `GET /automations/metrics` reports automation/execution counts, retries,deliveries, open breakers, in-flight work, worker id and tick latency. Each
-execution carries a timeline (`AutomationExecutionEvent`) and per-target delivery
-outcomes; `GET /automations/{id}/status` reports success rate, average duration,
-cost and tokens.
+execution carries a timeline (`AutomationExecutionEvent`), per-target delivery
+outcomes, and the run's **`output`** (the answer it produced, bounded) — so a
+finished unattended run is READABLE, not just "completed". `GET
+/automations/{id}/status` reports success rate, average duration, cost and tokens.
 
 ## API and legacy compatibility
 

@@ -4,7 +4,7 @@
 // Presentational, registry-bound components for every non-chart, non-diagram
 // block type. They render *validated* data only and never execute model output.
 
-import { useState, type ReactNode } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -47,12 +47,104 @@ export function HeadingBlock({ text, level, compact }: { text: string; level: nu
 }
 
 const CALLOUT_TONE = {
-  info: { icon: Info, cls: 'border-sky-500/30 bg-sky-500/[0.06] text-sky-200/90' },
-  note: { icon: Lightbulb, cls: 'border-violet-500/30 bg-violet-500/[0.06] text-violet-200/90' },
-  success: { icon: CheckCircle2, cls: 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-200/90' },
-  warning: { icon: AlertTriangle, cls: 'border-amber-500/30 bg-amber-500/[0.06] text-amber-200/90' },
-  danger: { icon: AlertTriangle, cls: 'border-rose-500/30 bg-rose-500/[0.06] text-rose-200/90' },
+  info: {
+    icon: Info,
+    bar: 'from-sky-300 to-sky-500/60',
+    chip: 'bg-sky-400/15 text-sky-300 ring-sky-400/30',
+    title: 'text-sky-100',
+    glow: 'bg-sky-500/30',
+    wash: 'from-sky-500/[0.10]',
+  },
+  note: {
+    icon: Lightbulb,
+    bar: 'from-violet-300 to-violet-500/60',
+    chip: 'bg-violet-400/15 text-violet-300 ring-violet-400/30',
+    title: 'text-violet-100',
+    glow: 'bg-violet-500/30',
+    wash: 'from-violet-500/[0.10]',
+  },
+  success: {
+    icon: CheckCircle2,
+    bar: 'from-emerald-300 to-emerald-500/60',
+    chip: 'bg-emerald-400/15 text-emerald-300 ring-emerald-400/30',
+    title: 'text-emerald-100',
+    glow: 'bg-emerald-500/30',
+    wash: 'from-emerald-500/[0.10]',
+  },
+  warning: {
+    icon: AlertTriangle,
+    bar: 'from-amber-300 to-amber-500/60',
+    chip: 'bg-amber-400/15 text-amber-300 ring-amber-400/30',
+    title: 'text-amber-100',
+    glow: 'bg-amber-500/30',
+    wash: 'from-amber-500/[0.10]',
+  },
+  danger: {
+    icon: AlertTriangle,
+    bar: 'from-rose-300 to-rose-500/60',
+    chip: 'bg-rose-400/15 text-rose-300 ring-rose-400/30',
+    title: 'text-rose-100',
+    glow: 'bg-rose-500/30',
+    wash: 'from-rose-500/[0.10]',
+  },
 } as const;
+
+export type NoticeTone = keyof typeof CALLOUT_TONE;
+
+type NoticeIcon = ComponentType<{ size?: number | string; className?: string }>;
+
+/**
+ * The shared visual language for every inline notice/warning surface in the
+ * response renderer (callouts, unsupported-block cards, render failures, …):
+ * a frosted subtle surface with a tone accent bar, a tone-tinted icon chip and
+ * tone-coloured title. Keeps warnings from looking like detached flat boxes.
+ */
+export function NoticeCard({
+  tone,
+  icon,
+  title,
+  dense,
+  className,
+  children,
+}: {
+  tone: NoticeTone;
+  icon?: NoticeIcon;
+  title?: ReactNode;
+  dense?: boolean;
+  className?: string;
+  children?: ReactNode;
+}) {
+  const { icon: DefaultIcon, bar, chip, title: titleCls, glow, wash } = CALLOUT_TONE[tone];
+  const Icon = icon ?? DefaultIcon;
+  return (
+    <div
+      className={cn(
+        'glass-card-subtle relative overflow-hidden rounded-xl pl-4 pr-3.5 ring-1 ring-inset ring-white/[0.06]',
+        dense ? 'py-1.5' : 'py-2.5',
+        className,
+      )}
+    >
+      <span className={cn('pointer-events-none absolute inset-0 bg-gradient-to-r to-transparent', wash)} aria-hidden />
+      <span className={cn('pointer-events-none absolute -left-12 -top-14 h-28 w-28 rounded-full opacity-50 blur-2xl', glow)} aria-hidden />
+      <span className={cn('absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-gradient-to-b', bar)} aria-hidden />
+      <div className="relative flex items-start gap-2.5">
+        <span
+          className={cn(
+            'flex h-5 w-5 shrink-0 items-center justify-center rounded-[7px] shadow-sm ring-1 ring-inset',
+            dense ? 'mt-px' : 'mt-0.5',
+            chip,
+          )}
+        >
+          <Icon size={12} />
+        </span>
+        <div className="min-w-0 flex-1">
+          {title != null && <div className={cn('text-[13px] font-semibold leading-5', titleCls)}>{title}</div>}
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function CalloutBlock({
   tone,
@@ -60,22 +152,15 @@ export function CalloutBlock({
   markdown,
   compact,
 }: {
-  tone: keyof typeof CALLOUT_TONE;
+  tone: NoticeTone;
   title?: string;
   markdown: string;
   compact?: boolean;
 }) {
-  const { icon: Icon, cls } = CALLOUT_TONE[tone];
   return (
-    <div className={cn('rounded-xl border px-3 py-2.5', cls)}>
-      <div className="flex items-start gap-2">
-        <Icon size={15} className="mt-0.5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          {title && <p className="mb-1 text-[13px] font-semibold">{title}</p>}
-          <Markdown content={markdown} compact={compact} className="text-[13px]" />
-        </div>
-      </div>
-    </div>
+    <NoticeCard tone={tone} title={title}>
+      <Markdown content={markdown} compact={compact} className={cn('text-[13px] text-foreground/85', title != null && 'mt-1')} />
+    </NoticeCard>
   );
 }
 
@@ -334,37 +419,50 @@ export function TabsBlock({
 
 export function UnknownBlockCard({ block }: { block: UnknownBlock }) {
   return (
-    <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[12px] text-amber-200/90">
-      <div className="flex items-center gap-1.5 font-medium">
-        <AlertTriangle size={13} />
-        Unsupported block type: <code className="font-mono">{block.declaredType}</code>
-      </div>
+    <NoticeCard
+      tone="warning"
+      icon={AlertTriangle}
+      title={
+        <span className="font-medium">
+          Unsupported block type:{' '}
+          <code className="font-mono text-[11px] text-amber-200">{block.declaredType}</code>
+        </span>
+      }
+    >
       <details className="mt-1">
-        <summary className="cursor-pointer text-[11px] opacity-70">Show raw content</summary>
-        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] opacity-80">
+        <summary className="cursor-pointer text-[11px] text-foreground/60">Show raw content</summary>
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-foreground/70">
           {JSON.stringify(block.raw, null, 2)}
         </pre>
       </details>
-    </div>
+    </NoticeCard>
   );
 }
 
 export function DiagnosticsPanel({ diagnostics }: { diagnostics: ResponseDiagnostic[] }) {
   if (diagnostics.length === 0) return null;
   return (
-    <details className="rounded-lg border border-amber-500/30 bg-amber-500/[0.05] px-3 py-1.5 text-[11px] text-amber-200/80">
-      <summary className="flex cursor-pointer items-center gap-1.5">
-        <Database size={12} /> {diagnostics.length} response diagnostic{diagnostics.length === 1 ? '' : 's'}
-      </summary>
-      <ul className="mt-1 space-y-0.5 pl-4">
-        {diagnostics.map((d, i) => (
-          <li key={i} className="list-disc">
-            <code className="font-mono">{d.code}</code> — {d.message}
-            {d.blockIndex != null ? ` (block #${d.blockIndex})` : ''}
-          </li>
-        ))}
-      </ul>
-    </details>
+    <NoticeCard
+      tone="warning"
+      icon={Database}
+      dense
+      title={`${diagnostics.length} response diagnostic${diagnostics.length === 1 ? '' : 's'}`}
+    >
+      <details className="group mt-1">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground/80">
+          <ChevronRight size={11} className="transition-transform group-open:rotate-90" />
+          Show details
+        </summary>
+        <ul className="mt-1 space-y-0.5 pl-4">
+          {diagnostics.map((d, i) => (
+            <li key={i} className="list-disc text-[11px] text-foreground/70">
+              <code className="font-mono">{d.code}</code> — {d.message}
+              {d.blockIndex != null ? ` (block #${d.blockIndex})` : ''}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </NoticeCard>
   );
 }
 

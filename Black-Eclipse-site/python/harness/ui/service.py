@@ -14,7 +14,13 @@ import json
 from typing import Any, Optional
 
 from ..persistence import new_id, now_iso
-from .catalog import CatalogError, UiCatalog, validate_component_config
+from .catalog import (
+    CatalogError,
+    PORTFOLIO_DATA_SOURCE,
+    PORTFOLIO_VIEWS,
+    UiCatalog,
+    validate_component_config,
+)
 from .engine import apply_ops as engine_apply_ops, diff_blueprints, validate_blueprint, widget_count
 from .engineering import UiEngineering
 from .mode import classify_request as _classify_request
@@ -63,6 +69,20 @@ def _publish(event_type: str, payload: dict[str, Any]) -> None:
         publish_event(event_type, payload, source="ui")
     except Exception:  # noqa: BLE001 - telemetry must never break a mutation
         pass
+
+
+def _normalize_path(value: Optional[str]) -> str:
+    """Normalise a page path for matching: trim, leading slash, no trailing
+    slash, case-insensitive. ``None``/blank normalises to ``""`` so an unset
+    path is never matched against a real request."""
+    p = (value or "").strip()
+    if not p:
+        return ""
+    if not p.startswith("/"):
+        p = "/" + p
+    if len(p) > 1:
+        p = p.rstrip("/")
+    return p.lower()
 
 
 def _empty_layout() -> WorkspaceLayout:
@@ -126,7 +146,26 @@ class UiService:
             "componentCount": len(components),
             "categories": self._catalog.categories(),
             "dataSources": self._catalog.data_sources(),
+            "dataSourceRegistry": self.list_data_sources(),
             "components": [c.id for c in components],
+        }
+
+    def list_data_sources(self) -> dict[str, Any]:
+        """The registry of valid data-source strings the runtime understands.
+
+        The component schema permits any source string, so without this the
+        agent has no way to know which strings actually resolve. Today the one
+        structured family is `portfolio`:
+
+            portfolio:<portfolio_id>:<view>
+        """
+        return {
+            "portfolio": {
+                "family": PORTFOLIO_DATA_SOURCE,
+                "pattern": f"{PORTFOLIO_DATA_SOURCE}:<portfolio_id>:<view>",
+                "example": f"{PORTFOLIO_DATA_SOURCE}:pf_7586246984d44b11bfb8:positions",
+                "views": list(PORTFOLIO_VIEWS),
+            },
         }
 
     def classify_request(self, text: str, *, blueprint_id: Optional[str] = None, owner_id: Optional[str] = None) -> dict[str, Any]:
@@ -155,29 +194,106 @@ class UiService:
             "capabilities": self.get_capabilities(),
         }
 
-    def get_current_page(self, *, blueprint_id: Optional[str] = None, path: Optional[str] = None, owner_id: Optional[str] = None) -> dict[str, Any]:
-        blueprint = None
+    def get_current_page(
+        self,
+        *,
+        blueprint_id: Optional[str] = None,
+        path: Optional[str] = None,
+        title: Optional[str] = None,
+        owner_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Resolve the page the user is on, unambiguously.
+
+        Resolution order: an explicit ``blueprint_id`` wins; else ``path``; else
+        ``title``; else — when nothing is given — the owner's most recently
+        updated page (``list_blueprints`` is ordered ``updatedAt DESC``). The
+        response always states *how* the page was chosen (``resolution``) and,
+        where a choice was made among several candidates, lists the others so a
+        caller can disambiguate instead of silently acting on row 1.
+        """
+        candidates: list[dict[str, Any]] = []
         if blueprint_id:
             blueprint = self.get_blueprint(blueprint_id, owner_id=owner_id)
+            resolution = "explicit_id"
         elif path:
-            # Resolve the path against the FULL blueprint, not the list summary:
-            # `BlueprintSummary` carries no `path`, so the previous `entry.path`
-            # read raised AttributeError and every path lookup failed.
-            summaries, _total = self._store.list_blueprints(
-                ListBlueprintsQuery(limit=200), owner_id=owner_id
-            )
-            for entry in summaries:
-                candidate = self._store.get_blueprint(entry.id, owner_id=owner_id)
-                if candidate is not None and candidate.path == path:
-                    blueprint = candidate
-                    break
-        if blueprint is None:
-            raise UiError("UI_BLUEPRINT_NOT_FOUND", "no matching page is available")
+            blueprint, resolution, candidates = self._resolve_current_by_path(path, owner_id)
+        elif title:
+            blueprint, resolution, candidates = self._resolve_current_by_title(title, owner_id)
+        else:
+            blueprint, resolution, candidates = self._resolve_current_default(owner_id)
         return {
             "blueprint": blueprint.model_dump(by_alias=True),
             "revision": blueprint.revision,
             "instances": self._instances(blueprint),
+            "resolution": resolution,
+            "candidates": candidates,
         }
+
+    def _candidate_ref(self, entry_or_blueprint: Any) -> dict[str, Any]:
+        return {
+            "id": entry_or_blueprint.id,
+            "title": entry_or_blueprint.title,
+            "path": getattr(entry_or_blueprint, "path", None),
+            "updatedAt": entry_or_blueprint.updated_at,
+        }
+
+    def _resolve_current_by_path(
+        self, path: str, owner_id: Optional[str]
+    ) -> tuple[UiBlueprint, str, list[dict[str, Any]]]:
+        target = _normalize_path(path)
+        summaries, _total = self._store.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=owner_id)
+        unassigned = 0
+        for entry in summaries:
+            candidate = self._store.get_blueprint(entry.id, owner_id=owner_id)
+            if candidate is None:
+                continue
+            if not (candidate.path or "").strip():
+                unassigned += 1
+                continue
+            if _normalize_path(candidate.path or "") == target:
+                return candidate, "path", []
+        # Distinguish "no page has this path" from "pages exist but none has a
+        # path assigned" — the latter is actionable (resolve by id/title).
+        if unassigned:
+            raise UiError(
+                "UI_BLUEPRINT_PATH_UNASSIGNED",
+                f'no page has path "{path}"; {unassigned} page(s) exist without a path assigned — '
+                "resolve by blueprintId or title instead",
+            )
+        raise UiError("UI_BLUEPRINT_NOT_FOUND", f'no page has path "{path}"')
+
+    def _resolve_current_by_title(
+        self, title: str, owner_id: Optional[str]
+    ) -> tuple[UiBlueprint, str, list[dict[str, Any]]]:
+        want = title.strip().lower()
+        summaries, _total = self._store.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=owner_id)
+        matches: list[UiBlueprint] = []
+        for entry in summaries:
+            if entry.title.strip().lower() != want:
+                continue
+            candidate = self._store.get_blueprint(entry.id, owner_id=owner_id)
+            if candidate is not None:
+                matches.append(candidate)
+        if not matches:
+            raise UiError("UI_BLUEPRINT_NOT_FOUND", f'no page is titled "{title}"')
+        # Most recently updated wins (id ASC tiebreak — same order as list).
+        matches.sort(key=lambda b: b.id)
+        matches.sort(key=lambda b: b.updated_at, reverse=True)
+        chosen = matches[0]
+        candidates = [self._candidate_ref(m) for m in matches[1:]]
+        return chosen, ("title" if len(matches) == 1 else "title_ambiguous"), candidates
+
+    def _resolve_current_default(
+        self, owner_id: Optional[str]
+    ) -> tuple[UiBlueprint, str, list[dict[str, Any]]]:
+        summaries, _total = self._store.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=owner_id)
+        if not summaries:
+            raise UiError("UI_BLUEPRINT_NOT_FOUND", "there is no page to fall back to")
+        chosen = self._store.get_blueprint(summaries[0].id, owner_id=owner_id)
+        if chosen is None:
+            raise UiError("UI_BLUEPRINT_NOT_FOUND", "there is no page to fall back to")
+        candidates = [self._candidate_ref(s) for s in summaries[1:]]
+        return chosen, "default_most_recent", candidates
 
     def _instances(self, blueprint: UiBlueprint) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -208,9 +324,17 @@ class UiService:
     # ── blueprints: read ──────────────────────────────────────────────────────
 
     def get_blueprint(self, blueprint_id: str, *, owner_id: Optional[str] = None) -> UiBlueprint:
-        blueprint = self._store.get_blueprint(blueprint_id, owner_id=owner_id)
+        # Fetch unscoped, then apply the owner rule HERE so a scope mismatch is a
+        # distinct, actionable error — never collapsed into "unknown blueprint".
+        # This gives get_current_page / get_layout / preview the same policy.
+        blueprint = self._store.get_blueprint_unscoped(blueprint_id)
         if blueprint is None:
             raise UiError("UI_BLUEPRINT_NOT_FOUND", f'unknown blueprint "{blueprint_id}"')
+        if owner_id is not None and blueprint.owner.id != owner_id:
+            raise UiError(
+                "UI_BLUEPRINT_OWNER_MISMATCH",
+                f'blueprint "{blueprint_id}" is owned by "{blueprint.owner.id}", not "{owner_id}"',
+            )
         return blueprint
 
     def list_blueprints(self, query: Optional[ListBlueprintsQuery] = None, *, owner_id: Optional[str] = None) -> dict[str, Any]:

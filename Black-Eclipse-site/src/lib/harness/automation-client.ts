@@ -148,6 +148,8 @@ export interface ExecutionView {
   leaseExpiresAt: string | null;
   snapshot: Record<string, unknown> | null;
   dryRun: boolean;
+  /** The run's answer, bounded. Null when the run produced nothing or failed. */
+  output: string | null;
   events?: Array<{ seq: number; at: string; type: string; data: Record<string, unknown> | null }>;
   deliveries?: Array<{
     adapter: string; destination: string | null; ok: boolean;

@@ -5,6 +5,12 @@
 // channels (Telegram / Discord / ntfy / Email / webhook).
 //
 // Honesty rules that shape this module:
+//   * Secure context required — the Web Notification API only exists in a
+//     secure context (`https://…`, or the loopback names `localhost`/
+//     `127.0.0.1`/`[::1]`). A plain `http://blackeclipse` hosts-file alias is
+//     NOT one, so `window.Notification` is undefined there. Run
+//     `npm run setup:tls` once to serve `https://blackeclipse` and restore it
+//     (see docs/local-hostname.md).
 //   * Opt-in only — the preference defaults to OFF, stored in localStorage.
 //   * Permission is requested from an explicit user gesture (the Settings
 //     toggle / button); we never prompt on page load.
@@ -29,7 +35,19 @@ export const BROWSER_NOTIFY_EVENT = 'be:alert-notify-pref';
 
 export type NotificationPermissionState = 'unsupported' | 'default' | 'granted' | 'denied';
 
-/** Whether the current environment can show desktop notifications at all. */
+/** Whether the page is a secure context (required by the Notification API). */
+export function secureContext(): boolean {
+  return typeof window !== 'undefined' && window.isSecureContext === true;
+}
+
+/**
+ * Whether the current environment can show desktop notifications at all.
+ *
+ * `window.Notification` is undefined in an insecure context, so this doubles as
+ * the secure-context check on the notification capability. Use `secureContext()`
+ * to tell the two failure modes apart in the UI (unsupported browser vs. an
+ * insecure origin such as plain `http://blackeclipse`).
+ */
 export function isSupported(): boolean {
   return typeof window !== 'undefined' && typeof window.Notification !== 'undefined';
 }

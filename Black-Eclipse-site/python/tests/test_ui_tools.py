@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -90,6 +91,33 @@ def test_get_current_page_by_path_resolves_a_page(service):
     _text, data = _run(_get_current_page({"path": "/portfolio"}, _ctx()))
     assert data["blueprint"]["title"] == "Portfolio"
     assert data["blueprint"]["path"] == "/portfolio"
+
+
+def test_get_current_page_defaults_and_says_which(service):
+    service.create_page(CreatePageInput(title="First"))
+    time.sleep(0.01)
+    second = service.create_page(CreatePageInput(title="Second")).id
+    text, data = _run(_get_current_page({}, _ctx()))
+    assert data["resolution"] == "default_most_recent"
+    assert data["blueprint"]["id"] == second
+    assert second in text
+
+
+def test_get_current_page_by_title_disambiguates(service):
+    service.create_page(CreatePageInput(title="Main"))
+    time.sleep(0.01)
+    second = service.create_page(CreatePageInput(title="Main")).id
+    text, data = _run(_get_current_page({"title": "Main"}, _ctx()))
+    assert data["resolution"] == "title_ambiguous"
+    assert data["blueprint"]["id"] == second
+    assert "title" in text
+
+
+def test_get_current_page_path_unassigned_reports_code(service):
+    service.create_page(CreatePageInput(title="NoPath"))
+    text, payload = _run(_get_current_page({"path": "/nope"}, _ctx()))
+    assert payload["error"] == "UI_BLUEPRINT_PATH_UNASSIGNED"
+    assert "UI_BLUEPRINT_PATH_UNASSIGNED" in text
 
 
 def test_tool_reports_unknown_component(service):

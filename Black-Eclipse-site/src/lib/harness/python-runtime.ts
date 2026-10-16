@@ -230,6 +230,12 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
         console.warn(
           "[harness] runtime port is silent but the runtime answered recently — treating it as busy, not killing it"
         );
+        // Do NOT fall through to the spawn below. A second uvicorn would fail to
+        // bind the still-held port (`WinError 10048`) — but only AFTER FastAPI
+        // runs its lifespan boot, whose `fail_orphaned_runs` reconciliation would
+        // mark the very runs this busy runtime is executing as RUN_ORPHANED. A
+        // busy runtime is up; let a later probe (past the grace window) re-check.
+        return true;
       } else {
         killListenerOnPort();
         await new Promise((r) => setTimeout(r, 300));

@@ -218,6 +218,7 @@ export const en = {
   'bots.chat.retry': 'Retry',
   'bots.chat.good': 'Good response',
   'bots.chat.bad': 'Bad response',
+  'bots.chat.autoRun': 'Auto run',
   'bots.create.editedField': 'Edited',
   'bots.create.duplicate': 'A bot with this name already exists.',
 

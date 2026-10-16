@@ -76,6 +76,7 @@ def _exec_row(row: Any) -> dict[str, Any]:
         "leaseExpiresAt": row["leaseExpiresAt"],
         "snapshot": json.loads(row["snapshotJson"]) if row["snapshotJson"] else None,
         "dryRun": bool(row["dryRun"]),
+        "output": row["output"] if "output" in row.keys() else None,
     }
 
 
@@ -161,7 +162,8 @@ class AutomationStore:
               workerId          TEXT,
               leaseExpiresAt    TEXT,
               snapshotJson      TEXT,
-              dryRun            INTEGER NOT NULL DEFAULT 0
+              dryRun            INTEGER NOT NULL DEFAULT 0,
+              output            TEXT
             )
             """
         )
@@ -172,6 +174,10 @@ class AutomationStore:
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_autoexec_state ON AutomationExecution(state)"
         )
+        # Additive migration: an older AutomationExecution table predates the
+        # stored run `output` (the answer the unattended run produced). CREATE
+        # TABLE IF NOT EXISTS would not add it, so ALTER explicitly.
+        self._ensure_column("AutomationExecution", "output", "TEXT")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS AutomationExecutionEvent (
@@ -257,6 +263,14 @@ class AutomationStore:
         db.commit()
 
     # ── Definitions ──────────────────────────────────────────────────────────
+    def _ensure_column(self, table: str, name: str, ddl: str) -> None:
+        """Idempotently add a column to an existing table (additive migration)."""
+        existing = {
+            row["name"] for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if name not in existing:
+            self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
     def save_automation(
         self, definition: AutomationDefinition, *, created_by: Optional[str] = None,
         snapshot: bool = True,
@@ -470,13 +484,14 @@ class AutomationStore:
             "leaseExpiresAt": lease_expires_at,
             "snapshotJson": json.dumps(snapshot),
             "dryRun": 1 if dry_run else 0,
+            "output": None,
         }
         self._db.execute(
             """INSERT INTO AutomationExecution
                (id, automationId, automationVersion, runId, taskId, scopeId, triggerType,
                 triggerRef, state, attempt, maxAttempts, scheduledFor, startedAt, finishedAt,
-                outcomeReason, errorClass, cost, tokens, workerId, leaseExpiresAt, snapshotJson, dryRun)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                outcomeReason, errorClass, cost, tokens, workerId, leaseExpiresAt, snapshotJson, dryRun, output)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             tuple(row.values()),
         )
         self._db.commit()
@@ -501,14 +516,17 @@ class AutomationStore:
         self, execution_id: str, *, state: str, outcome_reason: Optional[str] = None,
         error_class: Optional[str] = None, run_id: Optional[str] = None,
         task_id: Optional[str] = None, cost: Optional[float] = None, tokens: Optional[int] = None,
+        output: Optional[str] = None,
     ) -> None:
         self._db.execute(
             """UPDATE AutomationExecution
                SET state=?, outcomeReason=?, errorClass=?, finishedAt=?,
                    runId=COALESCE(?, runId), taskId=COALESCE(?, taskId),
-                   cost=COALESCE(?, cost), tokens=COALESCE(?, tokens)
+                   cost=COALESCE(?, cost), tokens=COALESCE(?, tokens),
+                   output=COALESCE(?, output)
                WHERE id=?""",
-            (state, outcome_reason, error_class, now_iso(), run_id, task_id, cost, tokens, execution_id),
+            (state, outcome_reason, error_class, now_iso(), run_id, task_id, cost, tokens,
+             output, execution_id),
         )
         self._db.commit()
 

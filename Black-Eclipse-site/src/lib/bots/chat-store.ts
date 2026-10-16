@@ -21,6 +21,13 @@ export interface BotMessage {
   error?: boolean;
   /** Optional thumbs feedback on an assistant turn. */
   feedback?: 'up' | 'down';
+  /** True when this assistant turn came from an AUTONOMOUS run (schedule, event,
+   *  condition or manual "Run now") rather than the interactive composer. Such a
+   *  turn is tagged in the thread and is not editable/regenerable. */
+  scheduled?: boolean;
+  /** The execution id that produced this turn — the idempotency key so an
+   *  autonomous answer is appended exactly once (across polls and reloads). */
+  runId?: string;
 }
 
 interface BotChatStore {
@@ -29,6 +36,9 @@ interface BotChatStore {
   hydrate: () => void;
   setMessages: (botId: string, messages: BotMessage[]) => void;
   append: (botId: string, message: BotMessage) => void;
+  /** Append an autonomous run's answer ONCE. Returns false when that execution
+   *  is already in the thread (deduped by `runId`), true when it was added. */
+  appendScheduled: (botId: string, message: BotMessage & { runId: string }) => boolean;
   /** Patch one message in place — used to fill the live streaming reply. */
   update: (botId: string, id: string, patch: Partial<BotMessage>) => void;
   clear: (botId: string) => void;
@@ -87,6 +97,17 @@ export const useBotChatStore = create<BotChatStore>((set, get) => ({
     const byBot = { ...get().byBot, [botId]: [...(get().byBot[botId] ?? []), message] };
     persist(byBot);
     set({ byBot });
+  },
+
+  appendScheduled: (botId, message) => {
+    const list = get().byBot[botId] ?? [];
+    // Idempotent by execution id: a re-poll (or a reload that re-syncs history)
+    // must never double-post the same autonomous answer.
+    if (message.runId && list.some((m) => m.runId === message.runId)) return false;
+    const byBot = { ...get().byBot, [botId]: [...list, message] };
+    persist(byBot);
+    set({ byBot });
+    return true;
   },
 
   update: (botId, id, patch) => {

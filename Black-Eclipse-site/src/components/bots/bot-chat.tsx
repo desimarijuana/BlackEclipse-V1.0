@@ -23,6 +23,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
 import { ModelSelector } from '@/components/chat/chat-input';
 import { runBotTurn } from '@/lib/bots/invoke';
+import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
 import { useChatModel } from '@/lib/agent/use-chat-model';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
@@ -67,6 +68,7 @@ export function BotChat({
   const avatars = useBotAvatarStore((s) => s.avatars);
   const messages = useBotChatStore((s) => s.byBot[bot.id] ?? NO_MESSAGES);
   const append = useBotChatStore((s) => s.append);
+  const appendScheduled = useBotChatStore((s) => s.appendScheduled);
   const updateMessage = useBotChatStore((s) => s.update);
   const clearMessages = useBotChatStore((s) => s.clear);
   const setMessages = useBotChatStore((s) => s.setMessages);
@@ -95,6 +97,9 @@ export function BotChat({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Execution ids already reflected in the thread, so a re-poll does not
+  // re-post an autonomous answer. `null` means "not yet seeded from history".
+  const seenRunsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     setName(bot.name);
@@ -192,6 +197,68 @@ export function BotChat({
   useEffect(() => {
     resizeComposer();
   }, [input, resizeComposer]);
+
+  // Surface AUTONOMOUS runs into the thread. The composer only ever shows turns
+  // you typed; a scheduled/event/condition/"Run now" run finishes inside the
+  // runtime and its answer would otherwise be invisible here (it lived only in
+  // Details → Run history and a toast). Poll the bot's execution history and
+  // append every terminal run that produced output — once each, keyed by
+  // execution id. The first sweep seeds from history WITHOUT replaying it (only
+  // the latest answer is surfaced, so an old thread is not dumped into view).
+  useEffect(() => {
+    seenRunsRef.current = null;
+    let cancelled = false;
+
+    const sync = async () => {
+      let executions: ExecutionView[];
+      try {
+        executions = await listAutomationHistory(bot.id);
+      } catch {
+        return; // runtime down / not ready — try again on the next tick
+      }
+      if (cancelled) return;
+      const finished = executions
+        .filter((e) => (e.state === 'completed' || e.state === 'failed') && (e.output ?? '').trim())
+        .sort(
+          (a, b) =>
+            Date.parse(a.finishedAt ?? a.startedAt) - Date.parse(b.finishedAt ?? b.startedAt),
+        );
+      if (seenRunsRef.current === null) {
+        seenRunsRef.current = new Set(finished.map((e) => e.id));
+        const latest = finished[finished.length - 1];
+        if (latest) postRun(latest);
+        return;
+      }
+      const seen = seenRunsRef.current;
+      for (const e of finished) {
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        postRun(e);
+      }
+    };
+
+    const postRun = (e: ExecutionView) => {
+      const text = (e.output ?? '').trim();
+      if (!text) return;
+      // appendScheduled dedupes by runId, so a reseed can never double-post.
+      appendScheduled(bot.id, {
+        id: `run-${e.id}`,
+        role: 'assistant',
+        content: text,
+        at: e.finishedAt ?? e.startedAt,
+        scheduled: true,
+        runId: e.id,
+        ...(e.state === 'failed' ? { error: true } : {}),
+      });
+    };
+
+    void sync();
+    const timer = setInterval(sync, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [bot.id, appendScheduled]);
 
   const runTurn = useCallback(async (raw: string) => {
     const text = raw.trim();
@@ -453,9 +520,11 @@ export function BotChat({
               onEdit={editMessage}
               onFeedback={setFeedback}
               onRegenerate={
-                i === messages.length - 1 && m.role === 'assistant' && !m.error ? regenerate : undefined
+                i === messages.length - 1 && m.role === 'assistant' && !m.error && !m.scheduled
+                  ? regenerate
+                  : undefined
               }
-              onRetry={m.role === 'assistant' && m.error ? regenerate : undefined}
+              onRetry={m.role === 'assistant' && m.error && !m.scheduled ? regenerate : undefined}
             />
           ),
         )}
@@ -470,7 +539,7 @@ export function BotChat({
 
       {/* Composer */}
       <div className="border-t border-border/10 p-3">
-        <div className="flex items-end gap-2">
+        <div className="relative flex w-full items-end gap-1.5 rounded-3xl border border-white/10 glass-card px-1.5 py-1 shadow-lg shadow-black/20 transition-colors focus-within:border-primary sm:px-2 dark:border-white/5">
           <textarea
             ref={textareaRef}
             value={input}
@@ -485,18 +554,33 @@ export function BotChat({
             data-bot-composer="true"
             placeholder={`Message ${bot.name}…`}
             aria-label={`Message ${bot.name}`}
-            className="max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none dark:bg-input/30"
+            wrap={input.length === 0 ? 'off' : 'soft'}
+            className="chat-composer-scroll min-w-0 flex-1 resize-none self-center overflow-x-hidden overflow-y-auto border-0 bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:outline-none focus:ring-0"
           />
-          {!sending && <div className="hidden sm:block"><ModelSelector state={modelState} /></div>}
-          {sending ? (
-            <Button size="icon" variant="outline" onClick={stop} title={t('bots.chat.stop')} aria-label={t('bots.chat.stop')}>
-              <Pause size={15} />
-            </Button>
-          ) : (
-            <Button size="icon" onClick={send} disabled={!input.trim()} aria-label={`Message ${bot.name}`}>
-              <ArrowUp size={15} />
-            </Button>
-          )}
+          <div className="mb-0.5 flex shrink-0 items-center gap-1 sm:gap-2">
+            {!sending && <ModelSelector state={modelState} />}
+            {sending ? (
+              <Button
+                size="icon"
+                onClick={stop}
+                title={t('bots.chat.stop')}
+                aria-label={t('bots.chat.stop')}
+                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/90 p-1.5 text-background transition-colors hover:bg-foreground focus-visible:outline-none focus-visible:ring-0"
+              >
+                <Pause size={15} fill="currentColor" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                onClick={send}
+                disabled={!input.trim()}
+                aria-label={`Message ${bot.name}`}
+                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary p-1.5 text-primary-foreground transition-opacity hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-40 disabled:hover:bg-primary"
+              >
+                <ArrowUp size={16} />
+              </Button>
+            )}
+          </div>
         </div>
         <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
           <span className="truncate">{t('bots.schedule')}: {scheduleSummary(bot.trigger)}</span>
@@ -596,6 +680,17 @@ function SuggestionChip({ label, onPick }: { label: string; onPick: (v: string) 
   );
 }
 
+/** A small tag marking an assistant turn that came from an autonomous run
+ *  (schedule/event/condition/"Run now") rather than the interactive composer. */
+function ScheduledTag() {
+  const t = useT();
+  return (
+    <span className="rounded-full border border-border/40 px-1.5 py-px text-[9px] font-normal uppercase tracking-wide text-muted-foreground/70">
+      {t('bots.chat.autoRun')}
+    </span>
+  );
+}
+
 function ChatBubble({
   message,
   botId,
@@ -624,7 +719,10 @@ function ChatBubble({
       <div className="group flex gap-2.5">
         <BotAvatar botId={botId} spec={spec} size={28} className="mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>
+          <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+            <span>{botName}</span>
+            {message.scheduled && <ScheduledTag />}
+          </div>
           <Markdown content={message.content} compact className="w-full" />
           <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <span>{formatDateTime(message.at)}</span>
@@ -652,7 +750,12 @@ function ChatBubble({
               : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
           )}
         >
-          {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{botName}</div>}
+          {!isUser && (
+            <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+              <span>{botName}</span>
+              {message.scheduled && <ScheduledTag />}
+            </div>
+          )}
           <div className="whitespace-pre-wrap break-words">{message.content}</div>
         </div>
         {/* Time + actions sit below the bubble (not inside it, which made the

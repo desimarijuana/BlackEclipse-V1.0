@@ -71,6 +71,7 @@ export function BotsRunWatcher() {
             state: last?.state ?? 'none',
             errorClass: last?.errorClass ?? null,
             outcomeReason: last?.outcomeReason ?? null,
+            output: last?.output ?? null,
           });
         });
 

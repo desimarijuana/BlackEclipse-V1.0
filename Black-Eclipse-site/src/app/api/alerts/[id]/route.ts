@@ -16,7 +16,7 @@ export async function GET(_request: Request, ctx: Ctx) {
   try {
     const [alert, events] = await Promise.all([
       prisma.priceAlert.findUnique({ where: { id } }),
-      prisma.priceAlertEvent.findMany({ orderBy: { firedAt: "desc" }, take: 50 }),
+      prisma.priceAlertEvent.findMany({ where: { alertId: id }, orderBy: { firedAt: "desc" }, take: 50 }),
     ]);
     if (!alert) return Response.json({ error: "not found" }, { status: 404 });
     return Response.json({

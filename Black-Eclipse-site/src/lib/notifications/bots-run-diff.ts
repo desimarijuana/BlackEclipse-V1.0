@@ -22,6 +22,8 @@ export interface WatchedBotRun {
   state: string;
   errorClass?: string | null;
   outcomeReason?: string | null;
+  /** The run's answer (bounded), when it produced one. */
+  output?: string | null;
 }
 
 interface TrackedBotRun {
@@ -75,7 +77,9 @@ export function selectBotRunTransitions(
     const terminal = NOTIFIABLE_TERMINAL[v.state];
     if (!terminal) continue;
 
-    const detail = (v.outcomeReason || v.errorClass || '').trim();
+    // Prefer the run's actual answer so a completed bot shows WHAT it produced,
+    // not just that it finished; fall back to the outcome/error detail.
+    const detail = notificationDetail(v);
     notifications.push({
       id: `bot-run:${v.automationId}:${v.executionId}`,
       automationId: v.automationId,
@@ -86,4 +90,16 @@ export function selectBotRunTransitions(
   }
 
   return { notifications, next };
+}
+
+/** One short line for a completion notice: the answer if there is one, else the
+ *  outcome/error detail. Bounded so a long answer cannot swallow the toast. */
+const BODY_MAX_CHARS = 180;
+
+function notificationDetail(v: WatchedBotRun): string {
+  const answer = (v.output || '').replace(/\s+/g, ' ').trim();
+  if (answer) {
+    return answer.length <= BODY_MAX_CHARS ? answer : `${answer.slice(0, BODY_MAX_CHARS)}…`;
+  }
+  return (v.outcomeReason || v.errorClass || '').trim();
 }

@@ -93,12 +93,26 @@ async def _get_application_map(args: dict[str, Any], ctx: ToolContext) -> Any:
 async def _get_current_page(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
         result = _service(ctx).get_current_page(
-            blueprint_id=args.get("blueprintId"), path=args.get("path"), owner_id=None,
+            blueprint_id=args.get("blueprintId"), path=args.get("path"),
+            title=args.get("title"), owner_id=None,
         )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
     title = result["blueprint"]["title"]
-    return _ok(f"Page {title!r} (revision {result['revision']}) has {len(result['instances'])} widget instance(s).", result)
+    resolution = result.get("resolution", "explicit_id")
+    candidates = result.get("candidates") or []
+    note = ""
+    if resolution == "title_ambiguous":
+        note = f' — "title" matched {len(candidates) + 1} pages; chose the most recently updated. Others: ' + \
+               ", ".join(f'{c["id"]} ({c["updatedAt"]})' for c in candidates)
+    elif resolution == "default_most_recent" and candidates:
+        note = f" — no page specified; chose the most recently updated. Others: " + \
+               ", ".join(c["id"] for c in candidates)
+    return _ok(
+        f'Page {title!r} ({result["blueprint"]["id"]}, revision {result["revision"]}) via {resolution} '
+        f'has {len(result["instances"])} widget instance(s){note}.',
+        result,
+    )
 
 
 async def _get_component_catalog(args: dict[str, Any], ctx: ToolContext) -> Any:
@@ -412,8 +426,12 @@ async def _restore_revision(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 async def _preview_change(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
+        # Unscoped, consistent with the other read tools (ui_get_current_page /
+        # ui_get_layout / ui_get_blueprint): preview is a dry run and must accept
+        # any id the current-page tool accepted, not reject it on an owner rule
+        # the read tools never applied.
         result = _service(ctx).preview(
-            str(args.get("blueprintId") or ""), list(args.get("ops") or []), owner_id=_owner(ctx),
+            str(args.get("blueprintId") or ""), list(args.get("ops") or []), owner_id=None,
         )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
@@ -422,7 +440,7 @@ async def _preview_change(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 _DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ("ui_get_application_map", "Get the current UI map: the saved pages/workspaces and the component catalog summary.", {"type": "object", "properties": {}}),
-    ("ui_get_current_page", "Get the page the user is viewing (by blueprintId or path) with its widget instances.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "path": {"type": "string"}}}),
+    ("ui_get_current_page", "Get the page the user is viewing with its widget instances. Identify it by blueprintId, path or title; with none, resolves the owner's most recently updated page and says which it chose.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "path": {"type": "string"}, "title": {"type": "string"}}}),
     ("ui_get_component_catalog", "List/search the components available to compose. Filter by text, category or data source.", {"type": "object", "properties": {"text": {"type": "string"}, "category": {"type": "string"}, "dataSource": {"type": "string"}, "limit": {"type": "integer"}}}),
     ("ui_inspect_component", "Inspect one component's full schema: its configuration fields, data sources and actions.", {"type": "object", "properties": {"componentId": {"type": "string"}}, "required": ["componentId"]}),
     ("ui_get_layout", "Get the workspace layout tree of a blueprint by id.", {"type": "object", "properties": {"blueprintId": {"type": "string"}}, "required": ["blueprintId"]}),

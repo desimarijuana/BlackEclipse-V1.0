@@ -15,14 +15,28 @@ function bad(status: number, error: string, code: string) {
   return NextResponse.json({ error, code }, { status });
 }
 
+/** The scheme the browser actually used (proxy-aware via x-forwarded-proto). */
+function requestProtocol(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-proto");
+  if (forwarded) return forwarded.split(",")[0].trim().toLowerCase();
+  try {
+    return new URL(request.url).protocol.replace(":", "").toLowerCase();
+  } catch {
+    return "http";
+  }
+}
+
 function secureFor(request: Request): boolean {
-  // A Secure cookie is dropped by the browser over plain http. Any local host
-  // (loopback aliases — and the `blackeclipse` hosts-file alias, which also
-  // resolves to loopback) is served over http, so it must NOT be marked
-  // Secure. Everything else is treated as remote and cookie-protected. The host
-  // is read Host-aware (x-forwarded-host / host), not from `request.url`, so
-  // this is correct behind the local reverse proxy too.
-  return !isLocalRequest(request);
+  // A Secure cookie is dropped by the browser over plain http, so it must never
+  // be marked Secure there. Everything that is not a local host is treated as
+  // remote and cookie-protected. A local host (loopback aliases — and the
+  // `blackeclipse` hosts-file alias — fronted by scripts/local-proxy.js) is
+  // normally served over http, but is Secure when the local front door is
+  // serving HTTPS (it sets `x-forwarded-proto: https`). The host is read
+  // Host-aware (x-forwarded-host / host), not from `request.url`, so this is
+  // correct behind the proxy too.
+  if (!isLocalRequest(request)) return true;
+  return requestProtocol(request) === "https";
 }
 
 async function readCredentials(request: Request): Promise<{ username: string; password: string } | null> {

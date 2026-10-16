@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { useSoundStore } from "@/lib/sounds";
 import {
   isSupported,
+  secureContext,
   isEnabled as browserNotifyEnabled,
   permission as browserNotifyPermission,
   setEnabled as setBrowserNotifyEnabled,
@@ -89,11 +90,13 @@ export function AlertNotificationsPanel() {
   // stable. `supported` gates the whole control; `permission` drives the honest
   // status line (blocked / needs permission / on).
   const [browserSupported, setBrowserSupported] = useState(false);
+  const [browserSecure, setBrowserSecure] = useState(true);
   const [browserOn, setBrowserOn] = useState(false);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermissionState>("unsupported");
 
   useEffect(() => {
     setBrowserSupported(isSupported());
+    setBrowserSecure(secureContext());
     setBrowserOn(browserNotifyEnabled());
     setBrowserPermission(browserNotifyPermission());
   }, []);
@@ -218,7 +221,9 @@ export function AlertNotificationsPanel() {
           </div>
           <p className="text-[10px] text-muted-foreground">
             Native OS notifications on this computer (Windows/macOS/Linux) while a BlackEclipse tab is open.
-            {!browserSupported && " Not supported in this browser."}
+            {!browserSupported && !browserSecure &&
+              " This page is not a secure origin — browsers disable notifications over plain http. Run `npm run setup:tls` once, restart, then reopen at https://blackeclipse."}
+            {!browserSupported && browserSecure && " Not supported in this browser."}
             {browserSupported && browserPermission === "denied" &&
               " Your browser has blocked notifications — allow them in the site settings (padlock in the address bar)."}
           </p>

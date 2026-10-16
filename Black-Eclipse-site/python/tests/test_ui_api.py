@@ -55,6 +55,23 @@ def test_create_page_add_widget_and_read_back():
     assert layout.json()["revision"] == 2
 
 
+def test_current_page_route_resolves_without_path_segment():
+    created = client.post("/ui/blueprints", json={"title": "Main", "path": "/main"}).json()["blueprint"]["id"]
+    by_id = client.get(f"/ui/blueprints/{created}/current")
+    assert by_id.status_code == 200
+    assert by_id.json()["blueprint"]["id"] == created
+
+    by_path = client.get("/ui/current-page", params={"path": "/main"})
+    assert by_path.status_code == 200, by_path.text
+    body = by_path.json()
+    assert body["resolution"] == "path"
+    assert body["blueprint"]["id"] == created
+
+    default = client.get("/ui/current-page")
+    assert default.status_code == 200
+    assert default.json()["blueprint"]["id"] == created
+
+
 def test_unknown_component_is_rejected():
     blueprint_id = client.post("/ui/blueprints", json={"title": "Reject"}).json()["blueprint"]["id"]
     resp = client.post(f"/ui/blueprints/{blueprint_id}/widgets", json={"componentId": "ghost"})

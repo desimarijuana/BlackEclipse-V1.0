@@ -8,8 +8,9 @@
 // state only; they never mutate the declared graph.
 
 import { useMemo, useState } from 'react';
-import { Maximize2, ZoomIn, ZoomOut } from '@/lib/icons';
+import { Info, Maximize2, ZoomIn, ZoomOut } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { NoticeCard } from './blocks';
 import { layoutDiagram } from '@/lib/response/diagram-layout';
 import type { DiagramBlock, NodeGraphBlock as NodeGraphBlockType, NodeGraphNode } from '@/lib/response/contract';
 
@@ -149,11 +150,10 @@ export function NodeGraphBlock({ block }: { block: NodeGraphBlockType }) {
       </div>
 
       {selectedNode ? (
-        <div className="mt-1.5 rounded-lg border border-sky-500/30 bg-sky-500/[0.06] px-3 py-2">
-          <p className="text-[12.5px] font-semibold text-foreground">{selectedNode.label}</p>
+        <NoticeCard tone="info" icon={Info} title={selectedNode.label} className="mt-1.5">
           {selectedNode.group && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{selectedNode.group}</p>}
-          {selectedNode.detail && <p className="mt-0.5 whitespace-pre-wrap text-[12px] text-muted-foreground">{selectedNode.detail}</p>}
-        </div>
+          {selectedNode.detail && <p className="mt-0.5 whitespace-pre-wrap text-[12px] text-foreground/75">{selectedNode.detail}</p>}
+        </NoticeCard>
       ) : (
         <p className="mt-1 text-[10px] text-muted-foreground/60">Select a node to see its details.</p>
       )}

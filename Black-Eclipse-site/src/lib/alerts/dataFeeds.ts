@@ -274,8 +274,11 @@ export async function indicatorWindow(
 ): Promise<Map<string, number[]>> {
   const window = new Map<string, number[]>();
   const needed = referencedIndicators(conditions);
+  // OPEN/HIGH/LOW live in the candle cache (the TradingView scan row carries no
+  // OHL), so they count as candle-backed data alongside SMA/EMA/RSI.
+  const ohl = new Set(needed.filter((i) => i === "OPEN" || i === "HIGH" || i === "LOW"));
   const candleInds = needed.filter((i) => i !== "CLOSE" && !["OPEN", "HIGH", "LOW", "VOLUME", "CHANGE_PCT", "MARKET_CAP", "PE", "EPS", "SECTOR"].includes(i));
-  if (candleInds.length === 0 && !needsCandles(conditions)) return window;
+  if (candleInds.length === 0 && ohl.size === 0 && !needsCandles(conditions)) return window;
 
   const rows = await prisma.candles.findMany({
     where: { symbol, timeframe },
@@ -285,6 +288,9 @@ export async function indicatorWindow(
 
   const closes = rows.map((r) => r.c);
   window.set(operandKey("CLOSE"), [...closes]);
+  if (ohl.has("OPEN")) window.set(operandKey("OPEN"), rows.map((r) => r.o));
+  if (ohl.has("HIGH")) window.set(operandKey("HIGH"), rows.map((r) => r.h));
+  if (ohl.has("LOW")) window.set(operandKey("LOW"), rows.map((r) => r.l));
 
   for (const ind of candleInds) {
     const m = /^([A-Z]+)(?:\((\{.*\})\))?$/.exec(ind);

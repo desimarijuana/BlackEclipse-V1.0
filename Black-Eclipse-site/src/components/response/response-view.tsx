@@ -24,6 +24,7 @@ import {
   KeyValueBlock,
   MarkdownBlock,
   MetricGridBlock,
+  NoticeCard,
   ResponseHeader,
   TabsBlock,
   TimelineBlock,
@@ -197,14 +198,12 @@ class BlockBoundary extends React.Component<BoundaryProps, { error: string | nul
   render() {
     if (this.state.error) {
       return (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2 text-[12px] text-rose-200/90">
-          <div className="flex items-center gap-1.5">
-            <AlertTriangle size={13} />
-            <span>
-              Could not render this <code className="font-mono">{this.props.blockType}</code> block.
-            </span>
-          </div>
-        </div>
+        <NoticeCard tone="danger" icon={AlertTriangle} dense>
+          <p className="text-[12px] text-foreground/80">
+            Could not render this{' '}
+            <code className="font-mono text-[11px] text-rose-200">{this.props.blockType}</code> block.
+          </p>
+        </NoticeCard>
       );
     }
     return this.props.children;

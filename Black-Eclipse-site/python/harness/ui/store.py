@@ -177,6 +177,16 @@ class UiStore:
             return None
         return self._hydrate(row)
 
+    def get_blueprint_unscoped(self, blueprint_id: str) -> Optional[UiBlueprint]:
+        """Fetch by id WITHOUT owner filtering.
+
+        The service layer uses this so it can distinguish "no such blueprint"
+        from "the blueprint exists but belongs to another owner" and raise a
+        distinct, actionable error instead of collapsing both into not-found.
+        """
+        row = self._db.execute("SELECT * FROM UiBlueprint WHERE id=?", (blueprint_id,)).fetchone()
+        return self._hydrate(row) if row is not None else None
+
     def list_blueprints(self, query: ListBlueprintsQuery, *, owner_id: Optional[str] = None) -> tuple[list[BlueprintSummary], int]:
         where: list[str] = []
         params: list[Any] = []
@@ -194,8 +204,8 @@ class UiStore:
             params.append(owner_id)
         if query.q:
             like = f"%{query.q.lower()}%"
-            where.append("(lower(title) LIKE ? OR lower(COALESCE(description,'')) LIKE ?)")
-            params.extend([like, like])
+            where.append("(lower(title) LIKE ? OR lower(COALESCE(description,'')) LIKE ? OR lower(COALESCE(path,'')) LIKE ?)")
+            params.extend([like, like, like])
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         total = self._db.execute(f"SELECT COUNT(*) AS n FROM UiBlueprint {clause}", params).fetchone()["n"]  # noqa: S608
         rows = self._db.execute(
@@ -356,11 +366,12 @@ class UiStore:
 
     def _summary(self, row: Any) -> BlueprintSummary:
         layout = WorkspaceLayout.model_validate(_loads(row["layout"], {"version": 2, "sections": []}))
-        count = sum(len(c.widgets) for s in layout.sections for c in s.columns)
+        components = [w.widget_id for s in layout.sections for c in s.columns for w in c.widgets]
         return BlueprintSummary(
             id=row["id"], title=row["title"], kind=_enum(BlueprintKind, row["kind"], BlueprintKind.PAGE),
             scope=_enum(BlueprintScope, row["scope"], BlueprintScope.PERSONAL), owner_id=row["ownerId"],
-            revision=row["revision"], updated_at=row["updatedAt"], widget_count=count,
+            path=row["path"], revision=row["revision"], updated_at=row["updatedAt"],
+            widget_count=len(components), component_ids=components,
         )
 
     def _component_row(self, row: Any) -> UiComponentSpec:

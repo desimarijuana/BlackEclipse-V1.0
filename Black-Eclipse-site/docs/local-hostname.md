@@ -1,23 +1,23 @@
 ---
-title: Local Hostname — http://blackeclipse
+title: Local Hostname — blackeclipse (http/https)
 status: Current
 last-verified: 2026-10-15
 ---
 
-# Local Hostname — `http://blackeclipse`
+# Local Hostname — `blackeclipse`
 
 **Who this is for:** an operator who wants to reach the app at
-`http://blackeclipse` instead of `http://localhost:3000`, on this machine only,
-without a domain, a deployment, or moving the server.
+`blackeclipse` instead of `http://localhost:3000`, on this machine only, without
+a domain, a deployment, or moving the server.
 
 ## What it is (architecture)
 
 ```
-browser  ──►  http://blackeclipse (:80)  ──►  scripts/local-proxy.js
-                                                (Node, 127.0.0.1 only)
-                                                    │
-                                                    ▼
-                                          http://127.0.0.1:3000  (Next.js, unchanged)
+browser  ──►  https://blackeclipse (:443)  ──►  scripts/local-proxy.js
+               (or http://… :80)                 (Node, 127.0.0.1 only)
+                                                     │
+                                                     ▼
+                                           http://127.0.0.1:3000  (Next.js, unchanged)
 ```
 
 Two pieces, both local:
@@ -26,9 +26,15 @@ Two pieces, both local:
    this computer. A hosts file only maps a *name to an IP* — it cannot change the
    port, which is why the second piece is needed.
 2. **A tiny reverse proxy** (`scripts/local-proxy.js`) that listens on
-   `127.0.0.1:80` and forwards to the existing Next.js server on `:3000`. It has
-   **zero dependencies** (Node's built-in `http`/`net` only) and is the lightest
-   maintainable option on a machine that already has Node.
+   `127.0.0.1` and forwards to the existing Next.js server on `:3000`. It has
+   **zero dependencies** (Node's built-in `http`/`https`/`net` only) and is the
+   lightest maintainable option on a machine that already has Node.
+
+The proxy serves **HTTPS when a certificate is provisioned**, and plain HTTP
+otherwise. HTTPS matters beyond appearance: it makes the origin a **secure
+context**, which the browser's Web Notification API (desktop notifications),
+service workers, clipboard and other powerful features require. `http://…` is
+not a secure context even though the name resolves to loopback.
 
 ### Why this design
 
@@ -62,9 +68,10 @@ Three small changes make that a no-op for the app:
   real `Host`/`x-forwarded-host` header rather than `request.url` (which Next
   rebuilds from its own bind address in dev), so a hostname-fronted request is
   correctly judged same-origin.
-- `src/lib/auth/handlers.ts` — the session cookie uses the shared
-  `isLocalRequest` check, so it is **not** marked `Secure` on the plain-HTTP local
-  hostname (a `Secure` cookie would be dropped by the browser and break login).
+- `src/lib/auth/handlers.ts` — the session cookie is **not** marked `Secure` on
+  the plain-HTTP local hostname (a `Secure` cookie would be dropped by the
+  browser and break login), but **is** `Secure` when the local front door serves
+  HTTPS (`x-forwarded-proto: https`).
 - `next.config.ts` — `allowedDevOrigins` lists the hostname so Next dev does not
   flag `/_next/*` / HMR requests as cross-origin. Dev-only; production ignores it.
 
@@ -122,9 +129,9 @@ npm run up           # production (builds once, then instant)
 black                # the same, via the global CLI
 ```
 
-Open **<http://blackeclipse>**. The underlying server is still on
-`http://127.0.0.1:3000`; `http://localhost:3000` keeps working for local tools and
-the raw server — you just never have to type it.
+Open **<http://blackeclipse>** (or **<https://blackeclipse>** after section 2b).
+The underlying server is still on `http://127.0.0.1:3000`; `http://localhost:3000`
+keeps working for local tools and the raw server — you just never have to type it.
 
 Prefer to run the two processes yourself? They are independent:
 
@@ -139,6 +146,42 @@ npm run proxy        # the front door on 127.0.0.1:80
 **No Administrator rights are required to run the proxy.** Windows does not treat
 ports below 1024 as privileged (unlike Unix), and `127.0.0.1:80` is free on this
 machine. Administrator is needed **only** for the one-time hosts-file edit.
+
+## 2b. Enable HTTPS — a secure context (desktop notifications)
+
+The launcher serves **plain HTTP** until a certificate exists. To turn on HTTPS
+(and thus the browser's desktop notifications), run **once**:
+
+```powershell
+npm run setup:tls        # ~1s, NO Administrator prompt
+```
+
+That (`scripts/setup-tls.ps1`) creates a self-signed certificate for
+`blackeclipse`, stores it in the **current user's** certificate stores
+(`My` + trusted `Root` — no machine-wide/admin change), and exports a
+`PKCS#12` bundle + passphrase under `.black-eclipse/certs/` (gitignored) for the
+Node proxy. Then restart and open **<https://blackeclipse>**:
+
+- `scripts/local-host.js` detects the certificate and starts the proxy in TLS
+  mode on `127.0.0.1:443`; the banner shows `https://blackeclipse`.
+- Plain `http://blackeclipse` (port 80) now answers `301 → https://blackeclipse`.
+- Settings › Alerts/Notifications › **Desktop notifications → Enable** →
+  **Send test notification** now works.
+
+`npm run tls:remove` removes the certificate and its files and reverts to HTTP.
+
+Notes:
+
+- **No Administrator rights** are needed for any of this (the current-user cert
+  stores are writable by the user; the proxy binds `:443` like it did `:80`).
+- Chrome and Edge validate against the Windows trust store, so they trust the
+  certificate with no warning. **Firefox** keeps its own store — set
+  `security.enterprise_roots.enabled = true` in `about:config`, or use
+  Chrome/Edge for notifications.
+- If `:80` is taken by another service, the proxy logs the conflict and serves
+  `https://blackeclipse` on `:443` anyway (only the auto-redirect is lost).
+- The certificate is valid 5 years; re-run `npm run setup:tls` to refresh it if
+  it expires (idempotent — it reuses an existing one).
 
 ## 3. Stop it
 
@@ -220,5 +263,9 @@ except where a step needs your hands on the Windows box:
 | WebSocket / HMR through the hostname | **Verified live** — `/_next/webpack-hmr` completed the `101 Switching Protocols` handshake via `http://blackeclipse`. |
 | Dev log cross-origin warnings | **Verified** — none after requests through the hostname. |
 | Proxy is local-only | **Verified** — binds `127.0.0.1` only (never `0.0.0.0`). |
+| `npm run setup:tls` idempotent + non-blocking | **Verified on this machine** — created a cert (thumbprint `3E28F384…`) and added it to `Cert:\CurrentUser\Root` via the .NET store API (the `Import-Certificate` cmdlet hung on the Windows trust dialog; the script no longer uses it). Re-run reports "already configured / already trusted". |
+| `https://blackeclipse` is a secure context | **Verified live (headless Chromium)** — `200`, `window.isSecureContext === true`, `typeof window.Notification === "function"` (was `undefined` over plain http). |
+| `http://blackeclipse` redirects to https | **Verified live** — `curl http://blackeclipse/` → `301` `Location: https://blackeclipse/`. |
+| HTTPS proxy listens on `127.0.0.1:443` | **Verified live** — `[proxy] listening on https://blackeclipse (127.0.0.1:443)`; TLS handshake completed. |
 
 See also: [`QUICKSTART.md`](./QUICKSTART.md), [`DEPLOYMENT.md`](./DEPLOYMENT.md).
