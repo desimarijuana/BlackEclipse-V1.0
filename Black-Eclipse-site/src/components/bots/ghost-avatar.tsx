@@ -14,8 +14,13 @@ import {
   GHOST_VARIANT_COUNT,
   type GhostSpec,
 } from '@/lib/bots/ghost';
+import type { GhostMood } from '@/lib/bots/ghost-mood';
 
 const INK = '#241f31';
+
+// Eye styles that already read as closed — the live avatar must not animate a
+// blink on them (it would look like a glitch, not a blink).
+const CLOSED_EYES = new Set([2, 4]);
 
 interface BodyParams {
   l: number;
@@ -225,9 +230,11 @@ export interface GhostAvatarProps {
   className?: string;
   /** Accessible label; when set the SVG exposes an image role. */
   title?: string;
+  /** Face expression the live wrapper animates. Absent = no mood attribute. */
+  mood?: GhostMood;
 }
 
-export function GhostAvatar({ spec, size = 48, className, title }: GhostAvatarProps) {
+export function GhostAvatar({ spec, size = 48, className, title, mood }: GhostAvatarProps) {
   // A unique, DOM-safe clip id per instance so multiple ghosts on the same page
   // never collide (duplicate ids are invalid and resolve unpredictably).
   const rawId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -239,23 +246,33 @@ export function GhostAvatar({ spec, size = 48, className, title }: GhostAvatarPr
       width={size}
       height={size}
       viewBox="0 0 120 120"
-      className={cn('shrink-0 select-none', className)}
+      className={cn('be-ghost shrink-0 select-none', className)}
       role={title ? 'img' : 'presentation'}
       aria-label={title}
       aria-hidden={title ? undefined : true}
+      {...(CLOSED_EYES.has(spec.eyes) ? { 'data-eyes-closed': '' } : {})}
+      {...(mood && mood !== 'idle' ? { 'data-mood': mood } : {})}
     >
       <defs>
         <clipPath id={clipId}>
           <path d={path} />
         </clipPath>
       </defs>
-      <path d={path} fill={spec.bodyColor} />
-      <g clipPath={`url(#${clipId})`}>
-        <Pattern style={spec.pattern} accent={spec.accentColor} />
+      <g className="be-ghost__body">
+        <path d={path} fill={spec.bodyColor} />
+        <g clipPath={`url(#${clipId})`}>
+          <Pattern style={spec.pattern} accent={spec.accentColor} />
+        </g>
+        <Accessory style={spec.accessory} accent={spec.accentColor} />
       </g>
-      <Accessory style={spec.accessory} accent={spec.accentColor} />
-      <Eyes style={spec.eyes} accent={spec.accentColor} />
-      <Mouth style={spec.mouth} />
+      <g className="be-ghost__gaze">
+        <g className="be-ghost__eyes">
+          <Eyes style={spec.eyes} accent={spec.accentColor} />
+        </g>
+      </g>
+      <g className="be-ghost__mouth">
+        <Mouth style={spec.mouth} />
+      </g>
     </svg>
   );
 }

@@ -11,6 +11,7 @@ import {
   ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Maximize2, Minimize2, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-media-query';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
 import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
@@ -27,6 +28,7 @@ import { MarketTabs } from './market-tabs';
 export function DashboardScreen() {
   const dashboards = useDashboards();
   const markets = useMarketViews();
+  const isMobile = useIsMobile();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [watchlistOpen, setWatchlistOpen] = useState(true);
   const [marketOpen, setMarketOpen] = useState(true);
@@ -140,7 +142,8 @@ export function DashboardScreen() {
       dense
       zones={{
         left: {
-          className: 'w-full lg:w-64',
+          className: 'hidden xl:block w-64',
+          resizerClassName: 'hidden xl:block',
           collapsed: !watchlistOpen,
           onToggle: () => setWatchlistOpen(v => !v),
           header: (
@@ -159,7 +162,8 @@ export function DashboardScreen() {
           ),
         },
         right: {
-          className: 'w-full lg:w-72',
+          className: 'hidden lg:block w-72',
+          resizerClassName: 'hidden lg:block',
           collapsed: !marketOpen,
           onToggle: () => setMarketOpen(v => !v),
           header: (
@@ -178,7 +182,7 @@ export function DashboardScreen() {
           ),
         },
       }}
-      statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
+      statusBar={isMobile ? undefined : <StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
     />
   );
 
@@ -318,7 +322,7 @@ export function DashboardScreen() {
                 URL.revokeObjectURL(url);
               }
             }}
-            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            className="glass-button hidden items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer sm:inline-flex"
             title="Export this dashboard layout"
           >
             <Download size={13} /> <span className="hidden sm:inline">Export</span>
@@ -336,14 +340,14 @@ export function DashboardScreen() {
               };
               input.click();
             }}
-            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            className="glass-button hidden items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer sm:inline-flex"
             title="Import a dashboard layout"
           >
             <Upload size={13} /> <span className="hidden sm:inline">Import</span>
           </button>
           <button
             onClick={() => dashboards.reset(dashboards.activeId!)}
-            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            className="glass-button hidden items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer sm:inline-flex"
             title="Reset this dashboard to its template"
           >
             <RotateCcw size={13} /> <span className="hidden sm:inline">Reset</span>

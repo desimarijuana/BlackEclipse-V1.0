@@ -310,6 +310,199 @@ html:not(.dark) .ws-glass {
   animation: fadeIn 0.4s ease-out backwards;
 }
 
+/* ── Live ghost avatar — ambient life ─────────────────────────────────────────
+ * `GhostAvatar` is a pure SVG drawing; `LiveGhostAvatar` adds motion without
+ * changing it. Three layers:
+ *   • breathe — the body gently rises and falls            (ghostBreathe)
+ *   • blink   — the eyes close for a beat                  (ghostBlink)
+ *   • gaze    — the eyes ease toward the cursor, driven by  --look-x / --look-y
+ *               custom properties set in JS (no re-render)
+ *   • poke    — a small squash-and-rebound on click        (ghostPoke)
+ * Everything is scoped under `.be-ghost-live[data-active]`, so the static
+ * `GhostAvatar` used in lists and rows never animates, and off-screen faces are
+ * inert. All of it sits inside the standard reduce-motion / animations-off kill
+ * switches below — there is no exemption for the face. */
+.be-ghost-live[data-active] .be-ghost__body {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: ghostBreathe 4.6s ease-in-out infinite;
+}
+.be-ghost-live[data-active] .be-ghost__eyes {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ghostBlink 5.2s ease-in-out infinite;
+}
+/* An already-closed eye style (happy ^^, sleepy lines) must not blink. */
+.be-ghost-live[data-active] .be-ghost[data-eyes-closed] .be-ghost__eyes {
+  animation: none;
+}
+.be-ghost-live[data-interactive] .be-ghost__gaze {
+  transform: translate(
+    calc(var(--look-x, 0) * 3px),
+    calc(var(--look-y, 0) * 2.4px)
+  );
+  transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.be-ghost-live[data-poke] .be-ghost {
+  transform-origin: 50% 100%;
+  animation: ghostPoke 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ghostBreathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(1.025);
+  }
+}
+
+@keyframes ghostBlink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  93% {
+    transform: scaleY(0.08);
+  }
+  96% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes ghostPoke {
+  0% {
+    transform: scale(1, 1);
+  }
+  30% {
+    transform: scale(1.08, 0.9);
+  }
+  60% {
+    transform: scale(0.96, 1.05);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+/* ── Live ghost avatar — moods ────────────────────────────────────────────────
+ * The face expression for the agent's turn, driven by `data-mood` (see
+ * `lib/bots/ghost-mood.ts`). Only the live, active wrapper is affected. The
+ * gaze/eye transforms for a mood are scoped with :not([data-interactive]) so a
+ * cursor-tracking face keeps following the pointer instead of snapping to a pose.
+ */
+/* thinking — eyes lift, a slow ponder */
+.be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="thinking"] .be-ghost__gaze {
+  transform: translateY(-2.6px);
+}
+.be-ghost-live[data-active] .be-ghost[data-mood="thinking"] .be-ghost__body {
+  animation: ghostBreathe 3.4s ease-in-out infinite;
+}
+
+/* working — eyes dart side to side */
+.be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="working"] .be-ghost__gaze {
+  animation: ghostDart 1.15s ease-in-out infinite;
+}
+.be-ghost-live[data-active] .be-ghost[data-mood="working"] .be-ghost__eyes {
+  animation: ghostBlink 2.6s ease-in-out infinite;
+}
+
+/* speaking — the mouth moves */
+.be-ghost-live[data-active] .be-ghost[data-mood="speaking"] .be-ghost__mouth {
+  transform-box: fill-box;
+  transform-origin: 50% 45%;
+  animation: ghostTalk 0.44s ease-in-out infinite;
+}
+
+/* waiting — eyes up and patient */
+.be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="waiting"] .be-ghost__gaze {
+  transform: translateY(-2px);
+}
+.be-ghost-live[data-active] .be-ghost[data-mood="waiting"] .be-ghost__eyes {
+  animation: ghostBlink 6s ease-in-out infinite;
+}
+
+/* happy — a little hop and a squint */
+.be-ghost-live[data-active] .be-ghost[data-mood="happy"] {
+  transform-origin: 50% 100%;
+  animation: ghostHop 0.62s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.be-ghost-live[data-active] .be-ghost[data-mood="happy"] .be-ghost__eyes {
+  transform-box: fill-box;
+  transform-origin: 50% 55%;
+  animation: ghostSquint 0.62s ease-in-out;
+}
+
+/* sad — a droop */
+.be-ghost-live[data-active] .be-ghost[data-mood="sad"] .be-ghost__body {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: ghostDroop 4.4s ease-in-out infinite;
+}
+.be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="sad"] .be-ghost__gaze {
+  transform: translateY(2.6px);
+}
+.be-ghost-live[data-active] .be-ghost[data-mood="sad"] .be-ghost__eyes {
+  animation: ghostBlink 7s ease-in-out infinite;
+}
+
+@keyframes ghostDart {
+  0%,
+  100% {
+    transform: translateX(-2.6px);
+  }
+  50% {
+    transform: translateX(2.6px);
+  }
+}
+
+@keyframes ghostTalk {
+  0%,
+  100% {
+    transform: scaleY(0.72);
+  }
+  50% {
+    transform: scaleY(1.24);
+  }
+}
+
+@keyframes ghostHop {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  35% {
+    transform: translateY(-5px) scale(0.96, 1.05);
+  }
+  70% {
+    transform: translateY(0) scale(1.05, 0.95);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@keyframes ghostSquint {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  40% {
+    transform: scaleY(0.5);
+  }
+}
+
+@keyframes ghostDroop {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(1.6px) scaleY(0.985);
+  }
+}
+
 /* ── Effort slider "Ultra" stop — an ENERGY fill ──────────────────────────────
  * The top stop of the composer's model-intelligence slider. Everything is drawn
  * from the theme's `--primary` token so it reads as the app accent, never a
@@ -464,6 +657,24 @@ html:not(.dark) .ws-glass {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none !important;
+}
+
+/* ── Mobile ergonomics ─────────────────────────────────────────────────────
+ * safe-bottom: clear the iOS home indicator / Android gesture bar on fixed
+ * bottom chrome (bottom nav, chat dock, sheets). touch-target: guarantee the
+ * 44px minimum hit area for icon-only controls on touch devices. */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .touch-target {
+    min-width: 0;
+    min-height: 0;
+  }
 }
 
 /* The chat transcript no longer styles a native scrollbar: the full-height bar

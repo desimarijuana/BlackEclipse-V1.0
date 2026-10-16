@@ -212,8 +212,11 @@ export function cronSummary(expr: string): string {
 function intervalSummary(seconds: number): string {
   if (seconds % 86400 === 0) return `Every ${seconds / 86400} day${seconds / 86400 === 1 ? '' : 's'}`;
   if (seconds % 3600 === 0) return `Every ${seconds / 3600} hour${seconds / 3600 === 1 ? '' : 's'}`;
-  const mins = Math.round(seconds / 60);
-  return `Every ${mins} minute${mins === 1 ? '' : 's'}`;
+  if (seconds % 60 === 0) {
+    const mins = Math.round(seconds / 60);
+    return `Every ${mins} minute${mins === 1 ? '' : 's'}`;
+  }
+  return `Every ${seconds} second${seconds === 1 ? '' : 's'}`;
 }
 
 /** A single-line, plain-language schedule summary for a trigger. */
@@ -315,7 +318,7 @@ export interface BotDraft {
   /** 0=Sunday..6=Saturday for weekly. */
   weekday: number;
   intervalValue: number;
-  intervalUnit: 'minutes' | 'hours' | 'days';
+  intervalUnit: 'seconds' | 'minutes' | 'hours' | 'days';
   cron: string;
   runAt: string;
 }
@@ -357,8 +360,11 @@ export function buildTrigger(draft: BotDraft): CreateAutomationInput['trigger'] 
     case 'weekly':
       return { type: 'cron', cron: `${minute} ${hour} * * ${draft.weekday}`, timezone };
     case 'interval': {
-      const mult = draft.intervalUnit === 'days' ? 86400 : draft.intervalUnit === 'hours' ? 3600 : 60;
-      return { type: 'interval', intervalSeconds: Math.max(60, draft.intervalValue * mult), timezone };
+      const mult = draft.intervalUnit === 'days' ? 86400
+        : draft.intervalUnit === 'hours' ? 3600
+        : draft.intervalUnit === 'minutes' ? 60
+        : 1;
+      return { type: 'interval', intervalSeconds: Math.max(30, draft.intervalValue * mult), timezone };
     }
     case 'cron':
       return { type: 'cron', cron: draft.cron.trim(), timezone };
@@ -431,7 +437,8 @@ export function draftFromBot(bot: AutomationView): BotDraft {
     const s = trig.intervalSeconds ?? 3600;
     if (s % 86400 === 0) { draft.schedule = 'interval'; draft.intervalValue = s / 86400; draft.intervalUnit = 'days'; }
     else if (s % 3600 === 0) { draft.schedule = 'interval'; draft.intervalValue = s / 3600; draft.intervalUnit = 'hours'; }
-    else { draft.schedule = 'interval'; draft.intervalValue = Math.max(1, Math.round(s / 60)); draft.intervalUnit = 'minutes'; }
+    else if (s % 60 === 0) { draft.schedule = 'interval'; draft.intervalValue = Math.round(s / 60); draft.intervalUnit = 'minutes'; }
+    else { draft.schedule = 'interval'; draft.intervalValue = s; draft.intervalUnit = 'seconds'; }
   } else if (trig.type === 'cron' && trig.cron) {
     const parts = trig.cron.trim().split(/\s+/);
     if (parts.length === 5) {

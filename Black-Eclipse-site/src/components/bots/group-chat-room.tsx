@@ -21,6 +21,8 @@ import { runGroupMemberTurn } from '@/lib/bots/invoke';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { LiveGhostAvatar } from '@/components/bots/live-ghost-avatar';
+import { moodFromEvent, type GhostMood } from '@/lib/bots/ghost-mood';
 import { GroupSettingsDialog } from '@/components/bots/group-settings-dialog';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import {
@@ -72,6 +74,9 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busyAll, setBusyAll] = useState(false);
   const [groupNote, setGroupNote] = useState<string | null>(null);
+  // Per-member face while the room runs (idle/absent = resting face).
+  const [memberMoods, setMemberMoods] = useState<Record<string, GhostMood>>({});
+  const restTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   /** Who answers: 'all' (every member) or a single member's bot id. */
   const [audience, setAudience] = useState<string>('all');
   /** Active @mention token query (null = the mention menu is closed). */
@@ -81,7 +86,31 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Stop any in-flight runs if the room unmounts so streams are not orphaned.
-  useEffect(() => () => controllersRef.current.forEach((c) => c.abort()), []);
+  useEffect(
+    () => () => {
+      controllersRef.current.forEach((c) => c.abort());
+      Object.values(restTimers.current).forEach(clearTimeout);
+      restTimers.current = {};
+    },
+    [],
+  );
+
+  const setMemberMood = useCallback((id: string, mood: GhostMood) => {
+    setMemberMoods((prev) => (prev[id] === mood ? prev : { ...prev, [id]: mood }));
+  }, []);
+
+  /** After a finished/waiting beat, let the member's face rest again. */
+  const restMember = useCallback(
+    (id: string) => {
+      const timers = restTimers.current;
+      if (timers[id]) clearTimeout(timers[id]);
+      timers[id] = setTimeout(() => {
+        delete timers[id];
+        setMemberMood(id, 'idle');
+      }, 1800);
+    },
+    [setMemberMood],
+  );
 
   const members = useMemo(
     () => group.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is AutomationView => Boolean(b)),
@@ -89,6 +118,19 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   );
 
   const groupSpec = useMemo(() => ghostSpecFromId(group.id), [group.id]);
+
+  // The room's face reflects the busiest member: talking beats working beats
+  // thinking beats a resting beat. Idle when nobody is doing anything.
+  const groupMood = useMemo<GhostMood>(() => {
+    const moods = Object.values(memberMoods);
+    if (moods.includes('speaking')) return 'speaking';
+    if (moods.includes('working')) return 'working';
+    if (moods.includes('thinking')) return 'thinking';
+    if (moods.includes('waiting')) return 'waiting';
+    if (moods.includes('happy')) return 'happy';
+    if (moods.includes('sad')) return 'sad';
+    return 'idle';
+  }, [memberMoods]);
 
   const allActive = members.length > 0 && members.every((b) => b.state === 'active');
   useEffect(() => {
@@ -161,6 +203,12 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
       });
       const controller = new AbortController();
       controllers.push(controller);
+      // A fresh run supersedes any pending "rest" beat for this member.
+      if (restTimers.current[bot.id]) {
+        clearTimeout(restTimers.current[bot.id]);
+        delete restTimers.current[bot.id];
+      }
+      setMemberMood(bot.id, 'thinking');
       let streamed = '';
       try {
         const reply = await runGroupMemberTurn({
@@ -169,8 +217,13 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           text,
           prior,
           signal: controller.signal,
+          onEvent: (event) => {
+            const next = moodFromEvent(event);
+            if (next) setMemberMood(bot.id, next);
+          },
           onDelta: (chunk) => {
             streamed += chunk;
+            setMemberMood(bot.id, 'speaking');
             updateMessage(group.id, replyId, { content: streamed });
           },
         });
@@ -180,6 +233,8 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           replyId,
           final ? { content: final } : { content: `${bot.name} did not return a reply.`, error: true },
         );
+        setMemberMood(bot.id, final ? 'happy' : 'sad');
+        restMember(bot.id);
       } catch (err) {
         if (controller.signal.aborted) {
           updateMessage(group.id, replyId, streamed ? { content: streamed } : { content: '(stopped)', error: true });
@@ -188,9 +243,11 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
             content: err instanceof Error ? err.message : 'network error', error: true,
           });
         }
+        setMemberMood(bot.id, 'sad');
+        restMember(bot.id);
       }
     },
-    [append, updateMessage, group],
+    [append, updateMessage, group, setMemberMood, restMember],
   );
 
   const send = useCallback(async () => {
@@ -289,7 +346,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
         {group.image ? (
           <img src={group.image} alt="" className="h-12 w-12 shrink-0 rounded-2xl object-cover" />
         ) : (
-          <GhostAvatar spec={groupSpec} size={48} />
+          <LiveGhostAvatar spec={groupSpec} size={48} mood={groupMood} />
         )}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold">{group.name}</h2>
@@ -303,6 +360,8 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
                   size={22}
                   className="rounded-full ring-2 ring-background"
                   title={b.name}
+                  live
+                  mood={memberMoods[b.id]}
                 />
               ))}
             </div>

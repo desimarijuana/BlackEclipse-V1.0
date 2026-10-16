@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
 import {
   mlClient,
   type Capabilities,
@@ -322,6 +323,7 @@ export function MlLabScreen() {
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-4 md:p-6">
+      <DesktopOnlyNotice title="ML Lab" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">ML Research Lab</h2>
@@ -493,7 +495,7 @@ export function MlLabScreen() {
                   <option value="mutual_information">mutual_information</option>
                 </select>
               </div>
-              <div className="flex items-center gap-3 text-white/70">
+              <div className="flex flex-wrap items-center gap-3 text-white/70">
                 <label className="flex items-center gap-1">
                   splits
                   <input type="number" min={2} className="glass-card-subtle w-16 rounded-md px-2 py-1 text-white" value={nSplits} onChange={(e) => setNSplits(Number(e.target.value))} />
@@ -520,8 +522,8 @@ export function MlLabScreen() {
               </button>
             </div>
             {activeJob && (
-              <div className="mt-3 flex items-center justify-between rounded-md bg-white/5 px-3 py-2 text-xs">
-                <span className="text-white/80">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/5 px-3 py-2 text-xs">
+                <span className="min-w-0 truncate text-white/80">
                   job {activeJob.jobId.slice(0, 12)}… · {activeJob.status}
                   {typeof activeJob.progress === 'number' ? ` · ${Math.round(activeJob.progress * 100)}%` : ''}
                   {activeJob.error ? ` · ${activeJob.error}` : ''}
@@ -677,7 +679,7 @@ export function MlLabScreen() {
                 <div className="text-white/60">
                   {modelDetail.modelId}@{modelDetail.version} · {modelDetail.family} · {modelDetail.task} · {modelDetail.status}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button onClick={() => void verifyModel()} className="glass-card-subtle rounded-md px-2 py-1 text-white/80">Verify artifact</button>
                   <button onClick={() => void transition('evaluate')} className="glass-card-subtle rounded-md px-2 py-1 text-white/80">Mark evaluated</button>
                   <button onClick={() => void transition('approve_research')} className="glass-card-subtle rounded-md px-2 py-1 text-white/80">Approve (research)</button>

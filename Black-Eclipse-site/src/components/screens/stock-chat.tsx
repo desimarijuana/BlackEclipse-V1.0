@@ -9,6 +9,9 @@ import { AgentWorkspace } from '@/components/agent-workspace/workspace';
 import { BotSchedulerDock } from '@/components/bots/scheduler-dock';import { useTerminalShell } from '@/hooks/use-terminal-shell';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
+import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
+import { MobileDockHost } from '@/components/layout/mobile-dock-host';
+import { useIsMobile } from '@/hooks/use-media-query';
 import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
@@ -258,6 +261,8 @@ function StockChatContent() {
   // overwrites it before the tab/symbol state settles.
   const bootDoneRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Phones render the agent/scheduler docks as a bottom sheet, not a side column.
+  const isMobile = useIsMobile();
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Focus mode: a presentation-only "zen" view of the chat — hides the header
   // and sidebar and parks the transcript + composer in a centered column.
@@ -1060,13 +1065,13 @@ function StockChatContent() {
             wallpaper/wordmark still show. No-op (opacity 0) if disabled. */}
         {activeTab === 'chat' && messages.length > 0 && <div aria-hidden className="chat-surface-layer" />}
 
-        {/* Aurora on the ChatBot landing. The shell's AuroraGlow sits at the root
-            (z-0), but the chat panel is z-10 and paints an opaque wallpaper over
-            it, so the glow is covered. Mount a local copy inside the panel — above
-            the wallpaper, below the wordmark/composer — but only on the LANDING
-            (empty transcript); the conversation view keeps its calm chat surface
-            without the glow. Mirrors the fullscreen Command Center overlay. */}
-        {activeTab === 'chat' && messages.length === 0 && <AuroraGlow />}
+        {/* Aurora on the ChatBot landing. The shell's AuroraGlow (z-0) is covered
+            by the chat panel's opaque wallpaper, so mount a local copy above it,
+            below the wordmark/composer, on the LANDING only. Pinned to the
+            VIEWPORT (`fixed`) so it stays full-width/centered as the sidebar or
+            dock resizes the panel — panel z-10 keeps it behind both. Mirrors the
+            fullscreen Command Center overlay. */}
+        {activeTab === 'chat' && messages.length === 0 && <AuroraGlow className="fixed" />}
 
         {/* Giant ChatBot wordmark (Settings › General › Background). Painted
             above the backdrop but below the transcript/composer, landing only. */}
@@ -1078,7 +1083,7 @@ function StockChatContent() {
           hidden={focusMode}
         />
 
-        <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10" tabIndex={-1}>
+        <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10 pb-[4.25rem] md:pb-0" tabIndex={-1}>
           {/* Keep-alive tabs: a tab mounts on first visit (visited set) and
               then stays mounted hidden — revisits are instant with no chunk
               reload, no refetch, no loader flash. Unvisited tabs render
@@ -1233,12 +1238,12 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'news' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto h-full pb-20">
                 <div className="animate-fade-in-up w-full h-full flex flex-col">
-                  <div className="mb-6 flex items-center gap-2 border-b border-border/10 pb-3">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+                  <div className="mb-6 flex flex-col gap-3 border-b border-border/10 pb-3 sm:flex-row sm:items-center">
+                    <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10 sm:flex">
                       <Newspaper className="text-primary" size={30} />
                     </div>
                     <div>
-                      <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Market News & Bulletins</h1>
+                      <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground sm:text-2xl">Market News & Bulletins</h1>
                       <p className="text-muted-foreground text-xs mt-0.5">Live updates, professional ratings indicators, and direct discuss-to-chat triggers.</p>
                     </div>
                   </div>
@@ -1415,7 +1420,9 @@ function StockChatContent() {
         </div>
         {/* The right-docked column: the execution Agent Workspace everywhere,
             except Bots (jobs scheduler). Hidden in focus mode for a full page. */}
-        {!focusMode && (activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />)}
+        {!focusMode && (isMobile
+          ? <MobileDockHost activeTab={activeTab} />
+          : (activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
         <TerminalDock slot="right" />
       </div>
 
@@ -1423,6 +1430,13 @@ function StockChatContent() {
       <TerminalDock slot="bottom" />
       {/* Full-page terminal: an overlay, since nothing else is visible behind it. */}
       <TerminalDock slot="full" />
+
+      {/* Phone-only primary navigation: fixed bottom bar + "More" sheet. */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onChangeTab={setActiveTab}
+        hidden={focusMode || settingsOpen}
+      />
 
       <Dialog
         open={settingsOpen}

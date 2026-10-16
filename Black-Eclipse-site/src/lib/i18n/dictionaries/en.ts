@@ -46,6 +46,7 @@ export const en = {
   'bots.scheduleCron': 'Repeats on a cron schedule',
   'bots.scheduleOnce': 'Runs once',
   'bots.every': 'Every',
+  'bots.seconds': 'seconds',
   'bots.minutes': 'minutes',
   'bots.hours': 'hours',
   'bots.days': 'days',

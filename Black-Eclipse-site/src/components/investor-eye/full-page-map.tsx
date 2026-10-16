@@ -90,13 +90,13 @@ export function FullPageMap({
       />
 
       {/* ── Top strip: identity, mode, exit ─────────────────────────────── */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-start justify-between gap-2 p-3">
         <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 glass-card-subtle px-2.5 py-1.5">
           <ScanEye size={14} className="text-primary" />
           <span className="text-[10px] font-bold uppercase tracking-widest text-foreground">
             Investor Eye
           </span>
-          <span className="font-mono text-[9px] text-muted-foreground">
+          <span className="hidden font-mono text-[9px] text-muted-foreground sm:inline">
             {eventCount} events · {marketCount} markets
           </span>
           {dataUnavailable && (
@@ -115,7 +115,7 @@ export function FullPageMap({
             title="Exit full-page map (Esc)"
           >
             <Minimize2 size={12} /> Exit
-            <kbd className="ml-0.5 rounded bg-white/[0.06] px-1 py-0.5 font-mono text-[9px]">Esc</kbd>
+            <kbd className="ml-0.5 hidden rounded bg-white/[0.06] px-1 py-0.5 font-mono text-[9px] sm:inline">Esc</kbd>
           </button>
         </div>
       </div>

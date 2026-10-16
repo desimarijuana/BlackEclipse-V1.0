@@ -140,9 +140,28 @@ describe('draft validation and trigger building', () => {
     expect(buildTrigger({ ...base, schedule: 'weekly', weekday: 3 })).toMatchObject({ type: 'cron', cron: '30 9 * * 3' });
   });
 
-  it('clamps intervals to the backend minimum of 60s', () => {
-    const draft = { ...emptyBotDraft(), schedule: 'interval' as const, intervalValue: 1, intervalUnit: 'minutes' as const };
-    expect(buildTrigger(draft)).toMatchObject({ type: 'interval', intervalSeconds: 60 });
+  it('builds interval triggers in seconds/minutes and clamps to the 30s floor', () => {
+    const base = { ...emptyBotDraft(), schedule: 'interval' as const };
+    expect(buildTrigger({ ...base, intervalValue: 1, intervalUnit: 'minutes' }))
+      .toMatchObject({ type: 'interval', intervalSeconds: 60 });
+    expect(buildTrigger({ ...base, intervalValue: 30, intervalUnit: 'seconds' }))
+      .toMatchObject({ type: 'interval', intervalSeconds: 30 });
+    expect(buildTrigger({ ...base, intervalValue: 5, intervalUnit: 'seconds' }))
+      .toMatchObject({ type: 'interval', intervalSeconds: 30 });
+  });
+
+  it('round-trips a 30s interval bot back into a draft', () => {
+    const b = bot({ trigger: { ...bot().trigger, type: 'interval', intervalSeconds: 30 } });
+    const draft = draftFromBot(b);
+    expect(draft.schedule).toBe('interval');
+    expect(draft.intervalUnit).toBe('seconds');
+    expect(draft.intervalValue).toBe(30);
+    expect(buildTrigger(draft)).toMatchObject({ type: 'interval', intervalSeconds: 30 });
+  });
+
+  it('summarizes sub-minute intervals in seconds', () => {
+    expect(scheduleSummary({ ...bot().trigger, type: 'interval', intervalSeconds: 30 })).toBe('Every 30 seconds');
+    expect(scheduleSummary({ ...bot().trigger, type: 'interval', intervalSeconds: 60 })).toBe('Every 1 minute');
   });
 
   it('summarizes a draft for the review step', () => {

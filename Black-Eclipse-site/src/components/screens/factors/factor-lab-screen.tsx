@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
 import {
   factorsClient,
   type EvaluationResult,
@@ -113,6 +114,7 @@ export function FactorLabScreen() {
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-4 text-white/90">
+      <DesktopOnlyNotice title="Factor Lab" />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Factor &amp; Alpha Research Lab</h1>

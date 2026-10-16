@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
 import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Search, Layers, History } from '@/lib/icons';
 import { getWidgetDefinition, renderDashboardWidget } from '@/lib/dashboard/registry';
 import { syncCoreCatalog } from '@/lib/harness/ui-sync';
@@ -272,6 +273,7 @@ export function UiBuilderScreen() {
 
   return (
     <div className="flex h-full w-full flex-col gap-4">
+      <DesktopOnlyNotice title="UI Builder" />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-serif text-2xl font-semibold text-foreground">UI Builder</h1>

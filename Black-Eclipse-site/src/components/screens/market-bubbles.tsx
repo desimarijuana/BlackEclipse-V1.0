@@ -1150,7 +1150,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
         </div>
 
         {/* Live Canvas Box */}
-        <div className="h-[500px] w-full glass-card border border-white/5 rounded-3xl relative overflow-hidden shrink-0">
+        <div className="h-[55vh] min-h-[320px] w-full glass-card border border-white/5 rounded-3xl relative overflow-hidden shrink-0 sm:h-[500px] sm:max-h-[500px]">
           {loading && rawList.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-[#050505]/80">
               <Orbit className="text-white/5 w-16 h-16 animate-spin-slow mb-4" />

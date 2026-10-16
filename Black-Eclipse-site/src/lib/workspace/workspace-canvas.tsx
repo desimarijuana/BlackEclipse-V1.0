@@ -70,8 +70,10 @@ interface WorkspaceCanvasProps {
 
 /** Per-zone presentation config (width, header, collapse state). */
 export interface WorkspaceZoneConfig {
-  /** Width class for the zone column (default `w-72`). */
+  /** Width class for the zone column (default `w-72`) when side-by-side. */
   className?: string;
+  /** Responsive visibility class for the adjacent drag-resizer (default `hidden lg:block`). */
+  resizerClassName?: string;
   /** Header rendered above the zone (e.g. "Market" title + collapse button). */
   header?: React.ReactNode;
   /** Collapse the zone down to a slim expand affordance. */
@@ -731,7 +733,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
                   'shrink-0',
                   // Stacked below the main canvas on mobile, a side column from lg up.
                   zone === 'left' ? 'order-2 lg:order-none' : 'order-3 lg:order-none',
-                  cfg.className ?? 'w-72',
+                  // Side-by-side: honour the host's width + breakpoint classes.
+                  // Stacked (<lg): the zone is always full-width and visible, so a
+                  // host `hidden xl:block` never hides it while it is stacked.
+                  zonesSideBySide ? (cfg.className ?? 'w-72') : 'w-full',
                 )}
               >
                 {cfg.header}
@@ -740,16 +745,20 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
             );
           };
 
-          const resizer = (zone: 'left' | 'right') => (
-            <ZoneResizer zone={zone} onCommit={(px) => ops.setZoneWidth(zone, px)} />
+          const resizer = (zone: 'left' | 'right', cfg: WorkspaceZoneConfig) => (
+            <ZoneResizer
+              zone={zone}
+              visibility={cfg.resizerClassName ?? 'hidden lg:block'}
+              onCommit={(px) => ops.setZoneWidth(zone, px)}
+            />
           );
 
           return (
             <div ref={zoneRowRef} className={cn('flex flex-col items-stretch lg:flex-row lg:items-start', dense ? 'gap-1.5' : 'gap-4')}>
               {showLeft && leftCfg && zoneColumn('left', leftSections, leftCfg)}
-              {showLeft && !leftCfg?.collapsed && resizer('left')}
+              {showLeft && leftCfg && !leftCfg.collapsed && resizer('left', leftCfg)}
               <div className="order-1 min-w-0 flex-1 lg:order-none">{renderMain()}</div>
-              {showRight && !rightCfg?.collapsed && resizer('right')}
+              {showRight && rightCfg && !rightCfg.collapsed && resizer('right', rightCfg)}
               {showRight && rightCfg && zoneColumn('right', rightSections, rightCfg)}
             </div>
           );
@@ -1023,8 +1032,10 @@ function ColumnDroppable({
  * persists. Always available (both normal and edit mode) — resizing a panel is a
  * reading preference, not a customization.
  */
-function ZoneResizer({ zone, onCommit }: {
+function ZoneResizer({ zone, visibility = 'hidden lg:block', onCommit }: {
   zone: 'left' | 'right';
+  /** Responsive visibility class — matches the adjacent zone's own breakpoint. */
+  visibility?: string;
   onCommit: (px: number) => void;
 }) {
   const [hot, setHot] = useState(false);
@@ -1060,7 +1071,7 @@ function ZoneResizer({ zone, onCommit }: {
       onPointerDown={onPointerDown}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
-      className={cn('group/zres shrink-0 self-stretch cursor-ew-resize hidden lg:block', 'w-2 -mx-1 rounded-full transition-colors')}
+      className={cn('group/zres shrink-0 self-stretch cursor-ew-resize', visibility, 'w-2 -mx-1 rounded-full transition-colors')}
       title={`Drag to resize ${zone} panel`}
       data-nodrag
     >

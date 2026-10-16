@@ -614,7 +614,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
         />
       )}
 
-      <MessageRail messages={messages} scrollRef={scrollRef} />
+      {/* Jump rail is a desktop affordance (tiny ticks, hover preview); hidden
+          on phones where it only overlapped content. */}
+      <div className="hidden md:block">
+        <MessageRail messages={messages} scrollRef={scrollRef} />
+      </div>
 
       {!atBottom && rootRect &&
         createPortal(

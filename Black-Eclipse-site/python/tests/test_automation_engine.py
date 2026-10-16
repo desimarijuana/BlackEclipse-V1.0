@@ -47,6 +47,21 @@ class FakeDispatcher:
         return DispatchResult(state="failed", run_id=run_id, error=self.error, error_class=self.error_class)
 
 
+class SlowDispatcher(FakeDispatcher):
+    """Each run consumes `work_seconds` of the injected clock (run duration)."""
+
+    def __init__(self, clock, work_seconds=20):
+        super().__init__()
+        self.clock = clock
+        self.work_seconds = work_seconds
+        self.fire_times: list = []
+
+    async def dispatch(self, definition, *, execution_id, run_id, dry_run=False):
+        self.fire_times.append(self.clock())
+        self.clock.advance(seconds=self.work_seconds)
+        return DispatchResult(state="completed", run_id=run_id, output="ok")
+
+
 class FakeService:
     def __init__(self, store):
         self.store = store
@@ -105,6 +120,36 @@ async def test_interval_fires_on_schedule(env):
     assert env.dispatcher.calls == 2
     executions = env.auto_store.list_executions("auto_test")
     assert all(e["state"] == "completed" for e in executions)
+
+
+async def test_interval_cadence_is_not_drifted_by_run_duration(env):
+    # Regression: the interval grid is anchored to the scheduled slot, never to
+    # the run's completion time. A 20s run must NOT turn a 60s interval into 80s.
+    slow = SlowDispatcher(env.clock)
+    env.engine._dispatcher = slow
+    definition = _save(env, trigger={"type": "interval", "interval_seconds": 60, "timezone": "UTC"})
+    anchor = _dt.datetime.fromisoformat(definition.created_at)
+
+    slots: list = []
+    original = env.auto_store.set_next_run
+
+    def spy(automation_id, next_run_at, *args, **kwargs):
+        if next_run_at:
+            slots.append(_dt.datetime.fromisoformat(next_run_at))
+        return original(automation_id, next_run_at, *args, **kwargs)
+
+    env.auto_store.set_next_run = spy
+
+    for _ in range(20):  # 20 * 30s = 10 minutes of ticks
+        env.clock.advance(seconds=30)
+        await env.engine._tick()
+        await env.engine.wait_idle()
+
+    assert slots, "the interval never fired"
+    # Every scheduled slot must land exactly on the 60s grid anchored at creation.
+    # Completion-anchoring drifted each slot by the +20s run duration and fails.
+    for slot in slots:
+        assert (slot - anchor).total_seconds() % 60 == 0, slot.isoformat()
 
 
 async def test_event_trigger_deduplicates(env):

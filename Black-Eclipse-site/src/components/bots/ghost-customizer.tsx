@@ -11,6 +11,7 @@ import { Shuffle } from '@/lib/icons';
 import { useT } from '@/lib/i18n';
 import type { TranslationKey } from '@/lib/i18n';
 import { GhostAvatar } from './ghost-avatar';
+import { LiveGhostAvatar } from './live-ghost-avatar';
 import {
   GHOST_ACCESSORY_COUNT,
   GHOST_EYE_COUNT,
@@ -144,7 +145,7 @@ export function GhostCustomizer({ spec, onChange, onRandomize, onReset, classNam
       <div className="flex items-start gap-4">
         <div className="flex flex-col items-center gap-2">
           <div className="glass-card-subtle flex h-28 w-28 items-center justify-center rounded-2xl">
-            <GhostAvatar spec={spec} size={92} />
+            <LiveGhostAvatar spec={spec} size={92} interactive />
           </div>
           <div className="flex gap-1.5">
             <button

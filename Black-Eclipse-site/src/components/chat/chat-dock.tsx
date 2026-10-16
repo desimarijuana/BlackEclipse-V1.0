@@ -512,7 +512,7 @@ export function ChatDock({
   const dock = hostVisible && visible && mounted && typeof document !== 'undefined' && createPortal(
     <div
       className={cn(
-        'pointer-events-none fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[90] flex flex-col items-center px-3',
+        'pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-[90] flex flex-col items-center px-3 md:bottom-[max(0.75rem,env(safe-area-inset-bottom))]',
         className,
       )}
       data-nodrag
@@ -529,7 +529,7 @@ export function ChatDock({
             style={pillPos ? { left: pillPos.x, top: pillPos.y, right: 'auto', bottom: 'auto' } : undefined}
             className={cn(
               'fixed z-[90] inline-flex touch-none select-none items-center gap-2 rounded-full border border-white/12 dark:border-white/8 glass-card px-3.5 py-2 text-xs font-bold text-muted-foreground shadow-2xl shadow-black/50 transition-colors hover:text-primary',
-              pillPos ? 'cursor-grab active:cursor-grabbing' : 'bottom-4 right-4 ml-auto cursor-grab active:cursor-grabbing',
+              pillPos ? 'cursor-grab active:cursor-grabbing' : 'bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 ml-auto cursor-grab active:cursor-grabbing md:bottom-4',
             )}
             title="Drag to move · click to expand"
             aria-label="Expand the assistant (drag to move)"

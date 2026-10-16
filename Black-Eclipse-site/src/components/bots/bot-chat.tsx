@@ -32,6 +32,7 @@ import {
   type AutomationView,
 } from '@/lib/harness/automation-browser';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
+import { moodFromEvent, type GhostMood } from '@/lib/bots/ghost-mood';
 import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/chat-store';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { formatDateTime, formatRelative, scheduleSummary } from '@/lib/bots/state';
@@ -79,6 +80,8 @@ export function BotChat({
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  // The face the header avatar wears while a turn runs (idle at rest).
+  const [mood, setMood] = useState<GhostMood>('idle');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [name, setName] = useState(bot.name);
@@ -172,6 +175,13 @@ export function BotChat({
     return () => clearTimeout(timer);
   }, [runNote]);
 
+  // A finished turn (happy or sad) is a moment, not a state: let the face rest again.
+  useEffect(() => {
+    if (mood !== 'happy' && mood !== 'sad') return;
+    const timer = setTimeout(() => setMood('idle'), 1800);
+    return () => clearTimeout(timer);
+  }, [mood]);
+
   // Auto-grow the composer with its content, up to a cap, then scroll.
   const resizeComposer = useCallback(() => {
     const el = textareaRef.current;
@@ -192,6 +202,7 @@ export function BotChat({
     append(bot.id, { id: newId(), role: 'user', content: text, at: new Date().toISOString() });
     setInput('');
     setSending(true);
+    setMood('thinking');
     // Placeholder the stream fills in place, so a long tool-heavy run shows the
     // answer as it is written instead of a blank wait.
     const replyId = newId();
@@ -213,8 +224,13 @@ export function BotChat({
         prior,
         model: modelState.selectedModel || undefined,
         signal: controller.signal,
+        onEvent: (event) => {
+          const next = moodFromEvent(event);
+          if (next) setMood(next);
+        },
         onDelta: (chunk) => {
           streamed += chunk;
+          setMood('speaking');
           updateMessage(bot.id, replyId, { content: streamed });
         },
       });
@@ -226,6 +242,7 @@ export function BotChat({
           ? { content: final }
           : { content: 'The bot did not return a reply.', error: true },
       );
+      setMood(final ? 'happy' : 'sad');
     } catch (err) {
       if (controller.signal.aborted) {
         updateMessage(bot.id, replyId, streamed ? { content: streamed } : { content: '(cancelled)', error: true });
@@ -234,6 +251,7 @@ export function BotChat({
           content: err instanceof Error ? err.message : 'network error', error: true,
         });
       }
+      setMood('sad');
     } finally {
       abortRef.current = null;
       setSending(false);
@@ -304,7 +322,7 @@ export function BotChat({
           title={t('bots.customize')}
           className="shrink-0 rounded-2xl transition-transform hover:scale-105"
         >
-          <BotAvatar botId={bot.id} spec={spec} size={36} title={bot.name} />
+          <BotAvatar botId={bot.id} spec={spec} size={36} title={bot.name} live mood={mood} />
         </button>
 
         <div className="min-w-0 flex-1">

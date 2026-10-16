@@ -776,8 +776,8 @@ export function DataSourcesPanel() {
             )}
           </div>
 
-          <div className="px-5 py-3.5 border-t border-border/10 flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">
+          <div className="px-5 py-3.5 border-t border-border/10 flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 text-[10px] text-muted-foreground">
               {step === 1 && "Configure the endpoint and parameters."}
               {step === 2 && "Credentials stay server-side after saving."}
               {step === 3 && "Guarded outbound request — SSRF, size and redirect protected."}

@@ -137,6 +137,15 @@ export function ChatInput({
   const resize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
+    // An EMPTY composer stays exactly one line. The placeholder is allowed to
+    // wrap, which inflates `scrollHeight` — on a narrow (mobile) width that
+    // would grow the bar into a 3-line block for no reason. Only real typed
+    // content grows it; clearing the inline height falls back to `rows={1}`.
+    if (el.value.length === 0) {
+      el.style.height = '';
+      el.style.overflowY = 'hidden';
+      return;
+    }
     el.style.height = 'auto';
     const needed = el.scrollHeight;
     el.style.height = `${Math.min(needed, MAX_HEIGHT)}px`;
@@ -506,7 +515,11 @@ export function ChatInput({
           placeholder={placeholder}
           autoFocus={autoFocus}
           aria-label="Message Eclipse"
-          className="chat-composer-scroll flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-y-hidden placeholder:text-muted-foreground text-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-2 text-sm leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
+          // Keep the placeholder on ONE line while the composer is empty so it
+          // clips cleanly instead of wrapping into a tall block on mobile.
+          // Typed content returns to normal soft-wrapping (and auto-grow).
+          wrap={query.length === 0 ? 'off' : 'soft'}
+          className="chat-composer-scroll flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-x-hidden overflow-y-hidden placeholder:text-muted-foreground text-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-2 text-sm leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
         />
         
         <div className="flex items-center gap-1 sm:gap-2 shrink-0 mb-0.5">

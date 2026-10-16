@@ -40,7 +40,10 @@ const RATCHET: Record<string, number> = {
   // the shared tree already carried WIP dictionary growth. Pinned at its measured
   // size; the standing split candidate is per-domain dictionary modules
   // (`dictionaries/code.ts`, …) re-exported by `en.ts`. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1218,
+  // Re-pinned 1218→1219: the scheduler's seconds cadence needed one new key
+  // (`bots.seconds`) alongside the existing every/minutes/hours/days set. May
+  // only shrink from here.
+  "src/lib/i18n/dictionaries/en.ts": 1219,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -118,7 +121,12 @@ const RATCHET: Record<string, number> = {
   // landing (the app-wide responsive pass, commit 5062aeab, dropped it, so the
   // shell glow was covered by the opaque landing backdrop). One mount line + a
   // shorter wordmark comment. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1460,
+  // Re-pinned 1460→1474: the mobile navigation program mounts the phone bottom
+  // nav and the dock host (sheet), plus the platform hook they share. The heavy
+  // nav catalogue lives in `layout/mobile-bottom-nav.tsx`; only the mounts and
+  // one `useIsMobile` call land here. May only shrink from here; the per-tab
+  // keep-alive blocks remain the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1474,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

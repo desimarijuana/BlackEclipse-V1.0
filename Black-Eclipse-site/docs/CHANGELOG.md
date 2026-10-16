@@ -8,6 +8,185 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Size-budget ratchet re-pinned for the new seconds-cadence key.** The
+  sub-minute scheduler added one i18n key (`bots.seconds`) to `en.ts`, taking it
+  to 1219 lines — one over its 1218 pin — so the graduated size guard failed
+  (`findOversized`). Re-pinned `src/lib/i18n/dictionaries/en.ts` 1218→1219,
+  following the existing re-pin convention; the file may only shrink again.
+  `npx tsc --noEmit` clean; vitest 3084 passed.
+  no doc change — size-budget ratchet only; no architecture, data-shape,
+  contract, setup or folder change.
+
+- **Fixed bot interval schedules drifting by the run duration.** An interval
+  automation's next fire was anchored to `lastRunAt` — a timestamp written at run
+  *completion* — so every run pushed the next slot out by its own duration: a
+  "1 minute" bot silently became "1 minute + runtime" (verified live: a 60s
+  interval with a 20s run fired every **80s**). `AutomationEngine._advance_next_run`
+  now anchors the interval grid on the scheduled slot that is firing
+  (`next_run_at`), so the cadence is fixed and immune to run duration; also added
+  `docs/harness/automation-engine.md` regression test
+  `test_interval_cadence_is_not_drifted_by_run_duration`. Sub-minute schedules
+  are now supported: `MIN_INTERVAL_S` lowered 60s → 30s and the Bots schedule
+  editor gained a **seconds** unit. Verified live end-to-end: a 30s bot created
+  via `/automations` fired every 30s on a fixed grid.
+  docs updated: `docs/harness/automation-engine.md`.
+
+- **Mobile navigation now follows the menu mode (Terminal / Agentic / Bots).**
+  The phone bottom bar and its "More" sheet were a fixed list; they now mirror
+  the desktop sidebar's mode: the first four enabled tabs of the active mode sit
+  in the bar and the rest move into More (`MobileBottomNav` reads
+  `useSidebarConfigStore.mode` + the sidebar config, with a per-mode tab order
+  and a `bots` list). The More sheet gained a **Terminal / Agentic / Bots**
+  switcher (switching to Bots also opens the Bots tab), so the menu can be
+  changed entirely on a phone. Verified live at 390px: Terminal →
+  ChatBot/Command Center/Market Discover/Portfolio; Agentic →
+  ChatBot/Skills/Eclipse Memory/Artifacts; Bots → Bots/ChatBot/Tasks/Artifacts.
+  `tsc` clean; vitest 3082 passed.
+  no doc change — UI-only; no architecture, data-shape, contract or setup change.
+
+- **ChatBot-landing Aurora no longer lags the sidebar/dock.** The landing-only
+  in-panel `<AuroraGlow />` was `absolute` inside the main panel, so it
+  shrank and re-centered whenever the sidebar expanded/collapsed or the right
+  dock resized the panel. It is now pinned to the viewport (`fixed`) — full
+  width and centered regardless of panel width, still behind the sidebar
+  (z-50) and the Agent Workspace dock (z-20) via the panel's `z-10` stacking
+  context. `stock-chat.tsx` held at its 1474-line ratchet. `tsc` clean;
+  size-budget + reachability tests pass.
+  no doc change — UI positioning fix; no architecture, data-shape, contract,
+  setup or folder change.
+
+- **Group rooms: each speaker wears its turn.** The group chat now shows mood
+  per member, not just per bot chat. `group-chat-room.tsx` tracks a
+  `memberId → GhostMood` map updated from each member's own turn (via
+  `moodFromEvent`/`onDelta` in `runMember`), so while bots answer in parallel
+  each roster face lights up with its own state (thinking → working → speaking →
+  happy/sad, auto-resting to idle after ~1.8s; pending rest timers are cancelled
+  when a member re-runs and cleared on unmount). The room's own header face
+  shows the busiest member (speaking > working > thinking > waiting > happy >
+  sad). Roster avatars are now `live`; message avatars stay static to bound the
+  number of animated faces. No new dependency. `tsc` clean; eslint 0 errors;
+  vitest 3082 passed.
+  docs updated: `docs/NAVIGATION.md` (Bots row).
+
+- **Sidebar: mobile drawer no longer shows the collapse chevron beside the X.**
+  The collapse/expand chevron is a desktop-only affordance (the drawer is
+  dismissed with its own close button). The sidebar's collapsed state is now
+  `desktopCollapsed && !isMobile`, so the mobile drawer is always full-width and
+  the collapse button renders only on `md+`; the expand chevron can no longer
+  appear in the drawer. Verified live at 390px: drawer shows the brand + nav + a
+  single X, zero visible collapse/expand buttons. `tsc` clean; vitest 3082
+  passed.
+  no doc change — UI-only; no architecture, data-shape, contract or setup change.
+
+- **Bots: removed the "Add finance starter pack" entry points and default the
+  page to the most recent chat.** Dropped the seed button from the Bots empty
+  state and all sidebar variants (expanded header, collapsed rail, labeled
+  bottom button); the empty state now offers only New bot / New group. The Bots
+  page now auto-selects the most recent conversation on open — the bot with the
+  latest `lastRunAt` (falling back to `updatedAt`) — unless a deep link
+  (`?bot=`/`?group=`) or an explicit selection exists. `tsc` clean; vitest
+  finance-bots passed. no doc change — UI/behaviour change only; no architecture,
+  data-shape, contract or setup change.
+
+- **Command Center fix: side rails no longer crush the board at 1024–1280px.**
+  The mobile program had changed the Watchlist rail from `hidden xl:block` to
+  `w-full lg:w-64`, so between `lg` and `xl` BOTH rails showed while the app
+  sidebar was also present, squeezing the centre board's columns down to ~53px
+  (widgets overlapped/clipped). `WorkspaceCanvas` now only applies a zone's
+  breakpoint/width classes when the zones are actually side-by-side (`lg+`); when
+  stacked it forces `w-full` and visible, so a host `hidden xl:block` never
+  hides a stacked rail. Added `WorkspaceZoneConfig.resizerClassName` so each
+  drag-resizer matches its zone's own breakpoint (left `hidden xl:block`, right
+  `hidden lg:block`), and restored the dashboard rails to their original
+  breakpoints. Verified live on the rebuilt production server: 1024px min column
+  53→198, 1280/1440 unchanged, 390px both rails stack full-width. `tsc` clean;
+  vitest 3082 passed.
+  no doc change — layout fix; no architecture, data-shape, contract or setup
+  change.
+
+- **Mobile navigation program (phase 2: remaining screens sweep).** Finished the
+  per-screen pass. ML Lab's training control rows and model-action buttons now
+  wrap, and the active-job row truncates instead of pushing Cancel off-screen;
+  the Investor Eye full-page map's top strip wraps and hides the event/market
+  counter + `Esc` hint on phones; the data-source wizard footer wraps; the Chart
+  Workspace header hides its keyboard-shortcut hints (keeping the panel count)
+  below `md`. Audited and confirmed already-mobile-safe: Market Discover (its
+  Advanced Filters panel is a responsive grid, reachable from the always-visible
+  button; quick-filter rows scroll), Chart Workspace (single column below `md`,
+  pinned widths gated to `lg`), Investor Eye toolbar (wraps), Skills (drill-down
+  detail, `wrap` TabBar), Bots (single conversation page), Eclipse Memory
+  (responsive grids), Research Data / Factor Lab (tables + tab strips scroll).
+  Labs keep their "best on desktop" notices. Verified: `npx tsc --noEmit`
+  clean; vitest 3077 passed.
+  no doc change — layout/hide-only; no architecture, data-shape, contract or
+  setup change.
+
+- **Mobile navigation program (phase 1: foundation + shell + core pages).**
+  Added a phone bottom tab bar (`layout/mobile-bottom-nav.tsx`) with Chat /
+  Command Center / Market Discover / Portfolio plus a "More" bottom sheet
+  listing every remaining tab, and wired it into the shell with reserved
+  bottom padding so content never hides behind it. Consolidated the scattered
+  `window.matchMedia` calls into `hooks/use-media-query.ts` (`useIsMobile` /
+  `useIsDesktop`). The Agent Workspace / Bots scheduler docks now render as a
+  bottom sheet on phones (`layout/mobile-dock-host.tsx`) instead of a fixed
+  side column. Hid non-core mobile chrome: the Aurora WebGL glow, the Command
+  Center status bar, and Export/Import/Reset (kept Fullscreen). The chat jump
+  rail is desktop-only and the floating assistant dock now clears the bottom
+  nav and the safe-area inset. Added a dismissible "best on desktop" notice
+  (`ui/desktop-only-notice.tsx`) to UI Builder, ML Lab, Factor Lab and
+  Backtest, and made the bubbles canvas height responsive. Added `.safe-bottom`
+  / `.touch-target` CSS helpers. `en.ts` kept at its ratchet; `stock-chat.tsx`
+  re-pinned 1460→1474 (mounts only). Verified: `npx tsc --noEmit` clean;
+  vitest 3077 passed.
+  no doc change — navigation/layout only; no architecture, data-shape,
+  contract or setup change.
+
+- **Bot faces wear their turn (status-driven moods).** Building on the live
+  avatar, the face now reflects what the agent is doing. Added `GhostMood`
+  (`idle | thinking | working | speaking | waiting | happy | sad`) with two pure
+  mappers in `src/lib/bots/ghost-mood.ts` — `moodFromStatus` (the shared
+  `ResponseStatus` lifecycle) and `moodFromEvent` (a normalized `HarnessUiEvent`)
+  — plus a `mood` prop threaded through `GhostAvatar` → `LiveGhostAvatar` →
+  `BotAvatar`, rendered as `data-mood` and animated in `globals.css` (eyes lift
+  for thinking, dart for working, mouth moves for speaking, hop+squint on happy,
+  droop on sad). `bot-chat.tsx` drives it from the live turn: `thinking` on send,
+  `working` on tool/activity events, `speaking` on deltas, `happy`/`sad` on the
+  final, auto-resting to `idle` after ~1.8s. Mood transforms are scoped
+  `:not([data-interactive])` so a cursor-tracking face keeps following the
+  pointer; `data-mood` only applies while `data-active` (on-screen). New unit
+  test `ghost-mood.test.ts`. No new dependency. `tsc` clean; eslint 0 errors;
+  vitest 3082 passed.
+  docs updated: `docs/NAVIGATION.md` (Bots row).
+
+- **Bot faces come alive (ambient animation + cursor gaze).** The ghost face was
+  a fully static SVG. Added stable class hooks to `GhostAvatar` (body/eyes/gaze/
+  mouth + a `data-eyes-closed` flag) and layered a new `LiveGhostAvatar` wrapper
+  on top of the unchanged drawing: a subtle breathe, a blink (suppressed for
+  already-closed eye styles), and — when `interactive` — eyes that ease toward
+  the cursor plus a click bounce. Gaze uses one ref-counted page-wide
+  `pointermove` listener (`src/lib/bots/use-ghost-gaze.ts`) writing `--look-x/-y`
+  custom properties, so N faces cost one listener and no React re-renders. An
+  IntersectionObserver pauses off-screen faces. All CSS is scoped under
+  `.be-ghost-live[data-active]` in `globals.css`, so the static `GhostAvatar`
+  used across lists/rows/icons never animates, and every effect sits inside the
+  existing reduce-motion / animations-off kill switches (no exemption). Wired in
+  two places only: the bot-chat header (`BotAvatar ... live` — ambient only, so a
+  click still opens the identity drawer) and the customizer preview
+  (`LiveGhostAvatar ... interactive` — gaze + poke on a non-button); `BotAvatar` gained
+  opt-in `live`/`interactive`/`inViewOnly` props. No new dependency. `tsc`
+  clean; eslint clean; every touched file is far under the size ceiling.
+  docs updated: `docs/NAVIGATION.md` (Bots row).
+
+- **Chat composer stays one line when empty.** The auto-grow counted the
+  (wrapped) placeholder in `scrollHeight`, so on a phone-width composer the
+  empty bar inflated into a 3-line block and the placeholder spilled below the
+  rounded box. The resize now short-circuits when the value is empty (clears the
+  inline height back to `rows={1}`) and the textarea sets `wrap="off"` while
+  empty so the placeholder clips on one line; typed content still soft-wraps and
+  grows as before. Measured live: textarea 141px @360, 171px @390, 624px @1280,
+  all single-line. `tsc` clean; vitest 3077 passed.
+  no doc change — UI bug fix; no contract/architecture change.
+
 - **Aurora glow restored on the ChatBot landing.** The app-wide responsive pass
   (commit 5062aeab) deleted the in-panel `<AuroraGlow />` gated to the empty
   transcript, leaving only the shell-level glow at the root (`z-0`). The chat

@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EChartsOption } from 'echarts';
+import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
 import { useEChart, baseChartOption } from '@/components/screens/portfolio/use-echart';
 import { useBacktestScreen } from '@/lib/backtest/use-backtest-screen';
 import { ResearchPanel } from './research-panel';
@@ -259,6 +260,7 @@ export function BacktestScreen() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4">
+      <DesktopOnlyNotice title="Backtest" />
       <div className="glass-card flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3">
         <span className="h-6 w-1 shrink-0 rounded-full bg-primary" />
         <div className="min-w-0 flex-1">

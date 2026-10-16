@@ -642,7 +642,8 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
             <div className="min-w-0">
               <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Chart Workspace</h1>
               <p className="text-[11px] text-muted-foreground">
-                {layout.panels.length} panels · {editMode ? 'customizing' : 'Ctrl+Enter full page · F chart fullscreen · Ctrl+K symbol search'}
+                {layout.panels.length} panels{editMode ? ' · customizing' : ''}
+                <span className="hidden md:inline"> · Ctrl+Enter full page · F chart fullscreen · Ctrl+K symbol search</span>
               </p>
             </div>
           </div>

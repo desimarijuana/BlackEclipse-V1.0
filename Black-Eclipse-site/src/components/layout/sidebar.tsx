@@ -9,6 +9,7 @@ import { formatShortcutKeys } from '@/lib/keyboard';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { useNotificationsStore, unreadCountsByTab, totalUnread } from '@/lib/notifications/store';
 import { useT, navLabelKey } from '@/lib/i18n';
+import { useIsMobile } from '@/hooks/use-media-query';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
 import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
@@ -77,7 +78,12 @@ export function Sidebar({
   onCloseMobile,
   hidden = false,
 }: SidebarProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  // The collapse/expand affordance is a DESKTOP preference: the mobile drawer is
+  // always full-width (expanded) and is dismissed with its own close (X) button,
+  // so it never shows the collapse chevron alongside the cross.
+  const isMobile = useIsMobile();
+  const isCollapsed = desktopCollapsed && !isMobile;
   const t = useT();
   // Centralized branding (Settings › Customization). Falls back to the shipped
   // Eclipse mark/name when not customized.
@@ -192,7 +198,7 @@ export function Sidebar({
                 className="h-6 w-6 object-contain transition-all duration-200 group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75"
               />
               <button
-                onClick={() => setIsCollapsed(false)}
+                onClick={() => setDesktopCollapsed(false)}
                 className="absolute inset-0 flex items-center justify-center rounded-xl border border-border/40 bg-card text-muted-foreground hover:text-foreground cursor-pointer shadow opacity-0 scale-75 group-hover/sidebar:opacity-100 group-hover/sidebar:scale-100 transition-all duration-200 hover:bg-accent"
                 title="Expand Sidebar"
               >
@@ -209,10 +215,11 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Collapse button on the right of logo when expanded (only visible on hover) */}
-        {!isCollapsed && (
+        {/* Collapse button on the right of logo when expanded (desktop only — the
+            mobile drawer closes via its own X). */}
+        {!isCollapsed && !isMobile && (
           <button
-            onClick={() => setIsCollapsed(true)}
+            onClick={() => setDesktopCollapsed(true)}
             className="rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200"
             title="Collapse Sidebar"
           >

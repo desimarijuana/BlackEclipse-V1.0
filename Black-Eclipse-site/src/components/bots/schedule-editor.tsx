@@ -106,6 +106,7 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="seconds">{t('bots.seconds')}</SelectItem>
                 <SelectItem value="minutes">{t('bots.minutes')}</SelectItem>
                 <SelectItem value="hours">{t('bots.hours')}</SelectItem>
                 <SelectItem value="days">{t('bots.days')}</SelectItem>

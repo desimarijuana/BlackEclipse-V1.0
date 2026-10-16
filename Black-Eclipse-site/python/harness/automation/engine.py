@@ -597,7 +597,13 @@ class AutomationEngine:
     def _anchor(self, definition: AutomationDefinition) -> _dt.datetime:
         return parse_iso(definition.last_run_at) or parse_iso(definition.created_at) or self._now()
 
-    def _compute_next_run(self, definition: AutomationDefinition, *, after: Optional[_dt.datetime] = None) -> Optional[str]:
+    def _compute_next_run(
+        self,
+        definition: AutomationDefinition,
+        *,
+        after: Optional[_dt.datetime] = None,
+        anchor: Optional[_dt.datetime] = None,
+    ) -> Optional[str]:
         trigger = definition.trigger
         moment = after or self._now()
         if trigger.type == "cron" and trigger.cron:
@@ -607,7 +613,14 @@ class AutomationEngine:
             )
             return to_utc_iso(nxt) if nxt else None
         if trigger.type == "interval" and trigger.interval_seconds:
-            nxt = next_interval_fire(trigger.interval_seconds, self._anchor(definition), after_utc=moment)
+            # The interval grid is anchored to a fixed instant, NOT to the run's
+            # completion time: otherwise every run would push the next fire out by
+            # its own duration and the cadence would drift (a "1 minute" bot would
+            # silently become "1 minute + run time"). Callers pass the slot that
+            # just fired so the grid never moves; a fresh schedule falls back to
+            # the anchor (last run / creation).
+            base = anchor or self._anchor(definition)
+            nxt = next_interval_fire(trigger.interval_seconds, base, after_utc=moment)
             return to_utc_iso(nxt)
         if trigger.type == "one_time":
             nxt = next_one_time_fire(trigger.run_at or "", after_utc=moment)
@@ -617,7 +630,13 @@ class AutomationEngine:
     def _advance_next_run(self, definition: AutomationDefinition) -> None:
         if definition.trigger.type not in ("cron", "interval", "one_time"):
             return
-        nxt = self._compute_next_run(definition, after=self._now())
+        anchor = None
+        if definition.trigger.type == "interval":
+            # Anchor on the scheduled slot that is firing right now (its
+            # `next_run_at`), never on `last_run_at` (recorded at completion), so
+            # the interval grid is stable and run duration cannot drift it.
+            anchor = parse_iso(definition.next_run_at) or self._anchor(definition)
+        nxt = self._compute_next_run(definition, after=self._now(), anchor=anchor)
         self._store.set_next_run(definition.id, nxt)
 
     def refresh_schedule(self, automation_id: str) -> Optional[str]:

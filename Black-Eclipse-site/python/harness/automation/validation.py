@@ -16,7 +16,12 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .conditions import ConditionError, validate_condition
-from .model import AutomationDefinition, DELIVERY_ADAPTERS, NON_RETRYABLE_ERROR_CLASSES
+from .model import (
+    AutomationDefinition,
+    DELIVERY_ADAPTERS,
+    MIN_INTERVAL_S,
+    NON_RETRYABLE_ERROR_CLASSES,
+)
 from .timeutil import TimezoneError, resolve_timezone
 
 ERROR = "error"
@@ -100,10 +105,10 @@ def validate_automation(
         except CronError as exc:
             issues.append(ValidationIssue(ERROR, "INVALID_CRON", "trigger.cron", exc.message))
     elif trigger.type == "interval":
-        if not trigger.interval_seconds or trigger.interval_seconds < 60:
+        if not trigger.interval_seconds or trigger.interval_seconds < MIN_INTERVAL_S:
             issues.append(ValidationIssue(
                 ERROR, "INVALID_INTERVAL", "trigger.intervalSeconds",
-                "an interval must be at least 60 seconds",
+                f"an interval must be at least {MIN_INTERVAL_S} seconds",
             ))
     elif trigger.type == "one_time":
         from .timeutil import parse_iso  # noqa: PLC0415

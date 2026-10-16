@@ -7,9 +7,9 @@
 // `components/bots/scheduler-dock.tsx`), opened from the left sidebar. Every
 // control reads and writes REAL state via `/api/automations`.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
-import { Ghost, Loader2, Plus, Sparkles, Users } from '@/lib/icons';
+import { Ghost, Plus, Users } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -25,7 +25,6 @@ import {
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
-import { useSeedFinancePack } from '@/lib/bots/finance-bots';
 
 export function BotsScreen() {
   const t = useT();
@@ -34,6 +33,7 @@ export function BotsScreen() {
 
   const bots = useBotsStore((s) => s.bots);
   const error = useBotsStore((s) => s.error);
+  const loading = useBotsStore((s) => s.loading);
   const selectedId = useBotsStore((s) => s.selectedId);
   const selectedGroupId = useBotsStore((s) => s.selectedGroupId);
   const hydrate = useBotsStore((s) => s.hydrate);
@@ -53,7 +53,7 @@ export function BotsScreen() {
   const [deleteTarget, setDeleteTarget] = useState<AutomationView | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
-  const { seed: seedFinance, busy: seedingFinance } = useSeedFinancePack();
+  const didAutoSelect = useRef(false);
 
   // Initial load + a slow refresh so the list stays current across tabs.
   useEffect(() => {
@@ -72,6 +72,27 @@ export function BotsScreen() {
     else if (group) selectGroup(group);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Default the page to the most recent conversation. Runs once, after the list
+  // loads, and never overrides an explicit deep link or selection.
+  useEffect(() => {
+    if (didAutoSelect.current || loading) return;
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('bot') || params.get('group')) {
+        didAutoSelect.current = true;
+        return;
+      }
+    }
+    if (selectedId || selectedGroupId) {
+      didAutoSelect.current = true;
+      return;
+    }
+    if (bots.length === 0) return;
+    didAutoSelect.current = true;
+    const recent = [...bots].sort((a, b) => recency(b) - recency(a))[0];
+    select(recent.id);
+  }, [bots, loading, selectedId, selectedGroupId, select]);
 
   const selectedBot = useMemo(() => bots.find((b) => b.id === selectedId) ?? null, [bots, selectedId]);
   const selectedGroup = useMemo(() => groups.find((g) => g.id === selectedGroupId) ?? null, [groups, selectedGroupId]);
@@ -158,12 +179,7 @@ export function BotsScreen() {
             onDelete={(bot) => setDeleteTarget(bot)}
           />
         ) : (
-          <CenterEmpty
-            onCreate={openCreate}
-            onCreateGroup={openGroupCreate}
-            onSeed={() => void seedFinance()}
-            seedBusy={seedingFinance}
-          />
+          <CenterEmpty onCreate={openCreate} onCreateGroup={openGroupCreate} />
         )}
       </div>
 
@@ -226,12 +242,10 @@ async function duplicateBot(bot: AutomationView): Promise<AutomationView> {
 }
 
 function CenterEmpty({
-  onCreate, onCreateGroup, onSeed, seedBusy,
+  onCreate, onCreateGroup,
 }: {
   onCreate: () => void;
   onCreateGroup: () => void;
-  onSeed: () => void;
-  seedBusy: boolean;
 }) {
   const t = useT();
   return (
@@ -241,18 +255,20 @@ function CenterEmpty({
       </div>
       <p className="mt-4 max-w-sm text-sm text-muted-foreground">{t('bots.workspace.selectPrompt')}</p>
       <div className="mt-4 flex flex-wrap justify-center gap-2">
-        <Button onClick={onSeed} disabled={seedBusy}>
-          {seedBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {seedBusy ? t('bots.finance.seeding') : t('bots.finance.seed')}
-        </Button>
-        <Button variant="outline" onClick={onCreate}>
+        <Button onClick={onCreate}>
           <Plus size={14} /> {t('bots.dialog.title')}
         </Button>
         <Button variant="outline" onClick={onCreateGroup}>
           <Users size={14} /> {t('bots.groups.new')}
         </Button>
       </div>
-      <p className="mt-3 max-w-xs text-[11px] text-muted-foreground">{t('bots.finance.hint')}</p>
     </div>
   );
+}
+
+/** Recency for defaulting to the most recent conversation: the last run, else
+ *  the last edit. */
+function recency(bot: AutomationView): number {
+  const ts = bot.lastRunAt ?? bot.updatedAt;
+  return ts ? Date.parse(ts) : 0;
 }

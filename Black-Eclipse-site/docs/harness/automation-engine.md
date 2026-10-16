@@ -78,7 +78,9 @@ with a code — never silently accepted.
 - **Cron** — 5-field expression, evaluated in the trigger's IANA timezone, with
   optional `startAt`/`endAt`. DST is deterministic: a nonexistent wall time
   resolves to the instant after the gap, an ambiguous one to its first occurrence.
-- **Interval** — structural `intervalSeconds` (60s…30d), anchored to the last run.
+- **Interval** — structural `intervalSeconds` (30s…30d), anchored to a fixed grid
+  (the slot that last fired), not to the run's completion time, so cadence never
+  drifts by run duration.
 - **One-time** — a single ISO `runAt`; after firing the automation is retained
   (never deleted) with no next run.
 - **Event** — an indexed subscription to an event type (any dotted name, e.g.
