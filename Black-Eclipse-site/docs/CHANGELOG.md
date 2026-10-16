@@ -8,6 +8,37 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-16
 
+- **Perf: chat transcript no longer ships ~5MB uncompressed on every page.**
+  `/api/chat/transcript` returns EVERY conversation's full message history and the
+  ChatBot hydrates from it on every app boot — 126 files / ~5MB, re-read and
+  re-parsed each load, and served UNcompressed (route-handler responses bypass
+  `next start`'s built-in compression). `listTranscripts` now caches the parsed
+  list in-process (invalidated on write/delete; 15s TTL for external edits), and
+  the route gzips large JSON responses ASYNC (non-blocking). Wire size drops
+  ~4.9MB → ~0.9MB; every route/tab now measures 0.5–1.7s.
+  no doc change — internal response optimisation, contract unchanged.
+
+- **Fiduciary Gate: closing the loop + the front door.** Four follow-ups landed.
+  **(1) Auto outcome evaluation:** the run captures entry prices from the
+  portfolio computations it performed (`AdvisoryCollector.prices()` →
+  `AdvisoryBasis` kind `entry_price`), and `AdvisoryService.evaluate_decisions` /
+  `evaluate_outcome` / `auto_evaluate(gateway)` record a decision's realized
+  return vs benchmark deterministically (right/wrong/neutral) — a decision with no
+  entry price or no quote is skipped, never fabricated. Exposed as the
+  `advisory_evaluate_outcomes` tool and `POST /advisory/evaluate`.
+  **(2) Prompt guidance:** the finance prompt gains a `<fiduciary_advice>` block so
+  the agent grounds recommendations in a portfolio computation (fewer
+  false "unverified" flags). **(3) Capability class:** registered
+  `advisory_verification` (test_gate → the advisory suites) + its dictionary name;
+  capability gate 13→14 measured. **(4) Front door + UI:** `advisory-client.ts` /
+  `advisory-browser.ts`, the `/api/advisory/[[...path]]` proxy, a **Decisions**
+  view in the Journal (`advisory-decisions.tsx`), and a **Monitors** panel in the
+  Bots scheduler dock (`monitor-panel.tsx` + monitor client + `/api/automations/monitors`).
+  Plus `/advisory/*` operator-gating route tests and a seam-level pipeline test.
+  `tsc` clean; advisory/automation/capability/size suites green; eval gates ALL
+  PASS. docs updated: `docs/fiduciary-advice.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H197/H198).
+
 - **Dev/ops: `next dev` now runs on Turbopack; production is the fast path.**
   Running the app under the webpack `next dev` server compiled ~19k modules on
   demand AND ballooned the process to ~6.6GB, pushing the host to its commit

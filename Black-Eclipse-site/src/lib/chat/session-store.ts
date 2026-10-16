@@ -19,6 +19,18 @@ import { SESSION_LIMITS, type SessionFile, type SessionFileKind, type SessionInf
 
 const CHAT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+// listTranscripts() reads + parses EVERY stored transcript file, and the ChatBot
+// hydrates from it on every app boot. Re-reading the whole sessions tree each
+// load made boot O(conversations) — 126 files / ~5MB took seconds and competed
+// with the first page's own requests. Cache the parsed list in-process and drop
+// it on any write/delete here; a short TTL covers edits from outside this
+// process.
+const TRANSCRIPT_LIST_TTL_MS = 15_000;
+let transcriptListCache: { at: number; data: StoredTranscript[] } | null = null;
+function invalidateTranscriptList(): void {
+  transcriptListCache = null;
+}
+
 export class SessionError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
@@ -293,11 +305,15 @@ export async function writeTranscript(
     deletedAt: data.deletedAt ?? null,
   };
   await fs.writeFile(transcriptPath(chatId), JSON.stringify(stored), "utf8");
+  invalidateTranscriptList();
   return stored;
 }
 
 /** Every persisted conversation, most recently updated first. */
 export async function listTranscripts(): Promise<StoredTranscript[]> {
+  if (transcriptListCache && Date.now() - transcriptListCache.at < TRANSCRIPT_LIST_TTL_MS) {
+    return transcriptListCache.data;
+  }
   let entries: import("node:fs").Dirent[];
   try {
     entries = await fs.readdir(sessionsRoot(), { withFileTypes: true });
@@ -310,7 +326,9 @@ export async function listTranscripts(): Promise<StoredTranscript[]> {
     const stored = await readTranscript(entry.name);
     if (stored) out.push(stored);
   }
-  return out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  transcriptListCache = { at: Date.now(), data: out };
+  return out;
 }
 
 /** Delete one conversation's persisted transcript (files remain). */
@@ -320,6 +338,7 @@ export async function deleteTranscript(chatId: string): Promise<void> {
   } catch {
     // Already absent — nothing to do.
   }
+  invalidateTranscriptList();
 }
 
 export async function loadContextDocuments(chatId: string): Promise<

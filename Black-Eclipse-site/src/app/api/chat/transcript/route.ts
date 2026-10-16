@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import {
   SessionError,
@@ -7,6 +9,8 @@ import {
   readTranscript,
   writeTranscript,
 } from "@/lib/chat/session-store";
+
+const gzipAsync = promisify(gzip);
 
 export const dynamic = "force-dynamic";
 
@@ -29,13 +33,39 @@ function statusFor(err: unknown): { status: number; body: { error: string; code?
   return { status: 500, body: { error: "Transcript operation failed" } };
 }
 
+/**
+ * JSON response, gzipped when the client accepts it and the body is large.
+ * `next start` applies its built-in compression to pages/static assets but NOT
+ * to route-handler responses, and a full transcript list is several MB (every
+ * conversation's whole message history), fetched on every app boot. Compressing
+ * it here cuts the transfer ~10x; small bodies stay plain. Compression is
+ * ASYNC so it never blocks the single-threaded server while other requests wait.
+ */
+async function jsonResponse(request: Request, data: unknown): Promise<NextResponse> {
+  const payload = JSON.stringify(data);
+  const accept = request.headers.get("accept-encoding") ?? "";
+  if (payload.length > 1024 && /\bgzip\b/.test(accept)) {
+    const gz = await gzipAsync(Buffer.from(payload));
+    return new NextResponse(new Uint8Array(gz), {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "content-encoding": "gzip",
+        vary: "Accept-Encoding",
+      },
+    });
+  }
+  return new NextResponse(payload, {
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
 export async function GET(request: Request) {
   const chatId = new URL(request.url).searchParams.get("chatId") ?? "";
   try {
     if (chatId) {
-      return NextResponse.json({ success: true, transcript: await readTranscript(chatId) });
+      return await jsonResponse(request, { success: true, transcript: await readTranscript(chatId) });
     }
-    return NextResponse.json({ success: true, conversations: await listTranscripts() });
+    return await jsonResponse(request, { success: true, conversations: await listTranscripts() });
   } catch (err) {
     const { status, body } = statusFor(err);
     return NextResponse.json(body, { status });
