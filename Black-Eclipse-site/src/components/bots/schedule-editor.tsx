@@ -5,6 +5,7 @@
 // daily/weekday/weekly presets, interval, raw cron). No browser-only scheduling:
 // the persisted trigger drives the durable backend scheduler.
 
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import type { TranslationKey } from '@/lib/i18n';
@@ -16,7 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { localTimezone, type BotDraft, type ScheduleChoice } from '@/lib/bots/state';
+import {
+  MIN_INTERVAL_SECONDS, intervalSecondsOf, localTimezone, type BotDraft, type ScheduleChoice,
+} from '@/lib/bots/state';
 
 const WEEKDAY_KEYS: TranslationKey[] = [
   'bots.weekday.0', 'bots.weekday.1', 'bots.weekday.2',
@@ -31,7 +34,23 @@ export interface ScheduleEditorProps {
 
 export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorProps) {
   const t = useT();
-  const choices: ScheduleChoice[] = ['manual', 'once', 'daily', 'weekdays', 'weekly', 'interval', 'cron'];
+  const choices: ScheduleChoice[] = ['manual', 'once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron'];
+  // Every IANA zone the engine accepts. `supportedValuesOf` is widely available;
+  // the current draft's zone is always included so the select can never show an
+  // empty value.
+  const zones = useMemo(() => {
+    let list: string[] = [];
+    try {
+      const v = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone');
+      if (Array.isArray(v) && v.length) list = v;
+    } catch {
+      /* older engine — fall back below */
+    }
+    if (list.length === 0) list = [localTimezone(), 'UTC'];
+    if (draft.timezone && !list.includes(draft.timezone)) list = [draft.timezone, ...list];
+    return list;
+  }, [draft.timezone]);
+  const clampedInterval = draft.schedule === 'interval' && intervalSecondsOf(draft) < MIN_INTERVAL_SECONDS;
   return (
     <div className={cn('space-y-3', className)}>
       <div className="flex flex-wrap items-center gap-2">
@@ -51,7 +70,7 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
           </SelectContent>
         </Select>
 
-        {(draft.schedule === 'daily' || draft.schedule === 'weekdays' || draft.schedule === 'weekly') && (
+        {(draft.schedule === 'daily' || draft.schedule === 'weekdays' || draft.schedule === 'weekly' || draft.schedule === 'monthly') && (
           <>
             {draft.schedule === 'weekly' && (
               <Select
@@ -67,6 +86,20 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
                   ))}
                 </SelectContent>
               </Select>
+            )}
+            {draft.schedule === 'monthly' && (
+              <>
+                <span className="text-sm text-muted-foreground">{t('bots.sched.onDay')}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={28}
+                  value={draft.dom}
+                  onChange={(e) => onChange({ dom: Math.min(28, Math.max(1, Number(e.target.value) || 1)) })}
+                  className="w-20"
+                  aria-label={t('bots.sched.dayOfMonth')}
+                />
+              </>
             )}
             <span className="text-sm text-muted-foreground">{t('bots.sched.at')}</span>
             <Input
@@ -114,6 +147,9 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
             </Select>
           </div>
         )}
+        {clampedInterval && (
+          <p className="text-xs text-amber-400/90">{t('bots.sched.minInterval')}</p>
+        )}
 
         {draft.schedule === 'cron' && (
           <Input
@@ -126,9 +162,19 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
         )}
       </div>
       {draft.schedule !== 'manual' && (
-        <p className="text-xs text-muted-foreground">
-          {t('bots.timezone')}: {localTimezone()}
-        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{t('bots.timezone')}</span>
+          <Select value={draft.timezone} onValueChange={(v) => onChange({ timezone: v ?? draft.timezone })}>
+            <SelectTrigger className="w-auto min-w-[12rem]" aria-label={t('bots.timezone')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 overflow-y-auto">
+              {zones.map((z) => (
+                <SelectItem key={z} value={z}>{z}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       )}
     </div>
   );

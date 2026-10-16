@@ -231,7 +231,15 @@ async function duplicateBot(bot: AutomationView): Promise<AutomationView> {
       intervalSeconds: bot.trigger.intervalSeconds,
       runAt: bot.trigger.runAt,
       timezone: bot.trigger.timezone,
+      // Carry the non-timed trigger fields too, so duplicating an event/condition
+      // bot does not silently downgrade it to an event type with no target.
+      eventType: bot.trigger.eventType,
+      eventFilter: bot.trigger.eventFilter,
+      condition: bot.trigger.condition,
+      startAt: bot.trigger.startAt,
+      endAt: bot.trigger.endAt,
     },
+    condition: bot.condition ?? undefined,
     action: {
       type: bot.action.type,
       objective: bot.action.objective,

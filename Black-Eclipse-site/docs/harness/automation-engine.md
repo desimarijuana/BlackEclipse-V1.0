@@ -1,7 +1,7 @@
 ---
 title: Native Automation Engine
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-15
 ---
 
 # Native Automation Engine
@@ -151,7 +151,8 @@ condition on an event trigger is evaluated against the event's data (bare keys a
   `nextRunAt` for every active timed automation and applies the misfire policy.
 - **Locking** — a lease (`AutomationLock`) guards each execution; an expired lease
   is reclaimable, so a crashed worker never leaves an execution stuck and two
-  workers never process the same execution.
+  workers never process the same execution. The lease is **renewed** at a third of
+  its TTL for the life of the run, so a long/retrying execution cannot outlive it.
 - **Idempotency** — events are deduplicated durably; side effects (notifications,
   artifacts, external actions) are at-least-once with the dedup key.
 - **Retry** — bounded attempts with exponential backoff + jitter. A non-retryable
@@ -164,8 +165,14 @@ condition on an event trigger is evaluated against the event's data (bare keys a
   limits are enforced by the run where the runtime supports it and otherwise
   detected at run end (providers bill per call), failing the execution honestly
   with `RESOURCE_LIMIT_EXCEEDED`. This is documented, not hidden.
-- **Misfire** — `skip` records a skipped execution; `run_once` launches one;
-  `catch_up` launches up to `catchUpMax`.
+- **Misfire** — a fire that came due within `MISFIRE_GRACE_S` (60s) of startup is
+  treated as ON TIME (run once) — a restart near the fire time is not an outage, so
+  it never records a spurious `skipped`. Beyond that window the policy applies:
+  `skip` records a skipped execution and advances the anchor; `run_once` launches
+  one; `catch_up` launches up to `catchUpMax` (bounded by the operator's cap —
+  default 1 — so it is never an unbounded storm).
+- **Manual runs never move the schedule** — only a scheduling trigger type advances
+  `nextRunAt`; `run_now`, a webhook, or a recovery re-run leave it untouched.
 - **Breaker** — repeated failures open a breaker (reusing `mcp/circuit.py`
   thresholds); only an operator reset closes it.
 

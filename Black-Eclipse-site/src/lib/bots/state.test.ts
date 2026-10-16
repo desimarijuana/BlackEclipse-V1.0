@@ -8,6 +8,7 @@ import {
   cronSummary,
   detectSchedule,
   draftFromBot,
+  intervalSecondsOf,
   emptyBotDraft,
   executionLabel,
   executionTone,
@@ -205,9 +206,61 @@ describe('description schedule detection', () => {
     expect(trigger).toMatchObject({ type: 'interval', intervalSeconds: 1800 });
   });
 
+  it('reads a monthly day ("on the 15th") rather than defaulting to the 1st', () => {
+    const det = detectSchedule('email me a report monthly on the 15th at 6pm');
+    expect(det?.patch).toMatchObject({ schedule: 'monthly', dom: 15, time: '18:00' });
+  });
+
   it('stays manual when there is no schedule phrase', () => {
     expect(detectSchedule('answer questions about my holdings')).toBeNull();
     expect(detectSchedule('')).toBeNull();
+  });
+});
+
+describe('schedule summary edge cases', () => {
+  it('summarizes sub-daily crons instead of mislabelling them "Every day"', () => {
+    expect(cronSummary('* * * * *')).toBe('Every minute');
+    expect(cronSummary('*/5 * * * *')).toBe('Every 5 minutes');
+    expect(cronSummary('30 * * * *')).toBe('Every hour at :30');
+  });
+
+  it('treats day-of-week 7 as Sunday instead of "undefined"', () => {
+    expect(cronSummary('0 8 * * 7')).toBe('Every Sunday at 08:00');
+  });
+});
+
+describe('monthly + timezone fidelity', () => {
+  it('builds a monthly cron on the chosen day', () => {
+    const base = { ...emptyBotDraft(), name: 'b', objective: 'o', time: '09:30', dom: 15 };
+    expect(buildTrigger({ ...base, schedule: 'monthly' })).toMatchObject({ type: 'cron', cron: '30 9 15 * *' });
+  });
+
+  it('round-trips a monthly cron back into a draft', () => {
+    const b = bot({ trigger: { ...bot().trigger, type: 'cron', cron: '30 9 15 * *' } });
+    const draft = draftFromBot(b);
+    expect(draft.schedule).toBe('monthly');
+    expect(draft.dom).toBe(15);
+    expect(draft.time).toBe('09:30');
+  });
+
+  it('preserves the trigger timezone when editing', () => {
+    const b = bot({ trigger: { ...bot().trigger, type: 'cron', cron: '0 8 * * *', timezone: 'Asia/Tokyo' } });
+    const draft = draftFromBot(b);
+    expect(draft.timezone).toBe('Asia/Tokyo');
+    expect(buildTrigger(draft)).toMatchObject({ timezone: 'Asia/Tokyo' });
+  });
+
+  it('does not throw on an unparseable one-time date', () => {
+    const draft = { ...emptyBotDraft(), schedule: 'once' as const, runAt: 'not-a-date' };
+    expect(() => buildTrigger(draft)).not.toThrow();
+  });
+});
+
+describe('interval clamp', () => {
+  it('reports the true interval and clamps below the 30s floor', () => {
+    const base = { ...emptyBotDraft(), schedule: 'interval' as const, intervalValue: 5, intervalUnit: 'seconds' as const };
+    expect(intervalSecondsOf(base)).toBe(5);
+    expect(buildTrigger(base)).toMatchObject({ intervalSeconds: 30 });
   });
 });
 

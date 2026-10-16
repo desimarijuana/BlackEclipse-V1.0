@@ -46,8 +46,11 @@ const RATCHET: Record<string, number> = {
   // answer in the bot thread.
   // Re-pinned 1220→1222: two keys (`bots.scheduleSuggestion`, `bots.scheduleApply`)
   // drive the one-click "schedule this bot from its description" prompt on an
-  // existing manual bot. May only shrink from here.
-  "src/lib/i18n/dictionaries/en.ts": 1222,
+  // existing manual bot.
+  // Re-pinned 1222→1225: the schedule builder gained a monthly choice
+  // (`bots.sched.monthly`), a day-of-month label (`bots.sched.dayOfMonth`) and an
+  // interval-floor note (`bots.sched.minInterval`). May only shrink from here.
+  "src/lib/i18n/dictionaries/en.ts": 1225,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

@@ -287,6 +287,44 @@ async def test_misfire_skip_and_run_once(env):
     assert env.dispatcher.calls == before + 1
 
 
+async def test_misfire_catch_up_honors_catch_up_max(env):
+    # Regression: the catch_up branch `break`ed after one launch, so catch_up_max
+    # was dead and catch_up behaved like run_once. It must now launch up to the cap.
+    _save(env, id="auto_catch", execution={"misfire": "catch_up", "catch_up_max": 3},
+          concurrency={"max_concurrent_runs": 3, "on_conflict": "queue_if_running"},
+          trigger={"type": "cron", "cron": "0 8 * * *", "timezone": "UTC"},
+          last_run_at="2026-09-01T00:00:00+00:00")
+    await env.engine._recover()
+    await env.engine.wait_idle()
+    executions = env.auto_store.list_executions("auto_catch")
+    assert len(executions) == 3
+    assert env.dispatcher.calls == 3
+
+
+async def test_manual_fire_does_not_move_the_schedule(env):
+    # `fire()` documents "never alters the schedule"; a manual run must not
+    # recompute/advance `nextRunAt` for a timed trigger.
+    _save(env)  # interval 3600
+    before = env.auto_store.get_automation("auto_test").next_run_at
+    assert before is not None
+    await env.engine.fire("auto_test", trigger_type="manual")
+    await env.engine.wait_idle()
+    assert env.auto_store.get_automation("auto_test").next_run_at == before
+
+
+async def test_misfire_grace_runs_a_just_due_fire(env):
+    # A fire that came due seconds before startup is ON TIME (run it), not a
+    # missed window to record as skipped.
+    _save(env, execution={"misfire": "skip"},
+          trigger={"type": "cron", "cron": "0 8 * * *", "timezone": "UTC"},
+          last_run_at="2026-10-07T08:00:00+00:00")
+    env.clock.now = _dt.datetime(2026, 10, 8, 8, 0, 30, tzinfo=_dt.timezone.utc)
+    await env.engine._recover()
+    await env.engine.wait_idle()
+    assert env.dispatcher.calls == 1
+    assert not any(e["state"] == "skipped" for e in env.auto_store.list_executions("auto_test"))
+
+
 async def test_lease_lock_prevents_double_processing(env):
     assert env.auto_store.acquire_lock("exec:x", "w1", ttl_s=100) is True
     assert env.auto_store.acquire_lock("exec:x", "w2", ttl_s=100) is False
@@ -296,6 +334,15 @@ async def test_lease_lock_prevents_double_processing(env):
 
     time.sleep(0.01)
     assert env.auto_store.acquire_lock("exec:y", "w2", ttl_s=100) is True
+
+
+def test_renew_lock_extends_the_lease(env):
+    # The engine renews a run's lease mid-flight; the store call must extend expiry
+    # for the OWNER and refuse for anyone else.
+    assert env.auto_store.acquire_lock("exec:z", "w1", ttl_s=100) is True
+    assert env.auto_store.renew_lock("exec:z", "w1", ttl_s=100) is True
+    assert env.auto_store.renew_lock("exec:z", "w2", ttl_s=100) is False
+    assert env.auto_store.acquire_lock("exec:z", "w2", ttl_s=100) is False  # still held
 
 
 async def test_restart_reconciles_interrupted_execution(env):

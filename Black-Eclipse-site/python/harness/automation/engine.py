@@ -55,11 +55,20 @@ log = logging.getLogger("harness.automation.engine")
 TICK_SECONDS = 30.0
 DEFAULT_MAX_IN_FLIGHT = 4
 LEASE_SLACK_S = 60.0
+# A fire that came due within this many seconds of startup is treated as ON TIME
+# (run it), not a missed window — the process restarted near the fire time, it
+# did not miss an outage. Mirrors Quartz's 60s misfire threshold.
+MISFIRE_GRACE_S = 60.0
 # A stored run output is the answer a person reads back; bounded so a runaway
 # answer cannot bloat the execution ledger.
 _OUTPUT_MAX_CHARS = 20_000
 # Terminal failure statuses that count toward the breaker.
 _FAILURE_STATES = frozenset({"failed", "timed_out"})
+# Trigger types whose launch advances the persisted schedule. A manual fire (or a
+# recovery re-run) MUST NOT move `nextRunAt` — see `fire()`'s contract.
+_SCHEDULING_TRIGGER_TYPES = frozenset(
+    {"schedule", "cron", "interval", "one_time", "misfire", "catch_up"}
+)
 _DEDUP_RETENTION_DAYS = 30
 
 
@@ -320,7 +329,10 @@ class AutomationEngine:
             except Exception:  # noqa: BLE001 - an advisory event never blocks a fire
                 log.debug("schedule.triggered emit failed", exc_info=True)
         # Advance the due anchor BEFORE launching so a re-tick cannot double-fire.
-        self._advance_next_run(definition)
+        # Only a SCHEDULING launch moves the schedule: a manual "Run now" or a
+        # recovery re-run must leave `nextRunAt` untouched (fire()'s contract).
+        if trigger_type in _SCHEDULING_TRIGGER_TYPES:
+            self._advance_next_run(definition)
         allowed, reason = self._breaker_allows(definition)
         if not allowed:
             execution = self._store.start_execution(
@@ -441,6 +453,10 @@ class AutomationEngine:
             self._store.finish_execution(execution_id, state="skipped",
                                          outcome_reason="another worker holds this execution")
             return
+        # Keep the lease alive for the whole run: several attempts plus backoff
+        # sleeps can exceed `max_runtime_s + slack`, and a stale lease would let
+        # another worker reclaim and re-run the identical execution.
+        renew_task = asyncio.create_task(self._renew_lease(lease, ttl))
         run_id = execution["runId"] or f"autorun_{uuid.uuid4().hex[:16]}"
         self._store.update_execution(execution_id, state="running", runId=run_id, workerId=self._worker_id)
         self._store.append_execution_event(execution_id, "running", {"runId": run_id})
@@ -463,6 +479,7 @@ class AutomationEngine:
                     self._store.append_execution_event(execution_id, "waiting", {"approvalId": approval_id})
                     await self._deliver(definition, execution_id, run_id, "waiting", None)
                     self._store.update_execution(execution_id, state="waiting", outcomeReason=reason)
+                    renew_task.cancel()
                     self._store.release_lock(lease, self._worker_id)
                     return
                 result = await asyncio.wait_for(
@@ -490,6 +507,7 @@ class AutomationEngine:
             state, reason, error_class = "cancelled", "This automation was stopped.", "CANCELLED"
         except Exception as exc:  # noqa: BLE001 - a failure is recorded, never raised
             state, reason, error_class = "failed", str(exc)[:2000], "INTERNAL_ERROR"
+        renew_task.cancel()
 
         # Resource limits: token/cost are detected after the run (providers bill per
         # call), and exceeding them fails the execution honestly.
@@ -513,6 +531,16 @@ class AutomationEngine:
         # A one-time automation that has fired has no next run; it stays (audit).
         if definition.trigger.type == "one_time":
             self._store.set_next_run(definition.id, None)
+
+    async def _renew_lease(self, name: str, ttl_s: float) -> None:
+        """Renew a run's lease at a third of its TTL until cancelled."""
+        interval = max(5.0, float(ttl_s) / 3.0)
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                self._store.renew_lock(name, self._worker_id, ttl_s=ttl_s)
+        except asyncio.CancelledError:
+            return
 
     def _should_retry(self, definition: AutomationDefinition, error_class: str, attempt: int, max_attempts: int) -> bool:
         if attempt >= max_attempts:
@@ -718,7 +746,16 @@ class AutomationEngine:
                 continue
             due = parse_iso(nxt)
             if due is not None and due <= now:
-                await self._apply_misfire(definition, due)
+                if (now - due).total_seconds() <= MISFIRE_GRACE_S:
+                    # Only just due — a restart near the fire time, not an outage.
+                    # Run it now instead of recording a spurious miss (a scheduled
+                    # launch so the anchor still advances).
+                    await self._launch(
+                        definition, trigger_type="schedule", trigger_ref="misfire",
+                        scheduled_for=nxt,
+                    )
+                else:
+                    await self._apply_misfire(definition, due)
             else:
                 self._store.set_next_run(definition.id, nxt)
 
@@ -730,14 +767,14 @@ class AutomationEngine:
                 definition, trigger_type="schedule", trigger_ref="misfire", scheduled_for=scheduled_for,
             )
         elif policy == "catch_up":
-            count = 0
-            while count < definition.execution.catch_up_max:
+            # Launch up to `catch_up_max` times to cover the missed window. Each
+            # scheduling launch advances the anchor, so this is bounded by the
+            # operator's chosen cap (default 1) — never an unbounded storm.
+            for _ in range(max(1, int(definition.execution.catch_up_max))):
                 await self._launch(
                     definition, trigger_type="schedule", trigger_ref="catch_up",
                     scheduled_for=scheduled_for,
                 )
-                count += 1
-                break  # one catch-up launch per recovery; the anchor advances
         else:  # skip
             execution = self._store.start_execution(
                 definition, trigger_type="schedule", trigger_ref="misfire",

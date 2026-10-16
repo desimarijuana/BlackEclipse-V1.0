@@ -191,17 +191,36 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+/** Sunday is 0 in cron, but 7 is accepted as an alias; normalise so a summary
+ *  never indexes past the week (`0 8 * * 7` used to render "Every undefined"). */
+function normalizeDow(dow: string): string {
+  return dow.split(',').map((d) => (d.trim() === '7' ? '0' : d.trim())).join(',');
+}
+
 /** A best-effort human summary of a cron expression; falls back honestly. */
 export function cronSummary(expr: string): string {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) return `Custom schedule (${expr})`;
-  const [min, hour, dom, mon, dow] = parts;
+  const [min, hour, dom, mon, dowRaw] = parts;
+  const dow = normalizeDow(dowRaw);
   const time = /^\d+$/.test(min) && /^\d+$/.test(hour) ? `${pad2(Number(hour))}:${pad2(Number(min))}` : null;
   const at = time ? ` at ${time}` : '';
+
+  // Sub-daily frequencies (an hour-or-minute wildcard) come first — the old
+  // summary dropped the time and mislabelled `* * * * *` / `*/5 * * * *` as
+  // "Every day".
+  if (min === '*' && hour === '*') return 'Every minute';
+  const step = /^\*\/(\d+)$/.exec(min);
+  if (step && hour === '*') {
+    const n = Number(step[1]);
+    return `Every ${n} minute${n === 1 ? '' : 's'}`;
+  }
+  if (/^\d+$/.test(min) && hour === '*') return `Every hour at :${pad2(Number(min))}`;
+
   if (dom === '*' && mon === '*' && dow === '*') return `Every day${at}`;
   if (dom === '*' && mon === '*' && dow === '1-5') return `Every weekday${at}`;
-  if (dom === '*' && mon === '*' && /^\d$/.test(dow)) return `Every ${WEEKDAYS[Number(dow)]}${at}`;
-  if (dom === '*' && mon === '*' && /^[0-6](,[0-6])+$/.test(dow)) {
+  if (dom === '*' && mon === '*' && /^[0-6]$/.test(dow)) return `Every ${WEEKDAYS[Number(dow)]}${at}`;
+  if (dom === '*' && mon === '*' && /^[0-6](,[0-6])*$/.test(dow)) {
     const names = dow.split(',').map((d) => WEEKDAYS[Number(d)]).join(', ');
     return `${names}${at}`;
   }
@@ -306,21 +325,27 @@ export const BOT_AGENTS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'code-agent', label: 'Code Agent' },
 ];
 
-export type ScheduleChoice = 'manual' | 'once' | 'daily' | 'weekdays' | 'weekly' | 'interval' | 'cron';
+export type ScheduleChoice =
+  | 'manual' | 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'interval' | 'cron';
 
 export interface BotDraft {
   name: string;
   objective: string;
   agentId: string;
   schedule: ScheduleChoice;
-  /** "HH:MM" for daily/weekdays/weekly. */
+  /** "HH:MM" for daily/weekdays/weekly/monthly. */
   time: string;
   /** 0=Sunday..6=Saturday for weekly. */
   weekday: number;
+  /** 1..28 for monthly (kept ≤28 so every month has the day). */
+  dom: number;
   intervalValue: number;
   intervalUnit: 'seconds' | 'minutes' | 'hours' | 'days';
   cron: string;
   runAt: string;
+  /** IANA zone the schedule is interpreted in. Preserved on edit so re-saving a
+   *  bot created in another zone does not silently shift its fire times. */
+  timezone: string;
 }
 
 export function emptyBotDraft(): BotDraft {
@@ -331,10 +356,12 @@ export function emptyBotDraft(): BotDraft {
     schedule: 'manual',
     time: '08:00',
     weekday: 1,
+    dom: 1,
     intervalValue: 1,
     intervalUnit: 'days',
     cron: '0 8 * * *',
     runAt: '',
+    timezone: localTimezone(),
   };
 }
 
@@ -346,26 +373,42 @@ function timeParts(time: string): { hour: number; minute: number } {
   };
 }
 
+/** The interval in seconds a draft's interval fields describe (before clamping). */
+export function intervalSecondsOf(draft: BotDraft): number {
+  const mult = draft.intervalUnit === 'days' ? 86400
+    : draft.intervalUnit === 'hours' ? 3600
+    : draft.intervalUnit === 'minutes' ? 60
+    : 1;
+  return Math.max(1, draft.intervalValue) * mult;
+}
+
+/** The floor the backend enforces on an interval (mirrors `MIN_INTERVAL_S`). */
+export const MIN_INTERVAL_SECONDS = 30;
+
 /** Turn a draft into the trigger object the API expects. */
 export function buildTrigger(draft: BotDraft): CreateAutomationInput['trigger'] {
-  const timezone = localTimezone();
+  // Preserve the draft's zone (an edited bot keeps its original zone); fall back
+  // to the browser zone only for a genuinely new draft.
+  const timezone = draft.timezone || localTimezone();
   const { hour, minute } = timeParts(draft.time);
   switch (draft.schedule) {
-    case 'once':
-      return { type: 'one_time', runAt: new Date(draft.runAt).toISOString(), timezone };
+    case 'once': {
+      const at = new Date(draft.runAt);
+      // A malformed/empty date must not throw a RangeError here; fall back to
+      // now so the (validated) caller fails cleanly instead of crashing.
+      const iso = Number.isNaN(at.getTime()) ? new Date().toISOString() : at.toISOString();
+      return { type: 'one_time', runAt: iso, timezone };
+    }
     case 'daily':
       return { type: 'cron', cron: `${minute} ${hour} * * *`, timezone };
     case 'weekdays':
       return { type: 'cron', cron: `${minute} ${hour} * * 1-5`, timezone };
     case 'weekly':
       return { type: 'cron', cron: `${minute} ${hour} * * ${draft.weekday}`, timezone };
-    case 'interval': {
-      const mult = draft.intervalUnit === 'days' ? 86400
-        : draft.intervalUnit === 'hours' ? 3600
-        : draft.intervalUnit === 'minutes' ? 60
-        : 1;
-      return { type: 'interval', intervalSeconds: Math.max(30, draft.intervalValue * mult), timezone };
-    }
+    case 'monthly':
+      return { type: 'cron', cron: `${minute} ${hour} ${draft.dom} * *`, timezone };
+    case 'interval':
+      return { type: 'interval', intervalSeconds: Math.max(MIN_INTERVAL_SECONDS, intervalSecondsOf(draft)), timezone };
     case 'cron':
       return { type: 'cron', cron: draft.cron.trim(), timezone };
     default:
@@ -386,8 +429,10 @@ export function validateDraft(draft: BotDraft): DraftIssue[] {
   if (!draft.objective.trim()) issues.push({ field: 'objective', message: 'Describe what the bot should do.' });
   if (draft.schedule === 'once') {
     if (!draft.runAt) issues.push({ field: 'runAt', message: 'Pick a date and time to run.' });
-    else if (new Date(draft.runAt).getTime() <= Date.now()) {
-      issues.push({ field: 'runAt', message: 'Choose a time in the future.' });
+    else {
+      const at = new Date(draft.runAt).getTime();
+      if (Number.isNaN(at)) issues.push({ field: 'runAt', message: 'Choose a valid date and time.' });
+      else if (at <= Date.now()) issues.push({ field: 'runAt', message: 'Choose a time in the future.' });
     }
   }
   if (draft.schedule === 'interval' && draft.intervalValue < 1) {
@@ -491,8 +536,8 @@ export function detectSchedule(text: string): ScheduleDetection | null {
     return det({ schedule: 'weekdays', ...time });
   }
 
-  // Daily: "daily", "every day", "once a day".
-  if (/\b(?:daily|every\s+day|each\s+day|once\s+a\s+day)\b/.test(raw)) {
+  // Daily: "daily", "every day", "everyday", "once a day".
+  if (/\b(?:daily|everyday|every\s+day|each\s+day|once\s+a\s+day)\b/.test(raw)) {
     return det({ schedule: 'daily', ...time });
   }
 
@@ -511,11 +556,14 @@ export function detectSchedule(text: string): ScheduleDetection | null {
     return det({ schedule: 'weekly', ...time });
   }
 
-  // Monthly: "monthly", "every month" (on the 1st).
+  // Monthly: "monthly", "every month", with an optional day ("on the 15th").
+  // Clamped to 1..28 so the day exists in every month (a 31st would never fire
+  // in February and would silently stall the schedule).
   if (/\b(?:monthly|every\s+month|each\s+month|once\s+a\s+month)\b/.test(raw)) {
-    const hour = at?.hour ?? 8;
-    const minute = at?.minute ?? 0;
-    return det({ schedule: 'cron', cron: `${minute} ${hour} 1 * *` });
+    const dayMatch = raw.match(/\b(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)\b/)
+      ?? raw.match(/\bday\s+(\d{1,2})\b/);
+    const dom = dayMatch ? Math.min(28, Math.max(1, Number(dayMatch[1]))) : 1;
+    return det({ schedule: 'monthly', dom, ...time });
   }
 
   // A time-of-day word plus a recurrence word implies a daily run
@@ -555,6 +603,9 @@ export function draftFromBot(bot: AutomationView): BotDraft {
     agentId: bot.action.agentId ?? 'eclipse-agent',
   };
   const trig = bot.trigger;
+  // KEEP the bot's own zone: re-saving an edit must not re-stamp it to the
+  // editor's browser zone and silently shift every future fire.
+  if (trig.timezone) draft.timezone = trig.timezone;
   if (trig.type === 'interval') {
     const s = trig.intervalSeconds ?? 3600;
     if (s % 86400 === 0) { draft.schedule = 'interval'; draft.intervalValue = s / 86400; draft.intervalUnit = 'days'; }
@@ -569,6 +620,7 @@ export function draftFromBot(bot: AutomationView): BotDraft {
       if (dom === '*' && mon === '*' && dow === '*') draft.schedule = 'daily';
       else if (dom === '*' && mon === '*' && dow === '1-5') draft.schedule = 'weekdays';
       else if (dom === '*' && mon === '*' && /^\d$/.test(dow)) { draft.schedule = 'weekly'; draft.weekday = Number(dow); }
+      else if (/^\d+$/.test(dom) && mon === '*' && dow === '*') { draft.schedule = 'monthly'; draft.dom = Number(dom); }
       else { draft.schedule = 'cron'; draft.cron = trig.cron; }
     } else {
       draft.schedule = 'cron';

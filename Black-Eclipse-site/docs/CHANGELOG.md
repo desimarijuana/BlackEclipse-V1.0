@@ -8,6 +8,77 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Bot scheduling hardening — closed the correctness gaps found in the audit.**
+  Frontend (`src/lib/bots/state.ts`, `schedule-editor.tsx`, `create-bot-dialog.tsx`,
+  `bots-screen.tsx`): editing a bot now PRESERVES its trigger timezone
+  (`draftFromBot` reads `trigger.timezone`; `buildTrigger` uses the draft's zone)
+  instead of silently re-stamping it to the browser zone; deleting the schedule
+  phrase from a description reverts the bot to on-demand instead of leaving a
+  phantom schedule; the interval builder now SHOWS the 30s floor it already
+  clamped to; `cronSummary` no longer mislabels `* * * * *`/`*/5 * * * *` as
+  "Every day" or render `0 8 * * 7` as "Every undefined"; invalid one-time dates
+  are caught by validation and no longer throw in `buildTrigger`; added a
+  **monthly** schedule choice (day-of-month + time) and a real **timezone picker**
+  (`Intl.supportedValuesOf('timeZone')`); `duplicateBot` now carries
+  event/condition/start/end fields instead of dropping them. Engine
+  (`python/harness/automation/engine.py`): `catch_up` now actually honors
+  `catchUpMax` (it `break`ed after one launch); a fire due within a 60s
+  `MISFIRE_GRACE_S` of startup runs on time instead of being recorded as a
+  spurious skip; a manual "Run now"/recovery no longer advances `nextRunAt` (only
+  a scheduling trigger type does); and the execution lease is renewed mid-run so
+  a long/retrying run cannot outlive it. Tests: `state.test.ts`,
+  `test_automation_engine.py` (+4). en.ts re-pinned 1222→1225. Docs updated:
+  `docs/harness/automation-engine.md`.
+
+- **The floating Assistant (ChatDock) can now change its AI model.** The
+  always-on bottom composer rendered a read-only model pill and never sent a
+  per-turn model, so it was stuck on whatever model Settings last saved —
+  only the full ChatBot tab and bot chats had a working picker. Wired the same
+  `useChatModel()` + `ModelSelector` into `src/components/chat/chat-dock.tsx`
+  (replacing the read-only pill) and pass `model: chatModel.displayModel` to
+  `agentRun.start`, so the choice persists to the settings vault and is sent
+  per-turn, exactly as on the ChatBot tab. The selector is available on mobile
+  too (the trigger self-hides its label on small screens). Regression guard:
+  `src/components/chat/chat-dock.test.ts`. Docs updated: `docs/ARCHITECTURE.md`
+  (ChatDock model-selection bullet).
+
+- **Pages can now render source-driven widgets end to end — a portfolio
+  included.** Follow-up to the page-targeting fix (below): naming a page and
+  declaring a `portfolio:<id>:<view>` source was contract-only — Pages/UI
+  Builder render host widget ids and `source` config was inert, so an
+  agent-composed widget showed "Unknown widget" or was dropped by the workspace
+  kernel. Added the two universal host primitives **`data-table`** and
+  **`metric-card`** (`src/lib/workspace/generic-widgets.tsx`, registered in
+  `src/lib/dashboard/registry.tsx` with ids matching the runtime catalog) and
+  the ONE allow-listed resolver **`src/lib/workspace/data-source.ts`** that
+  parses the source, fetches through the existing portfolio front door
+  (`src/lib/portfolio/engine-read.ts` → `/api/portfolio/{id}/query|history|tax-lots`),
+  caches it on a dynamic DataHub topic, and returns rows/value or an explicit
+  UNAVAILABLE (never a fabricated number, never an arbitrary URL). Removed the
+  six bespoke `portfolio-*` catalog kinds so every advertised component is
+  renderable. Pages now cache their arrangement by blueprint revision
+  (`pageStorageKey(id, revision)`) so an agent edit seeds fresh instead of being
+  shadowed, and Refresh reloads the open page. New `ui_verify_page` tool /
+  `UiService.verify_page` reads a page back and reports per-widget
+  renderability. Tests: `src/lib/workspace/data-source.test.ts`,
+  `src/lib/ui-engineering/live-page.test.ts`, `python/tests/test_ui_service.py`.
+  Docs updated: `docs/ui-engineering.md`, `docs/portfolio-accounting.md`,
+  ADR-045 amendment (`docs/DECISIONS.md` + `skills/ARCHITECT.md`).
+
+- **Price alerts hardened for production.** (1) The watch's **Data source**
+  choice (TradingView / yfinance / Auto) was stored but ignored —
+  `fetchSnapshots` now honors it (`TradingView` = scan only, no bridge;
+  `yfinance` = bridge only; `Auto` = scan then bridge). (2) The edge gate is now
+  **durable** (`SystemConfig["alerts:armed:<id>"]`): a restart or edit no longer
+  re-fires a condition that was already true, and firing clears it so re-enabling
+  a one-shot watch starts a fresh arm. (3) The in-app notice feed is now backed
+  by the durable `PriceAlertEvent` rows instead of an in-process ring buffer that
+  reset on restart and diverged across workers (`notifier.ts` / `api/alerts/live`).
+  (4) The builder groups OPEN/HIGH/LOW with the candle-backed indicators (they
+  are) and offers HIGH/LOW. Tests: dataSource selection, durable re-arm,
+  `/api/news/alert`. Alerts slice 50 passed; `tsc` clean; eslint clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
+
 - **Existing manual bots that name a cadence get a one-click fix.** The
   description parser only runs at creation, so a bot made before it existed (e.g.
   "Janu", objective "…every 3 mins") stays on a MANUAL trigger and never fires.
@@ -624,15 +695,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   with a bare `int(...)`; a single NULL/malformed group row threw `TypeError`, so
   `GET /health` returned 500 — which the front door reads as "runtime down" and
   restarts. Counts now coerce via a NULL-safe `_as_int` and skip bad rows, and
-  `harness/main.py` wraps `_security_health()` so no subsystem fault can 500 the
-  liveness probe (honest `{ok:false}` instead). (2) Orphan reconciliation ran in
-  the FastAPI lifespan, which fires *before* uvicorn binds; the new
-  `run_recovery.reconcile_orphaned_runs` proceeds only when the bind port is
-  free, so a duplicate process that is about to fail its bind can no longer
-  orphan the runs a live runtime is executing. Tests:
+  `harness/routers/security.py` exposes `security_health_safe()` (the guarded
+  entry `/health` now calls, keeping `main.py` under its hard size ceiling) so no
+  security fault can 500 the liveness probe (honest `{ok:false}` instead). (2)
+  Orphan reconciliation ran in the FastAPI lifespan, which fires *before* uvicorn
+  binds; the new `run_recovery.reconcile_orphaned_runs` proceeds only when the
+  bind port is free, so a duplicate process that is about to fail its bind can no
+  longer orphan the runs a live runtime is executing. (3) Production/start
+  hygiene: `scripts/kill-port.js` now also clears the Python runtime port
+  (resolved from `HARNESS_PY_URL`/`HARNESS_PY_PORT`/`.env`, default 8765) in
+  addition to 3000, and `prestart` runs it too — so a runtime orphaned by a
+  previous `npm run dev`/`npm start` (which survives on Windows) can no longer
+  hold the port and trigger the `WinError 10048` duplicate-spawn path. Tests:
   `python/tests/test_security_audit_counts.py`, added cases in
-  `python/tests/test_run_recovery.py`.
-  docs updated: `docs/harness/architecture.md`.
+  `python/tests/test_run_recovery.py`. Verified: `next build` succeeds; full
+  Python suite 6311 passed.
+  docs updated: `docs/harness/architecture.md`, `docs/DEPLOYMENT.md`.
+
+- **Portfolio header no longer collides with the Funds/Ledger view toggle.** The
+  screen-level toggle is absolutely positioned at the top-right
+  (`portfolio/index.tsx`), so it was covering the right edge of the fund-manager
+  toolbar (hiding the "Create fund" button) and the fund-workspace top bar
+  (covering the "Transaction" button). Reserved space in both right-hand control
+  groups (`pr-40`) so the toggle floats clear of them.
+  no doc change — presentation-only fix, no contract/architecture change.
 
 ## 2026-10-14
 

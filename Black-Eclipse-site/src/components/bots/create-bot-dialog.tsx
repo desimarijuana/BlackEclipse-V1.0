@@ -70,6 +70,10 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
   // a schedule phrase in the description must NOT override their explicit choice.
   const [scheduleTouched, setScheduleTouched] = useState(false);
   const [detectedSchedule, setDetectedSchedule] = useState<string | null>(null);
+  // True while the current schedule came from the description (not the operator).
+  // Lets us revert to "on demand" when that phrase is deleted, instead of leaving
+  // a phantom schedule the user can no longer see.
+  const [autoSchedule, setAutoSchedule] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [issues, setIssues] = useState<DraftIssue[]>([]);
   const [saving, setSaving] = useState(false);
@@ -93,6 +97,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     setDraft(emptyBotDraft());
     setScheduleTouched(false);
     setDetectedSchedule(null);
+    setAutoSchedule(false);
     setAdvanced(false);
     setIssues([]);
     setError(null);
@@ -140,8 +145,15 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     if (detected) {
       setDraft((d) => ({ ...d, ...detected.patch }));
       setDetectedSchedule(detected.summary);
+      setAutoSchedule(true);
     } else {
       setDetectedSchedule(null);
+      // The phrase that scheduled it is gone — undo the auto-schedule so the bot
+      // is not silently left on a cadence the description no longer mentions.
+      if (autoSchedule) {
+        setDraft((d) => ({ ...d, schedule: 'manual' }));
+        setAutoSchedule(false);
+      }
     }
   };
 
@@ -411,6 +423,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
                   onChange={(patch) => {
                     setScheduleTouched(true);
                     setDetectedSchedule(null);
+                    setAutoSchedule(false);
                     setDraft((d) => ({ ...d, ...patch }));
                     setIssues((prev) => prev.filter((i) => i.field !== 'schedule' && i.field !== 'cron' && i.field !== 'runAt' && i.field !== 'intervalValue'));
                   }}
