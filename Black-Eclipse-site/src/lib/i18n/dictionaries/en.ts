@@ -219,6 +219,8 @@ export const en = {
   'bots.chat.good': 'Good response',
   'bots.chat.bad': 'Bad response',
   'bots.chat.autoRun': 'Auto run',
+  'bots.scheduleSuggestion': 'This bot says "{schedule}" but only runs on demand — schedule it to run automatically.',
+  'bots.scheduleApply': 'Schedule it',
   'bots.create.editedField': 'Edited',
   'bots.create.duplicate': 'A bot with this name already exists.',
 

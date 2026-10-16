@@ -8,6 +8,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Existing manual bots that name a cadence get a one-click fix.** The
+  description parser only runs at creation, so a bot made before it existed (e.g.
+  "Janu", objective "…every 3 mins") stays on a MANUAL trigger and never fires.
+  The bot chat now detects a cadence in a manual bot's own instructions and shows
+  an inline prompt — *This bot says "Every 3 minutes" but only runs on demand* —
+  with a **Schedule it** button that patches the real trigger through
+  `updateAutomation` (never a silent reschedule). Added keys
+  `bots.scheduleSuggestion` / `bots.scheduleApply` (en.ts re-pinned 1220→1222).
+  no doc change — bot-detail behaviour only; trigger contract unchanged.
+
 - **Creating a bot now honours a schedule written in its description.** Every new
   bot defaulted to a MANUAL trigger, so a description like "check my portfolio
   every 5 minutes" produced a bot that never ran on its own — the schedule lived
@@ -608,6 +618,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   spawn (nor its boot-time reconciliation) occurs; a genuinely hung listener is
   still cleared once it is past the grace window.
   no doc change — bug fix, no contract change.
+
+- **Harden the two remaining paths that could still force a spurious runtime
+  restart.** (1) `harness/security/store.py` `audit_counts` coerced aggregates
+  with a bare `int(...)`; a single NULL/malformed group row threw `TypeError`, so
+  `GET /health` returned 500 — which the front door reads as "runtime down" and
+  restarts. Counts now coerce via a NULL-safe `_as_int` and skip bad rows, and
+  `harness/main.py` wraps `_security_health()` so no subsystem fault can 500 the
+  liveness probe (honest `{ok:false}` instead). (2) Orphan reconciliation ran in
+  the FastAPI lifespan, which fires *before* uvicorn binds; the new
+  `run_recovery.reconcile_orphaned_runs` proceeds only when the bind port is
+  free, so a duplicate process that is about to fail its bind can no longer
+  orphan the runs a live runtime is executing. Tests:
+  `python/tests/test_security_audit_counts.py`, added cases in
+  `python/tests/test_run_recovery.py`.
+  docs updated: `docs/harness/architecture.md`.
 
 ## 2026-10-14
 

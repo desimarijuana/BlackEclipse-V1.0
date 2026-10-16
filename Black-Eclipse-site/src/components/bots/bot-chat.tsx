@@ -36,7 +36,9 @@ import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/a
 import { moodFromEvent, type GhostMood } from '@/lib/bots/ghost-mood';
 import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/chat-store';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
-import { formatDateTime, formatRelative, scheduleSummary } from '@/lib/bots/state';
+import {
+  buildTrigger, detectSchedule, emptyBotDraft, formatDateTime, formatRelative, scheduleSummary,
+} from '@/lib/bots/state';
 
 export interface BotChatProps {
   bot: AutomationView;
@@ -115,6 +117,15 @@ export function BotChat({
   // disabled state instead of leaving a dead button with no reason.
   const canRun = bot.state === 'active';
 
+  // A bot whose instructions NAME a cadence ("…every 3 mins") but whose trigger
+  // is still MANUAL will never run on its own — exactly what happens to a bot
+  // created before the description parser existed. Offer a one-click fix rather
+  // than silently rescheduling (or leaving it dead).
+  const suggested = useMemo(() => {
+    if (bot.trigger.type !== 'manual') return null;
+    return detectSchedule(instructions);
+  }, [bot.trigger.type, instructions]);
+
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
@@ -157,6 +168,13 @@ export function BotChat({
     },
     [onChanged],
   );
+
+  // Apply the cadence named in the bot's own instructions as its real trigger.
+  const applySuggestedSchedule = useCallback(() => {
+    if (!suggested) return;
+    const trigger = buildTrigger({ ...emptyBotDraft(), ...suggested.patch });
+    return doAction(() => updateAutomation(bot.id, { trigger }));
+  }, [suggested, doAction, bot.id]);
 
   // Queue a run and give visible feedback: the API only enqueues server-side, so
   // without a note the click looked like it did nothing. Cleared automatically.
@@ -539,6 +557,21 @@ export function BotChat({
 
       {/* Composer */}
       <div className="border-t border-border/10 p-3">
+        {suggested && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2 text-[11px] text-foreground/90">
+            <CalendarDays size={13} className="shrink-0 text-primary" />
+            <span className="min-w-0 flex-1">
+              {t('bots.scheduleSuggestion', { schedule: suggested.summary })}
+            </span>
+            <Button
+              size="sm"
+              disabled={actionBusy}
+              onClick={() => void applySuggestedSchedule()}
+            >
+              {t('bots.scheduleApply')}
+            </Button>
+          </div>
+        )}
         <div className="relative flex w-full items-end gap-1.5 rounded-3xl border border-white/10 glass-card px-1.5 py-1 shadow-lg shadow-black/20 transition-colors focus-within:border-primary sm:px-2 dark:border-white/5">
           <textarea
             ref={textareaRef}
