@@ -359,6 +359,9 @@ export interface BotDraft {
   maxAttempts: number;
   /** Hard timeout for one run, in seconds. */
   maxRuntimeS: number;
+  /** Optional per-bot model override for its runs. Empty = the app default. */
+  modelProvider: string;
+  model: string;
 }
 
 export type MisfireChoice = 'skip' | 'run_once' | 'catch_up';
@@ -387,7 +390,17 @@ export function emptyBotDraft(): BotDraft {
     maxRuns: 1,
     maxAttempts: 1,
     maxRuntimeS: 900,
+    modelProvider: '',
+    model: '',
   };
+}
+
+/** The action's per-run model override, or `{}` for the app default. */
+export function buildModelConfig(draft: BotDraft): Record<string, unknown> {
+  if (!draft.model) return {};
+  const modelSettings: Record<string, unknown> = { model: draft.model };
+  if (draft.modelProvider) modelSettings.provider = draft.modelProvider;
+  return { modelSettings };
 }
 
 /** The engine policy objects a draft describes (execution/concurrency/retry). */
@@ -657,6 +670,12 @@ export function draftFromBot(bot: AutomationView): BotDraft {
   draft.onConflict = bot.concurrency.onConflict;
   draft.maxRuns = bot.concurrency.maxConcurrentRuns;
   draft.maxAttempts = bot.retry.maxAttempts;
+  const ms = bot.action.config?.modelSettings;
+  if (ms && typeof ms === 'object' && typeof (ms as { model?: unknown }).model === 'string') {
+    draft.model = (ms as { model: string }).model;
+    const p = (ms as { provider?: unknown }).provider;
+    draft.modelProvider = typeof p === 'string' ? p : '';
+  }
   if (trig.type === 'interval') {
     const s = trig.intervalSeconds ?? 3600;
     if (s % 86400 === 0) { draft.schedule = 'interval'; draft.intervalValue = s / 86400; draft.intervalUnit = 'days'; }

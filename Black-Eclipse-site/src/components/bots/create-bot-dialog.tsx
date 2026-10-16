@@ -18,6 +18,7 @@ import {
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
 import { RunBehaviourEditor } from '@/components/bots/run-behaviour-editor';
+import { BotModelPicker } from '@/components/bots/bot-model-picker';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -28,8 +29,8 @@ import {
   DEFAULT_GHOST_SPEC, createRng, ghostSpecFromId, ghostSpecKey, randomGhostSpec, type GhostSpec,
 } from '@/lib/bots/ghost';
 import {
-  BOT_AGENTS, buildPolicies, buildTrigger, detectSchedule, emptyBotDraft, validateDraft,
-  type BotDraft, type DraftIssue,
+  BOT_AGENTS, buildModelConfig, buildPolicies, buildTrigger, detectSchedule, emptyBotDraft,
+  validateDraft, type BotDraft, type DraftIssue,
 } from '@/lib/bots/state';
 
 const FACE_COUNT = 12;
@@ -198,7 +199,10 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
         description: title.trim() || undefined,
         state: 'active',
         trigger: buildTrigger(nextDraft),
-        action: { type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId },
+        action: {
+          type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId,
+          config: buildModelConfig(nextDraft),
+        },
         ...buildPolicies(nextDraft),
         tags: ['bot'],
       });
@@ -419,6 +423,11 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
                   </SelectContent>
                 </Select>
               </div>
+              <BotModelPicker
+                provider={draft.modelProvider}
+                model={draft.model}
+                onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+              />
               <div>
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.dialog.schedule')}</div>
                 <ScheduleEditor

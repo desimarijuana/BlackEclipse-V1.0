@@ -6,6 +6,7 @@ backoff is set to 0).
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 
 import pytest
@@ -59,6 +60,21 @@ class SlowDispatcher(FakeDispatcher):
     async def dispatch(self, definition, *, execution_id, run_id, dry_run=False):
         self.fire_times.append(self.clock())
         self.clock.advance(seconds=self.work_seconds)
+        return DispatchResult(state="completed", run_id=run_id, output="ok")
+
+
+class BlockingDispatcher(FakeDispatcher):
+    """A dispatch that blocks until `gate` is set, so a run can be held in flight."""
+
+    def __init__(self):
+        super().__init__()
+        self.gate = asyncio.Event()
+        self.started = asyncio.Event()
+
+    async def dispatch(self, definition, *, execution_id, run_id, dry_run=False):
+        self.calls += 1
+        self.started.set()
+        await self.gate.wait()
         return DispatchResult(state="completed", run_id=run_id, output="ok")
 
 
@@ -362,6 +378,70 @@ async def test_interval_end_window_stops_scheduling(env):
     assert env.auto_store.get_automation("auto_test").next_run_at is None
 
 
+async def test_queue_if_running_queues_then_drains(env):
+    bd = BlockingDispatcher()
+    env.engine._dispatcher = bd
+    _save(env, concurrency={"max_concurrent_runs": 1, "on_conflict": "queue_if_running"})
+
+    env.clock.advance(minutes=61)
+    await env.engine._tick()
+    await bd.started.wait()  # the first run is in flight (blocked)
+    assert bd.calls == 1
+
+    env.clock.advance(minutes=61)
+    await env.engine._tick()  # concurrency full -> queued, not dispatched
+    executions = env.auto_store.list_executions("auto_test")
+    assert any(e["state"] == "queued" for e in executions)
+    assert bd.calls == 1
+
+    bd.gate.set()
+    await env.engine.wait_idle()
+    await env.engine._tick()  # drain the queue now that capacity freed
+    await env.engine.wait_idle()
+    assert bd.calls == 2
+    assert all(e["state"] == "completed" for e in env.auto_store.list_executions("auto_test"))
+
+
+async def test_cancel_previous_replaces_a_running_run(env):
+    bd = BlockingDispatcher()
+    env.engine._dispatcher = bd
+    _save(env, concurrency={"max_concurrent_runs": 1, "on_conflict": "cancel_previous"})
+
+    env.clock.advance(minutes=61)
+    await env.engine._tick()
+    await bd.started.wait()
+    assert bd.calls == 1
+
+    env.clock.advance(minutes=61)
+    await env.engine._tick()  # cancels the in-flight run, launches a fresh one
+    await asyncio.sleep(0.01)
+    executions = env.auto_store.list_executions("auto_test")
+    assert any(e["state"] == "cancelled" for e in executions)
+
+    bd.gate.set()
+    await env.engine.wait_idle()
+    await env.engine._tick()  # drain the queued replacement
+    await env.engine.wait_idle()
+    assert bd.calls == 2
+
+
+async def test_one_time_fires_once_then_has_no_next_run(env):
+    run_at = (env.clock() + _dt.timedelta(minutes=5)).isoformat()
+    _save(env, trigger={"type": "one_time", "run_at": run_at, "timezone": "UTC"})
+    assert env.auto_store.get_automation("auto_test").next_run_at is not None
+
+    env.clock.advance(minutes=6)
+    await env.engine._tick()
+    await env.engine.wait_idle()
+    assert env.dispatcher.calls == 1
+    assert env.auto_store.get_automation("auto_test").next_run_at is None
+
+    env.clock.advance(minutes=61)
+    await env.engine._tick()
+    await env.engine.wait_idle()
+    assert env.dispatcher.calls == 1  # never fires again
+
+
 def test_renew_lock_extends_the_lease(env):
     # The engine renews a run's lease mid-flight; the store call must extend expiry
     # for the OWNER and refuse for anyone else.
@@ -383,6 +463,30 @@ async def test_restart_reconciles_interrupted_execution(env):
     assert any(e["state"] == "failed" and e["errorClass"] == "INTERRUPTED" for e in executions)
     # retryable and attempts remain -> a fresh run was launched.
     assert env.dispatcher.calls == 1
+
+
+def test_per_bot_model_override_is_honored(env):
+    from harness.automation.dispatcher import Dispatcher
+
+    dispatcher = Dispatcher(FakeService(env.store))
+    now = env.clock().isoformat()
+    pinned = AutomationDefinition(
+        id="m1", name="M", state="active", created_at=now, updated_at=now,
+        trigger={"type": "manual", "timezone": "UTC"},
+        action={"type": "run_agent", "objective": "x",
+                "config": {"modelSettings": {"provider": "openai", "model": "gpt-4o"}}},
+    )
+    settings = dispatcher._model_settings_for(pinned)
+    assert settings.model == "gpt-4o"
+    assert settings.provider == "openai"
+
+    # No override -> the runtime's configured default, never empty.
+    plain = AutomationDefinition(
+        id="m2", name="N", state="active", created_at=now, updated_at=now,
+        trigger={"type": "manual", "timezone": "UTC"},
+        action={"type": "run_agent", "objective": "x"},
+    )
+    assert dispatcher._model_settings_for(plain).model
 
 
 def test_snapshot_never_contains_credentials(env):

@@ -8,6 +8,65 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Bot scheduling, batch 3 — drain fix, per-bot model, execution timeout, more tests.**
+  Engine (`python/harness/automation/`): fixed `queue_if_running` never draining —
+  `_drain_queue` counted the queued run ITSELF toward the concurrency cap, so the
+  queue looked permanently full; it now uses a new `AutomationStore.in_flight_count`
+  (triggered/running/waiting/retrying only). `execution.timeoutS`, when set, is now
+  honored as a tighter per-attempt cap than `maxRuntimeS`. A bot can PIN its own
+  provider/model (`action.config.modelSettings`), honored by the dispatcher via
+  `_model_settings_for` while credentials stay on the runtime default. UI: a
+  `BotModelPicker` in the create dialog + detail editor stores that override
+  (`buildModelConfig` in `state.ts`). Docs: `automation-engine.md`. Tests:
+  `test_automation_engine.py` (+5), `test_automation_core.py` (+2 DST),
+  `test_jobs_cron.py` (+1 impossible cron → no next fire), `state.test.ts` (+2).
+  en.ts re-pinned 1238→1240. `send_notification`/`delegate_agent`/`credential_ref`
+  remain documented limits (not fabricated).
+
+- **UI composition: the remaining gaps closed — more source families, push
+  updates, and the engineer loop proven.** The data-source resolver gained four
+  allow-listed families, each backed by an existing read route and tested:
+  `tasks:list` / `tasks:plans`, `artifacts:list`, `research:list`, and
+  `jdds:search:<QUERY>` (JDDS instrument search). Live page updates moved from a
+  blind poll to Server-Sent Events: `GET /api/ui/stream` watches the runtime's
+  most-recently-updated blueprint (`id:revision:updatedAt`) and pushes a
+  `changed` event, so Pages reloads the open blueprint only when its durable
+  revision moves (window focus + a slow 60s poll remain as fallbacks; a user's
+  unsaved arrangement is never yanked). The Engineer → Compose closure is now
+  proven end to end in `test_ui_api.py`: register an engineered component,
+  discover it via `GET /ui/components`, add it to a page, and
+  `GET /ui/blueprints/{id}/verify` (new route, mirroring `ui_verify_page`)
+  reports it renderable. Tests: `src/lib/workspace/data-source.test.ts`,
+  `python/tests/test_ui_api.py`. Docs updated: `docs/ui-engineering.md`,
+  ADR-045 amendment 3 (`docs/DECISIONS.md` + `skills/ARCHITECT.md`).
+
+- **UI composition is production-ready: the full renderable vocabulary, more
+  data-source families, cross-language parity, page icons, and non-disruptive
+  page refresh.** Builds on the source-driven render path (below). The catalog
+  seed (`builtin_specs`) is now EXACTLY `RENDERABLE_COMPONENTS` — the ids the
+  host registry defines: `metric-card`, `data-table`, `list`,
+  `line-chart`/`area-chart`/`bar-chart`/`pie-chart`, `markdown`,
+  `status-indicator`, `empty-state`, `error-state`. The nine never-renderable
+  foundational kinds (`filter-bar`, `form`, `timeline`, `tree`, `log-viewer`,
+  `agent-graph`, `task-board`, `artifact-preview`, `plugin-panel`) were removed
+  so the runtime never advertises a widget that cannot appear; parity is
+  enforced by `python/tests/test_ui_service.py` and
+  `src/lib/workspace/generic-widgets.test.ts`. The resolver
+  (`src/lib/workspace/data-source.ts`) gained allow-listed families —
+  `market:quote:<SYMBOLS>`, `market:indices:<MARKET>`, `market:price:<SYMBOL>`
+  (series), `news:latest`, `agent:activity` — each backed by an existing read
+  route and still never fetching an arbitrary URL. Charts/list/markdown/status/
+  empty/error widgets added (`generic-charts.tsx`, `generic-content.tsx`).
+  Page-level icons implemented (the previously scoped Defect 6):
+  `UiBlueprint.icon`/`BlueprintSummary.icon`, an idempotent add-column
+  migration, agent (`ui_create_page`/`ui_update_page icon`) + HTTP + TS support,
+  and Pages list/header rendering. Pages now reloads the open page when its
+  durable revision changes (focus + 20s poll) without disrupting a local
+  arrangement. Tests: `src/lib/workspace/{data-source,generic-widgets}.test.ts`,
+  `python/tests/test_ui_service.py`, `test_ui_api.py`. Docs updated:
+  `docs/ui-engineering.md`, ADR-045 amendment (`docs/DECISIONS.md` +
+  `skills/ARCHITECT.md`).
+
 - **Bot scheduling, batch 2 — engine robustness + run-behaviour controls.**
   Engine (`python/harness/jobs/cron.py`, `automation/timeutil.py`,
   `automation/engine.py`): `CronExpression.next_fire` now returns `None` for an
@@ -54,10 +113,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `useChatModel()` + `ModelSelector` into `src/components/chat/chat-dock.tsx`
   (replacing the read-only pill) and pass `model: chatModel.displayModel` to
   `agentRun.start`, so the choice persists to the settings vault and is sent
-  per-turn, exactly as on the ChatBot tab. The selector is available on mobile
-  too (the trigger self-hides its label on small screens). Regression guard:
-  `src/components/chat/chat-dock.test.ts`. Docs updated: `docs/ARCHITECTURE.md`
-  (ChatDock model-selection bullet).
+  per-turn, exactly as on the ChatBot tab. The composer also gained the shared
+  per-question reasoning-effort `EffortControl` (ChatBot parity). The selector is
+  available on mobile too (the trigger self-hides its label on small screens).
+  Regression guard: `src/components/chat/chat-dock.test.ts`. Docs updated:
+  `docs/ARCHITECTURE.md` (ChatDock model/effort bullet).
 
 - **Pages can now render source-driven widgets end to end — a portfolio
   included.** Follow-up to the page-targeting fix (below): naming a page and

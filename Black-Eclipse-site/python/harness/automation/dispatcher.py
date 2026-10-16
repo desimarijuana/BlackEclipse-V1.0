@@ -100,6 +100,27 @@ class Dispatcher:
         self._service = service
         self._model_settings = model_settings_factory or _default_model_settings
 
+    def _model_settings_for(self, definition: AutomationDefinition) -> ModelSettings:
+        """The model for this automation's runs.
+
+        A bot may pin its OWN provider/model (stored on `action.config.modelSettings`
+        by the Bots UI) so a scheduled run uses the model the operator chose for it,
+        rather than the runtime-wide default. Credentials are never stored here: the
+        provider key still resolves from the runtime's configured default, so a
+        pinned model on a DIFFERENT provider without a key fails honestly
+        (`PROVIDER_NOT_CONFIGURED`) rather than silently.
+        """
+        base = self._model_settings()
+        override = definition.action.config.get("modelSettings")
+        if isinstance(override, dict) and override.get("model"):
+            return ModelSettings(
+                provider=str(override.get("provider") or base.provider),
+                model=str(override["model"]),
+                base_url=override.get("baseUrl") or base.base_url,
+                api_key=base.api_key,
+            )
+        return base
+
     def _run_request(self, definition: AutomationDefinition, run_id: str, objective: str) -> RunRequest:
         action = definition.action
         return RunRequest(
@@ -111,7 +132,7 @@ class Dispatcher:
             # what the bot learns running in the background is recalled when the
             # user next talks to it — and never leaks into another bot or a chat.
             conversationId=f"bot-{definition.id}",
-            modelSettings=self._model_settings(),
+            modelSettings=self._model_settings_for(definition),
             autonomy=action.autonomy,
             workspace=RunWorkspace(root=action.workspace_root) if action.workspace_root else None,
             parentRunId=action.config.get("parentRunId"),
@@ -208,7 +229,7 @@ class Dispatcher:
             input={"objective": action.objective or definition.name},
             runId=run_id,
             executionMode="scheduled",
-            modelSettings=self._model_settings(),
+            modelSettings=self._model_settings_for(definition),
             callbackBaseUrl=_callback_url(),
         )
         result = await self._service.run_skill(request)
@@ -281,7 +302,7 @@ class Dispatcher:
                                   error_class="RUNTIME_UNAVAILABLE")
         tasks = definition.action.config.get("tasks") or []
         runtime = orchestration.runtime_for(
-            model_settings=self._model_settings(),
+            model_settings=self._model_settings_for(definition),
             callback_base_url=_callback_url(),
             callback_token=os.environ.get("CRON_SECRET"),
             run_id=run_id,

@@ -6,10 +6,11 @@ durable UTC instant. The server's local timezone is never assumed.
 
 DST is handled deterministically via `zoneinfo` and PEP 495 `fold`:
 
-  * a wall time that does not exist (spring-forward gap) resolves to the instant
-    immediately after the gap (fold=0) rather than being skipped or raising;
+  * a wall time that does not exist (spring-forward gap) is localized with
+    `fold=0` and lands past the gap — an "02:30" job on the gap day fires at
+    03:30 local — never skipped and never raised;
   * an ambiguous wall time (fall-back overlap) resolves to the FIRST occurrence
-    (fold=0).
+    (`fold=0`), so the repeated hour fires once, at its first pass.
 
 Both choices are stable across restarts because they depend only on the zone and
 the expression, never on process state.

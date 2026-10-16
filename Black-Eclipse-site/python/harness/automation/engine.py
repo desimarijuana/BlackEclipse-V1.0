@@ -331,7 +331,9 @@ class AutomationEngine:
                 continue
             if len(self._active) >= self._max_in_flight:
                 return
-            if self._store.running_count(definition.id) >= definition.concurrency.max_concurrent_runs:
+            # In-flight only: the queued execution we are considering must not count
+            # against the cap, or the queue can never drain.
+            if self._store.in_flight_count(definition.id) >= definition.concurrency.max_concurrent_runs:
                 continue
             self._store.update_execution(execution["id"], state="triggered")
             self._spawn(definition, execution)
@@ -511,7 +513,9 @@ class AutomationEngine:
                     return
                 result = await asyncio.wait_for(
                     self._dispatcher.dispatch(definition, execution_id=execution_id, run_id=run_id),
-                    timeout=definition.execution.max_runtime_s,
+                    # `timeoutS`, when set, is a tighter per-attempt cap than the
+                    # run's max runtime; otherwise the max runtime is the bound.
+                    timeout=definition.execution.timeout_s or definition.execution.max_runtime_s,
                 )
                 if result.state == "completed":
                     state = "completed"

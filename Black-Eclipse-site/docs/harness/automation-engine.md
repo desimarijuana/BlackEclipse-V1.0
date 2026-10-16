@@ -180,6 +180,14 @@ condition on an event trigger is evaluated against the event's data (bare keys a
   `nextRunAt`; `run_now`, a webhook, or a recovery re-run leave it untouched.
 - **Breaker** — repeated failures open a breaker (reusing `mcp/circuit.py`
   thresholds); only an operator reset closes it.
+- **Per-run model** — an automation may pin its own provider/model
+  (`action.config.modelSettings`, set from the Bots UI). The dispatcher uses it for
+  that run while credentials still resolve from the runtime's configured default,
+  so a pinned model on an unconfigured provider fails honestly. `execution.timeoutS`,
+  when set, is a tighter per-attempt cap than the run's `maxRuntimeS`.
+- **Queue drain** — the durable `queue_if_running` queue is drained against the
+  IN-FLIGHT count (not every non-terminal row), so a queued run does not count
+  itself as occupying a slot and the queue actually starts once capacity frees.
 
 ## Security
 

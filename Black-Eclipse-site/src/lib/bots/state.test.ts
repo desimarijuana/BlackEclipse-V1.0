@@ -4,6 +4,7 @@ import {
   BOT_FILTERS,
   botMatchesFilter,
   botMatchesSearch,
+  buildModelConfig,
   buildPolicies,
   buildTrigger,
   cronSummary,
@@ -295,6 +296,22 @@ describe('run behaviour policies', () => {
       concurrency: { maxConcurrentRuns: 2, onConflict: 'cancel_previous' },
       retry: { maxAttempts: 3 },
     });
+  });
+});
+
+describe('per-bot model override', () => {
+  it('builds a model override only when a model is pinned', () => {
+    expect(buildModelConfig(emptyBotDraft())).toEqual({});
+    const draft = { ...emptyBotDraft(), modelProvider: 'openai', model: 'gpt-4o' };
+    expect(buildModelConfig(draft)).toEqual({ modelSettings: { model: 'gpt-4o', provider: 'openai' } });
+  });
+
+  it('round-trips a pinned model into a draft', () => {
+    const b = bot({ action: { ...bot().action, config: { modelSettings: { provider: 'openai', model: 'gpt-4o' } } } });
+    const draft = draftFromBot(b);
+    expect(draft.model).toBe('gpt-4o');
+    expect(draft.modelProvider).toBe('openai');
+    expect(buildModelConfig(draft)).toEqual({ modelSettings: { model: 'gpt-4o', provider: 'openai' } });
   });
 });
 

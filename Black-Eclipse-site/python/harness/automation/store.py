@@ -559,9 +559,28 @@ class AutomationStore:
         return [_exec_row(r) for r in rows]
 
     def running_count(self, automation_id: str) -> int:
+        """Executions occupying a concurrency slot: in-flight OR queued.
+
+        Used by `_launch` to decide a conflict, so a pending (queued) run still
+        counts against the cap and the automation does not over-subscribe.
+        """
         row = self._db.execute(
             "SELECT COUNT(*) AS n FROM AutomationExecution "
             "WHERE automationId=? AND state NOT IN ('completed','failed','cancelled','timed_out','skipped','blocked')",
+            (automation_id,),
+        ).fetchone()
+        return int(row["n"]) if row else 0
+
+    def in_flight_count(self, automation_id: str) -> int:
+        """Executions ACTUALLY running (not queued).
+
+        `_drain_queue` must use this: a queued execution is what it is trying to
+        start, so counting it as running (`running_count`) meant the queue never
+        drained — the automation looked permanently at its concurrency cap.
+        """
+        row = self._db.execute(
+            "SELECT COUNT(*) AS n FROM AutomationExecution "
+            "WHERE automationId=? AND state IN ('triggered','running','waiting','retrying')",
             (automation_id,),
         ).fetchone()
         return int(row["n"]) if row else 0

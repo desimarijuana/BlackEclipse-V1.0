@@ -250,6 +250,8 @@ export const en = {
   'bots.behaviour.maxRuns': 'Max runs at once',
   'bots.behaviour.maxAttempts': 'Retry attempts',
   'bots.behaviour.maxRuntime': 'Timeout (seconds)',
+  'bots.model.label': 'Model for its runs',
+  'bots.model.default': 'App default',
   'bots.weekday.0': 'Sunday',
   'bots.weekday.1': 'Monday',
   'bots.weekday.2': 'Tuesday',

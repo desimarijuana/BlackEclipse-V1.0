@@ -35,6 +35,31 @@ from harness.automation.model import AutomationDefinition
 from harness.automation.validation import is_valid, validate_automation
 
 
+# ── DST (the module's most specific promise) ─────────────────────────────────
+
+
+def test_dst_spring_forward_gap_resolves_deterministically():
+    # 2026-03-08 America/New_York springs forward 02:00→03:00, so 02:30 does not
+    # exist. It must still yield a concrete, future instant (fold=0 lands past the
+    # gap), never None and never a non-future time.
+    from datetime import timezone as _tz
+
+    after = _dt.datetime(2026, 3, 8, 5, 0, tzinfo=_tz.utc)  # 00:00 EST
+    nxt = next_cron_fire("30 2 * * *", "America/New_York", after)
+    assert nxt == _dt.datetime(2026, 3, 8, 7, 30, tzinfo=_tz.utc)
+    assert nxt > after
+
+
+def test_dst_fall_back_overlap_resolves_to_first_occurrence():
+    # 2026-11-01 America/New_York falls back 02:00→01:00, so 01:30 happens twice;
+    # fold=0 must pick the FIRST (EDT, -04:00).
+    from datetime import timezone as _tz
+
+    after = _dt.datetime(2026, 11, 1, 4, 0, tzinfo=_tz.utc)  # 00:00 EDT
+    nxt = next_cron_fire("30 1 * * *", "America/New_York", after)
+    assert nxt == _dt.datetime(2026, 11, 1, 5, 30, tzinfo=_tz.utc)
+
+
 # ── Conditions ───────────────────────────────────────────────────────────────
 
 
