@@ -245,13 +245,43 @@ function applyDocumentTitle(theme: EclipseTheme) {
   document.title = composeDocumentTitle(`${theme.appName} ${suffix}`);
 }
 
-function persist(theme: EclipseTheme) {
+/** Write this origin's instant first-paint cache only (no server round-trip). */
+function persistLocal(theme: EclipseTheme) {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
   } catch {
     /* quota / private mode — in-memory only */
   }
+}
+
+/**
+ * Mirror the theme to the server so it is APP-WIDE. The DB is the source of
+ * truth; every browser origin / device reads it back in `hydrateFromServer`.
+ * `localStorage` stays only as this origin's first-paint cache. Best effort — a
+ * failed write (offline, unauthenticated) never blocks the local edit; the next
+ * successful edit re-syncs.
+ */
+function pushThemeToServer(theme: EclipseTheme) {
+  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+  void window
+    .fetch('/api/theme', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ theme }),
+      keepalive: true,
+    })
+    .catch(() => { /* local cache still holds it */ });
+}
+
+function clearServerTheme() {
+  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+  void window.fetch('/api/theme', { method: 'DELETE', keepalive: true }).catch(() => {});
+}
+
+function persist(theme: EclipseTheme) {
+  persistLocal(theme);
+  pushThemeToServer(theme);
 }
 
 export interface ThemeStore {
@@ -272,6 +302,12 @@ export interface ThemeStore {
   /** Enter/leave full-screen preview mode. */
   setPreviewMode: (v: boolean) => void;
   hydrate: () => void;
+  /**
+   * Adopt the APP-WIDE theme from the server (the source of truth), if one is
+   * saved. Runs after `hydrate` on every boot so every origin/device converges
+   * on the same look regardless of its local cache.
+   */
+  hydrateFromServer: () => Promise<void>;
   /** Patch top-level fields (appName, fonts, radius, density, toggles, …). */
   setTheme: (patch: Partial<Omit<EclipseTheme, 'colors'>>) => void;
   /** Patch a single color token. */
@@ -346,6 +382,50 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       set({ theme: stored, hydrated: true, customized: true, userPresets });
     } else {
       set({ hydrated: true, customized: false, userPresets });
+    }
+  },
+
+  hydrateFromServer: async () => {
+    if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+    let remote: EclipseTheme | null = null;
+    let initialized = false;
+    try {
+      const res = await window.fetch('/api/theme', { method: 'GET' });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as
+        | { theme?: unknown; initialized?: boolean }
+        | null;
+      remote = data && data.theme ? normalizeTheme(data.theme) : null;
+      initialized = Boolean(data?.initialized);
+    } catch {
+      return; // server unreachable — keep this origin's cached theme
+    }
+    if (remote) {
+      applyThemeToDocument(remote);
+      applyFavicon(remote);
+      applyDocumentTitle(remote);
+      persistLocal(remote); // refresh this origin's instant first-paint cache
+      set({ theme: remote, hydrated: true, customized: true });
+    } else if (initialized) {
+      // The app-wide theme was explicitly reset elsewhere → the shipped default
+      // applies everywhere. Only a *successful, initialized* null clears local.
+      if (get().customized) {
+        clearThemeFromDocument();
+        applyFavicon(DEFAULT_ECLIPSE_THEME);
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.removeItem(THEME_STORAGE_KEY);
+          } catch {
+            /* ignore */
+          }
+        }
+        set({ theme: DEFAULT_ECLIPSE_THEME, customized: false });
+      }
+    } else if (get().customized) {
+      // First run of the app-wide theme: a pre-existing per-origin theme is
+      // MIGRATED up to the server instead of being wiped, so the user keeps the
+      // look they had. From then on every origin/device adopts it.
+      pushThemeToServer(get().theme);
     }
   },
 
@@ -480,6 +560,8 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         /* ignore */
       }
     }
+    // Reset the APP-WIDE theme too, so every origin/device returns to default.
+    clearServerTheme();
     // Restore the shipped backdrop too, so "Reset to Eclipse Default" resets the
     // ChatBot landing alongside the tokens.
     useBackgroundStore.getState().reset();
@@ -490,8 +572,14 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 /** Hydrate the theme from localStorage + apply it to <html>, once, client-side. */
 export function useHydrateTheme() {
   const hydrate = useThemeStore((s) => s.hydrate);
+  const hydrateFromServer = useThemeStore((s) => s.hydrateFromServer);
   const hydrated = useThemeStore((s) => s.hydrated);
   useEffect(() => {
-    if (!hydrated) hydrate();
-  }, [hydrated, hydrate]);
+    if (!hydrated) {
+      hydrate();
+      // The server theme is app-wide and authoritative; adopt it after the local
+      // cache so every origin/device converges on the same look.
+      void hydrateFromServer();
+    }
+  }, [hydrated, hydrate, hydrateFromServer]);
 }

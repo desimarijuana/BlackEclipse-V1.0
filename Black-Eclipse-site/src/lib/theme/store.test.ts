@@ -271,3 +271,62 @@ describe('theme normalization from import', () => {
     expect(imported.fontScale).toBe(1);
   });
 });
+
+describe('app-wide theme sync from the server', () => {
+  it('adopts the server theme and refreshes the local cache', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        theme: { ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, primary: '#0a84ff' } },
+      }),
+    }));
+    vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), fetch: fetchMock });
+
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().hydrate();
+    await useThemeStore.getState().hydrateFromServer();
+
+    expect(useThemeStore.getState().theme.colors.primary).toBe('#0a84ff');
+    expect(useThemeStore.getState().customized).toBe(true);
+    expect(values.has(THEME_KEY)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith('/api/theme', { method: 'GET' });
+  });
+
+  it('falls back to the shipped default when the server was explicitly reset', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ theme: null, initialized: true }) }));
+    vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), fetch: fetchMock });
+    values.set(
+      THEME_KEY,
+      JSON.stringify({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, primary: '#111111' } }),
+    );
+
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().hydrate();
+    expect(useThemeStore.getState().customized).toBe(true);
+
+    await useThemeStore.getState().hydrateFromServer();
+    expect(useThemeStore.getState().customized).toBe(false);
+    expect(useThemeStore.getState().theme.colors.primary).toBe(DEFAULT_ECLIPSE_THEME.colors.primary);
+    expect(values.has(THEME_KEY)).toBe(false);
+  });
+
+  it('migrates a pre-existing local theme to the server on first run', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ theme: null, initialized: false }) }));
+    vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), fetch: fetchMock });
+    values.set(
+      THEME_KEY,
+      JSON.stringify({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, primary: '#222222' } }),
+    );
+
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().hydrate();
+    await useThemeStore.getState().hydrateFromServer();
+
+    // The local theme is kept (not wiped) and pushed up as the app-wide theme.
+    expect(useThemeStore.getState().theme.colors.primary).toBe('#222222');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/theme',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+  });
+});

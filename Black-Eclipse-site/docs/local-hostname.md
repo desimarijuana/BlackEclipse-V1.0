@@ -131,7 +131,8 @@ black                # the same, via the global CLI
 
 Open **<http://blackeclipse>** (or **<https://blackeclipse>** after section 2b).
 The underlying server is still on `http://127.0.0.1:3000`; `http://localhost:3000`
-keeps working for local tools and the raw server — you just never have to type it.
+and `http://127.0.0.1:3000` now **redirect** to the hostname (one canonical
+origin — see below), so origin-scoped browser storage never diverges.
 
 Prefer to run the two processes yourself? They are independent:
 
@@ -142,6 +143,23 @@ npm run proxy        # the front door on 127.0.0.1:80
 ```
 
 `Ctrl+C` once stops the app and the proxy together.
+
+### One canonical origin
+
+The launcher sets `BE_CANONICAL_HOST` to the hostname, so the app enforces a
+single origin: a request on `http://localhost:3000` or `http://127.0.0.1:3000`
+is redirected (**307**, path + query preserved) to `http://blackeclipse`
+(`https://` once TLS is on). This matters because browser storage — `localStorage`
+— is scoped to the origin: without it, the theme, sidebar and chat caches would be
+three separate sets depending on which URL you typed. With it, every URL is the
+same app with the same storage. (The centralized **theme** is additionally
+app-wide on the server in JDDS `SystemConfig`, so it is shared across devices and
+browsers too — see `docs/ARCHITECTURE.md`.) The redirect is applied by
+`src/middleware.ts` before the auth gate; **page navigations only** — `/api/*` is
+deliberately left on the loopback server so the Python harness's callbacks
+(`HARNESS_CALLBACK_URL`, which do not follow redirects) keep working. Set
+`BE_CANONICAL_HOST=""` to disable it (e.g. when running the raw `next dev` server
+alongside the proxy).
 
 **No Administrator rights are required to run the proxy.** Windows does not treat
 ports below 1024 as privileged (unlike Unix), and `127.0.0.1:80` is free on this

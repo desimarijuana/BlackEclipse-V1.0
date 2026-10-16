@@ -149,6 +149,21 @@ Two mechanisms:
 2. **Zustand stores** for UI state (sidebar config, dashboard layouts, search,
    market-workspace, aurora palette, i18n/a11y, centralized theme) — persisted to
    `localStorage`, not the DB.
+   **Exception — the centralized theme is app-wide, not per-origin.** Its source
+   of truth is the JDDS `SystemConfig` table (key `eclipse_theme`, read/written by
+   `src/app/api/theme/route.ts` + `src/lib/theme/server.ts`), so every browser
+   origin (`localhost:3000`, `127.0.0.1:3000`, `https://blackeclipse`) and every
+   device show the SAME look. `localStorage` (`be_theme_v1`) is demoted to a
+   per-origin first-paint cache: on boot the store hydrates the cache, then
+   `hydrateFromServer()` adopts the saved app-wide theme. If the server has never
+   been initialized, the client **migrates** its pre-existing per-origin theme up
+   (so an existing look is kept, not wiped); once the theme has been explicitly
+   reset server-side, a null read clears the local override back to the shipped
+   default. Edits push to the server (`PUT /api/theme`) and Reset clears it
+   (`DELETE`). The middleware additionally
+   enforces ONE canonical origin when `BE_CANONICAL_HOST` is set (see
+   `docs/local-hostname.md`), so origin-scoped storage never diverges in the first
+   place.
      - **Centralized theming.** `src/lib/theme/` owns one serializable
       `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
       glass, shadow, background, **scheme**, glow/animation). The store flattens

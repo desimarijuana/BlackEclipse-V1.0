@@ -83,3 +83,65 @@ describe("middleware with auth ON", () => {
     expect((await res.json()).code).toBe("AUTH_MISCONFIGURED");
   });
 });
+
+describe("canonical origin redirect", () => {
+  const savedCanonical = env.BE_CANONICAL_HOST;
+  afterEach(() => {
+    if (savedCanonical === undefined) delete env.BE_CANONICAL_HOST; else env.BE_CANONICAL_HOST = savedCanonical;
+  });
+
+  it("redirects a non-canonical host, preserving path + query", async () => {
+    env.BE_CANONICAL_HOST = "blackeclipse";
+    const res = await middleware(req("/terminal?tab=1"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("http://blackeclipse/terminal?tab=1");
+  });
+
+  it("does not redirect the canonical host", async () => {
+    env.BE_CANONICAL_HOST = "blackeclipse";
+    env.HARNESS_AUTH = "off";
+    resetAuthConfig();
+    const res = await middleware(new NextRequest("http://blackeclipse/terminal"));
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("does not redirect when the forwarded host is canonical", async () => {
+    env.BE_CANONICAL_HOST = "blackeclipse";
+    env.HARNESS_AUTH = "off";
+    resetAuthConfig();
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/terminal", {
+        headers: {
+          host: "blackeclipse",
+          "x-forwarded-host": "blackeclipse",
+          "x-forwarded-proto": "https",
+        },
+      }),
+    );
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("redirects based on the Host header when nextUrl has the internal host", async () => {
+    env.BE_CANONICAL_HOST = "blackeclipse";
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/terminal", { headers: { host: "127.0.0.1:3000" } }),
+    );
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("http://blackeclipse/terminal");
+  });
+
+  it("never redirects /api/* (loopback callers must keep working)", async () => {
+    env.BE_CANONICAL_HOST = "blackeclipse";
+    env.HARNESS_AUTH = "off";
+    resetAuthConfig();
+    const res = await middleware(req("/api/settings"));
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("does nothing when BE_CANONICAL_HOST is unset", async () => {
+    env.HARNESS_AUTH = "off";
+    resetAuthConfig();
+    const res = await middleware(req("/terminal"));
+    expect(res.headers.get("location")).toBeNull();
+  });
+});

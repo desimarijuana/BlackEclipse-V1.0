@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-16
 
+- **One app-wide theme across every URL.** The Eclipse theme was
+  `localStorage`-only, so `http://localhost:3000`, `http://127.0.0.1:3000` and
+  `https://blackeclipse` — three browser ORIGINS — each showed their own saved
+  theme. The theme is now an APP-WIDE server property (JDDS `SystemConfig` key
+  `eclipse_theme`, `/api/theme` GET/PUT/DELETE, operator-gated), with
+  `localStorage` demoted to a per-origin first-paint cache: the store hydrates
+  the cache then adopts the server theme (`hydrateFromServer`); a never-initialized
+  server MIGRATES the pre-existing per-origin theme up (so an existing look is
+  kept, not wiped), an explicit reset clears it, edits push to the
+  server, and Reset clears it. The middleware additionally enforces ONE canonical
+  origin when `BE_CANONICAL_HOST` is set (the local-host launcher sets it to the
+  `blackeclipse` hostname), redirecting `localhost`/`127.0.0.1` (307, path +
+  query preserved) so origin-scoped storage never diverges. New
+  `src/lib/theme/server.ts` + `src/app/api/theme/route.ts`; `src/lib/theme/store.ts`,
+  `src/middleware.ts`, `scripts/local-host.js`, `.env.example`. Tests
+  `src/app/api/theme/route.test.ts`, `store.test.ts`, `middleware.test.ts`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/local-hostname.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-046).
+
 - **Perf: chat transcript no longer ships ~5MB uncompressed on every page.**
   `/api/chat/transcript` returns EVERY conversation's full message history and the
   ChatBot hydrates from it on every app boot — 126 files / ~5MB, re-read and

@@ -109,10 +109,16 @@ function runLocalHost({ mode = "dev", port = process.env.PORT || "3000" } = {}) 
   }
 
   const args = [nextBin(), mode === "start" ? "start" : "dev", ...(mode === "start" ? [] : ["--turbopack"]), "-p", String(port), "-H", APP_HOST];
+  // Collapse every alias onto ONE origin: the app sets BE_CANONICAL_HOST so a
+  // request on localhost:3000 / 127.0.0.1:3000 redirects to the hostname. This
+  // keeps the same origin-scoped storage (theme, sidebar, chat cache) no matter
+  // which URL was typed. Overridable with BE_CANONICAL_HOST="".
+  const childEnv = { ...process.env };
+  if (childEnv.BE_CANONICAL_HOST === undefined) childEnv.BE_CANONICAL_HOST = name;
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
     stdio: ["inherit", "pipe", "pipe"],
-    env: process.env,
+    env: childEnv,
   });
   const rewrite = makeRewriter(port, name, proto);
   child.stdout.on("data", (d) => process.stdout.write(rewrite(d)));
