@@ -6,6 +6,7 @@ import {
   botMatchesSearch,
   buildTrigger,
   cronSummary,
+  detectSchedule,
   draftFromBot,
   emptyBotDraft,
   executionLabel,
@@ -175,6 +176,38 @@ describe('draft validation and trigger building', () => {
     expect(draft.schedule).toBe('weekly');
     expect(draft.weekday).toBe(3);
     expect(draft.time).toBe('09:30');
+  });
+});
+
+describe('description schedule detection', () => {
+  it('reads a numbered interval from the description', () => {
+    expect(detectSchedule('check my portfolio every 5 minutes')?.patch)
+      .toMatchObject({ schedule: 'interval', intervalValue: 5, intervalUnit: 'minutes' });
+    expect(detectSchedule('watch the market every 2 hours')?.patch)
+      .toMatchObject({ schedule: 'interval', intervalValue: 2, intervalUnit: 'hours' });
+  });
+
+  it('reads daily/weekday/weekly cadences, with a time when given', () => {
+    expect(detectSchedule('summarize news daily')?.patch).toMatchObject({ schedule: 'daily' });
+    expect(detectSchedule('review positions every week at 9am')?.patch)
+      .toMatchObject({ schedule: 'weekly', time: '09:00' });
+    expect(detectSchedule('run a report every weekday at 8:30')?.patch)
+      .toMatchObject({ schedule: 'weekdays', time: '08:30' });
+    expect(detectSchedule('email me each Monday at 5pm')?.patch)
+      .toMatchObject({ schedule: 'weekly', weekday: 1, time: '17:00' });
+  });
+
+  it('applies a detected schedule as a real trigger', () => {
+    const det = detectSchedule('check risk every 30 minutes');
+    expect(det).not.toBeNull();
+    if (!det) return;
+    const trigger = buildTrigger({ ...emptyBotDraft(), ...det.patch });
+    expect(trigger).toMatchObject({ type: 'interval', intervalSeconds: 1800 });
+  });
+
+  it('stays manual when there is no schedule phrase', () => {
+    expect(detectSchedule('answer questions about my holdings')).toBeNull();
+    expect(detectSchedule('')).toBeNull();
   });
 });
 

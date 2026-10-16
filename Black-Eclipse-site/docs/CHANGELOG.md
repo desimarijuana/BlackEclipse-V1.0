@@ -8,6 +8,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Creating a bot now honours a schedule written in its description.** Every new
+  bot defaulted to a MANUAL trigger, so a description like "check my portfolio
+  every 5 minutes" produced a bot that never ran on its own — the schedule lived
+  only in the optional Advanced panel. Added a deterministic
+  `detectSchedule(text)` (`src/lib/bots/state.ts`, no model call) that reads
+  common phrasings (every N seconds/minutes/hours/days/weeks; daily/weekly/
+  monthly; weekdays; a named weekday; hourly; "every morning"; `at 9am`/`08:30`/
+  noon/evening) and returns the draft patch. `create-bot-dialog.tsx` applies it as
+  the description is typed and shows a live `Schedule: …` line; a manual edit in
+  Advanced wins and is never overwritten. An unrecognised phrase stays manual
+  (no guessed cadence). Tests: `state.test.ts`.
+  no doc change — creation UX only; trigger contract unchanged.
+
 - **UI page targeting: a resolvable current-page default, distinguishable page
   summaries, one owner policy, and a portfolio data-source registry.** Fixes
   five defects found while trying to point an agent at ONE of fifteen

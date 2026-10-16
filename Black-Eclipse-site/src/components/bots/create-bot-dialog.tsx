@@ -27,7 +27,7 @@ import {
   DEFAULT_GHOST_SPEC, createRng, ghostSpecFromId, ghostSpecKey, randomGhostSpec, type GhostSpec,
 } from '@/lib/bots/ghost';
 import {
-  BOT_AGENTS, buildTrigger, emptyBotDraft, validateDraft, type BotDraft, type DraftIssue,
+  BOT_AGENTS, buildTrigger, detectSchedule, emptyBotDraft, validateDraft, type BotDraft, type DraftIssue,
 } from '@/lib/bots/state';
 
 const FACE_COUNT = 12;
@@ -66,6 +66,10 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [draft, setDraft] = useState<BotDraft>(() => emptyBotDraft());
+  // True once the operator edits the schedule by hand in Advanced — after that,
+  // a schedule phrase in the description must NOT override their explicit choice.
+  const [scheduleTouched, setScheduleTouched] = useState(false);
+  const [detectedSchedule, setDetectedSchedule] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [issues, setIssues] = useState<DraftIssue[]>([]);
   const [saving, setSaving] = useState(false);
@@ -87,6 +91,8 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     setTitle('');
     setDescription('');
     setDraft(emptyBotDraft());
+    setScheduleTouched(false);
+    setDetectedSchedule(null);
     setAdvanced(false);
     setIssues([]);
     setError(null);
@@ -122,6 +128,21 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
   const onNameChange = (value: string) => {
     setName(value);
     if (followName) setSpec(ghostSpecFromId(value.trim() || 'new-bot'));
+  };
+
+  // Read a schedule out of the description ("check my portfolio every 5 minutes")
+  // and apply it, unless the operator has already set the schedule by hand.
+  const onDescriptionChange = (value: string) => {
+    setDescription(value);
+    setIssues((prev) => prev.filter((i) => i.field !== 'objective'));
+    if (scheduleTouched) return;
+    const detected = detectSchedule(value);
+    if (detected) {
+      setDraft((d) => ({ ...d, ...detected.patch }));
+      setDetectedSchedule(detected.summary);
+    } else {
+      setDetectedSchedule(null);
+    }
   };
 
   const pickFace = (face: GhostSpec) => {
@@ -342,15 +363,18 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
             <textarea
               id="new-bot-description"
               value={description}
-              onChange={(e) => {
-                setDescription(e.target.value);
-                setIssues((prev) => prev.filter((i) => i.field !== 'objective'));
-              }}
+              onChange={(e) => onDescriptionChange(e.target.value)}
               rows={3}
               placeholder={t('bots.dialog.descriptionPlaceholder')}
               className="min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
             />
             <FieldError issue={issueFor('objective')} />
+            {detectedSchedule && !scheduleTouched && (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-300/90">
+                <Sparkles size={11} className="shrink-0" />
+                {t('bots.schedule')}: {detectedSchedule}
+              </p>
+            )}
           </Field>
         </div>
 
@@ -385,6 +409,8 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
                 <ScheduleEditor
                   draft={draft}
                   onChange={(patch) => {
+                    setScheduleTouched(true);
+                    setDetectedSchedule(null);
                     setDraft((d) => ({ ...d, ...patch }));
                     setIssues((prev) => prev.filter((i) => i.field !== 'schedule' && i.field !== 'cron' && i.field !== 'runAt' && i.field !== 'intervalValue'));
                   }}

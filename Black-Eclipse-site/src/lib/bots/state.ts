@@ -405,6 +405,128 @@ export function summarizeDraft(draft: BotDraft): string {
   return scheduleSummary(buildTrigger(draft) as TriggerView);
 }
 
+// ── Natural-language schedule detection ───────────────────────────────────────
+// A user often writes the cadence in the bot's description ("check my portfolio
+// every 5 minutes"). The creation flow used to ignore that and default every new
+// bot to a MANUAL trigger, so the bot never ran on its own. `detectSchedule`
+// reads the common phrasings and returns the draft patch to apply. Deterministic,
+// no model call, and honest: an unrecognised phrase yields null (stay manual)
+// rather than a guessed schedule.
+
+const WEEKDAY_NAMES: ReadonlyArray<readonly string[]> = [
+  ['sunday', 'sun'],
+  ['monday', 'mon'],
+  ['tuesday', 'tue', 'tues'],
+  ['wednesday', 'wed', 'weds'],
+  ['thursday', 'thu', 'thur', 'thurs'],
+  ['friday', 'fri'],
+  ['saturday', 'sat'],
+];
+
+export interface ScheduleDetection {
+  /** The draft fields to apply (schedule + any time). */
+  patch: Partial<BotDraft>;
+  /** A plain-language summary of the detected schedule. */
+  summary: string;
+}
+
+function parseTimeOfDay(raw: string): { hour: number; minute: number } | null {
+  const mer = raw.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (mer) {
+    let hour = Number(mer[1]);
+    const minute = mer[2] ? Number(mer[2]) : 0;
+    if (mer[3] === 'pm' && hour < 12) hour += 12;
+    if (mer[3] === 'am' && hour === 12) hour = 0;
+    if (hour <= 23 && minute <= 59) return { hour, minute };
+  }
+  const at = raw.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/);
+  if (at) {
+    const hour = Number(at[1]);
+    const minute = at[2] ? Number(at[2]) : 0;
+    if (hour <= 23 && minute <= 59) return { hour, minute };
+  }
+  if (/\bnoon\b/.test(raw)) return { hour: 12, minute: 0 };
+  if (/\bmidnight\b/.test(raw)) return { hour: 0, minute: 0 };
+  if (/\bmorning\b/.test(raw)) return { hour: 8, minute: 0 };
+  if (/\bafternoon\b/.test(raw)) return { hour: 14, minute: 0 };
+  if (/\b(?:evening|night|tonight)\b/.test(raw)) return { hour: 18, minute: 0 };
+  return null;
+}
+
+/** Detect a schedule phrase in free text and return the draft patch to apply. */
+export function detectSchedule(text: string): ScheduleDetection | null {
+  const raw = (text || '').toLowerCase();
+  if (!raw.trim()) return null;
+
+  const det = (patch: Partial<BotDraft>): ScheduleDetection => ({
+    patch,
+    summary: summarizeDraft({ ...emptyBotDraft(), ...patch }),
+  });
+  const at = parseTimeOfDay(raw);
+  const time = at ? { time: `${pad2(at.hour)}:${pad2(at.minute)}` } : {};
+
+  // Numbered interval: "every 5 minutes", "every 2 hours", "every 3 days".
+  const num = raw.match(
+    /\b(?:every|each)\s+(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b/,
+  );
+  if (num) {
+    const n = Math.max(1, Number(num[1]));
+    const unit = num[2];
+    if (/^sec/.test(unit)) return det({ schedule: 'interval', intervalValue: n, intervalUnit: 'seconds' });
+    if (/^min/.test(unit)) return det({ schedule: 'interval', intervalValue: n, intervalUnit: 'minutes' });
+    if (/^h/.test(unit)) return det({ schedule: 'interval', intervalValue: n, intervalUnit: 'hours' });
+    if (/^week/.test(unit)) return det({ schedule: 'interval', intervalValue: n * 7, intervalUnit: 'days' });
+    return det({ schedule: 'interval', intervalValue: n, intervalUnit: 'days' });
+  }
+
+  // A specific weekday: "every Monday", "each Friday at 5pm".
+  for (let i = 0; i < WEEKDAY_NAMES.length; i += 1) {
+    if (WEEKDAY_NAMES[i].some((name) => new RegExp(`\\b(?:every|each|on)\\s+${name}\\b`).test(raw))) {
+      return det({ schedule: 'weekly', weekday: i, ...time });
+    }
+  }
+
+  // Weekdays: "every weekday", "weekdays at 9".
+  if (/\b(?:every\s+|each\s+)?weekdays?\b/.test(raw) || /\b(?:every|each)\s+week\s?days?\b/.test(raw)) {
+    return det({ schedule: 'weekdays', ...time });
+  }
+
+  // Daily: "daily", "every day", "once a day".
+  if (/\b(?:daily|every\s+day|each\s+day|once\s+a\s+day)\b/.test(raw)) {
+    return det({ schedule: 'daily', ...time });
+  }
+
+  // Hourly: "hourly", "every hour".
+  if (/\b(?:hourly|every\s+hour|each\s+hour|once\s+an\s+hour)\b/.test(raw)) {
+    return det({ schedule: 'interval', intervalValue: 1, intervalUnit: 'hours' });
+  }
+
+  // Every minute (no number).
+  if (/\b(?:every|each)\s+minute\b/.test(raw)) {
+    return det({ schedule: 'interval', intervalValue: 1, intervalUnit: 'minutes' });
+  }
+
+  // Weekly: "weekly", "every week", "once a week".
+  if (/\b(?:weekly|every\s+week|each\s+week|once\s+a\s+week)\b/.test(raw)) {
+    return det({ schedule: 'weekly', ...time });
+  }
+
+  // Monthly: "monthly", "every month" (on the 1st).
+  if (/\b(?:monthly|every\s+month|each\s+month|once\s+a\s+month)\b/.test(raw)) {
+    const hour = at?.hour ?? 8;
+    const minute = at?.minute ?? 0;
+    return det({ schedule: 'cron', cron: `${minute} ${hour} 1 * *` });
+  }
+
+  // A time-of-day word plus a recurrence word implies a daily run
+  // ("every morning", "nightly", "every evening at 6").
+  if (at && /\b(?:every|each|nightly)\b/.test(raw) && /\b(?:morning|afternoon|evening|night|tonight|noon|midnight)\b/.test(raw)) {
+    return det({ schedule: 'daily', ...time });
+  }
+
+  return null;
+}
+
 /** Propose a short, human name from an objective. Deterministic, no model call:
  *  strips leading verbs/filler and title-cases the first few meaningful words. */
 export function suggestName(objective: string): string {
