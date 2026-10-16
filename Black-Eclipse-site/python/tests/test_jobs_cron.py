@@ -83,6 +83,12 @@ def test_dst_boundary_resolves():
     assert expr.next_fire(_dt_at(2026, 3, 8, 3, 0)) == _dt_at(2026, 3, 9, 2, 30)
 
 
+def test_impossible_expression_has_no_next_fire():
+    # Feb 30 exists in no year: next_fire is None, never a phantom far-future date.
+    expr = parse_cron("0 0 30 2 *")
+    assert expr.next_fire(_dt_at(2026, 1, 1, 0, 0)) is None
+
+
 def test_matches_reports_true_and_false():
     expr = parse_cron("30 7 * * 1-5")
     assert expr.matches(_dt_at(2026, 9, 28, 7, 30))

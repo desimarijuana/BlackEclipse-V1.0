@@ -4,6 +4,7 @@ import {
   BOT_FILTERS,
   botMatchesFilter,
   botMatchesSearch,
+  buildPolicies,
   buildTrigger,
   cronSummary,
   detectSchedule,
@@ -261,6 +262,39 @@ describe('interval clamp', () => {
     const base = { ...emptyBotDraft(), schedule: 'interval' as const, intervalValue: 5, intervalUnit: 'seconds' as const };
     expect(intervalSecondsOf(base)).toBe(5);
     expect(buildTrigger(base)).toMatchObject({ intervalSeconds: 30 });
+  });
+});
+
+describe('run behaviour policies', () => {
+  it('maps a draft to execution/concurrency/retry objects', () => {
+    const draft = {
+      ...emptyBotDraft(),
+      misfire: 'catch_up' as const,
+      catchUpMax: 4,
+      onConflict: 'queue_if_running' as const,
+      maxRuns: 2,
+      maxAttempts: 3,
+      maxRuntimeS: 600,
+    };
+    expect(buildPolicies(draft)).toEqual({
+      execution: { misfire: 'catch_up', catchUpMax: 4, maxRuntimeS: 600 },
+      concurrency: { maxConcurrentRuns: 2, onConflict: 'queue_if_running' },
+      retry: { maxAttempts: 3 },
+    });
+  });
+
+  it('round-trips an existing bot\'s behaviour into a draft', () => {
+    const b = bot({
+      execution: { maxRuntimeS: 300, misfire: 'run_once', catchUpMax: 5, timeoutS: null },
+      concurrency: { maxConcurrentRuns: 2, onConflict: 'cancel_previous' },
+      retry: { maxAttempts: 3, initialBackoffS: 5, backoffMultiplier: 2, maxBackoffS: 300, jitter: true, retryableClasses: [], nonRetryableClasses: [] },
+    });
+    const draft = draftFromBot(b);
+    expect(buildPolicies(draft)).toEqual({
+      execution: { misfire: 'run_once', catchUpMax: 5, maxRuntimeS: 300 },
+      concurrency: { maxConcurrentRuns: 2, onConflict: 'cancel_previous' },
+      retry: { maxAttempts: 3 },
+    });
   });
 });
 

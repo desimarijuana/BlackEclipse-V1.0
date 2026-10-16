@@ -182,6 +182,10 @@ class AutomationEngine:
         event_id = self._event_id(event)
         facts = self._event_facts(event)
         for definition in subscribers:
+            # Honor the trigger's event_filter BEFORE consuming the dedup slot, so
+            # a non-matching event is simply not this automation's concern.
+            if not self._event_matches_filter(event, definition.trigger.event_filter):
+                continue
             if self._store.already_seen_event(definition.id, event_id):
                 continue
             self._store.mark_event_seen(definition.id, event_id)
@@ -194,6 +198,29 @@ class AutomationEngine:
                 definition, trigger_type="event", trigger_ref=event_id,
                 scheduled_for=to_utc_iso(self._now()),
             )
+
+    def _event_matches_filter(self, event: dict[str, Any], event_filter: dict[str, Any]) -> bool:
+        """Whether an event satisfies a trigger's `eventFilter`.
+
+        Each filter key must equal the matching value; a key may be a bare data
+        field (`ticker`), a dotted `data.` path, or an `event.` field. An empty
+        filter matches everything.
+        """
+        if not event_filter:
+            return True
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        for key, expected in event_filter.items():
+            if key.startswith("event."):
+                actual = event.get(key.split(".", 1)[1])
+            elif key.startswith("data."):
+                actual = data.get(key.split(".", 1)[1])
+            elif key in data:
+                actual = data.get(key)
+            else:
+                actual = event.get(key)
+            if actual != expected:
+                return False
+        return True
 
     def _event_id(self, event: dict[str, Any]) -> str:
         if event.get("id"):
@@ -660,8 +687,11 @@ class AutomationEngine:
             # just fired so the grid never moves; a fresh schedule falls back to
             # the anchor (last run / creation).
             base = anchor or self._anchor(definition)
-            nxt = next_interval_fire(trigger.interval_seconds, base, after_utc=moment)
-            return to_utc_iso(nxt)
+            nxt = next_interval_fire(
+                trigger.interval_seconds, base, after_utc=moment,
+                start_at=trigger.start_at, end_at=trigger.end_at,
+            )
+            return to_utc_iso(nxt) if nxt else None
         if trigger.type == "one_time":
             nxt = next_one_time_fire(trigger.run_at or "", after_utc=moment)
             return to_utc_iso(nxt) if nxt else None

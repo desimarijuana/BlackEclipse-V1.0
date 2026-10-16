@@ -19,6 +19,7 @@ import {
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { GhostCustomizer } from '@/components/bots/ghost-customizer';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
+import { RunBehaviourEditor } from '@/components/bots/run-behaviour-editor';
 import { BreakerPill, ExecutionPill, LifecyclePill } from '@/components/bots/status-pill';
 import { RunHistory } from '@/components/bots/run-history';
 import { BotMemorySection } from '@/components/bots/bot-memory-section';
@@ -34,8 +35,8 @@ import {
 } from '@/lib/harness/automation-browser';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
 import {
-  buildTrigger, draftFromBot, formatDateTime, formatRelative, isTerminalExecution,
-  scheduleSummary, triggerKindLabel, validateDraft, type BotDraft,
+  buildPolicies, buildTrigger, draftFromBot, formatDateTime, formatRelative,
+  isTerminalExecution, scheduleSummary, triggerKindLabel, validateDraft, type BotDraft,
 } from '@/lib/bots/state';
 
 export interface BotDetailProps {
@@ -423,7 +424,10 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateAutomation(bot.id, { trigger: buildTrigger(draft) });
+      const updated = await updateAutomation(bot.id, {
+        trigger: buildTrigger(draft),
+        ...buildPolicies(draft),
+      });
       setFlash(updated.nextRunAt ? t('bots.scheduleUpdated', { next: formatDateTime(updated.nextRunAt) }) : t('bots.instructionsSaved'));
       onChanged();
     } catch (err) {
@@ -436,6 +440,10 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
   return (
     <div className="space-y-3">
       <ScheduleEditor draft={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
+      <div>
+        <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.behaviour.title')}</div>
+        <RunBehaviourEditor draft={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
+      </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>{t('bots.nextRun')}: <span className="text-foreground">{bot.nextRunAt ? formatDateTime(bot.nextRunAt) : t('bots.never')}</span></span>
         <span>{t('bots.lastRun')}: <span className="text-foreground">{bot.lastRunAt ? formatDateTime(bot.lastRunAt) : t('bots.never')}</span></span>

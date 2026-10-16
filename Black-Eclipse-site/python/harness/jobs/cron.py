@@ -150,13 +150,14 @@ class CronExpression:
             return dow_ok
         return True
 
-    def next_fire(self, after: _dt.datetime) -> _dt.datetime:
-        """The first minute strictly after ``after`` that matches. Pure.
+    def next_fire(self, after: _dt.datetime) -> Optional[_dt.datetime]:
+        """The first minute strictly after ``after`` that matches, or ``None``.
 
-        Scans minute by minute from ``after + 1 minute`` for at most ~4 years
-        (a leap-year cycle plus slack) — bounded so an impossible expression (e.g.
-        Feb 30) returns the horizon rather than looping forever. Callers validate
-        the expression so this is a safety net, not the common path.
+        Pure. Scans minute by minute from ``after + 1 minute`` for at most ~4 years
+        (a leap-year cycle plus slack). An expression that can never match (e.g.
+        Feb 30) — or one whose next fire is beyond the horizon — returns ``None``
+        rather than a phantom far-future instant, so callers treat it as
+        "never fires" instead of scheduling a run years out.
         """
         # Drop seconds/microseconds and step to the next whole minute.
         candidate = after.replace(second=0, microsecond=0) + _dt.timedelta(minutes=1)
@@ -165,7 +166,7 @@ class CronExpression:
             if self.matches(candidate):
                 return candidate
             candidate += _dt.timedelta(minutes=1)
-        return limit
+        return None
 
 
 def _count_fields(expression: str) -> int:

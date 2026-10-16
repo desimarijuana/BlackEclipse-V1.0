@@ -346,7 +346,26 @@ export interface BotDraft {
   /** IANA zone the schedule is interpreted in. Preserved on edit so re-saving a
    *  bot created in another zone does not silently shift its fire times. */
   timezone: string;
+  // ── Run behaviour (engine knobs, exposed in Advanced) ──────────────────────
+  /** What to do when a fire was missed while the app was closed. */
+  misfire: MisfireChoice;
+  /** Max catch-up launches when `misfire` is `catch_up`. */
+  catchUpMax: number;
+  /** What to do when a run is still going at the next fire. */
+  onConflict: ConflictChoice;
+  /** Max runs of this bot allowed in flight at once. */
+  maxRuns: number;
+  /** Max attempts per run (1 = no retry). */
+  maxAttempts: number;
+  /** Hard timeout for one run, in seconds. */
+  maxRuntimeS: number;
 }
+
+export type MisfireChoice = 'skip' | 'run_once' | 'catch_up';
+export type ConflictChoice = 'skip_if_running' | 'queue_if_running' | 'cancel_previous';
+
+export const MISFIRE_CHOICES: readonly MisfireChoice[] = ['skip', 'run_once', 'catch_up'];
+export const CONFLICT_CHOICES: readonly ConflictChoice[] = ['skip_if_running', 'queue_if_running', 'cancel_previous'];
 
 export function emptyBotDraft(): BotDraft {
   return {
@@ -362,6 +381,32 @@ export function emptyBotDraft(): BotDraft {
     cron: '0 8 * * *',
     runAt: '',
     timezone: localTimezone(),
+    misfire: 'skip',
+    catchUpMax: 1,
+    onConflict: 'skip_if_running',
+    maxRuns: 1,
+    maxAttempts: 1,
+    maxRuntimeS: 900,
+  };
+}
+
+/** The engine policy objects a draft describes (execution/concurrency/retry). */
+export function buildPolicies(draft: BotDraft): {
+  execution: { misfire: MisfireChoice; catchUpMax: number; maxRuntimeS: number };
+  concurrency: { maxConcurrentRuns: number; onConflict: ConflictChoice };
+  retry: { maxAttempts: number };
+} {
+  return {
+    execution: {
+      misfire: draft.misfire,
+      catchUpMax: Math.max(1, draft.catchUpMax),
+      maxRuntimeS: Math.max(1, draft.maxRuntimeS),
+    },
+    concurrency: {
+      maxConcurrentRuns: Math.max(1, draft.maxRuns),
+      onConflict: draft.onConflict,
+    },
+    retry: { maxAttempts: Math.max(1, draft.maxAttempts) },
   };
 }
 
@@ -606,6 +651,12 @@ export function draftFromBot(bot: AutomationView): BotDraft {
   // KEEP the bot's own zone: re-saving an edit must not re-stamp it to the
   // editor's browser zone and silently shift every future fire.
   if (trig.timezone) draft.timezone = trig.timezone;
+  draft.misfire = bot.execution.misfire;
+  draft.catchUpMax = bot.execution.catchUpMax;
+  draft.maxRuntimeS = bot.execution.maxRuntimeS;
+  draft.onConflict = bot.concurrency.onConflict;
+  draft.maxRuns = bot.concurrency.maxConcurrentRuns;
+  draft.maxAttempts = bot.retry.maxAttempts;
   if (trig.type === 'interval') {
     const s = trig.intervalSeconds ?? 3600;
     if (s % 86400 === 0) { draft.schedule = 'interval'; draft.intervalValue = s / 86400; draft.intervalUnit = 'days'; }

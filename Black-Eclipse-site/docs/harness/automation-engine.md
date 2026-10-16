@@ -78,13 +78,18 @@ with a code — never silently accepted.
 - **Cron** — 5-field expression, evaluated in the trigger's IANA timezone, with
   optional `startAt`/`endAt`. DST is deterministic: a nonexistent wall time
   resolves to the instant after the gap, an ambiguous one to its first occurrence.
+  An expression that can never match (e.g. `0 0 30 2 *`) produces **no next run**
+  — it is retained but never due, not scheduled years into the future.
 - **Interval** — structural `intervalSeconds` (30s…30d), anchored to a fixed grid
   (the slot that last fired), not to the run's completion time, so cadence never
-  drifts by run duration.
+  drifts by run duration. Honors the same `startAt`/`endAt` window as cron.
 - **One-time** — a single ISO `runAt`; after firing the automation is retained
   (never deleted) with no next run.
 - **Event** — an indexed subscription to an event type (any dotted name, e.g.
-  `filing.created`). The vocabulary is open-ended; unknown future types work.
+  `filing.created`). The vocabulary is open-ended; unknown future types work. An
+  optional `eventFilter` narrows the subscription: every key must equal the
+  matching field of the event's `data` (bare `ticker`, dotted `data.x`, or an
+  `event.` field), and a non-matching event is not consumed.
 - **Condition** — a deterministic expression evaluated on a tick against facts
   from a `FactProvider` (market gateway by default). No LLM evaluates a financial
   or operational condition.

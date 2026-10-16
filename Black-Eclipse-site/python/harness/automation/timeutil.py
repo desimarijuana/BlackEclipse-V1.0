@@ -98,12 +98,16 @@ def next_cron_fire(
         after_utc = after_utc.replace(tzinfo=UTC)
     local_after = after_utc.astimezone(tz).replace(tzinfo=None)
     local_next = cron.next_fire(local_after)
+    if local_next is None:
+        return None  # an expression that can never match (e.g. Feb 30)
     moment = local_next.replace(tzinfo=tz, fold=0).astimezone(UTC)
     # A DST gap can push the localized instant at or before `after`; advance one
     # minute and retry (bounded) so we never return a non-future fire time.
     guard = 0
     while moment <= after_utc and guard < 5:
         local_next = cron.next_fire(local_next)
+        if local_next is None:
+            return None
         moment = local_next.replace(tzinfo=tz, fold=0).astimezone(UTC)
         guard += 1
     start = parse_iso(start_at)
@@ -114,6 +118,8 @@ def next_cron_fire(
         # Advance to the first fire at/after start (bounded scan).
         local_start = start.astimezone(tz).replace(tzinfo=None)
         candidate_local = cron.next_fire(local_start - _dt.timedelta(minutes=1))
+        if candidate_local is None:
+            return None
         moment = candidate_local.replace(tzinfo=tz, fold=0).astimezone(UTC)
         if end is not None and moment > end:
             return None
@@ -125,8 +131,14 @@ def next_interval_fire(
     anchor_utc: _dt.datetime,
     *,
     after_utc: Optional[_dt.datetime] = None,
-) -> _dt.datetime:
-    """The next interval fire strictly after `after_utc` (defaults to now)."""
+    start_at: Optional[str] = None,
+    end_at: Optional[str] = None,
+) -> Optional[_dt.datetime]:
+    """The next interval fire strictly after `after_utc` (defaults to now).
+
+    Honors the optional `start_at`/`end_at` window: the first grid slot at or
+    after `start_at`, and `None` once the grid passes `end_at`.
+    """
     step = _dt.timedelta(seconds=int(interval_seconds))
     after = after_utc or now_utc()
     if anchor_utc.tzinfo is None:
@@ -134,10 +146,19 @@ def next_interval_fire(
     if after.tzinfo is None:
         after = after.replace(tzinfo=UTC)
     if anchor_utc > after:
-        return anchor_utc
-    delta = after - anchor_utc
-    steps = int(delta.total_seconds() // step.total_seconds()) + 1
-    return anchor_utc + step * steps
+        nxt = anchor_utc
+    else:
+        delta = after - anchor_utc
+        steps = int(delta.total_seconds() // step.total_seconds()) + 1
+        nxt = anchor_utc + step * steps
+    start = parse_iso(start_at)
+    end = parse_iso(end_at)
+    if start is not None:
+        while nxt < start:
+            nxt = nxt + step
+    if end is not None and nxt > end:
+        return None
+    return nxt
 
 
 def next_one_time_fire(run_at: str, after_utc: Optional[_dt.datetime] = None) -> Optional[_dt.datetime]:

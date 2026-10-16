@@ -336,6 +336,32 @@ async def test_lease_lock_prevents_double_processing(env):
     assert env.auto_store.acquire_lock("exec:y", "w2", ttl_s=100) is True
 
 
+async def test_impossible_cron_schedules_no_run(env):
+    # An expression that can never match (Feb 30) must leave nextRunAt empty, not
+    # schedule a run years out.
+    _save(env, trigger={"type": "cron", "cron": "0 0 30 2 *", "timezone": "UTC"})
+    assert env.auto_store.get_automation("auto_test").next_run_at is None
+
+
+async def test_event_filter_is_honored(env):
+    _save(env, trigger={
+        "type": "event", "event_type": "price.changed",
+        "event_filter": {"ticker": "AAPL"}, "timezone": "UTC",
+    })
+    await env.engine._handle_event({"id": "e1", "type": "price.changed", "data": {"ticker": "ETH"}})
+    await env.engine.wait_idle()
+    assert env.dispatcher.calls == 0  # filtered out
+    await env.engine._handle_event({"id": "e2", "type": "price.changed", "data": {"ticker": "AAPL"}})
+    await env.engine.wait_idle()
+    assert env.dispatcher.calls == 1
+
+
+async def test_interval_end_window_stops_scheduling(env):
+    past = (env.clock() - _dt.timedelta(hours=1)).isoformat()
+    _save(env, trigger={"type": "interval", "interval_seconds": 3600, "timezone": "UTC", "end_at": past})
+    assert env.auto_store.get_automation("auto_test").next_run_at is None
+
+
 def test_renew_lock_extends_the_lease(env):
     # The engine renews a run's lease mid-flight; the store call must extend expiry
     # for the OWNER and refuse for anyone else.

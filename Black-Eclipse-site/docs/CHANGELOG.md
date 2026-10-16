@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-15
 
+- **Bot scheduling, batch 2 — engine robustness + run-behaviour controls.**
+  Engine (`python/harness/jobs/cron.py`, `automation/timeutil.py`,
+  `automation/engine.py`): `CronExpression.next_fire` now returns `None` for an
+  expression that can never match (Feb 30) instead of a phantom ~4-year-out date,
+  so such a schedule has no next run rather than a bogus distant one; interval
+  triggers now honor `startAt`/`endAt` (not just cron); and `eventFilter` is
+  honored generically (each key must match the event's `data`, bare or
+  `data.`-prefixed, before the event's dedup slot is consumed). UI: a new
+  `RunBehaviourEditor` (shared by the create dialog and the detail editor) exposes
+  the engine policy the backend always supported but never surfaced — misfire
+  policy, catch-up cap, concurrency on-conflict, max concurrent runs, retry
+  attempts and per-run timeout — via `buildPolicies(draft)` in
+  `src/lib/bots/state.ts`, threaded into `createAutomation`/`updateAutomation`.
+  Tests: `test_jobs_cron.py`, `test_automation_engine.py` (+3), `state.test.ts`
+  (+2). en.ts re-pinned 1225→1238. Docs updated:
+  `docs/harness/automation-engine.md`.
+
 - **Bot scheduling hardening — closed the correctness gaps found in the audit.**
   Frontend (`src/lib/bots/state.ts`, `schedule-editor.tsx`, `create-bot-dialog.tsx`,
   `bots-screen.tsx`): editing a bot now PRESERVES its trigger timezone

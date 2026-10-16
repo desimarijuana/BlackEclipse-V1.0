@@ -49,8 +49,11 @@ const RATCHET: Record<string, number> = {
   // existing manual bot.
   // Re-pinned 1222→1225: the schedule builder gained a monthly choice
   // (`bots.sched.monthly`), a day-of-month label (`bots.sched.dayOfMonth`) and an
-  // interval-floor note (`bots.sched.minInterval`). May only shrink from here.
-  "src/lib/i18n/dictionaries/en.ts": 1225,
+  // interval-floor note (`bots.sched.minInterval`).
+  // Re-pinned 1225→1238: the Advanced panel now exposes the engine's run
+  // behaviour (misfire / catch-up / concurrency / retry / timeout) —
+  // `bots.behaviour.*`. May only shrink from here.
+  "src/lib/i18n/dictionaries/en.ts": 1238,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

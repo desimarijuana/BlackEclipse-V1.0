@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
+import { RunBehaviourEditor } from '@/components/bots/run-behaviour-editor';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -27,7 +28,8 @@ import {
   DEFAULT_GHOST_SPEC, createRng, ghostSpecFromId, ghostSpecKey, randomGhostSpec, type GhostSpec,
 } from '@/lib/bots/ghost';
 import {
-  BOT_AGENTS, buildTrigger, detectSchedule, emptyBotDraft, validateDraft, type BotDraft, type DraftIssue,
+  BOT_AGENTS, buildPolicies, buildTrigger, detectSchedule, emptyBotDraft, validateDraft,
+  type BotDraft, type DraftIssue,
 } from '@/lib/bots/state';
 
 const FACE_COUNT = 12;
@@ -197,6 +199,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
         state: 'active',
         trigger: buildTrigger(nextDraft),
         action: { type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId },
+        ...buildPolicies(nextDraft),
         tags: ['bot'],
       });
       setAvatar(bot.id, spec);
@@ -429,6 +432,13 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
                   }}
                 />
                 <FieldError issue={issueFor('schedule') ?? issueFor('cron') ?? issueFor('runAt') ?? issueFor('intervalValue')} />
+              </div>
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.behaviour.title')}</div>
+                <RunBehaviourEditor
+                  draft={draft}
+                  onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+                />
               </div>
             </div>
           )}
