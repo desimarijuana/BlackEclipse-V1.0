@@ -16,6 +16,7 @@ import {
   normalizeConversation,
   normalizeConversations,
   normalizeFolders,
+  saveConversationsCache,
   saveFolders,
   scoreConversation,
   searchConversations,
@@ -295,5 +296,65 @@ describe('storage', () => {
     s.setItem('chat_folders_v1', '{bad json');
     expect(loadFolders(s)).toEqual([]);
     expect(normalizeFolders([{ name: 'no-id' }, { id: 'f2' }])).toEqual([{ id: 'f2', name: 'Folder', color: '#64748b' }]);
+  });
+});
+
+describe('saveConversationsCache', () => {
+  /** Storage that throws once the serialized payload exceeds `quota` chars. */
+  const quotaStorage = (quota: number) => {
+    let stored: string | null = null;
+    return {
+      get stored() {
+        return stored;
+      },
+      setItem: (_k: string, v: string) => {
+        if (v.length > quota) throw new DOMException('quota', 'QuotaExceededError');
+        stored = v;
+      },
+    };
+  };
+
+  const list = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      conv({ id: `c${i}`, timestamp: i, messages: [{ id: `m${i}`, role: 'user', content: 'x'.repeat(10) }] }),
+    );
+
+  it('writes the whole list and reports nothing evicted when it fits', () => {
+    const s = quotaStorage(100_000);
+    expect(saveConversationsCache(s, list(5))).toBe(0);
+    expect(JSON.parse(s.stored!)).toHaveLength(5);
+  });
+
+  it('evicts instead of freezing when the list outgrows the quota', () => {
+    const s = quotaStorage(400);
+    const dropped = saveConversationsCache(s, list(30));
+    expect(dropped).toBeGreaterThan(0);
+    const kept = JSON.parse(s.stored!) as Conversation[];
+    // The most recent chats survive the eviction.
+    expect(kept.some((c) => c.id === 'c29')).toBe(true);
+    expect(kept.some((c) => c.id === 'c0')).toBe(false);
+  });
+
+  it('drops trashed and archived chats before active ones', () => {
+    const padded = (id: string, extra: Partial<Conversation> = {}) =>
+      conv({ id, timestamp: 1, messages: [{ id: `${id}-m`, role: 'user', content: 'x'.repeat(200) }], ...extra });
+    const s = quotaStorage(600);
+    const convs = [
+      padded('active-old', { timestamp: 1 }),
+      padded('active-new', { timestamp: 9 }),
+      padded('archived', { archivedAt: 5 }),
+      padded('trashed', { deletedAt: 8 }),
+    ];
+    expect(saveConversationsCache(s, convs)).toBeGreaterThan(0);
+    const ids = (JSON.parse(s.stored!) as Conversation[]).map((c) => c.id);
+    expect(ids).not.toContain('trashed');
+    expect(ids).not.toContain('archived');
+    expect(ids).toContain('active-new');
+  });
+
+  it('reports full eviction when storage rejects even an empty list', () => {
+    const s = quotaStorage(-1);
+    expect(saveConversationsCache(s, list(3))).toBe(3);
+    expect(s.stored).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import {
   CONVERSATIONS_STORAGE_KEY,
   mostRecentConversation,
   normalizeConversations,
+  saveConversationsCache,
   type Conversation,
 } from './chat-organization';
 import {
@@ -126,20 +127,35 @@ export function useConversationPersistence(opts: ConversationPersistenceOptions)
         for (const c of merged) syncedRef.current.set(c.id, JSON.stringify(c));
         for (const c of localOnly) void saveServerConversation(c);
         serverHydratedRef.current = true;
-        if (!activeConversationIdRef.current) {
+        // Refresh the OPEN transcript from the merged (durable) copy. The
+        // localStorage first paint above can be stale: it is origin-scoped and
+        // silently stops updating once the whole transcript list outgrows the
+        // quota (`setItem` throws QuotaExceededError, swallowed above), so the
+        // cache keeps returning an old snapshot. Without this, a restart/refresh
+        // showed that stale transcript until the user switched chats, even
+        // though the server already held the new turns.
+        const currentId = activeConversationIdRef.current;
+        const active = currentId ? merged.find((c) => c.id === currentId) : null;
+        if (active) {
+          setMessages(active.messages);
+          void restoreWorkspaceForChat(active.messages, active.id);
+        } else {
           const start = mostRecentConversation(merged);
           if (start) {
             activeConversationIdRef.current = start.id;
             setActiveConversationId(start.id);
             setMessages(start.messages);
             void restoreWorkspaceForChat(start.messages, start.id);
+          } else {
+            activeConversationIdRef.current = null;
+            setActiveConversationId(null);
+            setMessages([]);
+            useWorkspaceStore.getState().clear();
           }
         }
-        try {
-          localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(merged));
-        } catch {
-          /* cache unavailable: the server copy above is authoritative */
-        }
+        // Evicts the least valuable chats rather than freezing the cache when
+        // the merged list exceeds the quota (the server copy is authoritative).
+        saveConversationsCache(localStorage, merged);
       } catch {
         // Runtime unavailable: stay local-only; the cache still works this session.
       }

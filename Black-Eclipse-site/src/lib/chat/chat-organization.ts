@@ -241,6 +241,58 @@ export function saveFolders(storage: Pick<Storage, 'setItem'>, folders: ChatFold
   }
 }
 
+/** Removal order when the cache must shrink: trashed, then archived, then the
+ *  oldest unpinned chats; pinned chats are evicted last. */
+function cacheEvictionOrder(conversations: Conversation[]): Conversation[] {
+  const priority = (c: Conversation): number => (c.deletedAt ? 0 : c.archivedAt ? 1 : 2);
+  return [...conversations].sort((a, b) => {
+    const p = priority(a) - priority(b);
+    if (p) return p;
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? 1 : -1;
+    return (a.timestamp ?? 0) - (b.timestamp ?? 0);
+  });
+}
+
+/**
+ * Persist the conversation cache, degrading gracefully when the origin's storage
+ * quota is exhausted.
+ *
+ * The whole transcript list can outgrow localStorage (~5 MB) — a plain setItem
+ * then throws `QuotaExceededError` and, if swallowed, the cache silently FREEZES
+ * on an old snapshot, so recent chats vanish from the first paint until the
+ * server copy hydrates. Instead of failing outright, evict the least valuable
+ * chats (trashed, archived, oldest) until the payload fits, so the most recent
+ * conversations always keep an instant cache. The server transcript remains the
+ * durable copy; eviction only affects this cache.
+ *
+ * Returns the number of conversations evicted (0 when everything fit).
+ */
+export function saveConversationsCache(
+  storage: Pick<Storage, 'setItem'>,
+  conversations: Conversation[],
+): number {
+  const write = (list: Conversation[]): boolean => {
+    try {
+      storage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(list));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (write(conversations)) return 0;
+
+  const kept = [...conversations];
+  for (const victim of cacheEvictionOrder(conversations)) {
+    const idx = kept.findIndex((c) => c.id === victim.id);
+    if (idx !== -1) kept.splice(idx, 1);
+    if (write(kept)) return conversations.length - kept.length;
+    if (kept.length === 0) break;
+  }
+  // Even an empty list could not be written (storage blocked / private mode).
+  return conversations.length;
+}
+
 // ── Scope & tags ─────────────────────────────────────────────────────────────
 
 /** True when a conversation belongs to the given scope. */

@@ -21,7 +21,7 @@ import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
-import { CONVERSATIONS_STORAGE_KEY, mostRecentConversation } from '@/lib/chat/chat-organization';
+import { mostRecentConversation, saveConversationsCache } from '@/lib/chat/chat-organization';
 import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useConversationPersistence } from '@/lib/chat/use-conversation-persistence';
 import { useHydrateBackground } from '@/lib/backgrounds';
@@ -453,12 +453,9 @@ function StockChatContent() {
     setConversations(updated);
     // Best-effort cache. localStorage can be unavailable (private mode, a
     // sandboxed iframe, a blocked origin) — a cache write must NEVER break the
-    // in-memory chat, which is why this is guarded.
-    try {
-      localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(updated));
-    } catch {
-      /* cache unavailable: the server transcript below is the durable copy */
-    }
+    // in-memory chat. When the list outgrows the quota the helper evicts the
+    // least valuable chats instead of silently freezing on a stale snapshot.
+    saveConversationsCache(localStorage, updated);
   };
 
   // Chat organization (folders / colors / pin / rename / move) is owned by a

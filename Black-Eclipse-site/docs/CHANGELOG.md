@@ -8,6 +8,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-16
 
+- **Chat transcript no longer "disappears" on server restart/refresh.** The
+  localStorage cache is origin-scoped and silently froze once the whole
+  transcript list outgrew the quota (~5 MB; the current tree is ~5.04 MB), so
+  `saveConversations` swallowed the `QuotaExceededError` and kept returning an
+  old snapshot. Boot hydration merged the durable server copy into `conversations`
+  but only pushed `messages` when no active chat was set, so the open transcript
+  stayed stale despite the server already holding the new turns. Two fixes: (1)
+  on boot the open conversation is refreshed from the merged copy (falling back
+  to most-recent when it is gone); (2) the cache writer now degrades gracefully —
+  `saveConversationsCache` evicts the least valuable chats (trashed → archived →
+  oldest unpinned) until the payload fits instead of freezing, with the server
+  transcript still authoritative. Files:
+  `src/lib/chat/use-conversation-persistence.ts`,
+  `src/lib/chat/chat-organization.ts`, `components/screens/stock-chat.tsx`;
+  regression tests in `chat-organization.test.ts`.
+  `no doc change — bug fix, contracts unchanged`.
+
 - **One app-wide theme across every URL.** The Eclipse theme was
   `localStorage`-only, so `http://localhost:3000`, `http://127.0.0.1:3000` and
   `https://blackeclipse` — three browser ORIGINS — each showed their own saved
