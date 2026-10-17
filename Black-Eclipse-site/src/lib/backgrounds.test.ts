@@ -5,6 +5,7 @@ import {
   isBackgroundCustomized,
   isVectorImage,
   isWordmarkVisible,
+  migrateLegacyLandingColor,
   normalizeBackgroundPrefs,
   normalizePresetBackground,
   resolveBackgroundCss,
@@ -229,15 +230,33 @@ describe('resolveBackgroundCss', () => {
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'flat', solidColor: '#123456' }, null);
     expect(css.url).toBe('none');
     expect(css.color).toBe('#123456');
+    expect(css.colorDark).toBe('#123456');
     expect(css.pageImage).toBe('none');
     expect(css.scrim).toBe(false);
     expect(css.suppressPattern).toBe(true);
   });
 
-  it('solid flat with no color follows the theme background', () => {
+  it('solid flat with no color follows the theme background, defaulting dark to near-black', () => {
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'flat', solidColor: '' }, null);
     expect(css.url).toBe('none');
     expect(css.color).toBe('var(--background)');
+    expect(css.colorDark).toBe('#0a0b0b');
+  });
+
+  it('migrates a retired dark preset landing color to the #0a0b0b default', () => {
+    const legacy = { ...DEFAULT_BACKGROUND, mode: 'solid' as const, solidFill: 'flat' as const, solidColor: '#131615' };
+    expect(migrateLegacyLandingColor(legacy).solidColor).toBe('');
+    expect(resolveBackgroundCss(migrateLegacyLandingColor(legacy), null).colorDark).toBe('#0a0b0b');
+  });
+
+  it('keeps an explicit, deliberately-picked landing color', () => {
+    const custom = { ...DEFAULT_BACKGROUND, mode: 'solid' as const, solidFill: 'flat' as const, solidColor: '#123456' };
+    expect(migrateLegacyLandingColor(custom).solidColor).toBe('#123456');
+  });
+
+  it('leaves non-flat and image backdrops untouched', () => {
+    expect(migrateLegacyLandingColor({ ...DEFAULT_BACKGROUND, mode: 'solid', solidFill: 'gradient', solidColor: '#131615' }).solidColor).toBe('#131615');
+    expect(migrateLegacyLandingColor({ ...DEFAULT_BACKGROUND, mode: 'image', solidColor: '#131615' }).solidColor).toBe('#131615');
   });
 
   it('solid gradient builds a two-stop wash', () => {

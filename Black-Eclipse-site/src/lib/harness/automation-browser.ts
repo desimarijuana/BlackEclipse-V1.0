@@ -70,6 +70,32 @@ export async function createAutomation(input: CreateAutomationInput): Promise<Au
   return body.automation;
 }
 
+// ── Proactive monitors ───────────────────────────────────────────────────────
+export interface AdvisoryMonitorView {
+  id: string;
+  label: string;
+  description: string;
+  requiredParams: string[];
+  condition: string;
+  delivery: string;
+}
+
+export async function listMonitors(): Promise<AdvisoryMonitorView[]> {
+  const body = await api<{ monitors: AdvisoryMonitorView[] }>("/api/automations/monitors");
+  return body.monitors ?? [];
+}
+
+export async function createMonitor(input: {
+  monitorId: string;
+  params: Record<string, string | number>;
+  name?: string;
+}): Promise<AutomationView> {
+  const body = await api<{ automation: AutomationView }>("/api/automations/monitors", {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return body.automation;
+}
+
 export async function updateAutomation(id: string, patch: Record<string, unknown>): Promise<AutomationView> {
   const body = await api<{ automation: AutomationView }>(`/api/automations/${encodeURIComponent(id)}`, {
     method: "PATCH", body: JSON.stringify(patch),

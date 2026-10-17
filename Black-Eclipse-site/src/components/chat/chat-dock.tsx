@@ -419,6 +419,7 @@ export function ChatDock({
               codeVerification: turn.codeVerification,
               autonomy: turn.autonomy,
               capability: turn.capability,
+              responsePlan: turn.responsePlan,
               runId: turn.runId,
               model: turn.model,
               pendingApproval: turn.pendingApproval,

@@ -29,4 +29,25 @@ describe("buildAgentInstruction", () => {
     expect(buildAgentInstruction("hello there")).toBeNull();
     expect(buildAgentInstruction(null)).toBeNull();
   });
+
+  it("rewrites /anatomy into an isometric-figure directive", () => {
+    const cmd = buildAgentInstruction("/anatomy how a cache works")!;
+    expect(cmd.command).toBe("anatomy");
+    expect(cmd.instruction).toContain("how a cache works");
+    expect(cmd.instruction).toContain("anatomy");
+    expect(cmd.instruction).toContain("response_block_schema");
+    expect(cmd.instruction).toContain("eclipse-response");
+  });
+
+  it("asks what to illustrate when no subject is given", () => {
+    const cmd = buildAgentInstruction("/anatomy")!;
+    expect(cmd.command).toBe("anatomy");
+    expect(cmd.instruction).toMatch(/ask the user/i);
+  });
+
+  it("honours --animated by asking for step-through stages", () => {
+    const cmd = buildAgentInstruction("/anatomy a data pipeline --animated")!;
+    expect(cmd.instruction).toContain("stages");
+    expect(cmd.instruction).toContain("animate");
+  });
 });

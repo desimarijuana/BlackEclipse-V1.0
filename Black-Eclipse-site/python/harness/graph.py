@@ -1236,6 +1236,26 @@ async def execute_run(
         except Exception:  # noqa: BLE001 - a digest must never break the run
             pass
 
+    # Intelligent Response Orchestrator: a deterministic, model-free plan of HOW
+    # to present this turn's answer (text | explanation | visualization |
+    # simulation | workflow | composite). It appends presentation guidance to the
+    # byte-stable head and records the chosen mode via `response.plan` for
+    # evaluation. It never mandates structure and never fabricates data; a
+    # classification failure degrades to text and must never block the run.
+    if allowed and "response_block_schema" in allowed:
+        try:
+            from .response_mode_llm import orchestrate_response_mode, response_mode_prompt_block  # noqa: PLC0415
+
+            _response_plan = await orchestrate_response_mode(
+                request.input.query, request.input.history, request.modelSettings
+            )
+            _mode_block = response_mode_prompt_block(_response_plan)
+            if _mode_block:
+                system_prompt = f"{system_prompt}\n\n{_mode_block}"
+            await emitter.emit("response.plan", _response_plan.to_dict())
+        except Exception:  # noqa: BLE001 - presentation guidance must never break the run
+            pass
+
     # A test/operator seam: allows a deterministic tighter budget to be injected
     # (used to exercise the overflow-recovery path without a live provider). It
     # only narrows the derived allowance — it can never widen it.
@@ -1543,6 +1563,7 @@ async def execute_run(
                 conversation_id=getattr(request, "conversationId", None),
                 owner_id=request.userId,
                 sources=sorted(source_collector.known_urls())[:20],
+                entry_prices=advisory_collector.prices(),
             )
         except Exception:  # noqa: BLE001 - recording must never fail a run
             pass

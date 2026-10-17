@@ -152,6 +152,11 @@ function degradeBlocks(blocks: ValidatedBlock[], degraded: DegradeRecord[]): Val
             blocks: degradeBlocks(slide.blocks as ValidatedBlock[], degraded),
           })),
         };
+      case 'layout':
+        return {
+          ...block,
+          blocks: degradeBlocks(block.blocks as ValidatedBlock[], degraded),
+        };
       default:
         return block;
     }
@@ -198,7 +203,7 @@ export function finalizeResponse(raw: unknown): FinalizedResponse {
 export function finalizeFenceSource(source: string): FinalizedResponse {
   const trimmed = source.trim();
   if (!trimmed) {
-    return { response: { schemaVersion: RESPONSE_SCHEMA_VERSION, blocks: [], diagnostics: [] }, degraded: [] };
+    return { response: { schemaVersion: RESPONSE_SCHEMA_VERSION, state: [], computed: [], blocks: [], diagnostics: [] }, degraded: [] };
   }
   let value: unknown;
   try {
@@ -206,7 +211,7 @@ export function finalizeFenceSource(source: string): FinalizedResponse {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'invalid JSON';
     const result: FinalizedResponse = {
-      response: { schemaVersion: RESPONSE_SCHEMA_VERSION, blocks: [degradeSourceText(source)], diagnostics: [] },
+      response: { schemaVersion: RESPONSE_SCHEMA_VERSION, state: [], computed: [], blocks: [degradeSourceText(source)], diagnostics: [] },
       degraded: [{ code: 'MALFORMED_JSON', message }],
     };
     reportResponseDegrade(result.degraded);

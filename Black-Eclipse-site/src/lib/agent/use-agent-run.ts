@@ -260,6 +260,13 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           publish(true);
           break;
         }
+        case 'response_plan': {
+          // The orchestrator's chosen presentation mode — display only, so the UI
+          // can show how the turn was framed (it never changes the answer).
+          t.responsePlan = event.plan;
+          publish(true);
+          break;
+        }
       }
     },
     [publish],

@@ -181,7 +181,14 @@ condition on an event trigger is evaluated against the event's data (bare keys a
   it never records a spurious `skipped`. Beyond that window the policy applies:
   `skip` records a skipped execution and advances the anchor; `run_once` launches
   one; `catch_up` launches up to `catchUpMax` (bounded by the operator's cap —
-  default 1 — so it is never an unbounded storm).
+  default 1 — so it is never an unbounded storm). **The default is `run_once`**
+  (it was `skip`): `skip` silently DROPPED every fire that came due while the app
+  was closed, so a daily bot only ran if Eclipse happened to be open at that
+  minute. A missed slot is recorded at most once — recovery is keyed by the slot
+  (`scheduledFor`), so repeated restarts cannot spam the same skipped run.
+  Existing automations saved under the old `skip` default are upgraded once to
+  `run_once` by a guarded migration in `AutomationStore`; a later, deliberate
+  `skip` is preserved.
 - **Manual runs never move the schedule** — only a scheduling trigger type advances
   `nextRunAt`; `run_now`, a webhook, or a recovery re-run leave it untouched.
 - **Breaker** — repeated failures open a breaker (reusing `mcp/circuit.py`

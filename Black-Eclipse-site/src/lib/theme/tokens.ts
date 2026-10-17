@@ -284,23 +284,27 @@ function preset(
   extra?: Partial<EclipseTheme>,
   background?: Partial<BackgroundPrefs>,
 ): ThemePreset {
-  // Every shipped preset's ChatBot landing is a simple FLAT solid: a near-
-  // neutral grey carrying only the faintest shade of the preset's ACCENT hue
-  // (the Hermes look) — never a bright or over-saturated wash, never a
-  // gradient. Dark-scheme presets mix toward a dark base with a whitish
-  // wordmark; light-scheme presets (e.g. White) mix toward a light base with a
-  // dark wordmark, so the landing stays legible in both schemes. A caller may
-  // still pin an explicit `solidColor`/`textColor` to override.
+  // Every shipped preset's ChatBot landing is a simple FLAT solid, never a
+  // gradient. Dark-scheme presets leave the fill unset so the scheme-aware
+  // near-black default (#0a0b0b) paints on every dark theme, with a whitish
+  // wordmark; light-scheme presets (e.g. White) mix their accent toward a light
+  // base with a dark wordmark, so the landing stays legible in both schemes. A
+  // caller may still pin an explicit `solidColor`/`textColor` to override.
   const scheme: ThemeScheme = extra?.scheme ?? DEFAULT_ECLIPSE_THEME.scheme;
   const isLight = scheme === 'light';
   const accent = colors.accent ?? DEFAULT_ECLIPSE_THEME.colors.accent;
   const tint = mixHex(accent, isLight ? LANDING_BASE_LIGHT : LANDING_BASE, isLight ? 0.04 : 0.05);
   const wordmark = isLight ? '#1f2937' : '#e8e8ea';
+  // Dark landings leave the color UNSET so the scheme-aware near-black default
+  // (`DEFAULT_SOLID_DARK_COLOR` #0a0b0b) applies on every dark theme, instead of
+  // a per-theme accent tint; a light landing keeps its light tint. A caller may
+  // still pin an explicit `solidColor` to override.
+  const landingColor = background?.solidColor?.trim() || (isLight ? tint : '');
   const landing: Partial<BackgroundPrefs> = {
     ...(background ?? {}),
     mode: background?.mode ?? 'solid',
     solidFill: background?.solidFill ?? 'flat',
-    solidColor: background?.solidColor?.trim() || tint,
+    solidColor: landingColor,
     textColor: background?.textColor?.trim() || wordmark,
   };
   return {
@@ -397,7 +401,8 @@ export const THEME_PRESETS: ThemePreset[] = [
     background: {
       mode: 'solid',
       solidFill: 'flat',
-      solidColor: '#131615',
+      // Unset so the dark landing uses the scheme-aware near-black (#0a0b0b).
+      solidColor: '',
       textEnabled: true,
       text: 'ECLIPSE AGENT',
       textFont: PRESET_WORDMARK_FONT,
@@ -489,6 +494,23 @@ export const THEME_PRESETS: ThemePreset[] = [
     { primary: '#be123c', accent: '#fb7185', bullish: '#16a34a', bearish: '#e11d48' },
     { page: '#faf6f4', surface: '#fffdfd', border: '#ecdcd8' }),
 ];
+
+/**
+ * Retired dark-landing fills. Before dark presets deferred to the scheme-aware
+ * near-black default (`DEFAULT_SOLID_DARK_COLOR` `#0a0b0b`), each dark preset
+ * pinned an accent-tinted grey (`mixHex(accent, LANDING_BASE, 0.05)`; Eclipse
+ * pinned `#131615`). A stored ChatBot-landing color matching one of these is a
+ * preset default, not a deliberate pick, so the background store clears it on
+ * migration and the `#0a0b0b` default takes over on every dark theme.
+ */
+export const LEGACY_DARK_LANDING_COLORS: readonly string[] = (() => {
+  const out = new Set<string>(['#131615']);
+  for (const p of THEME_PRESETS) {
+    if (p.theme.scheme === 'light') continue;
+    out.add(mixHex(p.theme.colors.accent, LANDING_BASE, 0.05).toLowerCase());
+  }
+  return [...out];
+})();
 
 // ── Color helpers ────────────────────────────────────────────────────────────
 
@@ -644,8 +666,8 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
   return {
     appName: str(value.appName, d.appName, 48),
     logoText: str(value.logoText, d.logoText, 4),
-    logoUrl: str(value.logoUrl, d.logoUrl, 400_000),
-    faviconUrl: str(value.faviconUrl, d.faviconUrl, 400_000),
+    logoUrl: str(value.logoUrl, d.logoUrl, 500_000),
+    faviconUrl: str(value.faviconUrl, d.faviconUrl, 500_000),
     fontUi: str(value.fontUi, d.fontUi, 300),
     fontHeading: str(value.fontHeading, d.fontHeading, 300),
     fontMono: str(value.fontMono, d.fontMono, 300),

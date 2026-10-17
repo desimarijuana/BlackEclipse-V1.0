@@ -109,10 +109,31 @@ properties inspector, AI command panel, revision history and diagnostics.
 
 **Naming a page from the agent surface:** `ui_list_blueprints` and
 `ui_get_application_map` print each page's `id` + title in their text line (the
-`id` is what every mutation tool requires). `BlueprintSummary` now also carries
-`path` and `componentIds`, so pages that share a title are distinguishable from
-the list alone, and `ui_get_current_page` can resolve `path` against the full
+`id` is what every mutation tool requires); the list line now also carries the
+**widget count and first component ids**, so two pages that share a title are
+distinguishable from the text alone. `BlueprintSummary` carries `path` and
+`componentIds`, and `ui_get_current_page` can resolve `path` against the full
 blueprint.
+
+**Unique titles on create.** `create_page` guarantees a title unique among the
+owner's pages — a duplicate is suffixed ("Main" → "Main 2") — so a create never
+adds a second page sharing a title. Duplicates can still arise from a title EDIT
+(`update_page`) or an import, so the `title_ambiguous` resolution path stays
+reachable (and tested): a page is always resolvable by id, path, or its component
+signature, and a shared title still resolves to the most-recently-updated page
+with the others offered as candidates.
+
+**New-capability routing (`classify_request`).** A request for NEW interaction
+(a slider, an input form, a user-driven parameter, a calculator) is a
+**new-capability signal** → Compose/Engineer escalates to `Engineer` (the
+read-only widget catalog has no interactive input component), so `ui_start_engineering`
+files a durable task instead of silently dying. Signals are matched as phrases
+(not bare words) so a restyle of a "performance" dashboard is not misrouted.
+
+**Catalog search honesty (`UiCatalog.search`).** The loose relevance tier matches
+on **word boundaries**, not raw substrings — so a search for `form` no longer
+returns charts whose description contains "per**form**ance". A query that matches
+nothing returns an empty list ("0 component(s)."), never a default listing.
 
 **Resolving "the current page" (`get_current_page`).** The lookup takes an
 explicit `blueprintId`, else `path`, else `title`; with **none** of them it

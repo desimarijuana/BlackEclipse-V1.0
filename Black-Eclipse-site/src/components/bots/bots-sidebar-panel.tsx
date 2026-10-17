@@ -6,26 +6,36 @@
 // when the sidebar is narrow. This is the ONE bot list: the Bots page itself is
 // just the conversation + the scheduled-jobs rail.
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { Plus, RefreshCw, Users } from '@/lib/icons';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
-import { lifecycleTone } from '@/components/bots/status-pill';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
+import { useBotChatStore } from '@/lib/bots/chat-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
-import { executionLabel, isLiveExecution, type Tone } from '@/lib/bots/state';
+import { executionLabel, isTerminalExecution } from '@/lib/bots/state';
+import type { AutomationStatusView } from '@/lib/harness/automation-browser';
+import type { BotMessage } from '@/lib/bots/chat-store';
 
-const DOT: Record<Tone, string> = {
-  positive: 'bg-emerald-400',
-  warning: 'bg-amber-400',
-  danger: 'bg-rose-400',
-  info: 'bg-sky-400',
-  muted: 'bg-muted-foreground/50',
-};
+/** Most-recent activity for a bot: its last chat message, else its last run,
+ *  else its last edit. Used to sort the list newest-first. */
+function lastActivityMs(
+  botId: string,
+  fallback: string | undefined | null,
+  byBot: Record<string, BotMessage[]>,
+  statusById: Record<string, AutomationStatusView>,
+): number {
+  const msgs = byBot[botId];
+  const lastMsg = msgs && msgs.length > 0 ? Date.parse(msgs[msgs.length - 1].at) : 0;
+  const last = statusById[botId]?.lastExecution;
+  const runAt = last ? Date.parse(last.finishedAt ?? last.startedAt) : 0;
+  const edited = fallback ? Date.parse(fallback) : 0;
+  return Math.max(lastMsg || 0, runAt || 0, edited || 0);
+}
 
 export interface BotsSidebarPanelProps {
   collapsed: boolean;
@@ -42,6 +52,8 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const selectedId = useBotsStore((s) => s.selectedId);
   const selectedGroupId = useBotsStore((s) => s.selectedGroupId);
   const statusById = useBotsStore((s) => s.statusById);
+  const seenRuns = useBotsStore((s) => s.seenRuns);
+  const markSeen = useBotsStore((s) => s.markSeen);
   const select = useBotsStore((s) => s.select);
   const selectGroup = useBotsStore((s) => s.selectGroup);
   const hydrate = useBotsStore((s) => s.hydrate);
@@ -49,10 +61,54 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const openGroupCreate = useBotsStore((s) => s.openGroupCreate);
   const avatars = useBotAvatarStore((s) => s.avatars);
   const groups = useBotGroupsStore((s) => s.groups);
+  const byGroup = useBotGroupsStore((s) => s.byGroup);
+  const byBot = useBotChatStore((s) => s.byBot);
 
+  // The Bots workspace already refreshes the shared store on a 20s interval
+  // while this panel is visible; one hydrate on mount is enough here.
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  // A bot has an unseen message when its latest terminal run is newer than the
+  // last one the operator opened. A bot never opened before is not "unread"
+  // (its history is seeded silently below), so no dot flashes on first load.
+  const isUnread = useCallback(
+    (botId: string) => {
+      const last = statusById[botId]?.lastExecution;
+      if (!last) return false;
+      const seen = seenRuns[botId];
+      return seen !== undefined && seen !== last.id && isTerminalExecution(last.state);
+    },
+    [statusById, seenRuns],
+  );
+
+  // Seed the seen ledger for bots we have never opened, so existing history is
+  // never mistaken for a brand-new message.
+  useEffect(() => {
+    for (const bot of bots) {
+      const last = statusById[bot.id]?.lastExecution;
+      if (last && seenRuns[bot.id] === undefined) markSeen(bot.id, last.id);
+    }
+  }, [bots, statusById, seenRuns, markSeen]);
+
+  const sortedBots = useMemo(
+    () => [...bots].sort((a, b) =>
+      lastActivityMs(b.id, b.lastRunAt ?? b.updatedAt, byBot, statusById)
+      - lastActivityMs(a.id, a.lastRunAt ?? a.updatedAt, byBot, statusById)),
+    [bots, byBot, statusById],
+  );
+
+  const sortedGroups = useMemo(
+    () => [...groups].sort((a, b) => {
+      const am = byGroup[a.id];
+      const bm = byGroup[b.id];
+      const at = am && am.length > 0 ? Date.parse(am[am.length - 1].at) : Date.parse(a.createdAt);
+      const bt = bm && bm.length > 0 ? Date.parse(bm[bm.length - 1].at) : Date.parse(b.createdAt);
+      return (bt || 0) - (at || 0);
+    }),
+    [groups, byGroup],
+  );
 
   const open = (id: string | null) => {
     select(id);
@@ -86,8 +142,7 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
         >
           <Plus size={16} />
         </button>
-        {bots.slice(0, 12).map((bot) => {
-          const live = statusById[bot.id]?.lastExecution;
+        {sortedBots.slice(0, 12).map((bot) => {
           const active = bot.id === selectedId;
           return (
             <button
@@ -102,13 +157,13 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
               )}
             >
               <BotAvatar botId={bot.id} spec={avatarFor(avatars, bot.id)} size={24} title={bot.name} />
-              {live && isLiveExecution(live.state) && (
-                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-sky-400" />
+              {isUnread(bot.id) && (
+                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background" />
               )}
             </button>
           );
         })}
-        {groups.slice(0, 6).map((g) => (
+        {sortedGroups.slice(0, 6).map((g) => (
           <button
             key={g.id}
             type="button"
@@ -171,11 +226,10 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
         </button>
       ) : (
         <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto scrollbar-hide">
-          {bots.map((bot) => {
+          {sortedBots.map((bot) => {
             const active = bot.id === selectedId;
-            const status = statusById[bot.id];
-            const live = status?.lastExecution;
-            const tone = live ? (isLiveExecution(live.state) ? 'info' : lifecycleTone(bot.state)) : lifecycleTone(bot.state);
+            const live = statusById[bot.id]?.lastExecution;
+            const unread = isUnread(bot.id);
             const subtitle = live
               ? executionLabel(live.state)
               : bot.state === 'active'
@@ -193,10 +247,10 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
                 >
                   <BotAvatar botId={bot.id} spec={avatarFor(avatars, bot.id)} size={26} title={bot.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold">{bot.name}</span>
+                    <span className={cn('block truncate text-xs', unread ? 'font-semibold text-foreground' : 'font-semibold')}>{bot.name}</span>
                     <span className="block truncate text-[10px] capitalize opacity-80">{subtitle}</span>
                   </span>
-                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', DOT[tone])} aria-hidden />
+                  {unread && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />}
                 </button>
               </li>
             );
@@ -230,7 +284,7 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
           </button>
         ) : (
           <ul className="space-y-0.5">
-            {groups.map((g) => {
+            {sortedGroups.map((g) => {
               const active = g.id === selectedGroupId;
               return (
                 <li key={g.id}>

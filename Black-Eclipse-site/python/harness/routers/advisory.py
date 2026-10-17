@@ -75,3 +75,23 @@ async def advisory_record_outcome(decision_id: str, request: Request,
     if result is None:
         raise HTTPException(status_code=404, detail="no such recommendation")
     return result
+
+
+@router.post("/advisory/evaluate")
+async def advisory_evaluate(body: dict[str, Any] = Body(...),
+                            _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Evaluate open decisions against caller-supplied marks (closes the loop).
+
+    `marks` maps a symbol to its current price. Only decisions with a captured
+    entry price AND a matching mark are evaluated; the rest are skipped, never
+    invented.
+    """
+    marks = body.get("marks")
+    if not isinstance(marks, dict) or not marks:
+        raise HTTPException(status_code=400, detail="`marks` (symbol → price) is required")
+    outcomes = _ledger().evaluate_decisions(
+        {str(k): float(v) for k, v in marks.items()},
+        benchmark_return=(float(body["benchmarkReturn"]) if body.get("benchmarkReturn") is not None else None),
+        horizon=body.get("horizon"),
+    )
+    return {"success": True, "evaluated": len(outcomes), "outcomes": outcomes}

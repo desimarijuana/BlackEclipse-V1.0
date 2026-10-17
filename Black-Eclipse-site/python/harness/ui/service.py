@@ -477,6 +477,27 @@ class UiService:
 
     # ── blueprints: write ─────────────────────────────────────────────────────
 
+    def _unique_title(self, title: str, owner_id: str) -> str:
+        """A title unique among this owner's blueprints, so a create never adds a
+        second page sharing a title. A duplicate is suffixed ("Main" -> "Main 2").
+
+        Duplicates can still arise from a title EDIT (`update_page`) or an import,
+        so the `title_ambiguous` resolution path remains reachable and tested; only
+        CREATE guarantees uniqueness.
+        """
+        base = (title or "").strip() or "Page"
+        try:
+            existing, _ = self._store.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=owner_id)
+        except Exception:  # noqa: BLE001 - uniquing must never block a create
+            return base
+        taken = {b.title.strip().casefold() for b in existing}
+        if base.casefold() not in taken:
+            return base
+        n = 2
+        while f"{base} {n}".casefold() in taken:
+            n += 1
+        return f"{base} {n}"
+
     def create_page(self, input_model: CreatePageInput, *, owner_id: str = "operator", actor: Optional[str] = None) -> UiBlueprint:
         if input_model.idempotency_key:
             existing = self._store.lookup_idempotency(input_model.idempotency_key)
@@ -485,7 +506,8 @@ class UiService:
                 if found is not None:
                     return found
         blueprint = UiBlueprint(
-            id=new_id("uibp"), title=input_model.title, description=input_model.description,
+            id=new_id("uibp"), title=self._unique_title(input_model.title, owner_id),
+            description=input_model.description,
             kind=input_model.kind, scope=input_model.scope, path=input_model.path,
             icon=input_model.icon, tags=input_model.tags or None, layout=_empty_layout(),
             owner=BlueprintOwner(kind="user", id=owner_id),

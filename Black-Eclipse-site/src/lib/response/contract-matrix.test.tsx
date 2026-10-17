@@ -3,6 +3,8 @@ import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { responseBlockMeta } from './schema-meta';
 import { finalizeResponse } from './finalize';
+import { parseResponsePayload } from './contract';
+import { toMarkdownProjection } from './projection';
 import { REGISTERED_BLOCK_TYPES } from '@/components/response/response-view';
 import { ResponseView } from '@/components/response/response-view';
 
@@ -41,6 +43,12 @@ const SAMPLES: Record<string, unknown> = {
   ranked_list: { type: 'ranked_list', items: [{ label: 'A', value: 1 }] },
   badge_row: { type: 'badge_row', badges: [{ label: 'A' }] },
   carousel: { type: 'carousel', slides: [{ label: 'A', blocks: [{ type: 'markdown', markdown: 'x' }] }] },
+  simulation: { type: 'simulation', preset: 'risk_reward' },
+  layout: { type: 'layout', blocks: [{ type: 'markdown', markdown: 'x' }] },
+  divider: { type: 'divider' },
+  inputs: { type: 'inputs' },
+  anatomy: { type: 'anatomy', parts: [{ id: 'a', kind: 'slab' }] },
+  model3d: { type: 'model3d', parts: [{ id: 'a', kind: 'box' }] },
 };
 
 const contractTypes = [...responseBlockMeta().keys()].sort();
@@ -55,6 +63,17 @@ describe('block-type parity (contract ↔ renderer ↔ matrix)', () => {
   it('the render matrix covers every contract block type (adding a block fails here)', () => {
     expect(sampled).toEqual(contractTypes);
   });
+});
+
+describe('Markdown projection — every block type is projected (nothing vanishes)', () => {
+  for (const type of contractTypes) {
+    it(`\`${type}\` projects without throwing and is non-empty`, () => {
+      const response = parseResponsePayload({ blocks: [SAMPLES[type]] });
+      const markdown = toMarkdownProjection(response);
+      expect(typeof markdown).toBe('string');
+      expect(markdown.trim().length).toBeGreaterThan(0);
+    });
+  }
 });
 
 describe('render matrix — every block type renders cleanly from a canonical payload', () => {

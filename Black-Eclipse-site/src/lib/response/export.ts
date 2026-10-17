@@ -5,6 +5,7 @@
 
 import type { ParsedResponse, TableCell, ValidatedBlock } from './contract';
 import { finalizeParsed } from './finalize';
+import { toMarkdownProjection } from './projection';
 import { getChart } from './chart-registry';
 import { inlineText, parseMarkdown } from '@/lib/chat/markdown';
 
@@ -41,6 +42,15 @@ export function responseToJson(response: ParsedResponse): string {
 
 export function downloadResponseJson(response: ParsedResponse, name: string): void {
   downloadBlob(safeName(name, 'json'), new Blob([responseToJson(response)], { type: 'application/json' }));
+}
+
+/** The deterministic Markdown projection — the same text any non-block surface shows. */
+export function responseToMarkdown(response: ParsedResponse): string {
+  return toMarkdownProjection(response);
+}
+
+export function downloadResponseMarkdown(response: ParsedResponse, name: string): void {
+  downloadBlob(safeName(name, 'md'), new Blob([responseToMarkdown(response)], { type: 'text/markdown' }));
 }
 
 function cellToText(cell: TableCell | undefined): string {
@@ -391,6 +401,18 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
             missing.push(`carousel slide ${i + 1} contains nested blocks; open the app for the full render`);
           }
         });
+        y += 4;
+        break;
+      case 'anatomy':
+        if (block.title) heading(block.title, 12);
+        paragraph(`${block.parts.length} parts, ${block.wires.length} connections`);
+        block.stages.forEach((s, i) => paragraph(`${i + 1}. ${s.label}${s.readout ? ` — ${s.readout}` : ''}`));
+        y += 4;
+        break;
+      case 'model3d':
+        if (block.title) heading(block.title, 12);
+        paragraph(`${block.parts.length} parts · true 3D model (open the app to orbit or export GLB)`);
+        block.stages.forEach((s, i) => paragraph(`${i + 1}. ${s.label}${s.readout ? ` — ${s.readout}` : ''}`));
         y += 4;
         break;
       default:

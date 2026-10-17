@@ -19,6 +19,7 @@ export type CommandCategory =
   | "portfolio"
   | "web"
   | "dev"
+  | "visual"
   | "memory"
   | "admin";
 
@@ -140,7 +141,7 @@ const V = "1.0.0";
 const HELP: CommandSpec = {
   id: "runtime.help",
   name: "help",
-  aliases: ["?"],
+  aliases: ["?", "commands"],
   summary: "List the available slash commands.",
   description:
     "Show the canonical command catalog grouped by category, with each command's arguments and availability.",
@@ -483,6 +484,36 @@ const SKILL_CREATE: CommandSpec = {
     "/skill-create --from-task task_123",
     "/skill-create --from-workflow crypto-research",
     "/skill-create risk-review --objective 'Review a portfolio for concentration risk'",
+  ],
+};
+
+const ANATOMY: CommandSpec = {
+  id: "visual.anatomy",
+  name: "anatomy",
+  aliases: ["visualize", "mechanism"],
+  summary: "Explain a concept as an interactive isometric figure.",
+  description:
+    "Turn a \"how does X work\" question into an interactive isometric mechanism figure — a working model with " +
+    "labelled parts, connections and step-through stages, rendered inline in chat as an `anatomy` block. The agent " +
+    "authors the declarative scene; it never writes SVG or code.",
+  category: "visual",
+  tags: ["visual", "explanation", "anatomy", "mechanism", "diagram"],
+  version: V,
+  status: "available",
+  args: [{ name: "subject", description: "The concept, system or mechanism to illustrate.", variadic: true }],
+  flags: [
+    { name: "audience", description: "Who the explanation is for.", type: "string", values: ["beginner", "intermediate", "expert"] },
+    { name: "animated", description: "Break the mechanism into step-through stages.", type: "boolean" },
+  ],
+  handler: { type: "agent", target: "agent.anatomy" },
+  permissions: { approval: "none" },
+  risk: "none",
+  executionMode: "sync",
+  output: { type: "response", summary: "An interactive anatomy figure plus a short explanation." },
+  examples: [
+    "/anatomy how a cache works",
+    "/anatomy the BlackEclipse data path --animated",
+    "/anatomy how a transformer attends --audience expert",
   ],
 };
 
@@ -848,6 +879,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   BACKTEST,
   CODE,
   TERMINAL,
+  ANATOMY,
   ECLIPSESDK,
 ];
 

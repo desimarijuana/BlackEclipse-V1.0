@@ -199,7 +199,11 @@ class ExecutionPolicy(BaseModel):
     model_config = _CAMEL
 
     max_runtime_s: int = Field(900, ge=5, le=86_400)
-    misfire: MisfirePolicy = "skip"
+    # A fire missed while the app was CLOSED runs once when the app returns —
+    # never silently dropped. `skip` (the old default) discarded every scheduled
+    # run whenever Eclipse wasn't open at the exact minute, so a daily bot never
+    # ran; `run_once` makes a scheduled bot actually produce a result.
+    misfire: MisfirePolicy = "run_once"
     catch_up_max: int = Field(1, ge=1, le=100)
     timeout_s: Optional[int] = Field(None, ge=1, le=86_400)
 

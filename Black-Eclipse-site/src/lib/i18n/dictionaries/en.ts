@@ -1076,6 +1076,7 @@ export const en = {
   'capability.class.changeReview': 'Reviewing a change against the rules',
   'capability.class.documentAttachment': 'Reading a document you attach',
   'capability.class.figureProvenance': 'Drawing a chart from a computation',
+  'capability.class.advisoryVerification': 'Verifying a recommendation before it is given',
   'capability.class.priceAuthority': 'Preferring a fresh price source',
   'capability.class.promotion': 'Putting a change into your own files',
   'capability.class.scrapingBreadth': 'Collecting from many kinds of sources',

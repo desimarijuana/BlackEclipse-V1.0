@@ -181,6 +181,10 @@ CLASSES: tuple[CapabilityClass, ...] = (
                     "harness.code.recipes",
                     ("pytest:python/tests/test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies",
                      "pytest:python/tests/test_analysis_execution.py")),
+    CapabilityClass("advisory_verification", "capability.class.advisoryVerification", "test_gate",
+                    "harness.advisory.gate",
+                    ("pytest:python/tests/test_advisory_gate.py",
+                     "pytest:python/tests/test_advisory_ledger.py")),
     # Declared and NOT graded — published as not measured, with the reason.
     CapabilityClass("price_authority", "capability.class.priceAuthority", "unmeasured",
                     "harness.retrieval.authority", (),

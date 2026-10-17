@@ -55,7 +55,9 @@ const RATCHET: Record<string, number> = {
   // `bots.behaviour.*`.
   // Re-pinned 1238→1240: per-bot model override (`bots.model.*`). May only shrink
   // from here.
-  "src/lib/i18n/dictionaries/en.ts": 1240,
+  // Re-pinned 1240→1241: one key (`capability.class.advisoryVerification`) names
+  // the Fiduciary Gate capability class (ADR-H196/H193). May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1241,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

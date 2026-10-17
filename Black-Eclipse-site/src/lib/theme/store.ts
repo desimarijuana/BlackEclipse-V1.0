@@ -264,12 +264,23 @@ function persistLocal(theme: EclipseTheme) {
  */
 function pushThemeToServer(theme: EclipseTheme) {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+  const body = JSON.stringify({ theme });
+  // `fetch(..., { keepalive: true })` is capped at 64 KiB by the browser (the
+  // spec limit across all in-flight keepalive requests). A theme that carries an
+  // embedded logo/favicon data URL easily exceeds that, so the request is
+  // rejected outright and the app-wide theme silently never receives the logo —
+  // then `hydrateFromServer` adopts the older, logo-less server theme on the next
+  // load and the logo "keeps disappearing". Only use keepalive for small themes
+  // that can actually survive a page unload; send larger ones as a normal
+  // request (which may be aborted on unload, but the local cache still holds it
+  // and the next edit re-syncs).
+  const keepalive = body.length < 60_000;
   void window
     .fetch('/api/theme', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ theme }),
-      keepalive: true,
+      body,
+      keepalive,
     })
     .catch(() => { /* local cache still holds it */ });
 }

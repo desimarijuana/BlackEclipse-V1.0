@@ -384,7 +384,9 @@ export function emptyBotDraft(): BotDraft {
     cron: '0 8 * * *',
     runAt: '',
     timezone: localTimezone(),
-    misfire: 'skip',
+    // A fire missed while the app was closed runs once when the app returns, so
+    // a scheduled bot is never silently dropped (matches the backend default).
+    misfire: 'run_once',
     catchUpMax: 1,
     onConflict: 'skip_if_running',
     maxRuns: 1,

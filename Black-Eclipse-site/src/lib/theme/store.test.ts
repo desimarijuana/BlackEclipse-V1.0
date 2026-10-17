@@ -329,4 +329,22 @@ describe('app-wide theme sync from the server', () => {
       expect.objectContaining({ method: 'PUT' }),
     );
   });
+
+  it('sends a large (logo-bearing) theme WITHOUT keepalive so it is not dropped', async () => {
+    // `fetch(..., { keepalive: true })` is capped at 64 KiB by the browser, so a
+    // theme carrying an embedded logo would be rejected outright and the server
+    // would never store the logo (the "logo keeps disappearing" bug). Large
+    // bodies must therefore go out as a normal request.
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), fetch: fetchMock });
+
+    const bigLogo = `data:image/png;base64,${'A'.repeat(120_000)}`;
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().setTheme({ logoUrl: bigLogo });
+
+    const putCall = fetchMock.mock.calls.find((c) => c[0] === '/api/theme' && c[1]?.method === 'PUT');
+    expect(putCall).toBeTruthy();
+    expect(putCall![1]?.keepalive).toBe(false);
+    expect(useThemeStore.getState().theme.logoUrl).toBe(bigLogo);
+  });
 });

@@ -26,7 +26,11 @@ export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/|sounds/|backgrounds/).*)"],
 };
 
-const PUBLIC_PREFIXES = ["/login", "/api/auth/"];
+// `/api/channels/webhook/` is a PUBLIC inbound endpoint: an external provider
+// (Slack/WhatsApp/generic) cannot present a session cookie. Authenticity is
+// proven inside the handler by an HMAC over the raw body, so the middleware gate
+// is bypassed for it — the signature is the gate.
+const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/channels/webhook/"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));

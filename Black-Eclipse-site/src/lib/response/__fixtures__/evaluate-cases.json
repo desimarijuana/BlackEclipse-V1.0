@@ -1,0 +1,27 @@
+{
+  "_comment": "Shared evaluator fixtures. Consumed by BOTH the TypeScript test (src/lib/response/evaluate.test.ts) and the Python test (python/tests/test_response_eval.py) so the two evaluators must agree. `expected` is a number or null (UNAVAILABLE).",
+  "cases": [
+    { "expression": "1 + 2", "vars": {}, "expected": 3 },
+    { "expression": "entry - entry * stopPercent / 100", "vars": { "entry": 100, "stopPercent": 2 }, "expected": 98 },
+    { "expression": "entry + entry * targetPercent / 100", "vars": { "entry": 100, "targetPercent": 9.5 }, "expected": 109.5 },
+    { "expression": "targetPercent / stopPercent", "vars": { "stopPercent": 2, "targetPercent": 9.5 }, "expected": 4.75 },
+    { "expression": "stopPercent / (stopPercent + targetPercent) * 100", "vars": { "stopPercent": 2, "targetPercent": 9.5 }, "expected": 17.391304347826088 },
+    { "expression": "1 / 0", "vars": {}, "expected": null },
+    { "expression": "x / 0", "vars": { "x": 5 }, "expected": null },
+    { "expression": "clamp(15, 0, 10)", "vars": {}, "expected": 10 },
+    { "expression": "abs(-3) + sqrt(16)", "vars": {}, "expected": 7 },
+    { "expression": "pow(2, 10)", "vars": {}, "expected": 1024 },
+    { "expression": "if(score > 50, 1, 0)", "vars": { "score": 60 }, "expected": 1 },
+    { "expression": "if(score > 50, 1, 0)", "vars": { "score": 40 }, "expected": 0 },
+    { "expression": "round(3.14159, 2)", "vars": {}, "expected": 3.14 },
+    { "expression": "round(2.5)", "vars": {}, "expected": 3 },
+    { "expression": "min(3, 1, 2) + max(3, 1, 2)", "vars": {}, "expected": 4 },
+    { "expression": "sum(1, 2, 3) / 3", "vars": {}, "expected": 2 },
+    { "expression": "avg(2, 4, 6)", "vars": {}, "expected": 4 },
+    { "expression": "-entry", "vars": { "entry": 5 }, "expected": -5 },
+    { "expression": "2 ^ 3 ^ 2", "vars": {}, "expected": 512 },
+    { "expression": "unknown_fn(1)", "vars": {}, "expected": null },
+    { "expression": "missing + 1", "vars": {}, "expected": null },
+    { "expression": "2 +", "vars": {}, "expected": null }
+  ]
+}

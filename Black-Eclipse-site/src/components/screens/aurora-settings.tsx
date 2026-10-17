@@ -6,6 +6,12 @@
 // color (the deep falloff at both ends of the ribbon). Changes apply live to
 // the Aurora rendered behind the whole app and persist in localStorage.
 //
+// The settings dialog is a modal that covers the shell's app-wide Aurora, so
+// edits here would otherwise be invisible until the user closes Settings. To
+// make every edit legible in place, the Preview card mounts a REAL <Aurora>
+// driven by the live regime score and the same store config, so color, motion,
+// softness, detail and style all update as the sliders move.
+//
 // The sentiment model itself is untouched — this only swaps the palette that
 // `resolveAuroraVisuals(score, palette)` interpolates between.
 
@@ -18,6 +24,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { resolveAuroraVisuals } from "@/lib/aurora-sentiment";
+import Aurora from "@/components/ui/Aurora";
+import { useAuroraSentiment } from "@/components/layout/aurora-glow";
 import {
   AURORA_PRESETS, STATE_LABELS, STATE_ORDER,
   isValidHex, paletteMatchesPreset,
@@ -202,6 +210,14 @@ export function AuroraSettingsPanel() {
   const resetLook = useAuroraPaletteStore((s) => s.resetLook);
   const reset = useAuroraPaletteStore((s) => s.reset);
 
+  // The live market-regime reading, so the preview moves exactly like the real
+  // app-wide glow rather than a static swatch.
+  const { score, dim } = useAuroraSentiment();
+
+  // Cap the preview box so a tall `Height` setting never blows out the modal;
+  // the shader scales to its container, so the look still reads correctly.
+  const previewHeight = Math.min(160, Math.max(96, shape.height));
+
   const previewScores = useMemo(() => [-1, -0.5, 0, 0.5, 1], []);
 
   // Any motion/shape/style change counts as "custom" — surface a reset
@@ -237,7 +253,29 @@ export function AuroraSettingsPanel() {
           <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Preview</span>
           <span className="text-[10px] text-muted-foreground font-mono">bearish → bullish</span>
         </div>
-        <div className="p-4">
+        <div className="p-4 space-y-3">
+          {/* The real shader, live — so color/motion/softness/detail/style
+              changes are visible without leaving the modal. */}
+          <div
+            className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40"
+            style={{ height: previewHeight }}
+          >
+            <Aurora
+              sentiment={score}
+              dim={dim}
+              palette={palette}
+              smoothing={motion.response}
+              intensityScale={motion.intensity}
+              speedScale={motion.speed}
+              softnessScale={shape.softness}
+              noiseScale={shape.noiseScale}
+              style={style.id}
+              grid={style.grid}
+            />
+            <span className="absolute bottom-1.5 right-2 text-[10px] font-mono text-muted-foreground">
+              live · {score >= 0 ? "+" : ""}{score.toFixed(2)}
+            </span>
+          </div>
           <AuroraPreview palette={palette} scores={previewScores} />
         </div>
       </div>

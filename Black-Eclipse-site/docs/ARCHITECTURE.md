@@ -256,17 +256,25 @@ Two mechanisms:
       texture (`solidPattern`: grid / dots / diagonal / ASCII, at
       `solidPatternOpacity` and `solidPatternScale` px pitch) over the base
       fill. A `flat` fill is a genuine solid: the color is emitted as
-      `--app-bg-color` onto the layer's `background-color` (no `background-image`
-      gradient function at all), while `gradient`/`pattern` fills are emitted as
+      `--app-bg-color` (light / theme background) and `--app-bg-color-dark`
+      (dark) onto the layer's `background-color` (no `background-image`
+      gradient function at all) — with no explicit pick the light fill follows
+      `var(--background)` while dark defaults to `#0a0b0b`
+      (`DEFAULT_SOLID_DARK_COLOR`) on every theme, so the page behind the
+      wordmark reads the same dark surface regardless of the active theme, while
+      `gradient`/`pattern` fills are emitted as
       a layered `background-image` stack (a bare color is not a valid
       `background-image`) and the pattern layers
-      use `rgb(var(--brand-rgb) …)` for the ink. Shipped theme presets use
-      `flat` with a solid fill derived automatically in the `preset()` helper:
-      a very dark neutral grey (`LANDING_BASE` `#0f0f11`) carrying only the
-      faintest shade of the preset's ACCENT hue
-      (`mixHex(accent, LANDING_BASE, 0.05)`), so each ChatBot landing is a dark,
-      low-saturation grey with a hint of the theme brand — never a bright wash or
-      a gradient. The wordmark is a whiteish `#e8e8ea`. A preset also carries an
+      use `rgb(var(--brand-rgb) …)` for the ink. Shipped dark theme presets use
+      `flat` and leave `solidColor` UNSET in the `preset()` helper, so every dark
+      ChatBot landing resolves the scheme-aware near-black default (`#0a0b0b`,
+      `DEFAULT_SOLID_DARK_COLOR`) rather than a per-theme accent tint — a uniform
+      dark surface behind the wordmark. Light presets (`lightPreset`) still mix
+      their accent toward a light base (`LANDING_BASE_LIGHT`) with a dark
+      wordmark. The dark wordmark is a whiteish `#e8e8ea`. A stored landing color
+      matching a retired preset fill (`LEGACY_DARK_LANDING_COLORS`) is cleared on
+      hydrate (`migrateLegacyLandingColor`) so old saves adopt the default without
+      re-applying a theme. A preset also carries an
       **Aurora palette snapshot** (`ThemePreset.aurora`, derived from the theme's
       bullish/bearish colors), pushed to `useAuroraPaletteStore` on apply so the
       ambient glow recolors with the theme; the panel previews it live and user
@@ -294,7 +302,7 @@ Two mechanisms:
       (50–300%), and X/Y focal `position`s. The image is painted on the layer's
       `::before` (so the zoom scales only the art) while the `dim` scrim sits on
       the element itself; the layer reads
-      `--app-bg-color/-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
+      `--app-bg-color/-color-dark/-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
       fed by `useHydrateBackground` in `stock-chat.tsx` (initial load) and
       re-asserted by `refreshBackground()` after every theme write, so the
       background's suppression/solid-fill vars stay authoritative over the
@@ -675,6 +683,26 @@ Two client surfaces consume the fired-alert stream:
    appear only while a BlackEclipse page is open in the browser; the UI states
    this rather than hiding it. Toggle + "Send test notification" live in Settings
    › Alerts/Notifications (`alert-notifications-settings.tsx`).
+
+### The Channel Gateway (inbound, remote control)
+
+Alerts are outbound; the **Channel Gateway** is their inbound counterpart. It is
+a core Python subsystem (`python/harness/channels/`, ADR-H199) that lets a user
+connect an external account (Telegram, Discord, email, …) and drive Eclipse from
+it. `ChannelService.handle_inbound` is the ONE entry: it enforces idempotency
+(native message ids), resolves the sender to a **verified `ChannelBinding`**
+(created by a short-lived, single-use `/link <code>`), rate-limits per binding,
+and dispatches. `ChannelDispatcher` gates by control scope (`viewer` <
+`assistant` < `operator`), routes `/commands`, agent turns (through the ONE
+`service.run`) and the operator `/do` tool bridge (the ONE `ToolRegistry` + the
+Security Gateway effect authorizer), and requires a single-use in-channel
+`/confirm` for mutations. It forks nothing — bindings live on the ONE
+`agent-memory.db`, secrets resolve through the gateway's `SecretsManager`
+(`secret://` refs), and every dispatch is audited (`category="channel"`).
+Telegram ships first because it long-polls from the local machine, so no public
+endpoint is needed and zero-config is unchanged. The operator surface is
+Settings › Connections (`connections-settings.tsx`); front door
+`/api/channels/**`. See `docs/harness/channel-gateway.md`.
 
 **The notification center.** Every raise also lands in an app-wide ledger —
 `src/lib/notifications/store.ts` (zustand, persisted at `be_notifications_v1`,

@@ -796,6 +796,12 @@ class AutomationEngine:
     async def _apply_misfire(self, definition: AutomationDefinition, due: _dt.datetime) -> None:
         policy = definition.execution.misfire
         scheduled_for = to_utc_iso(due)
+        # Idempotency: this exact slot may already have been handled by an earlier
+        # recovery pass (the app can restart several times). Never record the same
+        # missed slot twice — just make sure the schedule has moved past it.
+        if self._store.execution_exists_for_slot(definition.id, scheduled_for):
+            self._store.set_next_run(definition.id, self._compute_next_run(definition, after=self._now()))
+            return
         if policy == "run_once":
             await self._launch(
                 definition, trigger_type="schedule", trigger_ref="misfire", scheduled_for=scheduled_for,

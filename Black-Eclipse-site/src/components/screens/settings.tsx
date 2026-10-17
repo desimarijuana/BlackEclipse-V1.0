@@ -29,6 +29,7 @@ import { DataSourcesPanel } from "./data-sources-panel";
 import { FinancialDataConsole } from "./financial-data-console";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { SecuritySettingsPanel } from "./security-settings";
+import { ConnectionsSettingsPanel } from "./connections-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { Panel, SectionHeader, SubSection } from "./settings-ui";
@@ -157,12 +158,12 @@ const DEFAULT_LLM: LLMConfig = {
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
   | "general" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
-  | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security";
+  | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security" | "connections";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
   "general", "sound", "ai", "investor-eye", "economics", "market", "news",
-  "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security",
+  "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security", "connections",
 ] as const;
 
 /**
@@ -432,6 +433,7 @@ export function Settings({
     { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper, group: "Intelligence", terms: ["news", "rss", "feeds", "headlines", "sentiment", "finnhub"] },
     { id: "analytics", label: "Analytics", desc: "Token usage & runs", icon: BarChart3, group: "Intelligence", terms: ["analytics", "usage", "tokens", "token", "consumption", "cost", "spend", "runs", "steps", "agent", "llm", "metrics", "stats"] },
     { id: "mcp", label: "MCP Servers", desc: "External tool connections", icon: Plug, group: "Intelligence", terms: ["mcp", "model context protocol", "servers", "tools", "external", "stdio", "integration", "plugins"] },
+    { id: "connections", label: "Connections", desc: "Remote control over Telegram, email & more", icon: Plug, group: "Intelligence", terms: ["connections", "channels", "remote", "telegram", "discord", "email", "slack", "whatsapp", "webhook", "link", "binding", "gateway", "control"] },
 
     { id: "alerts", label: "Alerts", desc: "Notification channels", icon: ShieldCheck, group: "System", terms: ["alerts", "notifications", "channels", "email", "webhook", "telegram", "discord", "slack"] },
     { id: "data", label: "Data & Storage", desc: "Local data & reset", icon: Database, group: "System", terms: ["data", "storage", "clear", "reset", "chats", "watchlist", "portfolio", "cache"] },
@@ -928,6 +930,7 @@ export function Settings({
                 the services BlackEclipse itself runs. No user-facing provider
                 configuration lives here. */}
             {section === "security" && <SecuritySettingsPanel />}
+            {section === "connections" && <ConnectionsSettingsPanel />}
             {section === "system" && (
               <div className="animate-fade-in-up">
                 <SectionHeader

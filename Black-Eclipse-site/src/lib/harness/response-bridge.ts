@@ -62,6 +62,41 @@ function kindOf(schema: unknown): string {
   }
 }
 
+interface BlockStats {
+  blockTypes: Record<string, number>;
+  refs: number;
+  computedRefs: number;
+}
+
+/** Count block types and figure bindings (recursing into container blocks). */
+function countBlockStats(blocks: unknown[]): BlockStats {
+  const blockTypes: Record<string, number> = {};
+  let refs = 0;
+  let computedRefs = 0;
+  const scanValues = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(scanValues);
+    } else if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (typeof record.$ref === "string") refs += 1;
+      if (typeof record.$computed === "string") computedRefs += 1;
+      Object.values(record).forEach(scanValues);
+    }
+  };
+  const visit = (block: unknown): void => {
+    if (!block || typeof block !== "object") return;
+    const b = block as Record<string, unknown>;
+    if (typeof b.type === "string") blockTypes[b.type] = (blockTypes[b.type] ?? 0) + 1;
+    scanValues(b);
+    if (Array.isArray(b.blocks)) b.blocks.forEach(visit);
+    if (Array.isArray(b.tabs)) (b.tabs as { blocks?: unknown[] }[]).forEach((t) => (t.blocks ?? []).forEach(visit));
+    if (Array.isArray(b.sections)) (b.sections as { blocks?: unknown[] }[]).forEach((s) => (s.blocks ?? []).forEach(visit));
+    if (Array.isArray(b.slides)) (b.slides as { blocks?: unknown[] }[]).forEach((s) => (s.blocks ?? []).forEach(visit));
+  };
+  blocks.forEach(visit);
+  return { blockTypes, refs, computedRefs };
+}
+
 function describeOption(option: unknown): { type: string; fields: FieldInfo[] } {
   const shape = ((option as { shape?: Record<string, unknown> }).shape ?? {}) as Record<string, unknown>;
   const typeDef = defOf(shape.type);
@@ -188,6 +223,7 @@ export async function responseContractCapability(
     const repairedRecords = records.filter((r) => r.code === "BLOCK_REPAIRED");
     const degradedRecords = records.filter((r) => r.code === "BLOCK_DEGRADED" || r.code === "MALFORMED_JSON");
     const unique = (values: (string | undefined)[]) => [...new Set(values.filter((v): v is string => Boolean(v)))];
+    const stats = countBlockStats(finalized.response.blocks);
     return {
       status: "OK",
       op,
@@ -196,6 +232,12 @@ export async function responseContractCapability(
       degraded: degradedRecords.length,
       repairedTypes: unique(repairedRecords.map((r) => r.declaredType)),
       degradedTypes: unique(degradedRecords.map((r) => r.declaredType ?? (r.code === "MALFORMED_JSON" ? "malformed" : "unknown"))),
+      // Phase 6 telemetry: block-type histogram + figure-binding counts.
+      blockTypes: stats.blockTypes,
+      refs: stats.refs,
+      computedRefs: stats.computedRefs,
+      stateVars: finalized.response.state.length,
+      computedVars: finalized.response.computed.length,
     };
   }
 

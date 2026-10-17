@@ -196,8 +196,14 @@ async def _list_blueprints(args: dict[str, Any], ctx: ToolContext) -> Any:
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
     # The id is in the structured payload; put it in the text too so the agent can
-    # NAME the page it was asked to edit instead of only seeing a count.
-    lines = [f'{b["id"]}  {b["title"]}' for b in result["blueprints"]]
+    # NAME the page it was asked to edit instead of only seeing a count. When
+    # titles repeat, include a disambiguator (widget count + first component ids)
+    # so two pages with the same title are still distinguishable.
+    lines = [
+        f'{b["id"]}  {b["title"]}  '
+        f'({b.get("widgetCount", 0)} widgets: {", ".join(b.get("componentIds", [])[:3]) or "empty"})'
+        for b in result["blueprints"]
+    ]
     suffix = ("\n" + "\n".join(lines)) if lines else ""
     return _ok(f"{result['total']} blueprint(s).{suffix}", result)
 

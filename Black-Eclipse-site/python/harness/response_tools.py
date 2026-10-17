@@ -249,10 +249,21 @@ async def emit_response_telemetry(data_bridge: Any, markdown: str) -> None:
     try:
         from .observability import get_hub  # noqa: PLC0415
 
-        get_hub().emit(
-            "onResponseBlocks",
-            attributes={"blocks": blocks, "repaired": repaired, "degraded": degraded},
-        )
+        block_types = payload.get("blockTypes")
+        attributes: dict[str, Any] = {
+            "blocks": blocks,
+            "repaired": repaired,
+            "degraded": degraded,
+            # Phase 6: a block-type histogram + figure-binding counts, so the
+            # rendered answer is measurable (which blocks ship, how many figures
+            # come from a source vs. computed locally).
+            "blockTypes": dict(block_types) if isinstance(block_types, dict) else {},
+            "refs": int(payload.get("refs") or 0),
+            "computedRefs": int(payload.get("computedRefs") or 0),
+            "stateVars": int(payload.get("stateVars") or 0),
+            "computedVars": int(payload.get("computedVars") or 0),
+        }
+        get_hub().emit("onResponseBlocks", attributes=attributes)
     except Exception:  # noqa: BLE001 - telemetry must never break the run
         pass
 

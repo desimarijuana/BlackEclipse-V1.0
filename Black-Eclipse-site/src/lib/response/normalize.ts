@@ -41,6 +41,18 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
   process_flow: 'flow',
   pipeline: 'flow',
   flow_graph: 'diagram',
+  // An interactive local calculator / what-if explorer.
+  calculator: 'simulation',
+  simulator: 'simulation',
+  // A 3D/isometric mechanism illustration (the Anatomy-derived engine).
+  isometric: 'anatomy',
+  mechanism: 'anatomy',
+  anatomy_diagram: 'anatomy',
+  // The true-3D scene block (orbitable model, GLB export).
+  model_3d: 'model3d',
+  '3d': 'model3d',
+  three_d: 'model3d',
+  scene3d: 'model3d',
 };
 
 /**
@@ -483,7 +495,8 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
   }
 
   // Tone is the last rewrite: every `tone` (including nested steps/paths/nodes/
-  // edges) is mapped to the status enum or dropped so its schema default applies.
+  // edges, and an `anatomy` part/wire) is mapped to the status enum or dropped
+  // so its schema default applies.
   return normalizeTonesDeep(out, type === 'callout') as Record<string, unknown>;
 }
 

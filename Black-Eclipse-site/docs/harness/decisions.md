@@ -6865,10 +6865,11 @@ seam idempotent without a dedup pass.
 **Consequences.** `python/harness/advisory/{store,service,tools,bootstrap}.py`;
 `routers/advisory.py` (`/advisory/*`, operator-gated); boot wiring in `service.py`;
 allowlist `agents.py` (`ADVISORY_TOOLS`); the answer seam records the verdict
-(`graph.py`). Automatic outcome evaluation from market history is deliberately
-NOT added here — it needs price-history plumbing and is a planned follow-up; a
-scheduled monitor (Phase 3) will record outcomes explicitly. Docs
-`docs/fiduciary-advice.md`, `docs/NAVIGATION.md`.
+(`graph.py`). Auto outcome evaluation was added in the follow-up: the run captures
+entry prices (`AdvisoryCollector.prices()`), and `evaluate_decisions` /
+`auto_evaluate(gateway)` compute realized-vs-benchmark returns deterministically
+(a decision with no entry price or no quote is skipped). Front door + a Decisions
+view landed alongside. Docs `docs/fiduciary-advice.md`, `docs/NAVIGATION.md`.
 
 ## ADR-H198 — Portfolio conditions are a second fact provider; proactive monitors are a closed catalogue saved off
 
@@ -6905,3 +6906,160 @@ composition); `advisory/monitors.py`; `automation/service.py`
 Automatic outcome recording from a monitor into the ledger (closing the
 evaluation loop) remains a follow-up. Docs `docs/fiduciary-advice.md`,
 `docs/NAVIGATION.md`.
+
+## ADR-H199 — Remote control is a Channel Gateway: inbound adapters over the ONE run path, with a scope gate and an in-channel confirmation
+
+**Decision.** Connecting an external messaging surface (Telegram, Discord, Email,
+Slack, WhatsApp, a generic webhook) for remote control is a first-class core
+subsystem — `python/harness/channels/` — not a plugin and not a second agent
+loop. A provider adapter (`channels/providers/*`) normalizes inbound traffic; the
+`ChannelService.handle_inbound` enforces idempotency (native message ids),
+resolves the sender to a verified `ChannelBinding`, applies a per-binding rate
+limit, and hands the message to the `ChannelDispatcher`. The dispatcher gates by
+control scope (`viewer` < `assistant` < `operator`), routes `/commands`, agent
+turns and the operator `/do` tool bridge, and requires an in-channel `/confirm`
+for mutations.
+
+It composes the EXISTING systems and forks none: an agent turn calls
+`service.run`; a `/do` tool call goes through the ONE `ToolRegistry`; a mutating
+tool's effect is authorized by the Security Gateway via `make_security_authorizer`;
+secrets resolve through the gateway's `SecretsManager` (`secret://` refs);
+bindings/confirmations/config live on the ONE `agent-memory.db` connection; and
+every dispatch is recorded in the hash-chained security audit under
+`category="channel"`.
+
+**Why.** The app was outbound-only (alerts). Remote control adds an INBOUND trust
+boundary that alerts never had: a chat id or a "From:" header is spoofable, so the
+sender is untrusted until linked. A core subsystem (not a plugin) is right because
+the trust path must be tied to the gateway, approvals and audit — the same
+authority every other effect uses. Telegram ships first because it long-polls
+from the local machine, so zero-config local use needs NO public endpoint; the
+push-based providers (Slack/WhatsApp webhooks) are opt-in for exposed
+deployments.
+
+**Consequences.** `channels/` (`model`, `store`, `config`, `transport`,
+`identity`, `commands`, `dispatch`, `service`, `bootstrap`,
+`providers/telegram`); router `python/harness/routers/channels.py`
+(`/channels/*`, operator-gated); boot wiring `install_channel_layer` in
+`service.py` + `start_channels`/`stop_channels` in `boot.py`; front door
+`src/app/api/channels/[[...path]]/route.ts` + `channels-{client,browser}.ts`;
+Settings › Connections `src/components/screens/connections-settings.tsx`; tests
+`python/tests/test_channels_{core,api}.py`. Phase 1 ships Telegram + linking +
+`viewer`/`assistant` scopes + read/agent/`/do`-read + the confirmation
+infrastructure; explicit finance-mutation verbs and Discord/Email/Slack/WhatsApp
+providers are later phases. Secrets currently sit in the channel config JSON
+(mirroring the existing TS `alert_channels` behaviour) with `secret://`
+indirection available; migrating the default to the encrypted vault is a
+follow-up. Docs `docs/harness/channel-gateway.md`, `docs/NAVIGATION.md`,
+`docs/ARCHITECTURE.md`.
+
+## ADR-H200 — Channel providers split by transport: pull channels poll/stream locally, push channels cross one signature-gated public boundary
+
+**Decision.** The Channel Gateway grows five more providers, split by transport.
+
+*Pull/stream* (no public endpoint, so zero-config local use is unchanged):
+`discord` (bot Gateway WebSocket + REST, `providers/discord.py`), `email` (IMAP
+poll + SMTP, `providers/email.py`), alongside the existing `telegram`.
+
+*Push* (`providers/webhooks.py`): `slack`, `whatsapp`, `webhook` receive inbound
+at ONE public route `POST /channels/webhook/{kind}` and reply over HTTP. Because
+the caller is a third party that cannot present the operator token, authenticity
+is proven by an HMAC over the RAW request body under a per-channel secret
+(`channels/verify.py`: Slack v0 + replay window, WhatsApp `X-Hub-Signature-256`,
+generic `X-Eclipse-Signature`). A missing/mismatched signature is refused. The
+Next.js middleware exempts `/api/channels/webhook/` from the session gate (the
+signature IS the gate), and the front-door route forwards the raw body + only the
+signature headers, never re-serializing it.
+
+The provider build path generalizes: `ChannelService._build_provider` builds an
+outbound transport for ANY configured kind and additionally starts a background
+task only for `_POLL_KINDS` (`telegram`/`discord`/`email`), so a push channel
+still replies even when polling is disabled.
+
+**Why.** The transport is an operator-visible property: a pull channel needs no
+inbound exposure, a push channel inherently does. Making that split explicit keeps
+the zero-config guarantee for the local case while giving exposed deployments a
+correct, signature-verified boundary for Slack/WhatsApp. Providers remain thin —
+they normalize payloads and send replies; the scope gate, confirmation, audit and
+Security-Gateway effect authorization are unchanged and live above them.
+
+**Consequences.** `channels/verify.py`; `channels/providers/{discord,email,
+webhooks}.py`; `service.py` (`_POLL_KINDS`, generalised `_build_provider`,
+`secret_value`); `routers/channels.py` (`GET/POST /channels/webhook/{kind}`,
+public, signature-verified); front door
+`src/app/api/channels/webhook/[kind]/route.ts`; middleware public prefix;
+Settings › Connections renders per-kind credential fields + the inbound webhook
+URL. Tests `test_channels_providers.py` + the webhook cases in
+`test_channels_api.py`. WhatsApp ships the official Cloud API path; the
+unofficial local (Baileys/WhatsApp Web) path is deliberately NOT included. Docs
+`docs/harness/channel-gateway.md`.
+
+## ADR-H201 — Channel credentials are encrypted at rest in the vault, and the config JSON keeps only a redacted presence marker
+
+**Decision.** Saving a channel moves every sensitive config key into an encrypted
+vault (Fernet; key file `.black-eclipse/channels/secret.key`, 0600, outside the
+DB) and stores only ciphertext in a new `ChannelSecret` table. The config JSON
+keeps only non-sensitive keys. `ChannelService.describe_config` echoes a
+configured credential as a redacted PRESENCE marker (`"botToken": "***"`) plus a
+`secrets` name list, so the existing Settings contract (and every test asserting
+`config.botToken == "***"`) is unchanged even though the value is no longer in the
+config. Credential resolution is layered (`secret_value`): the vault first, then a
+config literal or `secret://` reference (back-compat). `DELETE /channels/{kind}`
+purges the channel's secrets. If `cryptography` is unavailable the vault reports
+`secretsEncrypted: false` and a sensitive value falls back to the legacy literal
+config (zero-config preserved) rather than silently failing.
+
+**Why.** ADR-H199 shipped credentials in the config JSON, mirroring the legacy TS
+`alert_channels` and flagged as a follow-up. Refusing to leave a bot token /
+SMTP password in a queryable plaintext column is consistent with the repo's
+security posture (the Plugin Platform encrypts the same class of value the same
+way), and keeping the redacted-presence contract means no client or test churn.
+The layered resolution lets existing installs keep working and migrate the next
+time a channel is saved.
+
+**Consequences.** `channels/secrets.py` (`ChannelSecrets`, Fernet key file);
+`channels/store.py` (`ChannelSecret` table + ciphertext accessors);
+`channels/service.py` (`configure` vault extraction, `secret_value` layering,
+`describe_config` presence markers + `secretsEncrypted`, `delete_config` purge);
+front-door type `ChannelConfigView.secrets` / `secretsEncrypted`; Settings ›
+Connections shows "encrypted at rest". Tests
+`python/tests/test_channels_secrets.py`. Docs `docs/harness/channel-gateway.md`.
+
+## ADR-H202 — Explicit mutation verbs, the one-sender primitive, and channel notifications
+
+**Decision.** Three additions close out the Channel Gateway.
+
+1. **Explicit mutation verbs.** `/trade`, `/alert`, `/backtest` require the
+   `operator` scope AND always ask for an in-channel `/confirm`, then run as an
+   agent turn with a directive (`dispatch._MUTATION_DIRECTIVES`). They are a
+   STRONGER gate than plain agent text — a `viewer`/`assistant` can never trigger
+   one — and still end on the agent's Security-Gateway-authorized tools. The verb
+   adds operator scope + a deliberate confirmation step; it does not bypass the
+   gateway and it does not hard-code a tool name (robust to tool changes).
+2. **One-sender primitive.** `POST /channels/send` / `ChannelService.send_outbound`
+   sends through a configured channel's transport (built transiently when the
+   poller is not running) and records the delivery. Any subsystem can push an
+   outbound message without re-implementing a provider.
+3. **Notifications.** `ChannelActivityWatcher` + the pure `channel-diff.ts` poll
+   `GET /api/channels/messages` and raise the shared `be:alert-notify` event for
+   NEW inbound messages (first poll seeds; outbound never announced). It rides the
+   ONE notification center (toast + desktop + ledger) rather than a second surface.
+
+**Why.** Remote control is only useful if the operator learns about it and can act
+on it: the notification watcher closes the "something happened while you were
+away" loop, the mutation verbs make a remote change a deliberate two-step act, and
+the send primitive gives the runtime ONE outbound path instead of each caller
+speaking to a provider API. Consolidating the TS alert notifier into this sender
+is deliberately NOT done: alert channels are webhook/notification transports
+(Discord incoming webhook, ntfy, generic) owned by JDDS, distinct from the
+gateway's bot-session transports, and alerting must not depend on the Python
+runtime being up.
+
+**Consequences.** `channels/commands.py` (`MUTATION_VERBS`); `channels/dispatch.py`
+(`_handle_mutation_verb`, `_MUTATION_DIRECTIVES`, confirm routing);
+`channels/service.py` (`send_outbound`); `routers/channels.py` (`POST /channels/send`);
+front-door allowlist `send`; TS `channels-{client,browser}.ts` (`sendChannelMessage`);
+`src/lib/notifications/{channel-diff.ts,channel-watcher.tsx}` + mount in
+`src/app/layout.tsx`. Tests `test_channels_core.py` (mutation verbs, send),
+`test_channels_api.py` (`/send`), `channel-diff.test.ts`. Docs
+`docs/harness/channel-gateway.md`.

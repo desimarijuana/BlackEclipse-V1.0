@@ -1,0 +1,53 @@
+# Anatomy kit — attribution and provenance
+
+The isometric SVG toolkit in this directory (`iso-kit.ts`, `draw.tsx`,
+`live.tsx`) is **adapted** from the `anatomy` project by Ryan
+(https://github.com/wheresryan22/anatomy), which is published under the MIT
+License. The MIT License permits reuse and modification provided the copyright
+and permission notice are preserved.
+
+## What was imported
+
+| File here | Upstream origin | Change |
+|---|---|---|
+| `iso-kit.ts` | `kit/iso-kit.ts` | verbatim (blob-verified — see provenance) |
+| `draw.tsx` | `kit/react/draw.tsx` | import path `../iso-kit` → `./iso-kit` (only change) |
+| `live.tsx` | `kit/react/live.tsx` | verbatim (blob-verified) |
+| `iso-kit.mjs` | `kit/iso-kit.mjs` | verbatim (runtime dep of lathe/tube) |
+| `lathe.mjs` | `kit/lathe.mjs` | verbatim — turned solids (`lathe`/`solidOf`/`sphereOf`/`disc`/`ringBand`) |
+| `tube.mjs` | `kit/tube.mjs` | verbatim (pipes/cables; vendored for future use) |
+
+The bespoke reference figure that upstream ships alongside the kit
+(`model.mjs`, `build.mjs`, `kit/lathe.mjs`, `kit/tube.mjs`, `kit/gl.mjs`,
+`kit/turn*.mjs`, `kit/audit.mjs`, `kit/canvas-painter.mjs`, `iso.css`, and the
+generated `eclipse-refinery.html`) is NOT imported into the app runtime. It
+remains under `docs/figures/eclipse-refinery/` as a reference/quality benchmark
+only.
+
+## Update procedure
+
+1. Diff the upstream `kit/iso-kit.ts`, `kit/react/draw.tsx` and
+   `kit/react/live.tsx` against these files.
+2. Re-apply the import-path edit in `draw.tsx`.
+3. Re-run `npm run test` and `npx tsc --noEmit` from `Black-Eclipse-site/`.
+4. Record the upstream commit hash below when bumping.
+
+## Provenance (VERIFIED)
+
+- Upstream repository: https://github.com/wheresryan22/anatomy
+- Upstream commit: `e9488296a44211c42701ff71705b7901470ec78f` (2026-10-15, "Merge
+  pull request #81").
+- License: MIT — Copyright (c) 2026 Ryan (full text in `LICENSE`).
+
+Git blob SHA-1s, proving the vendored copies are byte-identical to that commit
+except for the one documented edit:
+
+| File | Upstream blob | Local blob |
+|---|---|---|
+| `iso-kit.ts` | `232c8e85e5df251c6652d66448b6ba1d2da821a7` | `232c8e85e5df251c6652d66448b6ba1d2da821a7` (identical) |
+| `live.tsx` | `58c5cf2491836405761edf93b4134f7c42c7ebb3` | `58c5cf2491836405761edf93b4134f7c42c7ebb3` (identical) |
+| `draw.tsx` | `108cbd405ba8405ee4d4de02d3661cc540656417` | `e7dc071005d671a4e9a623d10cb4c5165ec182da` (import-path edit only) |
+
+Verify locally with `git hash-object <file>`; compare against the GitHub
+contents API at the commit above.
+

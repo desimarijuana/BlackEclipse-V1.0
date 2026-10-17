@@ -134,6 +134,118 @@ def test_empty_scorecard_is_honest(tmp_path):
     assert card["hitRate"] is None
 
 
+# ── auto evaluation ─────────────────────────────────────────────────────────────
+
+
+def test_entry_price_is_captured_when_provided(tmp_path):
+    svc = _service(tmp_path)
+    decision = svc.record_verdict(run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0})[0]
+    kinds = {b["kind"] for b in decision["basis"]}
+    assert "entry_price" in kinds
+
+
+def test_evaluate_outcome_computes_the_return(tmp_path):
+    svc = _service(tmp_path)
+    did = svc.record_verdict(run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0})[0]["id"]
+    outcome = svc.evaluate_outcome(did, current_price=110.0, benchmark_return=0.05)
+    assert abs(outcome["realizedReturn"] - 0.10) < 1e-9
+    assert outcome["verdict"] == "right"
+
+
+def test_evaluate_outcome_without_an_entry_price_is_none(tmp_path):
+    svc = _service(tmp_path)
+    did = svc.record_verdict(run_id="r1", verdict=_verdict())[0]["id"]
+    assert svc.evaluate_outcome(did, current_price=110.0) is None
+
+
+def test_evaluate_decisions_skips_unpriced_and_evaluates_matched(tmp_path):
+    svc = _service(tmp_path)
+    priced = svc.record_verdict(run_id="r1", verdict=_verdict(),
+                                entry_prices={"AAPL": 100.0})[0]["id"]
+    svc.record_verdict(run_id="r2", verdict=_verdict(action="sell"))  # no entry price
+    results = svc.evaluate_decisions({"AAPL": 90.0}, benchmark_return=0.0)
+    assert len(results) == 1
+    assert results[0]["decisionId"] == priced
+    assert results[0]["verdict"] == "wrong"
+    # A second pass does not double-evaluate (already has an outcome).
+    assert svc.evaluate_decisions({"AAPL": 90.0}) == []
+
+
+# ── auto evaluation via the gateway ──────────────────────────────────────────────
+
+
+class _Gateway:
+    def __init__(self, prices):
+        self._prices = prices
+
+    async def get_quote(self, symbol):
+        return {"price": self._prices.get(symbol)}
+
+
+def test_auto_evaluate_fetches_prices_and_records_outcomes(tmp_path):
+    import asyncio
+
+    svc = _service(tmp_path)
+    svc.record_verdict(run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0})
+    result = asyncio.run(svc.auto_evaluate(_Gateway({"AAPL": 120.0}), benchmark_return=0.0))
+    assert result["evaluated"] == 1
+    assert result["outcomes"][0]["verdict"] == "right"
+    assert svc.scorecard()["hitRate"] == 1.0
+
+
+def test_auto_evaluate_skips_a_recommendation_without_a_price(tmp_path):
+    import asyncio
+
+    svc = _service(tmp_path)
+    svc.record_verdict(run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0})
+    result = asyncio.run(svc.auto_evaluate(_Gateway({})))  # no quote
+    assert result["evaluated"] == 0
+    assert len(result["skipped"]) == 1
+
+
+# ── seam pipeline (collector → gate → record → attach) ──────────────────────────
+
+
+def test_seam_pipeline_records_a_computed_decision_with_an_entry_price(tmp_path):
+    import asyncio
+
+    from harness.advisory import integration
+    from harness.advisory.collector import AdvisoryCollector
+
+    collector = AdvisoryCollector()
+    collector.add("portfolio_rebalance", {"portfolio_id": "pf_1"},
+                  {"trades": [{"symbol": "AAPL", "targetWeight": 0.6, "price": 100.0}]})
+
+    answer, verdict = asyncio.run(
+        integration.verify("Rebalance AAPL to 60%.", collector)
+    )
+    assert verdict is not None
+    assert verdict["claims"][0]["status"] == "computed"
+    assert "Advisory note:" not in answer  # computed advice needs no disclosure
+
+    svc = _service(tmp_path)
+    svc.record_verdict(run_id="r1", verdict=verdict, portfolio_id="pf_1",
+                       entry_prices=collector.prices())
+    decision = svc.get_decision(svc.list_decisions()[0]["id"])
+    kinds = {b["kind"] for b in decision["basis"]}
+    assert "computation" in kinds and "entry_price" in kinds
+
+    blob = integration.attach(None, verdict)
+    assert blob["metadata"]["advisoryIntegrity"]["status"] == "ok"
+
+
+def test_seam_pipeline_discloses_unsupported_advice(tmp_path):
+    import asyncio
+
+    from harness.advisory import integration
+    from harness.advisory.collector import AdvisoryCollector
+
+    collector = AdvisoryCollector()  # no portfolio computation
+    answer, verdict = asyncio.run(integration.verify("Buy TSLA.", collector))
+    assert "Advisory note:" in answer
+    assert verdict["claims"][0]["status"] == "unverified"
+
+
 # ── tools ─────────────────────────────────────────────────────────────────────
 
 

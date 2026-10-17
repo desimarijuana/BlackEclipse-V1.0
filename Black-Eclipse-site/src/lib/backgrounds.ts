@@ -29,7 +29,7 @@
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import type { FontOption } from '@/lib/theme/tokens';
+import { LEGACY_DARK_LANDING_COLORS, type FontOption } from '@/lib/theme/tokens';
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,14 @@ export type WordmarkAlign = 'left' | 'center' | 'right';
 
 /** The default giant wordmark painted on the ChatBot landing. */
 export const DEFAULT_WORDMARK_TEXT = 'ECLIPSE AGENT';
+
+/**
+ * The ChatBot landing backdrop's default fill in DARK mode. When the user has
+ * not picked an explicit solid color, the landing defaults to this near-black on
+ * every theme (the theme background still applies in light mode), so the page
+ * behind the wordmark reads the same regardless of the active theme.
+ */
+export const DEFAULT_SOLID_DARK_COLOR = '#0a0b0b';
 
 /**
  * The default wordmark typeface — Michroma, a wide geometric sci-fi display
@@ -455,10 +463,25 @@ export function loadBackgroundPrefs(): BackgroundPrefs {
   try {
     const raw = window.localStorage.getItem(BACKGROUND_STORAGE_KEY);
     if (!raw) return DEFAULT_BACKGROUND;
-    return normalizeBackgroundPrefs(JSON.parse(raw));
+    const prefs = normalizeBackgroundPrefs(JSON.parse(raw));
+    return migrateLegacyLandingColor(prefs);
   } catch {
     return DEFAULT_BACKGROUND;
   }
+}
+
+/**
+ * One-time fix-up for a stored ChatBot landing color that came from an OLD dark
+ * theme preset (an accent-tinted grey). Now that dark landings defer to the
+ * scheme-aware `#0a0b0b` default, such a stored value is cleared to empty so the
+ * default applies. An explicit, deliberately-picked color (not in the retired
+ * palette) is preserved.
+ */
+export function migrateLegacyLandingColor(prefs: BackgroundPrefs): BackgroundPrefs {
+  if (prefs.mode !== 'solid' || prefs.solidFill !== 'flat') return prefs;
+  const color = prefs.solidColor.trim().toLowerCase();
+  if (!color || !LEGACY_DARK_LANDING_COLORS.includes(color)) return prefs;
+  return { ...prefs, solidColor: '' };
 }
 
 function persistBackgroundPrefs(prefs: BackgroundPrefs): void {
@@ -598,6 +621,12 @@ export interface BackgroundCss {
    * rather than a `linear-gradient(color, color)` so it is a genuine solid fill
    * — no gradient function at all. */
   color: string;
+  /**
+   * The flat fill color for DARK mode (`html.dark`). Matches {@link color} except
+   * for a flat solid backdrop with no explicit pick, where it defaults to
+   * {@link DEFAULT_SOLID_DARK_COLOR} instead of the theme background.
+   */
+  colorDark: string;
   /** `background-image` for the host element's *pattern* layer (`--page-bg-image`). */
   pageImage: string;
   /** `background-size` for the image layer (fit). */
@@ -725,6 +754,7 @@ export function resolveBackgroundCss(
     return {
       url: flat ? 'none' : solidBackgroundImage(prefs),
       color: flat ? solidBaseColor(prefs) : 'transparent',
+      colorDark: flat ? prefs.solidColor.trim() || DEFAULT_SOLID_DARK_COLOR : 'transparent',
       pageImage: 'none',
       size: solidBackgroundSize(prefs),
       repeat: 'no-repeat',
@@ -738,11 +768,12 @@ export function resolveBackgroundCss(
   const asset = prefs.preset === CUSTOM_BACKGROUND_ID ? null : shippedBackground(prefs.preset);
   const url = asset?.url ?? (customUrl || null);
   if (!url) {
-    return { url: 'none', color: 'transparent', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
+    return { url: 'none', color: 'transparent', colorDark: 'transparent', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
   }
   return {
     url: `url("${url}")`,
     color: 'transparent',
+    colorDark: 'transparent',
     // Suppress the theme pattern so the wallpaper is the only backdrop.
     pageImage: 'none',
     size: sizeForFit(prefs.fit),
@@ -839,6 +870,9 @@ export function applyBackgroundToDocument(prefs: BackgroundPrefs, customUrl: str
   const css = resolveBackgroundCss(prefs, customUrl);
   root.style.setProperty('--page-bg-image', css.pageImage);
   root.style.setProperty('--app-bg-color', css.color);
+  // Dark-mode fill, so the landing defaults to a near-black on every theme while
+  // light mode follows the theme background.
+  root.style.setProperty('--app-bg-color-dark', css.colorDark);
   root.style.setProperty('--app-bg-image', css.url);
   root.style.setProperty('--app-bg-size', css.size);
   root.style.setProperty('--app-bg-repeat', css.repeat);
@@ -863,7 +897,7 @@ function clearBackgroundFromDocument(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   for (const name of [
-    '--page-bg-image', '--app-bg-color', '--app-bg-image', '--app-bg-size', '--app-bg-repeat',
+    '--page-bg-image', '--app-bg-color', '--app-bg-color-dark', '--app-bg-image', '--app-bg-size', '--app-bg-repeat',
     '--app-bg-position', '--app-bg-zoom', '--app-bg-scrim',
     '--chat-surface-bg-light', '--chat-surface-bg-dark', '--chat-surface-opacity',
     '--chat-bubble-bg-light', '--chat-bubble-bg-dark',

@@ -13,6 +13,7 @@ from harness.ui.model import (
     CatalogQuery,
     CreatePageInput,
     DropTarget,
+    ListBlueprintsQuery,
     RestoreRevisionInput,
     SaveLayoutInput,
     UiComponentSpec,
@@ -46,6 +47,27 @@ def test_catalog_seeded_and_searchable(ui):
     assert ui.inspect_component("metric-card").category == "metrics"
     assert any(c.id == "data-table" for c in ui.list_components(CatalogQuery(text="table")))
     assert "metrics" in ui.get_capabilities()["categories"]
+
+
+def test_catalog_search_uses_word_boundaries(ui):
+    # "form" must not match "performance" — an interactive search must not return
+    # unrelated charts (the word-boundary fix).
+    assert all("performance" not in c.id for c in ui.list_components(CatalogQuery(text="form")))
+
+
+def test_create_page_titles_are_unique(ui):
+    # A create never adds a second page sharing a title; a duplicate is suffixed.
+    a = ui.create_page(CreatePageInput(title="Main"))
+    b = ui.create_page(CreatePageInput(title="Main"))
+    c = ui.create_page(CreatePageInput(title="Main"))
+    assert (a.title, b.title, c.title) == ("Main", "Main 2", "Main 3")
+    # The summary still carries id + widget count + component ids.
+    _add(ui, b.id, "metric-card")
+    result = ui.list_blueprints(ListBlueprintsQuery())
+    by_id = {s["id"]: s for s in result["blueprints"]}
+    assert by_id[b.id]["title"] == "Main 2"
+    assert by_id[b.id]["widgetCount"] == 1
+    assert by_id[b.id]["componentIds"] == ["metric-card"]
 
 
 def test_register_component(ui):
@@ -153,7 +175,9 @@ def test_get_current_page_default_is_most_recent_and_surfaces_choice(ui):
 def test_get_current_page_title_resolves_and_disambiguates(ui):
     first = ui.create_page(CreatePageInput(title="Main")).id
     time.sleep(0.01)
-    second = ui.create_page(CreatePageInput(title="Main")).id
+    second = ui.create_page(CreatePageInput(title="Ledger")).id
+    # A CREATE never duplicates a title now; force a duplicate via an EDIT.
+    ui.update_page(second, UpdatePageInput(title="Main"))
     # Ambiguous title -> most recently updated, with the others offered.
     page = ui.get_current_page(title="Main")
     assert page["resolution"] == "title_ambiguous"

@@ -10,12 +10,16 @@
 // (e.g. a chart) cannot destroy the surrounding answer — error isolation is the
 // whole point of rendering blocks independently.
 
-import React, { useMemo, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { AlertTriangle } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ParsedResponse, ValidatedBlock } from '@/lib/response/contract';
 import { degradeUnknownBlock, finalizeParsed, reportResponseDegrade } from '@/lib/response/finalize';
+import { resolveResponseFigures } from '@/lib/response/refs';
+import { computeEnvelopeValues, initialEnvelopeValues } from '@/lib/response/state';
+import { InputsStateProvider, useResponseRuntime, type InputsState } from './figure-context';
+import { InputsBlock } from './inputs-block';
 import {
   CalloutBlock,
   CitationsBlock,
@@ -36,6 +40,10 @@ import { NodeGraphBlock } from './node-graph-block';
 import { LearningMapBlock } from './learning-map-block';
 import { MermaidBlock } from './mermaid-block';
 import { FlowBlock } from './flow-block';
+import { SimulationBlock } from './simulation-block';
+import { AnatomyBlock } from './anatomy-block';
+import { Model3dBlock } from './model3d-block';
+import { DividerBlock, LayoutBlock } from './layout-block';
 import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock, WorkflowBlock } from './rich-blocks';
 import { GalleryBlockView } from './gallery-block';
 import {
@@ -166,6 +174,12 @@ const REGISTRY = {
   ranked_list: (b: BlockOf<'ranked_list'>) => <RankedListBlock block={b} />,
   badge_row: (b: BlockOf<'badge_row'>) => <BadgeRowBlock block={b} />,
   carousel: (b: BlockOf<'carousel'>, ctx: RenderContext) => <CarouselBlock block={b} renderBlocks={ctx.renderBlocks} />,
+  simulation: (b: BlockOf<'simulation'>, ctx: RenderContext) => <SimulationBlock block={b} onFollowup={ctx.onFollowup} />,
+  anatomy: (b: BlockOf<'anatomy'>) => <AnatomyBlock block={b} />,
+  model3d: (b: BlockOf<'model3d'>) => <Model3dBlock block={b} />,
+  layout: (b: BlockOf<'layout'>, ctx: RenderContext) => <LayoutBlock block={b} renderBlocks={ctx.renderBlocks} />,
+  divider: (b: BlockOf<'divider'>) => <DividerBlock block={b} />,
+  inputs: (b: BlockOf<'inputs'>) => <InputsBlock block={b} />,
 } as const;
 
 type RegistryKey = keyof typeof REGISTRY;
@@ -236,6 +250,16 @@ function blockGapClass(
   return compact ? 'mt-3' : 'mt-4';
 }
 
+/**
+ * A stable key for a block: its producer `id` when present, else `index:type`.
+ * Stable keys matter while streaming — a block keeps its identity (and local
+ * React state, e.g. a slider position) as later blocks arrive.
+ */
+function blockKey(block: ValidatedBlock, index: number): string {
+  const id = (block as { id?: unknown }).id;
+  return typeof id === 'string' && id ? id : `${index}:${block.type}`;
+}
+
 function renderBlock(block: ValidatedBlock, ctx: RenderContext, index: number): ReactNode {
   // Defensive backstop: finalization already replaces rejected blocks, so this is
   // unreachable in practice — but if an unknown block ever reaches here it is
@@ -263,6 +287,10 @@ export interface ResponseViewProps {
 }
 
 export function ResponseView({ response, compact = false, className, onFollowup }: ResponseViewProps) {
+  // Figure resolution + envelope-state persistence come from the surrounding chat
+  // (built from the turn's own data). Without one, a `$ref` figure renders
+  // UNAVAILABLE (never the raw reference) and edits are not persisted.
+  const { figureResolver, stateKey } = useResponseRuntime();
   // THE CHOKEPOINT: every response rendered here is finalized first, so a
   // rejected block becomes readable content and no error diagnostic survives to
   // reach the UI. Failures are measured (telemetry), never shown as an error.
@@ -272,36 +300,90 @@ export function ResponseView({ response, compact = false, className, onFollowup 
     return result.response;
   }, [response]);
 
+  // Envelope shared state: the user's overrides, persisted per `stateKey` so an
+  // answer reopens with the same slider positions (latest-wins).
+  const stateVars = finalized.state;
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!stateKey || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(`eclipse-response-state:${stateKey}`);
+      setOverrides(raw ? (JSON.parse(raw) as Record<string, number>) : {});
+    } catch {
+      setOverrides({});
+    }
+  }, [stateKey]);
+
+  const effectiveValues = useMemo(
+    () => ({ ...initialEnvelopeValues(stateVars), ...overrides }),
+    [stateVars, overrides],
+  );
+  const computedValues = useMemo(
+    () => computeEnvelopeValues(stateVars, finalized.computed, effectiveValues),
+    [stateVars, finalized.computed, effectiveValues],
+  );
+  const setValue = useCallback(
+    (id: string, value: number) => {
+      setOverrides((prev) => {
+        const next = { ...prev, [id]: value };
+        if (stateKey && typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(`eclipse-response-state:${stateKey}`, JSON.stringify(next));
+          } catch {
+            /* storage unavailable — the edit still applies this session */
+          }
+        }
+        return next;
+      });
+    },
+    [stateKey],
+  );
+  const inputsState = useMemo<InputsState>(
+    () => ({ vars: stateVars, values: effectiveValues, setValue }),
+    [stateVars, effectiveValues, setValue],
+  );
+
+  // Resolve `$ref` (from the turn) and `$computed` (from envelope state) figures.
+  const finalizedResolved = useMemo(
+    () => resolveResponseFigures(finalized, figureResolver, computedValues),
+    [finalized, figureResolver, computedValues],
+  );
+
   const renderBlocks = (blocks: ValidatedBlock[]): ReactNode => (
     <>
       {blocks.map((block, i) => (
-        <div key={i} className={blockGapClass(block.type, i > 0 ? blocks[i - 1].type : null, compact)}>
-          {renderBlock(block, { compact, renderBlocks, onFollowup }, i)}
+        <div key={blockKey(block, i)} className={blockGapClass(block.type, i > 0 ? blocks[i - 1].type : null, compact)}>
+          {/* One-shot entrance motion (reduced-motion safe): a newly streamed
+              block fades/rises once. The gap wrapper keeps its exact class so
+              the layout-cohesion invariant is unchanged. */}
+          <div className="response-block-enter">
+            {renderBlock(block, { compact, renderBlocks, onFollowup }, i)}
+          </div>
         </div>
       ))}
     </>
   );
 
-  if (finalized.blocks.length === 0) {
+  if (finalizedResolved.blocks.length === 0) {
     // Nothing renderable and nothing wrong: say so quietly instead of an empty
     // region (the first note carries the honest reason when there is one).
     return (
       <div className={cn('w-full text-[12px] text-muted-foreground/80', className)}>
-        {finalized.diagnostics[0]?.message ?? 'No structured content was produced.'}
+        {finalizedResolved.diagnostics[0]?.message ?? 'No structured content was produced.'}
       </div>
     );
   }
 
   return (
-    <section className={cn('w-full', className)} aria-label="Structured response">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <ResponseHeader response={finalized} />
-        <ResponseActions response={finalized} />
-      </div>
-      <div>
-        {renderBlocks(finalized.blocks)}
-      </div>
-    </section>
+    <InputsStateProvider value={inputsState}>
+      <section className={cn('w-full', className)} aria-label="Structured response">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <ResponseHeader response={finalizedResolved} />
+          <ResponseActions response={finalizedResolved} />
+        </div>
+        <div>{renderBlocks(finalizedResolved.blocks)}</div>
+      </section>
+    </InputsStateProvider>
   );
 }
 

@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles, StickyNote } from '@/lib/icons';
+import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, ShieldCheck, Sparkles, StickyNote } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { useSubroute } from '@/hooks/use-subroute';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
@@ -25,14 +25,16 @@ import { DemoDataBanner } from './demo-banner';
 import { QuickAddTrade } from './quick-add-trade';
 import { JournalSettings } from './journal-settings';
 import { JournalNotebook } from './notebook';
+import { AdvisoryDecisions } from './advisory-decisions';
 
-export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'psychology' | 'playbook' | 'reviews' | 'insights' | 'notebook';
+export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'decisions' | 'psychology' | 'playbook' | 'reviews' | 'insights' | 'notebook';
 
 const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'trades', label: 'Trades', icon: ListChecks },
   { id: 'analytics', label: 'Analytics', icon: LineChart },
+  { id: 'decisions', label: 'Decisions', icon: ShieldCheck },
   { id: 'psychology', label: 'Psychology', icon: Brain },
   { id: 'playbook', label: 'Playbook', icon: BookOpen },
   { id: 'reviews', label: 'Reviews', icon: MessageSquareText },
@@ -157,6 +159,7 @@ export function JournalScreen() {
               {tab === 'calendar' && <JournalCalendar trades={trades} onSelectDay={(d) => { setSelectedDate(d); setDailyOpen(true); }} onChanged={refresh} />}
               {tab === 'trades' && <JournalTrades trades={trades} analytics={analytics} onChanged={refresh} selectedDate={selectedDate} />}
               {tab === 'analytics' && <JournalAnalyticsView analytics={analytics} trades={trades} />}
+              {tab === 'decisions' && <AdvisoryDecisions />}
               {tab === 'psychology' && <JournalPsychology analytics={analytics} trades={trades} />}
               {tab === 'playbook' && <JournalPlaybook />}
               {tab === 'reviews' && <JournalReviews />}

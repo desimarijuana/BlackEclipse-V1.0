@@ -699,6 +699,7 @@ function StockChatContent() {
         documents: turn.documents, memory: turn.memory,
         codeVerification: turn.codeVerification, autonomy: turn.autonomy,
         capability: turn.capability, analysis: turn.analysis,
+        responsePlan: turn.responsePlan,
         runId: turn.runId,
         model: turn.model,
         error: turn.error,
@@ -1116,7 +1117,6 @@ function StockChatContent() {
                       onRemoveAttachment={handleRemoveAttachment}
                       busy={agentBusy}
                       onCancel={handleCancel}
-                      focus={focusMode}
                       modelState={chatModel}
                       effortState={reasoningEffort}
                       mentionTargets={mentionTargets}
@@ -1139,8 +1139,7 @@ function StockChatContent() {
   onFollowup={handleFollowup}
 />
                     <div className={cn(
-                      'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 transition-[max-width] duration-500 ease-out',
-                      focusMode ? 'max-w-none' : 'max-w-[1400px]',
+                      'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 max-w-full md:max-w-[80%]',
                     )} ref={setComposerEl}>
                       <ChatInput
                         query={query}

@@ -257,6 +257,33 @@ export async function getAutomation(id: string): Promise<AutomationView> {
   return body.automation;
 }
 
+// ── Proactive monitors (the closed portfolio-monitor catalogue) ──────────────
+export interface AdvisoryMonitorView {
+  id: string;
+  label: string;
+  description: string;
+  requiredParams: string[];
+  condition: string;
+  delivery: DeliveryAdapter;
+}
+
+export async function listMonitors(): Promise<AdvisoryMonitorView[]> {
+  const body = await request<{ monitors: AdvisoryMonitorView[] }>("/automations/monitors", { method: "GET" });
+  return body.monitors ?? [];
+}
+
+export async function createMonitor(input: {
+  monitorId: string;
+  params: Record<string, string | number>;
+  name?: string;
+}): Promise<AutomationView> {
+  const body = await request<{ automation: AutomationView }>("/automations/monitors", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return body.automation;
+}
+
 export async function createAutomation(input: CreateAutomationInput): Promise<AutomationView> {
   const body = await request<{ automation: AutomationView }>("/automations", {
     method: "POST",

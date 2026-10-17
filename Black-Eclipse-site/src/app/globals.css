@@ -310,6 +310,19 @@ html:not(.dark) .ws-glass {
   animation: fadeIn 0.4s ease-out backwards;
 }
 
+/* Structured-response block entrance — a small, ONE-SHOT fade+rise as a block
+   appears (including a block that streams in mid-answer). It uses `backwards`
+   fill only (never `forwards`/`both`), so it cannot create a persistent backdrop
+   root above a glass surface. Reduced-motion users get no motion. */
+.response-block-enter {
+  animation: fadeInUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .response-block-enter {
+    animation: none;
+  }
+}
+
 /* ── Live ghost avatar — ambient life ─────────────────────────────────────────
  * `GhostAvatar` is a pure SVG drawing; `LiveGhostAvatar` adds motion without
  * changing it. Three layers:
@@ -1710,6 +1723,13 @@ body {
   background-size: 100% 100%;
   background-repeat: no-repeat;
   background-position: center;
+}
+/* Dark-mode landing fill: on every theme the backdrop behind the wordmark
+ * defaults to a calm near-black (`--app-bg-color-dark`, `#0a0b0b`) instead of the
+ * theme background, which only applies in light mode. An explicit pick sets both
+ * vars; an image backdrop sets both to `transparent`. */
+html.dark .app-bg-layer {
+  background-color: var(--app-bg-color-dark, var(--app-bg-color, transparent));
 }
 .app-bg-layer::before {
   content: '';

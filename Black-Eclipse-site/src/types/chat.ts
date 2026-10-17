@@ -1,4 +1,4 @@
-import type { ActivityItem, AssistantModel, PendingApproval, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
+import type { ActivityItem, AssistantModel, PendingApproval, ResponsePlan, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
 
 /**
  * One turn in a conversation transcript.
@@ -83,6 +83,11 @@ export interface Message {
    * `approval.requested` event and cleared when it resolves.
    */
   pendingApproval?: PendingApproval;
+  /**
+   * The Intelligent Response Orchestrator's presentation plan for this turn
+   * (runtime `response.plan`). Absent for ordinary/legacy turns. Display only.
+   */
+  responsePlan?: ResponsePlan;
   /** A recoverable failure on this turn. */
   error?: TurnError;
   /** User rating on an assistant turn, if given. Persisted with the message. */

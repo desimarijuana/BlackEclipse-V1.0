@@ -171,14 +171,15 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
     }
   }, [busyAll, members, onChanged, t]);
 
-  const scrollToBottom = useCallback(() => {
+  // The thread is newest-first, so the newest message lives at the TOP.
+  const scrollToTop = useCallback(() => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
+      if (el) el.scrollTop = 0;
     });
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages.length, sending, scrollToBottom]);
+  useEffect(() => { scrollToTop(); }, [messages.length, sending, scrollToTop]);
 
   // Auto-grow the composer with its content, up to a cap, then scroll.
   const resizeComposer = useCallback(() => {
@@ -462,8 +463,17 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           </div>
         )}
 
-        {messages.map((m, i) =>
-          !m.error && m.role === 'assistant' && !m.content ? null : (
+        {sending && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
+            {t('bots.groups.answering')}
+          </div>
+        )}
+
+        {/* Newest message first: the thread is rendered in reverse. */}
+        {[...messages].reverse().map((m, ri) => {
+          const i = messages.length - 1 - ri;
+          return !m.error && m.role === 'assistant' && !m.content ? null : (
             <GroupBubble
               key={m.id}
               message={m}
@@ -477,15 +487,8 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
               onRetry={m.role === 'assistant' && m.error ? regenerateGroup : undefined}
               onFeedback={setGroupFeedback}
             />
-          ),
-        )}
-
-        {sending && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 size={14} className="animate-spin" />
-            {t('bots.groups.answering')}
-          </div>
-        )}
+          );
+        })}
       </div>
 
       {/* Composer */}

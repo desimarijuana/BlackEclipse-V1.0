@@ -260,7 +260,50 @@ class AutomationStore:
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_autodedup_at ON AutomationEventDedup(at)"
         )
+        # One-time maintenance markers (guarded migrations that must run exactly
+        # once, so a later deliberate operator choice is never silently reverted).
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS AutomationMaintenance (
+              key       TEXT PRIMARY KEY,
+              appliedAt TEXT NOT NULL
+            )
+            """
+        )
         db.commit()
+        self._migrate_misfire_default()
+
+    def _migrate_misfire_default(self) -> None:
+        """One-time: upgrade the old `skip` misfire default to `run_once`.
+
+        `skip` was the shipped default and silently DROPPED every scheduled run
+        that came due while Eclipse was closed, so a daily bot only ran if the
+        app happened to be open at that minute. `run_once` runs the missed fire
+        when the app returns. Guarded so a later, deliberate `skip` is preserved.
+        """
+        key = "misfire_default_run_once"
+        if self._db.execute(
+            "SELECT 1 FROM AutomationMaintenance WHERE key=?", (key,)
+        ).fetchone():
+            return
+        rows = self._db.execute("SELECT id, definitionJson FROM Automation").fetchall()
+        for row in rows:
+            try:
+                data = json.loads(row["definitionJson"])
+            except (TypeError, ValueError):
+                continue
+            execution = data.get("execution")
+            if isinstance(execution, dict) and execution.get("misfire") == "skip":
+                execution["misfire"] = "run_once"
+                self._db.execute(
+                    "UPDATE Automation SET definitionJson=?, updatedAt=? WHERE id=?",
+                    (json.dumps(data), now_iso(), row["id"]),
+                )
+        self._db.execute(
+            "INSERT OR REPLACE INTO AutomationMaintenance(key, appliedAt) VALUES (?, ?)",
+            (key, now_iso()),
+        )
+        self._db.commit()
 
     # ── Definitions ──────────────────────────────────────────────────────────
     def _ensure_column(self, table: str, name: str, ddl: str) -> None:
@@ -542,6 +585,21 @@ class AutomationStore:
             (automation_id, max(1, min(int(limit), 1000))),
         ).fetchall()
         return [_exec_row(r) for r in rows]
+
+    def execution_exists_for_slot(self, automation_id: str, scheduled_for: Optional[str]) -> bool:
+        """Whether this automation already has ANY execution for a schedule slot.
+
+        Recovery idempotency: a misfire is keyed by the slot it missed, so a
+        process that restarts several times does not record the same missed slot
+        (or re-skip it) over and over.
+        """
+        if not scheduled_for:
+            return False
+        row = self._db.execute(
+            "SELECT 1 FROM AutomationExecution WHERE automationId=? AND scheduledFor=? LIMIT 1",
+            (automation_id, scheduled_for),
+        ).fetchone()
+        return row is not None
 
     def list_recent_executions(self, limit: int = 100) -> list[dict[str, Any]]:
         rows = self._db.execute(

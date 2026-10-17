@@ -1,0 +1,27 @@
+{
+  "id": "system.anatomy-figure",
+  "name": "Interactive Anatomy Figure",
+  "version": "1.1.0",
+  "description": "Explain how a system, machine or process works as an interactive, orbitable 3D mechanism model — labelled parts, connections and step-through stages — rendered inline in chat as a `model3d` block (recipes, primitives, GLB export).",
+  "category": "system",
+  "tags": ["visual", "explanation", "anatomy", "diagram", "teaching"],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "subject": { "type": "string", "description": "The concept, system or mechanism to illustrate." },
+      "audience": { "type": "string", "description": "beginner, intermediate or expert (optional)." },
+      "animated": { "type": "boolean", "description": "Break the mechanism into step-through stages." }
+    },
+    "required": ["subject"]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 4, "timeoutMs": 120000, "maxToolCalls": 8 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

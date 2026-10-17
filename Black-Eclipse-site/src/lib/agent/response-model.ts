@@ -98,6 +98,59 @@ export interface TurnError {
   message: string;
 }
 
+/** The presentation mode the Intelligent Response Orchestrator chose for a turn. */
+export type ResponseMode =
+  | 'text'
+  | 'explanation'
+  | 'visualization'
+  | 'simulation'
+  | 'workflow'
+  | 'composite';
+
+/**
+ * The orchestrator's response-mode plan for one turn (runtime `response.plan`
+ * event). It only steers presentation; it never changes the answer's content.
+ * `signals` and `suggestedBlocks` are diagnostic detail — `mode` is what the UI
+ * surfaces.
+ */
+export interface ResponsePlan {
+  mode: ResponseMode;
+  confidence: 'certain' | 'likely' | 'unsure';
+  reason: string;
+  signals: string[];
+  suggestedBlocks: string[];
+  learning: boolean;
+}
+
+const RESPONSE_MODES = new Set<ResponseMode>([
+  'text', 'explanation', 'visualization', 'simulation', 'workflow', 'composite',
+]);
+
+/**
+ * Narrow an untrusted `response.plan` payload to a `ResponsePlan`, or undefined.
+ * Total: a malformed payload never throws and is simply dropped.
+ */
+export function coerceResponsePlan(value: unknown): ResponsePlan | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const mode = record.mode;
+  if (typeof mode !== 'string' || !RESPONSE_MODES.has(mode as ResponseMode)) return undefined;
+  const confidence =
+    record.confidence === 'certain' || record.confidence === 'likely' || record.confidence === 'unsure'
+      ? record.confidence
+      : 'unsure';
+  const strings = (input: unknown): string[] =>
+    Array.isArray(input) ? input.filter((x): x is string => typeof x === 'string') : [];
+  return {
+    mode: mode as ResponseMode,
+    confidence,
+    reason: typeof record.reason === 'string' ? record.reason : '',
+    signals: strings(record.signals),
+    suggestedBlocks: strings(record.suggestedBlocks),
+    learning: record.learning === true,
+  };
+}
+
 /**
  * One file change an assistant turn made, with the runtime's bounded diff
  * preview. Fed by the runtime's change events (`code.patch.applied`,
@@ -205,6 +258,11 @@ export interface AssistantTurn {
    * by `approval.resolved` or the decision POST.
    */
   pendingApproval?: PendingApproval;
+  /**
+   * The Intelligent Response Orchestrator's presentation plan for this turn
+   * (runtime `response.plan`). Absent for runs that did not emit one.
+   */
+  responsePlan?: ResponsePlan;
   /** True once a terminal state has been reached. */
   done: boolean;
 }

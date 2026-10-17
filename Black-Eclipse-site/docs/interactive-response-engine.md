@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-16
 ---
 
 # Interactive Response Engine
@@ -170,6 +170,8 @@ renderer to keep in sync.
 | Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, histogram, heatmap |
 | | `diagram` | flowchart, dependency, state — native SVG, read-only |
 | | `node_graph` | selectable node/edge graph — same layout engine; a node's `detail` shows on selection |
+| | `anatomy` | interactive isometric **mechanism figure**: a declarative scene (slab/cylinder `parts`, `wires`, `legend`, deterministic `stages`) compiled by the Anatomy-derived kit (`lib/anatomy/`, see its `NOTICE`). A stage's `readout` is the ONLY source of live text, so the animation can never invent a value. See ADR-047 and "Isometric mechanism figures" in §3. |
+| | `model3d` | interactive **3D model**: a declarative scene graph (`parts[]` with `position`/`rotation`/`scale`, optional `parent` assemblies, `material`/`tone`/`lit`, and geometry as a primitive (`box`/`cylinder`/`cone`/`sphere`/`torus`/`lathe`/`extrude`/`tube`/`gear`) **or a mechanism recipe** (`motor`/`gearbox`/`pump`/`valve`/`gauge`/`tank`/`bearing`/`gear`/`pulley`/`belt-drive`/`frame`/`bracket`/`fan`/`heat-exchanger`/`pcb`/`lever`/`spring`)) compiled to world-space meshes and drawn in an orbitable `ogl` WebGL viewport, with a numbered key, stages and `.glb` download. See ADR-048 and "3D mechanism models" in §3. |
 | Learning | `learning_map` | prerequisite-aware learning roadmap: skills as ordered stages (edges derived from `requires`), each with objectives/exercises/assessment, clickable resource links (type/duration/thumbnail), and a completion toggle that **persists** to `/api/learning/progress` when a `pathId` is present. An "alternatives" action re-enters the agent loop; a compact text outline is the fallback. Built by the Learning Research Engine — never a generated image. |
 | | `timeline` | ordered events with tone dots (alias `execution_timeline`) |
 | | `citations` | numbered sources with host/timestamps (alias `source_list`) |
@@ -187,6 +189,8 @@ renderer to keep in sync.
 | | `ranked_list` | leaderboard of ranked bars scaled to the largest absolute value in the list (never a fabricated ceiling); order is the producer's rank order. |
 | | `badge_row` | a cluster of tag/pill badges (sectors, themes); `tone` maps to the shared palette, `icon` to the semantic allowlist. |
 | | `carousel` | a slide deck: each slide is a labelled panel of nested blocks (validated recursively, like `tabs`/`report`), one visible at a time with prev/next + dot navigation. A single slide renders without chrome. |
+| Interactive | `inputs` | renders the envelope-level shared `state` as controls; a change updates the answer's state and re-renders any figure bound to a `computed` value — locally, with 0 model calls. See "Envelope state" in §3. |
+| | `simulation` | a **declarative in-chat calculator**: `inputs` are local state and `outputs` are safe expressions over it (see "Declarative calculators" in §3). Unlike `controls` (which composes a follow-up prompt and re-enters the agent loop), it computes LOCALLY — no model call, no backend, no arbitrary code. A named `preset` (`risk_reward`) supplies a canonical input/output set; explicit `inputs`/`outputs` override it. Always labelled "Illustrative" with an always-visible disclaimer; it never reads market data and never implies a real backtest. |
 | Layout | `tabs` | local tab switch; nested blocks validated recursively |
 
 **Aliases.** For producer convenience the documented synonyms `text`→`markdown`,
@@ -287,6 +291,120 @@ byte-stable system prompt (`response_schema_prompt_block` in
 reply, so it cannot drift from the renderer; a bridge miss degrades silently to
 the on-demand tool and never blocks the run.
 
+### Declarative calculators (`simulation`) — state + computed, no JS
+
+The `simulation` block is the engine's first **declarative** interactive surface:
+a set of `inputs` (the local state the user drives) and a set of `outputs`, each
+an **expression** evaluated locally over that state. A slider move recomputes in
+place with **0 model calls** — the value never leaves the browser.
+
+- **The evaluator is a tiny, safe expression language**
+  (`src/lib/response/evaluate.ts`) — recursive-descent, a fixed operator set and a
+  **closed function whitelist** (`abs`, `sqrt`, `floor`, `ceil`, `sign`, `round`,
+  `clamp`, `pow`, `min`, `max`, `sum`, `avg`, `if`). No `eval`, no `Function`, no
+  property access, no imports, no I/O. It is **server-safe** (no React/DOM), the
+  same shape as `lib/response/icon-vocabulary.ts`.
+- **UNAVAILABLE, never a wrong number.** A division by zero, a non-finite result,
+  an unknown name or a parse error evaluates to `null`, rendered as `—`.
+- **Known rounding.** Outputs round half-away-from-zero to an explicit
+  `precision` at the format boundary, so a displayed figure is stable.
+- **Two implementations, one truth.** The renderer uses the TS evaluator; the
+  harness validates with `python/harness/response_eval.py` (which reuses the
+  tested tokenizer/parser of `stats/formula.py`). Both run the SAME fixture corpus
+  (`src/lib/response/__fixtures__/evaluate-cases.json`), so they cannot drift —
+  see `evaluate.test.ts` and `python/tests/test_response_eval.py`.
+- **Producers use a preset or write expressions.** `preset: "risk_reward"` gives
+  the blueprint's example (entry + stop/target distance → stop/target price,
+  risk/reward, break-even win rate); or the producer supplies explicit
+  `inputs`/`outputs`. A later output may reference an earlier output's id.
+- **Deliberately illustrative.** The block never reads market data; the
+  "Illustrative" chip and disclaimer are always shown. This is the "simple,
+  trusted formulas client-side" allowance — not the model's transcription of a
+  price.
+
+### Source-referenced figures (`$ref`) — the number comes from the source
+
+A figure value (a `metric_grid` metric, a `stat_hero` stat) may be a **reference**
+`{ "$ref": "<namespace>:<id>#/<field>" }` instead of a literal. It is resolved
+**before render** (`src/lib/response/refs.ts`) from a real surface, so the model
+never retypes a financial figure. Namespaces are an **allowlist**: `analysis`
+(this run's computed-result outputs), `tool`, `jdds`, `artifact`. Provenance
+(`source`/`asOf`/`freshness`) is attached to the resolved item and shown as a chip,
+reusing the existing computed-provenance / observation-freshness vocabulary.
+
+- **Never a literal.** An unresolvable reference becomes an explicit **UNAVAILABLE**
+  item; the raw reference string never renders and never falls back to a number.
+  So "the model said 237" cannot masquerade as "the source returned 237".
+- **Resolution is injected, not global.** The chat wraps each assistant message in
+  a `FigureResolverProvider` (`src/components/response/figure-context.tsx`) built
+  from the turn's own data (`buildFigureResolver`). A surface with no resolver
+  (export, PDF, bots) renders any reference as UNAVAILABLE — the honest default.
+- **Allowlist at parse.** An unknown namespace is rejected in `parseFigureRef`.
+  Only `analysis` has a client-side source today; `tool`/`jdds`/`artifact`
+  references are UNAVAILABLE until server-side resolution lands.
+- **Containers are walked.** References inside `tabs`/`report`/`carousel` are
+  resolved recursively.
+
+### Envelope state, computed values & the `inputs` block (v1.1)
+
+An answer may carry **envelope-level** `state` (typed scalars: number/select/
+toggle) and `computed` (safe expressions over state). The **`inputs` block**
+renders `state` as controls; a change updates the shared state, and every figure
+bound to a computed value (`{ "$computed": "<id>" }`) re-renders **locally — 0
+model calls, no arbitrary code** (the same evaluator as `simulation`,
+`lib/response/evaluate.ts`). Computed entries evaluate in order (one may reference
+an earlier one); an unresolvable entry renders UNAVAILABLE — never a literal.
+
+- **Resolution.** The Phase-2 pass is extended:
+  `resolveResponseFigures(response, resolver, computed)` handles both `$ref`
+  (from the turn) and `$computed` (from the live state); `state.ts`
+  (`initialEnvelopeValues`, `computeEnvelopeValues`) derives the values.
+- **Persistence (v1.1).** The chat wraps each message in a
+  `ResponseRuntimeProvider` (`figure-context.tsx`) whose `stateKey` is the message
+  id; `ResponseView` owns the state, restores edits from
+  `localStorage["eclipse-response-state:<messageId>"]` and writes them back
+  latest-wins, so reopening an answer restores the last slider positions.
+- **Boundary unchanged.** Inputs are local; only `controls`/`action_group`
+  re-enter the agent loop.
+
+### Layout primitives, design tokens & motion
+
+Two structural blocks let a producer compose a response instead of stacking
+siblings:
+
+- `layout` — a container (`box` / `row` / `column` / `grid`, `columns` 1–4) whose
+  nested `blocks` are validated recursively like `tabs`/`report`. Its styling is
+  driven **only** by closed token vocabularies (spacing / radius / tone / align),
+  resolved in `src/lib/response/tokens.ts` to existing utility classes. There is
+  no path from model output to raw CSS or an arbitrary class — the same posture as
+  the icon allowlist.
+- `divider` — a labelled or bare rule.
+
+**Motion.** Each surfaced block gets a one-shot entrance (`response-block-enter`,
+`fadeInUp`) as it appears — including a block that streams in mid-answer. It uses
+`backwards` fill only (never `forwards`/`both`), so it cannot create a persistent
+backdrop root above a glass surface, and `prefers-reduced-motion: reduce` disables
+it. The block's gap wrapper is unchanged, so the layout-cohesion invariant holds.
+
+### Deterministic Markdown projection (fallback)
+
+`toMarkdownProjection(response)` (`src/lib/response/projection.ts`) is a total,
+pure function from a response to **readable Markdown**: prose kept, tables as GFM,
+charts as their data table, controls as their labels, a `simulation` as its
+expanded default inputs/outputs, a figure `$ref` as UNAVAILABLE (never the raw
+reference), and container blocks (`tabs`/`report`/`carousel`/`layout`) flattened so
+nothing vanishes. It runs the finalize chokepoint first, so a rejected block is
+already degraded before projection. It is derived from block data, never authored
+by the model, so it cannot drift from the rendered answer — and the contract-matrix
+test asserts **every registered block type projects without throwing and is
+non-empty**.
+
+It is the single source for surfaces that cannot render blocks:
+`projectContentMarkdown(content)` replaces each `eclipse-response` fence with its
+projection (the copy button writes this, so a copied answer is readable text, not
+raw JSON); `responseToMarkdown` / `downloadResponseMarkdown` add a Markdown export
+alongside JSON/PDF; and bots/group chat share the same renderer path.
+
 **Mermaid repair.** Mermaid is reserved for the diagram families the native
 blocks do not cover — sequence, ER, class and gantt. A flow/flowchart is routed
 to the native `diagram`/`flow`/`workflow` blocks (the prompt says so explicitly),
@@ -328,6 +446,121 @@ reach an `<img src>`. Images load directly (plain `<img>`, `loading="lazy"`,
 `referrerPolicy="no-referrer"`); a fetch failure degrades to a labeled
 "Image unavailable" card rather than a broken box or a crash.
 
+### Isometric mechanism figures (`anatomy`) — a scene, not generated code
+
+The `anatomy` block explains a *physical mechanism* (how a cache, a data path, an
+engine or an agent pipeline works) as an interactive isometric illustration. It is
+the one place a figure is not a chart/flow, and it keeps the engine's posture
+intact: **the model authors a declarative scene; it never authors SVG or code.**
+It can be requested explicitly with the `/anatomy <concept>` slash command (an
+agent-turn command — `docs/harness/slash-commands.md`), or the agent may choose it
+when a mechanism explanation fits.
+
+- **The scene** (`src/lib/response/blocks/anatomy.ts`): `parts[]`
+  (`id`, `kind: slab|prism|cylinder|disc|knob|lathe|cone|sphere`, a placement
+  `x/y/z` with `w/d/corner` (box) or `radius` (round), `height`, `tone`, `lit`,
+  `halo`, `label`, and craft decorations — `groove`, `screws`, `ticks` (a ruler
+  strip), `knurl`/`knurlCount`), `wires[]` (`from`/`to` part ids, optional
+  world-space `via` waypoints, a `tone`, optional `label`), an optional
+  `legend[]`, and optional deterministic `stages[]` (`{ label, note, readout, lit }`,
+  where `lit` is a boolean or an id list). `lathe` takes a turning `profile`
+  (`[axial, radius]` pairs — bells, flanges, bottles; `smooth: true` shades a
+  curved profile as one body), `cone` a `radius`/`radiusTop`, `sphere` a
+  `radius`; these come from the vendored kit's lathe (`lib/anatomy/lathe.mjs`) and
+  return the same `SolidPaths` shape, so a machine is built from **turned solids,
+  not just boxes and tubes**. `tone` is the SAME status vocabulary as every other
+  block (`neutral|info|success|warning|danger`). `legend[].mark` is free text.
+  Bounds: 64 parts, 128 wires, 12 legend keys, 12 stages. **Painter's order is
+  the producer's order** — the model lists the base/ground first, then nearer
+  parts (a naive depth sort would hide a small part behind a large ground slab).
+  Viewport (`width`/`height`) and camera (`azimuth`/`elevation`) are declared; the
+  projection is auto-fitted and a tight `viewBox` is computed.
+- **Labels are numbered callouts, not in-plane text.** Each labelled part gets a
+  numbered badge (`1`, `2`, …) in the figure and a **key below it** lists the full
+  labels — SVG text cannot wrap, so the model's descriptive sentences overflowed
+  when drawn along the isometric plane.
+- **The compiler** (`src/lib/anatomy/scene.ts`) is pure and server-safe: it turns
+  the scene into one `SolidPaths` per part (via the vendored kit's
+  `slabOf`/`cylinder`), projected wire endpoints (`iso`) and label transforms
+  (`topMatrix`). It is **total** — a part it cannot place (non-finite, no
+  footprint) or a wire with an unknown endpoint is skipped with a diagnostic,
+  never thrown. The same scene compiles identically for a test, a server render
+  or an export.
+- **The kit** (`src/lib/anatomy/`) is the MIT-licensed Anatomy-derived isometric
+  toolbox (`iso-kit.ts`, `draw.tsx`, `live.tsx`); `lib/anatomy/NOTICE` records
+  its origin and the update procedure. The bespoke lathe/tube/WebGL parts of the
+  upstream project are **not** in the runtime (kept under
+  `docs/figures/eclipse-refinery/` as a reference benchmark).
+- **Live text comes only from the model of record.** The renderer shows a
+  stage's `readout`; when no stage is selected it shows the block's static
+  `readout`. Nothing on screen is computed by the animation, so a figure can
+  never show a number the block did not carry — the same "model is the source of
+  truth" rule as `simulation`, without an evaluator.
+- **Interaction & motion.** Stage controls (play/pause, previous/next, reset)
+  advance a discrete index — there is **no `requestAnimationFrame` loop**, the
+  autoplay `setInterval` is cleared on pause and unmount, and autoplay is off
+  under `prefers-reduced-motion` (a manual step still works — it is a discrete
+  change, not an animation). The figure carries `role="img"` with the block's
+  `description` as its label plus an `sr-only` sentence.
+- **Security.** No path from the model to SVG/HTML/`eval`/`Function` or a dynamic
+  component import: the scene is structured JSON validated by the contract, and
+  only registered primitives render (`SEC-001`). The drawing is **self-contained**:
+  every path is painted with explicit `fill`/`stroke` SVG presentation attributes
+  and an inline palette, so it depends on **no stylesheet** and cannot fall into
+  the "undefined CSS variable → black-on-black" failure the kit's class-driven
+  paint produced when its stylesheet did not load.
+- **Presentation.** A graphite-on-dark-paper look: near-black solid fills with
+  thin grey ink outlines, muted accent lines for flow, light-grey labels, on a
+  near-black "paper" panel inside a width-capped **frosted-glass card** with a
+  header (fig/title), a legend/readout line and the stage controls; a **"Full
+  page"** control opens the figure in a full-screen overlay (portaled to
+  `document.body`, Escape/backdrop to close — the same pattern as the `flow`
+  block).
+- **Fallback.** The Markdown projection renders the figure's parts and stages as
+  a list (`projection.ts`), and the PDF export adds a parts/connections line —
+  so a surface that cannot draw the SVG still gets the figure's content.
+
+### 3D mechanism models (`model3d`) — a scene graph compiled to real meshes
+
+The `model3d` block is the true-3D successor to the isometric `anatomy` block:
+same posture (**the model authors a declarative scene, never meshes/shader code**)
+but the output is a real, orbitable 3D model that can be downloaded as `.glb`.
+It is requested with the same `/anatomy <concept>` slash command.
+
+- **The scene** (`src/lib/response/blocks/model3d.ts`): `parts[]`, each with an
+  `id`, a transform (`position`, `rotation` in degrees, `scale`), an optional
+  `parent` (assemblies), `material`/`tone`/`lit`/`label`, and geometry as either
+  a `kind` primitive or a `recipe` (+ numeric `params`). Primitives:
+  `box`, `cylinder`, `cone`, `sphere`, `torus`, `lathe` (a `profile` of
+  `[z, radius]` pairs), `extrude` (a `points` polygon), `tube` (a `path` of
+  `[x,y,z]`), `gear` (`teeth`/`toothDepth`). Recipes are the **mechanism kit**
+  (`motor`, `gearbox`, `pump`, `valve`, `gauge`, `tank`, `bearing`, `gear`,
+  `pulley`, `belt-drive`, `frame`, `bracket`, `fan`, `heat-exchanger`, `pcb`,
+  `lever`, `spring`): each expands into a detailed multi-part assembly under one
+  labelled group, which is what makes a composed figure read as a machine rather
+  than a pile of cylinders. Optional `wires[]`, `legend[]`, `camera`
+  (`azimuth`/`elevation`/`distance`) and deterministic `stages[]`. Bounds: 96
+  parts, 128 wires, 12 stages. Coordinates are world units, z up.
+- **The compiler** (`src/lib/model3d/compile.ts`) is pure, server-safe and
+  **total**: it expands recipes, composes transforms through parents (with a
+  cycle guard), bakes every mesh to world space, drops the scene onto `z = 0`,
+  fits the camera and reports any part/wire it could not place as a diagnostic —
+  it never throws. Geometry builders live in `mesh.ts`; the recipe kit in
+  `recipes.ts`; the shared vocabulary in `names.ts`.
+- **The renderer** is two pieces: `model3d-block.tsx` (the DOM half — header,
+  numbered key, legend, readout, stage controls, `.glb` download) and a
+  `next/dynamic(ssr:false)` `model3d-canvas.tsx` WebGL viewport built on `ogl`
+  (already a dependency). It offers orbit/zoom/pan, directional + fill lighting,
+  a fading ground grid, projected numbered hotspots and stage highlighting.
+  WebGL is created once and torn down on unmount, rendering pauses while
+  off-screen, and if the context cannot be created the DOM half still renders.
+- **Export** (`src/lib/model3d/glb.ts`) is a dependency-free glTF 2.0 binary
+  writer: the baked parts become mesh nodes with PBR materials, so the download
+  opens in any 3D tool.
+- **Fallback.** The Markdown projection and PDF export render the model's parts
+  and stages as text, so a surface without WebGL still gets the content. The
+  legacy isometric `anatomy` block remains registered and renders unchanged.
+
 
 
 `splitResponseSegments` splits prose vs. `eclipse-response` fences.
@@ -339,6 +572,21 @@ reach an `<img src>`. Images load directly (plain `<img>`, `loading="lazy"`,
 - `malformed` — a syntax error on a **settled** turn → an explicit diagnostic
   card with a "Show the raw content" disclosure, so an unparseable body is never
   lost to the user.
+
+**Incremental decode (streaming).** While the fence is still being written the
+whole envelope is not valid JSON, but finished `blocks[]` entries already are.
+`decodeResponseFenceStreaming(source)` (`src/lib/response/stream-blocks.ts`) scans
+the partial source with a brace/string-aware cursor and returns each **fully
+closed** block, so `ResponseFence` renders blocks as they arrive instead of
+holding the whole answer. The hard rule: only a closed, JSON-parseable object is
+ever returned as a block — **a half-written block is never rendered as data**, it
+stays the "composing" placeholder. Each closed block is validated + repaired/
+degraded through the **block-level chokepoint** (`finalizeBlock`) and memoized by
+its raw JSON (`finalizeBlockCached`), so a streaming frame only re-finalizes the
+block that changed. Blocks carry a **stable key** (`id ?? index:type`) so a
+block's identity — and its local React state, e.g. a slider position — survives as
+later blocks arrive. The settled path (`decodeResponseFence`) stays authoritative;
+the scan is a fast heuristic for the streaming path only.
 
 ## 4. The renderer (`src/components/response/response-view.tsx`)
 
@@ -433,7 +681,69 @@ normal code block. `Markdown` gained a `streaming` prop, threaded from
 `chat-history.tsx`'s `AssistantContent`, so an in-progress fence shows the
 composing placeholder.
 
-## 5. Security posture
+## 5. The Intelligent Response Orchestrator (response-mode plan)
+
+The engine above lets the model emit structured blocks, but until now nothing
+*decided* whether a turn should be prose or a figure — the model volunteered a
+fence or it did not, and the deterministic planner only upgraded Markdown tables
+and source lists. The orchestrator is that missing decision layer: a **pure,
+model-free classifier** that picks ONE presentation mode and appends a matching
+directive to the prompt head.
+
+`python/harness/response_mode.py` — `classify_response_mode(query, history) ->
+ResponsePlan`. Modes: `text`, `explanation`, `visualization`, `simulation`,
+`workflow`, `composite`. It is modeled on the deterministic code-request
+classifier (`code/request_intent.py`): no model call can force a presentation,
+and it is testable independently of the run loop.
+
+- **Deterministic, distinctive signals.** Each mode owns a signal vocabulary
+  (workflow: agent/delegate/dependency/workflow; simulation: backtest/what-if/
+  scenario/monte-carlo; visualization: chart/compare/correlation/drawdown/
+  distribution; explanation: explain/teach/how-does/difference-between). Two
+  rich modes co-occurring — at least one data-bearing — resolve to `composite`.
+- **Bias to honesty.** An ambiguous, short or conversational turn is `text`, so a
+  widget is never forced. A follow-up ("do it") inherits the prior user turn's
+  mode (bounded recursion).
+- **Wiring.** In `graph.execute_run`, gated on the same resolved surface that may
+  emit blocks (`response_block_schema` in `allowed`) and placed right after the
+  schema digest: the directive is appended to the byte-stable prompt head, and
+  the chosen mode is emitted as the `response.plan` run event for evaluation.
+  Best-effort — a classification failure degrades to text and never blocks the
+  run.
+- **Model-assisted fallback (opt-in).** When the deterministic verdict is
+  `unsure`, a single bounded model call may choose a mode instead
+  (`response_mode_llm.py`: `orchestrate_response_mode` → `refine_with_model`).
+  Off unless `HARNESS_RESPONSE_MODE_MODEL` is truthy, so the default path stays
+  deterministic and free; one short completion under a hard deadline
+  (`await_bounded`); any failure returns the deterministic plan unchanged. The
+  prompt + reply parser (`MODE_CLASSIFIER_SYSTEM`, `parse_mode_reply`) live in
+  `response_mode.py` as pure, tested functions.
+- **Client surface.** The mode is not only prompt guidance: the front door's
+  `response.plan` frame is normalized in `src/lib/agent/events.ts`
+  (`coerceResponsePlan`) and carried on the turn as `AssistantTurn.responsePlan`,
+  so `chat-history.tsx` shows a small mode chip for non-`text` turns. Display
+  only — it never changes the answer.
+- **What it is not.** No wire contract change (the mode rides an existing run
+  event) and no fabricated data. The schema digest remains the source of EXACT
+  field names — the plan only says WHICH structure fits and reminds the model of
+  the data-honesty rules.
+
+- **Routing benchmark (Phase 6).** `python/harness/response_mode_benchmark.py` holds
+  a versioned, labelled set of real-shaped prompts (each with its expected mode,
+  including text anti-cases and follow-ups) and scores the SHIPPED deterministic
+  classifier: overall accuracy, per-mode precision/recall and the confusion pairs.
+  `python -m harness.response_mode_benchmark` prints the report; the test asserts
+  an accuracy floor (≥0.95) and per-mode recall floors. It runs the same
+  `classify_response_mode` the runtime uses, so it cannot drift; the
+  model-assisted path is non-deterministic and is deliberately not benchmarked.
+
+Tests: `python/tests/test_response_mode.py` (the decision table, composite, text
+defaults, learning refinement, follow-up inheritance, the model-assisted fallback,
+directive rendering); `python/tests/test_response_mode_benchmark.py` (routing
+accuracy + per-mode floors); `src/lib/agent/events.test.ts` (`response.plan`
+mapping + `coerceResponsePlan`).
+
+## 6. Security posture
 
 - **No execution.** Blocks are structured JSON only. There is no path from a
   model response to `eval`, `Function`, raw HTML, or a dynamic component import.
@@ -455,7 +765,7 @@ composing placeholder.
 - **No fabricated data.** The contract has an explicit `unavailable` state; the
   renderer shows it as a chip rather than a value. The engine never fills gaps.
 
-## 6. Verification
+## 7. Verification
 
 - `src/lib/response/contract.test.ts` — envelope, per-block degradation, unknown
   types, version warnings, nesting, totals.
@@ -473,11 +783,22 @@ composing placeholder.
   `mermaid` fence rendering as a diagram (not a `<pre>` code block). Client-only
   canvas/interaction paths (ECharts, Mermaid's async render, click handlers) are
   exercised by the option/layout tests and the production build, not here.
+- `src/lib/anatomy/scene.test.ts` — the `anatomy` scene compiler is pure, total
+  and deterministic: parts compile to real geometry with a finite projection, a
+  wire routes between known parts, an unknown endpoint / a non-finite part is
+  skipped with a diagnostic (never thrown), and an empty figure still yields a
+  finite projection.
+- `src/components/response/anatomy-render.test.tsx` — server-renders the real
+  `AnatomyBlock`: a labelled `role="img"` SVG carrying real geometry, the
+  fig/legend/caption chrome, the sr-only description, and a control per
+  interaction (play/pause, previous/next, reset) — with no stage controls when
+  the block declares no stages. Client-only timer/click paths are not exercised
+  here (no DOM harness in this repo), consistent with `render.test.tsx`.
 - Full suite: `npx vitest run`, `npx tsc --noEmit`, `npm run build`, and the
   Prompt/ceiling Python tests (`test_memory_tools.py`,
   `test_phase_s_stabilization.py`).
 
-## 7. Requirement traceability
+## 8. Requirement traceability
 
 | ID | Requirement | Location | Verification | Status |
 |---|---|---|---|---|
@@ -496,11 +817,28 @@ composing placeholder.
 | DATA-001 | Interactive data table | `data-table-block.tsx` | tsc | Verified |
 | DATA-002 | Metric grid + unavailable state | `blocks.tsx` | contract.test.ts | Verified |
 | STREAM-001 | Streaming-aware partial decode | `parse.ts` | parse.test.ts | Verified |
+| STREAM-002 | Incremental block decode: closed blocks render as they arrive; a half-written block is never rendered as data | `src/lib/response/stream-blocks.ts` + `response-fence.tsx` | stream-blocks.test.ts + streaming-fence.test.tsx | Verified |
+| STREAM-003 | Block-level finalize chokepoint + memo cache + stable block keys | `finalizeBlock`/`finalizeBlockCached` + `response-view.tsx` blockKey | stream-blocks.test.ts | Verified |
 | AGENT-001 | Producer contract (prompt guidance) | `python/harness/prompts.py` | prompt-ceiling pins in `test_memory_tools.py` + `test_phase_s_stabilization.py` | Verified |
 | SEC-001 | No code execution from model output | whole engine | code review | Verified |
 | INT-001 | Both chat surfaces render blocks | `markdown.tsx` + `chat-history.tsx` | tsc | Verified |
 | INT-002 | Persistence/reopen via existing message store | `Message.content` | by construction | Verified |
 | PLAN-001 | Deterministic visualization planner (Markdown → blocks) | `lib/response/planner.ts` + `chat-history.tsx` | planner.test.ts | Verified |
+| ORCH-001 | Deterministic response-mode orchestrator (text/explanation/visualization/simulation/workflow/composite) → prompt directive + `response.plan` event | `python/harness/response_mode.py` + `graph.execute_run` | test_response_mode.py + test_graph.py | Verified |
+| ORCH-002 | Model-assisted fallback for `unsure` plans (opt-in, bounded, total) | `python/harness/response_mode_llm.py` | test_response_mode.py | Verified |
+| ORCH-003 | The chosen mode reaches the client (`response.plan` → `AssistantTurn.responsePlan` → mode chip) | `src/lib/agent/events.ts` + `response-model.ts` + `chat-history.tsx` | events.test.ts | Verified |
+| SIM-001 | Declarative in-chat `simulation` calculator: `inputs` (state) + `outputs` (safe expressions), local recompute, illustrative | `src/lib/response/simulation.ts` + `src/components/response/simulation-block.tsx` + `contract.ts` | simulation.test.ts + contract-matrix.test.tsx | Verified |
+| EVAL-001 | Safe scalar expression evaluator (fixed ops + closed function whitelist; no eval/Function); UNAVAILABLE on div-by-zero/non-finite | `src/lib/response/evaluate.ts` | evaluate.test.ts | Verified |
+| EVAL-002 | TS↔Python evaluator parity via one shared fixture corpus | `python/harness/response_eval.py` (reuses `stats/formula.py` parser) + `__fixtures__/evaluate-cases.json` | test_response_eval.py + evaluate.test.ts | Verified |
+| REF-001 | Source-referenced figure values (`$ref`) resolved before render; unresolvable → UNAVAILABLE, never a literal; namespace allowlist | `src/lib/response/refs.ts` + `contract.ts` | refs.test.ts + figure-ref.test.tsx | Verified |
+| REF-002 | Per-turn figure resolver from the computed-result blob, injected via React context | `buildFigureResolver` + `figure-context.tsx` + `response-view.tsx` | figure-ref.test.tsx | Verified |
+| LAYOUT-001 | `layout`/`divider` primitives; styling only via closed token vocabularies (no raw CSS) | `contract.ts` + `tokens.ts` + `layout-block.tsx` | tokens.test.ts + layout-block.test.tsx + contract-matrix.test.tsx | Verified |
+| MOTION-001 | One-shot block entrance motion, reduced-motion safe, no forwards/both fill above glass | `globals.css` + `response-view.tsx` | render.test.tsx (cohesion) | Verified |
+| PROJ-001 | Deterministic Markdown projection covering every block type; used by copy + export | `src/lib/response/projection.ts` + `export.ts` + `chat-history.tsx` | projection.test.ts + contract-matrix.test.tsx | Verified |
+| STATE-001 | Envelope `state`/`computed` + `inputs` block + `{$computed}` figure binding (local, 0 model calls) | `contract.ts`, `state.ts`, `inputs-block.tsx`, `refs.ts`, `response-view.tsx` | state.test.ts + refs.test.ts + envelope-state.test.tsx | Verified |
+| STATE-002 | Interaction state persists per message (localStorage, latest-wins) | `response-view.tsx` + `figure-context.tsx` + `chat-history.tsx` | envelope-state.test.tsx | Verified |
+| TELEM-001 | Server `finalize` read-back returns block-type + figure-binding counts; client telemetry seam | `response-bridge.ts` + `response_tools.py` + `telemetry.ts` | telemetry.test.ts + test_response_tools.py | Verified |
+| ORCH-004 | Routing-quality benchmark: versioned labelled prompts, accuracy + per-mode recall floors | `python/harness/response_mode_benchmark.py` | test_response_mode_benchmark.py | Verified |
 | INT-003 | Backend-driven interaction controls | `controls-block.tsx` + `onFollowup` in both surfaces | contract-extended.test.ts + tsc | Verified |
 | ART-001 | Artifact persistence (existing Artifact Center) | `response-actions.tsx` → `registerArtifact` | build/tsc | Verified |
 | EXP-001 | JSON / CSV / PNG / PDF export | `lib/response/export.ts`, `response-actions.tsx`, `data-table-block.tsx` | export.test.ts | Verified |
@@ -509,6 +847,13 @@ composing placeholder.
 | REND-005 | Per-response export + save actions | `response-actions.tsx` | build/tsc | Verified |
 | BLOCK-001 | `stepper`, `infographic`, `report`, `action_group`, `artifact` blocks | `contract.ts` + `rich-blocks.tsx` | contract-blocks.test.ts | Verified |
 | BLOCK-002 | `node_graph` selectable graph (reuses layout engine) | `node-graph-block.tsx` | build/tsc | Verified |
+| ANAT-001 | Interactive isometric `anatomy` figure: a declarative scene compiled purely (parts/wires/legend/stages), never model-authored SVG or code | `src/lib/response/blocks/anatomy.ts` + `src/lib/anatomy/scene.ts` + `src/components/response/anatomy-block.tsx` | scene.test.ts + anatomy-render.test.tsx + contract-matrix.test.tsx | Verified |
+| ANAT-002 | A `stage`'s `readout` is the only source of live text (the model is the source of truth); discrete stepping, reduced-motion-safe autoplay, timer cleared on unmount | `src/components/response/anatomy-block.tsx` | anatomy-render.test.tsx + code review | Verified |
+| ANAT-003 | Anatomy isometric kit vendored with attribution + a verified provenance/update record | `src/lib/anatomy/NOTICE` + `LICENSE` + `iso-kit.ts`/`draw.tsx`/`live.tsx` | blob-hash comparison vs upstream `e9488296` | Verified |
+| ANAT-004 | `anatomy` uses the shared status `tone` vocabulary; `normalize.ts` maps synonyms; `legend[].mark` free-text and `stages[].lit` boolean-or-array are lenient | `src/lib/response/normalize.ts` + `src/lib/response/blocks/anatomy.ts` | scene.test.ts + anatomy-render.test.tsx | Verified |
+| MODEL-001 | `model3d` authors a declarative scene graph (transforms, parents, recipes) compiled purely to world meshes — never model-authored meshes/shaders/code; total with diagnostics | `src/lib/response/blocks/model3d.ts` + `src/lib/model3d/compile.ts` + `mesh.ts` + `recipes.ts` | model3d compile.test.ts + mesh.test.ts + contract-matrix.test.tsx | Verified |
+| MODEL-002 | The mechanism kit exposes exactly the recipes the runtime implements; unknown recipes are rejected by the schema (no silent degrade) | `src/lib/model3d/recipes.ts` + `names.ts` + block schema | compile.test.ts (schema↔kit parity) | Verified |
+| MODEL-003 | The WebGL viewport is client-only/lazy (`next/dynamic ssr:false`, `ogl`), disposed on unmount; the DOM key/legend/stages and `.glb` export survive without WebGL | `src/components/response/model3d-{block,canvas}.tsx` + `src/lib/model3d/glb.ts` | model3d-render.test.tsx + compile.test.ts (GLB header/JSON) | Verified |
 | BLOCK-003 | Spec-name aliases normalized to canonical blocks | `normalize.ts` (`normalizeBlockAlias`, re-exported by `contract.ts`) | contract-blocks.test.ts | Verified |
 | BLOCK-004 | Icon-driven connected `workflow` block (expandable stages, follow-up) | `contract.ts` + `rich-blocks.tsx` (`WorkflowBlock`) | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-005 | Website-style visual blocks: `stat_hero`, `gauge`, `comparison_grid`, `ranked_list`, `badge_row`, `carousel` | `contract.ts` + `visual-blocks.tsx` + `response-view.tsx` REGISTRY | contract-blocks.test.ts + render.test.tsx | Verified |
@@ -520,7 +865,7 @@ composing placeholder.
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |
 | SEC-003 | Semantic icon allowlist (no component/import from model); vocabulary server-safe, component map client-only | `lib/response/icon-vocabulary.ts` + `lib/response/icons.ts` | contract-blocks.test.ts + route.test.ts | Verified |
 
-## 8. Known limitations (honest)
+## 9. Known limitations (honest)
 
 These remain true of the shipped system:
 
@@ -549,4 +894,44 @@ These remain true of the shipped system:
    not implemented.
 7. **PDF generation** pulls `jspdf` + `jspdf-autotable` lazily (dynamic import),
    so it never enters the initial chat bundle.
+8. **`simulation` is illustrative and local only.** It is now declarative
+   (`inputs`/`outputs` expressions, `risk_reward` preset), computes with no
+   fees/slippage/gaps, and is entirely client-side — it is never bound to the real
+   quant/backtest engine. Routing a simulation through the quant worker via an
+   authorized action endpoint (with job handling, provenance and the "real run"
+   boundary) remains out of scope; a `controls` block re-entering the agent loop
+   is the current, deliberately-unprivileged path for a real computation. The
+   evaluator also uses **float arithmetic with explicit output rounding**, not a
+   decimal backend — adequate for an illustrative display calculator, but a
+   decimal-backed evaluator is a planned hardening for money maths.
+9. **`$ref` resolution is client-side and partial today.** Only the `analysis`
+   namespace (this run's computed-result outputs) has a resolver; a reference to
+   `tool`/`jdds`/`artifact` renders UNAVAILABLE until server-side resolution lands
+   at the fence-compile seam. Refs are accepted on the KPI/hero figure family
+   (`metric_grid`, `stat_hero`); `chart` series, `data_table` cells, `gauge` and
+   `ranked_list` adopt the same mechanism next.
+10. **Envelope state persistence is client-local (localStorage).** Envelope
+    `state`/`computed` and the `inputs` block are implemented, and edits restore
+    on reopen via `localStorage` keyed by message id — not the server transcript.
+    A cleared browser storage resets the controls to the answer's defaults (the
+    answer itself is unchanged). The `simulation` block's own local state is
+    session-only.
+11. **`$ref` resolution remains client-side and partial** (see #9): only the
+    `analysis` namespace resolves today; `tool`/`jdds`/`artifact` render
+    UNAVAILABLE until server-side resolution lands.
+12. **`anatomy` is 2.5D; `model3d` is the 3D path.** The legacy isometric
+    `anatomy` block draws only isometric `slab`/`cylinder`/turned parts with a
+    fixed auto-fitted camera. True 3D (rotation, assemblies, depth buffer, orbit,
+    GLB export) is the `model3d` block (ADR-048); `model3d` bounds are 96 parts /
+    128 wires / 12 stages, and its stages are still a declared lit set (no physics
+    or per-part parameter editing).
+13. **`anatomy` provenance is recorded and verified.** `src/lib/anatomy/NOTICE`
+    (+ `LICENSE`) records the upstream repository, the MIT license, and the
+    **verified** upstream commit `e9488296a44211c42701ff71705b7901470ec78f` — with
+    git blob SHA-1s proving `iso-kit.ts`/`live.tsx` are byte-identical and
+    `draw.tsx` differs only by its import path.
+14. **`anatomy` stages are discrete, not a simulation.** A stage is a declared
+    lit-part set + readout; there is no continuous/physics animation and no
+    per-part parameter editing. Adjustable parameters are the `simulation` /
+    `inputs` blocks' job.
 

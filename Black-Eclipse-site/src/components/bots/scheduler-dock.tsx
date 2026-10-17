@@ -12,6 +12,7 @@ import { useT } from '@/lib/i18n';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { ScheduledJobsPanel } from '@/components/bots/scheduled-jobs-panel';
+import { MonitorPanel } from '@/components/bots/monitor-panel';
 
 export function BotSchedulerDock() {
   const t = useT();
@@ -44,7 +45,8 @@ export function BotSchedulerDock() {
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 p-3 pt-1">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pt-1">
+        <MonitorPanel />
         <ScheduledJobsPanel
           bare
           onCreate={openCreate}

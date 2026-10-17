@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import type { ParsedResponse } from '@/lib/response/contract';
 import {
   downloadResponseJson,
+  downloadResponseMarkdown,
   downloadResponsePdf,
   responseToJson,
   toBase64Utf8,
@@ -71,6 +72,9 @@ export function ResponseActions({ response }: ResponseActionsProps) {
     <div className="flex flex-wrap items-center gap-1">
       <button type="button" className={btn} onClick={() => downloadResponseJson(response, responseName(response))} title="Download response as JSON">
         <FileText size={11} /> JSON
+      </button>
+      <button type="button" className={btn} onClick={() => downloadResponseMarkdown(response, responseName(response))} title="Download response as Markdown">
+        <FileText size={11} /> MD
       </button>
       <button type="button" className={cn(btn, pdfBusy && 'opacity-60')} onClick={() => void exportPdf()} disabled={pdfBusy} title="Download response as PDF">
         <FileOutput size={11} /> {pdfBusy ? 'PDF…' : 'PDF'}

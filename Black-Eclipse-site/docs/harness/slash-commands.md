@@ -1,7 +1,7 @@
 ---
 title: Slash Commands
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-16
 ---
 
 # Slash Commands
@@ -21,10 +21,13 @@ command**. There are three kinds, and the distinction is the whole design:
 - **Routed commands** (`/skills`, `/status`, `/market`, …) are executed by the
   **shared command router** and return a rendered result immediately. They never
   open an LLM turn.
-- **Agent-turn commands** (`/skill`) rewrite the chat query into a directive and
-  run as a **normal agent turn**, so the chatbot does the work (and streaming +
-  conversation history are preserved). `/skill <name> <what it should do>` tells
-  Eclipse to author a new reusable skill. The rewrite lives in
+- **Agent-turn commands** (`/skill`, `/anatomy`) rewrite the chat query into a
+  directive and run as a **normal agent turn**, so the chatbot does the work (and
+  streaming + conversation history are preserved). `/skill <name> <what it should
+  do>` tells Eclipse to author a new reusable skill; `/anatomy <concept>` tells it
+  to explain the concept as an interactive **3D model** — an orbitable machine
+  composed from mechanism recipes, rendered inline as a `model3d` block with a
+  numbered key, stages and `.glb` export. The rewrites live in
   `src/lib/harness/command-agent.ts`.
 
 Profile commands exist because the alternative — asking a classifier to infer "is
@@ -116,6 +119,11 @@ Backed by real handlers/endpoints:
 - Quant: `/backtest` — lists saved strategies, or backtests one by id.
 - Dev: `/code` (start a code task), `/terminal` (aliases `/run`, `/sh` — run a
   shell command; operator- and effect-gated).
+- Visual: `/anatomy` (aliases `/visualize`, `/mechanism`) — explain a concept as
+  an interactive **3D model** (an orbitable `model3d` block with labelled parts,
+  mechanism recipes and step-through stages); an agent-turn command that authors a
+  declarative scene and never writes meshes or code (see
+  `docs/interactive-response-engine.md`, "3D mechanism models").
 - Skills: `/skills` (list/search/category/show/**run**/test/validate),
   `/skill` (**author a new skill** — agent turn), `/skill-explain`, `/skill-test`,
   `/skill-enable`, `/skill-disable`, `/skill-create` (learning-engine draft).
@@ -179,7 +187,8 @@ explicit command surfaces.
 - `src/lib/harness/command-parser.test.ts` — quoting, escapes, Unicode, enum and
   required-arg validation, pass-through flags.
 - `src/lib/harness/command-agent.test.ts` — `/skill` rewrites into a skill-authoring
-  directive; non-agent commands and prose return null.
+  directive and `/anatomy` into a 3D-model (`model3d`) directive; non-agent commands
+  and prose return null.
 - `src/lib/harness/command-router.test.ts` — unknown/invalid/unavailable/denied
   paths, `/help`, `/status`, `/skills`, `/skills run`, operator gating,
   `/skill-create` requiring a real source.

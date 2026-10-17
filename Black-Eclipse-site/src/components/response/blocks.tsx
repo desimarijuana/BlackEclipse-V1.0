@@ -279,7 +279,11 @@ export function MetricGridBlock({
                   <>
                     {metric.prefix && <span className="text-[13px] text-muted-foreground">{metric.prefix}</span>}
                     <span className="text-[18px] font-semibold tabular-nums leading-none text-foreground">
-                      {typeof metric.value === 'number' ? metric.value.toLocaleString() : metric.value}
+                      {typeof metric.value === 'number'
+                        ? metric.value.toLocaleString()
+                        : typeof metric.value === 'string'
+                          ? metric.value
+                          : ''}
                     </span>
                     {metric.unit && <span className="text-[11px] text-muted-foreground">{metric.unit}</span>}
                   </>
@@ -289,6 +293,16 @@ export function MetricGridBlock({
                 {metric.delta != null && <DeltaBadge delta={metric.delta} tone={metric.deltaTone} />}
                 {metric.hint && <span className="truncate text-[10px] text-muted-foreground/50" title={metric.hint}>{metric.hint}</span>}
               </div>
+              {metric.provenance && (metric.provenance.source || metric.provenance.asOf) && (
+                <p
+                  className="mt-1 truncate text-[9.5px] text-muted-foreground/50"
+                  title={metric.provenance.method ?? metric.provenance.source}
+                >
+                  {metric.provenance.source}
+                  {metric.provenance.source && metric.provenance.asOf ? ' · ' : ''}
+                  {metric.provenance.asOf}
+                </p>
+              )}
             </div>
           );
         })}

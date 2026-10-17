@@ -69,3 +69,23 @@ def test_no_signal_defaults_to_compose():
 
 def test_empty_request():
     assert classify_request("", catalog=_catalog()).mode is UiMode.COMPOSE
+
+
+# ── new-interaction signals (a recorded gap: "slider calculator" died silently) ─
+
+
+def test_engineer_for_a_slider_calculator():
+    # The catalog has no interactive input component, so this is a NEW capability.
+    decision = classify_request("Make a small calculator I can drive with sliders", catalog=_catalog())
+    assert decision.mode is UiMode.ENGINEER
+    assert any("slider" in r or "calculator" in r for r in decision.reasons)
+
+
+def test_engineer_for_an_input_form():
+    assert classify_request("add a form with a number input for position size", catalog=_catalog()).mode is UiMode.ENGINEER
+
+
+def test_interaction_signal_does_not_false_positive_on_performance():
+    # "form" must not match inside "performance" — a dashboard restyle is compose.
+    decision = classify_request("improve the performance of my trading dashboard", catalog=_catalog())
+    assert decision.mode is UiMode.COMPOSE

@@ -35,6 +35,7 @@ import {
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { moodFromEvent, type GhostMood } from '@/lib/bots/ghost-mood';
 import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/chat-store';
+import { useBotsStore } from '@/lib/bots/bots-store';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import {
   buildTrigger, detectSchedule, emptyBotDraft, formatDateTime, formatRelative, scheduleSummary,
@@ -74,6 +75,8 @@ export function BotChat({
   const updateMessage = useBotChatStore((s) => s.update);
   const clearMessages = useBotChatStore((s) => s.clear);
   const setMessages = useBotChatStore((s) => s.setMessages);
+  // Clears this bot's unread dot in the sidebar once its latest run is on screen.
+  const markSeen = useBotsStore((s) => s.markSeen);
   // The scheduler sits beside the bot's Settings gear in the header, opening the
   // right-docked Agent Workspace (its scheduled jobs rail). Shared state with the
   // top-bar toggle and Ctrl/Cmd+Shift+E keybind keeps them in sync.
@@ -126,16 +129,17 @@ export function BotChat({
     return detectSchedule(instructions);
   }, [bot.trigger.type, instructions]);
 
-  const scrollToBottom = useCallback(() => {
+  // The thread is newest-first, so the newest message lives at the TOP.
+  const scrollToTop = useCallback(() => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
+      if (el) el.scrollTop = 0;
     });
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length, sending, scrollToBottom]);
+    scrollToTop();
+  }, [messages.length, sending, scrollToTop]);
 
   const saveIdentity = useCallback(async () => {
     if (savingIdentity) return;
@@ -277,6 +281,15 @@ export function BotChat({
       clearInterval(timer);
     };
   }, [bot.id, appendScheduled]);
+
+  // Instagram-style read receipt: while this bot's thread is open, its latest run
+  // is "seen". We key off the SAME id the sidebar flags as unread
+  // (`statusById[id].lastExecution.id`) so opening the bot always clears its dot,
+  // and a run that lands while you are looking at the thread never raises one.
+  const lastRunId = useBotsStore((s) => s.statusById[bot.id]?.lastExecution?.id ?? null);
+  useEffect(() => {
+    if (lastRunId) markSeen(bot.id, lastRunId);
+  }, [lastRunId, bot.id, markSeen]);
 
   const runTurn = useCallback(async (raw: string) => {
     const text = raw.trim();
@@ -527,8 +540,17 @@ export function BotChat({
           </div>
         )}
 
-        {messages.map((m, i) =>
-          !m.error && m.role === 'assistant' && !m.content ? null : (
+        {sending && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
+            {bot.name} is thinking…
+          </div>
+        )}
+
+        {/* Newest message first: the thread is rendered in reverse. */}
+        {[...messages].reverse().map((m, ri) => {
+          const i = messages.length - 1 - ri;
+          return !m.error && m.role === 'assistant' && !m.content ? null : (
             <ChatBubble
               key={m.id}
               message={m}
@@ -544,15 +566,8 @@ export function BotChat({
               }
               onRetry={m.role === 'assistant' && m.error && !m.scheduled ? regenerate : undefined}
             />
-          ),
-        )}
-
-        {sending && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 size={14} className="animate-spin" />
-            {bot.name} is thinking…
-          </div>
-        )}
+          );
+        })}
       </div>
 
       {/* Composer */}

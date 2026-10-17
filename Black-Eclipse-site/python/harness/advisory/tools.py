@@ -69,6 +69,20 @@ async def advisory_scorecard(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     return text, card
 
 
+async def advisory_evaluate_outcomes(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Fetch current prices via the market gateway and record decision outcomes."""
+    service = _service(ctx)
+    gateway = getattr(ctx, "market_gateway", None)
+    result = await service.auto_evaluate(
+        gateway, benchmark_return=args.get("benchmark_return"), horizon=args.get("horizon"),
+    )
+    text = (
+        f"Evaluated {result['evaluated']} recommendation(s)"
+        + (f"; {len(result['skipped'])} skipped (no price)." if result.get("skipped") else ".")
+    )
+    return text, result
+
+
 def register_advisory_tools(registry: Any) -> None:
     from ..tools import ToolDefinition
 
@@ -97,15 +111,22 @@ def register_advisory_tools(registry: Any) -> None:
          advisory_scorecard,
          {"type": "object", "properties": {
              "portfolio_id": {"type": "string"}, "owner_id": {"type": "string"}}})
+    _def("advisory_evaluate_outcomes",
+         "Fetch current prices and record the outcome (right/wrong/neutral) of open "
+         "recommendations that captured an entry price. Deterministic; skips any "
+         "recommendation with no price.",
+         advisory_evaluate_outcomes,
+         {"type": "object", "properties": {
+             "benchmark_return": {"type": "number"}, "horizon": {"type": "string"}}})
 
 
 # The canonical tool names, imported by `agents.py` so the allowlist cannot drift.
 ADVISORY_TOOLS: tuple[str, ...] = (
-    "advisory_list", "advisory_get", "advisory_scorecard",
+    "advisory_list", "advisory_get", "advisory_scorecard", "advisory_evaluate_outcomes",
 )
 
 __all__ = [
     "ADVISORY_TOOLS",
-    "advisory_get", "advisory_list", "advisory_scorecard",
-    "register_advisory_tools",
+    "advisory_evaluate_outcomes", "advisory_get", "advisory_list",
+    "advisory_scorecard", "register_advisory_tools",
 ]

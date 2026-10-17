@@ -78,6 +78,10 @@ mcp-servers.json.tmp
 # data, never committed — same tier as agent-memory.db.
 /.black-eclipse/
 
+# Python runtime state. `python/.black-eclipse/channels/secret.key` is generated
+# key material for the channel gateway — NEVER commit it.
+/python/.black-eclipse/
+
 # Python agent-runtime artifacts
 __pycache__/
 *.py[cod]

@@ -93,13 +93,19 @@ on a deterministic id, so a resumed run never double-counts) with:
   return, right/wrong/neutral).
 
 Read it back through the `advisory_list` / `advisory_get` / `advisory_scorecard`
-agent tools, or the operator-gated `/advisory/*` routes. The scorecard is a
-deterministic summary (counts by status, evaluated count, hit rate, average
-realized vs benchmark). Nothing here places a trade, and an outcome is
-caller-supplied — a jurisdiction-neutral ledger records what it is told rather
-than inventing a market result. Automatic outcome evaluation from market history
-is a planned addition; today outcomes are recorded explicitly (e.g. by a
-scheduled monitor).
+agent tools, or the operator-gated `/advisory/*` routes, or the **Decisions** view
+in the Journal screen (`advisory-decisions.tsx`). The scorecard is a deterministic
+summary (counts by status, evaluated count, hit rate, average realized vs
+benchmark).
+
+**Outcomes evaluate deterministically.** When a decision is recorded, the run
+captures the entry price it observed (from its portfolio computations, stored as
+an `entry_price` basis row). `AdvisoryService.evaluate_decisions` /
+`evaluate_outcome` compute the realized return from a caller-supplied mark;
+`auto_evaluate(gateway)` fetches the marks itself. A decision with no entry price
+or no quote is skipped, never fabricated. Exposed via the
+`advisory_evaluate_outcomes` tool and `POST /advisory/evaluate`. Nothing here
+places a trade.
 
 ## Proactive monitors ("works while you're gone")
 

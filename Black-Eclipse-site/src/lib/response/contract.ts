@@ -17,6 +17,8 @@
 //     (the quant/finance engines) or the model's prose — never invented here.
 
 import { z } from 'zod';
+import { anatomyBlock } from './blocks/anatomy';
+import { model3dBlock } from './blocks/model3d';
 
 export const RESPONSE_SCHEMA_VERSION = '1.0';
 export const RESPONSE_FENCE_LANGUAGE = 'eclipse-response';
@@ -53,6 +55,10 @@ export const RESPONSE_LIMITS = {
   maxRankedItems: 50,
   maxBadges: 60,
   maxSlides: 12,
+  maxSimulationInputs: 12,
+  maxSimulationOutputs: 12,
+  maxStateVars: 12,
+  maxComputedVars: 12,
   maxLearningNodes: 120,
   maxLearningResources: 200,
   maxMetadataKeys: 40,
@@ -69,6 +75,34 @@ const shortString = z.string().max(500);
 const idString = z.string().min(1).max(120);
 
 const numberOrNumericString = z.union([z.number().finite(), z.string().max(120)]);
+
+// ── Source-referenced figures ─────────────────────────────────────────────────
+// A figure whose value is resolved from a REAL surface (this run's computed
+// results, tool results, JDdS, artifact metadata) rather than typed by the model.
+// Resolution happens before render (`lib/response/refs.ts`); an unresolvable
+// reference renders UNAVAILABLE and NEVER falls back to the raw string, so a
+// number on screen is always the source's value or an explicit miss.
+export const FigureRefSchema = z.object({ $ref: z.string().min(1).max(300) });
+export type FigureRef = z.infer<typeof FigureRefSchema>;
+
+// A figure bound to an envelope-level COMPUTED value (see the envelope `computed`
+// below). Resolved locally from the shared `state`, so a slider change updates
+// every bound figure with 0 model calls.
+export const ComputedRefSchema = z.object({ $computed: z.string().min(1).max(120) });
+export type ComputedRef = z.infer<typeof ComputedRefSchema>;
+
+const figureNumber = z.union([z.number().finite(), FigureRefSchema, ComputedRefSchema]);
+const figureOrText = z.union([z.number().finite(), z.string().max(120), FigureRefSchema, ComputedRefSchema]);
+
+// The provenance attached to a RESOLVED figure: reuses the existing vocabulary
+// (computed provenance / JDdS freshness). Never produced by the model.
+const figureProvenanceSchema = z.object({
+  source: shortString.optional(),
+  asOf: shortString.optional(),
+  freshness: shortString.optional(),
+  method: shortString.optional(),
+});
+export type FigureProvenance = z.infer<typeof figureProvenanceSchema>;
 
 // Only absolute http(s) URLs may become links. `z.string().url()` alone accepts
 // `javascript:`/`data:` schemes, which would be an XSS vector once rendered as an
@@ -152,13 +186,15 @@ const detailsBlock = z.object({
 
 const metricSchema = z.object({
   label: shortString,
-  value: numberOrNumericString,
+  value: figureOrText,
   unit: shortString.optional(),
   prefix: shortString.optional(),
   delta: numberOrNumericString.optional(),
   deltaTone: z.enum(['up', 'down', 'flat', 'neutral']).optional(),
   hint: shortString.optional(),
   unavailable: z.boolean().optional(),
+  // Populated when `value` is a resolved `$ref`; renderer shows a source chip.
+  provenance: figureProvenanceSchema.optional(),
 });
 
 const metricGridBlock = z.object({
@@ -664,7 +700,7 @@ const galleryBlock = z.object({
 // is deliberately one to four oversized numbers with supporting context.
 const statHeroStatSchema = z.object({
   label: shortString,
-  value: numberOrNumericString,
+  value: figureOrText,
   unit: shortString.optional(),
   prefix: shortString.optional(),
   delta: numberOrNumericString.optional(),
@@ -672,6 +708,7 @@ const statHeroStatSchema = z.object({
   icon: shortString.optional(),
   hint: shortString.optional(),
   unavailable: z.boolean().optional(),
+  provenance: figureProvenanceSchema.optional(),
 });
 
 const statHeroBlock = z.object({
@@ -801,6 +838,88 @@ const carouselBlock = z.object({
   slides: z.array(carouselSlideSchema).min(1).max(RESPONSE_LIMITS.maxSlides),
 });
 
+// An interactive, DETERMINISTIC calculator rendered in chat. Unlike `controls`
+// (which composes a follow-up prompt and re-enters the agent loop), a
+// `simulation` computes a result LOCALLY from a small, registered, trusted
+// formula — no model call and no backend, no arbitrary code. It is explicitly
+// labelled illustrative and is never a source of market data. An unknown
+// `calculator` kind fails the enum and the block degrades to readable content,
+// so a fabricated figure is impossible.
+const simulationInputSchema = z.object({
+  id: idString,
+  label: shortString,
+  kind: z.enum(['number', 'select', 'toggle']).default('number'),
+  value: z.number().finite().optional(),
+  min: z.number().finite().optional(),
+  max: z.number().finite().optional(),
+  step: z.number().finite().positive().optional(),
+  options: z.array(z.object({ value: shortString, label: shortString })).max(24).optional(),
+});
+
+const simulationOutputSchema = z.object({
+  id: idString,
+  label: shortString,
+  /** A safe expression over the input ids (see `lib/response/evaluate.ts`).
+   *  No JS: a fixed operator set + a whitelisted function set. */
+  expression: shortString,
+  unit: shortString.optional(),
+  precision: z.number().int().min(0).max(8).optional(),
+  format: z.enum(['number', 'currency', 'percent']).optional(),
+  tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).optional(),
+});
+
+// ── Layout primitives ─────────────────────────────────────────────────────────
+// A container a producer composes structure with, styled ONLY by closed token
+// vocabularies (spacing / radius / tone) resolved in `lib/response/tokens.ts` —
+// never raw CSS. Nested `blocks` are validated recursively like tabs/report.
+const spaceToken = z.enum(['none', 'xs', 'sm', 'md', 'lg', 'xl']);
+const toneToken = z.enum(['neutral', 'info', 'success', 'warning', 'danger']);
+
+const layoutBlock = z.object({
+  type: z.literal('layout'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  layout: z.enum(['box', 'row', 'column', 'grid']).default('column'),
+  columns: z.number().int().min(1).max(4).optional(),
+  gap: spaceToken.default('md'),
+  pad: spaceToken.optional(),
+  radius: z.enum(['none', 'sm', 'md', 'lg', 'xl']).optional(),
+  align: z.enum(['start', 'center', 'end', 'stretch']).optional(),
+  wrap: z.boolean().optional(),
+  tone: toneToken.default('neutral'),
+  blocks: z.array(z.unknown()).default([]),
+});
+
+const dividerBlock = z.object({
+  type: z.literal('divider'),
+  id: idString.optional(),
+  label: shortString.optional(),
+  tone: toneToken.default('neutral'),
+});
+
+// The `inputs` block renders envelope `state` controls; `vars` selects a subset
+// (all state vars when absent). See the envelope's `state`/`computed` below.
+const inputsBlock = z.object({
+  type: z.literal('inputs'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  vars: z.array(idString).max(RESPONSE_LIMITS.maxStateVars).optional(),
+});
+
+const simulationBlock = z.object({
+  type: z.literal('simulation'),
+  id: idString.optional(),
+  title: shortString.optional(),
+  description: shortString.optional(),
+  /** A canonical input/output set the producer can opt into; explicit
+   *  `inputs`/`outputs` override it. */
+  preset: z.enum(['risk_reward']).optional(),
+  inputs: z.array(simulationInputSchema).max(RESPONSE_LIMITS.maxSimulationInputs).default([]),
+  outputs: z.array(simulationOutputSchema).max(RESPONSE_LIMITS.maxSimulationOutputs).default([]),
+  disclaimer: shortString.optional(),
+  caption: shortString.optional(),
+});
+
 /**
  * The discriminated union of every registered block type. Unknown `type` values
  * do NOT parse; the parser catches that and emits an `unknown` diagnostic block.
@@ -837,6 +956,12 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   rankedListBlock,
   badgeRowBlock,
   carouselBlock,
+  simulationBlock,
+  layoutBlock,
+  dividerBlock,
+  inputsBlock,
+  anatomyBlock,
+  model3dBlock,
 ]);
 
 /**
@@ -861,12 +986,40 @@ const metadataSchema = z
     { message: `metadata is too large (max ${RESPONSE_LIMITS.maxStringLength} chars)` },
   );
 
+// Envelope-level shared state + computed values (v1.1, additive — v1.0 payloads
+// keep working). An `inputs` block mutates `state`; each `computed` entry is a
+// safe expression over state (`lib/response/evaluate.ts`); any figure in any block
+// may bind to one with `{ "$computed": "<id>" }`. Entirely client-side — no model
+// call, no arbitrary code.
+const stateVarSchema = z.object({
+  id: idString,
+  label: shortString.optional(),
+  kind: z.enum(['number', 'select', 'toggle']).default('number'),
+  value: z.number().finite().default(0),
+  min: z.number().finite().optional(),
+  max: z.number().finite().optional(),
+  step: z.number().finite().positive().optional(),
+  options: z.array(z.object({ value: shortString, label: shortString })).max(24).optional(),
+});
+export type StateVar = z.infer<typeof stateVarSchema>;
+
+const computedVarSchema = z.object({
+  id: idString,
+  expression: shortString,
+  precision: z.number().int().min(0).max(8).optional(),
+  format: z.enum(['number', 'currency', 'percent']).optional(),
+  unit: shortString.optional(),
+});
+export type ComputedVar = z.infer<typeof computedVarSchema>;
+
 export const ResponseEnvelopeSchema = z.object({
   schemaVersion: z.string().max(20).optional(),
   responseId: idString.optional(),
   responseType: shortString.optional(),
   title: shortString.optional(),
   summary: boundedString.optional(),
+  state: z.array(stateVarSchema).max(RESPONSE_LIMITS.maxStateVars).default([]),
+  computed: z.array(computedVarSchema).max(RESPONSE_LIMITS.maxComputedVars).default([]),
   blocks: z.array(z.unknown()).max(RESPONSE_LIMITS.maxBlocks),
   metadata: metadataSchema.optional().catch(undefined),
 });
@@ -920,6 +1073,12 @@ export type RankedItem = z.infer<typeof rankedItemSchema>;
 export type BadgeRowBlock = z.infer<typeof badgeRowBlock>;
 export type Badge = z.infer<typeof badgeSchema>;
 export type CarouselBlock = z.infer<typeof carouselBlock>;
+export type SimulationBlock = z.infer<typeof simulationBlock>;
+export type AnatomyBlock = z.infer<typeof anatomyBlock>;
+export type Model3dBlock = z.infer<typeof model3dBlock>;
+export type LayoutBlock = z.infer<typeof layoutBlock>;
+export type DividerBlock = z.infer<typeof dividerBlock>;
+export type InputsBlock = z.infer<typeof inputsBlock>;
 export type CarouselSlide = z.infer<typeof carouselSlideSchema>;
 
 /** A block whose type is not registered. Rendered as a readable diagnostic —
@@ -947,6 +1106,10 @@ export interface ParsedResponse {
   responseType?: string;
   title?: string;
   summary?: string;
+  /** Envelope-level shared state (v1.1); empty for older payloads. */
+  state: StateVar[];
+  /** Envelope-level computed values (v1.1); empty for older payloads. */
+  computed: ComputedVar[];
   blocks: ValidatedBlock[];
   diagnostics: ResponseDiagnostic[];
   metadata?: Record<string, unknown>;
@@ -1029,6 +1192,8 @@ export function parseResponsePayload(input: unknown): ParsedResponse {
     const first = envelopeResult.error.issues[0];
     return {
       schemaVersion: RESPONSE_SCHEMA_VERSION,
+      state: [],
+      computed: [],
       blocks: [],
       diagnostics: [
         {
@@ -1068,6 +1233,10 @@ export function parseResponsePayload(input: unknown): ParsedResponse {
         blocks: parseNestedBlocks(slide.blocks, 1, diagnostics),
       }));
     }
+    if (block.type === 'layout') {
+      const nested = block as z.infer<typeof layoutBlock>;
+      nested.blocks = parseNestedBlocks(nested.blocks, 1, diagnostics);
+    }
     blocks.push(block);
   });
 
@@ -1085,6 +1254,8 @@ export function parseResponsePayload(input: unknown): ParsedResponse {
     responseType: envelope.responseType,
     title: envelope.title,
     summary: envelope.summary,
+    state: envelope.state,
+    computed: envelope.computed,
     blocks,
     diagnostics,
     metadata: envelope.metadata,
@@ -1128,6 +1299,10 @@ export function parseNestedBlocks(
         ...slide,
         blocks: parseNestedBlocks(slide.blocks, depth + 1, out),
       }));
+    }
+    if (block.type === 'layout') {
+      const nested = block as z.infer<typeof layoutBlock>;
+      nested.blocks = parseNestedBlocks(nested.blocks, depth + 1, out);
     }
     return block;
   });

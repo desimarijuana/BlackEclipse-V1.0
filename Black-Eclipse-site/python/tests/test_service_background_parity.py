@@ -121,9 +121,11 @@ def test_the_one_kwargs_builder_carries_every_subsystem_bundle() -> None:
     expected = {
         "retrieval_cache", "memory_service", "skill_registry", "approvals",
         "memory_router", "mcp_manager", "code_store", "code_intel_runtime",
-        "evidence_store", "learning_store", "market", "portfolio", "quant",
-        "search", "artifact_service", "ui_service",
-    }
+            "evidence_store", "learning_store", "market", "portfolio", "quant",
+            "search", "artifact_service", "ui_service",
+            # The Fiduciary Gate / Advisory Ledger bundle (ADR-H196).
+            "advisory",
+        }
     assert set(kwargs) == expected
     assert kwargs["portfolio"] == "portfolio-sentinel"
     assert kwargs["quant"] == "quant-sentinel"

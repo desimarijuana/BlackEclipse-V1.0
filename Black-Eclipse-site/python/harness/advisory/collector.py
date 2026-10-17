@@ -57,6 +57,8 @@ class AdvisoryCollector:
         self._computations: list[dict[str, Any]] = []
         self._consulted: set[str] = set()
         self._seen: set[tuple[Any, ...]] = set()
+        # symbol → last observed price (for a later, deterministic outcome eval).
+        self._prices: dict[str, float] = {}
 
     # ── Ingestion ───────────────────────────────────────────────────────────
     def add(self, tool_name: str, args: dict[str, Any], data: Any) -> None:
@@ -67,6 +69,7 @@ class AdvisoryCollector:
                 return
             symbols = _collect_symbols(data) | _symbol_args(args)
             self._consulted.update(symbols)
+            self._prices.update(_collect_prices(data))
             key = (name, _arg_str(args, "portfolio_id", "portfolioId"),
                    tuple(sorted(symbols)), tuple(_collect_numbers(data)))
             if key in self._seen:
@@ -96,6 +99,13 @@ class AdvisoryCollector:
             if comp.get("portfolioId"):
                 return str(comp["portfolioId"])
         return None
+
+    def prices(self) -> dict[str, float]:
+        """Prices the run actually observed, per symbol (for a later outcome eval).
+
+        Only a real positive price is recorded; a missing price is never a zero.
+        """
+        return dict(self._prices)
 
     def has_content(self) -> bool:
         return bool(self._computations)
@@ -147,6 +157,40 @@ def _collect_symbols(data: Any) -> set[str]:
 
     walk(data)
     return out
+
+
+def _collect_prices(data: Any) -> dict[str, float]:
+    """symbol → price from any node carrying both a symbol/ticker and a price."""
+    out: dict[str, float] = {}
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            symbol = None
+            for key in ("symbol", "ticker"):
+                if isinstance(node.get(key), str) and node[key]:
+                    symbol = str(node[key]).upper()
+                    break
+            if symbol:
+                price = _to_float(node.get("price"))
+                if price is not None and price > 0:
+                    out.setdefault(symbol, price)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, (list, tuple)):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return out
+
+
+def _to_float(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _collect_numbers(data: Any) -> list[float]:

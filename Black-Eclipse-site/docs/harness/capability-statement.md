@@ -43,7 +43,7 @@ and lives in the terminal and the progress log; it is never shown to a user.
 ask for; a class with no fixture is published as `not measured yet` with its
 reason, never omitted.
 
-4 of 17 classes are not measured yet.
+4 of 18 classes are not measured yet.
 
 | What you can ask for | Can Eclipse do it today? | Proof | What is missing |
 |---|---|---|---|
@@ -60,6 +60,7 @@ reason, never omitted.
 | `capability.class.changeReview` | `capability.status.yes` | graded through `harness.code.review` | — |
 | `capability.class.documentAttachment` | `capability.status.yes` | `vitest:src/lib/chat/extract.test.ts`, `vitest:src/lib/chat/session-store.test.ts` | — |
 | `capability.class.figureProvenance` | `capability.status.yes` | `pytest:python/tests/test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies`, `pytest:python/tests/test_analysis_execution.py` | — |
+| `capability.class.advisoryVerification` | `capability.status.yes` | `pytest:python/tests/test_advisory_gate.py`, `pytest:python/tests/test_advisory_ledger.py` | — |
 | `capability.class.priceAuthority` | `capability.status.notMeasuredYet` | `harness.retrieval.authority` | Not graded yet — the source-choice logic is tested in pieces, not end to end. |
 | `capability.class.promotion` | `capability.status.notMeasuredYet` | `harness.code.actions` | Not graded yet — putting a change into your files is tested in pieces, not end to end. |
 | `capability.class.scrapingBreadth` | `capability.status.notMeasuredYet` | `harness.acquire.registry` | Not graded yet — only a few kinds of data sources are set up. |

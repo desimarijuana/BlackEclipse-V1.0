@@ -49,6 +49,45 @@ const BUILDERS: Record<string, InstructionBuilder> = {
       .filter((line) => line !== "")
       .join("\n");
   },
+  "agent.anatomy": (_spec, args) => {
+    const subject = (Array.isArray(args.positionals.subject) ? (args.positionals.subject as string[]) : [])
+      .join(" ")
+      .trim();
+    const audience = typeof args.flags.audience === "string" ? args.flags.audience : "";
+    const animated = args.flags.animated === true;
+    return [
+      "Explain the following as ONE interactive 3D mechanism model, rendered inline in chat as a `model3d` block (the /anatomy 3D figure):",
+      "",
+      `Subject: ${subject || "(not given — ask the user what to illustrate and STOP, building nothing yet)"}`,
+      audience ? `Audience: ${audience}` : "",
+      "",
+      "Follow this exactly:",
+      "1. Consult `response_block_schema` for the `model3d` block and use its EXACT field names; a drifted field degrades the model.",
+      "2. Author a SCENE, never meshes, shaders or code. `parts[]` — each with an id, a placement (`position`/`rotation`/`scale`),",
+      "   an optional `parent` for assemblies, `material`/`tone`/`lit`/`label`, and geometry: either a `kind` or a `recipe`.",
+      "   KINDS: `box` · `cylinder` · `cone` · `sphere` · `torus` · `lathe` (a `profile` of `[z, radius]` pairs) · `extrude`",
+      "   (a `points` polygon) · `tube` (a `path` of [x,y,z]) · `gear` (`teeth`/`toothDepth`).",
+      "   RECIPES (PREFER these for real machines): `motor` · `gearbox` · `pump` · `valve` · `gauge` · `tank` · `bearing` ·",
+      "   `gear` · `pulley` · `belt-drive` · `frame` · `bracket` · `fan` · `heat-exchanger` · `pcb` · `lever` · `spring`.",
+      "   A recipe node takes `params` (numbers) plus the same transform; it expands into a detailed assembly. `tone` is the",
+      "   shared status vocabulary (neutral/info/success/warning/danger).",
+      "3. Build a real machine, not a diagram: compose 8–30 nodes from RECIPES and primitives, add structure (a `frame` or",
+      "   `bracket`), the moving mechanism (a `gear`, `pulley`, `lever`), and exactly one lit subject (`lit: true`). Place",
+      "   parts in world units with z up; the whole scene is dropped onto the ground automatically. Give each node a short id",
+      "   and a descriptive label (it is listed in a numbered key under the model). Do not claim hover/inspection it lacks.",
+      "4. Give each REAL component a node and each REAL connection a `wire`; every label must be true to how it actually works.",
+      "   Never invent a component, a recipe or a value.",
+      animated
+        ? "4. Add `stages` (label, note, readout, lit[] of part ids) that step through the mechanism, and set `animate: true`."
+        : "4. Add `stages` only if the mechanism has a natural sequence of steps.",
+      "5. Emit the SAME labels/numbers in your prose as in the model; keep prose to a short lead-in and an explanation of what",
+      "   the model shows. Do not repeat the model's content as a list.",
+      "6. Wrap it in ONE ```eclipse-response fence and nothing else that duplicates it:",
+      '   {"blocks":[{"type":"model3d", ...}]}',
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  },
 };
 
 /**

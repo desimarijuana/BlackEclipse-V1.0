@@ -11,7 +11,7 @@ from harness.persistence import AgentMemoryStore
 from harness.tools import ToolContext, ToolRegistry
 from harness.ui.bootstrap import set_ui_service
 from harness.ui.catalog import UiCatalog
-from harness.ui.model import CreatePageInput
+from harness.ui.model import CreatePageInput, UpdatePageInput
 from harness.ui.service import UiService
 from harness.ui.store import UiStore
 from harness.ui.tools import (
@@ -106,7 +106,9 @@ def test_get_current_page_defaults_and_says_which(service):
 def test_get_current_page_by_title_disambiguates(service):
     service.create_page(CreatePageInput(title="Main"))
     time.sleep(0.01)
-    second = service.create_page(CreatePageInput(title="Main")).id
+    second = service.create_page(CreatePageInput(title="Ledger")).id
+    # A CREATE never duplicates a title now; force a duplicate via an EDIT.
+    service.update_page(second, UpdatePageInput(title="Main"))
     text, data = _run(_get_current_page({"title": "Main"}, _ctx()))
     assert data["resolution"] == "title_ambiguous"
     assert data["blueprint"]["id"] == second

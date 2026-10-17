@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ECLIPSE_THEME,
+  LEGACY_DARK_LANDING_COLORS,
   SIDEBAR_PRESETS,
   STRUCTURAL_THEME_VARS,
   THEME_PRESETS,
@@ -72,6 +73,15 @@ describe('light scheme + White preset', () => {
     }
   });
 
+  it('leaves every dark landing unset so it defaults to near-black', () => {
+    const lightIds = ['white', 'paper', 'snow', 'ivory'];
+    for (const p of THEME_PRESETS.filter((x) => !lightIds.includes(x.id))) {
+      // Unset => resolveBackgroundCss falls back to DEFAULT_SOLID_DARK_COLOR
+      // (#0a0b0b) in dark mode rather than a per-theme accent tint.
+      expect((p.background?.solidColor ?? '').trim()).toBe('');
+    }
+  });
+
   it('ships a family of white-background presets', () => {
     for (const id of ['white', 'paper', 'snow', 'ivory']) {
       const p = THEME_PRESETS.find((x) => x.id === id)!;
@@ -99,6 +109,12 @@ describe('presets', () => {
   it('reports custom themes as unmatched', () => {
     const custom = normalizeTheme({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, primary: '#123456' } });
     expect(themePresetId(custom)).toBeNull();
+  });
+
+  it('exposes the retired dark landing fills for migration', () => {
+    // Eclipse's old pinned fill plus one tint per dark preset's accent.
+    expect(LEGACY_DARK_LANDING_COLORS).toContain('#131615');
+    expect(LEGACY_DARK_LANDING_COLORS.length).toBeGreaterThan(1);
   });
 });
 

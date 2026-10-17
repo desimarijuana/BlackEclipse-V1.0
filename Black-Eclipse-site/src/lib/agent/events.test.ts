@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
-import { toolLabel, sourceLabel, turnText, emptyTurn } from './response-model';
+import { coerceResponsePlan, toolLabel, sourceLabel, turnText, emptyTurn } from './response-model';
 
 describe('unwrapEventPayload', () => {
   it('unwraps a runtime envelope and carries the event type', () => {
@@ -414,5 +414,48 @@ describe('analysis.completed (R3-06 computed results)', () => {
     expect(
       normalizeHarnessEvent('analysis.completed', { type: 'analysis.completed', data: { status: 'ok' } }),
     ).toBeNull();
+  });
+});
+
+describe('response.plan (Intelligent Response Orchestrator)', () => {
+  const plan = {
+    mode: 'visualization',
+    confidence: 'certain',
+    reason: 'The turn matches the visualization signals.',
+    signals: ['mode:visualization'],
+    suggestedBlocks: ['chart', 'data_table'],
+    learning: false,
+  };
+
+  it('maps a response.plan envelope to a response_plan event', () => {
+    const e = normalizeHarnessEvent('response.plan', {
+      type: 'response.plan',
+      data: plan,
+    });
+    expect(e).toEqual({ kind: 'response_plan', plan });
+  });
+
+  it('drops a response.plan with an unknown mode', () => {
+    expect(
+      normalizeHarnessEvent('response.plan', { type: 'response.plan', data: { mode: 'hologram' } }),
+    ).toBeNull();
+  });
+
+  it('coerces a partial payload to safe defaults', () => {
+    const coerced = coerceResponsePlan({ mode: 'text' });
+    expect(coerced).toEqual({
+      mode: 'text',
+      confidence: 'unsure',
+      reason: '',
+      signals: [],
+      suggestedBlocks: [],
+      learning: false,
+    });
+  });
+
+  it('returns undefined for a non-object plan', () => {
+    expect(coerceResponsePlan('nope')).toBeUndefined();
+    expect(coerceResponsePlan(null)).toBeUndefined();
+    expect(coerceResponsePlan(['visualization'])).toBeUndefined();
   });
 });

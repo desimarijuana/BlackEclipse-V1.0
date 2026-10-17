@@ -174,11 +174,24 @@ async def _boot() -> None:
         await start_security(service)
     except Exception:  # noqa: BLE001 - security startup must never block boot
         log.warning("[harness-py] security startup skipped", exc_info=True)
+    # Channel Gateway: start the enabled local long-poll providers (Telegram). No
+    # public endpoint is required for these, so zero-config local use is unchanged.
+    try:
+        from .channels.bootstrap import start_channels
+
+        await start_channels(service)
+    except Exception:  # noqa: BLE001 - channels must never block boot
+        log.warning("[harness-py] channel gateway startup skipped", exc_info=True)
 
 
 async def _shutdown() -> None:
     """Stop every subsystem on the last exit. Cancel queued work and terminate
     subprocesses cleanly so none leak across restarts. Never raises."""
+    # Stop channel pollers FIRST — they are pure inbound and must not fire a
+    # dispatch into a half-torn-down runtime.
+    from .channels.bootstrap import stop_channels
+
+    await stop_channels(service)
     from .plugins.bootstrap import stop_plugins
 
     await stop_plugins(service)

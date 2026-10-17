@@ -341,6 +341,48 @@ async def test_misfire_grace_runs_a_just_due_fire(env):
     assert not any(e["state"] == "skipped" for e in env.auto_store.list_executions("auto_test"))
 
 
+async def test_misfire_default_runs_a_missed_fire_once(env):
+    # The default misfire is `run_once`: a bot whose fire came due while the app
+    # was closed RUNS once when the app returns, instead of being silently
+    # dropped (the old `skip` default that made scheduled bots never fire).
+    _save(env, id="auto_default",
+          trigger={"type": "cron", "cron": "0 8 * * *", "timezone": "UTC"},
+          last_run_at="2026-09-01T00:00:00+00:00")
+    env.clock.now = _dt.datetime(2026, 10, 8, 6, 0, tzinfo=_dt.timezone.utc)
+    before = env.dispatcher.calls
+    await env.engine._recover()
+    await env.engine.wait_idle()
+    assert env.dispatcher.calls == before + 1
+    assert not any(
+        e["state"] == "skipped" for e in env.auto_store.list_executions("auto_default")
+    )
+
+
+async def test_recovery_does_not_repeat_a_missed_slot(env):
+    # A missed slot is recorded ONCE even if the process restarts several times.
+    _save(env, id="auto_dup", execution={"misfire": "skip"},
+          trigger={"type": "cron", "cron": "0 8 * * *", "timezone": "UTC"},
+          last_run_at="2026-09-01T00:00:00+00:00")
+    env.clock.now = _dt.datetime(2026, 10, 8, 6, 0, tzinfo=_dt.timezone.utc)
+    await env.engine._recover()
+    await env.engine.wait_idle()
+    await env.engine._recover()
+    await env.engine.wait_idle()
+    skipped = [
+        e for e in env.auto_store.list_executions("auto_dup") if e["state"] == "skipped"
+    ]
+    assert len(skipped) == 1
+
+
+async def test_misfire_default_migration_upgrades_stored_skip(env):
+    # Existing automations saved under the old `skip` default are upgraded once.
+    _save(env, id="auto_old", execution={"misfire": "skip"},
+          trigger={"type": "cron", "cron": "0 8 * * *", "timezone": "UTC"})
+    env.auto_store._db.execute("DELETE FROM AutomationMaintenance")
+    env.auto_store._migrate_misfire_default()
+    assert env.auto_store.get_automation("auto_old").execution.misfire == "run_once"
+
+
 async def test_lease_lock_prevents_double_processing(env):
     assert env.auto_store.acquire_lock("exec:x", "w1", ttl_s=100) is True
     assert env.auto_store.acquire_lock("exec:x", "w2", ttl_s=100) is False

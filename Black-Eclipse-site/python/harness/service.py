@@ -401,6 +401,18 @@ class AgenticService:
             self.tenant_stores = TenantStoreRegistry()
         except Exception:  # noqa: BLE001
             self.tenant_stores = None
+        # Channel Gateway: connect external messaging surfaces (Telegram, Discord,
+        # Email, Slack, …) so a user can see and drive Eclipse remotely. Boot wiring
+        # lives in `channels/bootstrap.py`; it reuses the ONE agent-memory
+        # connection, the ONE tool registry (for the operator `/do` bridge), the
+        # Security Gateway (secrets + audit + effect authorization) and the ONE
+        # `service.run` agent path. Provider pollers start in the lifespan.
+        try:
+            from .channels.bootstrap import install_channel_layer  # noqa: PLC0415
+
+            install_channel_layer(self)
+        except Exception:  # noqa: BLE001 - channels must never block construction
+            log.warning("channel gateway unavailable", exc_info=True)
         # Automatic learning review (M3): a lightweight in-process queue that
         # reviews completed runs after the fact. It creates ONLY inert records /
         # suggestions and never enables a skill. Started/stopped with the runtime.

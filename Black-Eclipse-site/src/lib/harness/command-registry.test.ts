@@ -95,4 +95,14 @@ describe("command registry", () => {
     expect(spec.handler.type).toBe("agent");
     expect(spec.handler.target).toBe("agent.skill.author");
   });
+
+  it("marks /anatomy as an agent-turn visual command", () => {
+    const spec = resolveCommand("anatomy")!;
+    expect(spec.handler.type).toBe("agent");
+    expect(spec.handler.target).toBe("agent.anatomy");
+    expect(spec.category).toBe("visual");
+    expect(resolveCommand("visualize")?.name).toBe("anatomy");
+    // It is not routed (it runs as an agent turn) and it is available.
+    expect(isCommandAvailable(spec)).toBe(true);
+  });
 });

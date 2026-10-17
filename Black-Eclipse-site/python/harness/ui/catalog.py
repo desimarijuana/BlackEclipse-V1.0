@@ -18,6 +18,7 @@ an invalid configuration is rejected before it can render.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from .model import (
@@ -345,7 +346,11 @@ class UiCatalog:
                         score += 8
                     elif token in haystack:
                         score += 4
-                    elif any(token in h for h in haystack):
+                    # Whole-WORD match only: a plain substring test made "form"
+                    # match "performance" (and "input" match "inputs_per_sec"),
+                    # so an unrelated query returned charts. Word boundaries keep
+                    # a search for an interactive component honest.
+                    elif any(re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", h) for h in haystack):
                         score += 2
                 if score == 0:
                     continue

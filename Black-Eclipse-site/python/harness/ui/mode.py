@@ -44,6 +44,14 @@ _ENGINEER_SIGNALS = (
     "authentication", "oauth", "sign in", "login flow",
     "3d", "webgl", "interactive editor", "new editor", "custom visualization",
     "integration", "connect to",
+    # A request for NEW interaction (user-driven input) needs a component the
+    # read-only widget catalog does not have, so it is a new capability — not an
+    # arrangement of existing charts. Without these, "a calculator I can drive
+    # with sliders" classified as Compose and died with no task (a recorded gap).
+    "slider", "sliders", "input field", "text input", "number input",
+    "user input", "user-driven", "user driven", "driven with",
+    "interactive input", "interactive form", "live input", "adjustable",
+    "calculator", "control panel",
 )
 
 #: Signals that a request is satisfiable by composing existing components.

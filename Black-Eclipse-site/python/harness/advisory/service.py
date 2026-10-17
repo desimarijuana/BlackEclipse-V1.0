@@ -42,6 +42,7 @@ class AdvisoryService:
         conversation_id: Optional[str] = None,
         owner_id: Optional[str] = None,
         sources: Optional[list[str]] = None,
+        entry_prices: Optional[dict[str, float]] = None,
     ) -> list[dict[str, Any]]:
         """Persist every claim in a gate verdict as a durable decision.
 
@@ -51,6 +52,8 @@ class AdvisoryService:
         """
         recorded: list[dict[str, Any]] = []
         source_refs = list(sources or [])[:20]
+        prices = {str(k).upper(): float(v) for k, v in (entry_prices or {}).items()
+                  if _is_positive(v)}
         for claim in verdict.get("claims") or []:
             action = str(claim.get("action") or "recommendation")
             symbols = tuple(claim.get("symbols") or [])
@@ -65,7 +68,12 @@ class AdvisoryService:
                 "target": target, "thesis": _thesis(claim), "status": status,
                 "truthReason": reason,
             })
-            self.store.add_basis(did, self._basis_entries(status, reason, source_refs))
+            entries = self._basis_entries(status, reason, source_refs)
+            entry = prices.get(str(symbols[0]).upper()) if symbols else None
+            if entry is not None:
+                entries.append({"kind": "entry_price", "ref": repr(entry),
+                                "valueHash": str(symbols[0]).upper()})
+            self.store.add_basis(did, entries)
             recorded.append(self.store.get_decision(did))
         return recorded
 
@@ -119,6 +127,92 @@ class AdvisoryService:
             "verdict": verdict, "note": note,
         })
 
+    def evaluate_outcome(
+        self, decision_id: str, *, current_price: float,
+        benchmark_return: Optional[float] = None,
+        horizon: Optional[str] = None, note: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Evaluate a decision against a caller-supplied current price.
+
+        The return is computed from the entry price captured when the decision was
+        recorded; without one (or with a non-positive price) it is `None` — never a
+        fabricated result. Deterministic.
+        """
+        record = self.store.get_decision(decision_id)
+        if record is None:
+            return None
+        entry = _entry_price(record)
+        price = _positive_or_none(current_price)
+        if not entry or price is None:
+            return None
+        return self.record_outcome(
+            decision_id, realized_return=(price / entry) - 1.0,
+            benchmark_return=benchmark_return, horizon=horizon, note=note,
+        )
+
+    def evaluate_decisions(
+        self, marks: dict[str, float], *, benchmark_return: Optional[float] = None,
+        horizon: Optional[str] = None, limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Evaluate every open decision that has an entry price and a matching mark.
+
+        The primitive a scheduled monitor or the operator uses to close the loop;
+        a decision with no entry price or no mark is skipped, never invented.
+        """
+        normalized = {str(k).upper(): _positive_or_none(v) for k, v in (marks or {}).items()}
+        results: list[dict[str, Any]] = []
+        for row in self.store.list_decisions(limit=limit):
+            decision = self.store.get_decision(row["id"])
+            if decision is None or decision.get("outcome") or _entry_price(decision) is None:
+                continue
+            symbols = [str(s).upper() for s in decision.get("symbols") or []]
+            price = next((normalized[s] for s in symbols if normalized.get(s) is not None), None)
+            if price is None:
+                continue
+            outcome = self.evaluate_outcome(
+                decision["id"], current_price=price,
+                benchmark_return=benchmark_return, horizon=horizon,
+            )
+            if outcome is not None:
+                results.append(outcome)
+        return results
+
+    async def auto_evaluate(
+        self, gateway: Any, *, benchmark_return: Optional[float] = None,
+        horizon: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Fetch current prices for open decisions and record their outcomes.
+
+        The unattended closer: a monitor (or the operator) invokes it, and the
+        gateway supplies the marks. A decision with no entry price or an
+        unavailable quote is skipped, never fabricated. Returns what was evaluated
+        and what was skipped, so a short report is honest.
+        """
+        if gateway is None:
+            return {"evaluated": 0, "skipped": [], "reason": "no market gateway"}
+        open_decisions = []
+        for row in self.store.list_decisions(limit=5000):
+            decision = self.store.get_decision(row["id"])
+            if decision is not None and not decision.get("outcome") and _entry_price(decision):
+                open_decisions.append(decision)
+        skipped: list[str] = []
+        symbols = {str(s).upper() for d in open_decisions for s in (d.get("symbols") or [])}
+        marks: dict[str, float] = {}
+        for symbol in symbols:
+            try:
+                quote = await gateway.get_quote(symbol)
+            except Exception:  # noqa: BLE001 - an unavailable quote is a skip
+                quote = None
+            price = _positive_or_none(_quote_price(quote))
+            if price is not None:
+                marks[symbol] = price
+        results = self.evaluate_decisions(marks, benchmark_return=benchmark_return, horizon=horizon)
+        evaluated = {r["decisionId"] for r in results}
+        for decision in open_decisions:
+            if decision["id"] not in evaluated:
+                skipped.append(decision["id"])
+        return {"evaluated": len(results), "outcomes": results, "skipped": skipped}
+
     def scorecard(
         self, *, portfolio_id: Optional[str] = None, owner_id: Optional[str] = None,
     ) -> dict[str, Any]:
@@ -150,6 +244,33 @@ class AdvisoryService:
             "avgRealizedReturn": (sum(realized) / len(realized)) if realized else None,
             "avgBenchmarkReturn": (sum(benchmark) / len(benchmark)) if benchmark else None,
         }
+
+
+def _quote_price(quote: Any) -> Optional[float]:
+    if quote is None:
+        return None
+    if isinstance(quote, dict):
+        return quote.get("price")
+    return getattr(quote, "price", None)
+
+
+def _entry_price(record: dict[str, Any]) -> Optional[float]:
+    for entry in record.get("basis") or []:
+        if entry.get("kind") == "entry_price":
+            return _positive_or_none(entry.get("ref"))
+    return None
+
+
+def _positive_or_none(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _is_positive(value: Any) -> bool:
+    return _positive_or_none(value) is not None
 
 
 def _thesis(claim: dict[str, Any]) -> str:

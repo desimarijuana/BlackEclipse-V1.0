@@ -79,7 +79,7 @@ export function MemoryActionPanel({
   return (
     <div
       className={cn(
-        'mt-2 flex w-full flex-col gap-1 rounded-2xl border border-white/10 px-3 py-2 dark:border-white/8 glass-card-subtle',
+        'mt-2 flex w-full flex-col gap-1 px-1',
         compact ? 'text-[11px]' : 'text-xs',
       )}
     >

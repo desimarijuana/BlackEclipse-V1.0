@@ -139,7 +139,11 @@ export function StatHeroBlock({ block }: { block: StatHeroBlockType }) {
                     <>
                       {stat.prefix && <span className="text-[15px] text-muted-foreground">{stat.prefix}</span>}
                       <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
-                        {typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}
+                        {typeof stat.value === 'number'
+                          ? stat.value.toLocaleString()
+                          : typeof stat.value === 'string'
+                            ? stat.value
+                            : ''}
                       </span>
                       {stat.unit && <span className="text-[13px] text-muted-foreground">{stat.unit}</span>}
                     </>
@@ -153,6 +157,16 @@ export function StatHeroBlock({ block }: { block: StatHeroBlockType }) {
                     </span>
                   )}
                 </div>
+                {stat.provenance && (stat.provenance.source || stat.provenance.asOf) && (
+                  <p
+                    className="mt-1 truncate text-[9.5px] text-muted-foreground/50"
+                    title={stat.provenance.method ?? stat.provenance.source}
+                  >
+                    {stat.provenance.source}
+                    {stat.provenance.source && stat.provenance.asOf ? ' · ' : ''}
+                    {stat.provenance.asOf}
+                  </p>
+                )}
               </div>
             );
           })}

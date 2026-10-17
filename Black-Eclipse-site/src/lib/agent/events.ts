@@ -1,5 +1,5 @@
-import type { ActivityItem, PendingApproval, ResponseStatus, TurnChange } from './response-model';
-import { sourceLabel, toolLabel } from './response-model';
+import type { ActivityItem, PendingApproval, ResponsePlan, ResponseStatus, TurnChange } from './response-model';
+import { coerceResponsePlan, sourceLabel, toolLabel } from './response-model';
 import { refusalKey } from '@/lib/i18n/refusal-copy';
 
 /**
@@ -68,7 +68,12 @@ export type HarnessUiEvent =
    * blob (outputs, artifacts, provenance) the chat renders as "worked out by
    * Eclipse". A computed result is never shown as retrieved data.
    */
-  | { kind: 'analysis'; result: unknown };
+  | { kind: 'analysis'; result: unknown }
+  /**
+   * The Intelligent Response Orchestrator chose this turn's presentation mode
+   * (runtime `response.plan`). Display-only — it never changes the answer.
+   */
+  | { kind: 'response_plan'; plan: ResponsePlan };
 
 /**
  * Normalize a frame's payload.
@@ -335,6 +340,13 @@ export function normalizeHarnessEvent(
     const result = payload.result;
     if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
     return { kind: 'analysis', result };
+  }
+
+  // The Intelligent Response Orchestrator's chosen presentation mode
+  // (runtime `response.plan`). Display only; a malformed payload is dropped.
+  if (event === 'response.plan') {
+    const plan = coerceResponsePlan(payload);
+    return plan ? { kind: 'response_plan', plan } : null;
   }
 
   // A standing grant short-circuited the prompt (runtime `approval.granted`).

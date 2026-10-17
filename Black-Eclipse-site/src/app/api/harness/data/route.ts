@@ -80,6 +80,12 @@ export async function POST(request: Request) {
     // response_contract 500 (a client React import in the server graph) for a
     // whole debugging round. Production keeps the opaque contract.
     const detail = process.env.NODE_ENV === "development" && err instanceof Error ? `${err.name}: ${err.message}` : undefined;
-    return NextResponse.json({ status: "UNAVAILABLE", error: "bridge failure", ...(detail ? { detail } : {}) }, { status: 500 });
+    // A stable reason CODE lets the agent branch on the failure and degrade to
+    // prose/tables instead of guessing block field names. The free-text `detail`
+    // (dev only) is diagnostic, never the contract.
+    return NextResponse.json(
+      { status: "UNAVAILABLE", code: "BRIDGE_ERROR", error: "bridge failure", ...(detail ? { detail } : {}) },
+      { status: 500 }
+    );
   }
 }

@@ -15,13 +15,11 @@ The service never trusts the caller: pydantic validates every body.
 """
 
 from __future__ import annotations
-
 import asyncio
 import json
 import logging
 import time
 from typing import Any, AsyncIterator, Optional
-
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -47,8 +45,10 @@ from .research.engine import run_research
 from .research.mandate import parse_mandate
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
+from .routers.channels import router as channels_router
 from .routers.application import router as application_router
 from .routers.artifacts import router as artifacts_router
+from .routers.canvas import router as canvas_router
 from .routers.a2a import router as a2a_router
 from .routers.team import router as team_router
 from .routers.advisory import router as advisory_router
@@ -101,8 +101,10 @@ app.include_router(team_router)
 app.include_router(advisory_router)
 app.include_router(application_router)
 app.include_router(artifacts_router)
+app.include_router(canvas_router)
 app.include_router(automation_router)
 app.include_router(code_router)
+app.include_router(channels_router)
 app.include_router(code_intel_router)
 app.include_router(browser_router)
 app.include_router(computer_router)

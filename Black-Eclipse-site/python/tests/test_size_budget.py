@@ -81,9 +81,19 @@ RATCHET_PY: dict[str, int] = {
     # per-tool recording lives in `tools.py`, so graph.py grows by the seam only.
     # Re-pinned 2102→2124 for the Advisory Ledger (ADR-H196 Phase 2): the `advisory`
     # run/service param, the `advisory_service` ToolContext seam and the seam
-    # `record_verdict` call (the ledger logic lives in `python/harness/advisory/`).
-    # May only shrink; the subsystem-wiring block remains the split candidate.
-    "graph.py": 2124,
+    # `record_verdict` call and its `entry_prices` (the ledger logic lives in
+    # `python/harness/advisory/`). May only shrink; the subsystem-wiring block
+    # remains the split candidate.
+    # Re-pinned 2125→2142 (2026-10-16) for the Intelligent Response Orchestrator:
+    # a gated block that classifies the turn's presentation mode and appends its
+    # directive to the prompt head (the classifier itself lives in the new
+    # `response_mode.py`). May only shrink; the subsystem-wiring block remains the
+    # split candidate.
+    # Re-pinned 2143→2145 (2026-10-16) for the model-assisted fallback: the
+    # orchestrator call is now `orchestrate_response_mode(...)` (import + a
+    # multi-line call); the model construction/invocation lives in
+    # `response_mode_llm.py`.
+    "graph.py": 2145,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -170,7 +180,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1485→1493 for the Advisory Ledger boot wiring (ADR-H196 Phase 2):
     # `install_advisory_layer(self)` + its comment and the `advisory` run kwarg;
     # the service/store/tools live in `python/harness/advisory/`. May only shrink.
-    "service.py": 1493,
+    # Re-pinned 1493→1505 for the in-flight Channel Gateway boot wiring
+    # (`install_channel_layer(self)` + its comment); the wiring lives in
+    # `python/harness/channels/`. May only shrink from here.
+    "service.py": 1505,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

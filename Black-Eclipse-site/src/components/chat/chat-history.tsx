@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
 import { ResponseView } from '@/components/response/response-view';
+import { ResponseRuntimeProvider } from '@/components/response/figure-context';
+import { buildFigureResolver } from '@/lib/response/refs';
+import { projectContentMarkdown } from '@/lib/response/projection';
 import { hasResponseFence } from '@/lib/response/parse';
 import { planMarkdown, plannerUpgraded } from '@/lib/response/planner';
 import { ResponseStatusLine } from './response-status';
@@ -24,7 +27,7 @@ import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
-import type { TurnError } from '@/lib/agent/response-model';
+import type { ResponseMode, TurnError } from '@/lib/agent/response-model';
 
 /**
  * True when a turn's markdown merely restates its own error. A failed command
@@ -67,6 +70,18 @@ interface ChatHistoryProps {
 
 /** How close to the bottom counts as "following the stream". */
 const NEAR_BOTTOM_PX = 96;
+
+/**
+ * The presentation mode the Intelligent Response Orchestrator chose, as a short
+ * human label. `text` is omitted — it is the default and not worth a chip.
+ */
+const RESPONSE_MODE_LABELS: Partial<Record<ResponseMode, string>> = {
+  explanation: 'Explanation',
+  visualization: 'Visualization',
+  simulation: 'Simulation',
+  workflow: 'Workflow',
+  composite: 'Composite',
+};
 
 /** Compact, honest turn duration: "820ms", "2.3s", "1m 5s". */
 function formatTurnDuration(ms: number): string {
@@ -280,7 +295,10 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
 
   const copyMessage = async (msg: Message) => {
     try {
-      await navigator.clipboard.writeText(msg.content);
+      // Copy READABLE text: a structured answer is projected to Markdown instead
+      // of copying the raw eclipse-response JSON.
+      const text = hasResponseFence(msg.content) ? projectContentMarkdown(msg.content) : msg.content;
+      await navigator.clipboard.writeText(text);
       setCopiedId(msg.id);
       setTimeout(() => setCopiedId((c) => (c === msg.id ? null : c)), 1500);
     } catch {
@@ -387,7 +405,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     <ChangeCards changes={msg.changes} compact={compact} />
                   )}
                   {msg.content && !restatesError(msg.content, msg.error) && (
-                    <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
+                    <ResponseRuntimeProvider
+                      value={{ figureResolver: buildFigureResolver({ analysis: msg.analysis }), stateKey: msg.id }}
+                    >
+                      <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
+                    </ResponseRuntimeProvider>
                   )}
                   <ChatCapabilityPanel
                     autonomy={msg.autonomy}
@@ -423,6 +445,17 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   ) : null}
                   {!working && (msg.content || msg.model?.model || msg.durationMs != null) && (
                     <div className="hover-reveal mt-1 flex w-full flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      {msg.responsePlan && RESPONSE_MODE_LABELS[msg.responsePlan.mode] && (
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-full border border-border/50 bg-accent/40 px-2 py-0.5 font-medium text-muted-foreground',
+                            compact ? 'text-[10px]' : 'text-[11px]',
+                          )}
+                          title={`Presented as: ${RESPONSE_MODE_LABELS[msg.responsePlan.mode]} (chosen by the response orchestrator)`}
+                        >
+                          {RESPONSE_MODE_LABELS[msg.responsePlan.mode]}
+                        </span>
+                      )}
                       {msg.durationMs != null && (
                         <span
                           className={cn(
