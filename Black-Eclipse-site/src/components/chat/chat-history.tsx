@@ -66,6 +66,13 @@ interface ChatHistoryProps {
   onFeedback?: (id: string, feedback: 'up' | 'down') => void;
   /** Run a follow-up agent turn (used by response `controls` blocks). */
   onFollowup?: (prompt: string) => void;
+  /**
+   * Optional external ref to the transcript's scroll element. The full-page
+   * ChatBot wrapper uses it to forward wheel/trackpad scrolling from the
+   * composer/toolbar area (siblings of the transcript in the DOM, so the browser
+   * cannot chain their wheel events to it) back onto the transcript.
+   */
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 /** How close to the bottom counts as "following the stream". */
@@ -126,8 +133,9 @@ const AssistantContent = memo(function AssistantContent({
   return <Markdown content={content} compact={compact} streaming={streaming} onFollowup={onFollowup} className="w-full" />;
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup }: ChatHistoryProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup, scrollRef: externalScrollRef }: ChatHistoryProps) {
+  const internalScrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = externalScrollRef ?? internalScrollRef;
   const rootRef = useRef<HTMLDivElement>(null);
   const avatars = useBotAvatarStore((s) => s.avatars);
   const [editingId, setEditingId] = useState<string | null>(null);

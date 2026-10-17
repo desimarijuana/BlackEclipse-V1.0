@@ -8,6 +8,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-17
 
+- **Eclipse Canvas editor UI ships.** The canvas backend (Python `CanvasService`
+  over the ONE artifact catalog, `/api/canvas` routes, typed `canvas-client`)
+  landed earlier without its editor; this adds the missing UI that makes it
+  usable. A three-region workspace — an artifact rail (list/search/create), a
+  center editor with toolbar, and an AI panel — sits over the real canvas
+  client: document / code (Monaco) / visual-report editors (the visual editor
+  previews the response envelope), autosave + `⌘S`, version-history restore,
+  export (download/copy/print), rename/archive, and an AI propose → diff →
+  accept flow. Nothing fakes a success — a save is only reported saved after the
+  server returns it, and a `409` surfaces an honest conflict UI with
+  reload-latest instead of overwriting. Files:
+  `src/components/screens/canvas/` (`canvas-screen.tsx` container,
+  `canvas-workspace.tsx`, `canvas-rail.tsx`, `canvas-center.tsx`,
+  `canvas-editors.tsx`, `code-editor.tsx`, `document-editor.tsx`,
+  `visual-editor.tsx`, `canvas-ai-panel.tsx`, `canvas-utils.ts`, tests). Docs
+  updated: `NAVIGATION.md` (Eclipse Canvas row). The screen is not yet mounted on
+  an AppTab/nav entry, so it is currently reachable only by import.
+
+- **Chat scroll now works over the composer too.** On the ChatBot page the
+  transcript is the only vertical scroll area, but the composer/toolbar are DOM
+  siblings of the transcript, so the browser's native wheel chaining never
+  reached it — resting the cursor on the composer and using a mouse wheel or
+  trackpad did nothing. The conversation wrapper now forwards wheel deltas onto
+  the transcript, leaving nested vertical scrollables (multi-line composer, open
+  palettes) to scroll themselves. Files:
+  `src/hooks/use-forward-wheel-scroll.ts` (new `useForwardWheelScroll` hook),
+  `src/components/chat/chat-history.tsx` (optional `scrollRef`),
+  `src/components/screens/stock-chat.tsx` (`handleChatWheel`).
+  No doc change — bug fix, contracts unchanged.
+
 - **Aurora settings now preview live inside the modal.** Settings › Aurora edits
   did appear to do nothing because the Settings dialog is an opaque modal that
   covers the shell's app-wide `<AuroraGlow>` (`z-0`), and the panel's old

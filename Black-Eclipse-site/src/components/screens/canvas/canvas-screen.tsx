@@ -1,0 +1,405 @@
+'use client';
+
+// ─── Eclipse Canvas (container) ───────────────────────────────────────────────
+// The data layer: list/create/load/save/restore/propose against the real canvas
+// client. All rendering is delegated to <CanvasWorkspace>. Nothing fakes a
+// success: a save is only reported saved after the server returns it, and a 409
+// surfaces an honest conflict UI instead of overwriting.
+
+import { useCallback, useEffect, useRef, useState, type JSX, type MutableRefObject } from 'react';
+import { archiveArtifact, updateArtifact } from '@/lib/harness/artifacts-browser';
+import {
+  createCanvasArtifact, getCanvasArtifact, listCanvasArtifacts,
+  proposeCanvasEdit, restoreCanvasVersion, saveCanvasArtifact,
+  type CanvasKind, type CanvasListItem, type CanvasMode, type CanvasProposal, type CanvasSnapshot,
+} from '@/lib/harness/canvas-client';
+import { CanvasWorkspace } from './canvas-workspace';
+import {
+  contentExtension, contentMime, describeCanvasError, kindLabel, starterContent,
+  type CanvasEditorHandle, type CanvasErrorState, type CanvasSaveState, type CanvasSelection,
+} from './canvas-utils';
+
+function toListItem(snap: CanvasSnapshot): CanvasListItem {
+  return {
+    artifactId: snap.artifactId, name: snap.name, kind: snap.kind, language: snap.language,
+    description: snap.description, version: snap.version, sizeBytes: snap.sizeBytes,
+    updatedAt: snap.updatedAt, conversationId: snap.conversationId,
+  };
+}
+
+function safeFilename(name: string, ext: string): string {
+  const base = name.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'canvas';
+  return `${base}.${ext}`;
+}
+
+export function CanvasScreen({
+  initialArtifactId,
+  isOperator = true,
+}: { initialArtifactId?: string; isOperator?: boolean }): JSX.Element {
+  const editable = isOperator;
+
+  const [items, setItems] = useState<CanvasListItem[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+
+  const [selectedId, setSelectedId] = useState<string | null>(initialArtifactId ?? null);
+  const [snapshot, setSnapshot] = useState<CanvasSnapshot | null>(null);
+  const [content, setContent] = useState('');
+  const [savedContent, setSavedContent] = useState('');
+  const [loadingArtifact, setLoadingArtifact] = useState(false);
+  const [artifactError, setArtifactError] = useState<CanvasErrorState | null>(null);
+
+  const [saveState, setSaveState] = useState<CanvasSaveState>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [conflictVersion, setConflictVersion] = useState<number | null>(null);
+
+  const [selection, setSelection] = useState<CanvasSelection | null>(null);
+  const [useSelection, setUseSelection] = useState(false);
+
+  const [mode, setMode] = useState<CanvasMode>('ask');
+  const [instruction, setInstruction] = useState('');
+  const [proposing, setProposing] = useState(false);
+  const [proposal, setProposal] = useState<CanvasProposal | null>(null);
+  const [proposalError, setProposalError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [aiCollapsed, setAiCollapsed] = useState(false);
+  const [fullWidth, setFullWidth] = useState(false);
+
+  const editorHandleRef: MutableRefObject<CanvasEditorHandle | null> = useRef(null);
+  const snapshotRef = useRef<CanvasSnapshot | null>(null);
+  const contentRef = useRef('');
+  const proposalRef = useRef<CanvasProposal | null>(null);
+  snapshotRef.current = snapshot;
+  contentRef.current = content;
+  proposalRef.current = proposal;
+
+  const dirty = snapshot !== null && content !== savedContent;
+
+  // ── List ────────────────────────────────────────────────────────────────────
+  const loadList = useCallback(async (q: string) => {
+    setListLoading(true);
+    setListError(null);
+    try {
+      setItems(await listCanvasArtifacts({ q: q || undefined, limit: 50 }));
+    } catch (err) {
+      setListError(describeCanvasError(err).message);
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => { void loadList(query.trim()); }, 300);
+    return () => window.clearTimeout(id);
+  }, [query, loadList]);
+
+  const patchListItem = useCallback((snap: CanvasSnapshot) => {
+    setItems((prev) => {
+      const next = toListItem(snap);
+      return prev.some((i) => i.artifactId === snap.artifactId)
+        ? prev.map((i) => (i.artifactId === snap.artifactId ? next : i))
+        : [next, ...prev];
+    });
+  }, []);
+
+  // ── Load ────────────────────────────────────────────────────────────────────
+  const loadArtifact = useCallback(async (id: string) => {
+    setSelectedId(id);
+    setLoadingArtifact(true);
+    setArtifactError(null);
+    setSnapshot(null);
+    setProposal(null);
+    setProposalError(null);
+    setSaveState('idle');
+    setSaveError(null);
+    setConflictVersion(null);
+    setSelection(null);
+    setUseSelection(false);
+    try {
+      const snap = await getCanvasArtifact(id);
+      setSnapshot(snap);
+      setContent(snap.content);
+      setSavedContent(snap.content);
+    } catch (err) {
+      setArtifactError(describeCanvasError(err));
+    } finally {
+      setLoadingArtifact(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initialArtifactId) void loadArtifact(initialArtifactId);
+  }, [initialArtifactId, loadArtifact]);
+
+  // ── Create / rename / archive ───────────────────────────────────────────────
+  const createArtifact = useCallback(async (kind: CanvasKind) => {
+    const fallback = kind === 'code' ? 'Untitled code' : kind === 'visual' ? 'Untitled visual report' : 'Untitled document';
+    const name = window.prompt(`Name for new ${kindLabel(kind)}`, fallback);
+    if (!name || !name.trim()) return;
+    setListError(null);
+    try {
+      const snap = await createCanvasArtifact({
+        name: name.trim(), kind,
+        language: kind === 'code' ? 'typescript' : undefined,
+        content: starterContent(kind),
+      });
+      patchListItem(snap);
+      setSelectedId(snap.artifactId);
+      setSnapshot(snap);
+      setContent(snap.content);
+      setSavedContent(snap.content);
+      setSaveState('idle');
+      setArtifactError(null);
+      setProposal(null);
+    } catch (err) {
+      setListError(describeCanvasError(err).message);
+    }
+  }, [patchListItem]);
+
+  const renameArtifact = useCallback(async (name: string) => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    try {
+      await updateArtifact(snap.artifactId, { name });
+      setSnapshot((prev) => (prev ? { ...prev, name } : prev));
+      setItems((prev) => prev.map((i) => (i.artifactId === snap.artifactId ? { ...i, name } : i)));
+    } catch (err) {
+      setSaveState('error');
+      setSaveError(describeCanvasError(err).message);
+    }
+  }, []);
+
+  const deleteArtifact = useCallback(async () => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    if (!window.confirm(`Archive “${snap.name}”?`)) return;
+    try {
+      await archiveArtifact(snap.artifactId);
+      setItems((prev) => prev.filter((i) => i.artifactId !== snap.artifactId));
+      setSnapshot(null);
+      setSelectedId(null);
+      setContent('');
+      setSavedContent('');
+      setSaveState('idle');
+      setProposal(null);
+    } catch (err) {
+      setListError(describeCanvasError(err).message);
+    }
+  }, []);
+
+  // ── Save ────────────────────────────────────────────────────────────────────
+  const persist = useCallback(async (next: string) => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      const result = await saveCanvasArtifact(snap.artifactId, { baseVersion: snap.version, content: next });
+      setSnapshot(result);
+      setContent(result.content);
+      setSavedContent(result.content);
+      setSaveState('saved');
+      setConflictVersion(null);
+      patchListItem(result);
+    } catch (err) {
+      const mapped = describeCanvasError(err);
+      if (mapped.conflict) {
+        setSaveState('conflict');
+        setConflictVersion(mapped.currentVersion ?? null);
+      } else {
+        setSaveState('error');
+        setSaveError(mapped.message);
+      }
+    }
+  }, [patchListItem]);
+
+  useEffect(() => {
+    if (!editable || !snapshot || saveState === 'conflict' || content === savedContent) return;
+    const id = window.setTimeout(() => { void persist(content); }, 1200);
+    return () => window.clearTimeout(id);
+  }, [content, savedContent, snapshot, saveState, editable, persist]);
+
+  const saveNow = useCallback(() => { void persist(contentRef.current); }, [persist]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (editable) saveNow();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editable, saveNow]);
+
+  const restoreVersion = useCallback(async (version: number) => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      const result = await restoreCanvasVersion(snap.artifactId, { baseVersion: snap.version, version });
+      setSnapshot(result);
+      setContent(result.content);
+      setSavedContent(result.content);
+      setSaveState('saved');
+      setConflictVersion(null);
+      setProposal(null);
+      patchListItem(result);
+    } catch (err) {
+      const mapped = describeCanvasError(err);
+      if (mapped.conflict) { setSaveState('conflict'); setConflictVersion(mapped.currentVersion ?? null); }
+      else { setSaveState('error'); setSaveError(mapped.message); }
+    }
+  }, [patchListItem]);
+
+  const reloadLatest = useCallback(async () => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    try {
+      const result = await getCanvasArtifact(snap.artifactId);
+      setSnapshot(result);
+      setContent(result.content);
+      setSavedContent(result.content);
+      setSaveState('idle');
+      setConflictVersion(null);
+      setProposal(null);
+    } catch (err) {
+      setArtifactError(describeCanvasError(err));
+    }
+  }, []);
+
+  const changeLanguage = useCallback((language: string) => {
+    setSnapshot((prev) => (prev ? { ...prev, language } : prev));
+  }, []);
+
+  // ── Export ──────────────────────────────────────────────────────────────────
+  const exportArtifact = useCallback(async (action: 'download' | 'copy' | 'print') => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    if (action === 'print') { window.print(); return; }
+    if (action === 'copy') {
+      try {
+        await navigator.clipboard.writeText(contentRef.current);
+      } catch {
+        setSaveState('error');
+        setSaveError('Clipboard is unavailable in this browser.');
+      }
+      return;
+    }
+    const ext = contentExtension(snap.kind, snap.language);
+    const blob = new Blob([contentRef.current], { type: contentMime(snap.kind, snap.language) });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = safeFilename(snap.name, ext);
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // ── AI proposals ────────────────────────────────────────────────────────────
+  const propose = useCallback(async () => {
+    const snap = snapshotRef.current;
+    if (!snap || instruction.trim() === '') return;
+    setProposing(true);
+    setProposalError(null);
+    try {
+      const result = await proposeCanvasEdit(snap.artifactId, {
+        baseVersion: snap.version,
+        instruction,
+        mode,
+        selection: useSelection && selection ? selection : undefined,
+      });
+      setProposal(result);
+    } catch (err) {
+      setProposalError(describeCanvasError(err).message);
+    } finally {
+      setProposing(false);
+    }
+  }, [instruction, mode, useSelection, selection]);
+
+  const acceptProposal = useCallback(async () => {
+    const snap = snapshotRef.current;
+    const prop = proposalRef.current;
+    if (!snap || !prop) return;
+    setApplying(true);
+    setProposalError(null);
+    try {
+      const input = prop.operations.length > 0
+        ? { baseVersion: snap.version, operations: prop.operations }
+        : { baseVersion: snap.version, content: prop.resultContent ?? snap.content };
+      const result = await saveCanvasArtifact(snap.artifactId, input);
+      setSnapshot(result);
+      setContent(result.content);
+      setSavedContent(result.content);
+      setSaveState('saved');
+      setConflictVersion(null);
+      setProposal(null);
+      patchListItem(result);
+    } catch (err) {
+      const mapped = describeCanvasError(err);
+      if (mapped.conflict) { setSaveState('conflict'); setConflictVersion(mapped.currentVersion ?? null); }
+      else { setProposalError(mapped.message); }
+    } finally {
+      setApplying(false);
+    }
+  }, [patchListItem]);
+
+  const handleSelectionChange = useCallback((sel: CanvasSelection | null) => {
+    setSelection(sel);
+    if (!sel) setUseSelection(false);
+  }, []);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <CanvasWorkspace
+      onCreate={(kind) => void createArtifact(kind)}
+      loadingArtifact={loadingArtifact}
+      artifactError={artifactError}
+      onRetryArtifact={() => { if (selectedId) void loadArtifact(selectedId); }}
+      rail={{
+        items, loading: listLoading, error: listError, query, onQueryChange: setQuery,
+        onRefresh: () => void loadList(query.trim()),
+        onSelect: (id) => void loadArtifact(id),
+        onCreate: (kind) => void createArtifact(kind),
+        selectedId, collapsed: railCollapsed,
+        onToggleCollapsed: () => setRailCollapsed((v) => !v),
+      }}
+      center={snapshot ? {
+        snapshot, content, dirty, saveState, saveError,
+        onContentChange: setContent,
+        onSelectionChange: handleSelectionChange,
+        editorHandleRef,
+        onRename: (name) => void renameArtifact(name),
+        onLanguageChange: changeLanguage,
+        onRestore: (version) => void restoreVersion(version),
+        onExport: (action) => void exportArtifact(action),
+        onSaveNow: saveNow,
+        onDelete: () => void deleteArtifact(),
+        fullWidth,
+        onToggleFullWidth: () => setFullWidth((v) => !v),
+        editable,
+      } : null}
+      ai={{
+        mode, onModeChange: setMode,
+        instruction, onInstructionChange: setInstruction,
+        selection, useSelection,
+        onToggleUseSelection: () => setUseSelection((v) => !v),
+        onPropose: () => void propose(),
+        proposing, proposal,
+        onAccept: () => void acceptProposal(),
+        onDiscard: () => { setProposal(null); setProposalError(null); },
+        applying, error: proposalError,
+        conflictCurrentVersion: conflictVersion,
+        onReloadLatest: () => void reloadLatest(),
+        currentContent: content,
+        disabled: !editable,
+        collapsed: aiCollapsed,
+        onToggleCollapsed: () => setAiCollapsed((v) => !v),
+      }}
+    />
+  );
+}

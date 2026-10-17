@@ -148,6 +148,7 @@ import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useRegimeScopeStore } from '@/lib/regime/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
+import { useForwardWheelScroll } from '@/hooks/use-forward-wheel-scroll';
 import { sound } from '@/lib/sounds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useHydrateTheme, useThemeStore } from '@/lib/theme';
@@ -925,6 +926,11 @@ function StockChatContent() {
   }, []);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const appRootRef = useRef<HTMLDivElement>(null);
+  // The transcript's scroll element, supplied to ChatHistory so the wrapper can
+  // forward wheel/trackpad scrolling from the composer/toolbar area (DOM siblings
+  // of the transcript) back onto it — otherwise resting the cursor on the
+  // composer and scrolling does nothing on the ChatBot page.
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   // Hydrate the terminal's persisted state and tuck it away in focus mode.
   useTerminalShell(focusMode);
 
@@ -985,6 +991,11 @@ function StockChatContent() {
     }
     setActiveTab('chart');
   };
+
+  // Forward wheel/trackpad scrolling from the composer/toolbar area onto the
+  // transcript (see the hook) — they are DOM siblings of the transcript, so the
+  // browser cannot chain their wheel events to it.
+  const handleChatWheel = useForwardWheelScroll(chatScrollRef);
 
   // ── Aurora glow ─────────────────────────────────────────────────────────
   // The app-wide market-state indicator is mounted via <AuroraGlow>, which owns
@@ -1126,7 +1137,9 @@ function StockChatContent() {
                     </div>
                   </div>
                 ) : (
-                  <div className={cn(
+                  <div
+                    onWheel={handleChatWheel}
+                    className={cn(
                     'flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between transition-[max-width] duration-500 ease-out',
                     focusMode && 'max-w-none mx-auto',
                   )}>
@@ -1137,6 +1150,7 @@ function StockChatContent() {
   onRetryMessage={handleRetryMessage}
   onFeedback={handleFeedback}
   onFollowup={handleFollowup}
+  scrollRef={chatScrollRef}
 />
                     <div className={cn(
                       'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 max-w-full md:max-w-[80%]',
