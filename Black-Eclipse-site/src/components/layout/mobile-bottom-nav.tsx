@@ -13,7 +13,7 @@ import {
   ChartCandlestick, ScanEye, BookOpen, Newspaper, Orbit, Globe, Bell,
   Blocks, Brain, FolderOpen, ListChecks, LayoutTemplate, LayoutGrid,
   ChartLine, Database, Sigma, FlaskConical, Ghost, X,
-  SquareTerminal, BrainCircuit, type LucideIcon,
+  SquareTerminal, BrainCircuit, SquarePen, type LucideIcon,
 } from '@/lib/icons';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -39,6 +39,7 @@ const TAB_META: Record<string, TabMeta> = {
   skills: { icon: Blocks },
   memory: { icon: Brain },
   artifacts: { icon: FolderOpen },
+  canvas: { icon: SquarePen },
   tasks: { icon: ListChecks },
   pages: { icon: LayoutTemplate },
   bots: { icon: Ghost },
@@ -53,7 +54,7 @@ const TAB_META: Record<string, TabMeta> = {
  *  declared here (bots first, then the shared agent surface). */
 const MODE_TABS: Record<NavGroup, AppTab[]> = {
   terminal: ['chat', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
-  agentic: ['chat', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
+  agentic: ['chat', 'skills', 'memory', 'artifacts', 'canvas', 'tasks', 'pages'],
   bots: ['bots', 'chat', 'tasks', 'artifacts', 'memory', 'skills'],
 };
 

@@ -103,6 +103,10 @@ const ArtifactsScreen = dynamic(
   () => import('@/components/screens/artifacts/artifacts-screen').then((m) => m.ArtifactsScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const CanvasScreen = dynamic(
+  () => import('@/components/screens/canvas/canvas-screen').then((m) => m.CanvasScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 const TasksScreen = dynamic(
   () => import('@/components/screens/tasks/tasks-screen').then((m) => m.TasksScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -182,6 +186,7 @@ function StockChatContent() {
   // Boot tab (Settings › General); the URL deep link below overrides it. Applied
   // after mount so the server and the first client render stay identical.
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
+  const pendingCanvasArtifactId = useCommandStore((s) => s.pendingCanvasArtifactId);
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
   const [discoveryMarket, setDiscoveryMarket] = useState<string | undefined>(undefined);
@@ -336,6 +341,9 @@ function StockChatContent() {
       if (dest.params?.market) {
         useCommandStore.setState({ pendingMarket: dest.params.market });
         setDiscoveryMarket(dest.params.market);
+      }
+      if (dest.tab === 'canvas' && dest.params?.artifactId) {
+        useCommandStore.setState({ pendingCanvasArtifactId: dest.params.artifactId });
       }
       // Sub-view routing: `subroute` (e.g. 'economics.calendar', 'journal.analytics')
       // is published to the target screen via the command store, with an optional
@@ -992,10 +1000,11 @@ function StockChatContent() {
     setActiveTab('chart');
   };
 
-  // Forward wheel/trackpad scrolling from the composer/toolbar area onto the
-  // transcript (see the hook) — they are DOM siblings of the transcript, so the
-  // browser cannot chain their wheel events to it.
-  const handleChatWheel = useForwardWheelScroll(chatScrollRef);
+  // Forward wheel/trackpad scrolling from anywhere on the ChatBot page (header,
+  // composer, padding) onto the transcript — they are DOM siblings of the
+  // transcript, so the browser cannot chain their wheel events to it. Only the
+  // active chat tab with a transcript needs it.
+  useForwardWheelScroll(chatScrollRef, activeTab === 'chat' && messages.length > 0);
 
   // ── Aurora glow ─────────────────────────────────────────────────────────
   // The app-wide market-state indicator is mounted via <AuroraGlow>, which owns
@@ -1138,7 +1147,6 @@ function StockChatContent() {
                   </div>
                 ) : (
                   <div
-                    onWheel={handleChatWheel}
                     className={cn(
                     'flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between transition-[max-width] duration-500 ease-out',
                     focusMode && 'max-w-none mx-auto',
@@ -1309,6 +1317,12 @@ function StockChatContent() {
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <ArtifactsScreen />
               </div>
+            </div>
+          )}
+
+          {visited.has('canvas') && (
+            <div className={cn('w-full h-full min-h-0', activeTab === 'canvas' ? '' : 'hidden')}>
+              <CanvasScreen initialArtifactId={pendingCanvasArtifactId ?? undefined} />
             </div>
           )}
 

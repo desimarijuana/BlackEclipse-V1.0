@@ -19,6 +19,13 @@ import {
   type CanvasEditorHandle, type CanvasErrorState, type CanvasSaveState, type CanvasSelection,
 } from './canvas-utils';
 
+const CANVAS_LANGUAGE_BY_EXT: Record<string, string> = {
+  '.py': 'python', '.ts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'jsx',
+  '.sql': 'sql', '.json': 'json', '.html': 'html', '.css': 'css', '.sh': 'bash',
+  '.yml': 'yaml', '.yaml': 'yaml', '.go': 'go', '.rs': 'rust', '.java': 'java',
+  '.c': 'c', '.cpp': 'cpp', '.txt': 'text',
+};
+
 function toListItem(snap: CanvasSnapshot): CanvasListItem {
   return {
     artifactId: snap.artifactId, name: snap.name, kind: snap.kind, language: snap.language,
@@ -69,6 +76,7 @@ export function CanvasScreen({
   const [fullWidth, setFullWidth] = useState(false);
 
   const editorHandleRef: MutableRefObject<CanvasEditorHandle | null> = useRef(null);
+  const savingRef = useRef(false);
   const snapshotRef = useRef<CanvasSnapshot | null>(null);
   const contentRef = useRef('');
   const proposalRef = useRef<CanvasProposal | null>(null);
@@ -159,8 +167,39 @@ export function CanvasScreen({
     }
   }, [patchListItem]);
 
-  const renameArtifact = useCallback(async (name: string) => {
-    const snap = snapshotRef.current;
+  // Import an existing text file as a new canvas artifact (client-side read only;
+  // the bytes go through the same create path and artifact store).
+  const importArtifact = useCallback(async (file: File) => {
+    setListError(null);
+    if (file.size > 2 * 1024 * 1024) {
+      setListError('That file is larger than the 2 MB canvas limit.');
+      return;
+    }
+    const lower = file.name.toLowerCase();
+    const kind: CanvasKind = lower.endsWith('.json')
+      ? 'visual'
+      : /\.(md|markdown)$/.test(lower)
+        ? 'document'
+        : 'code';
+    const ext = lower.slice(lower.lastIndexOf('.'));
+    const language = kind === 'code' ? (CANVAS_LANGUAGE_BY_EXT[ext] ?? 'text') : undefined;
+    try {
+      const text = await file.text();
+      const snap = await createCanvasArtifact({ name: file.name, kind, language, content: text });
+      patchListItem(snap);
+      setSelectedId(snap.artifactId);
+      setSnapshot(snap);
+      setContent(snap.content);
+      setSavedContent(snap.content);
+      setSaveState('idle');
+      setArtifactError(null);
+      setProposal(null);
+    } catch (err) {
+      setListError(describeCanvasError(err).message);
+    }
+  }, [patchListItem]);
+
+  const renameArtifact = useCallback(async (name: string) => {    const snap = snapshotRef.current;
     if (!snap) return;
     try {
       await updateArtifact(snap.artifactId, { name });
@@ -193,11 +232,13 @@ export function CanvasScreen({
   // ── Save ────────────────────────────────────────────────────────────────────
   const persist = useCallback(async (next: string) => {
     const snap = snapshotRef.current;
-    if (!snap) return;
+    if (!snap || savingRef.current) return;
+    savingRef.current = true;
     setSaveState('saving');
     setSaveError(null);
     try {
       const result = await saveCanvasArtifact(snap.artifactId, { baseVersion: snap.version, content: next });
+      if (snapshotRef.current?.artifactId !== snap.artifactId) return;
       setSnapshot(result);
       setContent(result.content);
       setSavedContent(result.content);
@@ -205,6 +246,7 @@ export function CanvasScreen({
       setConflictVersion(null);
       patchListItem(result);
     } catch (err) {
+      if (snapshotRef.current?.artifactId !== snap.artifactId) return;
       const mapped = describeCanvasError(err);
       if (mapped.conflict) {
         setSaveState('conflict');
@@ -213,16 +255,28 @@ export function CanvasScreen({
         setSaveState('error');
         setSaveError(mapped.message);
       }
+    } finally {
+      savingRef.current = false;
     }
   }, [patchListItem]);
 
+  const updateContent = useCallback((next: string) => {
+    setContent(next);
+    setSaveState((prev) => (prev === 'conflict' ? prev : 'idle'));
+    setSaveError(null);
+  }, []);
+
   useEffect(() => {
-    if (!editable || !snapshot || saveState === 'conflict' || content === savedContent) return;
+    if (!editable || !snapshot || saveState === 'conflict' || saveState === 'saving' || saveState === 'error') return;
+    if (content === savedContent) return;
     const id = window.setTimeout(() => { void persist(content); }, 1200);
     return () => window.clearTimeout(id);
   }, [content, savedContent, snapshot, saveState, editable, persist]);
 
-  const saveNow = useCallback(() => { void persist(contentRef.current); }, [persist]);
+  const saveNow = useCallback(() => {
+    setSaveState((prev) => (prev === 'conflict' ? prev : 'idle'));
+    void persist(contentRef.current);
+  }, [persist]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -365,12 +419,13 @@ export function CanvasScreen({
         onRefresh: () => void loadList(query.trim()),
         onSelect: (id) => void loadArtifact(id),
         onCreate: (kind) => void createArtifact(kind),
+        onImport: (file) => void importArtifact(file),
         selectedId, collapsed: railCollapsed,
         onToggleCollapsed: () => setRailCollapsed((v) => !v),
       }}
       center={snapshot ? {
         snapshot, content, dirty, saveState, saveError,
-        onContentChange: setContent,
+        onContentChange: updateContent,
         onSelectionChange: handleSelectionChange,
         editorHandleRef,
         onRename: (name) => void renameArtifact(name),

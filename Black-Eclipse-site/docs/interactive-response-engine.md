@@ -550,10 +550,18 @@ It is requested with the same `/anatomy <concept>` slash command.
 - **The renderer** is two pieces: `model3d-block.tsx` (the DOM half — header,
   numbered key, legend, readout, stage controls, `.glb` download) and a
   `next/dynamic(ssr:false)` `model3d-canvas.tsx` WebGL viewport built on `ogl`
-  (already a dependency). It offers orbit/zoom/pan, directional + fill lighting,
-  a fading ground grid, projected numbered hotspots and stage highlighting.
-  WebGL is created once and torn down on unmount, rendering pauses while
-  off-screen, and if the context cannot be created the DOM half still renders.
+  (already a dependency). It offers orbit/zoom/pan, pencil-on-charcoal shading
+  (dark paper ground behind an alpha context, posterized graphite fills, paper
+  grain, a light edge on silhouettes and a faint grid), projected numbered
+  hotspots and stage highlighting. **Solids are always graphite grey (anatomy
+  parity); `tone` colours the WIRES and the legend, and `lit` lifts the one
+  subject to a lighter graphite.** The canvas element is **created inside the
+  effect** and removed on teardown, so every mount gets a fresh context and a
+  remount can never reuse a dead one (the earlier white-viewport bug); context
+  creation waits for a non-zero size, `webglcontextlost` is handled, rendering
+  pauses off-screen, and the scene is memoized by content so streaming does not
+  recompile/remount per token. If the context cannot be created the DOM half
+  still renders.
 - **Export** (`src/lib/model3d/glb.ts`) is a dependency-free glTF 2.0 binary
   writer: the baked parts become mesh nodes with PBR materials, so the download
   opens in any 3D tool.

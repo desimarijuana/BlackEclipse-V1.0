@@ -154,7 +154,6 @@ class StartRunResponse(BaseModel):
     runId: str
     status: str = "running"
 
-
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -244,7 +243,6 @@ class ResearchRunRequest(BaseModel):
     callbackBaseUrl: str
     callbackToken: Optional[str] = None
     runId: Optional[str] = None
-
 
 @app.post("/research/mandate")
 def research_mandate(payload: dict[str, Any]) -> dict[str, Any]:

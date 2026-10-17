@@ -8,7 +8,7 @@ import type { TranslationKey } from './types';
 export type NavTabId =
   | 'chat' | 'dashboard' | 'investor-eye' | 'market-workspace' | 'discovery'
   | 'portfolio' | 'journal' | 'news' | 'heatmap' | 'economics' | 'alerts'
-  | 'skills' | 'memory' | 'artifacts' | 'tasks' | 'pages' | 'ui-builder' | 'backtest' | 'research-data'
+  | 'skills' | 'memory' | 'artifacts' | 'canvas' | 'tasks' | 'pages' | 'ui-builder' | 'backtest' | 'research-data'
   | 'bots';
 
 const NAV_KEY_BY_TAB: Record<NavTabId, TranslationKey> = {
@@ -26,6 +26,7 @@ const NAV_KEY_BY_TAB: Record<NavTabId, TranslationKey> = {
   skills: 'nav.skills',
   memory: 'nav.memory',
   artifacts: 'nav.artifacts',
+  canvas: 'nav.canvas',
   tasks: 'nav.tasks',
   pages: 'nav.pages',
   'ui-builder': 'nav.uiBuilder',

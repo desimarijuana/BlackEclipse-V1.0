@@ -5,7 +5,7 @@
 // handed to the container, so the rail never fetches on its own.
 
 import {
-  AlertTriangle, FileJson, FileText, Loader2, PanelLeft, Plus, RefreshCw, Search, SquareCode,
+  AlertTriangle, FileJson, FileText, Loader2, PanelLeft, Plus, RefreshCw, Search, SquareCode, Upload,
 } from '@/lib/icons';
 import type { CanvasKind, CanvasListItem } from '@/lib/harness/canvas-client';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { humanTime, kindLabel } from './canvas-utils';
+import { useRef } from 'react';
 
 export interface CanvasRailProps {
   items: CanvasListItem[];
@@ -25,6 +26,7 @@ export interface CanvasRailProps {
   onRefresh: () => void;
   onSelect: (id: string) => void;
   onCreate: (kind: CanvasKind) => void;
+  onImport: (file: File) => void;
   selectedId: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -43,9 +45,10 @@ const NEW_ITEMS: { kind: CanvasKind; label: string }[] = [
 ];
 
 export function CanvasRail({
-  items, loading, error, query, onQueryChange, onRefresh, onSelect, onCreate,
+  items, loading, error, query, onQueryChange, onRefresh, onSelect, onCreate, onImport,
   selectedId, collapsed, onToggleCollapsed,
 }: CanvasRailProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
   return (
     <aside
       aria-label="Canvas artifacts"
@@ -98,8 +101,25 @@ export function CanvasRail({
                   {item.label}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuItem onClick={() => fileRef.current?.click()}>
+                <Upload className="h-4 w-4 shrink-0" />
+                Import file…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            accept=".md,.markdown,.txt,.json,text/plain,text/markdown,application/json"
+            aria-hidden
+            tabIndex={-1}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onImport(file);
+              e.target.value = '';
+            }}
+          />
         </>
       )}
 

@@ -8,7 +8,7 @@
 // The numbered key, legend, readout and stages live in the DOM, so the figure
 // stays readable and accessible even if WebGL is unavailable.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, Maximize2, Pause, Play, RotateCcw, X } from '@/lib/icons';
@@ -21,13 +21,30 @@ import { buildGlb } from '@/lib/model3d/glb';
 const Model3dCanvas = dynamic(() => import('./model3d-canvas').then((m) => m.Model3dCanvas), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center">
-      <span className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+    <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: '#17181b' }}>
+      <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
     </div>
   ),
 });
 
 const AUTOPLAY_MS = 2600;
+
+// Charcoal paper: a dark grey ground with a soft centre light, a heavier bottom
+// vignette and a fine grain tile. Always visible behind the (alpha) WebGL canvas,
+// so the figure can never read as a white rectangle.
+const PAPER_NOISE = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#n)' opacity='0.5'/></svg>",
+)}")`;
+
+const PAPER_STYLE: CSSProperties = {
+  backgroundColor: '#17181b',
+  backgroundImage: [
+    'radial-gradient(130% 120% at 50% -10%, rgba(255,255,255,0.07), rgba(0,0,0,0) 55%)',
+    'radial-gradient(120% 120% at 50% 120%, rgba(0,0,0,0.65), rgba(0,0,0,0) 60%)',
+    PAPER_NOISE,
+  ].join(','),
+  backgroundSize: 'auto, auto, 140px 140px',
+};
 
 export interface Model3dBlockProps {
   block: Model3dBlockType;
@@ -86,6 +103,7 @@ function downloadScene(scene: CompiledModel3d, name: string): void {
 interface BodyProps {
   block: Model3dBlockType;
   scene: CompiledModel3d;
+  sceneKey: string;
   litIds: Set<string>;
   still: boolean;
   error: string | null;
@@ -96,7 +114,7 @@ interface BodyProps {
   height: number;
 }
 
-function Model3dBody({ block, scene, litIds, still, error, readout, onError, onFull, large, height }: BodyProps) {
+function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, onError, onFull, large, height }: BodyProps) {
   const stats = model3dStats(scene);
   return (
     <>
@@ -128,25 +146,25 @@ function Model3dBody({ block, scene, litIds, still, error, readout, onError, onF
       </div>
 
       <div
-        className="relative overflow-hidden rounded-lg border border-white/10 bg-[#0b0b0d]"
-        style={{ height }}
+        className="relative overflow-hidden rounded-lg border border-white/10"
+        style={{ ...PAPER_STYLE, height }}
         role="img"
         aria-label={block.description ?? `3D model with ${stats.parts} parts`}
       >
         {error ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
+          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-white/70">
             {error}
           </div>
         ) : scene.parts.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-[12px] text-white/60">
             No parts in this model.
           </div>
         ) : (
-          <Model3dCanvas scene={scene} litGroups={litIds} still={still} autoRotate={block.animate === true} onError={onError} />
+          <Model3dCanvas key={sceneKey} scene={scene} litGroups={litIds} still={still} autoRotate={block.animate === true} onError={onError} />
         )}
         {!error && scene.parts.length > 0 && (
           <span className="pointer-events-none absolute bottom-2 right-3 font-mono text-[10px] text-white/35">
-            drag to orbit · scroll to zoom
+            drag to orbit · ctrl-drag to pan · scroll to zoom
           </span>
         )}
       </div>
@@ -185,13 +203,19 @@ function Model3dBody({ block, scene, litIds, still, error, readout, onError, onF
 }
 
 export function Model3dBlock({ block, className }: Model3dBlockProps) {
+  // Content signature: a streamed answer re-renders with a fresh block object
+  // every frame, but the SCENE is unchanged. Keying the memo on the content (not
+  // the object) avoids recomputing all recipes and, crucially, avoids tearing the
+  // WebGL viewport down and re-uploading it on every token.
+  const sceneKey = useMemo(() => JSON.stringify(block), [block]);
   const scene = useMemo(() => {
     try {
       return compileModel3d(block);
     } catch {
       return null;
     }
-  }, [block]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneKey]);
 
   const [stageIndex, setStageIndex] = useState(0);
   const [playing, setPlaying] = useState(block.animate === true);
@@ -271,7 +295,7 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-5">
-              <Model3dBody block={{ ...block, fig: undefined, title: undefined, hint: undefined }} scene={scene} litIds={litIds} still={still} error={error} readout={readout} onError={setError} large height={560} />
+              <Model3dBody block={{ ...block, fig: undefined, title: undefined, hint: undefined }} scene={scene} sceneKey={sceneKey} litIds={litIds} still={still} error={error} readout={readout} onError={setError} large height={560} />
               {controls}
             </div>
           </div>
@@ -282,10 +306,11 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
 
   return (
     <>
-      <div className={cn('be-model3d glass-card mx-auto w-full max-w-4xl rounded-xl p-4 sm:p-5', className)}>
+      <div className={cn('be-model3d glass-card w-full rounded-xl p-4 sm:p-5', className)}>
         <Model3dBody
           block={block}
           scene={scene}
+          sceneKey={sceneKey}
           litIds={litIds}
           still={still}
           error={error}

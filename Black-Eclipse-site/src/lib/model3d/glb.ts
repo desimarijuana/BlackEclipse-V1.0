@@ -5,16 +5,12 @@
 // transform — a genuine 3D asset the user can download and open elsewhere.
 
 import type { CompiledPart } from './compile';
-import type { Model3dMaterial, Model3dTone } from './names';
+import type { Model3dMaterial } from './names';
 import type { Bounds } from './mesh';
 
-const TONES: Record<Model3dTone, [number, number, number]> = {
-  neutral: [0.55, 0.58, 0.62],
-  info: [0.34, 0.55, 0.94],
-  success: [0.28, 0.73, 0.48],
-  warning: [0.85, 0.66, 0.24],
-  danger: [0.85, 0.41, 0.41],
-};
+// Anatomy parity: exported solids are graphite grey; status `tone` is a viewport
+// concept (it colours wires there and does not reach the .glb).
+const GRAPHITE: [number, number, number] = [0.58, 0.61, 0.64];
 
 const MATERIALS: Record<Model3dMaterial, { metallic: number; roughness: number; alpha: number }> = {
   metal: { metallic: 0.85, roughness: 0.32, alpha: 1 },
@@ -29,10 +25,13 @@ function align4(n: number): number {
   return (n + 3) & ~3;
 }
 
-function colorOf(tone: Model3dTone, material: Model3dMaterial, lit: boolean): [number, number, number] {
-  const base = TONES[tone] ?? TONES.neutral;
-  const k = lit ? 1.35 : material === 'metal' ? 0.9 : 1;
-  return [Math.min(1, base[0] * k), Math.min(1, base[1] * k), Math.min(1, base[2] * k)];
+function colorOf(material: Model3dMaterial, lit: boolean): [number, number, number] {
+  const k = lit ? 1.6 : material === 'metal' ? 1.08 : 1;
+  return [
+    Math.min(1, GRAPHITE[0] * k),
+    Math.min(1, GRAPHITE[1] * k),
+    Math.min(1, GRAPHITE[2] * k),
+  ];
 }
 
 interface Accessor {
@@ -114,7 +113,7 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
     let matIndex = materialIndex.get(materialKey);
     if (matIndex === undefined) {
       const spec = MATERIALS[part.material] ?? MATERIALS.paint;
-      const color = colorOf(part.tone, part.material, part.lit);
+      const color = colorOf(part.material, part.lit);
       const alpha = Math.min(part.opacity, spec.alpha);
       materials.push({
         name: materialKey,

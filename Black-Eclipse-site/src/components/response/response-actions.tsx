@@ -8,7 +8,7 @@
 // unavailable the save reports it honestly (503 → error state).
 
 import { useState } from 'react';
-import { Check, Database, FileOutput, FileText } from '@/lib/icons';
+import { Check, Database, FileOutput, FileText, SquarePen } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ParsedResponse } from '@/lib/response/contract';
 import {
@@ -19,6 +19,7 @@ import {
   toBase64Utf8,
 } from '@/lib/response/export';
 import { registerArtifact } from '@/lib/harness/artifacts-browser';
+import { useCommandStore } from '@/lib/search/store';
 
 export interface ResponseActionsProps {
   response: ParsedResponse;
@@ -35,6 +36,7 @@ function responseName(response: ParsedResponse): string {
 
 export function ResponseActions({ response }: ResponseActionsProps) {
   const [save, setSave] = useState<SaveState>('idle');
+  const [savedId, setSavedId] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,13 +44,14 @@ export function ResponseActions({ response }: ResponseActionsProps) {
     setSave('saving');
     setError(null);
     try {
-      await registerArtifact({
+      const artifact = await registerArtifact({
         name: `${responseName(response)}.eclipse.json`,
         contentBase64: toBase64Utf8(responseToJson(response)),
         description: response.summary ?? 'Structured Eclipse response',
         category: 'report',
         tags: ['eclipse-response', response.responseType ?? 'response'],
       });
+      setSavedId(artifact.id);
       setSave('saved');
     } catch (e) {
       setSave('error');
@@ -89,6 +92,16 @@ export function ResponseActions({ response }: ResponseActionsProps) {
         {save === 'saved' ? <Check size={11} /> : <Database size={11} />}
         {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : 'Save'}
       </button>
+      {savedId && (
+        <button
+          type="button"
+          className={btn}
+          onClick={() => useCommandStore.getState().dispatch({ tab: 'canvas', params: { artifactId: savedId } })}
+          title="Open this artifact in Eclipse Canvas"
+        >
+          <SquarePen size={11} /> Canvas
+        </button>
+      )}
       {error && <span className="text-[10px] text-rose-300/80" title={error}>{error}</span>}
     </div>
   );

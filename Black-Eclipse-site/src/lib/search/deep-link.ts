@@ -29,6 +29,7 @@ export const APP_TABS: readonly AppTab[] = [
   'skills',
   'memory',
   'artifacts',
+  'canvas',
   'tasks',
   'pages',
   'ui-builder',

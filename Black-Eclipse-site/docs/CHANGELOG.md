@@ -8,6 +8,79 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-17
 
+- **`model3d` camera controls are explicit, scoped, and button-driven.** Replaced
+  OGL's `Orbit` (document-level, no modifier support) with a purpose-built
+  controller on the canvas: **drag = orbit**, **ctrl/cmd-drag (or right-drag, and
+  the "Drag" mode button) = pan**, **scroll = zoom** (cursor must be over the
+  model; page scroll elsewhere is untouched), plus an on-canvas button cluster
+  (Orbit / Drag mode, zoom in / out, reset). Pan moves the orbit target in the
+  camera plane; zoom clamps to 0.35×–4× the fitted distance. Supersedes the
+  `element: canvas` Orbit note below. Files:
+  `src/components/response/model3d-canvas.tsx`,
+  `src/components/response/model3d-block.tsx`.
+  `no doc change — interaction affordances only; the engine doc already frames
+  orbit/zoom/pan as canvas-local`.
+
+- **`model3d` orbit/zoom is scoped to the canvas and the card is full width.**
+  The OGL `Orbit` was attached to `document` (its default), so the wheel zoomed
+  the model from anywhere on the page and a parent that stopped `mousedown`
+  swallowed the drag. It is now attached to the canvas element only (`element:
+  canvas`), with `touch-action: none` so a touch-drag orbits instead of scrolling;
+  scroll-zoom only fires with the cursor on the model. The inline card dropped its
+  `max-w-4xl`, so the figure is full width like the other response blocks. Files:
+  `src/components/response/model3d-canvas.tsx`,
+  `src/components/response/model3d-block.tsx`.
+  `no doc change — interaction/width only; the engine doc already describes
+  orbit/zoom/pan as canvas-local`.
+
+- **`model3d` solids are grey by default (anatomy parity).** Like the isometric
+  `anatomy` block, the 3D bodies render as one graphite grey and `tone` is
+  reserved for the WIRES (and the legend) — a `success`/`danger` part no longer
+  tints the whole machine. `lit` still lifts the subject to a lighter graphite,
+  and the `.glb` export is graphite grey too. Files:
+  `src/components/response/model3d-canvas.tsx`, `src/lib/model3d/glb.ts`.
+  Docs updated: `interactive-response-engine.md`.
+
+- **Eclipse Canvas is now documented (and the earlier "not yet mounted" note is
+  corrected).** The Canvas backend and editors landed earlier; this change writes
+  them down and fixes the false statement in the entry below that the screen is
+  "not yet mounted on an AppTab/nav entry". It IS mounted: `canvas` is an AppTab
+  (`src/lib/app-tabs.ts`), a sidebar section (icon `SquarePen`, agentic group),
+  has a `nav.canvas` label, a `/?tab=canvas` deep link, a mobile bottom-nav entry
+  and a keep-alive block in `stock-chat.tsx`; integrations are wired too — the
+  `/canvas [document|code|report|visual]` slash command, Artifact Center "Open in
+  Canvas" (for artifacts whose metadata carries the `canvas` key) and
+  response-actions "Canvas". Records the architecture decision as **ADR-049**:
+  Canvas is an editable document/code/visual workspace over the ONE Artifact
+  Center (no second store), saves are revision-guarded, and AI edits are typed
+  operations re-applied to current bytes under the guard. Docs updated:
+  `skills/ARCHITECT.md` + `DECISIONS.md` (ADR-049), new `docs/canvas.md`,
+  `harness/artifact-center.md` (Canvas section), `NAVIGATION.md`, `ARCHITECTURE.md`.
+
+- **`model3d` viewport no longer goes white; it now reads as a pencil drawing on
+  charcoal paper.** The WebGL canvas was reused across React StrictMode remounts
+  and streamed re-renders while the cleanup called `WEBGL_lose_context`, so a
+  later mount got a dead context and presented nothing (a transparent canvas over
+  the light card read as white). The canvas is now **created inside the effect**
+  and removed on teardown (a fresh context every mount, no `lose_context`),
+  context creation waits for a non-zero wrapper size, and `webglcontextlost` is
+  handled with a real message. The scene is memoized by a **content signature** so
+  streaming does not recompile/remount the viewport per token, and the hotspot
+  projection no longer compounds (`Camera.project` mutates in place). Look: an
+  always-present charcoal paper panel (dark grey + centre light + bottom vignette
+  + grain) behind an alpha context, graphite fills with posterized hand-shading,
+  paper grain, a light pencil edge on silhouettes and a faint pencil grid. Files:
+  `src/components/response/model3d-{block,canvas}.tsx`.
+  Docs updated: `interactive-response-engine.md`.
+
+- **Canvas autosave hardening.** The 1200 ms debounce re-fired while a save was
+  in flight (allowing a duplicate request to conflict with itself) and retried a
+  failed save forever, because the effect depended on `saveState`. Autosave now
+  skips `saving`/`error`/`conflict`, failed saves stop until the next edit or a
+  manual save, and in-flight results are discarded if the user switched
+  artifacts mid-save. Files: `src/components/screens/canvas/canvas-screen.tsx`.
+  no doc change — internal fix, contracts and layout unchanged.
+
 - **Eclipse Canvas editor UI ships.** The canvas backend (Python `CanvasService`
   over the ONE artifact catalog, `/api/canvas` routes, typed `canvas-client`)
   landed earlier without its editor; this adds the missing UI that makes it

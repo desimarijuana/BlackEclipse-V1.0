@@ -24,6 +24,7 @@ export const en = {
   'nav.skills': 'Skills',
   'nav.memory': 'Eclipse Memory',
   'nav.artifacts': 'Artifacts',
+  'nav.canvas': 'Canvas',
   'nav.tasks': 'Tasks',
   'nav.pages': 'Pages',
   'nav.uiBuilder': 'UI Builder',

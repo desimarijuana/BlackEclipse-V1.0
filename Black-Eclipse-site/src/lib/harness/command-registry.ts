@@ -851,9 +851,40 @@ const TERMINAL: CommandSpec = {
   examples: ["/terminal ls -la", "/run git status"],
 };
 
+const CANVAS: CommandSpec = {
+  id: "canvas.open",
+  name: "canvas",
+  aliases: ["edit"],
+  summary: "Open Eclipse Canvas — an editable artifact workspace.",
+  description:
+    "Open the Canvas workspace, where documents, code and visual reports are edited directly and refined by AI with reviewable, revision-guarded edits. Canvas artifacts are ordinary Artifact Center entries.",
+  category: "dev",
+  tags: ["agent", "canvas", "documents", "code"],
+  version: V,
+  status: "available",
+  args: [
+    {
+      name: "mode",
+      description: "Optional starting mode: document, code, report or visual.",
+      required: false,
+      type: "enum",
+      values: ["document", "code", "report", "visual"],
+    },
+  ],
+  flags: [],
+  handler: { type: "native", target: "native.canvas" },
+  permissions: { approval: "none" },
+  risk: "none",
+  executionMode: "sync",
+  idempotent: true,
+  output: { type: "response", summary: "A link to open Canvas, plus the selected starting mode." },
+  examples: ["/canvas", "/canvas code", "/canvas report"],
+};
+
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   HELP,
   STATUS,
+  CANVAS,
   SKILLS,
   SKILL,
   SKILL_EXPLAIN,

@@ -11,9 +11,10 @@ import { createPortal } from 'react-dom';
 import {
   AlertTriangle, ChartLine, Check, Download, FileCode2,
   FileText, Filter, FolderOpen, Image as ImageIcon, LayoutGrid, List,
-  Loader2, Redo2, Search, Star, Trash2, X,
+  Loader2, Redo2, Search, Star, Trash2, X, SquarePen,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { useCommandStore } from '@/lib/search/store';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslateFn } from '@/lib/i18n/translate';
 import type { TranslationKey } from '@/lib/i18n/types';
@@ -413,6 +414,15 @@ function DetailDrawer({
           {detail.taskId ? (
             <a href={`/?tab=chat&taskId=${encodeURIComponent(detail.taskId)}`}
               className="text-[11px] text-sky-400 hover:underline">{t('artifacts.openTask')}</a>
+          ) : null}
+          {detail.metadata && (detail.metadata as { canvas?: unknown }).canvas ? (
+            <button
+              type="button"
+              onClick={() => useCommandStore.getState().dispatch({ tab: 'canvas', params: { artifactId: detail.id } })}
+              className="inline-flex items-center gap-1 self-start text-[11px] text-sky-400 hover:underline"
+            >
+              <SquarePen className="h-3 w-3" /> Open in Canvas
+            </button>
           ) : null}
         </section>
 

@@ -103,6 +103,23 @@ arbitrary machine directories.
 every version's bytes and the rows, and **refuses while another artifact shares the
 content**. State never changes without a recorded `HarnessArtifactEvent`.
 
+## Canvas (editable artifacts over this catalog)
+
+Eclipse Canvas gives the catalog an editor without adding a second store. A
+canvas document **is** an ordinary catalog entry: its bytes are canonical UTF-8
+text and its revisions are the artifact's immutable versions. Its canvas kind
+(`document`/`code`/`visual`) and optional `language` are stored in the artifact's
+`metadata` under the key `canvas`, and an artifact detail whose metadata carries
+that key shows an **"Open in Canvas"** action. `CanvasService`
+(`python/harness/canvas/service.py`) is the ONE canvas writer over
+`ArtifactService`; saves are revision-guarded (a stale save is `409
+CANVAS_CONFLICT`), and AI edits are typed operations the server re-applies to
+current bytes so client content is never trusted. Because canvas artifacts are
+ordinary entries, they inherit owner scope, preview, download, versions, tags,
+archive and reconciliation unchanged.
+
+Full design, routes and the operation contract: `docs/canvas.md`; ADR-049.
+
 ## Authorization
 
 Every `/artifacts/*` route (reads AND mutations) carries `require_operator`

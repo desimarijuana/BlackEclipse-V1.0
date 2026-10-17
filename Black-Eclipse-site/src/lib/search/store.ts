@@ -125,6 +125,8 @@ interface CommandStore {
   pendingFundId: string | null;
   /** Market/country code to load into the screener (consumed by MarketOverview). */
   pendingMarket: string | null;
+  /** Canvas artifact id to open in the Canvas tab (consumed by CanvasScreen). */
+  pendingCanvasArtifactId: string | null;
   /**
    * Sub-view request, scoped to a tab: `{ tab, subroute, focus? }`. Consumed by
    * the target screen's `useSubroute` hook. A channel (not a single slot) so a
@@ -165,6 +167,7 @@ interface CommandStore {
   consumeDestination: () => Destination | null;
   consumeFundId: () => string | null;
   consumeMarket: () => string | null;
+  consumeCanvasArtifactId: () => string | null;
   /** Publish a sub-view request for a tab (shell calls this from `apply`). */
   requestSubroute: (tab: string, subroute: string, focus?: string) => void;
   /** Clear the subroute request for a tab once a screen has applied it. */
@@ -198,6 +201,7 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
   pendingDestination: null,
   pendingFundId: null,
   pendingMarket: null,
+  pendingCanvasArtifactId: null,
   pendingSubroute: null,
   subrouteSeq: 0,
 
@@ -289,6 +293,13 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     const s = get();
     const id = s.pendingMarket;
     if (id) set({ pendingMarket: null });
+    return id;
+  },
+
+  consumeCanvasArtifactId: () => {
+    const s = get();
+    const id = s.pendingCanvasArtifactId;
+    if (id) set({ pendingCanvasArtifactId: null });
     return id;
   },
 

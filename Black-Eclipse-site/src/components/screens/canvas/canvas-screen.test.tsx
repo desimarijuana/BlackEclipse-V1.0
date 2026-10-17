@@ -40,7 +40,7 @@ const noop = () => {};
 function railProps(): CanvasRailProps {
   return {
     items: [], loading: false, error: null, query: '', onQueryChange: noop,
-    onRefresh: noop, onSelect: noop, onCreate: noop, selectedId: null,
+    onRefresh: noop, onSelect: noop, onCreate: noop, onImport: noop, selectedId: null,
     collapsed: false, onToggleCollapsed: noop,
   };
 }
