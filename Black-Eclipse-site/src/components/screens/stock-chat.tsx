@@ -206,6 +206,7 @@ function StockChatContent() {
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   // The composer container the approval card floats above (portaled to <body>).
   // Held in state (not a ref) so the card re-measures once the node mounts.
   const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
@@ -1133,6 +1134,7 @@ function StockChatContent() {
                       onSend={handleSend}
                       onViewMarketOverview={() => setActiveTab('discovery')}
                       onAttach={() => fileInputRef.current?.click()}
+                      onAttachImage={() => imageInputRef.current?.click()}
                       attachments={attachmentChips}
                       onRemoveAttachment={handleRemoveAttachment}
                       busy={agentBusy}
@@ -1174,6 +1176,7 @@ function StockChatContent() {
                         busy={agentBusy}
                         onCancel={handleCancel}
                         onAttach={() => fileInputRef.current?.click()}
+                        onAttachImage={() => imageInputRef.current?.click()}
                         attaching={sessionController.busy}
                         attachments={attachmentChips}
                         onRemoveAttachment={handleRemoveAttachment}
@@ -1224,6 +1227,17 @@ function StockChatContent() {
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void sessionController.uploadFiles(e.target.files ?? []);
+                    e.target.value = '';
+                  }}
+                />
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
                   multiple
                   className="hidden"
                   onChange={(e) => {

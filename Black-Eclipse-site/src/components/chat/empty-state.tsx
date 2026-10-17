@@ -13,6 +13,8 @@ interface EmptyStateProps {
   onViewMarketOverview?: () => void;
   /** Opens the document picker — the composer "+" attaches context. */
   onAttach?: () => void;
+  /** Opens the image/photo picker — the composer "+" images action. */
+  onAttachImage?: () => void;
   /** Attached documents shown as visible chips above the composer. */
   attachments?: AttachmentChip[];
   onRemoveAttachment?: (name: string) => void;
@@ -31,7 +33,7 @@ interface EmptyStateProps {
  * The chat landing surface: nothing but the composer, full width. The eclipse
  * background is painted by the chat tab container, so this stays transparent.
  */
-export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onRemoveAttachment, busy, onCancel, modelState, effortState, mentionTargets }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, attachments, onRemoveAttachment, busy, onCancel, modelState, effortState, mentionTargets }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-end w-full px-4 md:px-6 pb-2 z-10 relative">
       <div
@@ -43,6 +45,7 @@ export function EmptyState({ query, setQuery, onSend, onAttach, attachments, onR
           setQuery={setQuery}
           onSend={onSend}
           onAttach={onAttach}
+          onAttachImage={onAttachImage}
           attachments={attachments}
           onRemoveAttachment={onRemoveAttachment}
           busy={busy}

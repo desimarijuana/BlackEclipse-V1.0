@@ -8,6 +8,63 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-17
 
+- **Chat composer "+" is now a menu: Images and photos / Context / Canvas ·
+  Skills / Mention.** The single attach button became a dropdown
+  (`chat/chat-input.tsx`) wired to a new `onAttachImage` prop (image picker in
+  `stock-chat.tsx`, passed through `empty-state.tsx`); "Context" keeps the
+  document picker, "Canvas" opens the Canvas tab, "Skills" seeds `/` to open the
+  command palette, and "Mention" appends `@` to open the mention palette.
+  `no doc change — composer affordance only`.
+
+- **`model3d` is now a flat outline drawing: fills match the paper.** The panel
+  and every solid use the same `#161618`; the form is read by a `#3A3E44`
+  outline. The compiler now extracts **feature edges** per part (crease/boundary
+  edges with welded vertices, coplanar triangulation diagonals dropped) and the
+  viewport draws them as LINES plus a silhouette band, with polygon-offset so the
+  outline wins the depth test over the fill; `lit` still lifts to a lighter
+  outline. The `.glb` export carries the same look (paper-coloured fill + an
+  outline line primitive). Files: `src/lib/model3d/{mesh,compile,glb}.ts`,
+  `src/components/response/model3d-{canvas,block}.tsx`.
+  `no doc change — visual/interaction only`.
+
+- **ChatBot scrolling no longer depends on the browser's nested-container wheel
+  chaining.** Follow-up to the forward-wheel fix below: the forwarder now stops
+  at the transcript and drives it directly (`scrollTop += normalised delta`,
+  `preventDefault`) instead of early-returning and trusting native scroll of a
+  nested `overflow: auto` box — which is flaky for some trackpads / engines.
+  A genuinely different nested scroller under the pointer (a code block, an open
+  palette, the sidebar list) still scrolls itself. Verified in Chromium:
+  line-mode (`DOM_DELTA_LINE`) and pixel deltas scroll the transcript from the
+  header, the composer and the transcript itself; a nested scroller is left
+  alone. File: `src/hooks/use-forward-wheel-scroll.ts`. Also re-pinned the
+  `stock-chat.tsx` size budget (1481→1495) for the concurrent empty-state image
+  attachment input: `src/lib/size-budget.test.ts`.
+  no doc change — bug fix, contracts and layout unchanged.
+
+- **`model3d` stage (animation) controls moved onto the viewport.** The play /
+  prev / next / reset controls and the stage label now float in a translucent
+  pill at the bottom of the 3D panel instead of sitting below the figure
+  (restyled light-on-dark for the charcoal paper; the drag hint moved to the
+  bottom-left). The key, legend and readout stay below. Files:
+  `src/components/response/model3d-block.tsx`.
+  `no doc change — layout of an existing affordance only`.
+
+- **ChatBot wheel/trackpad scrolling actually reaches the transcript.** The
+  previous fix wired forwarding through React's `onWheel`, which React registers
+  as a PASSIVE listener — so `preventDefault()` did nothing (and logged
+  "Unable to preventDefault inside passive event listener invocation"), and the
+  raw `deltaY` was applied verbatim, so trackpads/browsers reporting
+  `DOM_DELTA_LINE`/`PAGE` moved only a few pixels per event and read as "scroll
+  is broken". `useForwardWheelScroll` now installs ONE native
+  `{ passive: false }` document listener (only while the chat tab has a
+  transcript), normalises `deltaY` by `deltaMode`, and leaves anything already
+  handled (chart zoom, 3D orbit, ctrl/pinch zoom) or any genuine nested scroller
+  (the transcript, a multi-line composer, a palette, the sidebar list) to handle
+  itself — so the header, composer and surrounding padding now scroll the
+  transcript too. Files: `src/hooks/use-forward-wheel-scroll.ts`,
+  `src/components/screens/stock-chat.tsx`.
+  no doc change — bug fix, contracts and layout unchanged.
+
 - **`model3d` camera controls are explicit, scoped, and button-driven.** Replaced
   OGL's `Orbit` (document-level, no modifier support) with a purpose-built
   controller on the canvas: **drag = orbit**, **ctrl/cmd-drag (or right-drag, and

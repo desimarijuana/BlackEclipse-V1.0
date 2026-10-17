@@ -25,8 +25,12 @@ import type { Model3dTone } from '@/lib/model3d/names';
 const DEG = Math.PI / 180;
 const FOV = 35;
 
-// Anatomy parity: every SOLID is one graphite grey; `tone` only colours WIRES.
-const GREY: [number, number, number] = [0.76, 0.79, 0.82];
+// Flat sketch look: the SOLIDS fill with the same colour as the paper
+// (#161618) and are read purely by their OUTLINE (#3A3E44). `tone` is reserved
+// for the WIRES. Anything drawn at silhouette is the outline colour.
+const PAPER: [number, number, number] = [0.086, 0.086, 0.094]; // #161618
+const OUTLINE: [number, number, number] = [0.227, 0.243, 0.267]; // #3A3E44
+const LIT_OUTLINE: [number, number, number] = [0.55, 0.60, 0.66];
 
 // Wire palette: the shared status vocabulary, desaturated toward coloured pencil.
 const TONES: Record<Model3dTone, [number, number, number]> = {
@@ -45,50 +49,48 @@ uniform mat4 projectionMatrix;
 uniform mat3 normalMatrix;
 varying vec3 vNormal;
 varying vec3 vView;
-varying vec3 vWorld;
 void main() {
   vNormal = normalize(normalMatrix * normal);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vView = -mv.xyz;
-  vWorld = position;
   gl_Position = projectionMatrix * mv;
 }`;
 
 const FRAGMENT = `
 precision highp float;
-uniform vec3 uColor;
+uniform vec3 uFill;
+uniform vec3 uLine;
 uniform float uLit;
 uniform float uOpacity;
-uniform float uEmissive;
 varying vec3 vNormal;
 varying vec3 vView;
-varying vec3 vWorld;
-
-float hash(vec3 p) {
-  p = fract(p * 0.3183099 + 0.1);
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
 
 void main() {
   vec3 n = normalize(vNormal);
   vec3 v = normalize(vView);
+  vec3 fill = mix(uFill, uFill * 1.5, uLit);
+  vec3 line = mix(uLine, vec3(0.55, 0.60, 0.66), uLit);
+  // Silhouette band: outline only where the surface turns edge-on, so the flat
+  // fill never shows and the form reads as a line drawing.
+  float f = 1.0 - max(dot(n, v), 0.0);
+  float edge = smoothstep(0.55, 0.82, f);
+  gl_FragColor = vec4(mix(fill, line, edge), uOpacity);
+}`;
 
-  float key = max(dot(n, normalize(vec3(0.42, 0.68, 0.85))), 0.0);
-  float band = floor(key * 4.0) / 4.0 + 0.14;
-  float fill = max(dot(n, normalize(vec3(-0.6, -0.35, 0.35))), 0.0) * 0.22;
-  float shade = band + fill;
+const EDGE_VERTEX = `
+attribute vec3 position;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+void main() {
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
 
-  float grain = (hash(floor(vWorld * 3.0)) - 0.5) * 0.05;
-  vec3 graphite = mix(vec3(0.13, 0.14, 0.15), uColor, 0.5) * (0.42 + 0.72 * shade) + grain;
-
-  float edge = pow(1.0 - max(dot(n, v), 0.0), 1.7);
-  graphite += vec3(edge * 0.34);
-
-  graphite = mix(graphite, uColor * 1.15 + vec3(0.10), uLit * 0.8);
-  graphite += uColor * uEmissive * 0.5;
-
-  gl_FragColor = vec4(clamp(graphite, 0.0, 1.0), uOpacity);
+const EDGE_FRAGMENT = `
+precision highp float;
+uniform vec3 uColor;
+uniform float uOpacity;
+void main() {
+  gl_FragColor = vec4(uColor, uOpacity);
 }`;
 
 const LINE_VERTEX = `
@@ -206,6 +208,10 @@ export function Model3dCanvas({ scene, litGroups, still, autoRotate, onError }: 
       gl.disable(gl.CULL_FACE);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      // Push the flat fills a hair away from the camera so the outline LINES on
+      // the surface win the depth test instead of z-fighting with the fill.
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(2.0, 2.0);
 
       let contextLost = false;
       const onLost = (event: Event) => {
@@ -219,11 +225,16 @@ export function Model3dCanvas({ scene, litGroups, still, autoRotate, onError }: 
         vertex: VERTEX,
         fragment: FRAGMENT,
         uniforms: {
-          uColor: { value: [0.5, 0.5, 0.5] },
+          uFill: { value: PAPER },
+          uLine: { value: OUTLINE },
           uLit: { value: 0 },
           uOpacity: { value: 1 },
-          uEmissive: { value: 0 },
         },
+      });
+      const edgeProgram = new Program(gl, {
+        vertex: EDGE_VERTEX,
+        fragment: EDGE_FRAGMENT,
+        uniforms: { uColor: { value: OUTLINE }, uOpacity: { value: 1 } },
       });
       const lineProgram = new Program(gl, {
         vertex: LINE_VERTEX,
@@ -243,17 +254,28 @@ export function Model3dCanvas({ scene, litGroups, still, autoRotate, onError }: 
           normal: { size: 3, data: part.mesh.normals },
           index: { data: part.mesh.indices },
         });
-        const emissive = part.material === 'emissive' ? 0.85 : 0;
         const alpha = Math.max(0.25, part.opacity);
         const mesh = new Mesh(gl, { geometry, program });
         mesh.onBeforeRender(() => {
           const lit = part.lit || litRef.current.has(part.group);
-          program.uniforms.uColor.value = [GREY[0], GREY[1], GREY[2]];
           program.uniforms.uLit.value = lit ? 1 : 0;
           program.uniforms.uOpacity.value = alpha;
-          program.uniforms.uEmissive.value = emissive;
         });
         mesh.setParent(sceneRoot);
+
+        // Outline: the same feature edges as crisp #3A3E44 lines on the surface.
+        if (part.edges.length >= 6) {
+          const edgeMesh = new Mesh(gl, {
+            geometry: new Geometry(gl, { position: { size: 3, data: part.edges } }),
+            program: edgeProgram,
+            mode: gl.LINES,
+          });
+          edgeMesh.onBeforeRender(() => {
+            const lit = part.lit || litRef.current.has(part.group);
+            edgeProgram.uniforms.uColor.value = lit ? LIT_OUTLINE : OUTLINE;
+          });
+          edgeMesh.setParent(sceneRoot);
+        }
       }
 
       const span =

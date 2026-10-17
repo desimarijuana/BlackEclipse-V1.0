@@ -8,9 +8,10 @@ import type { CompiledPart } from './compile';
 import type { Model3dMaterial } from './names';
 import type { Bounds } from './mesh';
 
-// Anatomy parity: exported solids are graphite grey; status `tone` is a viewport
-// concept (it colours wires there and does not reach the .glb).
-const GRAPHITE: [number, number, number] = [0.58, 0.61, 0.64];
+// Flat sketch parity with the viewport: solids fill with the paper colour
+// (#161618) and are read by #3A3E44 outline LINES exported alongside them.
+const PAPER: [number, number, number] = [0.086, 0.086, 0.094]; // #161618
+const OUTLINE_COLOR: [number, number, number] = [0.227, 0.243, 0.267]; // #3A3E44
 
 const MATERIALS: Record<Model3dMaterial, { metallic: number; roughness: number; alpha: number }> = {
   metal: { metallic: 0.85, roughness: 0.32, alpha: 1 },
@@ -25,13 +26,8 @@ function align4(n: number): number {
   return (n + 3) & ~3;
 }
 
-function colorOf(material: Model3dMaterial, lit: boolean): [number, number, number] {
-  const k = lit ? 1.6 : material === 'metal' ? 1.08 : 1;
-  return [
-    Math.min(1, GRAPHITE[0] * k),
-    Math.min(1, GRAPHITE[1] * k),
-    Math.min(1, GRAPHITE[2] * k),
-  ];
+function colorOf(lit: boolean): [number, number, number] {
+  return lit ? [0.13, 0.14, 0.15] : PAPER;
 }
 
 interface Accessor {
@@ -52,6 +48,7 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
   const materialIndex = new Map<string, number>();
   const meshes: Array<Record<string, unknown>> = [];
   const nodes: Array<Record<string, unknown>> = [];
+  let outlineMat: number | null = null;
 
   const pushBytes = (bytes: Uint8Array): number => {
     const offset = byteLength;
@@ -113,7 +110,7 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
     let matIndex = materialIndex.get(materialKey);
     if (matIndex === undefined) {
       const spec = MATERIALS[part.material] ?? MATERIALS.paint;
-      const color = colorOf(part.material, part.lit);
+      const color = colorOf(part.lit);
       const alpha = Math.min(part.opacity, spec.alpha);
       materials.push({
         name: materialKey,
@@ -129,16 +126,39 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
       materialIndex.set(materialKey, matIndex);
     }
 
-    meshes.push({
-      name: part.id,
-      primitives: [
-        {
-          attributes: { POSITION: posAccessor, NORMAL: normAccessor },
-          indices: idxAccessor,
-          material: matIndex,
-        },
-      ],
-    });
+    const primitives: Array<Record<string, unknown>> = [
+      {
+        attributes: { POSITION: posAccessor, NORMAL: normAccessor },
+        indices: idxAccessor,
+        material: matIndex,
+      },
+    ];
+
+    // Outline LINES (part.edges) share the part node so the drawing travels with
+    // the model. One shared outline material keeps the file small.
+    if (part.edges.length >= 6) {
+      if (outlineMat === null) {
+        materials.push({
+          name: 'outline',
+          pbrMetallicRoughness: {
+            baseColorFactor: [OUTLINE_COLOR[0], OUTLINE_COLOR[1], OUTLINE_COLOR[2], 1],
+            metallicFactor: 0,
+            roughnessFactor: 1,
+          },
+        });
+        outlineMat = materials.length - 1;
+      }
+      const edgeBytes = new Uint8Array(part.edges.buffer, part.edges.byteOffset, part.edges.byteLength);
+      const edgeView = addView(edgeBytes, 34962);
+      accessors.push({ bufferView: edgeView, componentType: 5126, count: part.edges.length / 3, type: 'VEC3' });
+      primitives.push({
+        attributes: { POSITION: accessors.length - 1 },
+        mode: 1,
+        material: outlineMat,
+      });
+    }
+
+    meshes.push({ name: part.id, primitives });
     nodes.push({ name: part.group, mesh: meshes.length - 1 });
   }
 

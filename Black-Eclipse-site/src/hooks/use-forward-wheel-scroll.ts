@@ -44,10 +44,13 @@ export function useForwardWheelScroll(
       const target = targetRef.current;
       if (!target) return;
 
-      // Walk up from the event target: if something under the pointer is
-      // itself a non-empty vertical scroller, let it scroll instead.
+      // Walk up from the event target. If a DIFFERENT non-empty vertical
+      // scroller is under the pointer (a code block, an open palette, the
+      // sidebar list), let it scroll itself. If we reach the target transcript
+      // we stop and drive it directly below — so the transcript scrolls even on
+      // browsers/trackpads where user scrolling of a nested container is flaky.
       let node = e.target as HTMLElement | null;
-      while (node && node !== document.body) {
+      while (node && node !== document.body && node !== target) {
         const style = window.getComputedStyle(node);
         if (
           (style.overflowY === 'auto' || style.overflowY === 'scroll') &&

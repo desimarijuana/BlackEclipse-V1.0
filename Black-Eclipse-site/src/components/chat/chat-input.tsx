@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users } from '@/lib/icons';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image, Blocks, SquarePen } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -83,6 +83,11 @@ interface ChatInputProps {
   onCancel?: () => void;
   /** Opens the file picker — the "+" is the attach-documents affordance. */
   onAttach?: () => void;
+  /**
+   * Open an image/photo picker. When absent, "Images and photos" falls back to
+   * the document picker so the action is never a dead end.
+   */
+  onAttachImage?: () => void;
   /** Shows a spinner on the "+" while documents upload. */
   attaching?: boolean;
   /**
@@ -119,6 +124,7 @@ export function ChatInput({
   busy = false,
   onCancel,
   onAttach,
+  onAttachImage,
   attaching = false,
   attachments,
   onRemoveAttachment,
@@ -335,6 +341,35 @@ export function ChatInput({
     };
   }, [commandMenuOpen, mentionMenuOpen]);
 
+  // Insert a token (e.g. `/` or `@`) at the end of the draft and keep focus in
+  // the composer so the corresponding palette opens immediately.
+  const insertToken = useCallback((token: string) => {
+    const base = query.replace(/\s+$/, '');
+    setQuery(base ? `${base} ${token}` : token);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      try {
+        el.setSelectionRange(end, end);
+      } catch {
+        /* setSelectionRange is unavailable on some input types */
+      }
+    });
+  }, [query, setQuery]);
+
+  const openCanvas = useCallback(() => {
+    useCommandStore.getState().dispatch({ tab: 'canvas' });
+  }, []);
+
+  // The `/` palette only opens when the draft begins with `/`, so Skills seeds
+  // an empty composer with `/`; a non-empty draft gets the token appended.
+  const openSkillsPalette = useCallback(() => {
+    if (!query.trim()) setQuery('/');
+    else insertToken('/');
+  }, [query, setQuery, insertToken]);
+
   return (
     <div className="w-full">
       {attachments && attachments.length > 0 && (
@@ -526,18 +561,45 @@ export function ChatInput({
         />
         
         <div className="flex items-end justify-between gap-2 px-0.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onAttach}
-            disabled={attaching}
-            title="Add documents as context"
-            aria-label="Add documents as context"
-            className="flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none"
-          >
-            {attaching ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} />}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={attaching}
+                  title="Add context, media or a tool"
+                  aria-label="Add context, media or a tool"
+                  className="flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none"
+                />
+              }
+            >
+              {attaching ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} />}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-56">
+              <DropdownMenuItem onClick={() => (onAttachImage ?? onAttach)?.()}>
+                <Image size={15} className="shrink-0" />
+                <span>Images and photos</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onAttach?.()}>
+                <Layers size={15} className="shrink-0" />
+                <span>Context</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={openCanvas}>
+                <SquarePen size={15} className="shrink-0" />
+                <span>Canvas</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={openSkillsPalette}>
+                <Blocks size={15} className="shrink-0" />
+                <span>Skills</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertToken('@')}>
+                <span aria-hidden className="flex h-[15px] w-[15px] shrink-0 items-center justify-center font-mono text-sm">@</span>
+                <span>Mention</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-2 shrink-0">
             {modelState ? (
               <ModelSelector state={modelState} />

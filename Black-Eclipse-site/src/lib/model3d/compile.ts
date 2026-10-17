@@ -15,6 +15,7 @@ import {
   cylinder,
   emptyMesh,
   extrude,
+  featureEdges,
   gear,
   lathe,
   mergeMeshes,
@@ -35,6 +36,8 @@ export interface CompiledPart {
   /** The authored part id (the unit a label/stage/wire refers to). */
   group: string;
   mesh: Mesh;
+  /** Feature edges for the outline drawing (world space, LINES pairs). */
+  edges: Float32Array;
   tone: Model3dTone;
   material: Model3dMaterial;
   opacity: number;
@@ -202,7 +205,7 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
       diagnostics.push(`Part "${group}" skipped: empty geometry.`);
       return;
     }
-    parts.push({ id, group, mesh, tone, material, opacity, lit, anchor: anchorOf(bounds), bounds });
+    parts.push({ id, group, mesh, edges: featureEdges(mesh), tone, material, opacity, lit, anchor: anchorOf(bounds), bounds });
     grow(total, bounds);
   };
 
@@ -232,6 +235,7 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
           id: `${part.id}~${index}`,
           group: part.id,
           mesh: baked,
+          edges: featureEdges(baked),
           tone: spec.tone ?? part.tone,
           material: spec.material ?? part.material,
           opacity: part.opacity,

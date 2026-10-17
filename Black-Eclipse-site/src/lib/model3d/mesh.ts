@@ -65,6 +65,71 @@ export function emptyMesh(): Mesh {
   return { positions: new Float32Array(0), normals: new Float32Array(0), indices: new Uint32Array(0) };
 }
 
+/**
+ * Feature edges for an outline drawing: every edge where two faces meet at a
+ * crease (angle > `creases`) or that is a boundary. Coplanar interior edges —
+ * including the diagonals of a triangulated flat face — are dropped, so the
+ * result reads as a clean technical outline, not a triangle wireframe.
+ *
+ * Positions are welded first (flat-shaded meshes duplicate vertices per face),
+ * so shared edges are recognised across faces.
+ */
+export function featureEdges(mesh: Mesh, creaseCos = 0.985): Float32Array {
+  const { positions, indices } = mesh;
+  if (indices.length === 0) return new Float32Array(0);
+
+  const weld = new Map<string, number>();
+  const rep: number[] = [];
+  const idAt = (index: number): number => {
+    const x = positions[index * 3]!, y = positions[index * 3 + 1]!, z = positions[index * 3 + 2]!;
+    const key = `${Math.round(x * 1000)},${Math.round(y * 1000)},${Math.round(z * 1000)}`;
+    let id = weld.get(key);
+    if (id === undefined) {
+      id = rep.length / 3;
+      weld.set(key, id);
+      rep.push(x, y, z);
+    }
+    return id;
+  };
+
+  const edges = new Map<string, { a: number; b: number; nx: number; ny: number; nz: number; count: number; dot: number }>();
+  for (let t = 0; t < indices.length; t += 3) {
+    const i0 = indices[t]!, i1 = indices[t + 1]!, i2 = indices[t + 2]!;
+    const a = idAt(i0), b = idAt(i1), c = idAt(i2);
+    const ax = positions[i0 * 3]!, ay = positions[i0 * 3 + 1]!, az = positions[i0 * 3 + 2]!;
+    const bx = positions[i1 * 3]!, by = positions[i1 * 3 + 1]!, bz = positions[i1 * 3 + 2]!;
+    const cx = positions[i2 * 3]!, cy = positions[i2 * 3 + 1]!, cz = positions[i2 * 3 + 2]!;
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+
+    for (const [p, q] of [[a, b], [b, c], [c, a]] as Array<[number, number]>) {
+      const key = p < q ? `${p}_${q}` : `${q}_${p}`;
+      const edge = edges.get(key);
+      if (!edge) {
+        edges.set(key, { a: Math.min(p, q), b: Math.max(p, q), nx, ny, nz, count: 1, dot: 1 });
+      } else {
+        edge.dot = Math.min(edge.dot, edge.nx * nx + edge.ny * ny + edge.nz * nz);
+        edge.count += 1;
+      }
+    }
+  }
+
+  const out: number[] = [];
+  for (const edge of edges.values()) {
+    const keep = edge.count === 1 || edge.dot < creaseCos;
+    if (!keep) continue;
+    out.push(
+      rep[edge.a * 3]!, rep[edge.a * 3 + 1]!, rep[edge.a * 3 + 2]!,
+      rep[edge.b * 3]!, rep[edge.b * 3 + 1]!, rep[edge.b * 3 + 2]!,
+    );
+  }
+  return new Float32Array(out);
+}
+
+
 export function boundsOf(mesh: Mesh): Bounds {
   const min: Vec3 = [Infinity, Infinity, Infinity];
   const max: Vec3 = [-Infinity, -Infinity, -Infinity];

@@ -29,21 +29,11 @@ const Model3dCanvas = dynamic(() => import('./model3d-canvas').then((m) => m.Mod
 
 const AUTOPLAY_MS = 2600;
 
-// Charcoal paper: a dark grey ground with a soft centre light, a heavier bottom
-// vignette and a fine grain tile. Always visible behind the (alpha) WebGL canvas,
-// so the figure can never read as a white rectangle.
-const PAPER_NOISE = `url("data:image/svg+xml,${encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#n)' opacity='0.5'/></svg>",
-)}")`;
-
+// Flat charcoal sketch panel: #161618 ground, always visible behind the (alpha)
+// WebGL canvas, so the figure can never read as a white rectangle. The 3D solids
+// fill with this same colour and are read by their #3A3E44 outlines.
 const PAPER_STYLE: CSSProperties = {
-  backgroundColor: '#17181b',
-  backgroundImage: [
-    'radial-gradient(130% 120% at 50% -10%, rgba(255,255,255,0.07), rgba(0,0,0,0) 55%)',
-    'radial-gradient(120% 120% at 50% 120%, rgba(0,0,0,0.65), rgba(0,0,0,0) 60%)',
-    PAPER_NOISE,
-  ].join(','),
-  backgroundSize: 'auto, auto, 140px 140px',
+  backgroundColor: '#161618',
 };
 
 export interface Model3dBlockProps {
@@ -64,7 +54,7 @@ function StageButton({ label, onClick, children }: { label: string; onClick: () 
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-accent/25 text-foreground/80 transition-colors hover:bg-accent/50 hover:text-foreground"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-black/45 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white"
     >
       {children}
     </button>
@@ -112,9 +102,11 @@ interface BodyProps {
   onFull?: () => void;
   large?: boolean;
   height: number;
+  /** Rendered ON the viewport (stage controls), not below the figure. */
+  overlay?: ReactNode;
 }
 
-function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, onError, onFull, large, height }: BodyProps) {
+function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, onError, onFull, large, height, overlay }: BodyProps) {
   const stats = model3dStats(scene);
   return (
     <>
@@ -146,7 +138,7 @@ function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, on
       </div>
 
       <div
-        className="relative overflow-hidden rounded-lg border border-white/10"
+        className="relative overflow-hidden rounded-lg border border-[#3A3E44]"
         style={{ ...PAPER_STYLE, height }}
         role="img"
         aria-label={block.description ?? `3D model with ${stats.parts} parts`}
@@ -163,9 +155,18 @@ function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, on
           <Model3dCanvas key={sceneKey} scene={scene} litGroups={litIds} still={still} autoRotate={block.animate === true} onError={onError} />
         )}
         {!error && scene.parts.length > 0 && (
-          <span className="pointer-events-none absolute bottom-2 right-3 font-mono text-[10px] text-white/35">
-            drag to orbit · ctrl-drag to pan · scroll to zoom
-          </span>
+          <>
+            <span className="pointer-events-none absolute bottom-2 left-3 font-mono text-[10px] text-white/35">
+              drag to orbit · ctrl-drag to pan · scroll to zoom
+            </span>
+            {overlay && (
+              <div className="pointer-events-auto absolute inset-x-0 bottom-2 flex justify-center px-3">
+                <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 rounded-lg border border-white/10 bg-black/55 px-3 py-1.5 backdrop-blur-sm">
+                  {overlay}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -253,7 +254,7 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
   const readout = currentStage?.readout ?? block.readout ?? '';
 
   const controls = hasStages ? (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-1">
         <StageButton label="Previous stage" onClick={() => { setPlaying(false); setStageIndex((p) => (p <= 0 ? stages.length : p - 1)); }}>
           <ChevronLeft className="h-3.5 w-3.5" />
@@ -268,10 +269,10 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
           <RotateCcw className="h-3.5 w-3.5" />
         </StageButton>
       </div>
-      <span className="text-[11px] text-muted-foreground">
+      <span className="text-[11px] text-white/70">
         {currentStage ? (
           <>
-            <span className="font-medium text-foreground">{currentStage.label}</span>
+            <span className="font-medium text-white">{currentStage.label}</span>
             {currentStage.note ? ` — ${currentStage.note}` : ''}
           </>
         ) : (
@@ -295,8 +296,7 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-5">
-              <Model3dBody block={{ ...block, fig: undefined, title: undefined, hint: undefined }} scene={scene} sceneKey={sceneKey} litIds={litIds} still={still} error={error} readout={readout} onError={setError} large height={560} />
-              {controls}
+              <Model3dBody block={{ ...block, fig: undefined, title: undefined, hint: undefined }} scene={scene} sceneKey={sceneKey} litIds={litIds} still={still} error={error} readout={readout} onError={setError} large height={560} overlay={controls} />
             </div>
           </div>
         </div>,
@@ -318,8 +318,8 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
           onError={setError}
           onFull={openFull}
           height={Math.min(560, block.height)}
+          overlay={controls}
         />
-        {controls}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"

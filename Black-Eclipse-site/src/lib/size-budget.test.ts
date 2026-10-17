@@ -146,7 +146,12 @@ const RATCHET: Record<string, number> = {
   // keep-alive render block and a pending-artifact selector/branch. The Canvas
   // workspace itself lives in `components/screens/canvas/`. May only shrink from
   // here; the per-tab keep-alive blocks remain the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1481,
+  // Re-pinned 1481→1495: the empty-state + composer gained an image attachment
+  // input (one ref, two `onAttachImage` prop passthroughs, one hidden input) and
+  // the chat-scroll fix turned the composer-only wheel handler into a document
+  // forwarder. May only shrink from here; the per-tab keep-alive blocks remain
+  // the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1495,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard
