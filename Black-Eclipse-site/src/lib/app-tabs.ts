@@ -25,7 +25,6 @@ export type AppTab =
   | 'skills'
   | 'memory'
   | 'artifacts'
-  | 'canvas'
   | 'tasks'
   | 'pages'
   | 'ui-builder'

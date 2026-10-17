@@ -12,9 +12,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Plug, RefreshCcw, Loader2, Trash2, ShieldCheck, AlertCircle, Link2, Copy, Check,
+  Activity, AlertCircle, Check, ChatsCircle, Copy, DiscordLogo, Link2, Loader2, Mail,
+  RefreshCcw, ShieldCheck, SlackLogo, TelegramLogo, Trash2, Webhook, WhatsappLogo,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Panel, SectionHeader, SubSection } from "./settings-ui";
 import {
   channelsHealth,
@@ -118,11 +120,24 @@ const KINDS: KindSpec[] = [
   },
 ];
 
+/** Per-channel brand icon + accent tint used across the panel. */
+const CHANNEL_META: Record<ChannelKind, { icon: React.ElementType; accent: string; tint: string }> = {
+  telegram: { icon: TelegramLogo, accent: "text-sky-400", tint: "border-sky-400/20 bg-sky-400/10" },
+  discord: { icon: DiscordLogo, accent: "text-indigo-400", tint: "border-indigo-400/20 bg-indigo-400/10" },
+  email: { icon: Mail, accent: "text-amber-400", tint: "border-amber-400/20 bg-amber-400/10" },
+  slack: { icon: SlackLogo, accent: "text-violet-400", tint: "border-violet-400/20 bg-violet-400/10" },
+  whatsapp: { icon: WhatsappLogo, accent: "text-emerald-400", tint: "border-emerald-400/20 bg-emerald-400/10" },
+  webhook: { icon: Webhook, accent: "text-rose-400", tint: "border-rose-400/20 bg-rose-400/10" },
+};
+
 const SCOPES: Array<{ value: ControlScope; label: string }> = [
   { value: "viewer", label: "Viewer — read-only" },
   { value: "assistant", label: "Assistant — ask the agent" },
   { value: "operator", label: "Operator — mutations (need /confirm)" },
 ];
+
+const FIELD_INPUT =
+  "w-full rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/50 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
 
 export function ConnectionsSettingsPanel() {
   const [health, setHealth] = useState<ChannelsHealth | null>(null);
@@ -164,26 +179,44 @@ export function ConnectionsSettingsPanel() {
       <SectionHeader
         title="Connections"
         description="Connect an external account to Eclipse so you can see and drive the app remotely. Every action is scope-gated and audited; mutating actions ask for an in-channel confirmation."
-        icon={Plug}
+        icon={ChatsCircle}
       />
 
       {error && (
-        <div className="glass-card-subtle flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-amber-300">
+        <div className="glass-card-subtle flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm text-amber-300">
           <AlertCircle className="size-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {health && (
-        <div className="glass-card-subtle rounded-lg px-3 py-2 text-xs text-muted-foreground">
-          Gateway {health.enabled ? "enabled" : "disabled"} · pollers:{" "}
-          {health.activePollers.length ? health.activePollers.join(", ") : "none"} ·{" "}
-          {health.bindings} binding{health.bindings === 1 ? "" : "s"} · model {health.model.provider}/{health.model.model}
-        </div>
-      )}
-
-      <div className="flex justify-end">
-        <Button variant="ghost" size="sm" onClick={() => void load()} disabled={busy}>
+      <div className="glass-card-subtle flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-xl px-3.5 py-2.5 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <Activity size={13} className={health?.enabled ? "text-emerald-400" : "text-muted-foreground/60"} />
+          Gateway {health ? (health.enabled ? "enabled" : "disabled") : "unavailable"}
+        </span>
+        <span className="text-white/15">·</span>
+        <span>
+          pollers: {health?.activePollers.length ? health.activePollers.join(", ") : "none"}
+        </span>
+        <span className="text-white/15">·</span>
+        <span>
+          {health?.bindings ?? 0} binding{(health?.bindings ?? 0) === 1 ? "" : "s"}
+        </span>
+        {health && (
+          <>
+            <span className="text-white/15">·</span>
+            <span>
+              model {health.model.provider}/{health.model.model}
+            </span>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void load()}
+          disabled={busy}
+          className="ml-auto -my-1 h-7"
+        >
           {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />}
           <span className="ml-1">Refresh</span>
         </Button>
@@ -206,28 +239,54 @@ export function ConnectionsSettingsPanel() {
           {messages.length === 0 ? (
             <p className="text-sm text-muted-foreground">No channel activity yet.</p>
           ) : (
-            <ul className="space-y-1.5">
-              {messages.map((m) => (
-                <li key={m.id} className="flex items-start gap-2 text-xs">
-                  <span
-                    className={
-                      "mt-0.5 rounded px-1.5 py-0.5 font-mono uppercase " +
-                      (m.direction === "in" ? "bg-sky-500/15 text-sky-300" : "bg-emerald-500/15 text-emerald-300")
-                    }
-                  >
-                    {m.direction}
-                  </span>
-                  <span className="flex-1 truncate text-muted-foreground" title={m.text}>
-                    {m.text}
-                  </span>
-                  <span className="text-muted-foreground/70">{m.kind}</span>
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {messages.map((m) => {
+                const meta = CHANNEL_META[m.kind];
+                const Icon = meta?.icon ?? ChatsCircle;
+                return (
+                  <li key={m.id} className="flex items-start gap-2.5 text-xs">
+                    <span
+                      className={cn(
+                        "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border",
+                        meta?.tint ?? "border-white/10 bg-white/5",
+                      )}
+                    >
+                      <Icon size={12} className={meta?.accent} />
+                    </span>
+                    <span
+                      className={cn(
+                        "mt-0.5 rounded px-1.5 py-0.5 font-mono uppercase",
+                        m.direction === "in" ? "bg-sky-500/15 text-sky-300" : "bg-emerald-500/15 text-emerald-300",
+                      )}
+                    >
+                      {m.direction}
+                    </span>
+                    <span className="flex-1 truncate text-muted-foreground" title={m.text}>
+                      {m.text}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground/60">{m.kind}</span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Panel>
       </SubSection>
     </div>
+  );
+}
+
+function StatusPill({ configured }: { configured: boolean }) {
+  return configured ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+      <span className="size-1.5 rounded-full bg-emerald-400" />
+      connected
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <span className="size-1.5 rounded-full bg-muted-foreground/50" />
+      not set
+    </span>
   );
 }
 
@@ -245,10 +304,10 @@ function WebhookUrl({ kind }: { kind: ChannelKind }) {
     }
   };
   return (
-    <div className="flex items-center gap-2 rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs">
-      <span className="flex-1 truncate text-muted-foreground">{url}</span>
-      <Button variant="ghost" size="sm" onClick={() => void copy()}>
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-1.5 text-xs">
+      <span className="flex-1 truncate font-mono text-muted-foreground">{url}</span>
+      <Button variant="ghost" size="sm" onClick={() => void copy()} className="h-6 w-6 p-0">
+        {copied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
       </Button>
     </div>
   );
@@ -270,6 +329,10 @@ function ChannelCard({
   const [linkCode, setLinkCode] = useState<ChannelLinkCode | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const meta = CHANNEL_META[entry.kind];
+  const Icon = meta.icon;
+  const configured = !!config?.configured;
 
   const setField = (key: string, value: string) => setDraft((d) => ({ ...d, [key]: value }));
 
@@ -317,45 +380,60 @@ function ChannelCard({
     }
   };
 
+  const setKeys = entry.fields.filter((f) => f.key in (config?.config ?? {}));
+
   return (
-    <Panel>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{entry.label}</span>
-          {config?.configured ? (
-            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] uppercase text-emerald-300">configured</span>
-          ) : (
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">not configured</span>
-          )}
-          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+    <Panel className="p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-xl border",
+              meta.tint,
+            )}
+          >
+            <Icon size={20} className={meta.accent} weight="fill" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{entry.label}</span>
+              <StatusPill configured={configured} />
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{entry.note}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground sm:inline">
             {entry.inbound === "push" ? "webhook" : "poll"}
           </span>
+          {configured && (
+            <Button variant="ghost" size="sm" onClick={() => void disable()} disabled={busy}>
+              <Trash2 className="size-4" />
+              <span className="ml-1 hidden sm:inline">Disable</span>
+            </Button>
+          )}
         </div>
-        {config?.configured && (
-          <Button variant="ghost" size="sm" onClick={() => void disable()} disabled={busy}>
-            <Trash2 className="size-4" />
-            <span className="ml-1">Disable</span>
-          </Button>
-        )}
       </div>
 
-      <p className="mt-1 text-xs text-muted-foreground">{entry.note}</p>
-
-      {entry.inbound === "push" && (
-        <div className="mt-3">
-          <p className="mb-1 text-xs text-muted-foreground">Inbound webhook URL</p>
-          <WebhookUrl kind={entry.kind} />
+      {configured && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <ShieldCheck size={13} className={config?.secretsEncrypted ? "text-emerald-400" : "text-amber-400"} />
+            {config?.secretsEncrypted ? "encrypted at rest" : "stored unencrypted (vault unavailable)"}
+          </span>
+          {setKeys.length > 0 && (
+            <>
+              <span className="text-white/15">·</span>
+              <span>keys set: {setKeys.map((f) => f.label).join(", ")}</span>
+            </>
+          )}
         </div>
       )}
 
-      {config?.configured && (
-        <div className="mt-3 text-xs text-muted-foreground">
-          Keys already set:{" "}
-          {entry.fields.filter((f) => f.key in (config.config ?? {})).map((f) => f.label).join(", ") || "—"}
-          {" · "}
-          <span className={config.secretsEncrypted ? "text-emerald-300/80" : "text-amber-300/80"}>
-            {config.secretsEncrypted ? "encrypted at rest" : "stored unencrypted (vault unavailable)"}
-          </span>
+      {entry.inbound === "push" && (
+        <div className="mt-3">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Inbound webhook URL</p>
+          <WebhookUrl kind={entry.kind} />
         </div>
       )}
 
@@ -369,7 +447,7 @@ function ChannelCard({
               value={draft[field.key] ?? ""}
               onChange={(e) => setField(field.key, e.target.value)}
               placeholder={field.placeholder ?? (field.secret ? "••••••" : "")}
-              className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm outline-none focus:border-white/25"
+              className={FIELD_INPUT}
             />
           </label>
         ))}
@@ -382,49 +460,52 @@ function ChannelCard({
         </Button>
       </div>
 
-      {config?.configured && (
-        <div className="mt-3 flex items-end gap-2">
-          <label className="flex-1 text-xs">
-            <span className="mb-1 block text-muted-foreground">Link code scope</span>
-            <select
-              value={scope}
-              onChange={(e) => setScope(e.target.value as ControlScope)}
-              className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm outline-none focus:border-white/25"
-            >
-              {SCOPES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button variant="default" size="sm" onClick={() => void mintCode()} disabled={busy}>
-            <Link2 className="size-4" />
-            <span className="ml-1">Generate link code</span>
-          </Button>
-        </div>
-      )}
-
-      {linkCode && (
-        <div className="glass-card-subtle mt-3 rounded-md px-3 py-2 text-sm">
-          <div className="flex items-center gap-2">
-            <Link2 className="size-4 text-sky-300" />
-            <span>
-              Send <code className="rounded bg-black/40 px-1">{`/link ${linkCode.code}`}</code> from the account.
-            </span>
+      {configured && (
+        <div className="mt-4 border-t border-white/[0.06] pt-4">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="min-w-[180px] flex-1 text-xs">
+              <span className="mb-1 block text-muted-foreground">Link code scope</span>
+              <select
+                value={scope}
+                onChange={(e) => setScope(e.target.value as ControlScope)}
+                className={cn(FIELD_INPUT, "appearance-none pr-8")}
+              >
+                {SCOPES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="default" size="sm" onClick={() => void mintCode()} disabled={busy}>
+              <Link2 className="size-4" />
+              <span className="ml-1">Generate link code</span>
+            </Button>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Expires {new Date(linkCode.expiresAt).toLocaleTimeString()} · grants the <strong>{linkCode.scope}</strong> scope.
-          </p>
-        </div>
-      )}
 
-      {bindings.length > 0 && (
-        <div className="mt-3 space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">Linked accounts</p>
-          {bindings.map((b) => (
-            <BindingRow key={b.id} binding={b} onChanged={onChanged} />
-          ))}
+          {linkCode && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs">
+              <Link2 className="size-4 shrink-0 text-sky-300" />
+              <span>
+                Send{" "}
+                <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-sky-200">{`/link ${linkCode.code}`}</code>{" "}
+                from the account.
+              </span>
+              <span className="w-full text-[10px] text-muted-foreground sm:ml-auto sm:w-auto">
+                expires {new Date(linkCode.expiresAt).toLocaleTimeString()} · grants{" "}
+                <strong className="text-foreground/80">{linkCode.scope}</strong>
+              </span>
+            </div>
+          )}
+
+          {bindings.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Linked accounts</p>
+              {bindings.map((b) => (
+                <BindingRow key={b.id} binding={b} onChanged={onChanged} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -457,16 +538,16 @@ function BindingRow({ binding, onChanged }: { binding: ChannelBindingView; onCha
   };
 
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-xs">
       <span className="flex-1 truncate">
         {binding.displayName || binding.externalId}
-        <span className="ml-1 text-muted-foreground/70">#{binding.externalId}</span>
+        <span className="ml-1 text-muted-foreground/60">#{binding.externalId}</span>
       </span>
       <select
         value={binding.scope}
         onChange={(e) => void changeScope(e.target.value as ControlScope)}
         disabled={busy}
-        className="rounded border border-white/10 bg-black/30 px-1.5 py-1 outline-none"
+        className="rounded-md border border-white/10 bg-black/30 px-1.5 py-1 text-xs outline-none focus:border-primary/50"
       >
         {SCOPES.map((s) => (
           <option key={s.value} value={s.value}>
@@ -474,7 +555,7 @@ function BindingRow({ binding, onChanged }: { binding: ChannelBindingView; onCha
           </option>
         ))}
       </select>
-      <Button variant="ghost" size="sm" onClick={() => void revoke()} disabled={busy}>
+      <Button variant="ghost" size="sm" onClick={() => void revoke()} disabled={busy} className="h-6 w-6 p-0">
         <Trash2 className="size-3.5" />
       </Button>
     </div>

@@ -39,7 +39,10 @@ interface Accessor {
   max?: number[];
 }
 
-export function buildGlb(parts: CompiledPart[]): Uint8Array {
+export function buildGlb(
+  parts: CompiledPart[],
+  stages: Array<{ label: string; lit: string[] }> = [],
+): Uint8Array {
   const chunks: Uint8Array[] = [];
   let byteLength = 0;
   const bufferViews: Array<{ buffer: number; byteOffset: number; byteLength: number; target?: number }> = [];
@@ -49,6 +52,9 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
   const meshes: Array<Record<string, unknown>> = [];
   const nodes: Array<Record<string, unknown>> = [];
   let outlineMat: number | null = null;
+  // For the stage animation: which node indices + baked centre belong to a group.
+  const groupNodes = new Map<string, number[]>();
+  const groupCenter = new Map<string, [number, number, number, number]>();
 
   const pushBytes = (bytes: Uint8Array): number => {
     const offset = byteLength;
@@ -160,6 +166,64 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
 
     meshes.push({ name: part.id, primitives });
     nodes.push({ name: part.group, mesh: meshes.length - 1 });
+    const nodeIndex = nodes.length - 1;
+    const list = groupNodes.get(part.group);
+    if (list) list.push(nodeIndex);
+    else groupNodes.set(part.group, [nodeIndex]);
+    const c = groupCenter.get(part.group) ?? [0, 0, 0, 0];
+    c[0] += (part.bounds.min[0] + part.bounds.max[0]) / 2;
+    c[1] += (part.bounds.min[1] + part.bounds.max[1]) / 2;
+    c[2] += (part.bounds.min[2] + part.bounds.max[2]) / 2;
+    c[3] += 1;
+    groupCenter.set(part.group, c);
+  }
+
+  // Stage animation: each stage pulses its lit groups. Geometry is baked, so a
+  // group is scaled about its own centre by pairing `scale` with a compensating
+  // `translation` (t = c·(1−k)) — a pivot-correct animation with no extra graph.
+  const animations: Array<Record<string, unknown>> = [];
+  if (stages.length > 0 && groupNodes.size > 0) {
+    const samples = stages.length + 1;
+    const times = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) times[i] = i;
+    const timeAccessor = accessors.length;
+    accessors.push({
+      bufferView: addView(new Uint8Array(times.buffer, times.byteOffset, times.byteLength)),
+      componentType: 5126,
+      count: samples,
+      type: 'SCALAR',
+      min: [0],
+      max: [samples - 1],
+    });
+
+    const samplers: Array<Record<string, unknown>> = [];
+    const channels: Array<Record<string, unknown>> = [];
+    for (const [group, indices] of groupNodes) {
+      const c = groupCenter.get(group);
+      if (!c || c[3] === 0) continue;
+      const cx = c[0] / c[3], cy = c[1] / c[3], cz = c[2] / c[3];
+      const scale = new Float32Array(samples * 3);
+      const trans = new Float32Array(samples * 3);
+      for (let s = 0; s < samples; s++) {
+        const lit = s > 0 && stages[s - 1]!.lit.includes(group);
+        const k = lit ? 1.08 : 1;
+        scale[s * 3] = k; scale[s * 3 + 1] = k; scale[s * 3 + 2] = k;
+        trans[s * 3] = cx * (1 - k); trans[s * 3 + 1] = cy * (1 - k); trans[s * 3 + 2] = cz * (1 - k);
+      }
+      const scaleAccessor = accessors.length;
+      accessors.push({ bufferView: addView(new Uint8Array(scale.buffer, scale.byteOffset, scale.byteLength)), componentType: 5126, count: samples, type: 'VEC3' });
+      const transAccessor = accessors.length;
+      accessors.push({ bufferView: addView(new Uint8Array(trans.buffer, trans.byteOffset, trans.byteLength)), componentType: 5126, count: samples, type: 'VEC3' });
+      const scaleSampler = samplers.length;
+      samplers.push({ input: timeAccessor, output: scaleAccessor, interpolation: 'LINEAR' });
+      const transSampler = samplers.length;
+      samplers.push({ input: timeAccessor, output: transAccessor, interpolation: 'LINEAR' });
+      for (const node of indices) {
+        channels.push({ sampler: scaleSampler, target: { node, path: 'scale' } });
+        channels.push({ sampler: transSampler, target: { node, path: 'translation' } });
+      }
+    }
+    animations.push({ name: 'stages', samplers, channels });
   }
 
   const json = {
@@ -172,6 +236,7 @@ export function buildGlb(parts: CompiledPart[]): Uint8Array {
     accessors,
     bufferViews,
     buffers: [{ byteLength }],
+    ...(animations.length ? { animations } : {}),
   };
 
   const jsonBytes = new TextEncoder().encode(JSON.stringify(json));

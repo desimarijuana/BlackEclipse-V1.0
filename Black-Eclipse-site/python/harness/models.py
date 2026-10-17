@@ -365,6 +365,13 @@ def build_chat_model(settings: ModelSettings) -> Any:
         kwargs: dict[str, Any] = {"model": model, "base_url": base_url, "api_key": api_key}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        # Token analytics require usage on the streamed response. langchain-openai
+        # disables this by default when a custom base_url is set (our case for
+        # every OpenAI-compatible endpoint, incl. Ollama), so a streaming run
+        # would report 0 tokens and the analytics panel would be blank. Ask the
+        # endpoint to include usage (standard OpenAI, Ollama and most compatible
+        # servers support `stream_options.include_usage`).
+        kwargs["stream_usage"] = True
         return ChatOpenAI(**kwargs)
 
     if spec.kind == "anthropic":

@@ -10,7 +10,11 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const daysParam = new URL(request.url).searchParams.get("days");
-    const days = Number.isFinite(Number(daysParam)) ? Math.max(1, Math.min(Number(daysParam), 365)) : 30;
+    // `Number(null)`/`Number("")` are 0 (finite!), so a missing or empty `days`
+    // must be detected explicitly — otherwise the documented 30-day default
+    // silently collapsed to a 1-day window.
+    const parsed = daysParam === null || daysParam.trim() === "" ? NaN : Number(daysParam);
+    const days = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 365)) : 30;
     const summary = await getUsageSummaryFromRuntime(days);
     return NextResponse.json({ success: true, ...summary });
   } catch (err) {

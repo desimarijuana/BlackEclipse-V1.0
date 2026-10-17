@@ -27,7 +27,7 @@ import {
   type Mesh,
 } from './mesh';
 import { compose, identity, multiply, type Mat4, type Vec3 } from './math';
-import { RECIPES, type RecipePart } from './recipes';
+import { RECIPES, RECIPE_PARAM_KEYS, type RecipePart } from './recipes';
 import type { Model3dMaterial, Model3dTone } from './names';
 
 export interface CompiledPart {
@@ -67,6 +67,8 @@ export interface CompiledModel3d {
   parts: CompiledPart[];
   keys: CompiledKey[];
   wires: CompiledWire[];
+  /** Stages with their lit sets resolved to authored group ids. */
+  stages: Array<{ label: string; readout?: string; lit: string[] }>;
   bounds: Bounds;
   target: Vec3;
   distance: number;
@@ -191,6 +193,25 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
   const groupAnchors = new Map<string, Vec3>();
   const total = emptyBounds();
 
+  // Outline edges are the expensive part of a large scene; cap the total and
+  // degrade gracefully (drop outlines rather than freeze the tab).
+  const EDGE_BUDGET = 60_000;
+  let edgeSegments = 0;
+  let budgetNoted = false;
+  const edgesFor = (mesh: Mesh): Float32Array => {
+    const edges = featureEdges(mesh);
+    const count = edges.length / 6;
+    if (edgeSegments + count > EDGE_BUDGET) {
+      if (!budgetNoted) {
+        diagnostics.push('Outline simplified: the edge budget was reached for this large scene.');
+        budgetNoted = true;
+      }
+      return new Float32Array(0);
+    }
+    edgeSegments += count;
+    return edges;
+  };
+
   const push = (
     group: string,
     id: string,
@@ -205,7 +226,7 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
       diagnostics.push(`Part "${group}" skipped: empty geometry.`);
       return;
     }
-    parts.push({ id, group, mesh, edges: featureEdges(mesh), tone, material, opacity, lit, anchor: anchorOf(bounds), bounds });
+    parts.push({ id, group, mesh, edges: edgesFor(mesh), tone, material, opacity, lit, anchor: anchorOf(bounds), bounds });
     grow(total, bounds);
   };
 
@@ -216,6 +237,13 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
       if (!recipe) {
         diagnostics.push(`Part "${part.id}" skipped: unknown recipe "${part.recipe}".`);
         continue;
+      }
+      const allowed = RECIPE_PARAM_KEYS[part.recipe] ?? [];
+      const unknownParams = Object.keys(part.params ?? {}).filter((key) => !allowed.includes(key));
+      if (unknownParams.length) {
+        diagnostics.push(
+          `Part "${part.id}" recipe "${part.recipe}" ignores unknown parameter(s): ${unknownParams.join(', ')} (allowed: ${allowed.join(', ')}).`,
+        );
       }
       const recipeParts: RecipePart[] = recipe(part.params ?? {});
       const groupBounds = emptyBounds();
@@ -235,7 +263,7 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
           id: `${part.id}~${index}`,
           group: part.id,
           mesh: baked,
-          edges: featureEdges(baked),
+          edges: edgesFor(baked),
           tone: spec.tone ?? part.tone,
           material: spec.material ?? part.material,
           opacity: part.opacity,
@@ -286,6 +314,21 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
 
   if (parts.length === 0) diagnostics.push('This model has no renderable parts.');
 
+  // LOD: in a busy scene, drop the outline of parts that are tiny relative to
+  // the whole (their edges are visual noise and cost draw calls). Deterministic.
+  if (parts.length > 40) {
+    const diag = Math.hypot(total.max[0] - total.min[0], total.max[1] - total.min[1], total.max[2] - total.min[2]);
+    const minEdge = diag * 0.03;
+    for (const part of parts) {
+      const partDiag = Math.hypot(
+        part.bounds.max[0] - part.bounds.min[0],
+        part.bounds.max[1] - part.bounds.min[1],
+        part.bounds.max[2] - part.bounds.min[2],
+      );
+      if (partDiag < minEdge) part.edges = new Float32Array(0);
+    }
+  }
+
   const wires: CompiledWire[] = [];
   for (const wire of block.wires) {
     const from = groupAnchors.get(wire.from);
@@ -310,15 +353,29 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
     (bounds.min[1] + bounds.max[1]) / 2,
     (bounds.min[2] + bounds.max[2]) / 2,
   ];
-  const extent = Math.max(
+  const rawExtent = Math.max(
     bounds.max[0] - bounds.min[0],
     bounds.max[1] - bounds.min[1],
     bounds.max[2] - bounds.min[2],
-    10,
   );
+  const extent = Math.max(rawExtent, 10);
+  // Unit sanity: a part count is meaningless if the scale is wildly off. This is
+  // a soft hint (the scene still renders, fitted), not a hard failure.
+  if (parts.length > 0 && (rawExtent > 20_000 || rawExtent < 0.5)) {
+    diagnostics.push(
+      `Scene size looks off (extent ${rawExtent.toFixed(2)} units); use a consistent unit (e.g. cm) across parts.`,
+    );
+  }
   const distance =
     block.camera.distance ??
     (extent / (2 * Math.tan((FOV * Math.PI) / 360))) * 1.45;
+
+  const allGroups = Array.from(new Set(parts.map((p) => p.group)));
+  const stages = block.stages.map((stage) => ({
+    label: stage.label,
+    readout: stage.readout,
+    lit: stage.lit === true ? allGroups : Array.isArray(stage.lit) ? stage.lit : [],
+  }));
 
   return {
     width: block.width,
@@ -326,6 +383,7 @@ export function compileModel3d(block: Model3dBlock): CompiledModel3d {
     parts,
     keys,
     wires,
+    stages,
     bounds,
     target,
     distance,
@@ -340,6 +398,28 @@ export function model3dStats(scene: CompiledModel3d): { parts: number; triangles
   let triangles = 0;
   for (const part of scene.parts) triangles += part.mesh.indices.length / 3;
   return { parts: scene.parts.length, triangles };
+}
+
+// A small LRU keyed by the scene's content signature. The same figure can render
+// in several places (history + live turn, inline + full page); recompiling all
+// recipes each time is pure waste, so identical scenes reuse one result.
+const SCENE_CACHE = new Map<string, CompiledModel3d>();
+const SCENE_CACHE_MAX = 8;
+
+export function compileModel3dCached(block: Model3dBlock, key: string): CompiledModel3d {
+  const hit = SCENE_CACHE.get(key);
+  if (hit) {
+    SCENE_CACHE.delete(key);
+    SCENE_CACHE.set(key, hit);
+    return hit;
+  }
+  const scene = compileModel3d(block);
+  SCENE_CACHE.set(key, scene);
+  if (SCENE_CACHE.size > SCENE_CACHE_MAX) {
+    const oldest = SCENE_CACHE.keys().next().value;
+    if (oldest !== undefined) SCENE_CACHE.delete(oldest);
+  }
+  return scene;
 }
 
 export { emptyMesh, mergeMeshes, identity };

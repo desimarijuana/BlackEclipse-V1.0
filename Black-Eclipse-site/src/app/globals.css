@@ -1450,6 +1450,24 @@ html:not(.dark) .glass-command-popover {
     inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
 
+/* Chat composer — a NEAR-TRANSPARENT frosted panel: the solid fill is removed
+ * and only the blur remains, so the transcript behind reads through real glass.
+ * Low tint (0.16), high blur + saturation. Keep the tint low — a higher alpha
+ * hides the blur (see hard rule #2). */
+.glass-composer {
+  background: rgb(var(--card-rgb, 18 18 20) / 0.16);
+  backdrop-filter: blur(28px) saturate(1.5);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+html:not(.dark) .glass-composer {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
 /* Frosted-glass button — translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
 .glass-button {
@@ -1561,6 +1579,7 @@ html.theme-glass-active .glass-card-strong,
 html.theme-glass-active .glass-card-subtle,
 html.theme-glass-active .glass-drawer,
 html.theme-glass-active .glass-command-popover,
+html.theme-glass-active .glass-composer,
 html.theme-glass-active .glass-button,
 html.theme-glass-active .ws-glass,
 html.theme-glass-active .tab-bar-glass,
@@ -1580,6 +1599,7 @@ html:not(.dark).theme-glass-active .glass-card-strong,
 html:not(.dark).theme-glass-active .glass-card-subtle,
 html:not(.dark).theme-glass-active .glass-drawer,
 html:not(.dark).theme-glass-active .glass-command-popover,
+html:not(.dark).theme-glass-active .glass-composer,
 html:not(.dark).theme-glass-active .glass-button,
 html:not(.dark).theme-glass-active .ws-glass,
 html:not(.dark).theme-glass-active .tab-bar-glass,
@@ -1620,6 +1640,7 @@ html.theme-glass-off .glass-card-strong,
 html.theme-glass-off .glass-card-subtle,
 html.theme-glass-off .glass-drawer,
 html.theme-glass-off .glass-command-popover,
+html.theme-glass-off .glass-composer,
 html.theme-glass-off .glass-button,
 html.theme-glass-off .ws-glass,
 html.theme-glass-off .tab-bar-glass,
@@ -1638,6 +1659,7 @@ html:not(.dark).theme-glass-off .glass-card-strong,
 html:not(.dark).theme-glass-off .glass-card-subtle,
 html:not(.dark).theme-glass-off .glass-drawer,
 html:not(.dark).theme-glass-off .glass-command-popover,
+html:not(.dark).theme-glass-off .glass-composer,
 html:not(.dark).theme-glass-off .glass-button,
 html:not(.dark).theme-glass-off .tab-bar-glass,
 html:not(.dark).theme-glass-off .tab-bar-subtle,

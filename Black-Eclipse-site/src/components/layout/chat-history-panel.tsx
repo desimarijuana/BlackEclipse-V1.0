@@ -203,7 +203,7 @@ export function ChatHistoryPanel({
         if (e.key === 'Enter') commitRename(target, (e.target as HTMLInputElement).value);
         if (e.key === 'Escape') setRenaming(null);
       }}
-      className="w-full min-w-0 rounded-md border border-border/50 bg-background/60 px-1.5 py-0.5 text-[11px] text-foreground outline-none focus:border-border"
+      className="w-full min-w-0 rounded-md border border-border/50 bg-background/60 px-1.5 py-0.5 text-[12px] text-foreground outline-none focus:border-border"
     />
   );
 
@@ -232,11 +232,11 @@ export function ChatHistoryPanel({
             {c.color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} />}
             <span className="min-w-0 flex-1">
               {isRenaming ? renameInput(renaming, c.title) : <span className="block truncate">{c.title || t('sidebar.untitledSession')}</span>}
-              {snippet && !isRenaming && <span className="block truncate text-[9px] font-normal text-muted-foreground/70">{snippet}</span>}
+              {snippet && !isRenaming && <span className="block truncate text-[10px] font-normal text-muted-foreground/70">{snippet}</span>}
             </span>
           </span>
           {!isRenaming && (c.tags?.length ?? 0) > 0 && (
-            <span className="shrink-0 rounded bg-white/[0.06] px-1 text-[8px] text-muted-foreground">{c.tags!.length}</span>
+            <span className="shrink-0 rounded bg-white/[0.06] px-1 text-[9px] text-muted-foreground">{c.tags!.length}</span>
           )}
           {!isRenaming && (
             <button
@@ -277,9 +277,9 @@ export function ChatHistoryPanel({
             <Folder size={12} className="shrink-0 text-muted-foreground" />
           )}
           {isRenaming ? renameInput(renaming, folder.name) : (
-            <span className="truncate text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{folder ? folder.name : t('sidebar.unfiled')}</span>
+            <span className="truncate text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{folder ? folder.name : t('sidebar.unfiled')}</span>
           )}
-          <span className="shrink-0 text-[9px] text-muted-foreground/70">{count}</span>
+          <span className="shrink-0 text-[10px] text-muted-foreground/70">{count}</span>
         </button>
         {isFolder && !isRenaming && (
           <button
@@ -299,7 +299,7 @@ export function ChatHistoryPanel({
 
   const renderDateHeader = (bucket: ChatDateBucket, count: number) => (
     <div className="flex items-center justify-between gap-1 px-1" style={{ paddingLeft: 4 }}>
-      <span className="truncate text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{bucketLabel[bucket]}</span>
+      <span className="truncate text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{bucketLabel[bucket]}</span>
       <span className="shrink-0 text-[9px] text-muted-foreground/70">{count}</span>
     </div>
   );
@@ -311,7 +311,7 @@ export function ChatHistoryPanel({
     <div className="flex flex-col gap-2 pb-4">
       {/* Header + global actions */}
       <div className="flex items-center justify-between px-1">
-        <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
+        <span className="text-[13px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
         <div className="flex items-center gap-0.5">
           {groupBy === 'folders' && <IconBtn title={t('sidebar.newFolder')} onClick={() => onCreateFolder()}><FolderPlus size={12} /></IconBtn>}
           <IconBtn title={t('sidebar.newChat')} onClick={onNewChat}><Plus size={12} /></IconBtn>
@@ -319,15 +319,15 @@ export function ChatHistoryPanel({
       </div>
 
       {/* Search */}
-      <div className="mx-1 flex items-center gap-1.5 rounded-lg glass-card-subtle border border-border/20 px-2 py-1">
-        <Search size={11} className="shrink-0 text-muted-foreground" />
+      <div className="mx-1 flex items-center gap-2 rounded-xl glass-card-subtle border border-border/20 px-3 py-2">
+        <Search size={14} className="shrink-0 text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('sidebar.searchChats')}
-          className="w-full min-w-0 bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/70 outline-none"
+          className="w-full min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none"
         />
-        {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={11} /></button>}
+        {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={14} /></button>}
       </div>
 
       {/* Controls: group-by (icon toggle) + optional tag filter + sort */}
@@ -365,7 +365,7 @@ export function ChatHistoryPanel({
           <div data-droppable data-drop-key="pinned" className={`flex flex-col gap-0.5 rounded-lg ${dropKey === 'pinned' && dragging ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}>
             <div className="flex items-center gap-1.5 px-1">
               <Pin size={11} className="text-amber-400" weight="fill" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t('sidebar.pinned')}</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t('sidebar.pinned')}</span>
             </div>
             {view.pinned.map((c) => renderRow(c))}
           </div>
@@ -396,7 +396,7 @@ export function ChatHistoryPanel({
         })}
 
         {!hasAnything && (
-          <span className="text-[10px] text-muted-foreground italic text-center py-2">
+          <span className="text-[11px] text-muted-foreground italic text-center py-2">
             {query.trim() ? t('sidebar.noMatches') : t('sidebar.noSessions')}
           </span>
         )}
@@ -404,7 +404,7 @@ export function ChatHistoryPanel({
 
       {/* Drag ghost */}
       {ghost && (
-        <div className="pointer-events-none fixed z-[110] max-w-[180px] truncate rounded-lg glass-card-strong border border-border/40 px-2 py-1 text-[10px] text-foreground shadow-xl" style={{ left: ghost.x + 12, top: ghost.y + 12 }}>
+        <div className="pointer-events-none fixed z-[110] max-w-[180px] truncate rounded-lg glass-card-strong border border-border/40 px-2 py-1 text-[11px] text-foreground shadow-xl" style={{ left: ghost.x + 12, top: ghost.y + 12 }}>
           {ghost.label}
         </div>
       )}
@@ -489,7 +489,7 @@ function HistorySelect<T extends string>({
         size="sm"
         title={title}
         className={cn(
-          'glass-card-subtle border-border/20 text-[10px] text-muted-foreground hover:text-foreground',
+          'glass-card-subtle border-border/20 text-[11px] text-muted-foreground hover:text-foreground outline-none focus-visible:border-border/40 focus-visible:ring-0',
           className,
         )}
       >
@@ -497,7 +497,7 @@ function HistorySelect<T extends string>({
       </SelectTrigger>
       <SelectContent align={align} side="bottom" alignItemWithTrigger={false} className="w-44 min-w-[176px]">
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value} className="text-[11px]">
+          <SelectItem key={o.value} value={o.value} className="text-[12px]">
             {o.label}
           </SelectItem>
         ))}

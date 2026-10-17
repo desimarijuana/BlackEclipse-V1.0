@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from '@/lib/icons';
+import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown, SquarePen } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
@@ -66,6 +66,8 @@ interface ChatHistoryProps {
   onFeedback?: (id: string, feedback: 'up' | 'down') => void;
   /** Run a follow-up agent turn (used by response `controls` blocks). */
   onFollowup?: (prompt: string) => void;
+  /** Open this assistant message's content in the Canvas reading dock. */
+  onOpenCanvas?: (msg: Message) => void;
   /**
    * Optional external ref to the transcript's scroll element. The full-page
    * ChatBot wrapper uses it to forward wheel/trackpad scrolling from the
@@ -73,6 +75,13 @@ interface ChatHistoryProps {
    * cannot chain their wheel events to it) back onto the transcript.
    */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Extra bottom padding (px) added to the scroll area. The full-page ChatBot
+   * uses this to reserve room for the FLOATING composer that overlays the
+   * transcript, so the last message can scroll clear of it instead of hiding
+   * underneath.
+   */
+  bottomInset?: number;
 }
 
 /** How close to the bottom counts as "following the stream". */
@@ -133,7 +142,7 @@ const AssistantContent = memo(function AssistantContent({
   return <Markdown content={content} compact={compact} streaming={streaming} onFollowup={onFollowup} className="w-full" />;
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup, scrollRef: externalScrollRef }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup, onOpenCanvas, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -323,6 +332,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       <div
         ref={scrollRef}
         onScroll={onScroll}
+        style={bottomInset ? { paddingBottom: bottomInset } : undefined}
         className={cn(
           'h-full w-full overflow-y-auto min-h-0 scrollbar-hide',
           compact ? 'space-y-3 p-3 pr-1.5' : 'px-4 md:px-6 pr-6 md:pr-5 space-y-6 pb-6',
@@ -487,6 +497,17 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                           >
                             {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
                           </button>
+                          {onOpenCanvas && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCanvas(msg)}
+                              className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                              title="Open in Canvas (read at full width)"
+                              aria-label="Open in Canvas"
+                            >
+                              <SquarePen size={11} />
+                            </button>
+                          )}
                           {onRetryMessage && (
                             <button
                               type="button"
@@ -669,7 +690,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
             style={{
               position: 'fixed',
               left: rootRect.left + rootRect.width / 2,
-              top: compact ? rootRect.bottom - 8 : rootRect.bottom - 16,
+              // Sit ABOVE the floating composer overlay, not behind it. When the
+              // transcript reserves a `bottomInset` for the composer, anchor the
+              // pill's bottom to that boundary plus a small gap; otherwise fall
+              // back to the compact/inline offsets.
+              top: rootRect.bottom - (bottomInset ?? 0) - (compact ? 8 : 16),
               transform: 'translate(-50%, -100%)',
             }}
             className="z-30 flex items-center gap-1.5 rounded-full glass-tooltip px-3 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:text-primary cursor-pointer animate-fade-in"

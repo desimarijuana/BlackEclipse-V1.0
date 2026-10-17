@@ -344,3 +344,29 @@ export const RECIPES: Record<string, Recipe> = {
   lever,
   spring,
 };
+
+/**
+ * The parameter keys each recipe actually reads. A `params` entry OUTSIDE this
+ * set is a typo that would otherwise be silently ignored (the recipe falls back
+ * to its default), so the compiler reports it. Kept beside the recipes and
+ * covered by `compile.test.ts`, so the table cannot drift unnoticed.
+ */
+export const RECIPE_PARAM_KEYS: Record<string, string[]> = {
+  motor: ['radius', 'length'],
+  gearbox: ['width', 'depth', 'height', 'gearRadius'],
+  pump: ['radius'],
+  valve: ['radius'],
+  gauge: ['radius'],
+  tank: ['radius', 'height'],
+  bearing: ['radius', 'balls'],
+  gear: ['radius', 'teeth', 'thickness', 'hub'],
+  pulley: ['radius'],
+  'belt-drive': ['radius', 'span', 'height'],
+  frame: ['width', 'depth'],
+  bracket: ['height'],
+  fan: ['radius'],
+  'heat-exchanger': ['radius', 'length'],
+  pcb: ['width', 'depth'],
+  lever: ['arm'],
+  spring: ['radius', 'height'],
+};

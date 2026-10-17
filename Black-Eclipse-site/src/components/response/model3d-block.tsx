@@ -15,8 +15,11 @@ import { ChevronLeft, ChevronRight, Download, Maximize2, Pause, Play, RotateCcw,
 import { cn } from '@/lib/utils';
 import { useStillness } from '@/lib/anatomy/live';
 import type { Model3dBlock as Model3dBlockType } from '@/lib/response/contract';
-import { compileModel3d, model3dStats, type CompiledModel3d } from '@/lib/model3d/compile';
+import { compileModel3dCached, model3dStats, type CompiledModel3d } from '@/lib/model3d/compile';
 import { buildGlb } from '@/lib/model3d/glb';
+import { model3dToObj, model3dToStl } from '@/lib/model3d/exporters';
+import { figureUrl } from '@/lib/response/share';
+import { Model3dFallback } from './model3d-fallback';
 
 const Model3dCanvas = dynamic(() => import('./model3d-canvas').then((m) => m.Model3dCanvas), {
   ssr: false,
@@ -77,17 +80,33 @@ function LegendChip({ mark, label }: { mark?: string; label: string }) {
   );
 }
 
-function downloadScene(scene: CompiledModel3d, name: string): void {
-  const bytes = buildGlb(scene.parts);
-  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'model/gltf-binary' });
+function safeName(name: string): string {
+  return name.replace(/[^a-z0-9-_]+/gi, '-').slice(0, 60) || 'eclipse-model';
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `${name.replace(/[^a-z0-9-_]+/gi, '-').slice(0, 60) || 'eclipse-model'}.glb`;
+  anchor.download = filename;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function downloadScene(scene: CompiledModel3d, name: string): void {
+  const bytes = buildGlb(scene.parts, scene.stages);
+  downloadBlob(new Blob([bytes.buffer as ArrayBuffer], { type: 'model/gltf-binary' }), `${safeName(name)}.glb`);
+}
+
+function downloadObj(scene: CompiledModel3d, name: string): void {
+  downloadBlob(new Blob([model3dToObj(scene.parts)], { type: 'text/plain' }), `${safeName(name)}.obj`);
+}
+
+function downloadStl(scene: CompiledModel3d, name: string): void {
+  const bytes = model3dToStl(scene.parts);
+  downloadBlob(new Blob([bytes.buffer as ArrayBuffer], { type: 'model/stl' }), `${safeName(name)}.stl`);
 }
 
 interface BodyProps {
@@ -104,9 +123,11 @@ interface BodyProps {
   height: number;
   /** Rendered ON the viewport (stage controls), not below the figure. */
   overlay?: ReactNode;
+  selected: string | null;
+  onSelect: (group: string | null) => void;
 }
 
-function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, onError, onFull, large, height, overlay }: BodyProps) {
+function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, onError, onFull, large, height, overlay, selected, onSelect }: BodyProps) {
   const stats = model3dStats(scene);
   return (
     <>
@@ -144,15 +165,27 @@ function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, on
         aria-label={block.description ?? `3D model with ${stats.parts} parts`}
       >
         {error ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-white/70">
-            {error}
+          <div className="flex h-full flex-col">
+            <div className="min-h-0 flex-1">
+              {scene.parts.length > 0 && <Model3dFallback scene={scene} height={height} />}
+            </div>
+            <p className="shrink-0 px-4 pb-2 text-center text-[11px] text-white/55">{error}</p>
           </div>
         ) : scene.parts.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[12px] text-white/60">
             No parts in this model.
           </div>
         ) : (
-          <Model3dCanvas key={sceneKey} scene={scene} litGroups={litIds} still={still} autoRotate={block.animate === true} onError={onError} />
+          <Model3dCanvas
+            key={sceneKey}
+            scene={scene}
+            litGroups={litIds}
+            still={still}
+            autoRotate={block.animate === true}
+            selected={selected}
+            onSelect={onSelect}
+            onError={onError}
+          />
         )}
         {!error && scene.parts.length > 0 && (
           <>
@@ -172,14 +205,38 @@ function Model3dBody({ block, scene, sceneKey, litIds, still, error, readout, on
 
       {scene.keys.length > 0 && (
         <ol className="mt-3 space-y-1.5">
-          {scene.keys.map((key, i) => (
-            <li key={key.id} className="flex gap-2 text-[12px] leading-snug">
-              <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border/50 font-mono text-[10px] font-semibold text-foreground/80">
-                {i + 1}
-              </span>
-              <span className="text-muted-foreground">{key.label}</span>
-            </li>
-          ))}
+          {scene.keys.map((key, i) => {
+            const active = selected === key.id;
+            const stageLit = !active && litIds.has(key.id);
+            return (
+              <li key={key.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(active ? null : key.id)}
+                  aria-pressed={active}
+                  aria-label={`Show part ${i + 1}: ${key.label}`}
+                  className={cn(
+                    'flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-[12px] leading-snug transition-colors',
+                    active ? 'bg-accent/40 text-foreground' : 'text-muted-foreground hover:bg-accent/20',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-semibold',
+                      active
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : stageLit
+                          ? 'border-foreground/60 bg-foreground/15 text-foreground'
+                          : 'border-border/50 text-foreground/80',
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                  <span>{key.label}</span>
+                </button>
+              </li>
+            );
+          })}
         </ol>
       )}
 
@@ -211,7 +268,7 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
   const sceneKey = useMemo(() => JSON.stringify(block), [block]);
   const scene = useMemo(() => {
     try {
-      return compileModel3d(block);
+      return compileModel3dCached(block, sceneKey);
     } catch {
       return null;
     }
@@ -221,6 +278,8 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
   const [stageIndex, setStageIndex] = useState(0);
   const [playing, setPlaying] = useState(block.animate === true);
   const [full, setFull] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const still = useStillness();
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -296,7 +355,7 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-5">
-              <Model3dBody block={{ ...block, fig: undefined, title: undefined, hint: undefined }} scene={scene} sceneKey={sceneKey} litIds={litIds} still={still} error={error} readout={readout} onError={setError} large height={560} overlay={controls} />
+              <Model3dBody block={{ ...block, fig: undefined, title: undefined, hint: undefined }} scene={scene} sceneKey={sceneKey} litIds={litIds} still={still} error={error} readout={readout} onError={setError} large height={560} overlay={controls} selected={selected} onSelect={setSelected} />
             </div>
           </div>
         </div>,
@@ -319,6 +378,8 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
           onFull={openFull}
           height={Math.min(560, block.height)}
           overlay={controls}
+          selected={selected}
+          onSelect={setSelected}
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
@@ -326,7 +387,33 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
             onClick={() => downloadScene(scene, block.title ?? 'eclipse-model')}
             className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-accent/30 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
           >
-            <Download size={12} /> Download .glb
+            <Download size={12} /> .glb
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadObj(scene, block.title ?? 'eclipse-model')}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-accent/30 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          >
+            <Download size={12} /> .obj
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadStl(scene, block.title ?? 'eclipse-model')}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-accent/30 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          >
+            <Download size={12} /> .stl
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard?.writeText(figureUrl(block, window.location.origin)).then(
+                () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
+                () => {},
+              );
+            }}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-accent/30 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          >
+            {copied ? 'Link copied' : 'Share link'}
           </button>
           <span className="font-mono text-[10px] text-muted-foreground/60">
             {model3dStats(scene).parts} parts · {model3dStats(scene).triangles} tris

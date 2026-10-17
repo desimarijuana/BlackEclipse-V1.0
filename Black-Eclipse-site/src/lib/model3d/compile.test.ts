@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { model3dBlock, type Model3dBlock } from '@/lib/response/blocks/model3d';
-import { compileModel3d, model3dStats } from './compile';
+import { compileModel3d, compileModel3dCached, model3dStats } from './compile';
 import { buildGlb } from './glb';
-import { RECIPES } from './recipes';
+import { RECIPES, RECIPE_PARAM_KEYS } from './recipes';
 import { MODEL3D_RECIPES } from './names';
 
 function parse(payload: Record<string, unknown>): Model3dBlock {
@@ -14,6 +14,13 @@ function parse(payload: Record<string, unknown>): Model3dBlock {
 describe('model3d schema ↔ recipe kit', () => {
   it('exposes exactly the recipes the runtime implements', () => {
     expect([...MODEL3D_RECIPES].sort()).toEqual(Object.keys(RECIPES).sort());
+  });
+
+  it('declares a parameter contract for every recipe', () => {
+    expect(Object.keys(RECIPE_PARAM_KEYS).sort()).toEqual([...MODEL3D_RECIPES].sort());
+    for (const keys of Object.values(RECIPE_PARAM_KEYS)) {
+      expect(keys.length).toBeGreaterThan(0);
+    }
   });
 
   it('rejects an unknown recipe (never silently degrades)', () => {
@@ -63,6 +70,11 @@ describe('compileModel3d — a real scene, deterministically', () => {
     expect(scene.keys[0]!.label).toBe('drive motor');
   });
 
+  it('reports an unknown recipe parameter instead of silently ignoring it', () => {
+    const scene = compileModel3d(parse({ parts: [{ id: 'g', recipe: 'gearbox', params: { width: 50, widht: 10 } }] }));
+    expect(scene.diagnostics.some((d) => d.includes('widht'))).toBe(true);
+  });
+
   it('every recipe compiles to renderable geometry', () => {
     for (const name of MODEL3D_RECIPES) {
       const scene = compileModel3d(parse({ parts: [{ id: 'r', recipe: name }] }));
@@ -99,6 +111,19 @@ describe('compileModel3d — a real scene, deterministically', () => {
     expect(scene.diagnostics.some((d) => d.includes('ghost'))).toBe(true);
   });
 
+  it('resolves stage lit sets and exports a stage animation', () => {
+    const scene = compileModel3d(
+      parse({ parts: [{ id: 'g', recipe: 'gear', lit: true }], stages: [{ label: 'turn', lit: ['g'] }] }),
+    );
+    expect(scene.stages[0]!.lit).toContain('g');
+    const glb = buildGlb(scene.parts, scene.stages);
+    const view = new DataView(glb.buffer);
+    const jsonLength = view.getUint32(12, true);
+    const json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jsonLength)).trim());
+    expect(Array.isArray(json.animations)).toBe(true);
+    expect(json.animations[0].channels.length).toBeGreaterThan(0);
+  });
+
   it('is total for an empty scene', () => {
     const scene = compileModel3d(parse({ parts: [] }));
     expect(scene.parts).toEqual([]);
@@ -111,6 +136,13 @@ describe('compileModel3d — a real scene, deterministically', () => {
     const a = compileModel3d(block);
     const b = compileModel3d(block);
     expect(Array.from(a.parts[0]!.mesh.positions)).toEqual(Array.from(b.parts[0]!.mesh.positions));
+  });
+
+  it('reuses a cached scene for the same content key', () => {
+    const block = parse({ parts: [{ id: 'g', recipe: 'gear' }] });
+    const a = compileModel3dCached(block, 'cache-key');
+    const b = compileModel3dCached(block, 'cache-key');
+    expect(a).toBe(b);
   });
 });
 

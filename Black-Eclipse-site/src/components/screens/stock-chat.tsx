@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
@@ -103,8 +103,8 @@ const ArtifactsScreen = dynamic(
   () => import('@/components/screens/artifacts/artifacts-screen').then((m) => m.ArtifactsScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
-const CanvasScreen = dynamic(
-  () => import('@/components/screens/canvas/canvas-screen').then((m) => m.CanvasScreen),
+const CanvasPane = dynamic(
+  () => import('@/components/screens/canvas/canvas-dock').then((m) => m.CanvasDock),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 const TasksScreen = dynamic(
@@ -150,6 +150,7 @@ import { clientIsOperator } from '@/lib/harness/skills-browser';
 import { turnText, type AssistantTurn } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
+import { contentFromMessage } from '@/lib/canvas/content';
 import { useRegimeScopeStore } from '@/lib/regime/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import { useForwardWheelScroll } from '@/hooks/use-forward-wheel-scroll';
@@ -187,6 +188,15 @@ function StockChatContent() {
   // after mount so the server and the first client render stay identical.
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const pendingCanvasArtifactId = useCommandStore((s) => s.pendingCanvasArtifactId);
+  const canvasInlineOpen = useCommandStore((s) => s.canvasInlineOpen);
+  const canvasView = useCommandStore((s) => s.canvasView);
+  const canvasOpen = canvasInlineOpen || Boolean(pendingCanvasArtifactId) || Boolean(canvasView);
+  const openMessageInCanvas = useCallback((msg: { id: string; content?: string; response?: { title?: string } }) => {
+    if (!msg.content) return;
+    useCommandStore.getState().openCanvasContent(
+      contentFromMessage(msg.content, { id: msg.id, title: msg.response?.title }),
+    );
+  }, []);
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
   const [discoveryMarket, setDiscoveryMarket] = useState<string | undefined>(undefined);
@@ -343,8 +353,8 @@ function StockChatContent() {
         useCommandStore.setState({ pendingMarket: dest.params.market });
         setDiscoveryMarket(dest.params.market);
       }
-      if (dest.tab === 'canvas' && dest.params?.artifactId) {
-        useCommandStore.setState({ pendingCanvasArtifactId: dest.params.artifactId });
+      if (dest.params?.artifactId) {
+        useCommandStore.getState().openCanvas(dest.params.artifactId);
       }
       // Sub-view routing: `subroute` (e.g. 'economics.calendar', 'journal.analytics')
       // is published to the target screen via the command store, with an optional
@@ -1160,10 +1170,11 @@ function StockChatContent() {
   onRetryMessage={handleRetryMessage}
   onFeedback={handleFeedback}
   onFollowup={handleFollowup}
+  onOpenCanvas={openMessageInCanvas}
   scrollRef={chatScrollRef}
-/>
+  bottomInset={132} />
                     <div className={cn(
-                      'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 max-w-full md:max-w-[80%]',
+                      'absolute inset-x-0 bottom-0 z-30 w-full mx-auto px-4 md:px-6 group pb-2 max-w-full md:max-w-[80%]',
                     )} ref={setComposerEl}>
                       <ChatInput
                         query={query}
@@ -1334,12 +1345,6 @@ function StockChatContent() {
             </div>
           )}
 
-          {visited.has('canvas') && (
-            <div className={cn('w-full h-full min-h-0', activeTab === 'canvas' ? '' : 'hidden')}>
-              <CanvasScreen initialArtifactId={pendingCanvasArtifactId ?? undefined} />
-            </div>
-          )}
-
           {visited.has('tasks') && (
             <div className={cn('w-full h-full', activeTab === 'tasks' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
@@ -1441,9 +1446,11 @@ function StockChatContent() {
         </div>
         {/* The right-docked column: the execution Agent Workspace everywhere,
             except Bots (jobs scheduler). Hidden in focus mode for a full page. */}
-        {!focusMode && (isMobile
-          ? <MobileDockHost activeTab={activeTab} />
-          : (activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
+        {!focusMode && (canvasOpen
+          ? <CanvasPane />
+          : isMobile
+            ? <MobileDockHost activeTab={activeTab} />
+            : (activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
         <TerminalDock slot="right" />
       </div>
 

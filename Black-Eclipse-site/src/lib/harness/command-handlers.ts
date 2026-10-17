@@ -46,30 +46,6 @@ function invalid(code: string, message: string): HandlerOutput {
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 export const handlers: Record<string, Handler> = {
-  "native.canvas": async (_ctx, _spec, args, _deps) => {
-    const mode = str(args.positionals.mode) || "document";
-    const allowed: Record<string, string> = {
-      document: "document",
-      code: "code",
-      report: "visual",
-      visual: "visual",
-    };
-    const kind = allowed[mode];
-    if (!kind) {
-      return invalid("CANVAS_MODE", `unknown canvas mode '${mode}'; expected document, code, report or visual`);
-    }
-    const href = `/?tab=canvas${kind === "document" ? "" : `&kind=${kind}`}`;
-    const blocks: ResponseBlock[] = [
-      heading("Eclipse Canvas", 2),
-      markdown(
-        "Canvas is a persistent, editable workspace for documents, code and visual reports. " +
-          "Create an artifact, edit it directly, then ask Eclipse for reviewable, revision-guarded changes.",
-      ),
-      markdown(`[Open Canvas →](${href})`),
-    ];
-    return { status: "completed", blocks };
-  },
-
   "native.help": async (_ctx, _spec, _args, _deps) => {
     const blocks: ResponseBlock[] = [
       heading("Eclipse commands", 2),

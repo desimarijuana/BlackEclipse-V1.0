@@ -586,8 +586,33 @@ class AgentMemoryStore:
         recent = self._db.execute(
             """SELECT id, agentId, status, provider, model, modelSteps, toolCalls,
                       toolErrors, promptTokens, completionTokens, totalTokens, createdAt
-               FROM HarnessRun ORDER BY createdAt DESC LIMIT 20"""
+               FROM HarnessRun WHERE createdAt >= ?
+               ORDER BY createdAt DESC LIMIT 20""",
+            (since,),
         ).fetchall()
+
+        # Zero-fill the window so the daily chart has a continuous time axis.
+        # Grouping only returns days that had activity; without the gaps a
+        # 30-day window with 3 active days would render 3 adjacent bars and
+        # misrepresent the distribution.
+        day_rollup = {r["date"]: r for r in by_day}
+        start_date = _dt.datetime.strptime(since[:10], "%Y-%m-%d").date()
+        end_date = _dt.datetime.now(_dt.timezone.utc).date()
+        by_day_filled: list[dict[str, Any]] = []
+        cursor = start_date
+        while cursor <= end_date:
+            key = cursor.isoformat()
+            row = day_rollup.get(key)
+            by_day_filled.append(
+                {
+                    "date": key,
+                    "runs": row["runs"] if row else 0,
+                    "promptTokens": row["promptTokens"] if row else 0,
+                    "completionTokens": row["completionTokens"] if row else 0,
+                    "totalTokens": row["totalTokens"] if row else 0,
+                }
+            )
+            cursor += _dt.timedelta(days=1)
 
         return {
             "windowDays": days,
@@ -616,16 +641,7 @@ class AgentMemoryStore:
                 }
                 for r in by_model
             ],
-            "byDay": [
-                {
-                    "date": r["date"],
-                    "runs": r["runs"],
-                    "promptTokens": r["promptTokens"],
-                    "completionTokens": r["completionTokens"],
-                    "totalTokens": r["totalTokens"],
-                }
-                for r in by_day
-            ],
+            "byDay": by_day_filled,
             "recent": [dict(r) for r in recent],
         }
 

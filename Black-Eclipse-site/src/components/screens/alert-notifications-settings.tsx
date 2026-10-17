@@ -5,10 +5,14 @@
 // Status is honest: "connected" only when required creds are actually set.
 
 import { useEffect, useState } from "react";
-import { Bell, Save, Check, Monitor, Volume2 } from "@/lib/icons";
+import {
+  Bell, Save, Check, Monitor, Volume2, DiscordLogo, TelegramLogo, Mail, Rss, Webhook,
+} from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { Toggle } from "./settings-ui";
 import { useSoundStore } from "@/lib/sounds";
 import {
   isSupported,
@@ -70,6 +74,15 @@ const CHANNEL_DESCRIPTIONS: Record<string, string> = {
   ntfy: "Push straight to the ntfy mobile app — no account needed.",
   email: "Email via your own SMTP server (requires nodemailer).",
   webhook: "POST to any endpoint — Slack, Pushover, Home Assistant, your own app.",
+};
+
+/** Brand icon + accent tint per delivery channel. */
+const CHANNEL_META: Record<string, { icon: React.ElementType; accent: string; tint: string }> = {
+  telegram: { icon: TelegramLogo, accent: "text-sky-400", tint: "border-sky-400/20 bg-sky-400/10" },
+  discord: { icon: DiscordLogo, accent: "text-indigo-400", tint: "border-indigo-400/20 bg-indigo-400/10" },
+  ntfy: { icon: Rss, accent: "text-teal-400", tint: "border-teal-400/20 bg-teal-400/10" },
+  email: { icon: Mail, accent: "text-amber-400", tint: "border-amber-400/20 bg-amber-400/10" },
+  webhook: { icon: Webhook, accent: "text-violet-400", tint: "border-violet-400/20 bg-violet-400/10" },
 };
 
 export function AlertNotificationsPanel() {
@@ -268,32 +281,41 @@ export function AlertNotificationsPanel() {
         {Object.entries(CHANNEL_FIELDS).map(([id, fields]) => {
           const st = statusFor(id);
           const cfg = channels[id] || {};
+          const meta = CHANNEL_META[id] ?? { icon: Bell, accent: "text-primary", tint: "border-white/10 bg-white/5" };
+          const Icon = meta.icon;
+          const enabled = cfg?.enabled ?? false;
+          const configured = !!st?.configured;
           return (
-            <div key={id} className="rounded-xl border border-border/30 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={cfg?.enabled ?? false}
-                    onChange={(e) => patch(id, { enabled: e.target.checked })}
-                    className="accent-[hsl(var(--primary))]"
-                  />
-                  <span className="text-xs font-semibold uppercase tracking-wide">{id}</span>
-                  {st?.configured ? (
-                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1">
-                      <Check size={9} /> connected
-                    </span>
-                  ) : (
-                    <span className="text-[9px] text-muted-foreground uppercase tracking-widest">not configured</span>
-                  )}
+            <div
+              key={id}
+              className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3 transition-colors hover:bg-white/[0.04]"
+            >
+              <div className="flex items-center gap-3">
+                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg border", meta.tint)}>
+                  <Icon size={18} className={meta.accent} weight="fill" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold capitalize tracking-wide">{id}</span>
+                    {configured ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-300">
+                        <span className="size-1.5 rounded-full bg-emerald-400" /> connected
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                        not configured
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{CHANNEL_DESCRIPTIONS[id]}</p>
                 </div>
+                <Toggle checked={enabled} onChange={(v) => patch(id, { enabled: v })} />
               </div>
-              <p className="text-[10px] text-muted-foreground">{CHANNEL_DESCRIPTIONS[id]}</p>
-              {(cfg?.enabled ?? false) && (
-                <div className="grid gap-3 sm:grid-cols-2">
+              {enabled && (
+                <div className="grid gap-3 pt-1 sm:grid-cols-2">
                   {fields.map((f) => (
                     <div key={String(f.key)} className="space-y-1">
-                      <Label className="text-[10px]">{f.label}</Label>
+                      <Label className="text-[10px] text-muted-foreground">{f.label}</Label>
                       <Input
                         type={f.secret ? "password" : f.key === "smtpPort" ? "number" : "text"}
                         value={(cfg?.[f.key] as string | number | undefined) ?? ""}

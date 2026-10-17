@@ -110,7 +110,8 @@ canvas document **is** an ordinary catalog entry: its bytes are canonical UTF-8
 text and its revisions are the artifact's immutable versions. Its canvas kind
 (`document`/`code`/`visual`) and optional `language` are stored in the artifact's
 `metadata` under the key `canvas`, and an artifact detail whose metadata carries
-that key shows an **"Open in Canvas"** action. `CanvasService`
+that key shows an **"Edit in Canvas"** action that opens the artifact **inline in
+the ChatBot tab** (there is no separate Canvas surface). `CanvasService`
 (`python/harness/canvas/service.py`) is the ONE canvas writer over
 `ArtifactService`; saves are revision-guarded (a stale save is `409
 CANVAS_CONFLICT`), and AI edits are typed operations the server re-applies to

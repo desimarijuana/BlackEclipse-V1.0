@@ -27,8 +27,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowUp, Bot, Maximize2, Mic, Minimize2, Minus, Pause, Plus, SquarePen, Trash2,
+  Image as ImageIcon, Layers, Blocks,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useCommandStore } from '@/lib/search/store';
 import { sound } from '@/lib/sounds';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
@@ -165,6 +170,23 @@ export function ChatDock({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>('dock-temp');
   const attachRef = useRef<HTMLInputElement>(null);
+  const imageRef = useRef<HTMLInputElement>(null);
+
+  // Insert a token (`/` or `@`) at the end of the draft and keep focus.
+  const insertToken = (token: string) => {
+    const base = query.replace(/\s+$/, '');
+    setQuery(base ? `${base} ${token}` : token);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      try {
+        el.setSelectionRange(el.value.length, el.value.length);
+      } catch {
+        /* setSelectionRange unavailable */
+      }
+    });
+  };
 
   // One place the turn lifecycle lives (shared with the ChatBot tab). The hook
   // reports the AssistantTurn; the sink maps it onto this dock's own message
@@ -650,15 +672,37 @@ export function ChatDock({
           />
 
           <div className="flex items-center gap-1.5 px-1">
-            <button
-              type="button"
-              onClick={() => attachRef.current?.click()}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-              title="Add documents as context"
-              aria-label="Add documents as context"
-            >
-              <Plus size={17} />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer focus-visible:ring-0 focus-visible:outline-none"
+                title="Add context, media or a tool"
+                aria-label="Add context, media or a tool"
+              >
+                <Plus size={17} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-56 glass-command-popover">
+                <DropdownMenuItem onClick={() => imageRef.current?.click()}>
+                  <ImageIcon size={15} className="shrink-0" />
+                  <span>Images and photos</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => attachRef.current?.click()}>
+                  <Layers size={15} className="shrink-0" />
+                  <span>Context</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { useCommandStore.getState().openCanvas(); useCommandStore.getState().dispatch({ tab: 'chat' }); }}>
+                  <SquarePen size={15} className="shrink-0" />
+                  <span>Canvas</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertToken('/')}>
+                  <Blocks size={15} className="shrink-0" />
+                  <span>Skills</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertToken('@')}>
+                  <span aria-hidden className="flex h-[15px] w-[15px] shrink-0 items-center justify-center font-mono text-sm">@</span>
+                  <span>Mention</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               type="button"
               onClick={() => setExpanded(v => !v)}
@@ -741,6 +785,17 @@ export function ChatDock({
           <input
             ref={attachRef}
             type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void handleAttach(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={imageRef}
+            type="file"
+            accept="image/*"
             multiple
             className="hidden"
             onChange={(e) => {

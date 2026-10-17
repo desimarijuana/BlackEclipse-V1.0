@@ -418,10 +418,10 @@ function DetailDrawer({
           {detail.metadata && (detail.metadata as { canvas?: unknown }).canvas ? (
             <button
               type="button"
-              onClick={() => useCommandStore.getState().dispatch({ tab: 'canvas', params: { artifactId: detail.id } })}
+              onClick={() => useCommandStore.getState().dispatch({ tab: 'chat', params: { artifactId: detail.id } })}
               className="inline-flex items-center gap-1 self-start text-[11px] text-sky-400 hover:underline"
             >
-              <SquarePen className="h-3 w-3" /> Open in Canvas
+              <SquarePen className="h-3 w-3" /> Edit in Canvas
             </button>
           ) : null}
         </section>

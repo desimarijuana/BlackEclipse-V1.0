@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-17
 ---
 
 # Harness Architecture
@@ -683,6 +683,18 @@ block. A missing block records **0**, never an estimate. `GET /usage` therefore
 exposes `totals.runsWithUsage` next to the token totals so the UI can distinguish
 "no usage reported" from "no activity" — the same honesty rule as UNAVAILABLE
 market data.
+
+Because the graph always streams (`model_stream.py`), usage only arrives if the
+provider is asked for it: the OpenAI-compatible factory in
+`models.build_chat_model` sets `stream_usage=True`, which sends
+`stream_options.include_usage` and yields the final usage chunk (standard OpenAI,
+Ollama and most compatible servers support it). Without it a streamed run reports
+0 tokens.
+
+`GET /usage?days=N` (default 30) scopes **all** aggregates — totals, by-model,
+by-day and the `recent` runs list — to the `N`-day window. `byDay` is
+**zero-filled** across the whole window so the daily chart has a continuous time
+axis rather than only the days that had activity.
 
 ## Code file system subsystem (`python/harness/code/fs/`)
 

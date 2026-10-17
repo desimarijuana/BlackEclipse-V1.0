@@ -10,9 +10,37 @@ last-verified: 2026-10-17
 — and anyone extending the editable-artifact surface.
 
 Eclipse Canvas is a persistent, editable workspace for **documents, code and
-visual reports**. It is built **on top of the Artifact Center**, not beside it:
-see ADR-049. That single fact is the whole design — everything below follows
-from it.
+visual reports**. It renders as an **inline pane inside the ChatBot tab** (not a
+standalone page), and is built **on top of the Artifact Center**, not beside it:
+see ADR-049. Those two facts are the whole design — everything below follows
+from them.
+
+## Viewer-first (Canvas Dock)
+
+Canvas is primarily a **spacious reading surface for what the chat produced** —
+the same content at reading width instead of cramped in the chat column. The
+right-hand **Canvas Dock** (`components/screens/canvas/canvas-dock.tsx`) is a real
+sibling column in the shell row (so the header and active tab shrink, not an
+overlay) and is resizable.
+
+- **Content model** (`src/lib/canvas/content.ts`): `CanvasContent` with kinds
+  `markdown` / `code` / `report` / `url` / `image`. `contentFromMessage` (and
+  `contentFromResponse`) derive it from an assistant message with no new schema —
+  it reuses `splitResponseSegments`, `parseResponsePayload` and
+  `toMarkdownProjection`. An `eclipse-response` fence becomes a `report`, a lone
+  code fence becomes `code`, everything else is `markdown`.
+- **Rendering** (`canvas-viewer.tsx`): markdown uses the chat renderer, reports
+  use the response block registry (`ResponseView`), code uses Monaco read-only,
+  URLs use a sandboxed (`sandbox=""`) iframe, images a plain `<img>`. No second
+  markdown or block engine.
+- **Entry points**: `Open in Canvas` on a chat response (`response-actions.tsx`)
+  and on any assistant message (`chat-history.tsx`) opens the viewer; the Artifact
+  Center's `Edit in Canvas` opens the editable artifact. Ephemeral views offer
+  **Save to edit**, which registers an artifact and switches to the editor.
+- **No manual chooser.** There are no "New Document/Code/Visual" buttons; creation
+  is chat-driven, and an empty dock is a ready state that points at the entry
+  points.
+- **Ephemeral by default**, editable once saved (per the P1 decision).
 
 ## The one invariant
 
@@ -136,29 +164,46 @@ trusted.
 
 ## UX surfaces
 
-`CanvasScreen({ initialArtifactId?, isOperator? })` is the data container; a
-three-region `CanvasWorkspace` presents it:
+Canvas is **not a standalone page**. It renders as an **inline pane inside the
+ChatBot tab**, like a chat-side canvas: `src/components/screens/stock-chat.tsx`
+splits the chat column and a right-hand `CanvasPane` whenever
+`useCommandStore.canvasInlineOpen` (or `pendingCanvasArtifactId`) is set, and a
+close button dismisses the pane. `CanvasScreen({ initialArtifactId?, isOperator?,
+inline? })` is the data container; in `inline` mode `CanvasWorkspace` **skips the
+rail** and wraps the center + AI panel in a glass card with a header and close.
 
-- **Rail** — list, search, create (document/code/report) and file **import**
-  (client-side read; over the size limit is refused honestly).
 - **Center** — the editor for the kind, a toolbar (rename/archive, version
   history + restore, export: download / copy / print), debounced autosave,
   Ctrl/Cmd+S, and the `409` conflict UI.
 - **AI panel** — mode selector, optional selection, a propose → **diff** →
-  accept flow. Nothing is reported saved until the server returns the saved
-  version.
+  accept flow, collapsed by default in the inline pane. Nothing is reported
+  saved until the server returns the saved version.
+
+`CanvasWorkspace` still contains a **rail** (list, search, create
+document/code/report and file **import** — client-side read; over the size limit
+is refused honestly), but the inline pane does not show it: artifacts are opened
+from the Artifact Center and the chat surfaces below.
 
 ## Integration points
 
-- **AppTab `canvas`** — `src/lib/app-tabs.ts`, sidebar `config.ts` (icon
-  `SquarePen`, agentic group), `nav.canvas`, deep-link `APP_TABS`, mobile bottom
-  nav and a keep-alive block in `stock-chat.tsx`.
-- **`/canvas [document|code|report|visual]`** — `command-registry.ts` +
-  `native.canvas` handler returning a link that opens Canvas in the chosen mode.
-- **Artifact Center → "Open in Canvas"** — shown on an artifact detail whose
-  metadata carries the `canvas` key (`artifacts-screen.tsx`).
-- **Response actions → "Canvas"** — keeps the saved artifact id and offers to
-  open it in Canvas.
+- **ChatBot inline pane** — `src/components/screens/stock-chat.tsx` splits the
+  chat column and a right-hand `CanvasPane` when
+  `useCommandStore.canvasInlineOpen`/`pendingCanvasArtifactId` is set.
+- **Composer "+" menu → Canvas** — `chat/chat-input.tsx` / `chat/chat-dock.tsx`
+  call `useCommandStore.openCanvas()` and switch to the chat tab.
+- **Artifact Center → "Edit in Canvas"** — `artifacts-screen.tsx`
+  (`dispatch({tab:'chat', params:{artifactId}})`), shown on an artifact detail
+  whose metadata carries the `canvas` key.
+- **Response actions → "Canvas"** — `response-actions.tsx`
+  (`dispatch({tab:'chat', params:{artifactId}})`) keeps the saved artifact id and
+  opens it inline.
+- **Store** — `src/lib/search/store.ts` gained `canvasInlineOpen`, `openCanvas(id?)`
+  and `closeCanvas()`; `pendingCanvasArtifactId` is retained.
+- **Retired** — the standalone `canvas` surface was removed: the `canvas` AppTab
+  (`app-tabs.ts`), the sidebar section (`sidebar/config.ts`), the `nav.canvas`
+  key, the deep-link `APP_TABS` entry, the mobile bottom-nav item, the keep-alive
+  block in `stock-chat.tsx`, and the `/canvas` slash command
+  (`command-registry.ts` + the `native.canvas` handler).
 
 ## Explicit non-goals (documented, not faked)
 

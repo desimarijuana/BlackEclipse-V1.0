@@ -127,6 +127,10 @@ interface CommandStore {
   pendingMarket: string | null;
   /** Canvas artifact id to open in the Canvas tab (consumed by CanvasScreen). */
   pendingCanvasArtifactId: string | null;
+  /** Whether the inline chat Canvas pane is open (with or without an artifact). */
+  canvasInlineOpen: boolean;
+  /** The content currently shown in the Canvas dock (viewer), if any. */
+  canvasView: import('@/lib/canvas/content').CanvasContent | null;
   /**
    * Sub-view request, scoped to a tab: `{ tab, subroute, focus? }`. Consumed by
    * the target screen's `useSubroute` hook. A channel (not a single slot) so a
@@ -168,6 +172,12 @@ interface CommandStore {
   consumeFundId: () => string | null;
   consumeMarket: () => string | null;
   consumeCanvasArtifactId: () => string | null;
+  /** Open the inline chat Canvas pane, optionally on a specific artifact. */
+  openCanvas: (artifactId?: string | null) => void;
+  /** Open the Canvas dock on derived response content (viewer mode). */
+  openCanvasContent: (content: import('@/lib/canvas/content').CanvasContent) => void;
+  /** Close the inline chat Canvas pane. */
+  closeCanvas: () => void;
   /** Publish a sub-view request for a tab (shell calls this from `apply`). */
   requestSubroute: (tab: string, subroute: string, focus?: string) => void;
   /** Clear the subroute request for a tab once a screen has applied it. */
@@ -202,6 +212,8 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
   pendingFundId: null,
   pendingMarket: null,
   pendingCanvasArtifactId: null,
+  canvasInlineOpen: false,
+  canvasView: null,
   pendingSubroute: null,
   subrouteSeq: 0,
 
@@ -302,6 +314,15 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     if (id) set({ pendingCanvasArtifactId: null });
     return id;
   },
+
+  openCanvas: (artifactId) =>
+    set({ canvasInlineOpen: true, canvasView: null, pendingCanvasArtifactId: artifactId ?? null }),
+
+  openCanvasContent: (content) =>
+    set({ canvasInlineOpen: true, canvasView: content, pendingCanvasArtifactId: null }),
+
+  closeCanvas: () =>
+    set({ canvasInlineOpen: false, canvasView: null, pendingCanvasArtifactId: null }),
 
   requestSubroute: (tab, subroute, focus) =>
     set((s) => ({

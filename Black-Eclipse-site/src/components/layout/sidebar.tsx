@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Settings, SquareTerminal, BrainCircuit, Ghost, type LucideIcon } from '@/lib/icons';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Settings, SquareTerminal, BrainCircuit, Ghost, Network, ChatsCircle, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { MODE_SHORTCUTS } from '@/hooks/use-sidebar-keybinds';
@@ -13,6 +13,8 @@ import { useIsMobile } from '@/hooks/use-media-query';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
 import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
+import { SidebarGatewayDialog } from '@/components/layout/sidebar-gateway-dialog';
+import { SidebarGraphDialog } from '@/components/layout/sidebar-graph-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,6 +81,10 @@ export function Sidebar({
   hidden = false,
 }: SidebarProps) {
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  // Quick launchers below the mode switcher: the Channel Gateway (Telegram,
+  // Discord, WhatsApp, …) and the relationship/skills graph browser.
+  const [gatewayOpen, setGatewayOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   // The collapse/expand affordance is a DESKTOP preference: the mobile drawer is
   // always full-width (expanded) and is dismissed with its own close (X) button,
   // so it never shows the collapse chevron alongside the cross.
@@ -246,12 +252,12 @@ export function Sidebar({
                   type="button"
                   aria-label={t('sidebar.modeSwitcher')}
                   title={t('sidebar.modeSwitcher')}
-                  className="shrink-0 flex w-full items-center justify-between gap-2 rounded-2xl glass-card-subtle px-3 py-2 text-xs font-bold text-foreground transition-colors hover:bg-white/[0.04] cursor-pointer"
+                  className="shrink-0 flex w-full items-center justify-between gap-2 rounded-xl glass-card-subtle border border-border/20 px-3 py-2.5 text-[13px] font-bold text-foreground transition-colors hover:bg-white/[0.04] outline-none focus-visible:border-border/40 cursor-pointer"
                 />
               }
             >
               <span className="flex items-center gap-2 min-w-0">
-                <ActiveModeIcon size={14} className="shrink-0" />
+                <ActiveModeIcon size={15} className="shrink-0" />
                 <span className="truncate">{t(activeMode.labelKey)}</span>
               </span>
               <span className="flex items-center gap-2 shrink-0">
@@ -263,7 +269,7 @@ export function Sidebar({
                     {hiddenUnread > 9 ? '9+' : hiddenUnread}
                   </span>
                 )}
-                <ChevronDown size={14} className="shrink-0 opacity-70" />
+                <ChevronDown size={15} className="shrink-0 opacity-70" />
               </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-(--anchor-width)">
@@ -293,6 +299,32 @@ export function Sidebar({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+
+        {/* Quick launchers — the Channel Gateway (connect Eclipse to Telegram,
+            Discord, WhatsApp, …) and the relation/skills graph browser. Shares
+            the control-strip tier and the same subtle border as the switcher. */}
+        {!isCollapsed && (
+          <div className="-mt-3 flex items-center justify-start gap-1.5">
+            <button
+              type="button"
+              onClick={() => setGatewayOpen(true)}
+              title={t('sidebar.gatewayHint')}
+              aria-label={t('sidebar.gateway')}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary/50 cursor-pointer"
+            >
+              <ChatsCircle size={15} className="shrink-0" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setGraphOpen(true)}
+              title={t('sidebar.graphHint')}
+              aria-label={t('sidebar.graph')}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary/50 cursor-pointer"
+            >
+              <Network size={15} className="shrink-0" />
+            </button>
+          </div>
         )}
 
         {/* Chat History Panel on Top of the menu list */}
@@ -334,6 +366,7 @@ export function Sidebar({
                 key={tab.id}
                 href={destinationToHref({ tab: tab.id })}
                 data-sound="tick"
+                aria-current={isSelected ? 'page' : undefined}
                 onClick={(e) => {
                   // Let Ctrl/Cmd/Shift/middle-click open in a new tab (or window)
                   // via the href; only a plain left-click is handled in-page.
@@ -344,14 +377,14 @@ export function Sidebar({
                 title={isCollapsed
                   ? `${tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
                   : undefined}
-                className={`h-9 flex items-center px-3.5 py-2 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden no-underline ${
+                className={`h-8 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
                   isSelected
-                    ? 'rounded-xl bg-white/[0.08] text-foreground border-border/30'
-                    : 'rounded-none bg-transparent text-muted-foreground hover:rounded-xl hover:bg-accent/40 hover:text-foreground border-transparent'
-                } ${isCollapsed ? 'justify-center w-10 px-0 gap-0' : 'justify-start w-full gap-3'}`}
+                    ? 'rounded-lg bg-white/[0.07] text-foreground'
+                    : 'rounded-lg bg-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
+                } ${isCollapsed ? 'justify-center w-9 px-0 gap-0' : 'justify-start w-full gap-2.5'}`}
               >
                 <span className="relative shrink-0 flex items-center justify-center">
-                  <Icon size={16} className="transition-colors duration-300" />
+                  <Icon size={15} className="transition-colors duration-300" />
                   {unreadCount > 0 && isCollapsed && (
                     <span className="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-background" />
                   )}
@@ -368,11 +401,11 @@ export function Sidebar({
                   </span>
                 )}
                 {tab.shortcut && !isCollapsed && (
-                  <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
-                    isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'
-                  }`}>{tab.shortcut}</span>
-                )}
-              </a>
+                    <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
+                      isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'
+                    }`}>{tab.shortcut}</span>
+                  )}
+                </a>
             );
           })}
           </nav>
@@ -414,6 +447,9 @@ export function Sidebar({
           </div>
         )}
       </div>
+
+      <SidebarGatewayDialog open={gatewayOpen} onOpenChange={setGatewayOpen} />
+      <SidebarGraphDialog open={graphOpen} onOpenChange={setGraphOpen} />
     </div>
   );
 

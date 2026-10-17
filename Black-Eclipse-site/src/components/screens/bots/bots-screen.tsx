@@ -25,6 +25,7 @@ import {
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
+import { canHandleKeyboardEvent } from '@/lib/keyboard';
 
 export function BotsScreen() {
   const t = useT();
@@ -96,6 +97,21 @@ export function BotsScreen() {
 
   const selectedBot = useMemo(() => bots.find((b) => b.id === selectedId) ?? null, [bots, selectedId]);
   const selectedGroup = useMemo(() => groups.find((g) => g.id === selectedGroupId) ?? null, [groups, selectedGroupId]);
+
+  // Escape backs out of an open conversation to the Bots overview (the page
+  // with the New bot / New group buttons), mirroring a back button. Blocked
+  // while typing, while a dialog/sheet is open (it owns Escape first), and when
+  // nothing is selected (the overview is already showing).
+  useEffect(() => {
+    if (!selectedId && !selectedGroupId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !canHandleKeyboardEvent(event)) return;
+      if (selectedGroupId) selectGroup(null);
+      else select(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedId, selectedGroupId, select, selectGroup]);
 
   const runAction = useCallback(
     async (id: string, fn: () => Promise<unknown>) => {

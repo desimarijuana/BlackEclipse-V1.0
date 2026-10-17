@@ -57,9 +57,9 @@ const RATCHET: Record<string, number> = {
   // from here.
   // Re-pinned 1240→1241: one key (`capability.class.advisoryVerification`) names
   // the Fiduciary Gate capability class (ADR-H196/H193). May only shrink.
-  // Re-pinned 1241→1242: the Canvas tab adds one nav label (`nav.canvas`). May
-  // only shrink; per-domain dictionary modules remain the standing split.
-  "src/lib/i18n/dictionaries/en.ts": 1242,
+  // Re-pinned 1241→1253: the sidebar quick-launchers added the `sidebar.gateway*`
+  // + `sidebar.graph*` keys (Gateway dialog + graph browser). May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1253,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -142,16 +142,11 @@ const RATCHET: Record<string, number> = {
   // nav catalogue lives in `layout/mobile-bottom-nav.tsx`; only the mounts and
   // one `useIsMobile` call land here. May only shrink from here; the per-tab
   // keep-alive blocks remain the standing split candidate.
-  // Re-pinned 1474→1481: the Eclipse Canvas tab adds a dynamic import, a
-  // keep-alive render block and a pending-artifact selector/branch. The Canvas
-  // workspace itself lives in `components/screens/canvas/`. May only shrink from
-  // here; the per-tab keep-alive blocks remain the standing split candidate.
-  // Re-pinned 1481→1495: the empty-state + composer gained an image attachment
-  // input (one ref, two `onAttachImage` prop passthroughs, one hidden input) and
-  // the chat-scroll fix turned the composer-only wheel handler into a document
-  // forwarder. May only shrink from here; the per-tab keep-alive blocks remain
-  // the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1495,
+  // Re-pinned 1481→1506: Canvas is now an INLINE pane in the chat (no tab) — the
+  // shell opens/close the split, forwards the artifact id and renders the pane;
+  // the workspace itself lives in `components/screens/canvas/`. May only shrink
+  // from here; the per-tab keep-alive blocks remain the standing split candidate.
+  "src/components/screens/stock-chat.tsx": 1506,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

@@ -42,7 +42,15 @@ function safeFilename(name: string, ext: string): string {
 export function CanvasScreen({
   initialArtifactId,
   isOperator = true,
-}: { initialArtifactId?: string; isOperator?: boolean }): JSX.Element {
+  inline = false,
+  onClose,
+}: {
+  initialArtifactId?: string;
+  isOperator?: boolean;
+  /** Inline-in-chat mode: no rail, compact card with a close button. */
+  inline?: boolean;
+  onClose?: () => void;
+}): JSX.Element {
   const editable = isOperator;
 
   const [items, setItems] = useState<CanvasListItem[]>([]);
@@ -72,7 +80,7 @@ export function CanvasScreen({
   const [applying, setApplying] = useState(false);
 
   const [railCollapsed, setRailCollapsed] = useState(false);
-  const [aiCollapsed, setAiCollapsed] = useState(false);
+  const [aiCollapsed, setAiCollapsed] = useState(inline);
   const [fullWidth, setFullWidth] = useState(false);
 
   const editorHandleRef: MutableRefObject<CanvasEditorHandle | null> = useRef(null);
@@ -410,6 +418,8 @@ export function CanvasScreen({
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <CanvasWorkspace
+      inline={inline}
+      onClose={onClose}
       onCreate={(kind) => void createArtifact(kind)}
       loadingArtifact={loadingArtifact}
       artifactError={artifactError}

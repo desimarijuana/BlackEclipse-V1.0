@@ -61,8 +61,8 @@ the switcher, keyboard dispatch and programmatic navigation all read/write one
 value. ChatBot belongs to both modes; when a terminal/agentic-only screen is
 opened by the palette or a deep link the switcher follows it. The switcher is
 hidden while collapsed, but the selected mode still filters the icons — switch
-with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse Memory,
-Artifacts and Canvas**; the other agentic capabilities (Code, Editor, Jobs,
+with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse Memory and
+Artifacts**; the other agentic capabilities (Code, Editor, Jobs,
 Tasks, Pages, UI Builder, Plugins, Model Control Center, Search, Research,
 Backtest) are not sidebar tabs and are reached from ChatBot through its tools.
 

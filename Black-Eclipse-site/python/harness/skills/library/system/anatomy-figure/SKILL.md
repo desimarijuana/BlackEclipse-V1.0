@@ -50,11 +50,13 @@ FIFO cost basis → a `frame` of dated `tank`s consumed front-to-back.
    - Coordinates are world units, z up (0 = ground). The whole scene is dropped
      onto the ground automatically, so build parts above z = 0.
 4. Give each node a short id and a descriptive label; the label is listed in a
-   numbered key under the model (a full sentence is fine). Do not claim
-   hover/inspection the model does not have.
+   numbered key under the model (a full sentence is fine). Clicking a key selects
+   and highlights that part on the model (and clicking a part selects its key).
+   Do not claim hover/inspection the model does not have.
 5. Emit ONE ```eclipse-response fence containing a single `model3d` block, then a
-   short explanation. Keep every label and readout true; never invent a component,
-   a recipe or a value. Do not repeat the model's content as a list.
+   short explanation. Use only a recipe's real parameter keys — an unknown one is
+   reported as a diagnostic. Keep every label and readout true; never invent a
+   component, a recipe or a value. Do not repeat the model's content as a list.
 
 ## Notes
 

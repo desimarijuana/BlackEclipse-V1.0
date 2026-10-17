@@ -28,6 +28,7 @@
     "test": "vitest run && node scripts/test-python.js && node scripts/test-evals.js",
     "test:py": "node scripts/test-python.js",
     "test:evals": "node scripts/test-evals.js",
+    "test:anatomy": "node scripts/anatomy-smoke.cjs",
     "test:smoke": "node scripts/test-python.js smoke",
     "test:presets": "node scripts/test-presets.js",
     "demo:btc": "tsx scripts/demo-btc.mts",

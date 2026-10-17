@@ -85,11 +85,12 @@ const visualSnapshot: CanvasSnapshot = {
 };
 
 describe('CanvasScreen empty state', () => {
-  it('renders the New actions when no artifact is selected', () => {
+  it('shows a ready state (no manual New chooser) when nothing is open', () => {
     const html = renderToStaticMarkup(<CanvasScreen isOperator={false} />);
-    expect(html).toContain('New Document');
-    expect(html).toContain('New Code');
-    expect(html).toContain('New Visual Report');
+    // Creation is chat-driven; the old New Document / New Code chooser is gone.
+    expect(html).not.toContain('New Document');
+    expect(html).not.toContain('New Code');
+    expect(html).toContain('Open in Canvas');
   });
 });
 

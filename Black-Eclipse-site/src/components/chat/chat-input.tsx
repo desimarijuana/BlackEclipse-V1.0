@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image, Blocks, SquarePen } from '@/lib/icons';
+import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -360,7 +360,8 @@ export function ChatInput({
   }, [query, setQuery]);
 
   const openCanvas = useCallback(() => {
-    useCommandStore.getState().dispatch({ tab: 'canvas' });
+    useCommandStore.getState().openCanvas();
+    useCommandStore.getState().dispatch({ tab: 'chat' });
   }, []);
 
   // The `/` palette only opens when the draft begins with `/`, so Skills seeds
@@ -543,7 +544,7 @@ export function ChatInput({
           </div>,
           document.body,
         )}
-      <form ref={formRef} onSubmit={onSend} aria-busy={busy} className="relative flex flex-col w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-visible">
+      <form ref={formRef} onSubmit={onSend} aria-busy={busy} className="relative flex flex-col w-full glass-composer border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-visible">
         <textarea 
           ref={textareaRef}
           rows={1}
@@ -563,23 +564,16 @@ export function ChatInput({
         <div className="flex items-end justify-between gap-2 px-0.5">
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={attaching}
-                  title="Add context, media or a tool"
-                  aria-label="Add context, media or a tool"
-                  className="flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none"
-                />
-              }
+              disabled={attaching}
+              title="Add context, media or a tool"
+              aria-label="Add context, media or a tool"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-0 focus-visible:outline-none disabled:opacity-50"
             >
               {attaching ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} />}
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56">
+            <DropdownMenuContent align="start" side="top" className="w-56 glass-command-popover">
               <DropdownMenuItem onClick={() => (onAttachImage ?? onAttach)?.()}>
-                <Image size={15} className="shrink-0" />
+                <ImageIcon size={15} className="shrink-0" />
                 <span>Images and photos</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onAttach?.()}>

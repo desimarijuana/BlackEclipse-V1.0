@@ -565,9 +565,24 @@ It is requested with the same `/anatomy <concept>` slash command.
 - **Export** (`src/lib/model3d/glb.ts`) is a dependency-free glTF 2.0 binary
   writer: the baked parts become mesh nodes with PBR materials, so the download
   opens in any 3D tool.
-- **Fallback.** The Markdown projection and PDF export render the model's parts
-  and stages as text, so a surface without WebGL still gets the content. The
-  legacy isometric `anatomy` block remains registered and renders unchanged.
+- **Validation & selection.** Recipe parameters are checked against a declared
+  contract (`RECIPE_PARAM_KEYS`); an unknown key is reported as a diagnostic.
+  The compiler reports an off-scale scene and caps the outline **edge budget**
+  (60k segments) so a large model degrades instead of freezing. Clicking a key
+  selects/highlights its part and clicking a part (raycast picking, click-vs-drag)
+  selects its key; numbered hotspots highlight with the stage and the selection.
+- **Views & export.** On-canvas **Explode** and **Section** (cutaway) sliders, a
+  **High-contrast** toggle, pinch-zoom + keyboard orbit/zoom/reset, a PNG
+  snapshot, a **leader line** per hotspot, and **GLB / OBJ / STL** export
+  (`glb.ts`, `exporters.ts`). The GLB carries the stages as a **stage animation**
+  (pivot-correct scale pulse per lit group). A busy scene **LODs** tiny parts'
+  outlines. A **Share link** copies a self-contained `/figure#<base64>` URL and
+  the public `/figure` route renders the block standalone (`lib/response/share.ts`).
+- **Fallback.** When WebGL is unavailable or the context is lost the panel draws a
+  static **isometric wireframe** of the compiled feature edges (plus hotspots) via
+  the anatomy iso-kit, so it is never a blank box. The Markdown projection and PDF
+  export render the model's parts and stages as text. The legacy isometric
+  `anatomy` block remains registered and renders unchanged.
 
 
 

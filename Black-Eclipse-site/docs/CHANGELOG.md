@@ -8,12 +8,195 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-17
 
+- **`model3d`: leader lines, LOD, GLB stage animation, and shareable figures.**
+  (1) Numbered hotspots now sit just off the part on a **leader line**. (2) A
+  **LOD** pass drops the outline of parts that are tiny relative to a busy scene
+  (>40 parts) so large models stay cheap. (3) The `.glb` now carries a **stages
+  animation** — each stage pulses its lit groups, pivot-correct by pairing `scale`
+  with a compensating `translation` (baked geometry, no transform graph needed).
+  (4) **Share link** copies a self-contained `/figure#<base64>` URL, and the new
+  public `/figure` route renders the block standalone (hash-only, no server
+  state). Files: `src/lib/model3d/{compile,glb}.ts`,
+  `src/components/response/model3d-{canvas,block}.tsx`,
+  `src/lib/response/share.ts`, `src/app/figure/page.tsx`, `src/middleware.ts`.
+  Tests: `compile.test.ts` (stages/animation), `share.test.ts`.
+  Docs updated: `interactive-response-engine.md`.
+
+- **fix(harness,app): token analytics were always blank; day filter now scopes
+  the whole panel.** The graph always streams, but `build_chat_model` built
+  `ChatOpenAI` without `stream_usage`, so OpenAI-compatible/Ollama streamed
+  responses carried no usage and every run persisted 0 tokens. Set
+  `stream_usage=True` (`python/harness/models.py`) so the stream requests
+  `stream_options.include_usage` and real counts are recorded. Also fixed the
+  window filter: `GET /api/harness/usage` no longer collapses a missing/empty
+  `days` to a 1-day window (`route.ts`); `usage_summary` now applies the window
+  to the `recent` runs list and zero-fills `byDay` across the full window
+  (`python/harness/persistence.py`). Tests: existing persistence/model suites.
+  Docs updated: `docs/harness/architecture.md`.
+
+- **`model3d`: contact shadow + measurement tool.** A soft ground shadow under
+  the machine (radial alpha, depth-tested so parts occlude it) so it reads as
+  sitting on the surface; and a **Measure** mode — click two points on the model
+  to draw a bright line and read the distance (world units) in the viewport panel.
+  Files: `src/components/response/model3d-canvas.tsx`.
+  `no doc change — visual/interaction only`.
+
+- **`model3d`: hotspot highlighting, high-contrast, OBJ/STL export.** The
+  numbered hotspots now **highlight with the stage and the selection** (a stage's
+  lit parts get a bright badge; the selected part gets a solid badge), and the
+  key list badges mirror that — clicking a key or a stage arrow visibly lights the
+  matching number. Adds a **High-contrast** toggle (brighter outline/fill), and
+  **OBJ** + binary **STL** exporters alongside GLB. Files:
+  `src/components/response/model3d-{canvas,block}.tsx`,
+  `src/lib/model3d/exporters.ts`. Tests: `exporters.test.ts`,
+  `model3d-render.test.tsx`. Docs updated: `interactive-response-engine.md`.
+
+- **Canvas is now a viewer-first right dock.** The manual "New
+  Document/Code/Visual" chooser is gone; Canvas reads what the chat already
+  produced at full width. New `src/lib/canvas/content.ts` (`CanvasContent` +
+  `contentFromMessage`/`contentFromResponse`, reusing the response parser and
+  markdown projection) and `canvas-viewer.tsx` (markdown via the chat renderer,
+  reports via `ResponseView`, code via Monaco read-only, URL sandbox iframe,
+  images), hosted by `canvas-dock.tsx` as a resizable sibling column in the shell
+  row (pushes header + content). Entry points: **Open in Canvas** on a response
+  (`response-actions.tsx`) and on any assistant message (`chat-history.tsx`);
+  **Edit in Canvas** from the Artifact Center; **Save to edit** registers an
+  ephemeral view. Store gained `canvasView`/`openCanvasContent`. Tests:
+  `src/lib/canvas/content.test.ts`; `canvas-screen.test.tsx` empty state updated.
+  Docs updated: `docs/canvas.md`.
+
+- **`model3d`: exploded view, section/cutaway, touch + keyboard, scene cache, PNG.**
+  On-canvas sliders for **Explode** (parts push outward from the centre) and
+  **Section** (discard along the model X axis, grid hides while cut); **pinch-zoom**
+  + two-finger handling; **keyboard** orbit/zoom/reset when the viewport is
+  focused; a **PNG snapshot** button (context now keeps the drawing buffer); and a
+  bounded **scene compile cache** (`compileModel3dCached`) keyed by content so the
+  same figure is compiled once. New opt-in `npm run test:anatomy`
+  (`scripts/anatomy-smoke.cjs`) drives the real app headlessly and screenshots the
+  figure. Files: `src/lib/model3d/compile.ts`,
+  `src/components/response/model3d-canvas.tsx`, `scripts/anatomy-smoke.cjs`,
+  `package.json`. Tests: `compile.test.ts` (cache).
+  Docs updated: `interactive-response-engine.md`.
+
+- **Sidebar quick-launchers are small icon-only buttons; chat search and
+  Graph/Gateway dialogs are larger.** Removed the text labels from the
+  Gateway/Graph launchers and made them small borderless icon buttons matching
+  the chat-history folder/action icons (`h-7 w-7 rounded-md`, subtle hover,
+  `aria-label` retained) pulled up closer to the mode switcher
+  (`-mt-3`), the mode switcher enlarged to match the search field (`py-2.5`,
+  13px, `rounded-xl`), and the chat-history search field and its heading
+  (10→13px), and made the Graph and Gateway dialogs wider and taller
+  (`h-[min(85dvh,800px)] w-[calc(100vw-2rem)] max-w-none sm:max-w-6xl` — the
+  `sm:max-w-6xl` overrides the base `DialogContent`'s `sm:max-w-sm`). Files:
+  `src/components/layout/sidebar.tsx`,
+  `chat-history-panel.tsx`, `sidebar-graph-dialog.tsx`,
+  `sidebar-gateway-dialog.tsx`. Chat-history panel: search + heading enlarged
+  (→13px) but conversation-row fonts kept small (titles 11px, snippets 10px).
+  No doc change — UI styling only, contracts intact.
+
+- **Sidebar nav list: compact rows and a cleaner active state.** (A section-
+  heading grouping was added then removed at the user's request — the nav list
+  stays flat.) Rows are compacted (`h-9→h-8`, `py-2→py-1.5`, icon 16→15, gap
+  3→2.5); the active tab is now a simple `rounded-lg bg-white/[0.07]` pill (no
+  border, no left accent bar) with `aria-current="page"` and a `focus-visible`
+  ring. Files: `src/components/layout/sidebar.tsx`. Tests: `config.test.ts` /
+  `app-tabs.test.ts` pass. No doc change — client-only presentation styling.
+
+- **`model3d` gains a validator, part↔key selection, and a no-WebGL fallback.**
+  (1) Recipe parameters are checked against a declared contract
+  (`RECIPE_PARAM_KEYS`); an unknown key is reported instead of silently falling
+  back to defaults. (2) The compiler reports an off-scale scene and caps the
+  outline **edge budget** (60k segments) so a very large model degrades instead of
+  freezing. (3) Clicking a numbered key selects/highlights that part, and clicking
+  a part on the model selects its key (raycast picking, click vs drag). (4) When
+  WebGL is unavailable/lost the panel draws a static **isometric wireframe
+  fallback** (feature edges + hotspots via the anatomy iso-kit) rather than a
+  blank box. Files: `src/lib/model3d/{recipes,compile}.ts`,
+  `src/components/response/model3d-{canvas,block,fallback}.tsx`,
+  `harness/command-agent.ts`, the `system.anatomy-figure` skill. Tests:
+  `compile.test.ts`, `model3d-render.test.tsx`.
+  Docs updated: `interactive-response-engine.md`.
+
+- **The chat "Latest" jump pill now sits above the floating composer.** The
+  portaled pill was anchored to `rootRect.bottom - 16`, which lands inside the
+  bottom `bottomInset` (132px) the transcript reserves for the composer overlay,
+  so it rendered behind/below the input bar. It now anchors to
+  `rootRect.bottom - (bottomInset ?? 0) - gap`, lifting it clear of the
+  composer. File: `src/components/chat/chat-history.tsx`.
+  `no doc change — positioning/layout only`.
+
+- **Connections now has its own icon (`ChatsCircle`), distinct from MCP's
+  `Plug`.** Settings › Connections, the sidebar Gateway launcher, and the
+  Gateway dialog shipped with the same `Plug` glyph as Settings › MCP Servers.
+  Added `ChatsCircle` to the central icon surface and applied it to the
+  Connections nav entry, panel header, sidebar button, gateway dialog title and
+  the recent-activity fallback; MCP keeps `Plug`. Files:
+  `src/lib/icons/index.ts`, `src/components/screens/settings.tsx`,
+  `src/components/screens/connections-settings.tsx`,
+  `src/components/layout/sidebar.tsx`,
+  `src/components/layout/sidebar-gateway-dialog.tsx`.
+  `no doc change — icon/identity only`.
+
+- **Redesigned the Connections and Alerts settings channel cards (Discord,
+  Telegram, etc.).** Both panels now render a brand icon tile per channel
+  (Telegram/Discord/Slack/WhatsApp/Email/Webhook logos, ntfy → RSS) with accent
+  tints, a dot status pill (`connected` / `not set`), a unified polished field
+  input, cleaner health/refresh strip, message rows with per-channel icons, and
+  a `Toggle` instead of a raw checkbox for enabling alert channels. Added the
+  brand icons to the central icon surface (`DiscordLogo`, `TelegramLogo`,
+  `SlackLogo`, `WhatsappLogo`, `Webhook`, `Mail`). Files:
+  `src/components/screens/connections-settings.tsx`,
+  `src/components/screens/alert-notifications-settings.tsx`,
+  `src/lib/icons/index.ts`.
+  `no doc change — styling/markup only, contracts unchanged`.
+
+- **Eclipse Canvas is now inline in the chat, not a standalone page.** Canvas
+  renders as a right-hand pane split into the ChatBot tab when
+  `useCommandStore.canvasInlineOpen`/`pendingCanvasArtifactId` is set (`CanvasScreen
+  inline`; `canvas-workspace.tsx` inline skips the rail and wraps center + the
+  collapsed-by-default AI panel in a glass card with a header and close). It
+  opens from a chat response's **Canvas** action, the Artifact Center's **Edit in
+  Canvas**, and the composer "+" Canvas item. The standalone `canvas` AppTab,
+  sidebar section/`nav.canvas`, deep-link `/?tab=canvas`, mobile bottom-nav item,
+  the `stock-chat.tsx` keep-alive block, and the `/canvas` slash command
+  (`command-registry.ts` + `native.canvas`) were **removed**. The backend,
+  artifact model, typed-op contract and revision guard are unchanged. Docs
+  updated: `docs/canvas.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`,
+  `docs/harness/artifact-center.md`; ADR-049 carries an inline amendment in
+  `skills/ARCHITECT.md` + `docs/DECISIONS.md`.
+
+- **Chat composer now floats over the transcript so the frost is visible.** The
+  near-transparent `.glass-composer` tier only shows blur when something sits
+  behind it, but the composer used to be an in-flow sibling *below* the
+  transcript — nothing to blur. It is now an absolute overlay pinned to the
+  bottom of the chat column (`z-30`), and `ChatHistory` gained a `bottomInset`
+  prop that reserves `132px` of scroll padding so the last message clears it.
+  Scrolling messages now pass behind the bar and blur through the glass.
+  Files: `src/components/screens/stock-chat.tsx`,
+  `src/components/chat/chat-history.tsx`.
+  `no doc change — layout/styling only`.
+
+- **Chat composer is now near-transparent frosted glass.** The composer form
+  dropped the `.glass-card` tint (which read as a solid dark bar over the chat
+  surface) for a new `.glass-composer` tier — a low 0.16 dark tint (0.22 light)
+  with `backdrop-filter: blur(28px) saturate(1.5)`, matching the
+  `.glass-command-popover` approach, so the transcript reads through real glass.
+  Added to the `theme-glass-active`/`-off` override lists so the glass
+  customization settings still apply. Files: `src/app/globals.css`,
+  `src/components/chat/chat-input.tsx`.
+  `no doc change — styling only`.
+
 - **Chat composer "+" is now a menu: Images and photos / Context / Canvas ·
-  Skills / Mention.** The single attach button became a dropdown
-  (`chat/chat-input.tsx`) wired to a new `onAttachImage` prop (image picker in
-  `stock-chat.tsx`, passed through `empty-state.tsx`); "Context" keeps the
-  document picker, "Canvas" opens the Canvas tab, "Skills" seeds `/` to open the
-  command palette, and "Mention" appends `@` to open the mention palette.
+  Skills / Mention.** The single attach button became a dropdown in BOTH
+  composers — the full ChatBot composer (`chat/chat-input.tsx`) and the floating
+  dock (`chat/chat-dock.tsx`, which had its own separate "+" that never got the
+  menu) — wired to a new `onAttachImage` prop (image picker in `stock-chat.tsx`,
+  passed through `empty-state.tsx`); "Context" keeps the document picker,
+  "Canvas" opens the Canvas tab, "Skills" seeds `/` to open the command palette,
+  and "Mention" appends `@` to open the mention palette. The trigger uses the
+  same plain `DropdownMenuTrigger` pattern as the working model selector, and the
+  panel uses the `glass-command-popover` frosted tier (low tint + high blur) so
+  the page reads through it.
   `no doc change — composer affordance only`.
 
 - **`model3d` is now a flat outline drawing: fills match the paper.** The panel
@@ -216,6 +399,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Docs updated: `DECISIONS.md` (ADR-048), `NAVIGATION.md`,
   `interactive-response-engine.md`, `harness/slash-commands.md`,
   `.opencode/skills/black-eclipse-anatomy/SKILL.md`.
+
+- **Bots workspace: Escape now backs out of an open conversation to the Bots
+  overview.** With a bot or group room selected, `Escape` clears the selection
+  (`select(null)` / `selectGroup(null)`), revealing the empty-state page that
+  keeps the same New bot / New group buttons. Guarded by
+  `canHandleKeyboardEvent`, so it is suppressed while typing and while a
+  dialog/sheet owns Escape. Reused the existing `bots-store` selection actions;
+   no UI or contract change. File:
+  `src/components/screens/bots/bots-screen.tsx`.
+  Docs updated: `NAVIGATION.md`.
+
+- **Sidebar now has Gateway + Graph quick-launchers, and its dropdowns share
+  the control-strip border.** The `Terminal` mode switcher and the `recent` sort
+  select no longer show a raw focus ring/border; both use the same
+  `border-border/20` as the search box and group-by strip. Below the switcher
+  are two buttons: **Gateway** opens a dialog that lazy-loads the existing
+  Channel Gateway (`ConnectionsSettingsPanel` — Telegram/Discord/WhatsApp/
+  Slack/Email/Webhook; no second connection store); **Graph** opens a dialog
+  with *Skills* (learning-journey provenance graph via `learningJourney()` +
+  `LearningGraphChart`) and *Relations* (Investor Eye graph via the
+  `investor-eye:graph` data-hub topic), reusing the existing ECharts force
+  graph idiom (exported `RelationshipGraphChart`). New:
+  `src/components/layout/sidebar-gateway-dialog.tsx`,
+  `src/components/layout/sidebar-graph-dialog.tsx`; touched
+  `src/components/layout/sidebar.tsx`,
+  `src/components/layout/chat-history-panel.tsx`,
+  `src/components/investor-eye/graph-panel.tsx`,
+  `src/lib/i18n/dictionaries/en.ts`, `src/lib/size-budget.test.ts`.
+  `no doc change — new UI surface reusing existing systems; no architecture,
+  contract, or setup change`.
 
 ## 2026-10-16
 

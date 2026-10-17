@@ -19,6 +19,7 @@ import {
   toBase64Utf8,
 } from '@/lib/response/export';
 import { registerArtifact } from '@/lib/harness/artifacts-browser';
+import { contentFromResponse } from '@/lib/canvas/content';
 import { useCommandStore } from '@/lib/search/store';
 
 export interface ResponseActionsProps {
@@ -92,14 +93,22 @@ export function ResponseActions({ response }: ResponseActionsProps) {
         {save === 'saved' ? <Check size={11} /> : <Database size={11} />}
         {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : 'Save'}
       </button>
+      <button
+        type="button"
+        className={btn}
+        onClick={() => useCommandStore.getState().openCanvasContent(contentFromResponse(response))}
+        title="Open in Canvas — read this at full width"
+      >
+        <SquarePen size={11} /> Open in Canvas
+      </button>
       {savedId && (
         <button
           type="button"
           className={btn}
-          onClick={() => useCommandStore.getState().dispatch({ tab: 'canvas', params: { artifactId: savedId } })}
-          title="Open this artifact in Eclipse Canvas"
+          onClick={() => useCommandStore.getState().dispatch({ tab: 'chat', params: { artifactId: savedId } })}
+          title="Edit this saved artifact in Canvas"
         >
-          <SquarePen size={11} /> Canvas
+          <SquarePen size={11} /> Edit
         </button>
       )}
       {error && <span className="text-[10px] text-rose-300/80" title={error}>{error}</span>}

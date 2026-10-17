@@ -9,7 +9,9 @@ import { describe, it, expect } from 'vitest';
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseResponsePayload, type Model3dBlock as Model3dBlockType } from '@/lib/response/contract';
+import { compileModel3d } from '@/lib/model3d/compile';
 import { Model3dBlock } from './model3d-block';
+import { Model3dFallback } from './model3d-fallback';
 
 const html = (node: ReactElement): string => renderToStaticMarkup(node);
 
@@ -47,8 +49,10 @@ describe('Model3dBlock — a model, not just a canvas', () => {
     expect(out).toContain('drag to orbit');
   });
 
-  it('exposes the GLB download and stage affordances', () => {
-    expect(out).toContain('Download .glb');
+  it('exposes the export + stage affordances', () => {
+    expect(out).toContain('.glb');
+    expect(out).toContain('.obj');
+    expect(out).toContain('.stl');
     expect(out.toLowerCase()).toContain('previous stage');
     expect(out.toLowerCase()).toContain('next stage');
   });
@@ -58,8 +62,24 @@ describe('Model3dBlock — a model, not just a canvas', () => {
     expect(out).toContain('idle');
   });
 
+  it('makes the numbered key selectable (part ↔ key selection)', () => {
+    expect((out.match(/aria-pressed=/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('is total for an empty model (no crash, honest message)', () => {
     const empty = html(<Model3dBlock block={blockOf({ parts: [] })} />);
     expect(empty).toContain('No parts in this model.');
+  });
+});
+
+describe('Model3dFallback — a static view when WebGL is unavailable', () => {
+  it('draws an isometric SVG outline from the compiled edges', () => {
+    const scene = compileModel3d(
+      blockOf({ parts: [{ id: 'b', kind: 'box', w: 20, d: 20, h: 10 }, { id: 'g', recipe: 'gear', label: 'drive gear' }] }),
+    );
+    const out = html(<Model3dFallback scene={scene} height={480} />);
+    expect(out).toContain('<svg');
+    expect(out).toContain('#3A3E44');
+    expect(out).toContain('<path');
   });
 });
