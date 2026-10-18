@@ -1,7 +1,7 @@
 ---
 title: Artifact Center
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-10-18
 ---
 
 # Artifact Center
@@ -41,7 +41,11 @@ python/harness/artifacts/
   store.py       ArtifactStore — the tables + parameterized list/search; sort
                  keys are looked up, never interpolated
   preview.py     bounded text/CSV/JSON/code extracts + Pillow image/PDF thumbs;
-                 office files read as ZIP+XML (never executed)
+                 office files read as ZIP+XML (never executed); VIDEO posters
+                 come from a registered extractor seam
+                 (`set_video_poster_extractor` — the video layer installs one
+                 over the renderer's FFmpeg tree; absent/failed ⇒ UNSUPPORTED,
+                 never a fabricated poster)
   service.py     ArtifactService — register/version/preview/tag/collect/archive/
                  restore/delete/purge/reconcile; owner scope + idempotency
   producers.py   the hook other subsystems call (analysis, task scheduler)
@@ -130,6 +134,24 @@ read, preview or download another owner's artifact — not by id, not by search,
 by thumbnail. Storage keys are validated against traversal, absolute paths and
 symlink escape. Untrusted content is never executed; HTML/SVG is served as a
 download and never rendered in the app origin.
+
+## Media playback (video/audio)
+
+A video artifact's thumbnail is a REAL frame: the video layer registers an
+FFmpeg poster extractor on the preview engine at boot (the artifacts layer
+holds no video import), and a missing extractor or frame is an honest
+`UNSUPPORTED`, never a placeholder image. For inline playback the download
+route additionally supports:
+
+- `Range` requests → `206` + `Content-Range` + `Accept-Ranges: bytes` (so a
+  player can seek; an unsatisfiable range is `416` with `bytes */<size>`), and
+- `?inline=1` → `Content-Disposition: inline` instead of `attachment`.
+
+The bytes are identical and the authorization is unchanged — the Next proxy
+forwards the client's `Range` header and the upstream range/stream metadata.
+Artifacts registered by the video pipeline also carry a `conversationId`
+(when the requesting conversation supplied one), so the catalog can be
+filtered by the conversation a render came from.
 
 ## Reconciliation
 

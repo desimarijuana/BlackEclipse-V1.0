@@ -20,7 +20,7 @@ import type { TranslateFn } from '@/lib/i18n/translate';
 import type { TranslationKey } from '@/lib/i18n/types';
 import {
   archiveArtifact, bulkAction, deleteArtifact, downloadUrl,
-  getPreview, listArtifacts, listTags, listVersions, restoreArtifact,
+  getPreview, inlineUrl, listArtifacts, listTags, listVersions, restoreArtifact,
   thumbnailUrl, updateArtifact,
   type Artifact, type ArtifactCategory, type ArtifactPreview,
   type ArtifactVersion, type ListParams,
@@ -103,6 +103,9 @@ function ArtifactCard({
 }) {
   const Icon = categoryIcon(artifact.category);
   const isImage = artifact.category === 'image';
+  // A video with a generated poster (a real frame of the render) shows it too;
+  // a video without one falls back to the category icon — never a broken img.
+  const hasPoster = isImage || (artifact.category === 'video' && Boolean(artifact.thumbnailKey));
   return (
     <div
       className={cn(
@@ -124,7 +127,7 @@ function ArtifactCard({
         {selected ? <Check className="h-3.5 w-3.5" weight="bold" /> : null}
       </button>
       <div className="h-28 w-full flex items-center justify-center bg-black/20 overflow-hidden">
-        {isImage ? (
+        {hasPoster ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbnailUrl(artifact.id)}
@@ -246,6 +249,20 @@ function PreviewBody({ artifact, preview }: { artifact: Artifact; preview: Artif
     case 'image':
       // eslint-disable-next-line @next/next/no-img-element
       return <img src={downloadUrl(artifact.id)} alt={artifact.name} className="max-h-80 rounded-lg" />;
+    case 'video':
+      // Plays inline (the download route serves `inline=1` and honors byte
+      // ranges, so seeking works). A honest fallback below when the browser
+      // cannot play the codec.
+      // eslint-disable-next-line jsx-a11y/media-has-caption
+      return (
+        <video
+          controls
+          preload="metadata"
+          playsInline
+          src={inlineUrl(artifact.id)}
+          className="max-h-80 w-full rounded-lg bg-black/40"
+        />
+      );
     case 'pdf':
       return (
         <iframe

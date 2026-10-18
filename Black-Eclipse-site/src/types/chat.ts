@@ -72,6 +72,13 @@ export interface Message {
    */
   images?: unknown;
   /**
+   * Native video: the video jobs this run queued (job + project ids) for the
+   * chat's live job card — polling, playback, download, revise/regenerate.
+   * Absent on user turns, non-video runs, and legacy rows. Narrowed by the chat
+   * surface via `coerceVideoBlob`.
+   */
+  video?: unknown;
+  /**
    * A computed result the runtime worked out on this turn (`analysis.completed`):
    * outputs, artifacts and provenance. Absent on user turns, computation-free
    * runs and legacy rows. Narrowed by the chat surface via `coerceComputedResult`.

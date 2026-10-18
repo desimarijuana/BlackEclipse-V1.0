@@ -18,7 +18,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..artifacts.model import (
@@ -345,17 +345,73 @@ def artifact_preview(
     return {"success": True, "preview": preview}
 
 
-def _content_disposition(name: str) -> str:
+def _content_disposition(name: str, disposition: str = "attachment") -> str:
     safe = name.replace('"', "").replace("\r", "").replace("\n", "")
     fallback = "".join(ch if ch.isascii() and ch.isalnum() or ch in "._- " else "_" for ch in safe)
-    return f'attachment; filename="{fallback or "artifact"}"; filename*=UTF-8\'\'{quote(safe)}'
+    return (
+        f'{disposition}; filename="{fallback or "artifact"}"; '
+        f"filename*=UTF-8''{quote(safe)}"
+    )
+
+
+def _parse_byte_range(header: str, size: int) -> Optional[tuple[int, int]]:
+    """One `bytes=a-b` / `bytes=a-` / `bytes=-n` range (inclusive), or None.
+
+    Multi-range requests are refused (None) rather than half-served: this is a
+    single-object stream, and a client can retry plainly.
+    """
+    value = (header or "").strip()
+    if not value.lower().startswith("bytes=") or "," in value:
+        return None
+    spec = value[len("bytes="):].strip()
+    start_text, _, end_text = spec.partition("-")
+    try:
+        if start_text:
+            start = int(start_text)
+            end = int(end_text) if end_text else size - 1
+        elif end_text:
+            length = int(end_text)
+            start = max(0, size - length)
+            end = size - 1
+        else:
+            return None
+    except ValueError:
+        return None
+    if size <= 0 or start < 0 or start >= size or end < start:
+        return None
+    return start, min(end, size - 1)
+
+
+def _read_exactly(handle: Any, length: int):
+    """Yield at most `length` bytes from a binary handle, then close it."""
+    remaining = length
+    try:
+        while remaining > 0:
+            chunk = handle.read(min(64 * 1024, remaining))
+            if not chunk:
+                return
+            remaining -= len(chunk)
+            yield chunk
+    finally:
+        try:
+            handle.close()
+        except Exception:  # noqa: BLE001 - closing a stream must never raise
+            pass
 
 
 @router.get("/artifacts/{artifact_id}/download")
 def download_artifact(
     artifact_id: str, request: Request, version: Optional[int] = None,
+    inline: bool = False,
     _: bool = Depends(require_operator),
 ) -> StreamingResponse:
+    """Stream the original bytes.
+
+    `inline=1` serves `Content-Disposition: inline` so a `<video>`/`<audio>`
+    element can play it; `Range` requests are honored (`206` + `Content-Range`)
+    so players can SEEK — without it, scrubbing a long render is impossible.
+    The bytes are identical and authorization is unchanged either way.
+    """
     try:
         handle, artifact = _service().open_content(
             artifact_id, owner_id=_owner(request), version=version
@@ -364,12 +420,51 @@ def download_artifact(
         _raise(exc)
     media_type = artifact.mime_type or mimetypes.guess_type(artifact.name)[0] or "application/octet-stream"
     headers = {
-        "Content-Disposition": _content_disposition(artifact.original_name or artifact.name),
+        "Content-Disposition": _content_disposition(
+            artifact.original_name or artifact.name,
+            "inline" if inline else "attachment",
+        ),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-store",
+        "Accept-Ranges": "bytes",
     }
     if artifact.checksum:
         headers["ETag"] = f'"{artifact.checksum[:32]}"'
+
+    size = artifact.size_bytes
+    if size is None:
+        try:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(0)
+        except Exception:  # noqa: BLE001 - an unseekable handle is servable as-is
+            size = None
+    range_header = request.headers.get("range") or ""
+    if size and range_header:
+        parsed = _parse_byte_range(range_header, int(size))
+        if parsed is None:
+            try:
+                handle.close()
+            except Exception:  # noqa: BLE001
+                pass
+            return Response(
+                status_code=416,
+                headers={"Content-Range": f"bytes */{int(size)}", "Accept-Ranges": "bytes"},
+            )
+        start, end = parsed
+        try:
+            handle.seek(start)
+        except Exception:  # noqa: BLE001 - fall back to the full object
+            pass
+        else:
+            headers["Content-Range"] = f"bytes {start}-{end}/{int(size)}"
+            headers["Content-Length"] = str(end - start + 1)
+            return StreamingResponse(
+                _read_exactly(handle, end - start + 1),
+                status_code=206,
+                media_type=media_type,
+                headers=headers,
+            )
     return StreamingResponse(handle, media_type=media_type, headers=headers)
 
 

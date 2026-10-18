@@ -1,9 +1,10 @@
 """Native video generation: the fframes Rust worker behind an Execution-Fabric
-job layer (draft renders, final renders, frame inspection, artifact
-registration).
+job layer (projects, versioned storyboards, evidence-bound market data, PNG
+previews, draft/final renders, frame inspection, a bounded repair loop,
+artifact registration).
 
-Phase 2 scope: the job layer only — agent tools, routes and the storyboard
-schema arrive in later phases (see `docs/video-pipeline.md`).
+Phases 1–6 are live; the chat artifact UI is Phase 7 and hardening is Phase 8
+(see `docs/video-pipeline.md`).
 """
 
 from __future__ import annotations

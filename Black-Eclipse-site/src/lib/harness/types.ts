@@ -464,6 +464,8 @@ export interface RunRecord {
   documents?: DocumentRunInfo | null;
   /** Internet Image Search: the run's validated image results (null otherwise). */
   images?: ImagesRunInfo | null;
+  /** Native video: the video jobs this run queued (null otherwise). */
+  video?: { type?: string; count?: number; jobs?: Record<string, unknown>[] } | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

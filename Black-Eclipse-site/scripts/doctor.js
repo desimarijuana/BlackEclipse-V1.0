@@ -319,6 +319,41 @@ if (py) {
       : "[setup] remote backend: not configured"
   );
 
+  // 6c-bis. Native video worker (OPTIONAL). REPORTED, never built here: a cargo
+  //     build needs FFMPEG_DIR (the FFmpeg dev tree) + LIBCLANG_PATH for
+  //     bindgen, and minutes of CPU — doctor must stay lightweight. Absence is
+  //     an honest "not ready" in the video capabilities, never a fake render.
+  const videoEnabled = !["0", "false", "no", "off"].includes(
+    (process.env.HARNESS_VIDEO_ENABLED || "1").trim().toLowerCase()
+  );
+  if (!videoEnabled) {
+    console.log("[setup] video worker: disabled (HARNESS_VIDEO_ENABLED=0)");
+  } else {
+    const videoBin =
+      (process.env.HARNESS_VIDEO_WORKER_BIN || "").trim() ||
+      path.join(
+        root, "rust", "fframes-worker", "target", "release",
+        process.platform === "win32" ? "fframes-worker.exe" : "fframes-worker"
+      );
+    const ffmpegDir = (
+      process.env.HARNESS_VIDEO_FFMPEG_DIR || process.env.FFMPEG_DIR || ""
+    ).trim();
+    console.log(
+      fs.existsSync(videoBin)
+        ? `[setup] video worker: present (${path.relative(root, videoBin)})`
+        : "[setup] video worker: not built — run \"cargo build --release\" in rust/fframes-worker (video tools report NOT ready until then)"
+    );
+    if (!ffmpegDir) {
+      console.log(
+        "[setup] video ffmpeg: FFMPEG_DIR not set — the worker needs the FFmpeg DLLs on PATH (see docs/video-pipeline.md)"
+      );
+    } else if (!fs.existsSync(ffmpegDir)) {
+      console.log(`[setup] video ffmpeg: FFMPEG_DIR points at a missing directory: ${ffmpegDir}`);
+    } else {
+      console.log("[setup] video ffmpeg: configured");
+    }
+  }
+
   // 6d. Authentication readiness. Authentication is OPT-IN and auto-engages the
   //     moment the app is reachable beyond loopback (or is a production build).
   //     This reports which mode will apply and whether it is actually usable, so a

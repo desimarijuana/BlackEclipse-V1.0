@@ -57,6 +57,8 @@ export type HarnessUiEvent =
       documents?: unknown;
       /** Internet Image Search: the run's validated image results. */
       images?: unknown;
+      /** Native video: the video jobs this run queued (live job card). */
+      video?: unknown;
     }
   | { kind: 'error'; message: string; code?: string }
   /** The run is blocked on an operator decision (approval card). */
@@ -384,6 +386,7 @@ export function normalizeHarnessEvent(
       vision: payload.vision ?? undefined,
       documents: payload.documents ?? undefined,
       images: payload.images ?? undefined,
+      video: payload.video ?? undefined,
     };
   }
 

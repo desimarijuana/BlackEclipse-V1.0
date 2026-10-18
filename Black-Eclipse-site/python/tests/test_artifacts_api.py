@@ -79,3 +79,43 @@ def test_lifecycle_endpoints():
     assert client.post(f"/artifacts/{artifact_id}/restore").status_code == 200
     assert client.delete(f"/artifacts/{artifact_id}").status_code == 200
     assert client.post(f"/artifacts/{artifact_id}/purge").status_code == 200
+
+
+def test_download_range_inline():
+    """Media playback support (Phase 7): byte ranges are honored (`206` +
+    Content-Range, seekable) and `inline=1` drops the attachment disposition —
+    the bytes and the authorization are unchanged either way."""
+    payload = b"0123456789abcdef"
+    created = client.post("/artifacts", json={
+        "name": "range.bin", "contentBase64": base64.b64encode(payload).decode(),
+    }).json()
+    artifact_id = created["artifact"]["id"]
+
+    full = client.get(f"/artifacts/{artifact_id}/download")
+    assert full.status_code == 200
+    assert full.headers.get("accept-ranges") == "bytes"
+    assert full.content == payload
+
+    middle = client.get(
+        f"/artifacts/{artifact_id}/download", headers={"Range": "bytes=4-7"}
+    )
+    assert middle.status_code == 206
+    assert middle.content == b"4567"
+    assert middle.headers["content-range"] == "bytes 4-7/16"
+    assert middle.headers["content-length"] == "4"
+
+    suffix = client.get(
+        f"/artifacts/{artifact_id}/download", headers={"Range": "bytes=-4"}
+    )
+    assert suffix.status_code == 206
+    assert suffix.content == b"cdef"
+
+    unsatisfiable = client.get(
+        f"/artifacts/{artifact_id}/download", headers={"Range": "bytes=99-120"}
+    )
+    assert unsatisfiable.status_code == 416
+    assert unsatisfiable.headers["content-range"] == "bytes */16"
+
+    inline = client.get(f"/artifacts/{artifact_id}/download", params={"inline": "1"})
+    assert inline.status_code == 200
+    assert inline.headers["content-disposition"].startswith("inline;")

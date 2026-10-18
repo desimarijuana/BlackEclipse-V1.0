@@ -401,6 +401,9 @@ def build_graph(
     # The run's internet-image result collector, so an `image_search`/`render_
     # image_gallery` tool's validated results reach the chat's inline gallery.
     image_sink: Optional[Any] = None,
+    # The run's native-video job collector, so a `video_*` tool's QUEUED job
+    # handle reaches the chat as a live job card (progress, playback, download).
+    video_sink: Optional[Any] = None,
     # The run's advisory collector (the Fiduciary Gate), so every `portfolio_*`
     # tool call is recorded and an actionable recommendation in the final answer
     # can be verified against a computation the run actually performed.
@@ -499,6 +502,10 @@ def build_graph(
         # Private per-conversation memory (bot chats / group members). Absent for
         # ordinary chat, where memory scoping is unchanged.
         conversation_id=getattr(request, "conversationId", None),
+        # The chat session id (the front door's `chatId`). For an ordinary chat
+        # turn this IS the user-visible conversation, so produced artifacts can
+        # be associated with it (conversation_id stays None there, by design).
+        session_id=request.sessionId,
         user_message=request.input.query,
         # A skill run is composed with an agent id of the form `skill:<id>`; its
         # memory saves carry execution-lesson provenance, not explicit-user.
@@ -565,6 +572,9 @@ def build_graph(
         # The run's internet-image collector: `image_search` hands validated
         # results here so they render inline in the chat (never fabricated).
         image_sink=image_sink,
+        # The run's native-video job collector: `video_*` hands queued job
+        # handles here so the chat renders live job cards (progress → player).
+        video_sink=video_sink,
         # The run's advisory collector: every `portfolio_*` tool call is recorded
         # here so the answer seam can verify actionable advice (the Fiduciary Gate).
         advisory_sink=advisory_sink,
@@ -1355,6 +1365,14 @@ async def execute_run(
 
     image_collector = ImageCollector()
 
+    # Ordinary-run native-video collection: a `video_*` tool hands the job it
+    # just QUEUED here so the run carries a bounded video blob the chat renders
+    # as a live job card (progress while running; player + download when a final
+    # succeeds). Deterministic: only real submitted job handles are collected.
+    from .video.collector import VideoJobCollector  # noqa: PLC0415
+
+    video_collector = VideoJobCollector()
+
     # Bounded recovery (Milestone 4): if the run failed with a classified
     # CONTEXT_OVERFLOW, retry ONCE with a materially tighter history budget. The
     # terminal status is persisted once, below, after recovery resolves.
@@ -1416,6 +1434,7 @@ async def execute_run(
             vision_sink=vision_collector.add,
             document_sink=document_collector.add,
             image_sink=image_collector.add,
+            video_sink=video_collector.add,
             advisory_sink=advisory_collector.add,
             market=market,
             portfolio=portfolio,
@@ -1588,6 +1607,10 @@ async def execute_run(
     # `render_image_gallery` tool calls (None when no image tool ran), shaped for
     # the chat's inline gallery. Deterministic from validated tool results only.
     images_blob = image_collector.to_blob()
+    # Native-video jobs queued by this run's `video_*` tool calls (None when no
+    # video tool ran), shaped for the chat's live job card. Deterministic from
+    # real submitted job handles only — a failed submission is never collected.
+    video_blob = video_collector.to_blob()
     store.update_run(
         request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,
@@ -1595,6 +1618,7 @@ async def execute_run(
         **( {"vision": vision_blob} if vision_blob else {} ),
         **( {"documents": documents_blob} if documents_blob else {} ),
         **( {"images": images_blob} if images_blob else {} ),
+        **( {"video": video_blob} if video_blob else {} ),
     )
     # Durable terminal boundary: a resume of a completed run is a RESUME_CONFLICT.
     if lineage is not None:
@@ -1644,6 +1668,7 @@ async def execute_run(
     result.vision = vision_blob
     result.documents = documents_blob
     result.images = images_blob
+    result.video = video_blob
     return result
 
 

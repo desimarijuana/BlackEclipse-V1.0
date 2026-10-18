@@ -1,7 +1,14 @@
+use std::process::ExitCode;
+
+use fframes::cli::{self, clap};
 use fframes::{
     animation::Easing, AudioMap, Color, Duration, FFramesContext, Frame, RenderOptions, Svgr,
     Transform, Video,
 };
+
+mod scenes;
+mod spec;
+mod theme;
 
 struct TitleCard;
 
@@ -96,12 +103,41 @@ impl Video for TitleCard {
     }
 }
 
-fn main() -> std::process::ExitCode {
-    let video = TitleCard;
+#[derive(Debug, clap::Args)]
+struct WorkerArgs {
+    /// Render a storyboard project spec (JSON, schemaVersion 2) instead of the built-in title card.
+    #[arg(long, global = true)]
+    project: Option<std::path::PathBuf>,
+}
+
+fn main() -> ExitCode {
+    let args = cli::parse::<WorkerArgs>();
     let options = RenderOptions {
         load_system_fonts: true,
         default_font: "Segoe UI",
         ..Default::default()
     };
-    fframes::cli::new(&video, options).run()
+    match args.app.project.clone() {
+        None => {
+            let video = TitleCard;
+            cli::new(&video, options).args(args).run()
+        }
+        Some(path) => {
+            let storyboard = match spec::load(&path) {
+                Ok(storyboard) => storyboard,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let video = match scenes::build_video(storyboard) {
+                Ok(video) => video,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            cli::new(&video, options).args(args).run()
+        }
+    }
 }

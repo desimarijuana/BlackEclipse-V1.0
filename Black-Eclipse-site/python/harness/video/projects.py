@@ -1,9 +1,10 @@
-"""Project registry for the video pipeline (filesystem-backed, deliberately thin).
+"""Project registry for the video pipeline (filesystem-backed).
 
-Phase 2 keeps projects minimal: a stable id, a name, a KIND and a free-form
-spec. `title_card` is the only built-in kind today (the Rust worker's proof
-video); the versioned storyboard/project schema and scene library arrive with
-Phase 4 — this store is the seam they will grow through.
+A project is a stable id, a name, a KIND, a revision and a spec:
+
+- ``title_card`` — the built-in BlackEclipse title card; its spec must be empty.
+- ``storyboard`` — a versioned, validated scene specification (see
+  ``video/spec.py``); revisions bump ``revision`` so a re-render is traceable.
 
 Layout: ``<root>/projects/<id>.json`` — one file per project, atomic writes
 (tmp + os.replace), ids format-checked so a project id can never traverse paths.
@@ -24,8 +25,10 @@ from .models import (
     VideoError,
     new_project_id,
 )
+from .spec import validate_storyboard
 
 _ID_RE = re.compile(r"^vprj_[0-9a-f]{16}$")
+_MAX_SPEC_PROBLEMS_REPORTED = 8
 
 
 class VideoProjectStore:
@@ -47,17 +50,38 @@ class VideoProjectStore:
                 "UNSUPPORTED_PROJECT_KIND",
                 f"unknown project kind {kind!r}; supported: {', '.join(SUPPORTED_PROJECT_KINDS)}",
             )
-        if spec is not None and not isinstance(spec, dict):
-            raise VideoError("INVALID_INPUT", "a project spec must be an object")
+        clean_spec = self._checked_spec(clean_kind, spec)
         project = {
             "id": new_project_id(),
             "name": clean_name,
             "kind": clean_kind,
-            "spec": dict(spec or {}),
+            "spec": clean_spec,
             "schemaVersion": PROJECT_SCHEMA_VERSION,
+            "revision": 1,
             "createdAt": now_iso(),
             "updatedAt": now_iso(),
         }
+        self._write(project)
+        return project
+
+    def update(
+        self, project_id: str, *, name: Optional[str] = None,
+        spec: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Revise a project in place; the revision counter is bumped so a
+        re-render is traceable without rebuilding anything."""
+        project = self.get(project_id)
+        if project is None:
+            raise VideoError("PROJECT_NOT_FOUND", f"project {project_id!r} was not found")
+        if name is not None:
+            clean_name = str(name).strip()
+            if not clean_name or len(clean_name) > 200:
+                raise VideoError("INVALID_INPUT", "a project name must be 1-200 characters")
+            project["name"] = clean_name
+        if spec is not None:
+            project["spec"] = self._checked_spec(str(project.get("kind") or ""), spec)
+        project["revision"] = int(project.get("revision") or 1) + 1
+        project["updatedAt"] = now_iso()
         self._write(project)
         return project
 
@@ -97,11 +121,35 @@ class VideoProjectStore:
             problems.append(
                 f"unsupported project kind {project.get('kind')!r}; supported: {', '.join(SUPPORTED_PROJECT_KINDS)}"
             )
+            return problems
         if not isinstance(project.get("spec", {}), dict):
             problems.append("the project spec must be an object")
+            return problems
+        if kind == "storyboard":
+            problems.extend(validate_storyboard(project.get("spec") or {}))
+        elif project.get("spec"):
+            problems.append("a title_card project takes no spec (use kind `storyboard` for scenes)")
         return problems
 
     # ── internals ────────────────────────────────────────────────────────────
+
+    def _checked_spec(self, kind: str, spec: Optional[dict[str, Any]]) -> dict[str, Any]:
+        if spec is not None and not isinstance(spec, dict):
+            raise VideoError("INVALID_INPUT", "a project spec must be an object")
+        clean_spec = dict(spec or {})
+        if kind == "storyboard":
+            problems = validate_storyboard(clean_spec)
+            if problems:
+                shown = problems[:_MAX_SPEC_PROBLEMS_REPORTED]
+                extra = len(problems) - len(shown)
+                detail = "; ".join(shown) + (f" (+{extra} more)" if extra > 0 else "")
+                raise VideoError("INVALID_SPEC", detail)
+        elif clean_spec:
+            raise VideoError(
+                "INVALID_INPUT",
+                "a title_card project takes no spec; use kind `storyboard` for scene specs",
+            )
+        return clean_spec
 
     def _path(self, project_id: str) -> Optional[Path]:
         text = str(project_id or "").strip()

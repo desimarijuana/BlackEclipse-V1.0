@@ -6,6 +6,565 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-18
+
+- **feat(harness,video): Phase 8 — hardening: resource ceilings, pinned
+  isolation, a worker SBOM, scheduled recaps and the deployment story.** The
+  native video pipeline gets its resource and trust boundaries closed. **Limits**:
+  `video/limits.py` refuses a submit when a project already holds
+  `HARNESS_VIDEO_MAX_PENDING_PER_PROJECT` (default 4) non-terminal jobs
+  (`TOO_MANY_PENDING`, per project, terminal jobs free their slots); `video/gc.py`
+  prunes `<video-root>/jobs/<id>/` to `HARNESS_VIDEO_GC_KEEP_JOBS` (20) newest
+  and `HARNESS_VIDEO_GC_MAX_TOTAL_MB` (2048) oldest-first — never the newest
+  (a render in flight) and never `projects/`, safe because finals are COPIED
+  into the Artifact Center at registration; the sweep runs at boot
+  (`boot.py` lifespan, off the event loop) like the code-workspace sweep.
+  **Isolation pinned as tests, not prose**: storyboard specs cannot name any
+  media/asset path (unknown-key refusals asserted), the invoked worker's argv
+  is asserted inside the job workspace for renders AND previews (the fake
+  worker now records strip/frame argv and gains `escape_strip`/`escape_render`/
+  `slow` scenarios), and a worker that REPORTS an output outside the workspace
+  is refused before inspection/registration — a new confinement check in
+  `_attempt_render` (`INVALID_STATE`) plus the existing preview `_confined`
+  (`INVALID_INPUT`), with the Artifact Center asserted empty. **SBOM**:
+  `video/sbom.py` (`python -m harness.video.sbom`) generates the committed
+  `rust/fframes-worker/SBOM.json` from `Cargo.lock` (281 locked crates with
+  checksums, the EXACT `=1.2.0` fframes pin parsed and cross-checked against
+  the lock, the FFmpeg/GPL licensing note; per-crate license strings are
+  deliberately NOT faked — the file says `cargo metadata` is the honest way)
+  with a drift test, so a dependency bump cannot ship without a fresh SBOM.
+  **Deployment/zero-config**: `doctor.js` gains a report-only video probe
+  (binary present? FFMPEG_DIR set?) that never builds or fails boot; docs
+  spell out the prebuilt-binary + FFmpeg-DLL packaging story and the honest
+  degradation when the worker is absent. **Scheduled recaps**: `video/recaps.py`
+  builds a `schemaVersion 3` BOUND recap storyboard (intro → per-symbol metric
+  with price/volume `source` bindings → one daily candlestick → outro, 1–5
+  symbols), exposed as `POST /video/recaps` + `createVideoRecap`, and the new
+  `daily-market-recap-video` job template (cron `30 21 * * 1-5`) drives it on
+  the ORDINARY agent runtime — no second scheduler. **Graph Studio**:
+  `video.render` is DECLARED in both registries (lockstep) with
+  `executor=None` + a `since_phase` naming exactly what it waits for (async
+  graph execution + an effectful-run envelope); the compiler's
+  `executor_unavailable` diagnostic says so instead of a node that pretends.
+  Files: `python/harness/video/{limits.py, gc.py, sbom.py, recaps.py}`
+  (new), `video/{service.py, config.py}`, `harness/{boot.py,
+  routers/video.py, jobs/templates.py, graph_runtime/{nodes.py,
+  video_nodes.py}}`, `rust/fframes-worker/SBOM.json` (new),
+  `scripts/doctor.js`, TS `src/lib/harness/video-client.ts` +
+  `src/lib/graph-studio/registry.ts`. Tests: `test_video_{hardening (10),
+  isolation (4), sbom (6), recaps (8)}.py` + `test_graph_video_nodes.py`
+  (3) + the opt-in real smoke `test_real_recap_draft_renders` (a data-bound
+  recap rendered through the REAL worker, every figure resolved, no authored
+  numbers — 9 real smoke tests pass on this machine). Checks: full Python
+  suite 6938 passed — failures are the known set plus the same flaky classes
+  (graph + evaluation-repair order-flaky, both green in isolation;
+  user-WIP size ratchets `main.py` 1203 / `persistence.py` 1441 /
+  `service.py` 1520, untouched by this change — no ratcheted module grew in
+  Phase 8; the frozen local-store skill drift); vitest 336 files / 3495 tests
+  pass with the same single pre-existing `gitignore-guard` failure;
+  `npm run test-evals` ALL PASS; `tsc` clean; `cargo test` green; `doctor.js`
+  reports the worker "present" + "FFmpeg configured" and exits 0. Docs:
+  `docs/video-pipeline.md` (Phase 8 section incl. deployment story + the
+  deferred list + the MCP note), `docs/graph-studio.md` (declared node),
+  `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **feat(harness): round-4 completion pass — ADRs H203–H208, W13 tool
+  contracts, and the remaining W5/W7/W8/W9/W11 slices.** Six items.
+  **(ADRs)** `docs/harness/decisions.md` gains the six round-4 decisions the
+  roadmap reserved: H203 (Compose needs a catalog witness), H204 (one
+  capability-fit fact), H205 (a misroute is a first-class failure), H206
+  (self-repair is typed/worktree-authored/operator-gated), H207 (the
+  acquisition plan is first-class; the executor may propose, never grant), H208
+  (measured or UNMEASURED, never fabricated). **(W13)** New
+  `python/harness/tool_contracts.py`: every advertised tool is checked for a
+  stable name, a typed input schema, valid permission/risk vocabulary and a
+  bounded timeout; `audit_registry` is the release gate — all 886 registered
+  tools pass (test-pinned), advisory gaps (untyped output, undeclared effect
+  metadata) are counted, never blocking. The audit caught and fixed two real
+  metadata bugs: `computer_finance_prepare` declared the invalid risk
+  `"critical"` (now `"high"`; the computer subsystem's internal CRITICAL class
+  is unchanged) and the timeout ceiling now admits the deliberate 15-minute
+  operation families. **(W8)** `TaskBudget` gains the measurable caps it was
+  missing: `max_model_steps` (enforced post-run) and `max_parallel_workers`
+  (enforced through the scheduler's EXISTING per-agent concurrency cap via
+  `metadata.maxConcurrency`); model cost remains undeclared because the runtime
+  does not price it. **(W11)** The L3 preference now FEEDS the decision: when
+  the ledger's measured route is among the policy's own candidates,
+  `record_failure` promotes it to first (never adding a strategy the policy did
+  not offer) and records the evidence on the result. **(W7)**
+  `GET /recovery/metrics` reports the self-evolution block from the REAL
+  runtime stores (incident outcomes read from the `action="outcome"` attempts;
+  goal-contract criteria), read-only. **(W5/W9)**
+  `POST /recovery/incidents/{id}/acquisition/execute` and `.../resume` let an
+  operator run ONE approved step through the real surfaces and resume the
+  original task from its durable checkpoint — parking never re-executes the
+  step (pinned by test). Files: `python/harness/tool_contracts.py` (new),
+  `python/harness/recovery/{service.py, acquire_handlers.py,
+  strategy_learning.py}`, `python/harness/routers/recovery.py`,
+  `python/harness/tasks/{model.py, goal.py, scheduler.py, tools.py}`,
+  `python/harness/evaluation/repair_metrics.py`,
+  `python/harness/computer/schemas.py`, `docs/harness/decisions.md`. Tests:
+  `test_tool_contracts.py` (13), `test_recovery_strategy_learning.py` (5),
+  `test_evaluation_repair_metrics.py` (7), `test_recovery_acquire_handlers.py`
+  (8), plus the budget/tool additions. Docs updated:
+  `docs/harness/{decisions,self-evolution-roadmap,task-plan-system,
+  failure-recovery,agent-evaluation}.md`, `docs/NAVIGATION.md`.
+
+- **feat(harness): W11 first slice — L3 strategic learning.** The route that
+  actually worked, learned from the EXISTING recovery ledger. New
+  `recovery/strategy_learning.py` (`strategy_stats`, `preferred_strategy`,
+  `preference_from_store`): per failure signature it counts each strategy's
+  attempts and successes from `RecoveryIncident`/`RecoveryAttempt` rows and
+  returns a `StrategyPreference` (strategy + observations + measured success
+  rate) only when the evidence supports it — minimum observations and a success
+  floor, deterministic tie-break; thin evidence yields None (an unmeasured
+  choice stays unmade). `RecoveryService.preferred_strategy(signature)` is the
+  read-only adapter. The acceptance case is pinned against the REAL ledger: a
+  recurring browser-vs-API situation where `browser_navigate` failed and
+  `api_call` succeeded twice prefers `api_call` at a measured 1.0 rate. Files:
+  `python/harness/recovery/{strategy_learning.py (new), service.py}`. Tests:
+  `test_recovery_strategy_learning.py` (4). Docs updated:
+  `docs/harness/failure-recovery.md`,
+  `docs/harness/self-evolution-roadmap.md`.
+
+- **feat(harness): W8.2 + W10 + W15 + W7 — durable-by-default, stuck-loop
+  control, autonomy tiers, self-evolution metrics.** Four workstreams.
+  **(W8.2)** New `python/harness/goal_runtime.py`: a durable chat request now
+  becomes a goal task BEFORE the run — the run itself is its first attempt —
+  and settlement verifies through the task-type verifier afterwards (verified
+  completion, or a bounded repair attempt re-queued for the scheduler). The
+  wrapper is installed by `tasks/bootstrap.py::install_task_layer` (idempotent,
+  never breaks a chat turn on bookkeeping failure, never wraps a
+  task-dispatched run). **(W10)** New `recovery/progress.py` (`ProgressTracker`):
+  an identical (tool, args, signature) failure is never retried unchanged in
+  the hot path, a loop with no progress across N attempts reports `STUCK LOOP`
+  with the actual blocker, and the task scheduler stops spending retries on
+  consecutive identical failures (`no progress: the same failure (X) recurred N
+  times unchanged`). **(W15)** New `security/tiers.py`: the brief's three
+  autonomy tiers derived from the EXISTING policy groups (read → autonomous;
+  write/execute/install → guarded; external/destructive → approval), plus
+  `tier_report` auditing a live registry — consistency with the enforced
+  policy is test-pinned. **(W7)** New `evaluation/repair_metrics.py`: the §1
+  metric block (`time_to_repair_ms`, `self_repair_precision`,
+  `requirement_completeness`, `cost_per_success`, `unauthorized_action_rate`)
+  computed from real records or printed as `UNMEASURED` — the gate report now
+  carries it. Files: `python/harness/goal_runtime.py` (new),
+  `python/harness/recovery/progress.py` (new),
+  `python/harness/security/tiers.py` (new),
+  `python/harness/evaluation/repair_metrics.py` (new),
+  `python/harness/{recovery/hotpath.py, tasks/{scheduler,bootstrap}.py,
+  evaluation/gate.py}`. Tests: `test_goal_runtime.py` (10),
+  `test_recovery_progress.py` (8), `test_security_tiers.py` (6),
+  `test_evaluation_repair_metrics.py` (6); recovery/tasks/evaluation family
+  green. Docs updated: `docs/harness/task-plan-system.md`,
+  `docs/harness/failure-recovery.md`, `docs/harness/agent-evaluation.md`,
+  `docs/harness/self-evolution-roadmap.md`, `docs/NAVIGATION.md`.
+
+- **feat(harness,video,ui): Phase 7 — the `/video` HTTP surface, the chat job
+  card, and video artifacts you can actually watch.** The native video pipeline
+  now lands on the app's own surfaces. **HTTP door**: new operator-gated
+  `python/harness/routers/video.py` (`/video/capabilities`, project CRUD +
+  `validate`/`resolve-data`/`preview`/`render`/`repair`, `jobs` read/cancel/
+  inspect) — a thin shell over `VideoService`, refusal codes mapped by cause
+  (`*_NOT_FOUND`→404, `REPAIR_*`/`INVALID_STATE`→409, `DATA_UNAVAILABLE`/
+  `RUNTIME_UNAVAILABLE`→503, validation→400), included by `main.py`; render/
+  preview/repair accept a `conversationId` and produced artifacts now register
+  with **conversation + run + agent** association (agent tools read it from the
+  run context — the private conversation id when the run opted in, else the
+  chat session id; new `ToolContext.session_id` seam). **Front door**:
+  `src/lib/harness/video-client.ts` (browser-safe, typed `VideoApiError` with
+  the refusal code) + `src/app/api/video/[[...path]]/route.ts` (guard →
+  runtime health → per-segment-encoded upstream path, operator token + identity
+  forwarded). **Chat surface**: a `video_*` tool hands its QUEUED job to the new
+  run collector (`video/collector.py`, bounded/deduped, max 8 — the same idiom
+  as the image/vision collectors) and the run persists a `video` blob
+  (`schemas.RunResult.video`, `HarnessRun.video` column, `client.final`,
+  `events.ts`/`use-agent-run.ts`/`Message`/`AssistantTurn`); `VideoPanel`
+  (`src/components/chat/video-panel.tsx` + `video-view.ts`) polls the REAL job
+  records via `/api/video/jobs/{id}` and shows only what exists — progress and
+  attempts while running, the final render's inline player + download once its
+  artifact is registered, a preview's image count, an inspection's findings, or
+  the honest `errorClass` failure — with real actions (cancel, regenerate a
+  draft/final, revise-with-agent via the follow-up path). **Video artifacts**:
+  the artifact preview engine gained one seam
+  (`artifacts/preview.py::set_video_poster_extractor`, no video import) and the
+  video layer installs an FFmpeg poster extractor (`video/poster.py` — tries
+  1.5 s, falls back to 0.5 s, `UNSUPPORTED` when it cannot produce a REAL
+  frame, never a fabricated poster), so a final render's thumbnail is an
+  actual frame; the download route now honors `Range` (`206`/`Content-Range`/
+  `Accept-Ranges`, `416` for unsatisfiable) and `?inline=1`, the Next artifacts
+  proxy forwards the range header + byte-stream metadata and drops the fixed
+  timeout for download streams, and the Artifact Center grid shows the poster
+  while the detail view plays the MP4 inline (`inlineUrl`). Files:
+  `python/harness/{routers/video.py, main.py, graph.py, persistence.py,
+  schemas.py, tools.py, conftest.py, artifacts/preview.py,
+  routers/artifacts.py}`, `python/harness/video/{collector.py, poster.py,
+  service.py, tools.py, bootstrap.py}`, TS `src/lib/harness/{video-client.ts,
+  video-view.ts, artifacts-browser.ts}`, `src/app/api/video/[[...path]]/
+  route.ts`, `src/app/api/{artifacts,harness/chat}/**`,
+  `src/components/chat/{video-panel.tsx, chat-history.tsx, chat-dock.tsx}`,
+  `src/components/screens/{stock-chat.tsx, artifacts/artifacts-screen.tsx}`,
+  `src/lib/agent/{events,use-agent-run,response-model}.ts`, `src/types/chat.ts`,
+  `src/lib/harness/types.ts`. Tests: `test_video_{api (12), collector (7),
+  poster (7)}.py` + range/inline coverage in `test_artifacts_api.py` + tool
+  sink/context assertions in `test_video_tools.py` + the opt-in real smoke
+  `test_real_final_render_gets_a_poster_thumbnail` (a REAL PNG frame extracted
+  by FFmpeg from the rendered MP4 becomes the thumbnail — poster reviewed
+  visually after the 1.5 s/0.5 s timing fix); TS `video-view.test.ts` (8),
+  `video-client.test.ts` (4), `video-panel.test.tsx` (3 SSR),
+  `src/app/api/video/route.test.ts` (5). Checks: full Python suite 6837 passed
+  — failures are the known set plus the same flaky classes (graph +
+  execution-resources order-flaky, both green in isolation; `main.py` 1203 /
+  `persistence.py` 1441 / `service.py` 1520 user-WIP size ratchets — the video
+  column adds 5 lines to the already-over `persistence.py`, left as the known
+  failure; `graph.py` re-pinned 2145→2170 for the Phase-7 seams with a
+  justification comment; the skills load-error test still names the frozen
+  local-store drift rows, fresh store loads zero errors); vitest 336 files /
+  3494 tests pass with the same single pre-existing `gitignore-guard` failure
+  (user WIP `graph-canvas.tsx` line endings — none of the new files mix);
+  evals ALL PASS; `tsc` clean. Docs: `docs/video-pipeline.md` (Phase 7
+  section + roadmap), `docs/harness/artifact-center.md` (video posters + media
+  playback + conversation association), `docs/NAVIGATION.md`,
+  `docs/ARCHITECTURE.md`.
+
+- **feat(harness): W3.2 end-to-end routing tier + W5/W9 acquisition handlers.**
+  Two workstreams. **(1) W3.2:** the routing benchmark is now also measured
+  through the REAL graph. `evaluation/environments.py` gains the `ui`
+  environment (`UiStateEnvironment`) reporting the durable engineering
+  tasks/plans a trial actually created; `evaluation/runner.py`'s
+  `ScriptedAgentInvoker` builds the real `UiService` + `TaskManager` (and
+  registers the `ui_*`/`task_*` families) and gives EVERY trial its own
+  isolated store (concurrent trials can no longer see each other's durable
+  work; the store's cleanup is owned by the environment's teardown, since
+  grading reads it after invoke); new dataset
+  `evaluation/datasets/routing_e2e_v1.json` (4 tasks: clock escalates with a
+  capability gap, layout composes, generic widget composes, new widget
+  engineers) graded on the real resulting state. Gate now runs tasks=51 with
+  the four e2e tasks 100% and `misroute_rate=0.0`; a restored pre-W0 defect
+  (witness-less Compose + no catalog re-check) makes the clock task FAIL the
+  tier (test-proven). **(2) W5/W9:** new
+  `recovery/acquire_handlers.py` is the production CALLER of the acquisition
+  lifecycle: a `build` step routes through the real `ui_start_engineering`
+  gate (own plan → the original task parks WAITING for an explicit resume) or
+  creates a same-plan code-agent capability task whose completion auto-resumes
+  the original through the existing DAG (REQUIRES dependency + BLOCKED park —
+  the cross-plan refusal is respected, never bypassed); `install`/`enable`
+  steps park the task ASKING_USER with the exact missing facts and never
+  self-grant; `resume_callback` is `retry_task`'s caller half (restores from
+  the durable checkpoint). The task scheduler records the new `waiting`
+  outcome without failing or retrying a parked task, and the production
+  executor (`tasks/bootstrap.py`) attempts the acquisition before falling back
+  to the honest failure. Files:
+  `python/harness/evaluation/{runner,environments}.py`,
+  `python/harness/recovery/acquire_handlers.py` (new),
+  `python/harness/tasks/{bootstrap,scheduler}.py`, dataset
+  `routing_e2e_v1.json`. Tests:
+  `test_evaluation_routing_e2e.py` (6) + `test_recovery_acquire_handlers.py`
+  (7); the tasks/recovery/evaluation/UI/routing family is 594 passed; eval
+  gates ALL PASS. Docs updated: `docs/harness/agent-evaluation.md`,
+  `docs/harness/failure-recovery.md`, `docs/harness/task-plan-system.md`,
+  `docs/harness/self-evolution-roadmap.md`, `docs/NAVIGATION.md`.
+
+- **feat(self-improvement): Harness² borrowings — verified steal-list + first slice (verdict-leak tripwire, contrastive evidence bundle).** Read the upstream
+  mechanism at the pinned revision (`harness2/core/{recursion,selection,library,tree,context,proposer}.py`)
+  and extracted what is worth adopting natively: verdict-isolated evidence
+  (`GRADER_VERDICT_MARKERS` tripwires), contrastive Propose with shared base
+  rollouts and per-candidate decision notes + diffs, anonymized seeded
+  behavioral selection with recorded drops/why and a neutral base fallback,
+  per-domain `EXPERIENCE.md` lessons gated on mandatory cue/lesson/evidence,
+  editable-surface validation (always-on cap, untriggered-skill and script-ref
+  checks), and session hygiene (content-addressed cache, audit, empty-reply
+  error, quoted-rejection repair retry). First slice lands the two lowest-risk
+  pieces as **un-wired pure utilities** (zero behavior change):
+  `python/harness/evaluation/verdict_guard.py` (refuses evaluation verdicts /
+  answer-key markers in any bundle or lesson text about to reach a model or be
+  persisted) and `python/harness/evaluation/contrast.py`
+  (`contrast_trajectories` — behavior tokens, tool-sequence diff, metric deltas,
+  first divergence — plus `render_evidence_bundle`, the file-based evidence
+  tree with a short mission that demands citing the specific trajectory moment).
+  Remaining tickets (T3 anonymized selection, T4 lesson cue/evidence gate,
+  T5 surface validator, T6 session cache, T7 diversity, T8 typed candidates)
+  are specified in the doc; wiring (T1b/T2b) deliberately waits for the
+  in-flight evaluation/learning work to land. Tests:
+  `python/tests/test_evaluation_{verdict_guard,contrast}.py` — 12 passed;
+  `npx tsc --noEmit` clean. Docs updated:
+  `docs/self-improvement/harness2-borrowings.md` (new), `docs/NAVIGATION.md`.
+
+- **docs(self-improvement): Phase 0 — Harness² integration architecture audit.**
+  Verified the upstream framework (`google-research/harness2`, Apache-2.0 core,
+  Linux + Python 3.12, OpenCode/Codex executors, Propose–Probe–Compose, offline
+  `harness2-demo`; head pinned in the doc at `1cfe254e…`) and audited the real
+  tree for integration: the seams to reuse (`AgenticService.run`/`execute_run` +
+  `RunRequest.agent`, the evaluation `AgentInvoker` protocol and its per-trial
+  isolation pattern, `EvaluationStore`/graders/gates, `eclipse-memory.db`
+  migrations + skills lifecycle/versioning, `code/evolution*` promotion,
+  security gateway, event system, cost/observability), the gaps to close
+  (evaluator provenance columns unwired, cost/latency unpopulated in records,
+  no configuration identity or task/val/held-out splits, scripted tier bypasses
+  the canonical event bus; no experiment/harness-revision entities), the
+  explicit no-duplicate-systems decision, and the Phase 1 environment blocker
+  (no WSL2, no Docker CLI on this host; `uv` 0.12.17 + vendored Python 3.12.8
+  present). No code changed. Docs updated:
+  `docs/self-improvement/architecture-audit.md` (new), `docs/NAVIGATION.md`.
+
+- **feat(harness): W6 — construction procedure learning (the learning loop
+  closes).** A successful UI construction sequence becomes an inert
+  `successful_procedure` candidate carrying the know-how the clock run had to
+  re-derive. New `skills/procedures.py`: a completed run with a SUCCESSFUL
+  `ui_register_engineered_component` (the registration actually ran) yields the
+  candidate from `skills/learning.py::analyze_run` on the FIRST occurrence —
+  one stable signature (`CONSTRUCTION_PROBLEM`) dedupes every construction into
+  ONE candidate, and the generic tool-sequence candidate is suppressed for that
+  run. The encoded procedure names the real constraints: implement in
+  `src/lib/dashboard/widgets.tsx` within the 1200-line hard ceiling, register
+  in `src/lib/dashboard/registry.tsx`, add the icon name to its `ICONS` map,
+  run `npx tsc --noEmit` + tests, `ui_register_engineered_component`, then
+  Compose. The repeat (stable `CONSTRUCTION_RECURRENCE_KEY` seen twice in the
+  existing `LearningRecurrence` ledger) opens the inert draft from the post-run
+  review (`learning_review.py` outcome 1c) through the SAME `propose_draft` the
+  operator route uses — `status: draft`, `evaluationStatus: not_evaluated`,
+  never enabled; a second review is a no-op. A resolved CAPABILITY incident
+  yields the SAME candidate via `recovery/learning.py::incident_to_candidate`
+  (capability gaps are construction work, not generic failure recovery).
+  `skills/draft.py` now renders each procedure step's `detail` into the SKILL.md
+  instructions, so constraints survive into the draft. Files:
+  `python/harness/skills/{procedures.py (new), learning.py, draft.py}`,
+  `python/harness/learning_review.py`, `python/harness/recovery/learning.py`.
+  Tests: `python/tests/test_construction_procedure.py` (11 — detection,
+  encoding, first-occurrence candidate + no draft, repeat → inert draft, no
+  auto-enable, tool-evidence filtering, review surfacing, incident-path
+  signature equality, dedupe); the learning/skills/recovery/tasks/UI family is
+  1029 passed with only the known local-DB skill-drift failure
+  (`test_skills_api::test_health_reports_skills`). Docs updated:
+  `docs/harness/memory-skills-evolution-plan.md` (W6 section),
+  `docs/harness/self-evolution-roadmap.md` (W6 status),
+  `docs/harness/failure-recovery.md`, `docs/NAVIGATION.md`.
+
+- **feat(harness): W8 first slice — the goal contract and verified completion.**
+  The product loop's centre: a request becomes a durable, typed goal instead of a
+  prompt. New `tasks/goal.py` runs a deterministic intake (`intake_goal`:
+  taskType, deliverables, acceptance, budgets — one clarifying question on
+  ambiguity, never a guessed contract) and `durable_decision` is the explicit
+  durable-by-default rule; the new `create_goal` tool (registered in `TASK_TOOLS`,
+  reachable wherever the task tools are) creates the plan + contract-bearing task
+  and starts it. New `tasks/verification.py` is the task-type verifier registry
+  (`verify_task`, keyed by `taskType`; `code|research|document|workflow|finance|
+  general`) that reads EVIDENCE the run produced — zero-exit code-verification
+  records, delivered artifacts, recorded sources, observed metrics — never
+  prose; a task with no `taskType` keeps the exact pre-W8 contract. The scheduler
+  now verifies before completing: a failed verification is retried WITH the
+  missing evidence named (the retry context quotes it), and an exhausted budget
+  ends the task `BLOCKED` with `BlockedReason.VERIFICATION` (new) naming the
+  exact missing proof; contract budgets (`TaskBudget`: duration/tool calls/tokens)
+  are enforced post-run and end `BLOCKED` with the violated cap, never a silent
+  truncation. The `run_complete` checkpoint carries the verified verdict
+  ("completion is evidence"), and the crash path is proven: a dead worker's
+  lease expires, the stale attempt is reconciled `TIMED_OUT`, and the resumed
+  attempt completes with exactly one delivery. Also fixed a real feedback bug:
+  `previous_attempts` included the CURRENT pending execution, so a retry never
+  saw the prior failure — it now carries only concluded attempts and the
+  renderer quotes the most recent FAILED one. Files:
+  `python/harness/tasks/{goal.py (new), verification.py (new), model.py
+  (TaskType/TaskBudget/GoalContract, BlockedReason.VERIFICATION, Task +
+  CreateTaskInput fields), store.py (additive taskType/goalContract columns),
+  manager.py (contract criteria merge + update validation + blocked_reason),
+  scheduler.py (budget check, task-type verification, honest BLOCKED, evidence
+  checkpoint), bootstrap.py (evidence blobs on the outcome), context.py (retry
+  feedback), tools.py (create_goal), __init__.py}`. Tests:
+  `test_tasks_goal.py` (19), `test_tasks_verification.py` (15),
+  `test_goal_completion.py` (4 — build-break-repair-deliver, unverifiable →
+  BLOCKED, budget → BLOCKED, crashed-worker resume with one delivery) + 3 tool
+  cases; the whole `tasks_/recovery_/routing_/ui_/evaluation_` family is 572
+  passed. Docs updated: `docs/harness/task-plan-system.md` (W8 sections),
+  `docs/harness/self-evolution-roadmap.md` (W8 status),
+  `docs/harness/decisions.md` (ADR-H209/H210).
+
+- **feat(harness,video): Phase 6 — PNG previews, real diagnostics and the
+  bounded repair loop.** A new `action=preview` Fabric job (`video_preview`
+  tool #13, `VideoService.preview_project`) renders review material WITHOUT a
+  video: the worker's `strip` contact sheet plus one `frame` PNG per scene
+  (addressed `#0@50%`, `#1@50%`, … so fades cannot shift the target; the SAME
+  resolved binding spec a render would use) — registered as `image` artifacts
+  (`source_type=job`, idempotency `video-preview:<jobId>:<name>`; a missing
+  catalog is recorded per file, never a false failure), with the worker's
+  structured frame diagnostics deduplicated into
+  `findings/findingsTotal/findingsErrors/findingsWarnings` in the job output —
+  findings make problems VISIBLE, they never fake a video. Failures are now
+  handled by a closed, bounded policy (`video/repair.py`): transient classes
+  (`DATA_UNAVAILABLE`, `WORKER_UNAVAILABLE`) are retried INSIDE the render job
+  at most `HARNESS_VIDEO_TRANSIENT_RETRIES` extra attempts (default 1, each
+  recorded as `retries`; `0` disables), content failures go back through
+  `video_render_repair` (tool #14, `VideoService.render_repair`) which
+  validates the failed parent, refuses an unchanged non-transient retry
+  (`REPAIR_REQUIRES_CHANGE`), bumps the revision and submits a render linked
+  via `input.repairOf` + the parent's diagnostics (read from `report.json`,
+  since failed jobs keep no output row) — and is CAPPED at 2 repairs per
+  failure line (the connected `repairOf` component, walked in BOTH directions
+  so re-referencing the original failure cannot evade it), past which it
+  refuses with `REPAIR_LIMIT_REACHED` as the explicit terminal state. A
+  completed final render now records `review`: the latest SUCCEEDED
+  draft/preview of the same `projectRevision`, or `null`. Both kinds share the
+  SAME artifact-gates invariants as renders: honest codes, confined
+  workspaces, no success ever claimed for a failed job. Files:
+  `python/harness/video/{repair.py (new), config.py, runner.py (strip/frames +
+  --json), service.py (attempt loop, preview job, repair op, review),
+  fabric.py, tools.py}`, skill `system.video-production` v2.2.0 (preview +
+  repair procedure), `python/tests/video_fakes.py` (strip/frame/flaky
+  scenarios, provider `fail_times`). Tests: offline
+  `python/tests/test_video_preview.py` (6) + `test_video_repair.py` (9) +
+  runner/tool additions — 76 video tests green (from 52) — and the opt-in real
+  smoke grew `test_real_preview_catches_a_clipped_title` (a real contact sheet
+  + per-scene frames, registered as image artifacts, DETECTING a real
+  clipped-text warning before any render) and
+  `test_real_transient_retry_recovers_a_bound_render`; all 7 real smoke tests
+  pass on this machine and the contact sheet was reviewed visually. Checks:
+  full Python suite 6794 passed with the known pre-existing failures —
+  size-budget ratchets (`main.py` 1201 / `persistence.py` 1436 / `service.py`
+  1520, all user-WIP growth untouched by this change), the order-flaky
+  `test_graph_api::test_finance_graph_runs_over_stored_bars`, and
+  `test_skills_api::test_health_reports_skills`, which now names TWO stale
+  local-store skill-version-drift rows (`system.anatomy-figure` — the known
+  one — plus `system.video-production`, whose stored active version is a
+  dev-session 1.0.0 row in the untracked `eclipse-memory.db`; a fresh store
+  loads with ZERO errors, so this is local DB state, not repo content);
+  `npx tsc --noEmit` clean; evals all gates pass; `cargo test` green (worker
+  unchanged). Docs: `docs/video-pipeline.md` (Phase 6 section + ops table +
+  invariants), `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **feat(recovery): capability acquisition lifecycle (W5/W9 first slice).** New
+  `recovery/acquisition.py` implements discover → assess → propose → acquire →
+  validate → retry over the existing `CapabilityIndex`. Each step names its
+  surface (`existing_tool`, `skill`, `plugin`, `scaffold_kit`, `engineering`,
+  `alternative`, `operator`), readiness, approval requirement and exact missing
+  facts. `use`/`alternative` are read-only; `enable`/`install`/`build` are
+  approval-flagged and require a caller-supplied handler. Validation without a
+  contract test is `unverified`; retry requires a caller checkpoint callback.
+  `run_with_recovery` now registers default capability handlers
+  (`substitute_tool`, `alternative_implementation`, `fix_dependency`) that hand
+  back the plan and **stop** the loop with `acquisition_required`; the executor
+  honours that sentinel. New operator route
+  `POST /recovery/incidents/{id}/acquisition`; the recovery console shows the
+  steps. Discovery now ignores grammar stopwords (a query containing "a" no
+  longer matches every description). Files:
+  `python/harness/recovery/{acquisition,execution,executor,discovery,service}.py`,
+  `python/harness/tasks/bootstrap.py`, `python/harness/routers/recovery.py`,
+  `src/app/recovery/recovery-console.tsx`, `src/lib/harness/recovery-view.ts`;
+  tests `test_recovery_acquisition.py` (11). Checks: 527 subsystem tests pass;
+  `npx tsc --noEmit` clean. Docs: `docs/harness/failure-recovery.md`,
+  `docs/harness/self-evolution-roadmap.md`.
+
+- **feat(recovery): a verified routing repair can be prepared and landed through
+  the existing promotion card (W4).** New `recovery/routing_landing.py` turns a
+  stored incident's classifier-rule proposal into a real disposable worktree +
+  `code.patch.PatchOp`, refuses an authority target with
+  `code/selfhost.py::classify_landing`, registers the workspace under
+  `routing-repair-<incidentId>`, and returns the SAME
+  `promotion.PromotionPreview` the Code Tasks route uses. New operator route
+  `POST /recovery/incidents/{id}/routing-repair` returns the proposal, preview
+  and landing verdict; the recovery console prepares it and renders the existing
+  `PromoteChange` card (single-use digest-bound approval → apply →
+  restart/build verdict → rollback). The promotion preview and apply routes now
+  refuse an authority target **before** creating or consuming an approval.
+  Files: `python/harness/recovery/routing_landing.py`,
+  `python/harness/routers/{recovery,code}.py`,
+  `src/app/recovery/recovery-console.tsx`, `src/lib/harness/recovery-view.ts`;
+  tests `test_routing_landing.py` (6) + the authority route test in
+  `test_code_promotion.py`. Checks: 18 focused + 43 landing/promotion tests
+  pass; `npx tsc --noEmit` clean. Docs:
+  `docs/harness/failure-recovery.md`, `docs/harness/self-evolution-roadmap.md`.
+
+- **feat(evaluation): routing quality is on the standing gate (W3.2/W3.3).**
+  New `evaluation/routing.py` runs the versioned classifier benchmark and
+  computes `misroute_rate` (mismatched / all cases; maximum 0.0) and
+  `escalation_correct` (correct engineer/both verdicts / expected-escalation
+  cases; minimum 1.0). `run_offline_gate` injects both into the SAME threshold
+  check as the agent suite and records the source in `SuiteResult.routing`;
+  `format_gate_report` prints the values and the case count. Both dimensions are
+  critical `DEFAULT_GATES`, and `improvement.evaluate_candidate` now rejects a
+  proposal that regresses either. Files:
+  `python/harness/evaluation/{routing,gate,scoring,regression,improvement,runner}.py`;
+  tests `python/tests/test_evaluation_routing.py` (4). Measured:
+  `evaluation gate: PASS tasks=47`, `misroute_rate=0.0`,
+  `escalation_correct=1.0`, `routing cases=8`. Docs:
+  `docs/harness/agent-evaluation.md`, `docs/harness/self-evolution-roadmap.md`.
+
+- **feat(recovery): routing repair proposals — diagnose → minimal patch →
+  verify (W2.1–W2.3).** New `recovery/routing_repair.py` turns a routing failure
+  into a typed cause (`VOCABULARY_GAP`, `CATALOG_GAP`, `CAPABILITY_ABSENT`,
+  `POLICY_GAP`). Only a vocabulary miss yields a code change: a minimal
+  `code.patch.PatchOp` replacing the additive-verb line in `ui/mode.py`, plus a
+  regression fixture. Verification activates the exact rule in memory through
+  the existing `ImprovementProposal` contract (apply → classify → revert), so no
+  file is written and no model is called. `recovery/diagnosis.py` gained the
+  four capability causes; `RecoveryService.propose_routing_repair` exposes the
+  proposal from a stored incident, read-only. `assess_capability` gained the
+  diagnostic `additive_only=False` view (the classifier keeps the safe
+  additive-only behaviour). Files: `python/harness/recovery/{routing_repair,
+  diagnosis,service}.py`, `python/harness/ui/mode.py`; tests
+  `python/tests/test_routing_repair.py` (11, incl. the "missing a world clock"
+  fixture, apply-flip-revert, the incident seam and diagnosis selection).
+  Checks: 447 subsystem tests pass; eval gates ALL PASS; `tsc` clean. Docs:
+  `docs/harness/failure-recovery.md`, `docs/ui-engineering.md`,
+  `docs/harness/self-evolution-roadmap.md`.
+
+- **feat(harness): routing failures become durable incidents (W1.1/W1.2) and
+  gain a versioned benchmark (W3.1).** `eclipse_memory/mistakes.py` gains five
+  deterministic categories derived from the persisted UI tool text —
+  `composed_without_witness`, `escalation_refused`, `capability_gap_refused`,
+  `misrouted_request`, `intent_ambiguity`; `ui_classify_request` now exposes its
+  witness (`Components: …`) and `ui_start_engineering` prefixes an escalated
+  result with `Capability gap —`. The escalation emits the registered
+  `ui.capability_gap` event; recovery subscribes to it and it maps to the
+  existing `FailureKind.CAPABILITY` (non-retryable, so the policy selects
+  `SUBSTITUTE_TOOL`/`ALTERNATIVE_IMPLEMENTATION`). The versioned
+  `python/harness/ui/routing_benchmark_v1.json` (8 cases incl. the clock) is
+  exercised by `test_ui_routing_benchmark.py`; the end-to-end scripted tier is
+  deferred to W3.2 because the scripted eval registry does not bind `ui_*`.
+  Files: `python/harness/ui/{tools,engineering}.py`,
+  `python/harness/eclipse_memory/mistakes.py`,
+  `python/harness/recovery/{taxonomy,bootstrap}.py`,
+  `python/harness/event_system/registry.py`; tests `test_routing_mistakes.py`,
+  `test_routing_incident.py`, `test_ui_routing_benchmark.py` (+5 mode/engineering
+  cases). Checks: 446 subsystem tests + 300 affected-family tests pass; full
+  Python is green except the repo's known skill-drift/size-budget failures and a
+  concurrent `video-production` manifest edit that was corrected mid-run; eval
+  gates ALL PASS; `tsc` clean; vitest 3474/3475 (pre-existing `graph-canvas.tsx`
+  line-ending guard). Docs: `docs/harness/failure-recovery.md`,
+  `docs/ui-engineering.md`, `docs/harness/self-evolution-roadmap.md`.
+
+- **fix(ui-engineering): a Compose verdict must cite a catalog witness, and
+  `ui_start_engineering` re-checks the catalog instead of refusing.** The
+  recorded "multi-zone world clock" defect: `ui_classify_request` returned
+  `compose` for a capability the catalog lacks (`matched_components=[]`), then
+  `ui_start_engineering` returned the false "no engineering task was created".
+  `mode.py` now runs `assess_capability` over clause-scoped additive requests
+  (layout/restyle/page and generic "add a widget" need no witness; a named
+  capability with no registered match is a gap). A gap returns `engineer` with
+  `capabilityGap: true`; `engineering.start` re-checks the same fact and
+  escalates, so a stale label cannot produce a refusal. Files:
+  `python/harness/ui/{mode,engineering,__init__}.py`. Tests:
+  `python/tests/test_ui_mode.py` (+5), `test_ui_engineering.py` (+2). Checks:
+  UI pytest 101 passed; eval gates ALL PASS; `npx tsc --noEmit` clean; vitest
+  3474/3475 (the one failure is the pre-existing `graph-canvas.tsx`
+  line-ending guard). Docs: `docs/ui-engineering.md`,
+  `docs/harness/self-evolution-roadmap.md`. Also rotated the oldest
+  `CHANGELOG.md` section (2026-10-11) into `docs/changelog/2026-10.md` to keep
+  the 7-section window.
+
+- **docs(harness): expand the round-4 roadmap into Round 4 Expanded (W8 centre +
+  W9–W15 completion/audit).** Adds W8 — goal contract → durable plan → execute →
+  observe → task-type verification → complete/blocked — as the product loop, and
+  maps the general-agent workstreams W9–W15 onto machinery that already exists
+  (`tasks/`, `fabric/`, `event_system/`, `delegation.py`, `team/`,
+  `orchestration/`, `artifacts/`, `security/`, `model_runtime/`, `evaluation/`).
+  Corrects the premise that these are new layers; adds end-to-end metrics
+  (`end_to_end_task_success`, `requirement_completeness`,
+  `capability_acquisition_success`, cost/time per success, unauthorized-action
+  rate), the evidence-based-completion / frozen-benchmark / no-new-infrastructure
+  invariants, the dependency order (W0/W1/W3.1 → W8 → W2–W4 → W5/W9/W6 → W10–W15
+  → W7), risks and ADR-H209…H215. No code changed.
+  Docs: `docs/harness/self-evolution-roadmap.md`, `docs/CHANGELOG.md`.
+
 ## 2026-10-17
 
 - **fix(app,graph-studio): the app could fail to load after selecting the Graph
@@ -668,6 +1227,76 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Docs: `docs/harness/self-evolution-roadmap.md` (new), `docs/CHANGELOG.md`.
   No `NAVIGATION.md` change — a program plan, not a folder/module/contract
   change.
+
+- **feat(harness,video): Phase 4 — the storyboard & scene-generation engine.**
+  Video projects can now be versioned storyboards, not just the one hardcoded
+  title card. The Rust worker renders a `--project spec.json` (`schemaVersion`
+  2) through a seven-type scene library — `intro`/`outro` (fade-to-black
+  outro), `metric` (staggered cards, colored deltas), `candlestick`
+  (value-mapped chart, grid, last-price line, left-to-right reveal),
+  `comparison` (`winner` accent frame), `timeline` (staged events on a
+  revealed axis) and `quote` (wrapped with a decorative mark) — on the shared
+  dark theme, with `transition: "fade"` cross-fades. The schema is validated
+  in Python (`video/spec.py`: precise problem paths, unknown keys rejected,
+  1-12 scenes / 1-30 s each / ≤300 s total / landscape 1920x1080@30 / dark)
+  and re-checked in Rust (`src/spec.rs`) so a hand-edited spec fails cleanly
+  instead of panicking a render. New tool `video_update_project` (11 total)
+  revises a project and bumps its revision — a re-render is a queued job
+  against the new spec, `jobs/<id>/spec.json` keeps exactly what was
+  rendered, and `video_inspect` now receives `--project` too so it inspects
+  the SAME video. Worker change: `compile-time-svgtree` is now enabled —
+  REQUIRED for scene overlaps (without it `render_scenes` merges scenes by
+  string concatenation, a two-root document usvg rejects, so every fade
+  failed at its overlap frames) and it turns on static-subtree caching (the
+  32 s / 7-scene demo renders in ~6.5 s). Files:
+  `rust/fframes-worker/{Cargo.toml, src/main.rs, src/spec.rs, src/theme.rs, src/scenes/*}`,
+  `python/harness/video/{spec.py (new), models, projects, runner, service, tools}.py`,
+  skill `system.video-production` v2.0.0 (schema + scene table in SKILL.md).
+  Tests: `test_video_spec.py` (new) + service/tool additions (storyboard
+  create/update/render, `spec.json` + `--project` argv assertions, inspect
+  carries the spec) + real smoke `test_real_storyboard_render_and_inspect`
+  (passed on this machine; a 7-scene demo was reviewed frame-by-frame).
+  Checks: `npx tsc --noEmit` clean; python suite 6674 passed — the 4 known
+  pre-existing failures (size-budget ratchets + anatomy skill version check)
+  plus one order-flaky user-WIP graph test that passes in isolation; vitest
+  332 files pass with 1 pre-existing failure in `graph-canvas.tsx` (user
+  WIP, mixed CRLF/LF endings — untouched by this change). Docs:
+  `docs/video-pipeline.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **feat(harness,video): Phase 5 — evidence-bound financial data.** Storyboard
+  figures can now be BOUND instead of hand-written (schemaVersion 3): a
+  candlestick scene declares `data {symbol, market?, interval, count}` instead
+  of static candles; metric items / comparison panes declare `source {symbol,
+  market?, field: price|changePct|volume}` instead of a value (mixing authored
+  and bound values is rejected). The render job resolves bindings through the
+  EXISTING Market Data Gateway before the worker runs — `video/data.py` (the
+  resolver: unit-aware formatting `$68,240` / `+2.41%` / `38.20B`, candle
+  parity after rounding, the EvidenceManifest) over `video/market_provider.py`
+  (a gateway adapter lazily built on the service's read-only bridge, sharing
+  the market cache/router — no second provider, client or cache). Missing data
+  fails the job (`DATA_UNAVAILABLE`, naming the binding); stale data (the
+  gateway's own `data_status: STALE` verdict) renders with an amber STALE chip
+  + a source footer and `evidence.stale: true` in the manifest, which travels
+  with the result (job output, `report.json`, artifact metadata). New tool
+  `video_resolve_data` (twelve total; read) previews every bound figure —
+  display, provider, retrieval time, freshness — without rendering. Rust:
+  accepts schemaVersion 2 and 3 and renders the per-scene provenance footer +
+  STALE marker (`src/spec.rs` `SceneEvidence`, `theme::evidence_footer`).
+  Skill `system.video-production` v2.1.0 documents bindings as the preferred
+  path for market figures. Files: `python/harness/video/{data,market_provider,spec,service,tools,bootstrap}.py`,
+  `rust/fframes-worker/src/{spec,theme,scenes/*}.rs`. Tests:
+  `test_video_data.py` (new: formatting, resolution, quote cache, failure
+  mapping, staleness) + spec/service/tool additions (resolution inside the
+  render job, no-provider and provider-failure job failures, stale flagged
+  everywhere, preview-without-render) + real smoke
+  `test_real_bound_storyboard_render` (a stale bound storyboard end-to-end —
+  chip, footer, manifest — passed on this machine; footer/STALE reviewed
+  frame-by-frame). Checks: `npx tsc --noEmit` clean; python suite 6707 passed
+  — the same 4 known pre-existing failures (size-budget ratchets + anatomy
+  skill check) plus the user-WIP order-flaky graph test; evals all gates pass;
+  vitest 332 files pass with the 1 pre-existing `graph-canvas.tsx`
+  line-ending failure (untouched by this change). Docs:
+  `docs/video-pipeline.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
 
 ## 2026-10-16
 
@@ -4257,526 +4886,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_automation_authorizer.py` (+7 cases), updated
   `test_chat_code_profile.py`. docs updated: ADR-H182 in
   `docs/harness/decisions.md`, `docs/harness/construction-first-audit.md`.
-
-## 2026-10-11
-
-- **Bots workspace: chat-first redesign.** Reworked the Bots page to read like the
-  ChatBot page but for bots — the left admin panel (search box, filter pills,
-  large collection cards, a boxed "Group chats" block) is gone. The left rail is
-  now a compact conversation list (avatar + name + status/description subtitle +
-  live dot, with a hover per-bot menu; group chats listed beneath), the
-  conversation fills the centre, and the scheduled-jobs rail stays on the right.
-  Removed the now-unused `components/bots/bot-card.tsx` and the superseded inline
-  `components/bots/create-bot.tsx` (the New bot modal replaced it). Checks:
-  `npx tsc --noEmit` clean; lint 0 errors (only image warnings). docs updated:
-  `docs/NAVIGATION.md` (Bots trigger row), `docs/CHANGELOG.md`.
-
-- **Bots workspace redesign + nav dropdown.** Turned the Bots workspace into a
-  three-column layout — bot list + group chats (left), the conversation (centre,
-  `bot-chat` or the new `group-chat-room`), and a scheduled-jobs rail (right,
-  `scheduled-jobs-panel.tsx`, reading the SAME automation list). Replaced the
-  inline two-step `create-bot.tsx` with a `create-bot-dialog.tsx` modal (face
-  picker with Bot/Generate/Upload/Pet tabs, Randomize/Lock face, "face follows the
-  name", Name/Title/Description, and a collapsed Advanced schedule builder). Added
-  group chats (2–6 bots, `lib/bots/groups-store.ts`, `group-chat-dialog.tsx`) and
-  uploaded-photo avatars (`lib/bots/image.ts` + the shared `bot-avatar.tsx`, used
-  by the list, chat, sidebar panel and jobs rail). The sidebar's Terminal/Agentic/
-  Bots switcher is now a glass **dropdown** instead of a three-tab pill. All new
-  surfaces use the frosted-glass tiers; replies still come from the real harness
-  (`/api/harness/chat`) and bots from the existing Automation API — nothing is
-  fabricated. Checks: `npx tsc --noEmit` clean; `vitest run` 2655 passed. docs
-  updated: `docs/NAVIGATION.md` (Bots trigger row), `docs/CHANGELOG.md`.
-
-- **Interactive Response Engine: server-rendered DOM tests + lint hygiene.** Added
-  `src/components/response/render.test.tsx` (21 tests) that server-render the real
-  components via `react-dom/server` in the node test env — covering block content,
-  mixed-response ordering, unknown-block isolation, `report` nesting, the
-  streaming/malformed fences, action-group proposal semantics, safe citation
-  links, and the `mermaid`-fence-vs-code-block classification. No new dependency
-  (no jsdom/testing-library). `vitest.config.ts` disables the oxc transformer
-  (`oxc: false`) and enables the automatic JSX runtime so TSX components transform
-  under vitest, leaving the Next build (tsconfig `jsx: preserve`) untouched.
-  `eslint.config.mjs` now ignores disposable root-level `_*.cjs`/`_*.mjs` scratch
-  scripts (the recurring lint breakage). docs updated:
-  `docs/interactive-response-engine.md` (§6), `docs/CHANGELOG.md`.
-
-- **Interactive Response Engine: full rich-block family + link hardening.** Added
-  the remaining structured block types — `stepper`, `infographic`, `report`,
-  `node_graph` (selectable; reuses the deterministic `diagram-layout` engine
-  rather than a second graph library), `action_group` (PROPOSED next steps that
-  only compose a follow-up prompt into the existing agent loop), and `artifact`
-  (a reference to the existing Artifact Center) — plus spec-name aliases
-  (`text`→`markdown`, `table`→`data_table`, `source_list`→`citations`,
-  `interactive_form`→`controls`, `execution_timeline`→`timeline`). Citation and
-  artifact links are now **scheme-restricted to `http(s)`** — bare
-  `z.string().url()` accepts `javascript:`/`data:`, which becomes an XSS vector
-  once rendered as an anchor. Infographic/action icons resolve through a semantic
-  allowlist (`src/lib/response/icons.ts`), so the model never names a component or
-  import path. The agent "Structured answers" guidance in `prompts.py` was
-  rewritten to be more directive and to list the new blocks, staying **within the
-  unchanged 26410-char prompt ceiling**. Every new block renders through the same
-  registry + `BlockBoundary` and is represented in PDF export. Tests:
-  `src/lib/response/contract-blocks.test.ts` (17 new). docs updated:
-  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` +
-  `skills/ARCHITECT.md` (ADR-043 amendment), `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-
-- **Chat: render ` ```mermaid ` fences as diagrams.** A model that emitted a
-  plain fenced `mermaid` block (rather than an `eclipse-response` JSON block) got
-  its raw source shown as a copyable code block — the chat Markdown renderer had
-  no case for it, so diagrams never appeared. `components/chat/markdown.tsx` now
-  routes a settled `mermaid` fence through the existing lazy `MermaidBlock`
-  (`securityLevel: 'strict'`), while a streaming fence stays text so a
-  half-written definition never flashes a parse error. Bug fix, contract
-  unchanged. docs updated: `docs/interactive-response-engine.md` (DIAG-002 row),
-  `docs/CHANGELOG.md`.
-- **Deployment hardening: thread-safe `agent-memory.db` connections.** The store
-  was one `sqlite3.Connection` shared across FastAPI's worker threads and async
-  tasks (`check_same_thread=False`, no lock), which intermittently raised
-  `SystemError: error return without exception set` on `commit` (seen as the
-  flaky `test_jobs_api` failure). New `python/harness/sqlite_pool.py`
-  (`ThreadLocalConnections`) gives each thread its own connection in autocommit
-  mode with a `busy_timeout`, so WAL readers run alongside the single writer and
-  a second writer waits rather than failing on a deferred read-to-write upgrade.
-  `AgentMemoryStore` delegates to the pool; `close()` releases connections and is
-  called on the last lifespan exit (`boot._shutdown`); `reset_memory` wraps its
-  multi-table clear in an explicit `BEGIN IMMEDIATE`/`COMMIT`. Full Python suite:
-  5722 passed, 16 skipped. docs updated: `docs/harness/architecture.md` (new
-  persistence/connection contract), `docs/CHANGELOG.md`, `docs/NAVIGATION.md`;
-  `persistence.py` ratchet re-pinned in `python/tests/test_size_budget.py`.
-- **Quant research correctness audit: look-ahead, accounting and integration
-  fixes.** Fixed independently-verified defects. (1) Volatility position sizing
-  read the *tail of the whole series* — direct future-price leakage; `_realized_vol`
-  now takes the decision bar and uses only bars up to and including it. (2) The
-  event engine's trade P&L omitted the **entry** commission (it was accrued but
-  never expensed), overstating `net_pnl`/`realized_pnl` and every trade metric;
-  closes now allocate the attributable entry commission and reconcile with the
-  cash ledger. Partial closes keep the original cost basis (previously the basis
-  was reset to the exit price). (3) The factor covariance model mixed a
-  short-window `B` with a full-history `F`; `estimate_factor_covariance` now uses
-  the same trailing window as the loadings. (4) Shrinkage expected-return
-  auto-intensity was `N/(N·T̄)` (~`N`× too weak); now `N/T̄`. (5)
-  `_sample_covariance` now truncates unequal-length series instead of building a
-  ragged array. (6) `historical_replay` reported the worst *cumulative* value as
-  the worst period and a non-compounded drawdown; now reports the true worst
-  period and a compounded-index `maxDrawdown`. (7) Trailing stops advanced on the
-  same bar's favorable extreme before testing the bar's adverse extreme; the
-  barrier is now tested first (no same-bar look-ahead). (8) Benchmark alpha/IR/TE
-  and bootstrap Sharpe annualized daily equities at 365; they now follow the
-  metrics engine (252, 365 only for crypto), via an `asset_class` argument. (9)
-  MACD's signal line was zero-seeded across the warm-up; it now runs only over the
-  valid MACD segment. (10) `Position.realizedPnl` is now maintained. (11)
-  `ML_TOOLS` were registered but absent from every explicit allowlist (unreachable
-  from the supervised agent); now spread into `ECLIPSE_AGENT`. (12) ATR-based
-  protective brackets were sized from the fill bar's ATR (one bar of future
-  range); now measured from the decision bar (`order.submitted_index`). (13)
-  `portfolio/risk.py::sortino` downside deviation used the population denominator
-  while `quant/metrics.py` used the sample one; both now use `n-1`. (14)
-  `event_system.registry._spec` did not accept `namespace`, so
-  `EventBus._observe` raised `TypeError` in a fire-and-forget task and **silently
-  dropped every unregistered legacy event type**; `_spec` now supports
-  `namespace`. Regression tests: `python/tests/test_quant_audit_fixes.py` (11),
-  `test_events_bus.py::test_legacy_bridge_auto_observes_unknown_namespace`, and
-  the corrected `test_quant_costs_validation.py`. Full Python suite: 5720 passed
-  (1 intermittent `test_jobs_api` sqlite-teardown flake passes in isolation);
-  eval gates: ALL PASS.
-  TS: the `factors` and `ml` catch-all route `Ctx` now uses the optional
-  `path?` form every other route uses (tsc was failing on 4 generated-validator
-  errors). docs updated: `docs/CHANGELOG.md`, `docs/quant-engine.md`,
-  `docs/NAVIGATION.md`, `docs/ml-lab/ARCHITECTURE.md`.
-- **Portfolio Construction & Risk Engine - Round 3: factor risk model, risk
-  caps, cardinality/lot, observability.** `estimation.estimate_factor_covariance`
-  builds Σ = B·F·Bᵀ + D (OLS loadings × factor covariance + diagonal
-  idiosyncratic variance) and `risk_engine.factor_risk` decomposes portfolio
-  volatility into systematic/idiosyncratic parts with factor risk contributions
-  (Σ reconciles to systematic volatility); selected via
-  `covariance_method:"factor"` + `factor_returns`. The solver now enforces a
-  convex `max_volatility` / parametric `max_var` cap (validated independently;
-  an unreachable cap returns `INFEASIBLE`). Cardinality (`max_positions`),
-  `min_position_weight` and `lot_size` are applied as a documented,
-  independently-validated post-processing step (downgraded to
-  `FEASIBLE_LIMIT_REACHED`). Structured construction logging with the run id.
-  New tool `portfolio_factor_risk` (39 `portfolio_*` tools). Tests
-  `python/tests/test_portfolio_construction_ext.py` extended (factor risk,
-  vol/VaR caps, cardinality, lot). docs updated:
-  `docs/portfolio-accounting.md`, `docs/NAVIGATION.md`.
-- **Portfolio Construction & Risk Engine - Round 2: persistence, costs, factor
-  models, simulation, comparison, routes, background jobs, E2E.** Closed the
-  remaining gaps from the first slice. `estimation.estimate_factor_loadings` (OLS
-  loadings/alpha/residual/R²; auto-used by `factor_constrained` when
-  `factor_returns` are supplied). `construction.compare_allocations` (same-input
-  multi-method comparison) and a linear transaction-cost term folded into the
-  mean-variance/min-variance objective. `attribution.multi_period_attribution`
-  with exact proportional geometric linking. `simulation.rebalancing_simulation`
-  (point-in-time scheduled rebalancing/walk-forward with turnover+costs, no
-  look-ahead). Immutable run persistence (`PortfolioConstructionRun` in
-  `PortfolioStore`; `runId`/`dataVersion`/`engineVersion`). Execution-Fabric
-  `portfolio` worker (`portfolio/fabric.py`) for cancellable, time-bounded
-  background simulations. Five new tools (`portfolio_compare_allocations`,
-  `portfolio_estimate_factor_loadings`, `portfolio_simulate_rebalancing`,
-  `portfolio_list_runs`, `portfolio_get_run`) and REST routes (`…/construct`,
-  `…/construction-runs`, `/portfolio/runs/{id}`, `/portfolio/estimate-inputs`,
-  `…/stress-test`, `…/transaction-costs`, `…/compare`, `…/simulate-rebalancing`,
-  `/portfolio/simulations/{id}`). E2E tests now drive the REAL chat run graph
-  (`python/tests/test_portfolio_chat_e2e.py`) plus
-  `test_portfolio_construction_ext.py`. Full Python suite 5705 passed / 16
-  skipped. docs updated: `docs/portfolio-accounting.md`, `docs/NAVIGATION.md`.
-- **ML Research Lab - production-hardening slice (reliability/isolation core of
-  Phase 12 + Phases 13/18 gates).** Training now runs as a durable, cancellable,
-  resource-bounded Execution Fabric job on a dedicated ML worker
-  (`WorkerKind.ML`/`QueueName.ML`, `python/harness/ml/fabric.py`, wired in
-  `fabric/{models,policies,builtin_workers}.py`): `background:true` on
-  `POST /ml/v1/experiments` (or the `ml_run_experiment` tool) returns a job id
-  immediately; the worker invokes the same `service.run_experiment_job` pipeline
-  with a wall-clock timeout, hard cancellation (polled between folds; the
-  `CancelledError` path never leaves a run stuck "running") and progress events.
-  Job output is a compact summary - the full result stays a hash-addressed ML
-  artifact (the Fabric output column is bounded). Added `HARNESS_ML_*` guardrails
-  (`ml/config.py`: max rows/folds/seconds/concurrency/artifact-size/enabled) and a
-  `TIME_BUDGET_EXCEEDED` stop. Installed and verified the real optional model
-  backends - scikit-learn 1.6, LightGBM 4.7, XGBoost 3.4 (plus
-  sklearn-forest/extra-trees) all train end-to-end, serialized with joblib and
-  loaded only after SHA-256 verification. New surfaces: `GET /ml/v1/jobs`,
-  `GET /ml/v1/jobs/{id}`, `POST /ml/v1/jobs/{id}/cancel`, tools `ml_job_status`
-  /`ml_list_jobs`/`ml_cancel_job`; UI background toggle + job polling. New tests
-  `test_ml_{models_ext,leakage,fabric,acceptance}.py` (leakage suite + E2E
-  acceptance over SYNTHETIC fixtures); `tsc --noEmit` clean. Docs:
-  `docs/ml-lab/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
-
-- **Factor & Alpha Research Lab — production controls (point-in-time universe,
-  multiple-testing, persisted validation, performance bound).** Added
-  `python/harness/factors/universe.py` (`membership_mask`/`apply_membership`):
-  factor evaluation and quantile portfolios now exclude non-member cells using
-  the effective-dated universe history (`UniverseStore.members_as_of`), so a name
-  that joined late or was delisted is never measured in cross-sections it did not
-  belong to; `universeId` is accepted by the tools and `/factors/v1`. The
-  validation gate now enforces the Deflated Sharpe Ratio and Probability of
-  Backtest Overfitting (reusing `quant/multiple_testing.py`) when trial
-  variance / candidate returns are supplied, and every gate run is persisted as a
-  first-class `FactorValidation` row. The portfolio engine now also returns the
-  net/gross long-short return series (needed for deflation without
-  recomputation). Tests: `test_factors_universe.py`,
-  `test_factors_performance.py` + gate/DSR/PBO additions — 44 factor tests pass.
-  Docs: `docs/quant-research/FACTOR_LAB.md`.
-
-- **Portfolio Construction & Risk Engine — native Eclipse capability.** Added the
-  construction/risk vertical to the existing portfolio package (reusing the
-  accounting core, the shared Market Data Gateway and the ONE tool registry).
-  `estimation.py`: expected returns (arithmetic/geometric/EWMA/shrinkage/user) and
-  covariance (sample/EWMA/shrinkage/diagonal) with symmetry/finite/PSD/condition
-  diagnostics and a documented eigenvalue-floor regularizer; date-aligned returns
-  that drop missing dates rather than zero-filling them. `construction.py`: a
-  shared projected-gradient solver with an exact Dykstra projection onto the
-  constraint polytope, an INDEPENDENT `validate_constraints`, a `SolverStatus`
-  vocabulary, and all required methods (equal-weight, benchmark-weight,
-  min-variance, mean-variance + efficient frontier, risk-parity via exact ERC
-  cyclical coordinate descent, volatility-target, Black–Litterman, and
-  factor-constrained). `risk_engine.py`: Euler risk contributions (asset- and
-  group-level, sign-preserving) and hypothetical/factor/historical/seeded-
-  Monte-Carlo stress testing. `costs.py`: one-way/gross turnover and a
-  configurable transaction-cost model. Wired via `construct_service.py` +
-  `PortfolioService.construct`; registered five tools (`portfolio_estimate_inputs`,
-  `portfolio_construct`, `portfolio_risk_contributions`, `portfolio_stress_test`,
-  `portfolio_transaction_costs`) and — fixing a real integration gap — added
-  `*PORTFOLIO_TOOLS` to the Eclipse agent allowlist so the chatbot can reach the
-  portfolio capability. Results are independently validated and proposal-only.
-  Fixed a defect where the risk-parity log-barrier solver returned a non-ERC
-  allocation (replaced by the exact CCD first-order solution) and corrected
-  share-of-variance in the decomposition. Tests
-  `python/tests/test_portfolio_construction.py` (28 deterministic numerical tests).
-  Full Python suite 5664 passed / 16 skipped; `tsc --noEmit` clean.
-  docs updated: `docs/portfolio-accounting.md`, `docs/NAVIGATION.md`.
-- **ML Research Lab — foundation vertical slice (Phases 0–5).** Added a new
-  quantitative ML research vertical built on the SAME NumPy core, persistence and
-  market gateway as the stats/quant/factors engines. Backend
-  `python/harness/ml/`: `models.py` (versioned contracts: `DatasetSpec`,
-  `TargetSpec`, `SplitSpec`, `ExperimentConfig`), `datasets.py` (immutable dataset
-  builder over `stats.datasets.resolve_frame` + built-in and registered Feature
-  Registry features), `quality.py` (severity-graded quality engine),
-  `targets.py` (forward-return/binary/multiclass/neutral-zone/volatility/
-  cross-sectional-rank labels with explicit label start/end), `splits.py`
-  (chronological / walk-forward / purged-K-fold with purge + embargo and an
-  independent `assert_no_leakage` gate), `features.py` (fit-on-train-only
-  selection), `metrics.py`, `adapters.py` (pure-NumPy dummy/ridge/logistic/CART
-  random-forest + honest optional scikit-learn/LightGBM/XGBoost adapters that
-  report `MODEL_UNAVAILABLE` when the wheel is absent), `training.py` (fold-fit
-  preprocessing + selection, out-of-fold predictions, final holdout model),
-  `store.py` (`MLStore` on `agent-memory.db`; datasets/splits/experiments/runs/
-  folds/models/artifacts/predictions/approvals, SHA-256 artifact integrity),
-  `service.py`, `tools.py` (12 `ml_*` agent tools), `bootstrap.py`. REST
-  `python/harness/routers/ml.py` (`/ml/v1`, operator-gated) mounted in `main.py`;
-  boot wiring `install_ml_layer` in `service.py`. Front door
-  `src/app/api/ml/[[...path]]/route.ts` + `src/lib/ml-client.ts`; UI
-  `src/components/screens/ml-lab/ml-lab-screen.tsx` (AppTab `ml-lab`, command-
-  palette page). Tests `python/tests/test_ml_{core,store}.py` (29) +
-  `src/lib/ml-client.test.ts` (4); `tsc --noEmit` clean. The heavy ML wheels
-  could not be installed here (PyPI unreachable), so their adapters are honest
-  and unit-tested for the unavailable path; install instructions are recorded in
-  `python/requirements-ml.txt`. Docs: `docs/ml-lab/ARCHITECTURE.md`,
-  `docs/NAVIGATION.md`.
-
-- **Factor & Alpha Research Lab — background execution, pluggable regimes and an
-  end-to-end test.** Added durable background promotion through the Execution
-  Fabric `quant` queue (`submit_factor_promotion` tool + `POST
-  /factors/v1/promote/background`; the fabric tool context now carries the
-  `quant_store`/`dataset_store` and the market `DataBridge`). Added the pluggable
-  regime provider `engine.classify_regimes` (quantile buckets over any scalar
-  driver, NaN-safe) wired into `analyze_factor_stability`
-  (`regimeSeries`/`nRegimes`/`regimeMethod`). Added
-  `python/tests/test_factors_e2e.py` (full create→evaluate→portfolio→validate→
-  promote workflow through the real tool handlers) and
-  `test_factors_background.py` (fabric job) — 99 factor/fabric tests pass. The
-  factors router is now mounted through `routers/quant.py` (alongside the stats
-  router) so `main.py` stays under its non-ratcheted hard ceiling; a duplicate
-  `research_data_router` import in `main.py` was removed and the `service.py`
-  size budget re-pinned for the concurrent ML Research Lab wiring. Docs:
-  `docs/quant-research/FACTOR_LAB.md`.
-
-- **Factor & Alpha Research Lab — Phase 10 promotion bridge + Phase 12
-  hardening.** Added `python/harness/factors/promotion.py`
-  (`promote_to_strategy`): a validated factor version is promoted into a
-  first-class Eclipse strategy persisted through the ONE `QuantStore` (immutable
-  version + the native `request_approval` governance), its cross-sectional
-  portfolio executed by the Factor Lab quantile engine and persisted via
-  `QuantStore.save_experiment` (kind `factor_portfolio`) so it sits beside native
-  backtests, with factor-version → strategy-version → experiment lineage recorded
-  in the Factor store. REST `POST /factors/v1/promote` + `GET /factors/v1/lineage`;
-  the `promote_factor_to_strategy` tool now performs the real promotion.
-  Hardening: added `python/tests/test_factors_{store,promotion,routes}.py` and
-  engine invariants (rank-IC monotone-transform invariance, dollar-neutral
-  long-short book, determinism) — 33 factor tests pass; full Python suite and
-  Vitest suite remain green; `tsc --noEmit` clean. Docs:
-  `docs/quant-research/FACTOR_LAB.md`.
-
-- **Factor & Alpha Research Lab — new quant-research vertical (factor registry,
-  IC/rank-IC/decay, quantile portfolios, alpha composition, validation gate).**
-  Added `python/harness/factors/` (`engine.py` = the authoritative NumPy math for
-  forward returns, cross-sectional Pearson IC + Spearman rank IC with
-  Newey–West HAC inference, factor decay, cross-sectional rank/z-score/
-  winsorize/demean/neutralize, quantile portfolios with turnover and
-  cost-aware net/gross accounting, portfolio metrics, factor combination/
-  correlation/redundancy, and the structured validation gate; `library.py` =
-  built-in momentum/reversal/low-vol/trend/liquidity factors via the shared safe
-  formula engine — fundamental/quality/carry factors are declared honestly
-  unavailable rather than fabricated; `models.py`; `store.py` = `FactorStore` on
-  `agent-memory.db` with immutable factor versions; `service.py`; `tools.py` =
-  13 agent tools wired into the `ECLIPSE_AGENT` allowlist; `bootstrap.py`).
-  REST surface `python/harness/routers/factors.py` (`/factors/v1`, operator-gated)
-  mounted in `main.py`; boot wiring in `service.py`. Front door
-  `src/app/api/factors/[[...path]]/route.ts` + `src/lib/factors-client.ts` + the
-  Factor Lab screen (`AppTab 'factor-lab'`) registered through the shell,
-  search registry and deep-link list. Tests: `python/tests/test_factors_engine.py`,
-  `test_factors_service.py` (28) plus the full Python suite (5592 passed) and the
-  full Vitest suite (2589 passed); `tsc --noEmit` clean. Docs:
-  `docs/quant-research/FACTOR_LAB.md` (new tracker), `docs/NAVIGATION.md`.
-
-- **Backtesting & Simulation Engine — options & futures asset-class support.**
-  Closed the last advertised gaps. Added `quant/options.py` (reusing the market
-  layer's `black_scholes` — no second pricing model): `price_option`,
-  `implied_volatility` (bisection, refuses out-of-bounds prices), and
-  `analyze_option_strategy` (multi-leg expiry payoff, break-evens, max
-  profit/loss reported `null` when unbounded, position-level net Greeks). Added
-  `quant/futures.py` `build_continuous_contract` (splice ordered contracts at a
-  roll schedule with difference/ratio/none back-adjustment; newest contract
-  unadjusted; result labelled a backtest proxy). Capability now advertises
-  options/futures `partial` (analytics available; options backtesting /
-  deliverable contracts not claimed) plus `optionAnalytics`/`continuousContracts`.
-  REST: `POST /quant/{option-price,implied-volatility,option-strategy,
-  continuous-contract}`. Quant tools now **68**. Docs: `docs/quant-engine.md`,
-  `docs/backtesting-engine.md`, `docs/CHANGELOG.md`. Tests:
-  `test_quant_options_futures.py` + additions to `test_quant_vector_advanced.py`
-  and `test_quant_routes.py`.
-
-- **Backtesting & Simulation Engine — production hardening: multiple-testing
-  diagnostics, real OOS contamination detection, square-root market impact and
-  REST routes.** Added `quant/multiple_testing.py` (Deflated Sharpe Ratio +
-  Probability of Backtest Overfitting via CSCV, from first principles, no SciPy)
-  and the `run_multiple_testing_diagnostics` tool (runs a real bounded parameter
-  sweep or accepts explicit returns/Sharpe/matrix). `run_out_of_sample_test` now
-  detects a prior optimization/walk-forward/sensitivity/robustness experiment
-  overlapping the OOS window (`OOS_WINDOW_CONTAMINATED`, `contaminated` flag).
-  Added the square-root market-impact law (`sqrt`, alongside `linear`).
-  Registered REST endpoints `POST /quant/{vectorized-backtest,costs,out-of-sample,
-  bootstrap,multiple-testing}` and added comparability warnings to `/quant/compare`.
-  Capability map advertises `vectorizedBacktest`/`costDiagnostics`/`outOfSample`/
-  `bootstrap`/`multipleTesting`. Quant tools now **64**. Docs: `docs/quant-engine.md`,
-  `docs/backtesting-engine.md`, `docs/CHANGELOG.md`. Tests:
-  `test_quant_multiple_testing.py`, `test_quant_routes.py`, plus additions to
-  `test_quant_costs_validation.py` and `test_quant_vector_advanced.py` (quant+stats
-  suite 343 passed; one pre-existing unrelated `test_artifacts_api` failure).
-
-- **Backtesting & Simulation Engine — vectorized engine, standalone execution-cost
-  diagnostics, out-of-sample + bootstrap validation, and comparison tools.** Closes
-  the remaining gaps against the requested 16-tool capability surface, reusing the
-  existing event engine (no second accounting path). Added `quant/vector_engine.py`
-  (restricted causal-signal engine; `VECTOR_UNSUPPORTED` for anything else, exact
-  equity parity with the event engine on the supported subset), `quant/costs.py`
-  (`simulate_transaction_costs`/`simulate_slippage`/`simulate_spread`/
-  `simulate_market_impact` over the SAME `ExecutionSimulator`, with honest
-  missing-input warnings), `quant/validation.py` (percentile bootstrap — IID/block/
-  stationary — and a chronological OOS split) and `quant/advanced_tools.py`
-  (`run_event_driven_backtest`, `run_vectorized_backtest`, `run_out_of_sample_test`,
-  `run_bootstrap_test`, `compare_backtests` + comparability cautions). `engine.py`
-  now tags `metadata.engine`; quant tools total **63**. Docs: `docs/quant-engine.md`,
-  `docs/NAVIGATION.md`, new `docs/backtesting-engine.md` (audit + 16-tool
-  traceability + honest blockers). Tests: `test_quant_costs_validation.py`,
-  `test_quant_vector_advanced.py` (full suite 331 passed; one pre-existing unrelated
-  `test_artifacts_api` failure). No options/live-trading claims added.
-
-- **Recovery repair-lease expiry boundary + doc line-ending normalization.** The
-  repair lease reclaim at `RecoveryStore.acquire_lease` used a strict `<` on
-  `expiresAt`, so an already-expired lease was not reclaimable whenever the
-  millisecond clock landed exactly on `.000` (intermittent
-  `test_repair_lease_is_exclusive_and_reclaims_on_expiry` failure); switched to
-  `<=` (an expired lease is reclaimable, a held one is not). Also normalized
-  `docs/harness/decisions.md` to LF so no tracked text file mixes CRLF and bare LF
-  (`gitignore-guard` test). Also rotated the oldest active dated section
-  (`2026-10-04`) into `docs/changelog/2026-10.md` to restore the 7-section window
-  (`changelog-guard` test). Bug fixes + doc rotation — `docs/CHANGELOG.md`,
-  `docs/changelog/2026-10.md`.
-
-- **Bots tab: scheduled autonomous agents with ghost faces.** Added a `bots`
-  AppTab to the Agentic menu (`src/lib/sidebar/config.ts`, `src/lib/app-tabs.ts`,
-  `src/lib/i18n/nav.ts`, deep-link `APP_TABS`, command-palette page registration).
-  The new `src/components/screens/bots/bots-screen.tsx` lists, creates, runs,
-  pauses, resumes, enables, disables and deletes bots through the EXISTING
-  Automation Engine (`/api/automations`; a bot is a `run_agent` automation on a
-  manual/interval/cron/one-time trigger, so it runs in the persistent background
-  engine with no browser open). Each bot gets a ghost face: `src/lib/bots/ghost.ts`
-  (serializable `GhostSpec`, closed option sets, deterministic `ghostSpecFromId`,
-  seeded `randomGhostSpec`), rendered by `src/components/bots/ghost-avatar.tsx`
-  (parametric inline SVG) and edited by `src/components/bots/ghost-customizer.tsx`
-  (per-part option strips + color pickers + randomize/reset). Faces persist
-  client-side per bot id (`src/lib/bots/avatar-store.ts`, the repo's
-  appearance-settings convention, mirroring `lib/sidebar/store.ts`). No new
-  backend/agent runtime was introduced. Tests: `src/lib/bots/ghost.test.ts`;
-  `src/lib/sidebar/config.test.ts` updated for the new section and the
-  `stock-chat.tsx` size ratchet re-pinned. Verified: `npx tsc --noEmit` clean,
-  vitest 2602 passed, `npm run test:smoke` reachable, `npm run build` and
-  `npm run check:all` clean. Follow-up polish: the create form now uses the
-  shared frosted `Select`/`Input`/`Button` primitives (dark-mode-correct
-  dropdown popups) instead of native controls, and `GhostAvatar` uses a
-  per-instance `useId` clip id so multiple ghosts never collide. Bots is
-  `group: 'both'` so, like ChatBot, it stays visible in the sidebar regardless
-  of the Terminal/Agentic toggle (it was agentic-only and therefore hidden for
-  users parked on Terminal). docs updated:
-  `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
-
-- **Proper Bot Workspace: discovery, guided creation, detail, execution
-  visibility, and real chat tools.** Replaced the one-screen bot list with a
-  cohesive workspace over the EXISTING Automation Engine (no new backend store or
-  runtime). Nav: Bots is now a third tab beside Terminal/Agentic in the sidebar
-  switcher (`src/components/layout/sidebar.tsx`), always one click away. UI split
-  into focused modules under `src/components/bots/` (`status-pill`, `bot-card`,
-  `schedule-editor`, `create-bot`, `run-history`, `bot-detail`) plus the
-  orchestrator `src/components/screens/bots/bots-screen.tsx` and pure logic
-  `src/lib/bots/state.ts` (backend→UI state mapping, real filters, search,
-  human schedule summaries, draft→trigger translation, all unit-tested). The
-  workspace has a compact header + search + status filters (All/Active/Paused/
-  Running/Needs attention, all computed from real fields), a scannable bot
-  collection with contextual menus, an honest empty state with example prompts,
-  a master/detail layout with deep linking (`?tab=bots&bot=<id>`), and a detail
-  view organized into Overview / Instructions / Schedule / Capabilities / Memory
-  / Run history / Settings with inline edits that call the real API. Run history
-  shows real executions, durations, errors, activity timeline and deliveries, and
-  polls ONLY while a run is live (stopping at terminal). **Chat-first:** new
-  Python agent tools `bot_*` (`python/harness/automation/tools.py`) register on
-  the ONE tool registry, are wired in `service.py`, and are added to the Eclipse
-  agent allowlist (`agents.py`), so chat can create/list/inspect/run/pause/
-  resume/update/delete bots and inspect runs — the same objects the UI shows.
-  Tests: `src/lib/bots/state.test.ts`, `python/tests/test_automation_tools.py`,
-  updated `src/lib/sidebar/config.test.ts`. Verified: `npx tsc --noEmit` clean,
-  `npx vitest run` 2616 passed, `npm run lint` 0 errors, `npm run build` clean,
-  targeted Python suites (automation + code-agent + surface-honesty) 91 passed.
-  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
-
-- **Bots mode now lists your bots in the sidebar (not a generic nav link).**
-  When the Bots mode is active, the sidebar renders the user's actual bots in a
-  panel (avatars, name, live/lifecycle status dot, active highlight) instead of a
-  static "Bots" nav item — mirroring how chat history sits under ChatBot. Bots is
-  now a first-class sidebar MODE (`NavGroup = 'terminal' | 'agentic' | 'bots'`)
-  with no static section; the switcher's Bots tab selects it and opens the
-  workspace. New shared `src/lib/bots/bots-store.ts` (zustand) is the single
-  source of bots + selected bot for BOTH the sidebar panel and the workspace, so
-  they never drift; selection is reflected in `?tab=bots&bot=<id>`. Added
-  `src/components/bots/bots-sidebar-panel.tsx`; `src/components/layout/sidebar.tsx`
-  renders it in Bots mode and syncs the mode on first mount (deep-link safe).
-  Updated `src/lib/sidebar/config.ts` + `config.test.ts`. Verified: `npx tsc
-  --noEmit` clean, `npx vitest run` 2617 passed, `npm run lint` 0 errors,
-  `npm run build` clean (after clearing a stale `.next` from a concurrent dev
-  server), dev server restarted and serving. docs updated: `docs/CHANGELOG.md`,
-  `docs/NAVIGATION.md`.
-
-- **Confirmed promotion: Eclipse can now put a reviewed change into its own
-  code (Phase 15 promotion slice, ADR-H176).** Previously a code run's change
-  lived in a disposable copy and nothing ever copied it back, so "Eclipse changed
-  the API" was a diff in a scratch folder that got deleted. Added the ONE landing
-  path: `python/harness/code/promotion.py` (preview → single-use `code_promote`
-  approval → apply), two operator-gated routes (`POST /code/tasks/{id}/promote/
-  preview` and `.../promote`) that reuse the existing `mcp/approvals.py` decision
-  and the `code/patch.py` engine (base-hash + protected-path + atomic), and an
-  additive `patch.py` `overwrite` op (whole-file, base-checked). A protected path
-  (`code/policy.py` and the other frozen authorities, `.git`, `.env`, databases,
-  keys, migrations) is refused in the preview and again at apply; the target is
-  always the server-resolved checkout root; no git write happens in the runtime.
-  Reached from the conversation via a "Put this change into my project" control on
-  a coding turn (`src/components/chat/promote-change.tsx`, wired through
-  `ChatCapabilityPanel` + `chat-history`) and from the Code Tasks screen
-  (`task-detail.tsx`); front door `code-client.ts`/`code-browser.ts` + the two
-  Next proxies. Tests `python/tests/test_code_promotion.py` (11 pass; unit + route
-  seam) + full `-k code` sweep (393 pass); `npx tsc --noEmit` clean; the `code.promote.*`
-  copy is under the plain-language gate. Also re-pinned the `test_size_budget.py`
-  `service.py` ratchet 1444→1454 for the in-flight Bots/Automation wiring already
-  in the tree (additive `bot_*` registration; not this change). docs updated:
-  `docs/CHANGELOG.md`, `docs/harness/decisions.md` (ADR-H176), `docs/NAVIGATION.md`.
-
-- **Bot page is now a conversation (Grok/Hermes-style).** Opening a bot no longer
-  shows an admin tab panel; it opens a chat with the bot. New
-  `src/components/bots/bot-chat.tsx`: header with the bot's avatar, inline-editable
-  name + purpose, status pills, next/last run, and controls (Run now, Pause/Resume,
-  Details); a real message thread; and a composer. Each message runs the REAL
-  Eclipse agent via `POST /api/harness/chat`, with the bot's identity + standing
-  instructions as leading context, so replies are grounded, not fabricated;
-  failures render an honest error bubble. Threads persist per bot
-  (`src/lib/bots/chat-store.ts`). The previous detail sections (Overview /
-  Instructions / Schedule / Capabilities / Memory / Run history / Settings) are
-  preserved behind a **Details** drawer (`BotDetail` in a `Sheet`), so no
-  functionality was removed. Updated `bots-screen.tsx` to mount `BotChat`.
-  Verified: `npx tsc --noEmit` clean, `npx vitest run` 2617 passed, `npm run
-  lint` 0 errors, `npm run build` clean, dev server restarted and serving.
-  docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
-
-- **Fix: autonomous bot runs failed with "model not found".** A scheduled/`Run
-  now` bot executes inside the Python runtime with no per-run model override, so
-  it fell back to the runtime's env default (`HARNESS_JOB_MODEL`, historically
-  `llama3.1`) — while interactive chat worked because the front door passes the
-  operator's saved model per run. The launcher now resolves the saved LLM config
-  (`getLLMConfig()`) and publishes it into the spawned runtime's env as
-  `HARNESS_JOB_PROVIDER` / `HARNESS_JOB_MODEL` / `HARNESS_JOB_BASE_URL` /
-  `HARNESS_JOB_API_KEY` (a real env var still wins), so automations, jobs, tasks
-  and fabric use the same configured model as chat. Verified end-to-end: a
-  `run_agent` bot that previously failed now completes (`state=completed`).
-  `src/lib/harness/python-runtime.ts` only. Verified: `npx tsc --noEmit` clean,
-  `npx vitest run` 2617 passed, `npm run lint` 0 errors, dev server restarted.
-  docs updated: `docs/CHANGELOG.md`.
-
-- **Fix: bot chat crashed with "Maximum update depth exceeded" + create never
-  opened.** (1) `bot-chat.tsx` selected messages with
-  `useBotChatStore((s) => s.byBot[bot.id] ?? [])`; the inline `?? []` returned a
-  NEW array every render, breaking zustand/useSyncExternalStore snapshot caching
-  and throwing an infinite render loop that the error boundary surfaced as
-  "Something went wrong". Now uses a module-level `NO_MESSAGES` constant, so the
-  snapshot is stable. (2) The header **Create bot** button and the sidebar **+**
-  called `openBot(null)`, which forced `createOpen` back to false, so the guided
-  creation flow never appeared. Creation state now lives in the shared
-  `bots-store` (`createOpen` + `openCreate`), so both the header and the sidebar
-  "+" open it. Verified in a real browser: sidebar "+" opens the create panel,
-  a bot is created and persists, and sending a message returns an in-character
-  reply from the real agent. (3) The recurring "Invalid or unexpected token"
-  console error was a corrupt `next dev` chunk in `.next-dev`; clearing the dev
-  cache resolved it (dev and prod already use separate dirs). Files:
-  `src/components/bots/bot-chat.tsx`, `src/lib/bots/bots-store.ts`,
-  `src/components/bots/bots-sidebar-panel.tsx`,
-  `src/components/screens/bots/bots-screen.tsx`. Verified: `npx tsc --noEmit`
-  clean, `npx vitest run` 2634 passed, `npm run lint` 0 errors, `npm run build`
-  clean, dev server restarted and serving. docs updated: `docs/CHANGELOG.md`.

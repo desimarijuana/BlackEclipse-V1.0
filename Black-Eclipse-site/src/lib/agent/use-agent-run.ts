@@ -199,6 +199,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.vision) t.vision = event.vision;
           if (event.documents) t.documents = event.documents;
           if (event.images) t.images = event.images;
+          if (event.video) t.video = event.video;
           t.pendingApproval = undefined;
           if (event.error) {
             t.error = { code: event.errorCode, message: event.error };

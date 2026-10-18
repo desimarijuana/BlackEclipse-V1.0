@@ -11,10 +11,17 @@ shell, never concatenated input. Its machine contract (pinned with fframes
            exit 0 = rendered; non-zero = failed.
   inspect  ``fframes-worker inspect --json``
            stdout: ``{checked_frames, findings[]}``; exit 2 when problems exist.
+  strip    ``fframes-worker strip <range> -n N --columns C --width W -o <png>``
+           stdout: ``{output, frames[], diagnostics[]}`` — a labelled contact
+           sheet of evenly spaced frames; diagnostics carry layout problems
+           (clipped text, missing fonts) found while sampling.
+  frame    ``fframes-worker frame <at>... -o <dir>``
+           stdout: one JSON list ``[{spec, path, frame, seconds, scenes,
+           diagnostics[]}, ...]`` — one PNG per time spec into the directory.
 
 This module turns that into plain dicts, forwards frame progress to the Fabric,
 enforces a hard timeout and kills the child on cancellation. A worker exit of 0
-is never trusted on its own: the output file must exist and be non-empty, or
+is never trusted on its own: every output file must exist and be non-empty, or
 the run is reported failed (no false success states).
 """
 
@@ -107,15 +114,17 @@ class VideoRunner:
         progress: Optional[ProgressCallback] = None,
         progress_scale: float = 1.0,
         cwd: Optional[Path] = None,
+        project_path: Optional[Path] = None,
     ) -> dict[str, Any]:
         workdir = Path(cwd) if cwd is not None else out_path.parent
         workdir.mkdir(parents=True, exist_ok=True)
-        argv = (
-            self.worker_argv()
-            + ["render", "--json"]
-            + (["--draft"] if draft else [])
-            + ["-o", str(out_path)]
-        )
+        argv = self.worker_argv()
+        if project_path is not None:
+            argv += ["--project", str(project_path)]
+        argv += ["render", "--json"]
+        if draft:
+            argv += ["--draft"]
+        argv += ["-o", str(out_path)]
 
         def on_event(event: dict[str, Any]) -> None:
             if progress is None:
@@ -142,9 +151,13 @@ class VideoRunner:
         timeout_ms: int,
         cancel_event: Optional[asyncio.Event] = None,
         cwd: Optional[Path] = None,
+        project_path: Optional[Path] = None,
     ) -> dict[str, Any]:
         workdir = Path(cwd) if cwd is not None else Path.cwd()
-        argv = self.worker_argv() + ["inspect", "--json"]
+        argv = self.worker_argv()
+        if project_path is not None:
+            argv += ["--project", str(project_path)]
+        argv += ["inspect", "--json"]
         run = await self._execute(
             argv, cwd=workdir, timeout_ms=timeout_ms, cancel_event=cancel_event
         )
@@ -183,6 +196,62 @@ class VideoRunner:
             "workerExitCode": run["rc"],
             "logTail": run["logTail"],
         }
+
+    async def strip(
+        self,
+        *,
+        out_path: Path,
+        count: int = 8,
+        columns: int = 4,
+        width: int = 480,
+        range_spec: str = "all",
+        timeout_ms: int,
+        cancel_event: Optional[asyncio.Event] = None,
+        cwd: Optional[Path] = None,
+        project_path: Optional[Path] = None,
+    ) -> dict[str, Any]:
+        """Render a labelled contact sheet of frames to a PNG (no video file)."""
+        workdir = Path(cwd) if cwd is not None else out_path.parent
+        workdir.mkdir(parents=True, exist_ok=True)
+        argv = self.worker_argv()
+        if project_path is not None:
+            argv += ["--project", str(project_path)]
+        argv += [
+            "strip", "--json", str(range_spec), "-n", str(int(count)),
+            "--columns", str(int(columns)), "--width", str(int(width)),
+            "-o", str(out_path),
+        ]
+        run = await self._execute(
+            argv, cwd=workdir, timeout_ms=timeout_ms, cancel_event=cancel_event
+        )
+        return self._sheet_result(run, out_path)
+
+    async def frames(
+        self,
+        *,
+        at_specs: list[str],
+        out_dir: Path,
+        timeout_ms: int,
+        cancel_event: Optional[asyncio.Event] = None,
+        cwd: Optional[Path] = None,
+        project_path: Optional[Path] = None,
+    ) -> dict[str, Any]:
+        """Render one PNG per time spec into ``out_dir``."""
+        workdir = Path(cwd) if cwd is not None else out_dir.parent
+        workdir.mkdir(parents=True, exist_ok=True)
+        argv = self.worker_argv()
+        if project_path is not None:
+            argv += ["--project", str(project_path)]
+        if not at_specs:
+            return {
+                "ok": False, "status": "failed",
+                "error": "no frames were requested", "errorClass": "INVALID_INPUT",
+            }
+        argv += ["frame", "--json", *[str(spec) for spec in at_specs], "-o", str(out_dir)]
+        run = await self._execute(
+            argv, cwd=workdir, timeout_ms=timeout_ms, cancel_event=cancel_event
+        )
+        return self._frames_result(run, out_dir)
 
     # ── process plumbing ─────────────────────────────────────────────────────
 
@@ -348,15 +417,117 @@ class VideoRunner:
             "sizeBytes": produced.stat().st_size, "logTail": run["logTail"],
         }
 
+    def _sheet_result(self, run: dict[str, Any], out_path: Path) -> dict[str, Any]:
+        failure = self._preview_failure(run, "the contact sheet")
+        if failure is not None:
+            return failure
+        doc, unparsed = self._parse_json_doc(run["stdout"])
+        if run["rc"] != 0 or doc is None:
+            detail = f"exit code {run['rc']}" if run["rc"] != 0 else "no JSON document on stdout"
+            if unparsed:
+                detail += f"; tail: {unparsed}"
+            return {
+                "ok": False, "status": "failed",
+                "error": f"the preview worker failed ({detail})",
+                "errorClass": "PREVIEW_FAILED", "logTail": run["logTail"], "workerJson": doc,
+            }
+        produced = Path(str(doc.get("output") or out_path))
+        if not produced.is_file() or produced.stat().st_size <= 0:
+            return {
+                "ok": False, "status": "failed",
+                "error": f"the worker reported a contact sheet but no file exists at {produced}",
+                "errorClass": "PREVIEW_OUTPUT_MISSING", "logTail": run["logTail"],
+                "workerJson": doc,
+            }
+        return {
+            "ok": True, "status": "rendered", "outputPath": str(produced),
+            "frames": [int(frame) for frame in (doc.get("frames") or [])],
+            "diagnostics": [
+                report for report in (doc.get("diagnostics") or []) if isinstance(report, dict)
+            ],
+            "sizeBytes": produced.stat().st_size, "logTail": run["logTail"],
+        }
+
+    def _frames_result(self, run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
+        failure = self._preview_failure(run, "the preview frames")
+        if failure is not None:
+            return failure
+        doc, unparsed = self._parse_json_value(run["stdout"])
+        if run["rc"] != 0 or not isinstance(doc, list):
+            detail = f"exit code {run['rc']}" if run["rc"] != 0 else "no JSON list on stdout"
+            if unparsed:
+                detail += f"; tail: {unparsed}"
+            return {
+                "ok": False, "status": "failed",
+                "error": f"the preview worker failed ({detail})",
+                "errorClass": "PREVIEW_FAILED", "logTail": run["logTail"],
+            }
+        frames: list[dict[str, Any]] = []
+        for item in doc:
+            if not isinstance(item, dict):
+                continue
+            produced = Path(str(item.get("path") or ""))
+            if not produced.is_file() or produced.stat().st_size <= 0:
+                return {
+                    "ok": False, "status": "failed",
+                    "error": f"the worker reported a frame but no file exists at {produced}",
+                    "errorClass": "PREVIEW_OUTPUT_MISSING", "logTail": run["logTail"],
+                    "workerJson": doc,
+                }
+            frames.append({
+                "spec": str(item.get("spec") or ""),
+                "path": str(produced),
+                "frame": item.get("frame"),
+                "seconds": item.get("seconds"),
+                "scenes": list(item.get("scenes") or []),
+                "diagnostics": [
+                    report for report in (item.get("diagnostics") or []) if isinstance(report, dict)
+                ],
+                "sizeBytes": produced.stat().st_size,
+            })
+        if not frames:
+            return {
+                "ok": False, "status": "failed",
+                "error": f"the worker returned no frames for {out_dir}",
+                "errorClass": "PREVIEW_OUTPUT_MISSING", "logTail": run["logTail"],
+            }
+        return {"ok": True, "status": "rendered", "frames": frames, "logTail": run["logTail"]}
+
+    def _preview_failure(self, run: dict[str, Any], what: str) -> Optional[dict[str, Any]]:
+        """The shared spawn/timeout/cancel/exit failures of a preview command."""
+        if "spawnError" in run:
+            return {
+                "ok": False, "status": "failed",
+                "error": f"could not start the video worker: {run['spawnError']}",
+                "errorClass": "WORKER_UNAVAILABLE",
+            }
+        if run["timedOut"]:
+            return {
+                "ok": False, "status": "timed_out",
+                "error": f"rendering {what} exceeded its time budget", "errorClass": "TIMEOUT",
+                "logTail": run["logTail"],
+            }
+        if run["cancelled"]:
+            return {
+                "ok": False, "status": "cancelled", "error": "cancelled by operator",
+                "errorClass": "CANCELLED", "logTail": run["logTail"],
+            }
+        return None
+
     def _parse_json_doc(self, raw: bytes) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        value, tail = self._parse_json_value(raw)
+        if isinstance(value, list):
+            return None, tail or (raw or b"").decode("utf-8", errors="replace")[-500:]
+        return value, tail
+
+    def _parse_json_value(self, raw: bytes) -> tuple[Any, Optional[str]]:
         text = (raw or b"").decode("utf-8", errors="replace").strip()
         if not text:
             return None, None
         try:
-            data = json.loads(text)
+            return json.loads(text), None
         except json.JSONDecodeError:
             return None, text[-500:]
-        return (data if isinstance(data, dict) else None), None
 
 
 __all__ = ["VideoRunner"]

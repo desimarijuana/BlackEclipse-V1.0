@@ -93,7 +93,14 @@ RATCHET_PY: dict[str, int] = {
     # orchestrator call is now `orchestrate_response_mode(...)` (import + a
     # multi-line call); the model construction/invocation lives in
     # `response_mode_llm.py`.
-    "graph.py": 2145,
+    # Re-pinned 2145→2170 for the native-video chat surface (Phase 7): the
+    # `video_sink` seam + `video_collector` (construction, sink into
+    # `build_graph`, the bounded `video` run blob on `update_run`/`RunResult`)
+    # and the `session_id` ToolContext seam for artifact↔conversation
+    # association. The video subsystem itself lives in `python/harness/video/`
+    # + `routers/video.py`; graph.py grows by the seams only. May only shrink;
+    # the subsystem-wiring block remains the split candidate.
+    "graph.py": 2170,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

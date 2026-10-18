@@ -315,6 +315,15 @@ or HTTP errors.
   runs/events into queryable tables is part of the Fabric work.
 - `live` mode is settable in the IR but no executor honours it; the compiler
   refuses trading nodes without an explicit (paper/live) grant.
+- **`video.render` is declared, not executable** (native-video integration,
+  Phase 8 of that pipeline): the node type exists in both registries
+  (`python/harness/graph_runtime/video_nodes.py` + the TS mirror, in lockstep)
+  with `executor=None` and a `since_phase`, because the graph runtime executes
+  SYNCHRONOUSLY while a render is an async queued Fabric job, and every
+  UI/schedule-reachable run uses the test-run envelope that refuses effectful
+  nodes. The compiler reports `executor_unavailable` with that sentence. Until
+  the executor lands, video work runs through the `video_*` tools,
+  `POST /video/*`, or an automation `call_tool` action.
 
 ## Next milestone
 

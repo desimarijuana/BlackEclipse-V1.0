@@ -14,6 +14,7 @@ still uses.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
@@ -65,6 +66,21 @@ async def _boot() -> None:
     # Retention: mark due AUTOMATIC memories expired on startup. Idempotent and
     # best-effort.
     service.run_startup_maintenance()
+    # Native video: prune old job workspaces to their count/byte budgets. The
+    # final MP4 is copied into the Artifact Center at registration, so a job
+    # workspace is an audit aid — never the deliverable. Bounded, off the event
+    # loop, and best-effort (a locked file is retried next boot).
+    try:
+        from .video.gc import prune_video_workspace  # noqa: PLC0415
+
+        pruned = await asyncio.to_thread(prune_video_workspace)
+        if pruned.get("removed"):
+            log.info(
+                "[harness-py] video workspace pruned: %s job(s), %.1f MB freed",
+                len(pruned["removed"]), pruned.get("freedBytes", 0) / 1_048_576,
+            )
+    except Exception:  # noqa: BLE001 - hygiene must never block boot
+        log.warning("video workspace prune failed", exc_info=True)
     # Failure Intelligence & Adaptive Recovery: construct the classifier/controller
     # and register its read-only inspection tools. Additive; capture itself is
     # wired after the Event System starts.

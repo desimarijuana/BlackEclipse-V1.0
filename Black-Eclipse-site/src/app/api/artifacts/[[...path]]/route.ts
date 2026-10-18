@@ -32,6 +32,11 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
   const url = new URL(request.url);
   const token = runtimeCallbackToken();
   const user = request.headers.get("x-eclipse-user");
+  // A download stream (video/audio playback) is bound by the CLIENT's
+  // connection, not by a fixed proxy timeout — aborting a large MP4 at 60 s
+  // would cut long playback off mid-stream. JSON calls keep the hard bound.
+  const isDownload = segments.endsWith("/download");
+  const range = request.headers.get("range");
   const init: RequestInit = {
     method,
     headers: {
@@ -39,8 +44,9 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
       ...(token ? { "X-Harness-Operator": token } : {}),
       ...(await runtimeIdentityHeaders(request)),
       ...(user ? { "X-Harness-User": user } : {}),
+      ...(range ? { Range: range } : {}),
     },
-    signal: AbortSignal.timeout(60_000),
+    signal: isDownload ? request.signal : AbortSignal.timeout(60_000),
   };
   if (method !== "GET" && method !== "DELETE") {
     init.body = await request.text();
@@ -50,18 +56,23 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
     // Downloads stream bytes, not JSON — pass them through untouched.
     const contentType = res.headers.get("content-type") ?? "";
     if (method === "GET" && !contentType.includes("application/json")) {
-      return new NextResponse(res.body, {
-        status: res.status,
-        headers: {
-          "Content-Type": contentType || "application/octet-stream",
-          ...(res.headers.get("content-disposition")
-            ? { "Content-Disposition": res.headers.get("content-disposition") as string }
-            : {}),
-          ...(res.headers.get("cache-control")
-            ? { "Cache-Control": res.headers.get("cache-control") as string }
-            : {}),
-        },
-      });
+      // Pass the byte-stream metadata through untouched — media players need
+      // the range headers to seek (Accept-Ranges/Content-Range/206).
+      const headers: Record<string, string> = {
+        "Content-Type": contentType || "application/octet-stream",
+      };
+      for (const name of [
+        "content-disposition",
+        "cache-control",
+        "accept-ranges",
+        "content-range",
+        "content-length",
+        "etag",
+      ]) {
+        const value = res.headers.get(name);
+        if (value) headers[name] = value;
+      }
+      return new NextResponse(res.body, { status: res.status, headers });
     }
     const data = await res.json().catch(() => ({}));
     return NextResponse.json(data, { status: res.status });

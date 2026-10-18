@@ -707,6 +707,13 @@ def build_default_registry() -> NodeRegistry:
     # same contracts are mirrored in the TS registry.
     for definition in build_finance_nodes():
         registry.register(definition)
+    # Video-production node declarations (Phase 8): executor-less ON PURPOSE —
+    # a render is an async Fabric job behind an effectful-node policy the graph
+    # runtime does not have yet; the compiler names that honestly.
+    from .video_nodes import build_video_nodes  # noqa: PLC0415
+
+    for definition in build_video_nodes():
+        registry.register(definition)
     registry.register(NodeDef(
         type="agent.research", version="1.0.0", label="Research agent",
         category="agent",

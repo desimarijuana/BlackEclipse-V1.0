@@ -14,7 +14,18 @@ Environment (all optional):
   HARNESS_VIDEO_DRAFT_TIMEOUT_MS     int     (default 600000)
   HARNESS_VIDEO_FINAL_TIMEOUT_MS     int     (default 1800000)
   HARNESS_VIDEO_INSPECT_TIMEOUT_MS   int     (default 300000)
+  HARNESS_VIDEO_PREVIEW_TIMEOUT_MS   int     (default 180000)
+  HARNESS_VIDEO_TRANSIENT_RETRIES    int     (default 1; in-job retries for
+                                              transient failures — a data
+                                              fetch or worker spawn blip)
   HARNESS_VIDEO_MAX_CONCURRENT       int     (default 1)
+  HARNESS_VIDEO_MAX_PENDING_PER_PROJECT int (default 4; queued+running jobs
+                                              per project — a runaway loop is
+                                              refused with TOO_MANY_PENDING)
+  HARNESS_VIDEO_GC_ENABLED           1|0     (default 1; prune old job
+                                              workspaces)
+  HARNESS_VIDEO_GC_KEEP_JOBS         int     (default 20; newest kept)
+  HARNESS_VIDEO_GC_MAX_TOTAL_MB      int     (default 2048; byte budget)
 """
 
 from __future__ import annotations
@@ -55,7 +66,15 @@ class VideoConfig:
     draft_timeout_ms: int = 600_000
     final_timeout_ms: int = 1_800_000
     inspect_timeout_ms: int = 300_000
+    preview_timeout_ms: int = 180_000
+    transient_retries: int = 1
     max_concurrent: int = 1
+    # Resource limits (Phase 8): a per-project cap on queued+running jobs, and
+    # the job-workspace budgets the boot sweep enforces.
+    max_pending_per_project: int = 4
+    gc_enabled: bool = True
+    gc_keep_jobs: int = 20
+    gc_max_total_mb: int = 2048
     timeout_slack_seconds: int = 60
 
     @classmethod
@@ -72,7 +91,15 @@ class VideoConfig:
             draft_timeout_ms=_int_env("HARNESS_VIDEO_DRAFT_TIMEOUT_MS", 600_000, minimum=1000),
             final_timeout_ms=_int_env("HARNESS_VIDEO_FINAL_TIMEOUT_MS", 1_800_000, minimum=1000),
             inspect_timeout_ms=_int_env("HARNESS_VIDEO_INSPECT_TIMEOUT_MS", 300_000, minimum=1000),
+            preview_timeout_ms=_int_env("HARNESS_VIDEO_PREVIEW_TIMEOUT_MS", 180_000, minimum=1000),
+            transient_retries=_int_env("HARNESS_VIDEO_TRANSIENT_RETRIES", 1, minimum=0),
             max_concurrent=_int_env("HARNESS_VIDEO_MAX_CONCURRENT", 1, minimum=1),
+            max_pending_per_project=_int_env(
+                "HARNESS_VIDEO_MAX_PENDING_PER_PROJECT", 4, minimum=1
+            ),
+            gc_enabled=_bool_env("HARNESS_VIDEO_GC_ENABLED", True),
+            gc_keep_jobs=_int_env("HARNESS_VIDEO_GC_KEEP_JOBS", 20, minimum=1),
+            gc_max_total_mb=_int_env("HARNESS_VIDEO_GC_MAX_TOTAL_MB", 2048, minimum=1),
         )
 
     @property
@@ -106,7 +133,12 @@ class VideoConfig:
             "draftTimeoutMs": self.draft_timeout_ms,
             "finalTimeoutMs": self.final_timeout_ms,
             "inspectTimeoutMs": self.inspect_timeout_ms,
+            "previewTimeoutMs": self.preview_timeout_ms,
+            "transientRetries": self.transient_retries,
             "maxConcurrent": self.max_concurrent,
+            "maxPendingPerProject": self.max_pending_per_project,
+            "gcKeepJobs": self.gc_keep_jobs,
+            "gcMaxTotalMb": self.gc_max_total_mb,
         }
 
 

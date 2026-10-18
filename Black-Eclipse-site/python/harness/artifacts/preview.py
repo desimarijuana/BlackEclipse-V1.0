@@ -5,6 +5,11 @@ so safely and cheaply, produces (a) a bounded text extract for text-like formats
 and (b) a PNG thumbnail for images / the first PDF page. It NEVER runs the file:
 office documents are read as ZIP+XML text, not through an office runtime.
 
+Video thumbnails come from a REGISTERED poster extractor (the video layer
+installs one over the same FFmpeg tree the renderer uses —
+`set_video_poster_extractor`), so this layer never imports the video layer. No
+extractor or no extractable frame ⇒ `UNSUPPORTED`, never a fabricated poster.
+
 Heavy or unsupported formats are reported honestly (`UNSUPPORTED`), and the
 original bytes always remain downloadable.
 """
@@ -14,7 +19,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .content import preview_kind
 from .model import Artifact, PreviewStatus
@@ -24,6 +29,20 @@ MAX_PREVIEW_BYTES = 512 * 1024
 MAX_PREVIEW_CHARS = 20_000
 THUMBNAIL_MAX = 512
 XML_TAG = re.compile(rb"<[^>]+>")
+
+#: The optional video poster generator, registered by the video layer at boot.
+#: Receives `(storage, artifact)` and returns PNG bytes of a representative
+#: frame, or None when it cannot produce one (FFmpeg tree absent, unreadable
+#: object). Kept as a module seam so the artifacts layer holds no video import.
+_video_poster: Optional[Callable[[Any, Artifact], Optional[bytes]]] = None
+
+
+def set_video_poster_extractor(
+    extractor: Optional[Callable[[Any, Artifact], Optional[bytes]]],
+) -> None:
+    """Install (or clear) the video poster generator. Best-effort by contract."""
+    global _video_poster
+    _video_poster = extractor
 
 
 def _text_extract(data: bytes) -> Optional[str]:
@@ -143,6 +162,29 @@ def build(
     result: dict[str, Any] = {"kind": kind, "status": PreviewStatus.READY.value}
     if artifact.storage_key is None:
         return {"kind": kind, "status": PreviewStatus.UNSUPPORTED.value}
+
+    if kind == "video":
+        # A video's thumbnail is a REAL frame of the video itself, produced by
+        # the registered poster extractor (the renderer's FFmpeg tree). No
+        # extractor or no frame is an honest UNSUPPORTED — never a fabricated
+        # poster and never a frame from some other video.
+        thumb = None
+        if _video_poster is not None:
+            try:
+                thumb = _video_poster(storage, artifact)
+            except Exception:  # noqa: BLE001 - a poster failure is not an artifact failure
+                thumb = None
+        if thumb is None:
+            result["status"] = PreviewStatus.UNSUPPORTED.value
+            return result
+        thumb_key = f"{artifact.storage_key}.thumb.png"
+        try:
+            storage.save_bytes_at(thumb_key, thumb)
+            result["thumbnailKey"] = thumb_key
+        except Exception:  # noqa: BLE001 - a failed thumbnail write is not fatal
+            result["status"] = PreviewStatus.UNSUPPORTED.value
+        return result
+
     try:
         data = storage.read_bytes(artifact.storage_key, limit=limit)
     except Exception:  # noqa: BLE001 - a missing/unreadable object is a preview failure
@@ -168,7 +210,7 @@ def build(
             except Exception:  # noqa: BLE001
                 pass
         return result
-    if kind in ("unsupported", "audio", "video"):
+    if kind in ("unsupported", "audio"):
         result["status"] = PreviewStatus.UNSUPPORTED.value
         return result
     text = generate_text_preview(data, mime=artifact.mime_type, kind=kind, name=artifact.name)
@@ -185,5 +227,6 @@ __all__ = [
     "generate_text_preview",
     "make_pdf_thumbnail",
     "make_thumbnail",
+    "set_video_poster_extractor",
     "MAX_PREVIEW_CHARS",
 ]

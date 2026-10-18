@@ -246,6 +246,13 @@ export interface AssistantTurn {
    */
   images?: unknown;
   /**
+   * Native video: the video jobs this turn queued (job + project ids) for the
+   * chat's live job card (polling, playback, download, revise/regenerate).
+   * `undefined` when the turn used no video tool; narrowed by the chat surface
+   * via `coerceVideoBlob`.
+   */
+  video?: unknown;
+  /**
    * A computed result the runtime worked out this turn (`analysis.completed`):
    * outputs, artifacts and provenance. `undefined` when the turn computed
    * nothing; narrowed by the chat surface via `coerceComputedResult`, which
@@ -380,6 +387,21 @@ const TOOL_LABELS: Record<string, string> = {
   document_capabilities: 'Checking document support',
   // Document Authoring — the write side (Word / Excel / PowerPoint / text).
   document_create: 'Creating the document',
+  // Native video — the render pipeline's plain job names.
+  video_capabilities: 'Checking video support',
+  video_create_project: 'Creating the video project',
+  video_update_project: 'Revising the video project',
+  video_list_projects: 'Listing video projects',
+  video_validate_project: 'Checking the video project',
+  video_resolve_data: 'Resolving the video’s market data',
+  video_preview: 'Previewing the video',
+  video_render_draft: 'Rendering a draft video',
+  video_render_final: 'Rendering the final video',
+  video_render_repair: 'Repairing the video render',
+  video_inspect: 'Inspecting the video frames',
+  video_job_status: 'Checking the video job',
+  video_list_jobs: 'Listing video jobs',
+  video_cancel_job: 'Cancelling the video job',
 };
 
 /** Turn a raw tool name into a short, human label (fallback prettifies it). */

@@ -265,6 +265,17 @@ export function downloadUrl(id: string, version?: number): string {
   return `/api/artifacts/${encodeURIComponent(id)}/download${suffix}`;
 }
 
+/**
+ * A same-origin URL that PLAYS INLINE: `Content-Disposition: inline` and byte
+ * ranges honored, so a `<video>`/`<audio>` element can start, seek and scrub.
+ * Authorization is unchanged — the artifact proxy still presents the operator
+ * credential on the server side.
+ */
+export function inlineUrl(id: string, version?: number): string {
+  const suffix = version ? `&version=${version}` : "";
+  return `/api/artifacts/${encodeURIComponent(id)}/download?inline=1${suffix}`;
+}
+
 /** A same-origin URL for an artifact's generated thumbnail, if any. */
 export function thumbnailUrl(id: string): string {
   return `/api/artifacts/${encodeURIComponent(id)}/thumbnail`;

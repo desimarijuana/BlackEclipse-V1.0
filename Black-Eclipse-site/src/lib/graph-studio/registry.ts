@@ -218,6 +218,32 @@ const DEFINITIONS: NodeDefinition[] = [
     docs: 'Reuses the FinancialDataRouter / JDDS — no second ingestion path.',
   },
   {
+    type: 'video.render',
+    version: '1.0.0',
+    category: 'finance',
+    label: 'Video render',
+    description:
+      'Builds a data-bound market-recap storyboard and queues the native video render.',
+    icon: 'chart',
+    inputs: [port({ id: 'symbols', name: 'Symbols', type: 'array' })],
+    outputs: [
+      port({ id: 'project', name: 'Project', type: 'object' }),
+      port({ id: 'job', name: 'Job', type: 'object' }),
+    ],
+    configSchema: z.object({
+      title: z.string().max(80).default('Market recap'),
+      mode: z.enum(['draft', 'final']).default('draft'),
+    }),
+    defaultConfig: () => ({ title: 'Market recap', mode: 'draft' }),
+    capabilities: ['video.render'],
+    sideEffects: 'write',
+    allowedModes: ALL_MODES,
+    // Declared in lockstep with Python, executor-less on purpose: a render is
+    // an async Fabric job and test-run envelopes refuse effectful nodes. The
+    // compiler reports `executor_unavailable` with the exact missing phase.
+    docs: 'Executor pending async graph execution + an operator-run envelope for effectful nodes. Until then use the video tools or POST /video/projects/{id}/render.',
+  },
+  {
     type: 'finance.indicator',
     version: '1.0.0',
     category: 'quant',

@@ -638,6 +638,8 @@ name = "fframes-worker"
 version = "0.1.0"
 dependencies = [
  "fframes",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -117,6 +117,11 @@ class ToolContext:
     # stored in that conversation's PRIVATE bucket, isolated from every other
     # conversation and from the shared stores. None = ordinary chat (unchanged).
     conversation_id: Optional[str] = None
+    # The chat session id this run belongs to (the front door's `chatId`; set by
+    # the graph from `RunRequest.sessionId`). This is the USER-VISIBLE
+    # conversation for an ordinary chat turn, where `conversation_id` is None.
+    # Used to associate produced artifacts with the conversation they came from.
+    session_id: Optional[str] = None
     # The actual user turn text for THIS run. A model-facing `memory` write is
     # authorized against it by the shared decision gate — tool output, retrieved
     # memory and documents are never user intent.
@@ -275,6 +280,11 @@ class ToolContext:
     # tool calls `image_sink(images)` so the run carries a bounded, validated
     # image blob the chat renders INLINE. None = no collection attached.
     image_sink: Any = None
+    # The per-run native-video collector. Set by the graph; a `video_*` tool
+    # calls `video_sink(record)` when it queues a render/preview job so the run
+    # carries a bounded `video` blob the chat renders as a live job card
+    # (progress, playback, download, revise/regenerate). None = no collection.
+    video_sink: Any = None
     # The per-run advisory collector (the Fiduciary Gate). Set by the graph; every
     # `portfolio_*` tool call is handed here so the answer seam can verify an
     # actionable recommendation against a computation the run actually performed.

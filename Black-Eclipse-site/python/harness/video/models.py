@@ -4,9 +4,9 @@ Small and explicit on purpose (the repo's model convention): a structured
 `VideoError` with a stable machine-readable code, the closed set of supported
 project kinds, and the job vocabulary the Fabric integration pins.
 
-`title_card` is the ONE built-in project kind — the Rust worker's proof video.
-The versioned storyboard/scene schema arrives with Phase 4; this module is the
-seam it grows through, not a competing contract.
+`title_card` renders the built-in proof video; `storyboard` carries a versioned
+spec (see `video/spec.py` — the ONE authority, re-checked defensively in Rust).
+This module is the shared vocabulary, not a competing contract.
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ VIDEO_JOB_TYPE = "video"
 VIDEO_QUEUE = "video"
 VIDEO_WORKER_KIND = "video"
 
-# Supported `VideoProject.kind` values.
-SUPPORTED_PROJECT_KINDS: tuple[str, ...] = ("title_card",)
+# Supported `VideoProject.kind` values. `storyboard` projects carry a spec that
+# must validate against the versioned schema in `video/spec.py`.
+SUPPORTED_PROJECT_KINDS: tuple[str, ...] = ("title_card", "storyboard")
 PROJECT_SCHEMA_VERSION = 1
 
 

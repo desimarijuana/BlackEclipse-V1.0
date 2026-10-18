@@ -720,7 +720,7 @@ function StockChatContent() {
         status: turn.status,
         activities: turn.activities, changes: turn.changes,
         research: turn.research, vision: turn.vision, images: turn.images,
-        documents: turn.documents, memory: turn.memory,
+        documents: turn.documents, memory: turn.memory, video: turn.video,
         codeVerification: turn.codeVerification, autonomy: turn.autonomy,
         capability: turn.capability, analysis: turn.analysis,
         responsePlan: turn.responsePlan,

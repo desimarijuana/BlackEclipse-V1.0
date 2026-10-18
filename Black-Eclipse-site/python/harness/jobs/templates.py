@@ -267,6 +267,31 @@ JOB_TEMPLATES: tuple[JobTemplate, ...] = (
             TemplateParameter("topic", "What should it cover?", example="the AI accelerator market"),
         ],
     ),
+    JobTemplate(
+        id="daily-market-recap-video",
+        name="Daily market recap video",
+        description=(
+            "A short rendered recap video for your symbols each weekday evening: last "
+            "price and volume on screen with the source line, one daily candle chart. "
+            "Figures are data-bound (never authored); if the video worker is not set "
+            "up, the job reports that honestly instead of pretending."
+        ),
+        kind="cron",
+        cron="30 21 * * 1-5",
+        target={
+            "kind": "objective",
+            "objective": (
+                "Create today's market recap video for {symbols}. Use video_create_project "
+                "with kind storyboard and data-bound scenes (price/changePct/volume "
+                "sources — never authored numbers), validate it, render a draft, inspect "
+                "it, and if clean render the final. Report the artifact id (or the honest "
+                "failure) and say when figures are stale."
+            ),
+        },
+        parameters=[
+            TemplateParameter("symbols", "Which symbols?", example="BTC-USD, ETH-USD"),
+        ],
+    ),
 )
 
 

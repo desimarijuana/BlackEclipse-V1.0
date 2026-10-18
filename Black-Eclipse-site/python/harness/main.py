@@ -85,6 +85,7 @@ from .routers.skills import router as skills_router
 from .routers.tasks import router as tasks_router
 from .routers.terminal import router as terminal_router
 from .routers.ui import router as ui_router
+from .routers.video import router as video_router
 from .routers.workspace import router as workspace_router
 from .routers.recovery import router as recovery_router
 from .schemas import ModelSettings, RunRequest, RunResult
@@ -139,6 +140,7 @@ app.include_router(skills_router)
 app.include_router(tasks_router)
 app.include_router(terminal_router)
 app.include_router(ui_router)
+app.include_router(video_router)
 app.include_router(workspace_router)
 app.include_router(recovery_router)
 # Process start time (epoch ms). The TS launcher compares this against the

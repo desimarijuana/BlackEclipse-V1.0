@@ -1,10 +1,10 @@
 {
   "id": "system.video-production",
   "name": "Produce a video",
-  "version": "1.0.0",
-  "description": "Turn a request for a video into a real rendered MP4: create and validate a video project, render a draft, inspect the frames, render the final file and hand over its Artifact Center entry — with honest limits (the built-in BlackEclipse title card is the only scene today).",
+  "version": "2.2.0",
+  "description": "Turn a request for a video into a real rendered MP4: author a versioned storyboard spec (seven scene types, evidence-bound market data with provenance), validate it, resolve bound figures, review a PNG preview, render and inspect a draft, repair a failed render within a bounded budget, render the final file and hand over its Artifact Center entry — or render the built-in BlackEclipse title card.",
   "category": "system",
-  "tags": ["video", "rendering", "media", "mp4", "fframes"],
+  "tags": ["video", "rendering", "media", "mp4", "storyboard", "fframes"],
   "status": "draft",
   "instructions": "SKILL.md",
   "inputSchema": {
@@ -18,10 +18,14 @@
   "requiredTools": [
     "video_capabilities",
     "video_create_project",
+    "video_update_project",
     "video_validate_project",
+    "video_resolve_data",
+    "video_preview",
     "video_render_draft",
-    "video_inspect",
     "video_render_final",
+    "video_render_repair",
+    "video_inspect",
     "video_job_status",
     "video_list_jobs",
     "video_cancel_job"
@@ -29,7 +33,7 @@
   "requiredSkills": [],
   "permissions": [],
   "riskLevel": "low",
-  "limits": { "maxSteps": 10, "timeoutMs": 600000, "maxToolCalls": 30 },
+  "limits": { "maxSteps": 14, "timeoutMs": 600000, "maxToolCalls": 48 },
   "author": "eclipse",
   "origin": "builtin",
   "compatibleRuntime": ">=0.1.0"

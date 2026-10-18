@@ -288,6 +288,11 @@ class RunResult(BaseModel):
     # chat's INLINE gallery. Absent/None when a run used no image tool, so existing
     # clients remain compatible.
     images: Optional[dict[str, Any]] = None
+    # Native Video (additive, optional): the video jobs this run QUEUED (job and
+    # project ids) for the chat's live job card — progress, playback, download.
+    # Absent/None when a run used no video tool, so existing clients remain
+    # compatible.
+    video: Optional[dict[str, Any]] = None
 
 
 EventLiteral = Literal[

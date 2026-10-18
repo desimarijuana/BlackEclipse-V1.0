@@ -66,8 +66,9 @@ def test_templates_are_all_disabled(client):
     body = client.get("/jobs/templates").json()
     assert body["success"] is True
     # The seven finance templates + the two Application Runtime deploy templates
-    # + the three evidence-backed research templates.
-    assert len(body["templates"]) == 12
+    # + the three evidence-backed research templates + the native-video market
+    # recap template.
+    assert len(body["templates"]) == 13
 
 
 def test_create_from_template_is_disabled(client):

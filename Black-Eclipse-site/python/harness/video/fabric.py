@@ -44,6 +44,10 @@ async def _video_handler(ctx: Any) -> WorkerOutcome:
         result = await service.run_inspect_job(
             payload, cancel_event=ctx.cancel_event, progress=ctx.report_progress
         )
+    elif action == "preview":
+        result = await service.run_preview_job(
+            payload, cancel_event=ctx.cancel_event, progress=ctx.report_progress
+        )
     else:
         return WorkerOutcome(
             status="failed", error=f"unknown video action {action!r}",

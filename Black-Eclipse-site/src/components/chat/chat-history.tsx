@@ -18,6 +18,7 @@ import { ChangeCards } from './change-cards';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import { VisionPanel } from './vision-panel';
 import { ImageGalleryPanel } from './image-gallery';
+import { VideoPanel } from './video-panel';
 import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
@@ -454,6 +455,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   ) : null}
                   {msg.images ? (
                     <ImageGalleryPanel images={msg.images} compact={compact} />
+                  ) : null}
+                  {msg.video ? (
+                    <VideoPanel video={msg.video} compact={compact} onFollowup={onFollowup} />
                   ) : null}
                   {msg.documents ? (
                     <DocumentPanel documents={msg.documents} compact={compact} />

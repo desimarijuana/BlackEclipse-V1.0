@@ -65,6 +65,18 @@ def _isolate_process_globals():
         return
     saved = _artifacts_bootstrap._SINGLETON  # noqa: SLF001 - the one global we isolate
     _artifacts_bootstrap._SINGLETON = None  # noqa: SLF001
+    # The preview engine's video-poster extractor is a module global the video
+    # layer registers at boot. Isolate it too, so a test that installs one
+    # cannot leak a poster generator into every later test.
+    _preview_engine = None
+    _poster_saved = None
+    try:
+        from harness.artifacts import preview as _preview_engine  # noqa: PLC0415
+
+        _poster_saved = _preview_engine._video_poster  # noqa: SLF001
+        _preview_engine._video_poster = None  # noqa: SLF001
+    except Exception:  # noqa: BLE001 - the preview engine is optional
+        _preview_engine = None
     # The UI Engineering runtime registers a process-global service the same way
     # (`ui.bootstrap.install_ui_layer` / the `/ui/*` self-heal). Isolate it too so
     # a test that builds a service cannot leak that global into a later test.
@@ -91,6 +103,8 @@ def _isolate_process_globals():
         yield
     finally:
         _artifacts_bootstrap._SINGLETON = saved  # noqa: SLF001
+        if _preview_engine is not None:
+            _preview_engine._video_poster = _poster_saved  # noqa: SLF001
         if _ui_bootstrap is not None:
             _ui_bootstrap._SINGLETON = _ui_saved  # noqa: SLF001
         if _recovery_tools is not None:
