@@ -50,4 +50,23 @@ describe("buildAgentInstruction", () => {
     expect(cmd.instruction).toContain("stages");
     expect(cmd.instruction).toContain("animate");
   });
+
+  it("rewrites /visual into a chart directive with the full chart-type set", () => {
+    const cmd = buildAgentInstruction("/visual quarterly revenue by segment")!;
+    expect(cmd.command).toBe("visual");
+    expect(cmd.instruction).toContain("quarterly revenue by segment");
+    expect(cmd.instruction).toContain("chart");
+    expect(cmd.instruction).toContain("response_block_schema");
+    expect(cmd.instruction).toContain("eclipse-response");
+    expect(cmd.instruction).toContain("waterfall");
+  });
+
+  it("passes /visual flags through and asks for a subject when none is given", () => {
+    const forced = buildAgentInstruction("/visual --type waterfall --symbol BTC how it moved")!;
+    expect(forced.instruction).toContain("waterfall");
+    expect(forced.instruction).toContain("BTC");
+    const bare = buildAgentInstruction("/visual")!;
+    expect(bare.command).toBe("visual");
+    expect(bare.instruction).toMatch(/ask the user/i);
+  });
 });

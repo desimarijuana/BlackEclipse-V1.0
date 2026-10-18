@@ -8,6 +8,149 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-17
 
+- **fix(app,graph-studio): the app could fail to load after selecting the Graph
+  Studio mode; three navigation defects fixed + guarded.** (1) The mobile bottom
+  nav renders `TAB_META[id].icon` for every tab a mode lists; `TAB_META` was
+  `Record<string, …>` and had no `graph-studio` entry, so `undefined.icon` threw
+  inside the top-level ErrorBoundary — and since the chosen mode is PERSISTED,
+  later loads hit the same crash. `TAB_META` is now keyed by `AppTab`, both
+  render sites are guarded, and `mobile-bottom-nav.test.ts` asserts every
+  mode/lab tab has an icon. (2) The persisted-mode allowlist in
+  `lib/sidebar/store.ts` dropped `'graph'` (the mode never stuck); it now
+  validates against the ONE `NAV_GROUPS` list (`isNavGroup`). (3)
+  `APP_TABS` in `lib/search/deep-link.ts` omitted the newer tabs, so
+  `?tab=graph-studio` (and a "history" boot tab) silently fell back to ChatBot;
+  it is now an exhaustive `Record<AppTab, true>` so a missing tab is a compile
+  error, with an `app-tabs.test.ts` guard. The mode panel also opens the
+  workspace when a workflow is opened/created. Verified in headless Chromium
+  against the production build: mode switcher, panel create/open and
+  `?tab=graph-studio` all mount the canvas with zero console/HTTP errors. Files:
+  `src/components/layout/mobile-bottom-nav.tsx` (+test), `src/lib/sidebar/{config,store}.ts`
+  (+tests), `src/lib/search/deep-link.ts`, `src/lib/app-tabs.test.ts`,
+  `src/components/screens/graph-studio/{graph-mode-panel,workflow-list}.tsx`.
+
+- **feat(graph-runtime): Phase 5 — the finance + quant node pack.** New
+  `python/harness/graph_runtime/finance_nodes.py` gives real executors to
+  `finance.market_data` (reads the runtime's persistent bar series —
+  `harness/market/series_store.py`, the SAME vault the research-data tools fill;
+  provenance on every payload and an actionable failure when the vault is
+  empty, never a fabricated price), `finance.indicator` (sma/ema/rsi/macd/atr/
+  adx/vwap/bollinger via the tested `harness/quant/indicators.py`), and new
+  `quant.returns` / `quant.zscore` / `quant.volatility` nodes (mirrored in the
+  TS registry + a `Market scan (SMA z-score)` template). Test runs now
+  implicitly grant the read-only/local-compute capabilities (`TEST_RUN_CAPABILITIES`
+  in the compiler) so finance graphs can be exercised from the UI while
+  write/network/trading stays refused; boot wires the series store. Tests: 11 new
+  Python node tests (hand-computed SMA/Bollinger/returns, honest-failure and
+  payload-validation cases) + 2 end-to-end API tests (seed bars → run →
+  reconcile) + 3 new TS registry nodes → graph suites at 68 Python / 50 TS tests;
+  full vitest (3475) and `npm run build` pass. Docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
+
+- **feat(app,graph-studio): Graph Studio is now a DEDICATED sidebar mode, and
+  Phase 4 lands (control flow, schedules, triggers, recovery).**
+  (1) **Dedicated mode:** `NavGroup` gained `'graph'`; the sidebar mode switcher
+  lists Graph Studio (with `Alt+G`), the left sidebar renders a `GraphModePanel`
+  (Workflows browser + node library, backed by a shared `catalog-store`), the top
+  bar and chat dock are hidden for the tab, and the right dock belongs to the
+  screen's own inspector/run rail. The screen lost its duplicated left rail.
+  (2) **Control flow** with real execution semantics: control ports now gate
+  execution (a node fires `_control` outputs; a node with control inputs runs only
+  when one fired) — `flow.gate` (branching), `logic.switch`, bounded
+  `logic.map`/`filter`/`reduce` over the safe formula language (which gained
+  comparisons/logic), bounded `logic.wait` (a test run caps it at 5 s via the
+  compiler's new `test_run_limit`) and `logic.stop` (ends the run; downstream is
+  `skipped`). Required control inputs are now validated. `data.json.parse`'s
+  output is `any` (it may legitimately produce an array).
+  (3) **Schedules:** `WorkflowSchedule` in JDDS + a dependency-free
+  timezone-aware 5-field cron evaluator (`cron.ts`, cached Intl formatters, 40-day
+  search bound) + `schedule-store`/`schedule-tick`/routes/UI; a 60 s in-process
+  timer in `instrumentation.ts` fires due schedules through the same test-run
+  dispatch, with `skip`/`coalesce` missed-fire policies and per-fire outcome
+  recording.
+  (4) **Triggers:** manual, scheduled, and `POST /api/workflows/[id]/trigger`
+  (deliberately test-envelope only). All run starts now funnel through
+  `run-server.ts`.
+  (5) **Recovery:** runs left `running` by a previous process are marked failed at
+  boot. Tests: 10 new Python (control flow, recovery) → 55 graph tests; 14 new TS
+  (cron, schedule tick, sidebar mode) → 3469 total. `npx tsc --noEmit`, full
+  vitest and `npm run build` pass. Docs updated: `docs/graph-studio.md`,
+  `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **fix(charts): default chart palette is green/red and no longer follows the
+  theme.** Reverses today's monochrome default — `DEFAULT_CHART_PALETTE.lines`
+  is green (up) / red (down) again. The theme→chart bridge no longer copies the
+  theme accent into `lines.primary` or the theme market colors into
+  candles/heatmap; `chartPaletteFromTheme` now preserves the palette in effect,
+  so applying or previewing a theme never recolours a chart. Chart colours
+  change only on an explicit user action (Settings › Charts, or a preset that
+  carries a `chartPalette`). Files: `src/lib/chart-palette.ts`,
+  `src/lib/theme/bridge.ts`, `src/lib/harness/command-agent.ts`. Tests:
+  `src/lib/theme/bridge.test.ts` updated. Docs:
+  `docs/interactive-response-engine.md`.
+
+- **feat(graph-runtime): Graph Studio Phase 3 — compiler + deterministic
+  execution engine.** New Python runtime package
+  `python/harness/graph_runtime/` (mirrors the TS Workflow IR as pydantic
+  contracts): a frontend-independent `compiler.py` (structural validation,
+  longest-path execution **layers** + deterministic topological order, per-node
+  mode checks and a **permission envelope** that refuses write/network/trading
+  effects and ungranted capabilities), a deterministic `executor.py`
+  (`pending→ready→running→succeeded|failed|cancelled` + `skipped`, per-node
+  timeout, retries, cancellation, output-schema validation, bounded previews,
+  event log), a data-only `registry.py` node SDK, pure built-in `nodes.py`
+  executors (incl. a real safe formula language — never `eval`), durable run rows
+  (`store.py`, agent-memory.db), and `service.py` (compile/run/start/poll/cancel).
+  HTTP surface `/graphs/*` (`routers/graphs.py`, operator-gated, included by
+  `main.py`), boot wiring `install_graph_layer` in `service.py`. Next.js front
+  door `src/app/api/workflows/[id]/runs` (+ `src/app/api/graph-runs/[runId]`
+  and `.../cancel`) loads the **persisted** IR from JDDS — never the client's —
+  and forwards it with `testRun: true`. UI: `execution-client.ts`, the Run
+  console (`run-panel.tsx`), node run-status chips on the canvas, and a "Test
+  run" toolbar action. `data.value` gained an optional input + typed coercion
+  (both registries). **Naming note:** the package is `graph_runtime/`, NOT
+  `graph/` — `harness/graph.py` is the pre-existing agent tool loop and a
+  `harness/graph/` package would shadow it and break `execute_run`. Tests: 45 new
+  Python tests (`python/tests/test_graph_{model,compiler,executor,service,api}.py`)
+  + 5 new TS tests; `npx tsc --noEmit`, full vitest (3454) and `npm run build`
+  pass. Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
+
+- **feat(response,harness): more chart types, a `/visual` command, and a
+  monochrome default chart palette.** (1) The response `chart` block now accepts
+  **sixteen** types — added `bubble` (`[x, y, size]` triples), `treemap`,
+  `sunburst`, `funnel`, `gauge`, `radar` and `waterfall`, each with a real ECharts
+  option in `chart-option.ts` (never an invented point; gauge/radar maxima are
+  computed from the data, waterfall is a transparent base + signed bar).
+  (2) New agent-turn slash command `/visual` (aliases `/chart`, `/plot`) rewrites
+  a request into a directive that renders ONE inline `chart` block, choosing the
+  best type from the full set and plotting only sourced values. (3)
+  `DEFAULT_CHART_PALETTE` is now **monochrome** (a neutral slate ramp) so charts
+  read as one minimal set; green/red survive only where they carry meaning —
+  up/down candles and the market heatmap. Files: `src/lib/response/contract.ts`,
+  `src/lib/response/chart-option.ts`, `src/lib/harness/command-registry.ts`,
+  `src/lib/harness/command-agent.ts`, `src/lib/chart-palette.ts`. Tests:
+  `chart-option.test.ts` (+6), `command-agent.test.ts` (+2),
+  `command-registry.test.ts` (+1). Docs: `docs/interactive-response-engine.md`,
+  `docs/harness/slash-commands.md`.
+
+- **feat(app,graph-studio): Graph Studio foundation (Phase 1) — visual workflow
+  engineering.** Adds a dedicated Graph Studio workspace inside Eclipse: a
+  React Flow canvas with custom typed-port nodes, a searchable node library
+  (drag-to-place + click-to-add), a config inspector, a live validation panel,
+  undo/redo and keyboard shortcuts. The canvas is a RENDERER over a new
+  canonical, versioned **Eclipse Workflow IR** (`src/lib/graph-studio/`) with a
+  data-only node registry + SDK, strict typed-port compatibility, a pure
+  frontend-independent validator, pure/auditable graph patches and
+  migration-ready versioning. Persistence is append-only workflow versions in
+  JDDS via new `Workflow`/`WorkflowVersion` Prisma models and `/api/workflows*`
+  routes. New AppTab `graph-studio` + sidebar entry. Files:
+  `src/lib/graph-studio/*`, `src/components/screens/graph-studio/*`,
+  `src/app/api/workflows/**`, `prisma/schema.prisma`, `src/lib/app-tabs.ts`,
+  `src/lib/sidebar/config.ts`, `src/lib/i18n/nav.ts` +
+  `dictionaries/en.ts`, `src/components/screens/stock-chat.tsx`. Dependency
+  added: `@xyflow/react`. Tests: `src/lib/graph-studio/*.test.ts` (31).
+  Docs: `docs/graph-studio.md` (new), `docs/NAVIGATION.md`.
+
 - **`model3d`: leader lines, LOD, GLB stage animation, and shareable figures.**
   (1) Numbered hotspots now sit just off the part on a **leader line**. (2) A
   **LOD** pass drops the outline of parts that are tiny relative to a busy scene
@@ -93,6 +236,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `sidebar-gateway-dialog.tsx`. Chat-history panel: search + heading enlarged
   (→13px) but conversation-row fonts kept small (titles 11px, snippets 10px).
   No doc change — UI styling only, contracts intact.
+
+- **Chat-history search field loses its glass background.** The field is now a
+  plain transparent input (no `glass-card-subtle` fill, no border), keeping the
+  larger font/padding. Files: `src/components/layout/chat-history-panel.tsx`.
+  No doc change — UI styling only.
 
 - **Sidebar nav list: compact rows and a cleaner active state.** (A section-
   heading grouping was added then removed at the user's request — the nav list
@@ -429,6 +577,97 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/i18n/dictionaries/en.ts`, `src/lib/size-budget.test.ts`.
   `no doc change — new UI surface reusing existing systems; no architecture,
   contract, or setup change`.
+
+- **feat(video): native video-generation foundation (Phase 1) — fframes Rust
+  render worker proven end-to-end on Windows.** New out-of-process worker
+  `rust/fframes-worker/`: an fframes crate pinned `=1.2.0` (committed
+  `Cargo.lock`) whose `TitleCard` proof renders a 10 s / 1920x1080 / 30 fps
+  animated title card to a valid MP4 (draft 300 frames in 1.5 s; full render
+  2.6 s; `inspect` clean; ffprobe h264 / yuv420p / 10.000 s), verified visually
+  via contact sheet + frames. Not wired to the runtime yet (job API, agent
+  tools, storyboard are Phases 2–4). Files: `rust/fframes-worker/Cargo.toml`,
+  `src/main.rs`, `Cargo.lock`, `rust/README.md`, `.gitignore`. Checks:
+  `npx tsc --noEmit` + vitest green; `test-evals` all gates pass; python suite
+  6592 passed with 5 pre-existing failures unrelated to this change
+  (size-budget overages, skill version check, one perf threshold). Docs:
+  `docs/video-pipeline.md` (new), `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **feat(harness,video): Phase 2 — the video pipeline becomes a reliable
+  backend capability on the Execution Fabric.** `python/harness/video/` turns
+  the Phase 1 Rust worker into a queued job layer: filesystem-backed projects
+  (`VideoProjectStore` + `VideoService.create_project`/`validate_project`),
+  draft/final renders and frame inspection as `video` jobs on a dedicated
+  Fabric worker (new `QueueName.VIDEO`/`WorkerKind.VIDEO` + `video` policy —
+  never inline), and a structured process interface (`VideoRunner`: fixed
+  argv, one JSON doc on stdout + JSONL progress events on stderr fed to Fabric
+  progress, hard timeout, the child killed on cancellation, and exit 0 is
+  never trusted without a non-empty output file — `RENDER_OUTPUT_MISSING`).
+  Every render job runs a post-render inspection gate (`INSPECTION_FAILED`
+  fails defective renders) and writes `report.json` in its workspace; final
+  renders register the MP4 into the Artifact Center (category `video`,
+  `source_type=job`, video metadata; `ARTIFACT_REGISTRATION_FAILED` if the
+  catalog cannot take it). Cancel/progress/retry/lease-recovery ride the
+  Fabric; renders are deterministic so recovery re-drives safely. Also fixes a
+  Fabric store defect this work exposed: `FabricStore.update_job` silently
+  dropped the snake_case keys the terminal transitions pass (`error_class`,
+  `completed_at`, `cancelled_at`, …) because only camelCase columns were
+  accepted — failed jobs lost `errorClass` (and timestamps) on the row;
+  snake→camel aliases now persist them. Files: `python/harness/video/*` (new),
+  `python/harness/fabric/{models,policies,builtin_workers,store}.py`,
+  `python/harness/service.py`. Tests: `python/tests/test_video_{runner,service}.py`
+  + `video_fakes.py` (14 offline: render shaping, timeout, cancellation,
+  inspection gate, artifact registration, cancel, lease-expiry recovery) and
+  opt-in `test_video_real_smoke.py` (`HARNESS_VIDEO_IT=1`; real draft + final +
+  artifact + inspect — passed on this machine); Fabric regressions green (50).
+  Checks: `npx tsc --noEmit` clean; full suite 6617 passed with the 4 known
+  pre-existing failures (size-budget ratchets `main.py`/`persistence.py`/
+  `service.py` from in-progress work — the wiring adds 7 lines to the
+  already-over `service.py`; anatomy skill version check). Docs:
+  `docs/video-pipeline.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **feat(harness,video): Phase 3 — the video pipeline is on the agent surface
+  (ten `video_*` tools + the `system.video-production` skill).** The agent can
+  now run the whole workflow through typed tools on the ONE registry:
+  `video_capabilities` (honest readiness: worker binary + FFmpeg tree),
+  `video_create_project`/`video_list_projects`, `video_validate_project`,
+  `video_render_draft`/`video_render_final` (queued Fabric jobs; final
+  registers the MP4 in the Artifact Center), `video_inspect`, and
+  `video_job_status`/`video_list_jobs`/`video_cancel_job`. All ten are
+  `read`/low — they queue jobs and write only into the confined video
+  workspace + Artifact Center (the same class as `ml_*`/`document_create`, and
+  not part of any effectful `code/policy.py` tuple). Registered in
+  `video/bootstrap.py`; allowlisted for `eclipse-agent` via the canonical
+  `VIDEO_TOOLS` import in `agents.py`. The bundled skill
+  `system.video-production` carries the procedure (capabilities → create →
+  validate → draft → poll → inspect → final → hand over the artifact id), the
+  honesty rules (a video exists only when a job SUCCEEDED;
+  `INSPECTION_FAILED`/`TIMED_OUT`/`CANCELLED` are reported as such) and the
+  current capability boundary (title card only — custom storyboards are
+  Phase 4 and are never promised). Files: `python/harness/video/{tools,service,bootstrap}.py`,
+  `python/harness/agents.py`, `python/harness/skills/library/system/video-production/`
+  (new). Tests: `python/tests/test_video_tools.py` (6) + the opt-in real smoke
+  grew `test_real_tool_workflow` (the whole workflow through the registered
+  tools against the real worker — passed on this machine). Checks:
+  `npx tsc --noEmit` clean; full suite 6623 passed with the same 4 known
+  pre-existing failures (size-budget ratchets + anatomy skill version check).
+  Docs: `docs/video-pipeline.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+- **docs(harness): add the round-4 self-evolution roadmap (closed
+  self-improvement loop).** New plan `docs/harness/self-evolution-roadmap.md`
+  traces the worked failure (a "multi-zone world clock" request routed
+  `not_code` → UI Compose → `ui_start_engineering` false-refusal, with no
+  durable signal), and specifies the missing loop over existing machinery:
+  Observe (`eclipse_memory/mistakes.py` gains routing/refusal categories; a
+  construction-refusal event feeds `recovery`) → Diagnose → Propose (worktree
+  patch / skill draft) → Verify (`evaluation/improvement.py` +
+  `regression.DEFAULT_GATES` + routing scenarios) → Land
+  (`code/promotion.py`/`code/selfhost.py`, operator-confirmed) → Measure (§1
+  metrics on the phase-20 gate). Workstreams W0–W7, invariants, risks, ADR
+  proposals ADR-H203…H208, and the first slice (W0 witness requirement +
+  catalog re-check, W1 incident, W3 benchmark). No code changed.
+  Docs: `docs/harness/self-evolution-roadmap.md` (new), `docs/CHANGELOG.md`.
+  No `NAVIGATION.md` change — a program plan, not a folder/module/contract
+  change.
 
 ## 2026-10-16
 

@@ -29,6 +29,7 @@ export const en = {
   'nav.uiBuilder': 'UI Builder',
   'nav.backtest': 'Quant Research',
   'nav.researchData': 'Research Data',
+  'nav.graphStudio': 'Graph Studio',
   'nav.bots': 'Bots',
 
   // Bots (autonomous, scheduled agents)
@@ -531,6 +532,7 @@ export const en = {
   'sidebar.untitledSession': 'Untitled Session',
   'sidebar.terminal': 'Terminal',
   'sidebar.agentic': 'Agentic',
+  'sidebar.graphStudio': 'Graph Studio',
   'sidebar.modeSwitcher': 'Menu mode',
   'sidebar.gateway': 'Gateway',
   'sidebar.gatewayHint': 'Connect Eclipse to Telegram, Discord, WhatsApp and more',

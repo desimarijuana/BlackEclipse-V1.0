@@ -105,4 +105,14 @@ describe("command registry", () => {
     // It is not routed (it runs as an agent turn) and it is available.
     expect(isCommandAvailable(spec)).toBe(true);
   });
+
+  it("marks /visual as an agent-turn chart command with aliases", () => {
+    const spec = resolveCommand("visual")!;
+    expect(spec.handler.type).toBe("agent");
+    expect(spec.handler.target).toBe("agent.visual");
+    expect(spec.category).toBe("visual");
+    expect(resolveCommand("chart")?.name).toBe("visual");
+    expect(resolveCommand("plot")?.name).toBe("visual");
+    expect(isCommandAvailable(spec)).toBe(true);
+  });
 });

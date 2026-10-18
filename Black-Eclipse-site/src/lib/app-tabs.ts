@@ -32,4 +32,5 @@ export type AppTab =
   | 'research-data'
   | 'factor-lab'
   | 'ml-lab'
+  | 'graph-studio'
   | 'bots';

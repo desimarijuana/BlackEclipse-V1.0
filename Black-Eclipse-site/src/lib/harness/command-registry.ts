@@ -517,6 +517,38 @@ const ANATOMY: CommandSpec = {
   ],
 };
 
+const VISUAL: CommandSpec = {
+  id: "visual.chart",
+  name: "visual",
+  aliases: ["chart", "plot"],
+  summary: "Turn a request into a data chart.",
+  description:
+    "Render a request as ONE inline data visualization (a `chart` block) — Eclipse picks the best chart type for the data " +
+    "(line, area, bar, stacked_bar, grouped_bar, histogram, pie, scatter, bubble, heatmap, treemap, sunburst, funnel, " +
+    "gauge, radar, waterfall) and plots only REAL values it can source — never an invented curve. An agent-turn command: " +
+    "the query is rewritten into a directive and the normal chat turn renders the chart.",
+  category: "visual",
+  tags: ["visual", "chart", "graph", "plot", "data"],
+  version: V,
+  status: "available",
+  args: [{ name: "subject", description: "What to chart, and the data/source to use.", variadic: true }],
+  flags: [
+    { name: "type", description: "Force a chart type (e.g. bar, pie, waterfall).", type: "string" },
+    { name: "symbol", description: "A symbol whose series to plot (e.g. AAPL, BTC).", type: "string" },
+  ],
+  handler: { type: "agent", target: "agent.visual" },
+  permissions: { approval: "none" },
+  risk: "none",
+  executionMode: "sync",
+  output: { type: "response", summary: "An inline data chart plus a short caption." },
+  examples: [
+    "/visual revenue, margin and net income for the last four quarters",
+    "/visual --type waterfall how the portfolio's value changed this month",
+    "/visual --symbol BTC the 30-day price",
+    "/chart sector weights in my portfolio",
+  ],
+};
+
 const ECLIPSESDK: CommandSpec = {
   id: "code.eclipsesdk",
   name: "eclipsesdk",
@@ -880,6 +912,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   CODE,
   TERMINAL,
   ANATOMY,
+  VISUAL,
   ECLIPSESDK,
 ];
 

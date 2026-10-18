@@ -1,0 +1,9 @@
+[package]
+name = "fframes-worker"
+version = "0.1.0"
+edition = "2024"
+description = "BlackEclipse native video render worker (fframes). Phase 1: title-card proof."
+publish = false
+
+[dependencies]
+fframes = { version = "=1.2.0", features = ["cli"] }

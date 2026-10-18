@@ -110,6 +110,33 @@ function seriesName(block: ChartBlock, index: number): string {
   return block.series[index]?.name || `Series ${index + 1}`;
 }
 
+/** A scalar point, a [x, y] pair or an [x, y, v] triple → a number. */
+function pointValue(p: unknown): number | null {
+  if (typeof p === 'number') return p;
+  if (isPair(p)) return p[1];
+  if (isTriple(p)) return p[2];
+  return null;
+}
+
+function categoryName(block: ChartBlock, index: number): string {
+  const raw = block.categories?.[index];
+  return raw != null ? String(raw) : `#${index + 1}`;
+}
+
+/** The smallest "nice" 1/2/5×10ⁿ value at or above `n` (gauge/radar maxima). */
+function niceCeil(n: number): number {
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(n)));
+  const fraction = n / magnitude;
+  const step = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return step * magnitude;
+}
+
+/** Chart types whose tooltip reads a single datum rather than an axis. */
+const ITEM_TRIGGER_TYPES: ReadonlySet<ChartBlock['chartType']> = new Set([
+  'pie', 'scatter', 'bubble', 'heatmap', 'treemap', 'sunburst', 'funnel', 'gauge', 'radar',
+]);
+
 /**
  * Build the ECharts option for a chart block. `isDark` only affects grid/axis
  * ink; colours come from the caller so the terminal palette is the single source
@@ -135,7 +162,7 @@ export function buildChartOption(
     animationDuration: 620,
     animationEasing: 'cubicOut',
     tooltip: {
-      trigger: block.chartType === 'pie' || block.chartType === 'scatter' || block.chartType === 'heatmap' ? 'item' : 'axis',
+      trigger: ITEM_TRIGGER_TYPES.has(block.chartType) ? 'item' : 'axis',
       valueFormatter: valueFormatter(block),
       axisPointer,
     },
@@ -255,6 +282,257 @@ export function buildChartOption(
         inRange: { color: [withAlpha(palette.primary, 0.12), palette.primary] },
       },
       series: [{ type: 'heatmap', data, itemStyle: { borderRadius: 3, borderColor: 'transparent', borderWidth: 2 }, label: { show: false } }],
+    } as EChartsOption;
+  }
+
+  if (block.chartType === 'bubble') {
+    const magnitudes = block.series.flatMap((s) => s.data.filter(isTriple).map((p) => Math.abs(p[2])));
+    const peak = Math.max(1, ...magnitudes);
+    return {
+      ...base,
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
+      xAxis: {
+        type: 'value',
+        name: block.xLabel,
+        nameTextStyle: { color: ink.label, fontSize: 10 },
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { lineStyle: { color: ink.split } },
+        splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
+      },
+      yAxis: {
+        type: 'value',
+        name: block.yLabel,
+        scale: true,
+        nameTextStyle: { color: ink.label, fontSize: 10 },
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { show: false },
+        splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
+      },
+      series: block.series.map((s, i) => {
+        const color = s.color ?? colorAt(palette, i);
+        return {
+          type: 'scatter',
+          name: s.name,
+          data: s.data.filter(isTriple).map((p) => ({
+            value: p,
+            symbolSize: 8 + 34 * Math.sqrt(Math.abs(p[2]) / peak),
+          })),
+          itemStyle: { color, opacity: 0.72, borderColor: withAlpha(color, 0.5), borderWidth: 1 },
+          emphasis: { focus: 'series' as const },
+        };
+      }),
+    } as EChartsOption;
+  }
+
+  if (block.chartType === 'treemap' || block.chartType === 'sunburst') {
+    const leaves = (s: ChartBlock['series'][number]) =>
+      s.data.map((p, i) => ({ name: categoryName(block, i), value: pointValue(p) ?? 0 }));
+    const treeData =
+      block.series.length === 1
+        ? leaves(block.series[0])
+        : block.series.map((s, i) => ({ name: seriesName(block, i), children: leaves(s) }));
+    const common = { tooltip: { ...base.tooltip, trigger: 'item' as const, axisPointer: undefined } };
+    if (block.chartType === 'treemap') {
+      return {
+        ...base,
+        ...common,
+        series: [
+          {
+            type: 'treemap',
+            data: treeData,
+            roam: false,
+            nodeClick: false,
+            breadcrumb: { show: false },
+            label: { color: '#0b0b0b', fontSize: 10 },
+            upperLabel: { show: false },
+            itemStyle: { borderColor: 'transparent', borderWidth: 1, gapWidth: 1 },
+            emphasis: { focus: 'ancestor' as const },
+          },
+        ],
+      } as EChartsOption;
+    }
+    return {
+      ...base,
+      ...common,
+      series: [
+        {
+          type: 'sunburst',
+          data: treeData,
+          radius: [0, '92%'],
+          center: ['50%', '50%'],
+          nodeClick: false,
+          label: { color: ink.axis, fontSize: 10, rotate: 'radial' },
+          itemStyle: { borderColor: 'transparent', borderWidth: 1 },
+          emphasis: { focus: 'ancestor' as const },
+        },
+      ],
+    } as EChartsOption;
+  }
+
+  if (block.chartType === 'funnel') {
+    const first = block.series[0];
+    return {
+      ...base,
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
+      series: [
+        {
+          type: 'funnel',
+          left: '10%',
+          right: '10%',
+          top: 14,
+          bottom: 14,
+          width: '80%',
+          minSize: '0%',
+          maxSize: '100%',
+          sort: 'none',
+          gap: 2,
+          label: { show: true, position: 'inside', color: '#0b0b0b', fontSize: 10 },
+          labelLine: { show: false },
+          itemStyle: { borderWidth: 0, borderRadius: 3 },
+          emphasis: { label: { fontWeight: 'bold' as const } },
+          data: first.data.map((p, i) => ({ name: categoryName(block, i), value: pointValue(p) ?? 0 })),
+        },
+      ],
+    } as EChartsOption;
+  }
+
+  if (block.chartType === 'gauge') {
+    const first = block.series[0];
+    const values = block.series.flatMap((s) => s.data.map(pointValue)).filter((v): v is number => v != null);
+    const value = first?.data.map(pointValue).find((v) => v != null) ?? 0;
+    const max = values.length > 0 && values.every((v) => Math.abs(v) <= 1)
+      ? 1
+      : niceCeil(Math.max(...values.map(Math.abs), 0));
+    return {
+      ...base,
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
+      legend: undefined,
+      series: [
+        {
+          type: 'gauge',
+          min: 0,
+          max,
+          startAngle: 210,
+          endAngle: -30,
+          radius: '82%',
+          center: ['50%', '58%'],
+          progress: { show: true, width: 10, itemStyle: { color: palette.primary } },
+          axisLine: { lineStyle: { width: 10, color: [[1, withAlpha(palette.primary, 0.16)]] } },
+          axisTick: { show: false },
+          splitLine: { length: 8, lineStyle: { color: ink.split } },
+          axisLabel: { color: ink.label, fontSize: 9, distance: 12 },
+          pointer: { width: 3, itemStyle: { color: palette.primary } },
+          anchor: { show: true, size: 8, itemStyle: { color: palette.primary } },
+          title: { color: ink.label, fontSize: 11, offsetCenter: [0, '30%'] },
+          detail: {
+            valueAnimation: true,
+            formatter: (v: number) => valueFormatter(block)(v),
+            color: ink.axis,
+            fontSize: 20,
+            offsetCenter: [0, '2%'],
+          },
+          data: [{ value, name: first?.name || block.title || '' }],
+        },
+      ],
+    } as EChartsOption;
+  }
+
+  if (block.chartType === 'radar') {
+    const categories = block.categories ?? [];
+    const width = Math.max(...block.series.map((s) => s.data.length), categories.length, 1);
+    const names = Array.from({ length: width }, (_, i) => categories[i] != null ? String(categories[i]) : `#${i + 1}`);
+    const indicator = names.map((name, i) => {
+      const peak = Math.max(...block.series.map((s) => Math.abs(pointValue(s.data[i]) ?? 0)), 0);
+      return { name, max: niceCeil(peak) };
+    });
+    return {
+      ...base,
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
+      radar: {
+        indicator,
+        radius: '64%',
+        center: ['50%', '54%'],
+        axisName: { color: ink.label, fontSize: 10 },
+        axisLine: { lineStyle: { color: ink.split } },
+        splitLine: { lineStyle: { color: ink.split } },
+        splitArea: { show: false },
+      },
+      series: [
+        {
+          type: 'radar',
+          symbolSize: 5,
+          data: block.series.map((s, i) => {
+            const color = s.color ?? colorAt(palette, i);
+            return {
+              name: s.name,
+              value: s.data.map((p) => pointValue(p) ?? 0),
+              itemStyle: { color },
+              lineStyle: { color, width: 2 },
+              areaStyle: { color, opacity: 0.12 },
+            };
+          }),
+        },
+      ],
+    } as EChartsOption;
+  }
+
+  if (block.chartType === 'waterfall') {
+    const first = block.series[0];
+    const rise = palette.primary;
+    const fall = palette.series[0] ?? '#ef4444';
+    const values = first.data.map(pointValue);
+    const bases: number[] = [];
+    const bars: Array<{ value: number; itemStyle: { color: string } }> = [];
+    let running = 0;
+    for (const raw of values) {
+      const value = raw ?? 0;
+      if (value >= 0) {
+        bases.push(running);
+        bars.push({ value, itemStyle: { color: rise } });
+      } else {
+        bases.push(running + value);
+        bars.push({ value: -value, itemStyle: { color: fall } });
+      }
+      running += value;
+    }
+    return {
+      ...base,
+      xAxis: {
+        type: 'category',
+        data: (block.categories ?? first.data.map((_, i) => String(i + 1))).map(String),
+        boundaryGap: true,
+        axisLabel: { color: ink.label, fontSize: 10, hideOverlap: true },
+        axisLine: { show: true, lineStyle: { color: ink.split } },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        scale: true,
+        name: block.yLabel,
+        nameTextStyle: { color: ink.label, fontSize: 10 },
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { show: false },
+        splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
+      },
+      series: [
+        {
+          name: '__base',
+          type: 'bar',
+          stack: 'waterfall',
+          silent: true,
+          itemStyle: { color: 'transparent' },
+          emphasis: { itemStyle: { color: 'transparent' } },
+          data: bases,
+        },
+        {
+          name: first.name || 'Change',
+          type: 'bar',
+          stack: 'waterfall',
+          barMaxWidth: 34,
+          itemStyle: { borderRadius: [3, 3, 0, 0] },
+          data: bars,
+        },
+      ],
     } as EChartsOption;
   }
 

@@ -118,3 +118,73 @@ describe('buildChartOption', () => {
     expect(bar.series[0].barMaxWidth).toBeGreaterThan(0);
   });
 });
+
+describe('buildChartOption — extended chart types', () => {
+  it('maps treemap and sunburst from categories + the first series', () => {
+    const treemap = buildChartOption(
+      chart({ type: 'chart', chartType: 'treemap', categories: ['A', 'B'], series: [{ name: 'mix', data: [60, 40] }] }),
+      palette,
+    ) as any;
+    expect(treemap.series[0].type).toBe('treemap');
+    expect(treemap.series[0].data).toEqual([{ name: 'A', value: 60 }, { name: 'B', value: 40 }]);
+
+    const sunburst = buildChartOption(
+      chart({ type: 'chart', chartType: 'sunburst', categories: ['A', 'B'], series: [{ name: 'mix', data: [60, 40] }] }),
+      palette,
+    ) as any;
+    expect(sunburst.series[0].type).toBe('sunburst');
+  });
+
+  it('maps a funnel from the first series', () => {
+    const option = buildChartOption(
+      chart({ type: 'chart', chartType: 'funnel', categories: ['Visit', 'Buy'], series: [{ name: 'f', data: [100, 12] }] }),
+      palette,
+    ) as any;
+    expect(option.series[0].type).toBe('funnel');
+    expect(option.series[0].data).toEqual([{ name: 'Visit', value: 100 }, { name: 'Buy', value: 12 }]);
+  });
+
+  it('builds a gauge with a nice-rounded max and item tooltip', () => {
+    const option = buildChartOption(
+      chart({ type: 'chart', chartType: 'gauge', series: [{ name: 'Confidence', data: [42] }] }),
+      palette,
+    ) as any;
+    expect(option.series[0].type).toBe('gauge');
+    expect(option.series[0].max).toBe(50);
+    expect(option.series[0].data[0].value).toBe(42);
+    expect(option.tooltip.trigger).toBe('item');
+  });
+
+  it('builds a radar with one indicator per category and one series per entry', () => {
+    const option = buildChartOption(
+      chart({ type: 'chart', chartType: 'radar', categories: ['A', 'B', 'C'], series: [{ name: 's', data: [1, 2, 3] }] }),
+      palette,
+    ) as any;
+    expect(option.series[0].type).toBe('radar');
+    expect(option.radar.indicator).toHaveLength(3);
+    expect(option.series[0].data[0].value).toEqual([1, 2, 3]);
+  });
+
+  it('stacks a waterfall as a transparent base plus a signed bar', () => {
+    const option = buildChartOption(
+      chart({ type: 'chart', chartType: 'waterfall', categories: ['a', 'b', 'c'], series: [{ name: 'Change', data: [10, -5, 3] }] }),
+      palette,
+    ) as any;
+    expect(option.series).toHaveLength(2);
+    expect(option.series[0].stack).toBe('waterfall');
+    expect(option.series[0].data).toEqual([0, 5, 5]);
+    expect(option.series[1].data[0].value).toBe(10);
+    expect(option.series[1].data[1].itemStyle.color).toBe(palette.series[0]);
+  });
+
+  it('uses size-carrying triples for bubble charts', () => {
+    const option = buildChartOption(
+      chart({ type: 'chart', chartType: 'bubble', series: [{ name: 'p', data: [[1, 2, 3], [4, 5, 9]] }] }),
+      palette,
+    ) as any;
+    expect(option.xAxis.type).toBe('value');
+    expect(option.series[0].type).toBe('scatter');
+    expect(option.series[0].data[0].value).toEqual([1, 2, 3]);
+    expect(option.series[0].data[1].symbolSize).toBeGreaterThan(option.series[0].data[0].symbolSize);
+  });
+});

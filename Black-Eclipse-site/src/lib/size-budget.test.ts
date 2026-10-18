@@ -59,7 +59,11 @@ const RATCHET: Record<string, number> = {
   // the Fiduciary Gate capability class (ADR-H196/H193). May only shrink.
   // Re-pinned 1241→1253: the sidebar quick-launchers added the `sidebar.gateway*`
   // + `sidebar.graph*` keys (Gateway dialog + graph browser). May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1253,
+  // Re-pinned 1253→1254: Graph Studio added one nav key (`nav.graphStudio`).
+  // Re-pinned 1254→1255: Graph Studio became a dedicated sidebar MODE, which
+  // needs its own switcher label (`sidebar.graphStudio`). The standing split
+  // candidate is still per-domain dictionary modules. May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1255,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -146,7 +150,15 @@ const RATCHET: Record<string, number> = {
   // shell opens/close the split, forwards the artifact id and renders the pane;
   // the workspace itself lives in `components/screens/canvas/`. May only shrink
   // from here; the per-tab keep-alive blocks remain the standing split candidate.
-  "src/components/screens/stock-chat.tsx": 1506,
+  // Re-pinned 1506→1512: Graph Studio mounts a dedicated tab (a lazy dynamic
+  // import + one keep-alive block, matching every other lab screen). May only
+  // shrink from here; the per-tab keep-alive blocks remain the standing split
+  // candidate.
+  // Re-pinned 1512→1518: Graph Studio became a dedicated MODE — the shell hides
+  // the top bar for it, hides the chat dock, and gives the right dock to the
+  // screen's own inspector/run rail (three small condition edits). May only
+  // shrink from here.
+  "src/components/screens/stock-chat.tsx": 1518,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

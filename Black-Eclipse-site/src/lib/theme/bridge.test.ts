@@ -21,18 +21,18 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('chartPaletteFromTheme', () => {
-  it('maps market colors onto candles, line primary and heatmap ends', async () => {
+  it('decouples charts from the theme — a theme edit never recolours charts', async () => {
     const { chartPaletteFromTheme } = await import('./bridge');
     const theme = normalizeTheme({
       ...DEFAULT_ECLIPSE_THEME,
       colors: { primary: '#00d0ff', bullish: '#00ff41', bearish: '#ff3b3b' },
     });
     const palette = chartPaletteFromTheme(theme);
-    expect(palette.candles.up).toBe('#00ff41');
-    expect(palette.candles.down).toBe('#ff3b3b');
-    expect(palette.lines.primary).toBe('#00d0ff');
-    expect(palette.heatmap.up).toBe('#00ff41');
-    expect(palette.heatmap.down).toBe('#ff3b3b');
+    // Neither the accent nor the market colors reach the chart palette.
+    expect(palette.candles.up).toBe(DEFAULT_CHART_PALETTE.candles.up);
+    expect(palette.candles.down).toBe(DEFAULT_CHART_PALETTE.candles.down);
+    expect(palette.lines.primary).toBe(DEFAULT_CHART_PALETTE.lines.primary);
+    expect(palette.heatmap.up).toBe(DEFAULT_CHART_PALETTE.heatmap.up);
   });
 
   it('preserves the categorical series palette from the base', async () => {
@@ -44,23 +44,23 @@ describe('chartPaletteFromTheme', () => {
 });
 
 describe('preview + commit bridge', () => {
-  it('previews onto the effective palette without persisting, then clears', async () => {
+  it('leaves chart colours untouched on preview and never persists', async () => {
     const { previewChartPaletteFromTheme, clearChartPalettePreview } = await import('./bridge');
     const { getChartPalette } = await import('@/lib/chart-palette-store');
     const theme = normalizeTheme({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, bullish: '#123456' } });
     previewChartPaletteFromTheme(theme);
-    expect(getChartPalette().candles.up).toBe('#123456');
+    expect(getChartPalette().candles.up).toBe(DEFAULT_CHART_PALETTE.candles.up);
     expect(storage.setItem).not.toHaveBeenCalled();
     clearChartPalettePreview();
     expect(getChartPalette().candles.up).toBe(DEFAULT_CHART_PALETTE.candles.up);
   });
 
-  it('persists when explicitly synced', async () => {
+  it('persists the unchanged palette when explicitly synced', async () => {
     const { syncChartPaletteFromTheme } = await import('./bridge');
     const { useChartPaletteStore } = await import('@/lib/chart-palette-store');
     const theme = normalizeTheme({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, bearish: '#abcdef' } });
     syncChartPaletteFromTheme(theme);
-    expect(useChartPaletteStore.getState().palette.candles.down).toBe('#abcdef');
+    expect(useChartPaletteStore.getState().palette.candles.down).toBe(DEFAULT_CHART_PALETTE.candles.down);
     expect(storage.setItem).toHaveBeenCalled();
   });
 });

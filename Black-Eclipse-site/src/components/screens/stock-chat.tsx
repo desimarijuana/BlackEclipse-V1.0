@@ -139,6 +139,10 @@ const MlLabScreen = dynamic(
   () => import('@/components/screens/ml-lab/ml-lab-screen').then((m) => m.MlLabScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const GraphStudioScreen = dynamic(
+  () => import('@/components/screens/graph-studio/graph-studio-screen').then((m) => m.GraphStudioScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -1092,7 +1096,9 @@ function StockChatContent() {
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}
-          hidden={focusMode}
+          // Graph Studio is a full-bleed engineering workspace: no header (and
+          // no search bar) — every pixel goes to the canvas.
+          hidden={focusMode || activeTab === 'graph-studio'}
         />
 
         <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10 pb-[4.25rem] md:pb-0" tabIndex={-1}>
@@ -1403,6 +1409,12 @@ function StockChatContent() {
             </div>
           )}
 
+          {visited.has('graph-studio') && (
+            <div className={cn('w-full h-full', activeTab === 'graph-studio' ? '' : 'hidden')}>
+              <GraphStudioScreen />
+            </div>
+          )}
+
           {visited.has('portfolio') && (
             <div className={cn('w-full h-full', activeTab === 'portfolio' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8">
@@ -1439,7 +1451,7 @@ function StockChatContent() {
               is open. Mounted once here rather than per-screen; the dock gates
               on this panel's own display so it never floats over an inactive
               keep-alive tab. */}
-          <ChatDock visible={activeTab !== 'chat' && activeTab !== 'bots' && !settingsOpen} />
+          <ChatDock visible={activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'graph-studio' && !settingsOpen} />
         </div>
         {/* Close the main column, then place the right dock as a SIBLING column
             in the row, so the main panel shrinks instead of being overlapped. */}
@@ -1450,7 +1462,11 @@ function StockChatContent() {
           ? <CanvasPane />
           : isMobile
             ? <MobileDockHost activeTab={activeTab} />
-            : (activeTab === 'bots' ? <BotSchedulerDock /> : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
+            : (activeTab === 'bots'
+              ? <BotSchedulerDock />
+              : activeTab === 'graph-studio'
+                ? null // Graph Studio's inspector/run console own the right rail.
+                : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
         <TerminalDock slot="right" />
       </div>
 

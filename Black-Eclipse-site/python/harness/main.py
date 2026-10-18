@@ -63,6 +63,7 @@ from .routers.execution import router as execution_router
 from .routers.fabric import router as fabric_router
 from .routers.financial import router as financial_router
 from .routers.git import router as git_router
+from .routers.graphs import router as graphs_router
 from .routers.grants import router as grants_router
 from .routers.jobs import router as jobs_router
 from .routers.learning import router as learning_router
@@ -117,6 +118,7 @@ app.include_router(fabric_router)
 app.include_router(financial_router)
 app.include_router(git_router)
 app.include_router(grants_router)
+app.include_router(graphs_router)
 app.include_router(jobs_router)
 app.include_router(learning_router)
 app.include_router(mcp_router)

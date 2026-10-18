@@ -11,13 +11,15 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
+  GitBranch,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
 
-/** The top-level sidebar modes. A section belongs to one, or to both. `bots` is
- *  a mode with no nav SECTIONS — it renders the bot list panel instead. */
-export type NavGroup = 'terminal' | 'agentic' | 'bots';
+/** The top-level sidebar modes. A section belongs to one, or to both. `bots`
+ *  and `graph` are modes with no nav SECTIONS — they render their own panel
+ *  (the bot list; the workflow + node library) instead of a generic nav list. */
+export type NavGroup = 'terminal' | 'agentic' | 'bots' | 'graph';
 
 export interface SidebarSectionDef {
   /** Matches an AppTab id. */
@@ -55,6 +57,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
+  { id: 'graph-studio', label: 'Graph Studio', icon: GitBranch, group: 'graph' },
 ];
 
 /** The modes a section is listed under. */
@@ -69,6 +72,18 @@ export function modeForTab(id: AppTab): NavGroup | null {
   if (id === 'bots') return 'bots';
   const def = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === id);
   return def && def.group !== 'both' ? def.group : null;
+}
+
+/** Modes that own their left panel and have no generic nav list. */
+export const PANEL_MODES: NavGroup[] = ['bots', 'graph'];
+
+/** The ONE list of top-level modes. Anything that validates a persisted or
+ *  incoming mode value reads THIS, so adding a `NavGroup` cannot silently drop
+ *  the user's saved mode (as `'graph'` was dropped before this list existed). */
+export const NAV_GROUPS: NavGroup[] = ['terminal', 'agentic', 'bots', 'graph'];
+
+export function isNavGroup(value: unknown): value is NavGroup {
+  return typeof value === 'string' && (NAV_GROUPS as string[]).includes(value);
 }
 
 /** Per-item user config; id is the AppTab id. */

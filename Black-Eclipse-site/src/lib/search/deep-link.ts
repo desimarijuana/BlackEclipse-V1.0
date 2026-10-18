@@ -11,33 +11,40 @@
 
 import type { AppTab, Destination } from './types';
 
-/** Every tab id the SPA shell exposes. Mirrors `sidebar.tsx` AppTab. */
-export const APP_TABS: readonly AppTab[] = [
-  'chat',
-  'news',
-  'discovery',
-  'heatmap',
-  'chart',
-  'economics',
-  'portfolio',
-  'journal',
-  'settings',
-  'alerts',
-  'dashboard',
-  'market-workspace',
-  'investor-eye',
-  'skills',
-  'memory',
-  'artifacts',
-  'tasks',
-  'pages',
-  'ui-builder',
-  'backtest',
-  'research-data',
-  'factor-lab',
-  'ml-lab',
-  'bots',
-];
+// Every tab id the SPA shell exposes. Declared as an EXHAUSTIVE `Record<AppTab,
+// true>` so growing the `AppTab` union without listing the tab here is a
+// COMPILE error — a hand-maintained array is how `graph-studio` was silently
+// left out, which made `?tab=graph-studio` (and a "history" boot tab) fall back
+// to ChatBot. Order is the declaration order.
+const ALL_TABS: Record<AppTab, true> = {
+  chat: true,
+  news: true,
+  discovery: true,
+  heatmap: true,
+  chart: true,
+  economics: true,
+  portfolio: true,
+  journal: true,
+  settings: true,
+  alerts: true,
+  dashboard: true,
+  'market-workspace': true,
+  'investor-eye': true,
+  skills: true,
+  memory: true,
+  artifacts: true,
+  tasks: true,
+  pages: true,
+  'ui-builder': true,
+  backtest: true,
+  'research-data': true,
+  'factor-lab': true,
+  'ml-lab': true,
+  'graph-studio': true,
+  bots: true,
+};
+
+export const APP_TABS = Object.keys(ALL_TABS) as readonly AppTab[];
 
 /** Query keys consumed by the link format itself (never treated as params). */
 const RESERVED = new Set(['tab', 'sub']);

@@ -3,6 +3,7 @@ import type { AppTab as ShellTab } from '@/components/layout/sidebar';
 import type { AppTab as SearchTab } from '@/lib/search/types';
 import { DEFAULT_SIDEBAR_SECTIONS } from '@/lib/sidebar/config';
 import { navLabelKey } from '@/lib/i18n/nav';
+import { APP_TABS } from '@/lib/search/deep-link';
 
 // ── The two AppTab unions can no longer drift ────────────────────────────────
 // `AppTab` used to be declared twice (sidebar.tsx and search/types.ts) with
@@ -26,6 +27,16 @@ describe('AppTab — one vocabulary, two consumers', () => {
   it('every sidebar section has a navigation label key', () => {
     const missing = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navLabelKey(s.id) === null).map((s) => s.id);
     expect(missing).toEqual([]);
+  });
+
+  it('deep-link APP_TABS covers every tab (a missing one silently breaks ?tab=)', () => {
+    const listed = new Set<string>(APP_TABS);
+    const missing = DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id).filter((id) => !listed.has(id));
+    expect(missing).toEqual([]);
+    // The key newer tabs must be linkable — this is the regression that shipped.
+    for (const tab of ['graph-studio', 'bots', 'ml-lab']) {
+      expect(listed.has(tab), tab).toBe(true);
+    }
   });
 
   it('every sidebar section id is a known tab', () => {

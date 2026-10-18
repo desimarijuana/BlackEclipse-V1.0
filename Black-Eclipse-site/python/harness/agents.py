@@ -52,6 +52,12 @@ from .advisory.tools import ADVISORY_TOOLS
 # registry; imported as the ONE canonical list so the allowlist cannot drift.
 from .ml.tools import ML_TOOLS
 
+# Native video generation: projects, draft/final renders, frame inspection and
+# job control via the Execution Fabric. Imported as the ONE canonical list so
+# the allowlist cannot drift (the tools are `read`/low: they queue jobs and
+# write only into the confined video workspace + Artifact Center).
+from .video.tools import VIDEO_TOOLS
+
 # The Bot / Automation tools (`bot_*`): the chat agent creates, inspects and
 # steers the SAME persistent bots the Bots workspace shows. Registered by
 # `service.py` on the SAME registry; imported as the ONE canonical list so the
@@ -490,6 +496,13 @@ ECLIPSE_AGENT = AgentConfig(
         # save/restore layout). UI-configuration state only — no filesystem,
         # network, shell or secret access.
         *UI_TOOLS,
+        # Native video generation: create/validate a video project, render a
+        # draft, inspect the frames, render the final MP4 (registered in the
+        # Artifact Center) and manage the queued Fabric jobs. The only project
+        # kind today is the built-in `title_card`; storyboards arrive later. A
+        # name whose layer failed to install is simply unregistered and never
+        # advertised.
+        *VIDEO_TOOLS,
         # Response-contract read-back: the exact `eclipse-response` block field
         # names + pre-send validation, so a drifted block is fixed in-turn rather
         # than silently failing to render. Read-only.

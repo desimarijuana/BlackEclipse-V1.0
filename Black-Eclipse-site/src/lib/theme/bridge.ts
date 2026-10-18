@@ -1,8 +1,10 @@
 // ── Theme → chart palette bridge ─────────────────────────────────────────────
-// Keeps native Eclipse charts (candles, line primary, heatmap) aligned with the
-// centralized theme's market semantics without duplicating color state. The
-// categorical series palette is intentionally left alone so a user's multi-series
-// choices (Settings › Charts) survive theme edits.
+// Charts are DECOUPLED from the theme. A user's chart colours come from the
+// shipped green/red default (or their explicit Settings › Charts edits, or a
+// preset that carries its own `chartPalette`), and an ambient theme edit never
+// recolours a chart. These helpers are the single seam the customization flow
+// calls; they normalise the palette and deliberately ignore the theme's colors,
+// so charts stay green/red unless the user asked for a change.
 //
 // Called only on explicit user customization, never on hydration, so a
 // separately-saved chart palette is not clobbered on page load.
@@ -18,20 +20,15 @@ import { useChartPaletteStore } from '@/lib/chart-palette-store';
 import type { EclipseTheme } from './tokens';
 
 /**
- * The chart palette a theme implies: market colors follow the theme, while the
- * categorical series palette is preserved from `base` (default: shipped) so
- * multi-series customizations are not silently reset by a theme edit.
+ * The chart palette a theme implies — which is the palette already in effect.
+ * The theme is intentionally ignored: charts keep their shipped green/red (or
+ * the user's own) colours when a theme is applied or previewed.
  */
 export function chartPaletteFromTheme(
-  theme: EclipseTheme,
+  _theme: EclipseTheme,
   base: ChartPalette = DEFAULT_CHART_PALETTE,
 ): ChartPalette {
-  const { colors } = theme;
-  return normalizeChartPalette({
-    candles: { up: colors.bullish, down: colors.bearish, neutral: base.candles.neutral },
-    lines: { ...base.lines, primary: colors.primary },
-    heatmap: { ...base.heatmap, up: colors.bullish, down: colors.bearish },
-  });
+  return normalizeChartPalette(base);
 }
 
 /** Persist the chart palette a theme implies (explicit user action). */

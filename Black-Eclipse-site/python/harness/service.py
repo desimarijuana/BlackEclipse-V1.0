@@ -156,6 +156,13 @@ class AgenticService:
         from .ml.bootstrap import install_ml_layer  # noqa: PLC0415
 
         install_ml_layer(self)
+        # Native video pipeline: draft/final renders and frame inspection as
+        # queued Execution-Fabric jobs driving the isolated fframes Rust worker
+        # (never inline). Wiring in `video/bootstrap.py`; final renders register
+        # into the Artifact Center.
+        from .video.bootstrap import install_video_layer  # noqa: PLC0415
+
+        install_video_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.
@@ -457,6 +464,14 @@ class AgenticService:
         from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
 
         install_artifact_layer(self)
+        # The Graph runtime: the compiler + deterministic executor for the
+        # canonical Workflow IR the visual editor authors. Boot wiring lives in
+        # `graph_runtime/bootstrap.py` (NOT `graph.py`, which is the tool loop);
+        # it reuses the ONE agent-memory connection for run rows and owns no
+        # scheduler. A failure only leaves `self.graphs` None.
+        from .graph_runtime.bootstrap import install_graph_layer  # noqa: PLC0415
+
+        install_graph_layer(self)
         # Document Authoring: the WRITE side of the document capability. Registers
         # `document_create`, which builds real Word/Excel/PowerPoint/Markdown/CSV
         # files from a neutral vocabulary and records them in the Artifact Center

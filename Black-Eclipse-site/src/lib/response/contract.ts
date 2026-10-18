@@ -240,8 +240,15 @@ export const CHART_TYPES = [
   'grouped_bar',
   'pie',
   'scatter',
+  'bubble',
   'histogram',
   'heatmap',
+  'treemap',
+  'sunburst',
+  'funnel',
+  'gauge',
+  'radar',
+  'waterfall',
 ] as const;
 
 const chartSeriesSchema = z.object({

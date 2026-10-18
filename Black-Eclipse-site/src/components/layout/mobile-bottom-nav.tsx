@@ -12,7 +12,7 @@ import {
   Bot, LayoutDashboard, GlobeStand, ChartPie, MoreHorizontal,
   ChartCandlestick, ScanEye, BookOpen, Newspaper, Orbit, Globe, Bell,
   Blocks, Brain, FolderOpen, ListChecks, LayoutTemplate, LayoutGrid,
-  ChartLine, Database, Sigma, FlaskConical, Ghost, X,
+  ChartLine, Database, Sigma, FlaskConical, Ghost, X, GitBranch as GitBranchIcon,
   SquareTerminal, BrainCircuit, type LucideIcon,
 } from '@/lib/icons';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -24,7 +24,11 @@ import type { AppTab } from '@/lib/app-tabs';
 
 interface TabMeta { icon: LucideIcon; label?: string }
 
-const TAB_META: Record<string, TabMeta> = {
+// Keyed by AppTab so a typo'd id is a compile error; `Partial` because some tabs
+// are not nav-bar destinations (settings, chart). The coverage guard test
+// (`mobile-bottom-nav.test.ts`) enforces an entry for every tab a mode lists —
+// a missing one used to render `undefined.icon` and blank the whole shell.
+export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
   chat: { icon: Bot },
   dashboard: { icon: LayoutDashboard },
   discovery: { icon: GlobeStand },
@@ -47,29 +51,33 @@ const TAB_META: Record<string, TabMeta> = {
   'research-data': { icon: Database },
   'factor-lab': { icon: Sigma, label: 'Factor Lab' },
   'ml-lab': { icon: FlaskConical, label: 'ML Lab' },
+  'graph-studio': { icon: GitBranchIcon },
 };
 
 /** Tab order per menu mode. `bots` lists no sidebar sections, so its entries are
  *  declared here (bots first, then the shared agent surface). */
-const MODE_TABS: Record<NavGroup, AppTab[]> = {
+export const MODE_TABS: Record<NavGroup, AppTab[]> = {
   terminal: ['chat', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
   agentic: ['chat', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
   bots: ['bots', 'chat', 'tasks', 'artifacts', 'memory', 'skills'],
+  graph: ['graph-studio', 'chat', 'tasks', 'artifacts'],
 };
 
 const MODES: { id: NavGroup; icon: LucideIcon }[] = [
   { id: 'terminal', icon: SquareTerminal },
   { id: 'agentic', icon: BrainCircuit },
   { id: 'bots', icon: Ghost },
+  { id: 'graph', icon: GitBranchIcon },
 ];
 
-const MODE_LABEL_KEY: Record<NavGroup, 'sidebar.terminal' | 'sidebar.agentic' | 'nav.bots'> = {
+const MODE_LABEL_KEY: Record<NavGroup, 'sidebar.terminal' | 'sidebar.agentic' | 'nav.bots' | 'sidebar.graphStudio'> = {
   terminal: 'sidebar.terminal',
   agentic: 'sidebar.agentic',
   bots: 'nav.bots',
+  graph: 'sidebar.graphStudio',
 };
 
-const LABS: AppTab[] = ['ui-builder', 'backtest', 'research-data', 'factor-lab', 'ml-lab'];
+export const LABS: AppTab[] = ['ui-builder', 'backtest', 'research-data', 'factor-lab', 'ml-lab'];
 
 function useTabLabel() {
   const t = useT();
@@ -103,7 +111,9 @@ export function MobileBottomNav({
   if (hidden) return null;
 
   const enabled = (id: AppTab) => cfgMap.get(id)?.enabled !== false;
-  const modeTabs = MODE_TABS[mode].filter(enabled);
+  // A persisted mode from an older build may not be in the table — fall back
+  // rather than crash the whole shell.
+  const modeTabs = (MODE_TABS[mode] ?? MODE_TABS.terminal).filter(enabled);
   const primary = modeTabs.slice(0, 4);
   const more = modeTabs.slice(4);
 
@@ -116,7 +126,9 @@ export function MobileBottomNav({
 
   const switchMode = (id: NavGroup) => {
     setMode(id);
+    // Dedicated modes also open their workspace, mirroring the desktop switcher.
     if (id === 'bots') onChangeTab('bots');
+    if (id === 'graph') onChangeTab('graph-studio');
   };
 
   const itemCls = (active: boolean) => cn(
@@ -131,7 +143,9 @@ export function MobileBottomNav({
         className="fixed inset-x-0 bottom-0 z-40 flex items-stretch gap-0.5 border-t border-border/10 glass-card-strong px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {primary.map((id) => {
-          const Icon = TAB_META[id].icon;
+          // `TAB_META` must cover every tab any mode lists; the guard test
+          // enforces it, and the fallback keeps a miss from blanking the app.
+          const Icon = TAB_META[id]?.icon ?? SquareTerminal;
           const active = activeTab === id;
           return (
             <button
@@ -226,7 +240,7 @@ export function MobileBottomNav({
 }
 
 function MoreTile({ id, label, active, onClick }: { id: AppTab; label: string; active: boolean; onClick: () => void }) {
-  const Icon = TAB_META[id].icon;
+  const Icon = TAB_META[id]?.icon ?? SquareTerminal;
   return (
     <button
       type="button"

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultSidebarConfig, loadSidebarConfig, saveSidebarConfig, shortcutTab, DEFAULT_SIDEBAR_SECTIONS, SIDEBAR_CONFIG_KEY, navGroupsFor, modeForTab } from './config';
+import { defaultSidebarConfig, loadSidebarConfig, saveSidebarConfig, shortcutTab, DEFAULT_SIDEBAR_SECTIONS, SIDEBAR_CONFIG_KEY, navGroupsFor, modeForTab, NAV_GROUPS, PANEL_MODES, isNavGroup } from './config';
 
 const memory = new Map<string, string>();
 
@@ -21,7 +21,7 @@ describe('defaultSidebarConfig', () => {
     // the explicit expected list — not a count derived from the source under
     // test — so adding/removing a section fails here on purpose.
     expect(config.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '',
     ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
@@ -60,7 +60,7 @@ describe('v1 migration', () => {
     // (only the first 12 get F1..F12). This is the explicit expected list, so a
     // change to the canonical section count fails here.
     expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '',
     ]);
   });
 
@@ -183,6 +183,28 @@ describe('nav groups (Terminal / Agentic)', () => {
   it('keeps ChatBot, Skills, Eclipse Memory and Artifacts in the Agentic menu', () => {
     const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
     expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'skills']);
+  });
+
+  it('graph studio is its own DEDICATED mode, not an Agentic item', () => {
+    const graph = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === 'graph-studio')!;
+    expect(navGroupsFor(graph)).toEqual(['graph']);
+    expect(modeForTab('graph-studio')).toBe('graph');
+    const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
+    expect(agentic).not.toContain('graph-studio');
+  });
+
+  it('NAV_GROUPS is the ONE mode list (persistence + panels read it)', () => {
+    // Every group a section declares, plus the panel-only modes, must be listed.
+    const used = new Set<string>();
+    for (const section of DEFAULT_SIDEBAR_SECTIONS) {
+      for (const group of navGroupsFor(section)) used.add(group);
+    }
+    expect([...used].filter((g) => !NAV_GROUPS.includes(g as never))).toEqual([]);
+    for (const mode of PANEL_MODES) expect(NAV_GROUPS).toContain(mode);
+    // And the validator accepts each of them (a dropped mode broke persistence).
+    for (const mode of NAV_GROUPS) expect(isNavGroup(mode), mode).toBe(true);
+    expect(isNavGroup('nope')).toBe(false);
+    expect(isNavGroup(null)).toBe(false);
   });
 
   it('treats Bots as its own mode with no static nav section', () => {

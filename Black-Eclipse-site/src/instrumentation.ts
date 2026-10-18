@@ -263,5 +263,24 @@ async function runBackgroundBootTasks(): Promise<void> {
     } catch (err) {
       console.error("[startup] investor-eye ingest start failed:", err);
     }
+
+    // Graph Studio workflow schedules: one 60 s timer that fires any schedule
+    // whose time has come. Runs in-process (this app is a single-user local
+    // server), never storms on boot (missed fires follow each schedule's
+    // catch-up policy), and a failed fire is recorded on the schedule.
+    try {
+      const { runDueSchedules } = await import("@/lib/graph-studio/schedule-tick");
+      const tick = () => {
+        void runDueSchedules().catch((err) =>
+          console.error("[startup] workflow schedule tick failed:", err),
+        );
+      };
+      // One grace-period tick after boot, then every minute.
+      setTimeout(tick, 90_000);
+      const timer = setInterval(tick, 60_000);
+      if (typeof timer.unref === "function") timer.unref();
+    } catch (err) {
+      console.error("[startup] workflow schedule timer start failed:", err);
+    }
   }
 }

@@ -14,6 +14,7 @@ export const MODE_SHORTCUTS: Array<{ keys: string; mode: NavGroup }> = [
   { keys: 'alt+t', mode: 'terminal' },
   { keys: 'alt+a', mode: 'agentic' },
   { keys: 'alt+b', mode: 'bots' },
+  { keys: 'alt+g', mode: 'graph' },
 ];
 
 export function handleSidebarShortcut(event: KeyboardEvent, config: SidebarConfig, onNavigate: (tab: AppTab) => void): boolean {
@@ -28,17 +29,26 @@ export function handleSidebarShortcut(event: KeyboardEvent, config: SidebarConfi
   return false;
 }
 
+/** Dedicated modes whose shortcut must also open their workspace tab. */
+const MODE_OPENS_TAB: Partial<Record<NavGroup, AppTab>> = {
+  bots: 'bots',
+  graph: 'graph-studio',
+};
+
 /**
- * Switch the sidebar between Terminal, Agentic and Bots. Terminal/Agentic leave
- * the active screen untouched — the menu simply re-filters; ChatBot is shared so
- * it stays put. Returns true when the shortcut fired.
+ * Switch the sidebar between Terminal, Agentic, Bots and Graph Studio.
+ * Terminal/Agentic leave the active screen untouched — the menu simply
+ * re-filters; ChatBot is shared so it stays put. Returns true when the shortcut
+ * fired.
  */
-export function handleSidebarModeShortcut(event: KeyboardEvent): boolean {
+export function handleSidebarModeShortcut(event: KeyboardEvent, onNavigate?: (tab: AppTab) => void): boolean {
   const hit = MODE_SHORTCUTS.find((s) => matchesShortcut(event, s.keys));
   if (!hit) return false;
   if (useKeyboardShortcutsStore.getState().helpOpen || !canHandleKeyboardEvent(event)) return false;
   event.preventDefault();
   useSidebarConfigStore.getState().setMode(hit.mode);
+  const opens = MODE_OPENS_TAB[hit.mode];
+  if (opens && onNavigate) onNavigate(opens);
   return true;
 }
 
@@ -51,12 +61,9 @@ export function useSidebarKeybinds(onNavigate: (tab: AppTab) => void) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (handleSidebarModeShortcut(event)) {
-        // Bots is a mode with no static nav — mirror the switcher click and open
-        // the workspace so the panel and the page never disagree.
-        if (useSidebarConfigStore.getState().mode === 'bots') navigateRef.current('bots');
-        return;
-      }
+      // Dedicated modes (bots / graph) mirror the switcher click and open their
+      // workspace, so the panel and the page never disagree.
+      if (handleSidebarModeShortcut(event, navigateRef.current)) return;
       handleSidebarShortcut(event, useSidebarConfigStore.getState().config, navigateRef.current);
     };
     window.addEventListener('keydown', onKeyDown);

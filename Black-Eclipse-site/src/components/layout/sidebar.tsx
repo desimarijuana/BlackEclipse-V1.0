@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Settings, SquareTerminal, BrainCircuit, Ghost, Network, ChatsCircle, type LucideIcon } from '@/lib/icons';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Settings, SquareTerminal, BrainCircuit, Ghost, Network, ChatsCircle, GitBranch, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { MODE_SHORTCUTS } from '@/hooks/use-sidebar-keybinds';
@@ -13,6 +13,7 @@ import { useIsMobile } from '@/hooks/use-media-query';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
 import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
+import { GraphModePanel } from '@/components/screens/graph-studio/graph-mode-panel';
 import { SidebarGatewayDialog } from '@/components/layout/sidebar-gateway-dialog';
 import { SidebarGraphDialog } from '@/components/layout/sidebar-graph-dialog';
 import {
@@ -31,14 +32,22 @@ export type { ChatFolder, Conversation } from '@/lib/chat/chat-organization';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-/** The top-level menu switcher. Terminal and Agentic choose a nav MODE; Bots is
- *  a direct tab that sits beside them so the bot workspace is always one click
- *  away regardless of the current mode. */
+/** The top-level menu switcher. Terminal and Agentic choose a nav MODE; Bots
+ *  and Graph Studio are DEDICATED modes — each renders its own left panel (bots
+ *  / workflows + node library) and opens its workspace tab on selection, so the
+ *  panel and the page never disagree. */
 type NavSwitcherId = NavGroup | 'bots';
-const NAV_MODES: Array<{ id: NavSwitcherId; labelKey: 'sidebar.terminal' | 'sidebar.agentic' | 'nav.bots'; icon: LucideIcon }> = [
+const NAV_MODES: Array<{
+  id: NavSwitcherId;
+  labelKey: 'sidebar.terminal' | 'sidebar.agentic' | 'nav.bots' | 'sidebar.graphStudio';
+  icon: LucideIcon;
+  /** The workspace tab a dedicated mode opens when selected. */
+  opens?: AppTab;
+}> = [
   { id: 'terminal', labelKey: 'sidebar.terminal', icon: SquareTerminal },
   { id: 'agentic', labelKey: 'sidebar.agentic', icon: BrainCircuit },
-  { id: 'bots', labelKey: 'nav.bots', icon: Ghost },
+  { id: 'bots', labelKey: 'nav.bots', icon: Ghost, opens: 'bots' },
+  { id: 'graph', labelKey: 'sidebar.graphStudio', icon: GitBranch, opens: 'graph-studio' },
 ];
 
 /** Display labels for the mode hotkeys, shown on each switcher entry so the
@@ -279,10 +288,11 @@ export function Sidebar({
                   <DropdownMenuItem
                     key={id}
                     onClick={() => {
-                      // Bots is its own mode; also open the workspace so the
-                      // panel and the page never disagree.
+                      // Bots / Graph Studio are dedicated modes; also open their
+                      // workspace so the panel and the page never disagree.
                       setNavMode(id);
-                      if (id === 'bots') onChangeTab('bots');
+                      const opens = NAV_MODES.find((m) => m.id === id)?.opens;
+                      if (opens) onChangeTab(opens);
                     }}
                     className="gap-2"
                   >
@@ -339,13 +349,22 @@ export function Sidebar({
           />
         )}
 
-        {/* In the Bots mode the sidebar lists the user's actual bots (the bot
-            panel), not a generic nav link; other modes show the nav list. */}
+        {/* Bots and Graph Studio are DEDICATED modes: the sidebar lists the
+            mode's own objects (bots; workflows + node library) instead of a
+            generic nav list. Every other mode shows the nav list. */}
         {navMode === 'bots' ? (
           <BotsSidebarPanel
             collapsed={isCollapsed}
             onActivate={() => {
               onChangeTab('bots');
+              onCloseMobile?.();
+            }}
+          />
+        ) : navMode === 'graph' ? (
+          <GraphModePanel
+            collapsed={isCollapsed}
+            onActivate={() => {
+              onChangeTab('graph-studio');
               onCloseMobile?.();
             }}
           />

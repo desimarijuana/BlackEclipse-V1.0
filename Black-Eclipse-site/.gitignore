@@ -103,6 +103,14 @@ python/csess_*/
 # vendored embedded Python (downloaded on-demand, never committed)
 /scripts/vendor/python/
 
+# Rust video worker (fframes): build output and render artifacts are runtime
+# data, never committed. The crate source and its Cargo.lock ARE tracked.
+/rust/**/target/
+/rust/**/out/
+/rust/**/frames/
+/rust/**/strip.png
+/rust/**/onion.png
+
 # Universal Data Connector Layer — locally auto-generated encryption key for
 # connector credentials. NEVER commit this: it decrypts stored API secrets.
 .connector-key

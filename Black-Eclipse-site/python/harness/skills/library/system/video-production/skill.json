@@ -1,0 +1,36 @@
+{
+  "id": "system.video-production",
+  "name": "Produce a video",
+  "version": "1.0.0",
+  "description": "Turn a request for a video into a real rendered MP4: create and validate a video project, render a draft, inspect the frames, render the final file and hand over its Artifact Center entry — with honest limits (the built-in BlackEclipse title card is the only scene today).",
+  "category": "system",
+  "tags": ["video", "rendering", "media", "mp4", "fframes"],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "brief": { "type": "string", "description": "The video the user asked for, in their words." },
+      "deliverFinal": { "type": "boolean", "description": "Render the final MP4 (default: stop after a clean draft unless the user wants a deliverable)." }
+    },
+    "required": ["brief"]
+  },
+  "requiredTools": [
+    "video_capabilities",
+    "video_create_project",
+    "video_validate_project",
+    "video_render_draft",
+    "video_inspect",
+    "video_render_final",
+    "video_job_status",
+    "video_list_jobs",
+    "video_cancel_job"
+  ],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 10, "timeoutMs": 600000, "maxToolCalls": 30 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

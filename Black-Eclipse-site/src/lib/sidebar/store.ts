@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import {
   defaultSidebarConfig,
+  isNavGroup,
   loadSidebarConfig,
   saveSidebarConfig,
   type SidebarConfig,
@@ -50,8 +51,10 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
     let mode: NavGroup = 'terminal';
     if (typeof window !== 'undefined') {
       try {
+        // Validated against the ONE mode list — an unknown/legacy value falls
+        // back rather than putting the switcher into a mode it cannot render.
         const saved = localStorage.getItem(SIDEBAR_MODE_KEY);
-        if (saved === 'terminal' || saved === 'agentic' || saved === 'bots') mode = saved;
+        if (isNavGroup(saved)) mode = saved;
       } catch { /* private mode — keep the default */ }
     }
     set({ config, hydrated: true, mode });

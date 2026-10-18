@@ -37,6 +37,20 @@ _JOB_COLUMNS = {
     "availableAt", "leaseExpiresAt", "startedAt", "completedAt", "cancelledAt", "metadata",
 }
 
+# The terminal transitions spell these fields in snake_case; without
+# normalization they were silently dropped and the job row lost its
+# errorClass/timestamps (only the events carried them).
+_JOB_COLUMN_ALIASES = {
+    "worker_kind": "workerKind", "task_id": "taskId", "parent_job_id": "parentJobId",
+    "root_job_id": "rootJobId", "agent_id": "agentId", "session_id": "sessionId",
+    "user_id": "userId", "workspace_id": "workspaceId", "error_class": "errorClass",
+    "max_attempts": "maxAttempts", "timeout_ms": "timeoutMs",
+    "idempotency_key": "idempotencyKey", "correlation_id": "correlationId",
+    "trace_id": "traceId", "worker_id": "workerId", "available_at": "availableAt",
+    "lease_expires_at": "leaseExpiresAt", "started_at": "startedAt",
+    "completed_at": "completedAt", "cancelled_at": "cancelledAt",
+}
+
 
 def _json(value: Any) -> Optional[str]:
     if value is None:
@@ -272,6 +286,7 @@ class FabricStore:
         sets: list[str] = []
         params: list[Any] = []
         for key, value in patch.items():
+            key = _JOB_COLUMN_ALIASES.get(key, key)
             if key not in _JOB_COLUMNS:
                 continue
             sets.append(f"{key} = ?")

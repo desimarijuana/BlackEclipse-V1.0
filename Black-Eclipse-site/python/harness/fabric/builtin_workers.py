@@ -496,6 +496,18 @@ def build_default_workers(service: Any, config: Optional[FabricConfig] = None) -
         workers.append(build_portfolio_worker(service))
     except Exception:  # noqa: BLE001 - portfolio must never block the fabric
         log.warning("portfolio worker unavailable", exc_info=True)
+    # Native video rendering: an isolated fframes process behind a queued,
+    # timeout-bounded, cancellable, restart-recoverable worker on its own queue.
+    # Wiring lives in `video/fabric.py`; absence is honest — video jobs then
+    # report WORKER_UNAVAILABLE rather than silently rendering in-process.
+    try:
+        from ..video.fabric import build_video_worker
+
+        video_worker = build_video_worker(service)
+        if video_worker is not None:
+            workers.append(video_worker)
+    except Exception:  # noqa: BLE001 - video must never block the fabric
+        log.warning("video worker unavailable", exc_info=True)
     return workers
 
 

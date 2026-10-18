@@ -89,6 +89,35 @@ const BUILDERS: Record<string, InstructionBuilder> = {
       .filter((line) => line !== "")
       .join("\n");
   },
+  "agent.visual": (_spec, args) => {
+    const subject = (Array.isArray(args.positionals.subject) ? (args.positionals.subject as string[]) : [])
+      .join(" ")
+      .trim();
+    const forcedType = typeof args.flags.type === "string" ? args.flags.type.trim() : "";
+    const symbol = typeof args.flags.symbol === "string" ? args.flags.symbol.trim() : "";
+    return [
+      "Render the following as ONE data visualization, inline in chat as a `chart` block (the /visual chart):",
+      "",
+      `Subject: ${subject || "(not given — ask the user what to chart and STOP, plotting nothing yet)"}`,
+      forcedType ? `Requested chart type: ${forcedType}` : "",
+      symbol ? `Symbol to plot: ${symbol}` : "",
+      "",
+      "Follow this exactly:",
+      "1. Consult `response_block_schema` for the `chart` block and use its EXACT field names; a drifted field degrades the chart.",
+      "2. Choose the best `chartType` for the data: `line` · `area` · `bar` · `stacked_bar` · `grouped_bar` · `histogram` ·",
+      "   `pie` · `scatter` · `bubble` · `heatmap` · `treemap` · `sunburst` · `funnel` · `gauge` · `radar` · `waterfall`.",
+      "   Use the app's default green/red palette — do not pass per-series colours unless the user asks for specific ones.",
+      "3. Retrieve REAL data with your tools (JDdS, market data, portfolio, research) or use figures already present in the",
+      "   conversation. NEVER invent, estimate or smooth a value. If the data is unavailable, say so plainly and emit NO chart.",
+      "4. Put each line in `series[]` with a `name` and `data` (numbers; `[x, y]` pairs for scatter; `[x, y, value]` triples for",
+      "   bubble/heatmap). Use `categories` for the x-axis or the slice/label names, and set `unit`/`currency`/`xLabel`/`yLabel`/",
+      "   `source`/`asOf` whenever they are known so the chart is honest about where its numbers came from.",
+      "5. Wrap it in ONE ```eclipse-response fence as `{\"blocks\":[{\"type\":\"chart\", ...}]}` and keep prose to a short lead-in",
+      "   plus a sentence on what the chart shows. Do not repeat the chart's data as a list or table.",
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  },
 };
 
 /**

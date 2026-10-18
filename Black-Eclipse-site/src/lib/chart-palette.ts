@@ -23,7 +23,11 @@ export interface ChartPalette {
 
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
   candles: { up: "#7aff78", down: "#ff3e3e", neutral: "#94a3b8" },
-  lines: { primary: "#7aff78", series: ["#60a5fa", "#fbbf24", "#a78bfa", "#f472b6", "#2dd4bf", "#f97316"] },
+  // Finance default: green (up) / red (down). This is the shipped chart palette
+  // and is INDEPENDENT of the app theme — a theme edit never recolours charts.
+  // A user changes these only deliberately (Settings › Charts, or a preset that
+  // carries its own chart palette).
+  lines: { primary: "#7aff78", series: ["#ff3e3e", "#22c55e", "#f87171", "#4ade80", "#94a3b8", "#fb7185"] },
   heatmap: { up: "#22c55e", mid: "#27272a", down: "#b91c1c" },
 };
 

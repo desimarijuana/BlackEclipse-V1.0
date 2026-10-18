@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-16
+last-verified: 2026-10-17
 ---
 
 # Interactive Response Engine
@@ -167,7 +167,7 @@ renderer to keep in sync.
 | | `details` | collapsible; native `<details>` |
 | Data | `metric_grid` | KPI cards; `unavailable: true` renders an explicit chip |
 | | `data_table` | sort + filter + paginate + TSV copy (all local) |
-| Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, histogram, heatmap |
+| Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, bubble, histogram, heatmap, treemap, sunburst, funnel, gauge, radar, waterfall |
 | | `diagram` | flowchart, dependency, state — native SVG, read-only |
 | | `node_graph` | selectable node/edge graph — same layout engine; a node's `detail` shows on selection |
 | | `anatomy` | interactive isometric **mechanism figure**: a declarative scene (slab/cylinder `parts`, `wires`, `legend`, deterministic `stages`) compiled by the Anatomy-derived kit (`lib/anatomy/`, see its `NOTICE`). A stage's `readout` is the ONLY source of live text, so the animation can never invent a value. See ADR-047 and "Isometric mechanism figures" in §3. |
@@ -689,6 +689,19 @@ Charts are **smooth and consistent**: `chart-option.ts` sets `animation` with a
 `cubicOut` easing, smooth lines, `borderRadius` rounded bars, a translucent
 gradient under area series, soft dashed gridlines and theme-aware axis/legend
 ink (zrender cannot parse `oklch`, so ink is concrete `rgba`).
+
+A `chart` block covers **sixteen series styles** — the classic
+line/area/bar/stacked_bar/grouped_bar/pie/scatter/histogram/heatmap plus
+`bubble` (`[x, y, size]` triples), `treemap`, `sunburst`, `funnel`, `gauge`,
+`radar` and `waterfall`. A producer picks the style that fits the data; the
+renderer maps each to an ECharts option and never invents a point. Series
+colours come from the app's single source of truth
+(`DEFAULT_CHART_PALETTE`, `src/lib/chart-palette.ts`), which is **green/red by
+default** (finance up/down) and **decoupled from the theme** — applying or
+previewing a theme never recolours a chart. A user changes chart colours only
+deliberately (Settings › Charts, or a preset that carries its own
+`chartPalette`); a producer that genuinely needs colour sets it per series via
+`color`.
 
 The frosted **tooltip** recipe (translucent tint, `appendTo: 'body'`, 18px blur,
 rounded shadow) lives once in `baseChartOption()`; `mergeChartOption()` combines

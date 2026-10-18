@@ -126,6 +126,7 @@ src/components/
   journal/        trading journal UI
   market-workspace/  the multi-panel market grid UI
   workspace/      the customizable widget-grid UI
+  graph-studio/   the visual workflow editor (React Flow over the Workflow IR)
 ```
 
 Conventions: `'use client'` at the top of client files, **named exports**, and
@@ -438,6 +439,7 @@ The schema (`prisma/schema.prisma`) is organized in domains:
 | Data connectors | `DataConnector`, `CustomDataset`, `CustomDatasetField`, `CustomDatasetRecord`, `ConnectorMapping` |
 | Investor Eye | `Country`, `GeopoliticalEvent`, `EventEntity`, `Relationship`, `SourceRun` (`GeopoliticalEvent.category` distinguishes hazard sub-types via a nullable column — additive, no migration needed) |
 | Trading journal | `JournalProfile`, `TradingAccount`, `Strategy`, `StrategyRule`, `Setup`, `Tag`, `JournalDay`, `DailyReview`, `DailyEmotion`, `Trade`, `TradeExecution`, `TradeScreenshot`, `TradeAnnotation`, `TradeTag`, `MarketContext`, `JournalEntry`, `Review` |
+| Graph Studio | `Workflow`, `WorkflowVersion` (append-only versions of the canonical Eclipse Workflow IR — see `docs/graph-studio.md`), `WorkflowSchedule` (timezone-aware unattended runs; `nextRunAt` is precomputed so the 60 s tick is one indexed query) |
 
 Two design notes that matter:
 
@@ -1895,6 +1897,7 @@ violation and should be corrected before it lands.
 | **Shared infrastructure** | `src/lib/`, `src/hooks/`, `src/types/` | Pure logic, data access, domain modules, React hooks, shared types. Imported by both frontend and backend. |
 | **Backend** | `src/app/api/**/route.ts`, `src/app/api/**` handlers, `scripts/`, `prisma/` | Thin route handlers, background workers (`src/instrumentation.ts`), importers, schema/DB. |
 | **Harness** | `python/harness/` (runtime) + `src/lib/harness/` (front door) | The agent runtime (agents, tools, providers, loop, events, persistence) is Python; Next.js validates/resolves/proxies and serves the read-only JDdS bridge. The one `StateGraph` loop supports bounded, flag-gated replanning (`HARNESS_REPLAN_ENABLED`, `replan.py`, ADR-H122) on the same `tools → agent` edge — never a second loop. See below and `docs/harness/architecture.md`. |
+| **Native render worker** | `rust/fframes-worker/` + `python/harness/video/` (Phases 1–3) | The fframes video renderer: a Rust binary in its own process (CPU backend, pinned `fframes =1.2.0` + committed lockfile), driven by a queued Execution-Fabric job layer (`video` queue/worker-kind: projects, draft/final renders, a frame-inspection gate, cancel + lease recovery, Artifact Center registration on final) and exposed to the agent through the `video_*` tools + the bundled `system.video-production` skill. The chat artifact UI is Phase 7; see `docs/video-pipeline.md`. |
 
 **Rules that follow from this:**
 - A backend route may import from `src/lib/`, `src/hooks/`, `src/types/` — but

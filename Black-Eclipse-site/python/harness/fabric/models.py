@@ -180,6 +180,7 @@ class QueueName(str, Enum):
     EVENT = "event"
     MAINTENANCE = "maintenance"
     ML = "ml"
+    VIDEO = "video"
 
     @classmethod
     def from_value(cls, value: Any) -> "QueueName":
@@ -209,6 +210,7 @@ QUEUE_DEFAULTS: dict[QueueName, tuple[str, int]] = {
     QueueName.EVENT: ("agent", 4),
     QueueName.MAINTENANCE: ("database", 1),
     QueueName.ML: ("code", 1),
+    QueueName.VIDEO: ("code", 1),
 }
 
 
@@ -232,6 +234,7 @@ class WorkerKind(str, Enum):
     AUTOMATION = "automation"
     EVENT = "event"
     ML = "ml"
+    VIDEO = "video"
 
 
 class WorkerStatus(str, Enum):

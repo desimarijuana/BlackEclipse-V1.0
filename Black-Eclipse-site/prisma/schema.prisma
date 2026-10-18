@@ -1074,3 +1074,79 @@ model ThesisRevision {
   @@unique([thesisId, version])
   @@index([thesisId])
 }
+
+// ─── Graph Studio — visual workflow documents ───────────────────────────────
+// The visual graph-engineering studio's persisted documents. This is the
+// AUTHORING/CONTAINER layer (name, tags, ownership) over the canonical Eclipse
+// Workflow IR. A `Workflow` is a named container; `WorkflowVersion` stores an
+// IMMUTABLE snapshot of the canonical IR as JSON. Versions are append-only, so
+// a version that was opened or (later) deployed is never silently rewritten —
+// editing always produces the next version. The IR is validated in the editor
+// and re-validated server-side before a version is written.
+//
+// Deliberately separate from the Python runtime's `WorkflowDefinition` table
+// (agent-memory.db), which persists the step-plan `Workflow` model used by the
+// orchestration engine. These are the graph documents a human draws; that is
+// the compiled plan the runtime runs.
+model Workflow {
+  id             String   @id @default(cuid())
+  name           String
+  description    String   @default("")
+  tags           String   @default("[]") // JSON: string[]
+  owner          String   @default("guest")
+  currentVersion Int      @default(0)
+  archived       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  versions  WorkflowVersion[]
+  schedules WorkflowSchedule[]
+
+  @@index([owner, updatedAt])
+  @@index([archived])
+}
+
+// A timezone-aware schedule that starts a workflow's run unattended.
+// `nextRunAt` is precomputed so a tick is a single indexed query, and the
+// record keeps the LAST outcome so a broken schedule is visible rather than
+// silently retrying forever. `catchUp` decides what happens when the app was
+// closed across one or more fire times: `skip` resumes at the next future
+// occurrence; `coalesce` runs once immediately.
+model WorkflowSchedule {
+  id         String   @id @default(cuid())
+  workflowId String
+  name       String
+  cron       String
+  timezone   String   @default("UTC")
+  enabled    Boolean  @default(true)
+  catchUp    String   @default("skip") // skip | coalesce
+  version    Int? // pinned workflow version; null = whatever is current
+  lastRunAt  DateTime?
+  lastRunId  String?
+  lastStatus String?
+  lastError  String?
+  nextRunAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, nextRunAt])
+  @@index([workflowId])
+}
+
+// One immutable snapshot of a workflow's canonical IR.
+model WorkflowVersion {
+  id          String   @id @default(cuid())
+  workflowId  String
+  version     Int
+  ir          String // JSON: canonical Eclipse Workflow IR
+  contentHash String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, version])
+  @@index([workflowId, createdAt])
+}

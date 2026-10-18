@@ -106,6 +106,10 @@ DEFAULT_POLICIES: dict[str, ExecutionPolicy] = {
     "ml": ExecutionPolicy(mode=ExecutionMode.BACKGROUND, queue=QueueName.ML.value,
                           worker_kind=WorkerKind.ML.value, priority=JobPriority.RESEARCH.weight,
                           timeout_ms=1_860_000, max_attempts=1, resources={"code": 1}),
+    "video": ExecutionPolicy(mode=ExecutionMode.BACKGROUND, queue=QueueName.VIDEO.value,
+                             worker_kind=WorkerKind.VIDEO.value, priority=JobPriority.RESEARCH.weight,
+                             timeout_ms=1_800_000, max_attempts=2, backoff_ms=2000,
+                             resources={"code": 1}),
 }
 
 
