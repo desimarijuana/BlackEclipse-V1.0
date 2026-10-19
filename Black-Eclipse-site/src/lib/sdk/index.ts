@@ -35,6 +35,12 @@ export interface SdkCapabilities {
     componentPrefix?: string;
   };
   pages: { canCreate: boolean; canCompose?: boolean; routing?: string };
+  dashboards?: {
+    available: boolean;
+    canMutate: boolean;
+    count?: number;
+    activeDashboardId?: string | null;
+  };
   portfolio: {
     available: boolean;
     canAddStock: boolean;
@@ -64,11 +70,13 @@ export type SdkWidgetPrimitive =
   | 'area-chart'
   | 'bar-chart'
   | 'pie-chart'
+  | 'clock'
   | 'list'
   | 'markdown'
   | 'status-indicator'
   | 'empty-state'
-  | 'error-state';
+  | 'error-state'
+  | 'clock';
 
 export interface SdkWidgetRecord {
   id: string;
@@ -80,6 +88,7 @@ export interface SdkWidgetRecord {
   category: string;
   primitive: SdkWidgetPrimitive;
   source?: string | null;
+  surface?: 'dashboard' | 'page' | 'both';
   config: Record<string, unknown>;
   sizes: string[];
   createdAt: string;
@@ -94,6 +103,7 @@ export interface SdkWidgetInput {
   category?: string;
   primitive?: SdkWidgetPrimitive;
   source?: string;
+  surface?: 'dashboard' | 'page' | 'both';
   config?: Record<string, unknown>;
   sizes?: string[];
 }
@@ -157,7 +167,7 @@ export interface SdkAddStockInput {
 
 export interface SdkLock {
   id: string;
-  resourceType: 'page' | 'widget' | 'portfolio' | 'design';
+  resourceType: 'page' | 'widget' | 'portfolio' | 'design' | 'dashboard' | 'theme';
   resourceId: string;
   label?: string | null;
   hint?: string | null;
@@ -172,6 +182,51 @@ export interface SdkCreateLockInput {
   passphrase: string;
   label?: string;
   hint?: string;
+}
+
+export interface SdkDashboardSummary {
+  dashboardId: string;
+  blueprintId: string;
+  title: string;
+  path: string;
+  revision: number;
+  updatedAt: string;
+  widgetCount: number;
+  componentIds: string[];
+}
+
+export interface SdkDashboardTarget {
+  sectionId: string;
+  columnId?: string;
+  index?: number;
+  columnIndex?: number;
+}
+
+export interface SdkWorkspaceLayout {
+  version?: number;
+  sections?: unknown[];
+  hiddenZones?: string[];
+  zoneWidths?: Record<string, number>;
+  [key: string]: unknown;
+}
+
+export interface SdkDashboardSnapshot {
+  success?: boolean;
+  dashboard: SdkDashboardSummary;
+  blueprint: Record<string, unknown>;
+  revision: number;
+  layout: SdkWorkspaceLayout;
+  activeDashboardId?: string | null;
+}
+
+export interface SdkDashboardAddWidgetInput {
+  componentId: string;
+  instanceId?: string;
+  config?: Record<string, unknown>;
+  target?: SdkDashboardTarget;
+  zone?: 'left' | 'main' | 'right';
+  height?: number;
+  expectedRevision?: number;
 }
 
 export interface SdkDesignState {
@@ -308,6 +363,76 @@ export const eclipseSdk = {
       return request<{ removed: boolean }>(`/pages/${encodeURIComponent(blueprintId)}`, { method: 'DELETE' });
     },
     open: openPage,
+  },
+
+  dashboards: {
+    list() {
+      return request<{ dashboards: SdkDashboardSummary[]; activeDashboardId?: string | null }>('/dashboards');
+    },
+    active() {
+      return request<SdkDashboardSnapshot>('/dashboards/active');
+    },
+    get(dashboardId: string) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}`);
+    },
+    setActive(dashboardId: string) {
+      return request<{ activeDashboardId: string }>('/dashboards/active', {
+        method: 'PUT',
+        body: JSON.stringify({ dashboardId }),
+      });
+    },
+    addWidget(dashboardId: string, input: SdkDashboardAddWidgetInput) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/widgets`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+    },
+    removeWidget(dashboardId: string, instanceId: string, expectedRevision?: number) {
+      const qs = expectedRevision === undefined ? '' : `?expectedRevision=${expectedRevision}`;
+      return request<SdkDashboardSnapshot>(
+        `/dashboards/${encodeURIComponent(dashboardId)}/widgets/${encodeURIComponent(instanceId)}${qs}`,
+        { method: 'DELETE' },
+      );
+    },
+    moveWidget(dashboardId: string, instanceId: string, target: SdkDashboardTarget, expectedRevision?: number) {
+      return request<SdkDashboardSnapshot>(
+        `/dashboards/${encodeURIComponent(dashboardId)}/widgets/${encodeURIComponent(instanceId)}/move`,
+        { method: 'POST', body: JSON.stringify({ instanceId, target, expectedRevision }) },
+      );
+    },
+    resizeWidget(dashboardId: string, instanceId: string, height: number | null, expectedRevision?: number) {
+      return request<SdkDashboardSnapshot>(
+        `/dashboards/${encodeURIComponent(dashboardId)}/widgets/${encodeURIComponent(instanceId)}/resize`,
+        { method: 'POST', body: JSON.stringify({ instanceId, height, expectedRevision }) },
+      );
+    },
+    setColumns(dashboardId: string, sectionId: string, count: number, expectedRevision?: number) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/columns`, {
+        method: 'PUT',
+        body: JSON.stringify({ sectionId, count, expectedRevision }),
+      });
+    },
+    setZones(dashboardId: string, input: { hiddenZones?: string[]; zoneWidths?: Record<string, number>; expectedRevision?: number }) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/zones`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      });
+    },
+    setLayout(dashboardId: string, layout: SdkWorkspaceLayout, expectedRevision?: number) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/layout`, {
+        method: 'PUT',
+        body: JSON.stringify({ layout, expectedRevision }),
+      });
+    },
+    history(dashboardId: string) {
+      return request<{ blueprintId: string; revisions: unknown[] }>(`/dashboards/${encodeURIComponent(dashboardId)}/history`);
+    },
+    restore(dashboardId: string, revision: number) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ revision }),
+      });
+    },
   },
 
   portfolio: {

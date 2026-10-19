@@ -297,6 +297,23 @@ def test_verify_page_reports_renderable_widgets_and_sources(ui):
     assert flagged["sourceValid"] is False
     assert flagged["sourceReason"]
 
+    # A BARE token is not a source family. `ui_verify_page` must not call a page
+    # renderable just because the component id resolves.
+    ui.update_widget_config(UpdateConfigInput(
+        blueprint_id=page_id, instance_id="t1", patch={"source": "rates"},
+    ))
+    bare = ui.verify_page(page_id)
+    assert bare["renderable"] is False
+    assert next(i for i in bare["instances"] if i["instanceId"] == "t1")["sourceValid"] is False
+
+    _add(ui, page_id, "metric-card", "m2")
+    ui.update_widget_config(UpdateConfigInput(
+        blueprint_id=page_id, instance_id="m2", patch={"metric": "us10y"},
+    ))
+    metric_bad = ui.verify_page(page_id)
+    assert metric_bad["renderable"] is False
+    assert next(i for i in metric_bad["instances"] if i["instanceId"] == "m2")["sourceValid"] is False
+
 
 def test_data_source_registry_documents_portfolio_sources(ui):
     registry = ui.list_data_sources()["portfolio"]

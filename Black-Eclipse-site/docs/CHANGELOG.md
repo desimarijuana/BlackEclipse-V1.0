@@ -8,6 +8,39 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-19
 
+- **feat(sdk): the Command Center becomes a typed SDK surface, starting with a live clock.**
+  Added `src/lib/workspace/widget-registry.ts` + `use-widgets.ts`
+  (order-preserving, surface-aware) and a real `clock` widget/primitive (host
+  renderer, Python catalog spec, SDK primitive, invalid-timezone `UNAVAILABLE`).
+  `DashboardScreen` and `PagesScreen` consume the registry; the dashboard listens
+  to `/api/ui/stream` (with a poll fallback) and records its active id in
+  `SdkMeta`. Added `python/harness/sdk/dashboards.py` + `/sdk/dashboards/*`
+  (list/active/get/add/move/resize/columns/zones/history/restore),
+  `python/harness/sdk/tools.py` (`SDK_TOOLS` on the standard agent),
+  `eclipseSdk.dashboards`, `dashboard`/`theme` lock resource types, and an
+  `app_control` chat intent so "add a clock to my Command Center" routes to the
+  SDK instead of code. Dashboard mirrors at `/dashboard/<id>` are the durable
+  layout; `localStorage` is a cache. Tests:
+  `python/tests/test_sdk_dashboards.py`, `test_code_request_intent.py`,
+  `test_sdk_service.py`, `test_ui_service.py`,
+  `src/lib/workspace/widget-registry.test.ts`,
+  `src/lib/dashboard/clock-widget.test.tsx`. Docs updated:
+  `docs/eclipse-sdk.md`, `docs/ui-engineering.md`, `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`.
+
+- **feat(harness): managed Python package environment for the analysis sandbox (Sprint 3).**
+  Added `python/harness/python_env/` (`paths.py` = managed target, lock,
+  installed modules; `provisioner.py` = bounded pip install/remove;
+  `authorizers.py` = single-use `python_env_install`/`python_env_remove`
+  approvals; `tools.py` = the four tools). `code/execution.py` adds the managed
+  target to the runner's `sys.path` and the lock's modules to the import
+  allowlist; `code/policy.py` and `code/authorizers.py` wire the write tools and
+  approval gate. `analysis_run` can now import approved packages without
+  modifying the vendored interpreter. Tests:
+  `python/tests/test_python_env.py`. Docs: `docs/harness/python-env.md` (new),
+  `NAVIGATION.md`; ADR-H229. The local tier does not OS-isolate sockets inside
+  an approved package; hard isolation requires the container tier.
+
 - **style(sidebar): remove the filled backgrounds from the chat-history icon toggle and sort select.**
   The date/folders toggle now shows bare icons (active state is text color only)
   and the sort control is transparent, so both read flat 2D like the search row.
@@ -17,6 +50,65 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Removed the raised bevel/drop shadow so the frosted search surface reads as
   flat 2D, and reduced its padding, radius, icon and text size.
   `no doc change — style-only tweak; no contract or architecture impact`.
+
+- **feat(harness): the analysis sandbox is on by default for chat turns (Phase 2).**
+  `startChatRun` and `chatWithAgent` now send `analysisEnabled: true` on every
+  chat turn; a code profile may still narrow the tool surface but no longer
+  turns computation off. Headless `startRun` callers keep the runtime's opt-in
+  default. This closes the `not_code` refusal path for ordinary computation
+  requests (e.g. "compute the Ulcer Index"). Tests:
+  `src/lib/harness/run-service.test.ts`; ADR-H228.
+
+- **feat(harness): `eclipse_report` — real PDF/Word/Excel reports from computed results.**
+  Added `python/harness/documents/reporting.py` (paginated PDF via the vendored
+  Matplotlib PDF backend, plus `build_report` over the existing authoring
+  builders) and `documents/report_tools.py` (`eclipse_report`), registered on the
+  ONE registry and saved through `ArtifactService.register_bytes`.
+  `DOCUMENT_TOOLS` and `CHAT_CODE_TOOLS` expose it; `response-model.ts` adds the
+  tool label. Tests: `python/tests/test_reports.py` (PDF bytes, docx/xlsx,
+  artifact registration, empty/unsupported refusals). Docs:
+  `docs/harness/reports.md` (new), `NAVIGATION.md`.
+
+- **feat(ui,harness): cap the generated-capability loop in chat and Capability Studio.**
+  The runtime now emits full `capability.*` lifecycle views
+  (`capability.requested` / `built` / `activated` / `verification_failed` /
+  `disabled` / `retired`). New `src/lib/harness/capability-types.ts` coerces and
+  merges them; `src/components/chat/capability-card.tsx` renders the need,
+  surface, version, test counts, failed checks, exact stderr and activation
+  state, persisted on `Message.capabilityBuild`. New
+  `src/components/screens/capability-studio/generated-section.tsx` lists the
+  same durable records with version/usage/test status and operator
+  activate/deactivate/rollback/retire actions. Backend
+  `python/harness/routers/capabilities.py` adds read routes +
+  `require_operator` mutations; `CapabilityStore.usage` and
+  `builder.deactivate` support them. Front door
+  `src/app/api/capabilities/[[...path]]/route.ts` + `src/lib/harness/capabilities-client.ts`.
+  Tests: `python/tests/test_capabilities_api.py`,
+  `src/components/chat/capability-card.test.tsx`,
+  `src/lib/harness/capability-types.test.ts`, updated Capability Studio tests.
+  Docs: `docs/harness/capability-builder.md`, `NAVIGATION.md`,
+  `capability-extension-plan.md`, `self-evolution-roadmap.md`, ADR-H226.
+
+- **feat(harness): Capability Builder — construct a tested recipe instead of refusing.**
+  Added `python/harness/capabilities/` (`manifest.py` = validated
+  `CapabilityManifest`/`CapabilityPort`; `request.py` = deterministic
+  one-off/reusable/effectful classification plus witness search over static
+  recipes, active generated capabilities and the live tool registry;
+  `verifier.py` = AST/import/path checks + contract-test execution through the
+  existing analysis sandbox; `builder.py` = versioned draft write, verification,
+  pure-workspace auto-activation, rollback/retire; `registry.py` = dynamic
+  recipe loading; `store.py` = `CapabilityRequest`/`CapabilityRecord`/
+  `CapabilityUsage` on `agent-memory.db`; `tools.py` = the six `capability_*`
+  tools). `code/recipes.py` gained the dynamic recipe registry;
+  `analysis_tools.py` refreshes generated recipes and records usage with
+  auto-disable after three failures; `recovery/discovery.py` indexes active
+  generated capabilities; `agents.py` exposes the tools on the finance, code and
+  chat-code surfaces; `prompts.py` documents construct-don't-refuse. Tests:
+  `python/tests/test_capabilities_{manifest,request,builder,tools}.py` (32).
+  Docs: `docs/harness/capability-builder.md` (new), `NAVIGATION.md`,
+  `capability-extension-plan.md` Phase F, `self-evolution-roadmap.md` W9,
+  `docs/harness/decisions.md` ADR-H225. Deferred: effectful builders, chat
+  card/Settings UI, `eclipse_tools` RPC, automatic durable-task retry.
 
 - **feat(sdk): Eclipse SDK — one user-facing composition and control surface.**
   Added `python/harness/sdk/` (`model.py` contracts + closed widget primitives;
@@ -34,6 +126,45 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_sdk_{service,api}.py`, `src/lib/sdk/design.test.ts`. Docs:
   `docs/eclipse-sdk.md` (new), `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
 
+- **feat(portfolio): funds-only UI and data model.** Removed the Ledger tab and
+  `portfolio-ledger.tsx`; the Portfolio screen is now one engine-backed Fund
+  Manager/Workspace (`src/lib/portfolio/engine-funds.ts`). Every portfolio is a
+  fund: `portfolio_create` forces `kind='fund'`, existing rows are migrated in
+  place on store open, and a new `PATCH /portfolio/{id}` merges fund metadata
+  (name/goal/icon/accent). The legacy localStorage book is migrated once, then
+  all fund reads/writes go through the engine. Docs:
+  `docs/portfolio-accounting.md`, `docs/eclipse-sdk.md`, `docs/NAVIGATION.md`.
+
+- **fix(portfolio): chat-created portfolios are funds by default.** The agent's
+  `portfolio_create` tool now writes `kind='fund'` (optional goal/icon/accent
+  metadata) and only uses `kind='portfolio'` when explicitly asked for a
+  ledger-only bucket; `portfolio_get`/`portfolio_list` report the kind. The SDK's
+  `portfolio.createFund` already wrote this shape. Same `Portfolio` row and
+  transaction ledger - no second book. Docs: `docs/portfolio-accounting.md`,
+  `docs/eclipse-sdk.md`.
+
+- **fix(ui): hide Command Center mirror blueprints from Pages/nav.** The runtime
+  page list (`UiService.list_blueprints`), the agent's `ui_list_blueprints`, the
+  Pages list, the sidebar and `eclipseSdk.pages.list()` now exclude
+  `/dashboard/dash-*` blueprints (the auto-mirrored board snapshots), so only
+  user/agent-authored pages remain in navigation; mirrors stay resolvable by id.
+  The "Rates Desk" test page was deleted from the runtime store. Docs:
+  `docs/ui-engineering.md`, `docs/eclipse-sdk.md`.
+
+- **fix(ui): `ui_verify_page` validates bare source strings.** Previously only
+  sources containing ":" were checked, so `source="rates"` or `metric="us10y"`
+  passed the read-back while rendering no data. Every declared source is now
+  validated against the closed family grammar (with the `portfolioId` shorthand
+  checked first), and a bare token is reported as an invalid binding. Docs:
+  `docs/ui-engineering.md`.
+
+- **fix(ui): saved pages live in the main navigation.** Removed the separate
+  "SDK pages" sidebar panel; `SavedPagesNav` now renders every saved
+  blueprint/page as a normal nav entry (`?tab=pages&page=<id>`, Ctrl/Cmd-click
+  aware) and refreshes from `/api/ui/stream`, so a page the agent creates appears
+  without a reload. `window.eclipseSdk` is exposed from the app shell instead of
+  that panel. Docs: `docs/ui-engineering.md`, `docs/eclipse-sdk.md`.
+
 - **test(python): isolate memory databases for the pytest run.** The runner now
   sets both `AGENT_MEMORY_DB_PATH` and `ECLIPSE_MEMORY_DB_PATH` to per-run temp
   files, matching the documented contract in `harness/eclipse_memory/config.py`.
@@ -43,7 +174,87 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   store rather than opening a second connection. Test-only change — no doc
   change.
 
+- **feat(harness): RSL R6 — adopted lessons and deterministic scoped retrieval.**
+  Added migration 31 with four additive `LearningCandidate` columns (`cue`,
+  `adoptedArtifactType`, `adoptedArtifactId`, `validationRunId`); the migration
+  runner now skips an `ALTER TABLE ... ADD COLUMN` whose column already exists,
+  so a partially applied/copied store opens without a duplicate-column failure.
+  New `self_improvement/lessons.py`: `distill_lesson` requires cue + lesson +
+  evidence, discards a non-adopted decision, runs the verdict tripwire over the
+  stored text (a leak is a hard error), dedupes by cue+lesson signature, and
+  records the adopted artifact + validation run. `prompt_segments.py` gained the
+  run-frozen `lesson_manifest` segment and `build_lesson_manifest` (hard max 3
+  lessons / 800 chars). `graph_context._lesson_manifest_context` retrieves only
+  adopted lessons whose cue/scope match and whose validation run is `completed`,
+  injects a labelled non-authoritative block, and emits the new
+  `prompt.lesson_injected` event with lesson ids + origin/validation/artifact
+  refs. Tests `python/tests/test_rsl_lessons.py` (15). Docs:
+  `docs/self-improvement/rsl-implementation-plan.md`,
+  `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H223), `docs/CHANGELOG.md`.
+
+- **feat(harness): RSL R7 — bounded recursive candidates, anonymous selection and conservative composition.**
+  Added `proposer.propose_many` (up to `HARNESS_RSL_K` typed `invariant`/`domain`
+  candidates from one observation; operator/agent-supplied ops only, each
+  validated through the frozen denylist + `propose_ops`, no model proposer).
+  New `self_improvement/selection.py` (seeded anonymous labels, drop-with-cause,
+  neutral base fallback, trivial `k=1`, verdict-guarded selection record),
+  `composition.py` (verified-only merge with a path-conflict rule; a MEASURED
+  gain only when composed beats the best single, else honest `no_gain`), and
+  `recursion.py` (`budgeted_k`, per-candidate verification, contrast bundle +
+  verdict guard, one recorded `EvaluationRun`). `RSLLoop.run_recursive` uses the
+  loop's configured `k`, stores, actor and daily budget. `k=1` stays the
+  default; nothing activates. Tests `python/tests/test_rsl_recursion.py` (15).
+  Docs: `docs/self-improvement/rsl-implementation-plan.md`,
+  `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H224), `docs/CHANGELOG.md`.
+
+- **feat(harness): RSL R8 — measured metrics, offline release gate and rollout docs.**
+  Extended `evaluation/repair_metrics.py` with the completed-RSL-run block
+  (`rsl_experiments`, `rsl_accepted`, `rsl_rejected`, `rsl_unmeasured`,
+  `regression_rate`); UNMEASURED runs are their own bucket and a measured run
+  that is not accepted is rejected, so the four counts partition the completed
+  experiments. `code/evolution.archive_metrics` and `GET /recovery/metrics` merge
+  the block from the real stores (missing sources stay `None`/`UNKNOWN`), and
+  `verify_surface` now persists the evaluator's decision so no metric has to
+  infer acceptance. Added the deterministic offline `self_improvement/gate.py`
+  (scripted `k=2` propose→verify→select→compose→record) and wired it into
+  `scripts/test-evals.js` as the `rsl` gate. Added `test_rsl_gate.py` and RSL
+  metric tests; updated `test_evaluation_repair_metrics.py`/`test_rsl_verifier.py`.
+  Docs: `docs/self-improvement/rsl-implementation-plan.md` (R0–R8 implemented;
+  rollout/flip checklist), `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
+  `docs/CHANGELOG.md`.
+
 ## 2026-10-18
+
+- **feat(app,harness): RSL R5 — operator evidence and prepare-landing surface.**
+  Added operator-gated `GET /evolution/experiments`,
+  `GET /evolution/experiments/{runId}` (identity + metrics + bounded trial
+  scores), `GET /evolution/candidates/{id}/evidence` (candidate + attempts +
+  linked RSL experiments) and `POST /evolution/candidates/{id}/prepare-landing`
+  (returns the existing promotion preview and route; never applies). Added
+  `EvaluationStore.list_metrics`, the typed `evolution-client.ts` experiment/
+  evidence/landing contracts, `evolution-browser.ts` for the client panel, the
+  Next.js `/api/evolution/experiments*` + candidate `evidence`/`prepare-landing`
+  proxies, and `rsl-experiments-panel.tsx` embedded in the learning journey.
+  The panel shows the honest MEASURED/UNMEASURED badge, tests result, decision
+  and target, and offers "Prepare landing" only for a tests-passed code
+  experiment; the existing single-use promotion approval remains the only write
+  path. The existing `/activate`/`/rollback` routes stay skill-only. Files:
+  `python/harness/routers/evolution.py`, `python/harness/evaluation/store.py`
+  (`list_metrics`), `src/lib/harness/{evolution-client,evolution-browser}.ts`,
+  `src/app/api/evolution/experiments/**`,
+  `src/app/api/evolution/candidates/[id]/{evidence,prepare-landing}/route.ts`,
+  `src/components/screens/skills/rsl-experiments-panel.tsx`,
+  `src/lib/i18n/dictionaries/en.ts`,
+  `python/tests/test_evolution_rsl_routes.py`,
+  `src/components/screens/skills/rsl-experiments-panel.test.tsx`. Checks: 4
+  route tests + 4 panel tests pass; 25 targeted RSL/evaluation Python tests
+  pass; full vitest 3554 passed; `npx tsc --noEmit` clean (the line-ending guard
+  required normalizing `docs/harness/decisions.md` to LF after the ADR edit).
+  Docs: `docs/harness/decisions.md` (ADR-H217 consequences),
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
 
 - **feat(harness): RSL R4 — bounded conductor with honest code/surface verification.**
   Added `self_improvement/loop.py` (`RSLLoop`: one bounded asyncio task beside
@@ -66,7 +277,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (new), `python/harness/code/evolution_store.py`, `python/harness/boot.py`,
   `python/harness/event_system/registry.py`,
   `python/tests/test_rsl_{loop,landing,verifier}.py` (new). Checks: 79 RSL
-  tests pass; eval gates ALL PASS (53 tasks); `npx tsc --noEmit` clean. Docs:
+  tests pass; eval gates ALL PASS (53 tasks); `npx tsc --noEmit` clean; vitest
+  3550 passed. The full `npm run test` was aborted by the operator at 91% with
+  no failures observed; the remaining 568 Python tests passed separately. Docs:
   `docs/harness/decisions.md` (ADR-H217 consequences),
   `docs/harness/agent-evaluation.md`, `docs/harness/architecture.md`,
   `docs/NAVIGATION.md`, `docs/self-improvement/rsl-implementation-plan.md`.

@@ -13,7 +13,9 @@ import {
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
-import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';
+import { DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';
+import { useWidgets } from '@/lib/workspace/use-widgets';
+import { eclipseSdk } from '@/lib/sdk';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
 import { getDefaultBoard } from '@/lib/dashboard/default-board';
 import { useMarketViews } from '@/lib/dashboard/market-views';
@@ -34,6 +36,7 @@ import { MarketTabs } from './market-tabs';
 export function DashboardScreen() {
   const dashboards = useDashboards();
   const markets = useMarketViews();
+  const widgets = useWidgets({ surface: 'dashboard' });
   const isMobile = useIsMobile();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [watchlistOpen, setWatchlistOpen] = useState(true);
@@ -78,6 +81,19 @@ export function DashboardScreen() {
     const baseKey = dashboards.active?.storageKey ?? 'be_ws_dashboard_none';
     return `${baseKey}__m_${layoutId}`;
   }, [dashboards.active?.storageKey, layoutId]);
+
+  const knownWidgetIds = useMemo(() => {
+    const ids = new Set<string>([...DASHBOARD_WIDGET_IDS, ...widgets.map((widget) => widget.id)]);
+    const local = loadWorkspace(storageKey, defaultLayout);
+    if (!local.corrupt) {
+      for (const section of local.layout.sections) {
+        for (const column of section.columns) {
+          for (const widget of column.widgets) ids.add(widget.widgetId);
+        }
+      }
+    }
+    return [...ids];
+  }, [storageKey, defaultLayout, widgets]);
 
   // First-run onboarding.
   const [onboarded, setOnboarded] = useState<boolean>(() => isOnboarded());
@@ -125,27 +141,52 @@ export function DashboardScreen() {
   useEffect(() => {
     if (!activeDashboardId || typeof window === 'undefined') return;
     let cancelled = false;
+    let inFlight = false;
     const poll = async () => {
-      const snapshot = await fetchDashboardLayout(activeDashboardId);
-      if (cancelled || !snapshot) return;
-      const seen = syncSeen.current.get(activeDashboardId) ?? 0;
-      if (snapshot.revision <= seen) return;
-      syncSeen.current.set(activeDashboardId, snapshot.revision);
-      if (isOwnPublish(activeDashboardId, snapshot.revision)) return;
-      const local = loadWorkspace(storageKey, defaultLayout);
-      if (!local.corrupt && stableLayoutKey(local.layout) === stableLayoutKey(snapshot.layout)) {
-        return; // identical arrangement — never remount for nothing
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const snapshot = await fetchDashboardLayout(activeDashboardId);
+        if (cancelled || !snapshot) return;
+        const seen = syncSeen.current.get(activeDashboardId) ?? 0;
+        if (snapshot.revision <= seen) return;
+        syncSeen.current.set(activeDashboardId, snapshot.revision);
+        if (isOwnPublish(activeDashboardId, snapshot.revision)) return;
+        const local = loadWorkspace(storageKey, defaultLayout);
+        if (!local.corrupt && stableLayoutKey(local.layout) === stableLayoutKey(snapshot.layout)) {
+          return;
+        }
+        saveWorkspace(storageKey, snapshot.layout);
+        setRemoteRevision((value) => value + 1);
+      } finally {
+        inFlight = false;
       }
-      saveWorkspace(storageKey, snapshot.layout);
-      setRemoteRevision((value) => value + 1);
     };
     void poll();
-    const timer = setInterval(() => void poll(), 20_000);
+
+    let source: EventSource | null = null;
+    let fallback: ReturnType<typeof setInterval> | null = null;
+    const startFallback = () => {
+      if (!fallback) fallback = setInterval(() => void poll(), 60_000);
+    };
+    try {
+      source = new EventSource('/api/ui/stream');
+      source.addEventListener('changed', () => void poll());
+      source.addEventListener('error', startFallback);
+    } catch {
+      startFallback();
+    }
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      source?.close();
+      if (fallback) clearInterval(fallback);
     };
   }, [activeDashboardId, storageKey, defaultLayout]);
+
+  useEffect(() => {
+    if (!dashboards.loaded || !dashboards.activeId) return;
+    void eclipseSdk.dashboards.setActive(dashboards.activeId).catch(() => {});
+  }, [dashboards.loaded, dashboards.activeId]);
 
   usePageShortcuts(rootRef, [
     { id: 'dashboard-new', label: 'New dashboard', keys: 'shift+d', run: createDashboard, enabled: dashboards.loaded && !showOnboarding },
@@ -175,7 +216,8 @@ export function DashboardScreen() {
       key={`${storageKey}:${remoteRevision}`}
       storageKey={storageKey}
       defaultLayout={defaultLayout}
-      widgets={DASHBOARD_WIDGETS}
+      widgets={widgets}
+      knownWidgetIds={knownWidgetIds}
       widgetIcon={widgetIcon}
       renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
       onLayoutChange={handleLayoutChange}

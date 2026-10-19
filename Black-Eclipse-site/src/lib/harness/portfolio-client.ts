@@ -21,6 +21,9 @@ export interface PortfolioSummary {
   description: string | null;
   costBasisMethod: CostBasisMethod;
   status: string;
+  /** Every user-facing portfolio is a fund; legacy rows are migrated on open. */
+  kind?: 'fund' | 'portfolio' | string;
+  metadata?: Record<string, unknown> | string;
   createdAt: string;
   updatedAt: string;
 }

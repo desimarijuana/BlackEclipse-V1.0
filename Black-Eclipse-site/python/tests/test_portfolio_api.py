@@ -32,6 +32,24 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
+def test_create_is_a_fund_and_update_patches_metadata(client):
+    created = client.post("/portfolio/create", json={
+        "name": "Fund", "base_currency": "USD", "kind": "portfolio",
+        "metadata": {"icon": "Rocket", "goal": 100},
+    })
+    assert created.status_code == 200, created.text
+    record = created.json()
+    assert record["kind"] == "fund"
+
+    patched = client.patch(f"/portfolio/{record['id']}", json={
+        "name": "Renamed", "metadata": {"goal": 250},
+    })
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["name"] == "Renamed"
+    assert body["kind"] == "fund"
+
+
 def test_create_add_query_roundtrip(client):
     created = client.post("/portfolio/create", json={"name": "API", "base_currency": "USD"})
     assert created.status_code == 200

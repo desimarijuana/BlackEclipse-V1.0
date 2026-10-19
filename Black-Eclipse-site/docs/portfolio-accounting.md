@@ -1,7 +1,7 @@
 ---
 title: Portfolio Accounting Engine
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-19
 ---
 
 # Portfolio Accounting Engine
@@ -29,8 +29,9 @@ Transactions ──▶ Tax lots ──▶ Positions ──▶ Valuation ──�
   `ToolRegistry`).
 - **HTTP:** `python/harness/routers/portfolio.py` (`/portfolio/*`, operator-gated).
 - **Front door:** `src/lib/harness/portfolio-client.ts`,
-  `src/app/api/portfolio/[[...path]]/route.ts`,
-  `src/components/screens/portfolio/portfolio-ledger.tsx`.
+  `src/app/api/portfolio/[[...path]]/route.ts`, the engine-backed fund adapter
+  `src/lib/portfolio/engine-funds.ts`, and the Funds screens
+  `src/components/screens/portfolio/{index,fund-manager,fund-workspace}.tsx`.
 - **Tests:** `python/tests/test_portfolio_*.py`.
 
 ## Source of truth
@@ -45,15 +46,21 @@ Positions are **derived**. `TaxLot` and `TaxLotMatch` rows are rebuilt from the
 ledger whenever a mutation touches a symbol and are never edited directly. They
 exist for audit and tax queries.
 
-**One source of truth for the UI.** The Portfolio screen previously had TWO books:
-the default view read a `localStorage` fund ledger while the Ledger view read
-this engine, so "what are my holdings" had two answers. `migrate-to-engine.ts`
-now mirrors the legacy book into the engine once (idempotent, with a
-`fund.id → portfolioId` map and a rollback-safe flag), and the screen prefers the
-engine view once it holds data. The engine is authoritative; there is no second
-book.
+**One source of truth for the UI, and it is funds-only.** The Portfolio screen
+has ONE book: the engine, presented as Funds. The legacy `localStorage` fund book
+is migrated once (`migrate-to-engine.ts`, idempotent, `fund.id → portfolioId`
+map), then the Funds screen reads and mutates the engine through
+`engine-funds.ts`. There is no second book and no separate Ledger view/tab.
 
-### Surfacing a portfolio on a UI page (Ledger widgets)
+**There is only one portfolio type: a fund.** `portfolio_create` always creates
+`kind='fund'` with optional `goal`/`icon`/`accent` metadata; the old
+`kind='portfolio'` option was removed, and existing rows are migrated in place
+(`UPDATE Portfolio SET kind='fund'` on store open) with no data loss. The
+transaction ledger remains the fund's accounting substrate - it is not a
+user-facing "ledger portfolio". Fund metadata is updated with
+`PATCH /portfolio/{id}`; the SDK's `portfolio.createFund` writes the same shape.
+
+### Surfacing a fund on a UI page (widgets)
 
 A page widget reads a portfolio through the UI runtime's data-source string, not
 by triggering the one-shot migration. The exact, parseable form is:

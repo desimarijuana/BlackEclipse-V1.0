@@ -28,6 +28,7 @@ from .team.tools import TEAM_TOOLS
 # The UI Engineering tools (`ui_*`). Registered by `ui/bootstrap.py` on the SAME
 # registry; imported here as the ONE canonical list so the allowlist cannot drift.
 from .ui.tools import UI_TOOLS
+from .sdk.tools import SDK_TOOLS
 # The Quant Engine tools (`run_backtest`, `optimize_parameters`, …). Registered by
 # `quant/bootstrap.py`; imported as the ONE canonical list so the allowlist cannot
 # drift from what is registered.
@@ -160,6 +161,7 @@ DOCUMENT_TOOLS = [
     "document_analyze", "document_query", "document_compare", "document_render",
     "document_capabilities",
     "document_create",
+    "eclipse_report",
 ]
 
 
@@ -470,6 +472,13 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 9: build a finance tool from a ready-made shape. Gated by the
         # run's editing profile (a workspace-bound code.write).
         "scaffold_kit",
+        # Generated capabilities: detect a missing capability, build a tested
+        # recipe, and keep activation separate from the build.
+        "capability_request", "capability_build", "capability_status",
+        "capability_activate", "capability_rollback", "capability_remove",
+        # The isolated analysis package environment (install/remove are
+        # single-use approval-gated; list/status are read-only).
+        "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
         # Application Runtime (DevOps): the read-only surface is always available
         # ("inspect this project", "what's using port 3000", "is it healthy").
         # Starting/stopping an application requires a coding turn (the chat code
@@ -511,6 +520,7 @@ ECLIPSE_AGENT = AgentConfig(
         # save/restore layout). UI-configuration state only — no filesystem,
         # network, shell or secret access.
         *UI_TOOLS,
+        *SDK_TOOLS,
         # Native video generation: create/validate a video project, render a
         # draft, inspect the frames, render the final MP4 (registered in the
         # Artifact Center) and manage the queued Fabric jobs. The only project
@@ -710,6 +720,11 @@ CODE_AGENT_TOOLS = [
     "analysis_run",
     # Scaffold kits (Phase 9) — build a finance tool from a ready-made shape.
     "scaffold_kit",
+    # Generated capabilities: detect, build, test and (only when safe) activate.
+    "capability_request", "capability_build", "capability_status",
+    "capability_activate", "capability_rollback", "capability_remove",
+    # Analysis package environment (install/remove approval-gated).
+    "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
     # Browser Automation Runtime — inspect/debug a local or public web app,
     # extract content and capture evidence. Local/private addresses always run
     # locally; the effectful half is narrowed by the autonomy profile.
@@ -774,7 +789,10 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "list_processes", "process_status", "read_process_output",
     "write_process_input", "send_signal", "process_tree", "process_health",
     "list_ports", "terminal_capabilities", "system_info", "resource_report",
-    "scaffold_kit", "analysis_run",
+    "scaffold_kit", "analysis_run", "eclipse_report",
+    "capability_request", "capability_build", "capability_status",
+    "capability_activate", "capability_rollback", "capability_remove",
+    "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
     # Code Execution & Verification Layer: run/build/test/discover + services +
     # evidence. The execute/build half is removed at `plan_only` by policy.
     "execute_code", "execute_python", "execute_javascript", "execute_typescript",

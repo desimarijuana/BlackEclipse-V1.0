@@ -17,7 +17,15 @@ export const runtime = "nodejs";
 const POLL_MS = 4_000;
 const HEARTBEAT_MS = 15_000;
 
-async function latestMarker(): Promise<string | null> {
+interface ChangeMarker {
+  key: string;
+  blueprintId: string;
+  revision: number;
+  path: string | null;
+  kind: "dashboard" | "ui";
+}
+
+async function latestMarker(): Promise<ChangeMarker | null> {
   const token = runtimeCallbackToken();
   const res = await fetch(`${HARNESS_PY_URL}/ui/blueprints?limit=1`, {
     headers: token ? { "X-Harness-Operator": token } : {},
@@ -26,10 +34,18 @@ async function latestMarker(): Promise<string | null> {
   });
   if (!res.ok) return null;
   const body = (await res.json().catch(() => null)) as
-    | { blueprints?: Array<{ id: string; revision: number; updatedAt: string }> }
+    | { blueprints?: Array<{ id: string; revision: number; updatedAt: string; path?: string | null }> }
     | null;
   const b = body?.blueprints?.[0];
-  return b ? `${b.id}:${b.revision}:${b.updatedAt}` : null;
+  if (!b) return null;
+  const path = b.path ?? null;
+  return {
+    key: `${b.id}:${b.revision}:${b.updatedAt}`,
+    blueprintId: b.id,
+    revision: b.revision,
+    path,
+    kind: path?.toLowerCase().startsWith("/dashboard/") ? "dashboard" : "ui",
+  };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -65,9 +81,15 @@ export async function GET(request: Request): Promise<Response> {
             return;
           }
           const marker = await latestMarker();
-          if (marker && marker !== last) {
-            last = marker;
-            send("changed", { at: Date.now() });
+          if (marker && marker.key !== last) {
+            last = marker.key;
+            send("changed", {
+              at: Date.now(),
+              kind: marker.kind,
+              blueprintId: marker.blueprintId,
+              revision: marker.revision,
+              path: marker.path,
+            });
           }
         } catch {
           /* transient — try again next tick */

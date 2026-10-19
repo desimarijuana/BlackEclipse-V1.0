@@ -69,7 +69,10 @@ async def portfolio_list(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     rows = service.list_portfolios(owner_id=args.get("owner_id") or getattr(ctx, "user_id", None))
     lines = [f"{len(rows)} portfolio(s):"]
     for r in rows:
-        lines.append(f"  - {r['id']}  {r['name']}  ({r.get('baseCurrency')}, {r.get('costBasisMethod')})")
+        lines.append(
+            f"  - {r['id']}  {r['name']}  ({r.get('baseCurrency')}, {r.get('costBasisMethod')}, "
+            f"{r.get('kind') or 'portfolio'})"
+        )
     return "\n".join(lines), {"portfolios": rows}
 
 
@@ -77,15 +80,22 @@ async def portfolio_create(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     service = _service(ctx)
 
     async def _do() -> tuple[str, Any]:
+        # There is one user-facing portfolio type: a fund. The transaction
+        # ledger is accounting substrate, never a separate "ledger portfolio".
+        metadata: dict[str, Any] = {"kind": "fund"}
+        for key in ("goal", "icon", "accent"):
+            if args.get(key):
+                metadata[key] = args[key]
         record = service.create_portfolio(
-            args.get("name") or "Portfolio",
+            args.get("name") or "Fund",
             base_currency=(args.get("base_currency") or "USD"),
             cost_basis_method=args.get("cost_basis_method") or "FIFO",
             description=args.get("description"),
             owner_id=getattr(ctx, "user_id", None),
-            created_by=args.get("created_by"),
+            metadata=metadata,
+            actor=args.get("created_by"),
         )
-        return f"Created portfolio {record['id']} ({record['name']}).", {"status": "SUCCESS", "portfolio": record}
+        return f"Created fund {record['id']} ({record['name']}).", {"status": "SUCCESS", "portfolio": record}
 
     return await _run(_do)
 
@@ -101,8 +111,9 @@ async def portfolio_get(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     except PortfolioError as exc:
         return _fail(exc)
     val = reading["valuation"]
+    label = "Fund" if reading["portfolio"].get("kind") == "fund" else "Portfolio"
     text = (
-        f"Portfolio {reading['portfolio']['name']}: total {val['totalValue']} "
+        f"{label} {reading['portfolio']['name']}: total {val['totalValue']} "
         f"{val['baseCurrency']} (cash {val['cash']}), {len(reading['positions'])} open position(s); "
         f"data quality {val['dataQuality']['status']}."
     )
@@ -684,12 +695,16 @@ def register_portfolio_tools(registry: Any) -> None:
     _def("portfolio_list", "List portfolios for the current user.", portfolio_list,
          {"type": "object", "properties": {"owner_id": {"type": "string"}}}, READ)
     _def("portfolio_create",
-         "Create a portfolio. `cost_basis_method` is FIFO, LIFO or AVERAGE_COST.",
+         "Create a fund portfolio with its accounting ledger. This is the only "
+         "user-facing portfolio type. `cost_basis_method` is FIFO, LIFO or AVERAGE_COST.",
          portfolio_create,
          {"type": "object", "properties": {
              "name": {"type": "string"}, "base_currency": {"type": "string"},
              "cost_basis_method": {"type": "string", "enum": ["FIFO", "LIFO", "AVERAGE_COST"]},
-             "description": {"type": "string"}}, "required": ["name"]},
+             "description": {"type": "string"},
+             "goal": {"type": "string", "description": "Optional fund goal shown by the Fund view."},
+             "icon": {"type": "string"}, "accent": {"type": "string"}},
+          "required": ["name"]},
          WRITE, "portfolio.write")
     _def("portfolio_get",
          "Read a portfolio: positions, cash, valuation, P&L, allocation and exposure, "

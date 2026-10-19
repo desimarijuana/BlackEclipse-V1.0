@@ -87,7 +87,7 @@ export function KpiBoardWidget({ data }: WidgetProps) {
         <Tile label="Day Change" value={fmtUsd(s.dailyChangeValue)} tone={toneClass(s.dailyChangeValue)} sub={fmtPct(s.dailyChangePercent)} loading={ld} />
         <Tile label="Holdings" value={String(holdingsCount)} sub={`Realized ${fmtUsd(s.realizedPnL)}`} />
       </div>
-      {holdingsCount === 0 && <EmptyNote>No open positions — add transactions in the ledger.</EmptyNote>}
+      {holdingsCount === 0 && <EmptyNote>No open positions — add a transaction to this fund.</EmptyNote>}
     </div>
   );
 }
@@ -221,9 +221,9 @@ export function HoldingsWidget({ fund, data }: WidgetProps) {
   );
 }
 
-// ── Transactions ledger ──────────────────────────────────────────────────────
+// ── Fund transactions ────────────────────────────────────────────────────────
 
-export function LedgerWidget({ fund, data }: WidgetProps) {
+export function TransactionsWidget({ fund, data }: WidgetProps) {
   const txs = useMemo(
     () => [...fund.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40),
     [fund.transactions],
@@ -231,7 +231,7 @@ export function LedgerWidget({ fund, data }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader icon={Layers} title="Transaction Ledger" hint={`${fund.transactions.length} TX`} />
+      <WidgetHeader icon={Layers} title="Transactions" hint={`${fund.transactions.length} TX`} />
       {txs.length === 0 ? <EmptyNote>No transactions recorded yet.</EmptyNote> : (
         <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
@@ -947,7 +947,7 @@ export function renderFundWidget(widgetId: string, props: WidgetProps): React.Re
     case 'risk-matrix': return <RiskMatrixWidget {...props} />;
     case 'holdings': return <HoldingsWidget {...props} />;
     case 'rebalance': return <RebalanceWidget {...props} />;
-    case 'ledger': return <LedgerWidget {...props} />;
+    case 'ledger': return <TransactionsWidget {...props} />;
     case 'risk-metrics': return <RiskWidget {...props} />;
     case 'health': return <HealthWidget {...props} />;
     case 'monte-carlo': return <MonteCarloWidget {...props} />;

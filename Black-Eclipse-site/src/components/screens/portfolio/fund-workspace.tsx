@@ -19,16 +19,16 @@ import type { Fund, Transaction } from '@/lib/portfolio/types';
 interface FundWorkspaceProps {
   fund: Fund;
   onBack: () => void;
-  onUpdateFund: (patch: Partial<Omit<Fund, 'id' | 'seeded'>>) => void;
+  onAddTransaction: (tx: Transaction) => Promise<void> | void;
 }
 
 // v3 is a deliberate reset into the track-board grammar (v2 stored the retired
 // row-band arrangement, which was gappy). Old payloads are left untouched.
 const wsKeyFor = (fundId: string) => `be_ws_fund_${fundId}_v3`;
 
-export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps) {
+export function FundWorkspace({ fund, onBack, onAddTransaction }: FundWorkspaceProps) {
   const defaultLayout = useMemo(() => defaultFundLayout(), []);
-  const [taxMethod, setTaxMethod] = useState<'FIFO' | 'LIFO'>('FIFO');
+  const [taxMethod, setTaxMethod] = useState<'FIFO' | 'LIFO'>(fund.costBasisMethod === 'LIFO' ? 'LIFO' : 'FIFO');
   const [addTxOpen, setAddTxOpen] = useState(false);
   const data = useFundData(fund, taxMethod);
   const s = data.stats;
@@ -100,7 +100,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
         <AddTransactionDialog
           onClose={() => setAddTxOpen(false)}
           onAdd={(tx: Transaction) => {
-            onUpdateFund({ transactions: [...fund.transactions, tx] });
+            void onAddTransaction(tx);
             setAddTxOpen(false);
           }}
         />

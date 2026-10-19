@@ -31,6 +31,7 @@ WidgetPrimitive = Literal[
     "status-indicator",
     "empty-state",
     "error-state",
+    "clock",
 ]
 
 WIDGET_PRIMITIVES: tuple[str, ...] = (
@@ -45,6 +46,7 @@ WIDGET_PRIMITIVES: tuple[str, ...] = (
     "status-indicator",
     "empty-state",
     "error-state",
+    "clock",
 )
 
 #: Primitives that need a resolvable data source.
@@ -53,8 +55,10 @@ SOURCE_PRIMITIVES = {
     "bar-chart", "pie-chart", "list",
 }
 
-ResourceType = Literal["page", "widget", "portfolio", "design"]
-RESOURCE_TYPES: tuple[str, ...] = ("page", "widget", "portfolio", "design")
+ResourceType = Literal["page", "widget", "portfolio", "design", "dashboard", "theme"]
+RESOURCE_TYPES: tuple[str, ...] = ("page", "widget", "portfolio", "design", "dashboard", "theme")
+
+WidgetSurface = Literal["dashboard", "page", "both"]
 
 MAX_SLUG = 64
 MAX_LABEL = 200
@@ -74,6 +78,7 @@ class SdkWidgetInput(BaseModel):
     category: str = Field("custom", min_length=1, max_length=80)
     primitive: WidgetPrimitive = "data-table"
     source: Optional[str] = Field(None, max_length=MAX_SOURCE)
+    surface: WidgetSurface = "both"
     config: dict[str, Any] = Field(default_factory=dict)
     sizes: list[str] = Field(default_factory=lambda: ["medium", "large"])
 
@@ -204,6 +209,85 @@ class SdkLockView(BaseModel):
     updated_at: str
 
 
+class SdkDashboardTarget(BaseModel):
+    model_config = _CAMEL
+
+    section_id: str = Field(..., min_length=1, max_length=120)
+    column_id: Optional[str] = Field(None, max_length=120)
+    index: int = Field(0, ge=0)
+    column_index: Optional[int] = Field(None, ge=0)
+
+
+class SdkDashboardAddWidgetInput(BaseModel):
+    model_config = _CAMEL
+
+    component_id: str = Field(..., min_length=1, max_length=120)
+    instance_id: Optional[str] = Field(None, min_length=1, max_length=120)
+    config: dict[str, Any] = Field(default_factory=dict)
+    target: Optional[SdkDashboardTarget] = None
+    zone: Optional[Literal["left", "main", "right"]] = None
+    height: Optional[float] = None
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardWidgetRefInput(BaseModel):
+    model_config = _CAMEL
+
+    instance_id: str = Field(..., min_length=1, max_length=120)
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardMoveWidgetInput(BaseModel):
+    model_config = _CAMEL
+
+    instance_id: str = Field(..., min_length=1, max_length=120)
+    target: SdkDashboardTarget
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardResizeWidgetInput(BaseModel):
+    model_config = _CAMEL
+
+    instance_id: str = Field(..., min_length=1, max_length=120)
+    height: Optional[float] = None
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardSetColumnsInput(BaseModel):
+    model_config = _CAMEL
+
+    section_id: str = Field(..., min_length=1, max_length=120)
+    count: int = Field(..., ge=1, le=4)
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardSetZonesInput(BaseModel):
+    model_config = _CAMEL
+
+    hidden_zones: Optional[list[Literal["left", "main", "right"]]] = None
+    zone_widths: Optional[dict[str, float]] = None
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardSetLayoutInput(BaseModel):
+    model_config = _CAMEL
+
+    layout: dict[str, Any]
+    expected_revision: Optional[int] = Field(None, ge=1)
+
+
+class SdkDashboardRestoreInput(BaseModel):
+    model_config = _CAMEL
+
+    revision: int = Field(..., ge=1)
+
+
+class SdkActiveDashboardInput(BaseModel):
+    model_config = _CAMEL
+
+    dashboard_id: str = Field(..., min_length=1, max_length=240)
+
+
 class SdkWidgetView(BaseModel):
     model_config = _CAMEL
 
@@ -216,6 +300,7 @@ class SdkWidgetView(BaseModel):
     category: str
     primitive: str
     source: Optional[str] = None
+    surface: str = "both"
     config: dict[str, Any] = Field(default_factory=dict)
     sizes: list[str] = Field(default_factory=list)
     created_at: str
@@ -226,11 +311,21 @@ __all__ = [
     "MAX_CONFIG_BYTES",
     "RESOURCE_TYPES",
     "ResourceType",
+    "SdkActiveDashboardInput",
     "SdkAddStockInput",
     "SdkAssertLockInput",
     "SdkCreateFundInput",
     "SdkCreateLockInput",
     "SdkCreatePageInput",
+    "SdkDashboardAddWidgetInput",
+    "SdkDashboardMoveWidgetInput",
+    "SdkDashboardResizeWidgetInput",
+    "SdkDashboardRestoreInput",
+    "SdkDashboardSetColumnsInput",
+    "SdkDashboardSetLayoutInput",
+    "SdkDashboardSetZonesInput",
+    "SdkDashboardTarget",
+    "SdkDashboardWidgetRefInput",
     "SdkLockView",
     "SdkPageWidget",
     "SdkUnlockInput",
@@ -239,4 +334,5 @@ __all__ = [
     "SOURCE_PRIMITIVES",
     "WIDGET_PRIMITIVES",
     "WidgetPrimitive",
+    "WidgetSurface",
 ]

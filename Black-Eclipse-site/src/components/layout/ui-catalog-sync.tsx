@@ -25,6 +25,11 @@ export function UiCatalogSync() {
     // registry. Hydrate them on boot so the Pages widget library can place them
     // even if the SDK screen was never opened.
     void import('@/lib/sdk/widgets').then((m) => m.hydrateSdkWidgets());
+    // Expose the typed SDK in the browser console even when no sidebar panel
+    // is mounted: `eclipseSdk.widgets.create({...})`, `eclipseSdk.locks.create`.
+    void import('@/lib/sdk').then(({ eclipseSdk }) => {
+      (window as Window & { eclipseSdk?: typeof eclipseSdk }).eclipseSdk = eclipseSdk;
+    });
   }, []);
   return null;
 }

@@ -210,11 +210,11 @@ RATCHET_PY: dict[str, int] = {
     # `construct` method is a thin delegate to `construct_service.py` (the
     # orchestration itself lives there), so only a few lines remain here. May
     # only shrink from here.
-    # Re-pinned 1564→1594 for the Eclipse SDK: the service-level lock gate
-    # (`_assert_unlocked` before every ledger mutation), fund `kind`/`metadata`
-    # on create and the read model. The lock registry itself lives in
-    # `python/harness/sdk/locks.py`. May only shrink.
-    "portfolio/service.py": 1594,
+    # Re-pinned 1564→1623 for the funds-only migration: every portfolio is a
+    # fund, `update_fund` merges user metadata, and the service-level lock gate
+    # covers fund writes. The lock registry lives in `python/harness/sdk/locks.py`.
+    # May only shrink.
+    "portfolio/service.py": 1623,
     # The in-flight Plugin Platform manager (registry + runtime + event bridge +
     # hooks + config/secrets/storage + health). PROVISIONAL headroom: that stream
     # is still being written, so this is pinned above its measured size to keep the

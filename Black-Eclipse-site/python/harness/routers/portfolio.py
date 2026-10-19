@@ -104,6 +104,13 @@ async def portfolio_get(portfolio_id: str, request: Request,
         raise _http_error(exc) from exc
 
 
+@router.patch("/portfolio/{portfolio_id}")
+async def portfolio_update(portfolio_id: str, request: Request,
+                           body: dict[str, Any] = Body(...),
+                           _: bool = Depends(require_operator)) -> dict[str, Any]:
+    return _engine().update_fund(portfolio_id, body, actor_id=_actor(request, body))
+
+
 @router.post("/portfolio/{portfolio_id}/transaction")
 async def portfolio_transaction(portfolio_id: str, request: Request,
                                 body: dict[str, Any] = Body(...),

@@ -1,8 +1,10 @@
 'use client';
 
-// ── Guest fund store ─────────────────────────────────────────────────────────
-// localStorage-backed fund book: each fund owns its transaction ledger.
-// Seeded demo funds are protected from deletion. Export/import as JSON or CSV.
+// ── Legacy fund store (migration source) ─────────────────────────────────────
+// The live Portfolio screen is engine-backed (`engine-funds.ts`). This module is
+// retained for the one-time localStorage → engine migration, the fund style
+// constants, and import/export helpers. Seeded demo funds are protected from
+// deletion only in this legacy book.
 
 import {
   Briefcase, Car, Coins, Flame, Gem, GraduationCap, Heart, Home, Landmark,

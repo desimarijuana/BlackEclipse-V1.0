@@ -39,9 +39,9 @@ CREATE TABLE IF NOT EXISTS Portfolio (
   costBasisMethod  TEXT NOT NULL DEFAULT 'FIFO',
   currency         TEXT NOT NULL DEFAULT 'USD',
   status           TEXT NOT NULL DEFAULT 'ACTIVE',
-  -- 'portfolio' (default) or 'fund'. A fund is an accounting portfolio with
-  -- user-facing metadata (goal/icon/accent), never a second ledger.
-  kind             TEXT NOT NULL DEFAULT 'portfolio',
+  -- There is ONE user-facing portfolio type: a fund. The transaction ledger is
+  -- the fund's accounting substrate; `kind` is retained for compatibility.
+  kind             TEXT NOT NULL DEFAULT 'fund',
   metadata         TEXT NOT NULL DEFAULT '{}',
   createdAt        TEXT NOT NULL,
   updatedAt        TEXT NOT NULL
@@ -318,6 +318,14 @@ class PortfolioStore:
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
         self._add_missing_columns()
+        # There is one user-facing portfolio type now: a fund. Existing ledger
+        # rows are migrated in place (no data loss); the transaction ledger
+        # remains the fund's accounting substrate.
+        self._db.execute("UPDATE Portfolio SET kind='fund' WHERE kind IS NULL OR kind != 'fund'")
+        self._db.execute(
+            "UPDATE Portfolio SET metadata=? WHERE metadata IS NULL OR metadata='' OR metadata='{}'",
+            (json.dumps({"kind": "fund"}),),
+        )
         self._db.commit()
 
     def _add_missing_columns(self) -> None:
@@ -329,7 +337,7 @@ class PortfolioStore:
         """
         wanted = {
             "PortfolioTransaction": {"basisAdjustment": "TEXT", "lotSelection": "TEXT"},
-            "Portfolio": {"kind": "TEXT NOT NULL DEFAULT 'portfolio'", "metadata": "TEXT NOT NULL DEFAULT '{}'"},
+            "Portfolio": {"kind": "TEXT NOT NULL DEFAULT 'fund'", "metadata": "TEXT NOT NULL DEFAULT '{}'"},
         }
         for table, columns in wanted.items():
             existing = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -347,7 +355,7 @@ class PortfolioStore:
         owner_id: Optional[str] = None,
         description: Optional[str] = None,
         cost_basis_method: str = "FIFO",
-        kind: str = "portfolio",
+        kind: str = "fund",
         metadata: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         now = now_iso()

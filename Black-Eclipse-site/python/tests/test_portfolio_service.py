@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 from portfolio_helpers import buy, make_portfolio, make_service, sell
+
+
+def test_every_portfolio_is_a_fund(tmp_path):
+    svc = make_service(tmp_path)
+    # Even a caller that asks for the retired ledger kind gets a fund.
+    record = svc.create_portfolio("Fund", kind="portfolio", metadata={"icon": "Rocket"})
+    assert record["kind"] == "fund"
+    metadata = json.loads(record["metadata"])
+    assert metadata["kind"] == "fund"
+    assert metadata["icon"] == "Rocket"
+
+
+def test_update_fund_merges_metadata(tmp_path):
+    svc = make_service(tmp_path)
+    record = svc.create_portfolio(
+        "Fund", metadata={"icon": "Rocket", "accent": "#fff", "goal": 100},
+    )
+    updated = svc.update_fund(record["id"], {"name": "Renamed", "metadata": {"goal": 250}})
+    assert updated["name"] == "Renamed"
+    metadata = json.loads(updated["metadata"])
+    assert metadata["icon"] == "Rocket"
+    assert metadata["accent"] == "#fff"
+    assert metadata["goal"] == 250
+    assert metadata["kind"] == "fund"
 
 
 def test_add_position_records_a_transaction_and_a_lot(tmp_path):

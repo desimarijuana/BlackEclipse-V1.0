@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS SdkWidget (
   category     TEXT NOT NULL DEFAULT 'custom',
   primitive    TEXT NOT NULL DEFAULT 'data-table',
   source       TEXT,
+  surface      TEXT NOT NULL DEFAULT 'both',
   config       TEXT NOT NULL DEFAULT '{}',
   sizes        TEXT NOT NULL DEFAULT '[]',
   createdAt    TEXT NOT NULL,
@@ -76,7 +77,13 @@ class SdkStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._db.executescript(_SCHEMA)
+        self._ensure_column("SdkWidget", "surface", "surface TEXT NOT NULL DEFAULT 'both'")
         self._db.commit()
+
+    def _ensure_column(self, table: str, column: str, ddl: str) -> None:
+        columns = {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            self._db.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
     @property
     def _db(self):
@@ -95,6 +102,7 @@ class SdkStore:
         category: str,
         primitive: str,
         source: Optional[str],
+        surface: str,
         config: dict[str, Any],
         sizes: list[str],
     ) -> dict[str, Any]:
@@ -106,18 +114,19 @@ class SdkStore:
             """
             INSERT INTO SdkWidget
               (id, componentId, slug, label, description, icon, category, primitive,
-               source, config, sizes, createdAt, updatedAt)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               source, surface, config, sizes, createdAt, updatedAt)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(slug) DO UPDATE SET
               componentId=excluded.componentId, label=excluded.label,
               description=excluded.description, icon=excluded.icon,
               category=excluded.category, primitive=excluded.primitive,
-              source=excluded.source, config=excluded.config, sizes=excluded.sizes,
+              source=excluded.source, surface=excluded.surface,
+              config=excluded.config, sizes=excluded.sizes,
               updatedAt=excluded.updatedAt
             """,
             (
                 widget_id, component_id, slug, label, description, icon, category,
-                primitive, source, _json(config), _json(sizes), created_at, now,
+                primitive, source, surface, _json(config), _json(sizes), created_at, now,
             ),
         )
         self._db.commit()
@@ -149,6 +158,7 @@ class SdkStore:
             "category": row["category"] or "custom",
             "primitive": row["primitive"] or "data-table",
             "source": row["source"],
+            "surface": row["surface"] or "both",
             "config": _loads(row["config"], {}),
             "sizes": _loads(row["sizes"], []),
             "createdAt": row["createdAt"],

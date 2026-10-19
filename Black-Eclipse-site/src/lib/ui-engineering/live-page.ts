@@ -33,6 +33,16 @@ export function pageStorageKey(blueprintId: string, revision?: number): string {
   return `${LIVE_PAGE_STORAGE_PREFIX}${blueprintId}${revision != null ? `_r${revision}` : ''}`;
 }
 
+/**
+ * Command Center layouts are mirrored into blueprints at `/dashboard/dash-*`
+ * so the agent can read the board the user actually has. They are NOT user
+ * pages: hiding them from the Pages list and the main nav keeps the nav to
+ * pages a person or the agent deliberately authored.
+ */
+export function isDashboardMirrorPath(path?: string | null): boolean {
+  return (path ?? '').trim().toLowerCase().startsWith('/dashboard/');
+}
+
 function asZone(value: unknown): WorkspaceZone | undefined {
   return value === 'left' || value === 'right' || value === 'main' ? value : undefined;
 }

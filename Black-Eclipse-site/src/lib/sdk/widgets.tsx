@@ -24,6 +24,8 @@ import {
   EmptyStateWidget,
   ErrorStateWidget,
 } from '@/lib/workspace/generic-content';
+import { ClockWidget } from '@/lib/dashboard/clock-widget';
+import { registerWidget, unregisterWidget } from '@/lib/workspace/widget-registry';
 import { eclipseSdk, type SdkWidgetPrimitive, type SdkWidgetRecord } from '@/lib/sdk';
 
 export const SDK_WIDGET_PREFIX = 'sdk.';
@@ -31,6 +33,7 @@ export const SDK_WIDGET_PREFIX = 'sdk.';
 type Listener = () => void;
 
 const widgets = new Map<string, SdkWidgetRecord>();
+const registered = new Set<string>();
 const listeners = new Set<Listener>();
 let hydratePromise: Promise<void> | null = null;
 
@@ -48,8 +51,13 @@ function safeSizes(value: string[]): WidgetDefinition['sizes'] {
   return out.length ? out : ['medium', 'large'];
 }
 
+function safeSurface(value: string | undefined): 'dashboard' | 'page' | 'both' {
+  return value === 'dashboard' || value === 'page' ? value : 'both';
+}
+
 function defaultHeightFor(primitive: SdkWidgetPrimitive): number | undefined {
   if (primitive === 'metric-card' || primitive === 'status-indicator') return 140;
+  if (primitive === 'clock') return 180;
   if (primitive === 'markdown' || primitive === 'empty-state' || primitive === 'error-state') return undefined;
   return 320;
 }
@@ -67,6 +75,7 @@ function renderPrimitive(primitive: SdkWidgetPrimitive, placement: WidgetPlaceme
     case 'status-indicator': return <StatusIndicatorWidget placement={placement} />;
     case 'empty-state': return <EmptyStateWidget placement={placement} />;
     case 'error-state': return <ErrorStateWidget placement={placement} />;
+    case 'clock': return <ClockWidget placement={placement} />;
     default:
       return (
         <div className="flex h-full items-center justify-center p-4 text-center text-xs italic text-amber-400/80">
@@ -87,12 +96,21 @@ export function sdkWidgetToDefinition(record: SdkWidgetRecord): WidgetDefinition
     label: record.label,
     desc: record.description || `User widget · ${primitive}`,
     icon: record.icon || 'dashboard',
+    surface: safeSurface(record.surface),
     sizes: safeSizes(record.sizes),
     defaultHeight: defaultHeightFor(primitive),
     defaultConfig: defaults,
     catalogDataSources: record.source ? [record.source] : ['any'],
     configFields: [
       ...(record.source ? [{ key: 'source', label: 'Data source', type: 'text' as const, placeholder: record.source }] : []),
+      ...(primitive === 'clock'
+        ? [
+            { key: 'timezone', label: 'Timezone', type: 'text' as const, placeholder: 'UTC, Europe/London, America/New_York…' },
+            { key: 'format', label: 'Format', type: 'select' as const, options: [{ value: '24h', label: '24-hour' }, { value: '12h', label: '12-hour' }] },
+            { key: 'showSeconds', label: 'Show seconds', type: 'boolean' as const },
+            { key: 'showDate', label: 'Show date', type: 'boolean' as const },
+          ]
+        : []),
       { key: 'title', label: 'Title', type: 'text' as const, placeholder: record.label },
     ],
     render: (placement) => renderPrimitive(primitive, {
@@ -127,7 +145,17 @@ export function hydrateSdkWidgets(force = false): Promise<void> {
     try {
       const { widgets: records } = await eclipseSdk.widgets.list();
       widgets.clear();
-      for (const record of records) widgets.set(record.componentId, record);
+      const next = new Set<string>();
+      for (const record of records) {
+        widgets.set(record.componentId, record);
+        next.add(record.componentId);
+        registerWidget(sdkWidgetToDefinition(record), { replace: true });
+      }
+      for (const componentId of [...registered]) {
+        if (!next.has(componentId)) unregisterWidget(componentId);
+      }
+      registered.clear();
+      for (const componentId of next) registered.add(componentId);
       notify();
     } catch {
       /* runtime unavailable — keep whatever is cached */

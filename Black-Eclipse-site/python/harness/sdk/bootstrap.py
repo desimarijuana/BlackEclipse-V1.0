@@ -53,6 +53,11 @@ def install_sdk_layer(service: Any) -> bool:
         service.sdk_locks = locks
         service.sdk = sdk
         set_sdk_service(sdk)
+        registry = getattr(service, "registry", None)
+        if registry is not None:
+            from .tools import register_sdk_tools  # noqa: PLC0415
+
+            register_sdk_tools(registry)
         return True
     except Exception:  # noqa: BLE001 - never block boot
         log.warning("Eclipse SDK unavailable", exc_info=True)

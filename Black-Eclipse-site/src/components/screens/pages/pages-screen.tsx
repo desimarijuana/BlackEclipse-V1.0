@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Plus, RefreshCw, RotateCcw, Save } from '@/lib/icons';
-import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
+import { DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
+import { useWidgets } from '@/lib/workspace/use-widgets';
 import { CustomizableWorkspace } from '@/components/workspace';
 import { loadWorkspace, clearWorkspace } from '@/lib/workspace/persistence';
 import {
@@ -28,11 +29,11 @@ import {
 } from '@/lib/harness/ui-client';
 import {
   blueprintLayoutToKernel,
+  isDashboardMirrorPath,
   kernelLayoutToWire,
   pageStorageKey,
 } from '@/lib/ui-engineering/live-page';
 import { setUiFocus } from '@/lib/ui-engineering/ui-focus';
-import { useSdkWidgetDefinitions } from '@/lib/sdk/widgets';
 
 /** The page requested by `?tab=pages&page=<id|path>` (SDK/sidebar deep link). */
 function requestedPage(): string | null {
@@ -59,20 +60,15 @@ export function PagesScreen() {
   const [note, setNote] = useState<string | null>(null);
   // Bumped to force the workspace to remount (re-seed from the blueprint).
   const [remount, setRemount] = useState(0);
-  // User-created declarative widgets live in the runtime; merge them with the
-  // static registry so the library, placement and rendering all see them.
-  const sdkWidgets = useSdkWidgetDefinitions();
-  const allWidgets = useMemo(() => {
-    const ids = new Set(DASHBOARD_WIDGET_IDS);
-    return [...DASHBOARD_WIDGETS, ...sdkWidgets.filter((w) => !ids.has(w.id))];
-  }, [sdkWidgets]);
+  const allWidgets = useWidgets({ surface: 'page' });
 
   const refreshList = useCallback(async () => {
     try {
       const { blueprints: list } = await listBlueprints({ limit: 100 });
-      setBlueprints(list);
+      const visible = list.filter((b) => !isDashboardMirrorPath(b.path));
+      setBlueprints(visible);
       setError(null);
-      return list;
+      return visible;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'runtime unavailable');
       return [];
@@ -141,7 +137,7 @@ export function PagesScreen() {
       try {
         const { blueprints: list } = await listBlueprints({ limit: 100 });
         if (cancelled) return;
-        setBlueprints(list);
+        setBlueprints(list.filter((b) => !isDashboardMirrorPath(b.path)));
         const current = list.find((b) => b.id === selectedId);
         if (current && (!blueprint || current.revision !== blueprint.revision)) {
           await openPage(selectedId!);

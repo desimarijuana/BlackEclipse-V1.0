@@ -81,21 +81,50 @@ class PortfolioService:
     # ── Portfolios ───────────────────────────────────────────────────────────
     def create_portfolio(self, name: str, **fields: Any) -> dict[str, Any]:
         portfolio_id = fields.get("id") or new_id("pf")
+        # There is ONE user-facing portfolio type: a fund. The transaction ledger
+        # is the fund's accounting substrate, not a separate "ledger portfolio".
+        metadata = fields.get("metadata")
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata["kind"] = "fund"
         record = self.store.create_portfolio(
             portfolio_id,
             name,
-            base_currency=fields.get("base_currency", "USD"),
+            base_currency=fields.get("base_currency") or fields.get("baseCurrency") or "USD",
             owner_id=fields.get("owner_id") or fields.get("actor_id"),
             description=fields.get("description"),
-            cost_basis_method=fields.get("cost_basis_method", "FIFO"),
-            kind=fields.get("kind", "portfolio"),
-            metadata=fields.get("metadata"),
+            cost_basis_method=fields.get("cost_basis_method") or fields.get("costBasisMethod") or "FIFO",
+            kind="fund",
+            metadata=metadata,
         )
         self.store.append_audit(
             new_id("audit"), portfolio_id, "PORTFOLIO_CREATED",
             actor=fields.get("actor"), after={"name": name},
         )
         return record
+
+    def update_fund(self, portfolio_id: str, fields: dict[str, Any],
+                    *, actor_id: Optional[str] = None) -> dict[str, Any]:
+        """Update a fund's user-facing metadata (name, goal, icon, accent)."""
+        record = self._require_portfolio(portfolio_id, actor_id)
+        self._assert_unlocked(portfolio_id, "write")
+        metadata = _portfolio_metadata(record.get("metadata"))
+        incoming = fields.get("metadata")
+        if isinstance(incoming, dict):
+            metadata.update(incoming)
+        metadata["kind"] = "fund"
+        updated = self.store.update_portfolio(
+            portfolio_id,
+            name=fields.get("name"),
+            description=fields.get("description"),
+            baseCurrency=fields.get("base_currency") or fields.get("baseCurrency"),
+            costBasisMethod=fields.get("cost_basis_method") or fields.get("costBasisMethod"),
+            metadata=metadata,
+        )
+        self.store.append_audit(
+            new_id("audit"), portfolio_id, "FUND_UPDATED",
+            actor=actor_id, after={"name": fields.get("name"), "metadata": metadata},
+        )
+        return updated or record
 
     def list_portfolios(self, owner_id: Optional[str] = None) -> list[dict[str, Any]]:
         return self.store.list_portfolios(owner_id)

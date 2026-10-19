@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-17
+last-verified: 2026-10-19
 ---
 
 # Architecture
@@ -66,8 +66,12 @@ Eclipse Memory and Artifacts**; the other agentic capabilities (Code, Editor,
 Jobs, Tasks, Pages, UI Builder, Plugins, Model Control Center, Search, Research,
 Backtest) are not sidebar tabs and are reached from ChatBot through its tools.
 The Eclipse SDK tab is the user-facing composition surface — declarative
-widgets, composed pages, fund portfolios, design patches and passphrase locks;
-see `docs/eclipse-sdk.md`.
+widgets, composed pages, the Command Center, fund portfolios, design patches and
+passphrase locks; see `docs/eclipse-sdk.md`. The dashboard is not a separate
+store: `/dashboard/<id>` is a UI blueprint mirrored by `DashboardScreen`, and
+layout writes flow through the same UI Engineering engine, revisions and locks.
+`/api/ui/stream` carries a dashboard change kind so a durable edit lands on the
+live board without the old 20s poll.
 
 `src/hooks/use-page-shortcuts.ts` registers page actions against visible DOM
 roots, with matching and guards in `src/lib/keyboard.ts`. Keep-alive screens

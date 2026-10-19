@@ -16,7 +16,7 @@ export interface Transaction {
   notes?: string;
 }
 
-/** A guest/localStorage-backed fund: name, styling and its tx ledger. */
+/** A fund view model backed by the Portfolio Accounting Engine. */
 export interface Fund {
   id: string;
   name: string;
@@ -24,6 +24,10 @@ export interface Fund {
   accent: string;
   /** Optional goal the user can set for progress display. */
   goalValue?: number | null;
+  /** Engine portfolio base currency (display/format hint). */
+  baseCurrency?: string;
+  /** Engine cost-basis method. */
+  costBasisMethod?: 'FIFO' | 'LIFO' | 'AVERAGE_COST';
   createdAt: string;
   /** Seeded demo funds are protected from deletion. */
   seeded?: boolean;

@@ -14,7 +14,7 @@
 
 import type { WorkspaceLayout as KernelLayout } from '@/lib/workspace/types';
 import { blueprintLayoutToKernel, kernelLayoutToWire } from '@/lib/ui-engineering/live-page';
-import { createPage, getBlueprint, saveLayout } from '@/lib/harness/ui-client';
+import { createPage, getBlueprint, resolveCurrentPage, saveLayout } from '@/lib/harness/ui-client';
 
 const BP_KEY_PREFIX = 'be_dash_bp:';
 
@@ -41,11 +41,25 @@ function writeBpId(dashboardId: string, id: string): void {
   }
 }
 
+async function findBlueprintId(dashboardId: string): Promise<string | null> {
+  try {
+    const { blueprint } = await resolveCurrentPage({ path: `/dashboard/${dashboardId}` });
+    if (blueprint?.id) {
+      writeBpId(dashboardId, blueprint.id);
+      return blueprint.id;
+    }
+  } catch {
+    /* no mirror yet */
+  }
+  return null;
+}
+
 /** Resolve (creating once) the blueprint id that mirrors a dashboard. */
 async function resolveBlueprintId(dashboardId: string, title: string): Promise<string> {
   const existing = readBpId(dashboardId);
   if (existing) return existing;
-  // `idempotencyKey` makes a concurrent/retried create return the same page.
+  const found = await findBlueprintId(dashboardId);
+  if (found) return found;
   const { blueprint } = await createPage({
     title,
     kind: 'workspace',
@@ -99,7 +113,7 @@ export async function fetchDashboardLayout(
   dashboardId: string,
 ): Promise<{ revision: number; layout: KernelLayout } | null> {
   if (typeof window === 'undefined') return null;
-  const id = readBpId(dashboardId);
+  const id = readBpId(dashboardId) ?? await findBlueprintId(dashboardId);
   if (!id) return null;
   try {
     const { blueprint } = await getBlueprint(id);

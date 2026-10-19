@@ -21,6 +21,7 @@ from ..ui.model import (
     UpdatePageInput,
 )
 from ..ui.service import UiError, UiService
+from .dashboards import DashboardService
 from .locks import LockService
 from .model import (
     MAX_CONFIG_BYTES,
@@ -76,12 +77,17 @@ class EclipseSdk:
         self._ui = ui
         self._portfolio = portfolio
         self.locks = locks
+        self.dashboards = DashboardService(ui, store, locks)
 
     # ── capabilities ─────────────────────────────────────────────────────────
 
     def capabilities(self) -> dict[str, Any]:
         widgets = self._store.list_widgets()
         portfolios = self._safe_portfolios()
+        try:
+            dashboards = self.dashboards.list()
+        except Exception:  # noqa: BLE001 - capabilities must never fail
+            dashboards = {"dashboards": [], "activeDashboardId": None}
         return {
             "sdkVersion": SDK_VERSION,
             "runtime": "available" if self._ui is not None else "ui-unavailable",
@@ -98,6 +104,12 @@ class EclipseSdk:
                 "canCompose": self._ui is not None,
                 "routing": "?tab=pages&page=<blueprintId|path>",
             },
+            "dashboards": {
+                "available": self._ui is not None,
+                "canMutate": self._ui is not None,
+                "count": len(dashboards["dashboards"]),
+                "activeDashboardId": dashboards["activeDashboardId"],
+            },
             "portfolio": {
                 "available": self._portfolio is not None,
                 "canAddStock": self._portfolio is not None,
@@ -109,7 +121,7 @@ class EclipseSdk:
             "locks": {
                 "canCreate": True,
                 "canUnlock": True,
-                "resources": ["page", "widget", "portfolio", "design"],
+                "resources": ["page", "widget", "portfolio", "design", "dashboard", "theme"],
                 "header": "X-Eclipse-Unlock",
                 "count": len(self._store.list_locks()),
             },
@@ -142,6 +154,7 @@ class EclipseSdk:
             category=input_model.category,
             primitive=input_model.primitive,
             source=input_model.source,
+            surface=input_model.surface,
             config=input_model.config,
             sizes=input_model.sizes,
         )
@@ -186,6 +199,7 @@ class EclipseSdk:
         "status-indicator": ("label", "status"),
         "empty-state": ("message",),
         "error-state": ("message",),
+        "clock": ("timezone", "format", "showSeconds", "showDate", "label"),
     }
 
     def _component_spec(self, record: dict[str, Any]) -> UiComponentSpec:
@@ -229,11 +243,23 @@ class EclipseSdk:
                 ],
             },
             "message": {"key": "message", "label": "Message", "kind": "text", "default": ""},
+            "timezone": {
+                "key": "timezone", "label": "Timezone", "kind": "text", "default": "",
+                "placeholder": "UTC, Europe/London, America/New_York",
+            },
+            "showSeconds": {"key": "showSeconds", "label": "Show seconds", "kind": "boolean", "default": True},
+            "showDate": {"key": "showDate", "label": "Show date", "kind": "boolean", "default": True},
         }
         for key in self._PRIMITIVE_FIELDS.get(primitive, ()):
             field = extra_fields.get(key)
             if field is not None:
                 schema.append(field)
+        if primitive == "clock":
+            schema = [f for f in schema if f.get("key") != "format"]
+            schema.append({
+                "key": "format", "label": "Format", "kind": "select", "default": "24h",
+                "options": [{"value": "24h", "label": "24-hour"}, {"value": "12h", "label": "12-hour"}],
+            })
         return UiComponentSpec(
             id=record["componentId"],
             version=SDK_VERSION,
@@ -247,7 +273,11 @@ class EclipseSdk:
             data_sources=[source] if source else ["any"],
             layout=ComponentLayoutSpec(
                 sizes=record.get("sizes") or ["medium", "large"],
-                default_height=320 if record["primitive"] in {"line-chart", "area-chart", "bar-chart", "pie-chart"} else None,
+                default_height=(
+                    320 if record["primitive"] in {"line-chart", "area-chart", "bar-chart", "pie-chart"}
+                    else 180 if record["primitive"] == "clock"
+                    else None
+                ),
             ),
             availability=Availability.AVAILABLE,
             owner="user",
@@ -300,7 +330,14 @@ class EclipseSdk:
     def list_pages(self, *, owner_id: Optional[str] = None) -> dict[str, Any]:
         if self._ui is None:
             return {"blueprints": [], "total": 0}
-        return self._ui.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=owner_id)
+        result = self._ui.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=owner_id)
+        # Command Center mirrors (`/dashboard/dash-*`) are agent-readable board
+        # snapshots, not user pages. The SDK list is the user's page list.
+        visible = [
+            page for page in result.get("blueprints", [])
+            if not str(page.get("path") or "").strip().lower().startswith("/dashboard/")
+        ]
+        return {**result, "blueprints": visible, "total": len(visible)}
 
     def update_page(self, blueprint_id: str, patch: dict[str, Any], *, owner_id: Optional[str] = None, actor: Optional[str] = None) -> dict[str, Any]:
         if self._ui is None:

@@ -76,6 +76,7 @@ RENDERABLE_COMPONENTS = frozenset({
     "metric-card", "data-table", "list",
     "line-chart", "area-chart", "bar-chart", "pie-chart",
     "markdown", "status-indicator", "empty-state", "error-state",
+    "clock",
 })
 
 
@@ -250,6 +251,16 @@ def builtin_specs() -> list[UiComponentSpec]:
                   _field("title", "Title", "text"),
                   _field("message", "Message", "text"),
               ], sizes=["small", "medium"], default_height=160),
+        _spec("clock", "tools", "Clock", "A live local or timezone-pinned clock.", "clock",
+              fields=[
+                  _field("timezone", "Timezone", "text", placeholder="UTC, Europe/London, America/New_York"),
+                  _field("format", "Format", "select", options=[
+                      {"value": "24h", "label": "24-hour"}, {"value": "12h", "label": "12-hour"},
+                  ]),
+                  _field("showSeconds", "Show seconds", "boolean"),
+                  _field("showDate", "Show date", "boolean"),
+                  _field("label", "Label", "text"),
+              ], sizes=["small", "medium"], default_height=180),
     ]
 
 

@@ -55,6 +55,22 @@ by the runtime renders through the existing workspace engine unchanged.
 - **Corrupt persistence is never overwritten.** A blueprint store payload that
   fails to parse is ignored (empty store); the raw bytes are left in place.
 
+## Widget registry and surfaces
+
+The host widget catalog is no longer a static render list. Every built-in and
+SDK widget registers into `src/lib/workspace/widget-registry.ts`; definitions
+declare a `surface` (`dashboard`, `page`, or `both`) and registration order is
+preserved. `DashboardScreen` and `PagesScreen` consume the same registry through
+`useWidgets({ surface })`, so a widget created by the SDK appears in the library
+and renders without a code change.
+
+The built-in `clock` (`src/lib/dashboard/clock-widget.tsx`) is the first
+host-rendered primitive added this way. It is a normal widget in the Command
+Center, a `clock` primitive for user-created SDK widgets, and a component in the
+runtime catalog (`ui/catalog.py`), so `ui_add_widget` / `sdk_dashboard_add_widget`
+can place it. The clock's timezone config is validated at render time; an
+invalid zone renders `UNAVAILABLE`.
+
 ## Layout
 
 | File | Owns |
@@ -65,6 +81,8 @@ by the runtime renders through the existing workspace engine unchanged.
 | `revisions.ts` | `diffBlueprints`, `BlueprintHistory`, `restoreRevision`, `detectConflict` |
 | `store.ts` | `BlueprintStore`, `createMemoryBlueprintStore`, `createLocalBlueprintStore` |
 | `registry-catalog.ts` | `buildDashboardCatalog` — the bridge from the live widget registry (client-only; kept out of the pure core) |
+| `../workspace/widget-registry.ts` | `registerWidget`/`listWidgets`/`getWidget`/`subscribeWidgets` + surface filtering |
+| `../dashboard/clock-widget.tsx` | the live clock renderer + pure `clockDisplay` formatter |
 | `index.ts` | the pure public API |
 
 Tests: `src/lib/ui-engineering/*.test.ts` (catalog, blueprint, patches,
@@ -249,8 +267,10 @@ tool / `UiService.verify_page`, HTTP `GET /ui/blueprints/{id}/verify`) reads a
 blueprint back and reports, per instance, whether its component id is in the
 catalog and whether any declared source string is well-formed — ALL families,
 via `catalog.validate_source` (portfolio, market, news, agent, tasks, artifacts,
-research, jdds). So the agent verifies a page it composed rather than asserting
-success. It does not fetch the data (the front door does); it names what it can
+research, jdds). A bare token with no family (`"rates"`, `"us10y"`) is invalid;
+the `portfolioId` shorthand is validated as
+`portfolio:<id>:summary[.<field>]`. So the agent verifies a page it composed
+rather than asserting success. It does not fetch the data (the front door does); it names what it can
 and cannot verify.
 
 **No silent drops.** A blueprint may reference a widget id the host registry
@@ -316,6 +336,13 @@ arrangement back via `ui_save_layout` and "Revert" clears the local cache. The
 Command Center's own localStorage layouts are mirrored into a per-dashboard
 blueprint on edit (`dashboard-blueprint.ts`, via `CustomizableWorkspace`'s
 `onLayoutChange`) so the agent can read/edit the board the user actually has.
+Saved pages render as **main navigation entries** in the sidebar
+(`src/components/layout/saved-pages-nav.tsx`) - there is no separate "SDK pages"
+section. Each entry opens `?tab=pages&page=<id>` (Ctrl/Cmd-click works) and the
+list refreshes from `/api/ui/stream`, so a page the agent just created appears
+without a reload. Command Center mirror blueprints (`/dashboard/dash-*`) are
+excluded from the runtime's page list, the Pages list and the nav: they are
+agent-readable board snapshots, not user-authored pages (still resolvable by id).
 
 **Focus + dispatch:** the chat forwards the focused page with the run
 (`uiContext` → `input.context.ui` → a per-run prompt block), and an Engineer

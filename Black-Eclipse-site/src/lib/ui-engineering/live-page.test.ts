@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceLayout as WireLayout } from '@/lib/harness/ui-client';
 import type { WorkspaceLayout as KernelLayout } from '@/lib/workspace/types';
-import { blueprintLayoutToKernel, kernelLayoutToWire, pageStorageKey } from './live-page';
+import { blueprintLayoutToKernel, isDashboardMirrorPath, kernelLayoutToWire, pageStorageKey } from './live-page';
 
 const wire: WireLayout = {
   version: 2,
@@ -82,5 +82,18 @@ describe('kernelLayoutToWire', () => {
     expect(out.sections[0].zone).toBe('main');
     expect(out.sections[0].columns[0].widgets[0].config).toBeNull();
     expect(out.hiddenZones).toBeNull();
+  });
+});
+
+describe('isDashboardMirrorPath', () => {
+  it('recognizes Command Center mirror blueprints', () => {
+    expect(isDashboardMirrorPath('/dashboard/dash-mvclurcj-4sm207')).toBe(true);
+    expect(isDashboardMirrorPath(' /DASHBOARD/dash-x ')).toBe(true);
+  });
+
+  it('does not hide real saved pages', () => {
+    expect(isDashboardMirrorPath('/rates-desk')).toBe(false);
+    expect(isDashboardMirrorPath('/dashboard')).toBe(false);
+    expect(isDashboardMirrorPath(null)).toBe(false);
   });
 });

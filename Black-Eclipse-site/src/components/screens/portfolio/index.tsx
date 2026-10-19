@@ -1,48 +1,62 @@
 'use client';
 
-// ── Portfolio screen — fund manager ⇄ per-fund workspace ─────────────────────
+// ── Portfolio screen — engine-backed funds only ──────────────────────────────
+// One user-facing object: a fund. The Python Portfolio Accounting Engine is the
+// durable book (transactions, lots, valuation); this screen reads and mutates it
+// through the front door. The old localStorage fund book is migrated once, then
+// only used as the source for that migration.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ChartPie } from '@/lib/icons';
-import { loadFunds, saveFunds } from './fund-store';
+import { loadFunds } from './fund-store';
 import { migrateFundsToEngine } from '@/lib/portfolio/migrate-to-engine';
+import {
+  addEngineFundTransaction,
+  createEngineFund,
+  deleteEngineFund,
+  importEngineFunds,
+  listEngineFunds,
+  updateEngineFund,
+} from '@/lib/portfolio/engine-funds';
 import { FundManager } from './fund-manager';
 import { FundWorkspace } from './fund-workspace';
-import { PortfolioLedger } from './portfolio-ledger';
 import { useCommandStore } from '@/lib/search/store';
-import type { Fund } from '@/lib/portfolio/types';
+import type { Fund, Transaction } from '@/lib/portfolio/types';
 
 export function PortfolioScreen() {
   const [funds, setFunds] = useState<Fund[] | null>(null);
   const [openFundId, setOpenFundId] = useState<string | null>(null);
-  const [view, setView] = useState<'funds' | 'ledger'>('funds');
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await listEngineFunds();
+      setFunds(next);
+      setError(null);
+    } catch (err) {
+      setFunds((current) => current ?? []);
+      setError(err instanceof Error ? err.message : 'fund engine unavailable');
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const { funds: loaded } = loadFunds();
-    setFunds(loaded);
-    // One-time: mirror the legacy localStorage book into the Portfolio engine
-    // (the single source of truth), then PREFER the engine view once it holds
-    // data — so a portfolio the agent created appears with no extra navigation.
-    // Best-effort: if the runtime is unavailable the Funds view stays.
     void (async () => {
+      // One-time migration of the legacy localStorage book into the engine.
       try {
-        await migrateFundsToEngine(loaded);
-        const res = await fetch('/api/portfolio/list');
-        if (!res.ok) return;
-        const body = (await res.json()) as { portfolios?: unknown[] };
-        if (!cancelled && (body.portfolios?.length ?? 0) > 0) setView('ledger');
+        const legacy = loadFunds().funds;
+        if (legacy.length) await migrateFundsToEngine(legacy);
       } catch {
-        /* migration and the probe are best-effort; the Funds view stays usable */
+        /* migration is best-effort; the engine read below reports availability */
       }
+      if (!cancelled) await refresh();
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refresh]);
 
   // Consume a fund id dispatched by the global search bar (⌘K → fund result).
-  // Subscribes so it works even when the tab is already mounted (keep-alive).
   useEffect(() => {
     const check = () => {
       const id = useCommandStore.getState().consumeFundId();
@@ -55,45 +69,88 @@ export function PortfolioScreen() {
     return unsub;
   }, []);
 
-  const updateFund = useCallback((fundId: string, patch: Partial<Omit<Fund, 'id' | 'seeded'>>) => {
-    setFunds(prev => {
-      if (!prev) return prev;
-      const next = prev.map(f => (f.id === fundId ? { ...f, ...patch } : f));
-      saveFunds(next);
-      return next;
-    });
-  }, []);
+  const openFund = funds?.find((fund) => fund.id === openFundId) ?? null;
 
-  const openFund = funds?.find(f => f.id === openFundId) ?? null;
+  const handleCreate = useCallback(async (input: {
+    name: string; icon: string; accent: string; goalValue: number | null; startingCash: number;
+  }) => {
+    try {
+      await createEngineFund(input);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'create fund failed');
+    }
+  }, [refresh]);
+
+  const handleUpdate = useCallback(async (
+    fundId: string,
+    patch: { name?: string; goalValue?: number | null },
+  ) => {
+    try {
+      await updateEngineFund(fundId, patch);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'update fund failed');
+    }
+  }, [refresh]);
+
+  const handleDelete = useCallback(async (fundId: string) => {
+    try {
+      await deleteEngineFund(fundId);
+      setOpenFundId((current) => (current === fundId ? null : current));
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'delete fund failed');
+    }
+  }, [refresh]);
+
+  const handleAddTransaction = useCallback(async (fund: Fund, tx: Transaction) => {
+    try {
+      await addEngineFundTransaction(fund, tx);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'add transaction failed');
+    }
+  }, [refresh]);
+
+  const handleImport = useCallback(async (imported: Fund[]) => {
+    try {
+      const result = await importEngineFunds(imported);
+      if (result.errors.length) setError(result.errors.join(' · '));
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'import failed');
+    }
+  }, [refresh]);
 
   return (
     <div className="relative flex h-full w-full flex-col">
-      <div className="absolute right-3 top-3 z-20 flex overflow-hidden rounded-full glass-card-subtle text-xs">
-        <button
-          className={view === 'funds' ? 'px-3 py-1 bg-white/10' : 'px-3 py-1'}
-          onClick={() => setView('funds')}
-        >
-          Funds
-        </button>
-        <button
-          className={view === 'ledger' ? 'px-3 py-1 bg-white/10' : 'px-3 py-1'}
-          onClick={() => setView('ledger')}
-        >
-          Ledger
-        </button>
-      </div>
+      {error && (
+        <div className="mb-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+          Fund engine: {error}
+        </div>
+      )}
       <div className="min-h-0 flex-1">
-        {view === 'ledger' ? (
-          <PortfolioLedger />
-        ) : openFund ? (
+        {openFund ? (
           <FundWorkspace
             key={openFund.id}
             fund={openFund}
             onBack={() => setOpenFundId(null)}
-            onUpdateFund={(patch) => updateFund(openFund.id, patch)}
+            onAddTransaction={(tx) => handleAddTransaction(openFund, tx)}
           />
         ) : (
-          <FundManager onOpenFund={setOpenFundId} />
+          <FundManager
+            funds={funds}
+            onOpenFund={setOpenFundId}
+            onCreate={handleCreate}
+            onUpdate={handleUpdate}
+            onDelete={handleDelete}
+            onAddTransaction={(fundId, tx) => {
+              const fund = funds?.find((f) => f.id === fundId);
+              if (fund) return handleAddTransaction(fund, tx);
+            }}
+            onImport={handleImport}
+          />
         )}
       </div>
     </div>

@@ -441,6 +441,7 @@ class ListBlueprintsQuery(BaseModel):
     kind: Optional[BlueprintKind] = None
     owner_id: Optional[str] = None
     q: Optional[str] = Field(None, max_length=200)
+    include_dashboard_mirrors: bool = False
     limit: int = Field(DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT)
     offset: int = Field(0, ge=0)
 

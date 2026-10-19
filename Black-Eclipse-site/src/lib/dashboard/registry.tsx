@@ -10,7 +10,7 @@ import {
   Activity, BarChart3, Bell, Briefcase, CalendarDays, CandlestickChart,
   Globe, LayoutDashboard, Newspaper, PieChart, TrendingUp, Wallet,
   LineChart, Coins, Droplets, Flame, Radio, FileText, Bot, Scissors,
-  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye, MapPin,
+  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye, MapPin, Clock,
 } from '@/lib/icons';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
@@ -58,6 +58,8 @@ import {
 import { MARKET_RAIL_WIDGETS, marketPanelIcon } from './market-rail-widgets';
 import { SOURCE_WIDGETS } from '@/lib/workspace/generic-widgets';
 import { getSdkWidgetDefinition } from '@/lib/sdk/widgets';
+import { registerWidget, getWidget } from '@/lib/workspace/widget-registry';
+import { ClockWidget, DEFAULT_CLOCK_CONFIG } from './clock-widget';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
 // fetches per topic and only subscribes for visible widgets.
@@ -94,7 +96,7 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
   droplets: Droplets, flame: Flame, radio: Radio, 'file-text': FileText,
   bot: Bot, scissors: Scissors, 'sticky-note': StickyNote, landmark: Landmark,
   ship: Ship, gauge: Gauge, table: Table2, layers: Layers, heart: HeartPulse,
-  brain: Brain, zap: Zap, 'scan-eye': ScanEye, 'map-pin': MapPin,
+  brain: Brain, zap: Zap, 'scan-eye': ScanEye, 'map-pin': MapPin, clock: Clock,
 };
 export function widgetIcon(name: string) {
   return ICONS[name] ?? marketPanelIcon(name) ?? LayoutDashboard;
@@ -128,7 +130,7 @@ function mdef(
   );
 }
 
-export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
+const CORE_WIDGETS: WidgetDefinition[] = [
   // ── Markets ──
   mdef('market-indices', 'markets', 'Market Indices', 'Headline index quotes for the chosen market.', 'line-chart', ['medium', 'large'], (p) => <MarketIndicesWidget placement={p} />),
   def('forex-pairs', 'markets', 'Forex Pairs', 'EURUSD, GBPUSD, USDJPY and more.', 'droplets', ['medium', 'large'], () => <ForexPairsWidget />, ['market:forex']),
@@ -173,6 +175,15 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('live-tv', 'tools', 'Live Intelligence', 'Live financial, market and world-news channels.', 'radio', ['large', 'full'], (p) => <LiveIntelligenceWidget placement={p} />, undefined,
     [LIVE_INTELLIGENCE_AUTOPLAY_FIELD, LIVE_INTELLIGENCE_MUTED_FIELD],
     { autoplay: true, muted: true }),
+  def('clock', 'tools', 'Clock', 'Live local or timezone-pinned clock.', 'clock', ['small', 'medium'], (p) => <ClockWidget placement={p} />, undefined,
+    [
+      { key: 'timezone', label: 'Timezone', type: 'text', placeholder: 'UTC, Europe/London, America/New_York…' },
+      { key: 'format', label: 'Format', type: 'select', options: [{ value: '24h', label: '24-hour' }, { value: '12h', label: '12-hour' }], default: '24h' },
+      { key: 'showSeconds', label: 'Show seconds', type: 'boolean', default: true },
+      { key: 'showDate', label: 'Show date', type: 'boolean', default: true },
+      { key: 'label', label: 'Label', type: 'text', placeholder: 'Clock' },
+    ],
+    { ...DEFAULT_CLOCK_CONFIG }),
   def('recent-files', 'tools', 'Recent Files', 'Exports, reports, notebooks.', 'file-text', ['small', 'medium'], () => <RecentFilesWidget />),
   def('agent-errors', 'tools', 'Agent Errors', 'Recent agent execution failures.', 'bot', ['small', 'medium'], () => <AgentErrorsWidget />),
   def('web-scraper', 'tools', 'Web Scraper', 'Scrape tables from any URL.', 'scissors', ['medium', 'large'], () => <WebScraperWidget />),
@@ -251,13 +262,13 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   ...SOURCE_WIDGETS,
 ];
 
-export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
+for (const widget of CORE_WIDGETS) registerWidget(widget);
+
+export const DASHBOARD_WIDGETS: WidgetDefinition[] = CORE_WIDGETS;
+export const DASHBOARD_WIDGET_IDS = CORE_WIDGETS.map(w => w.id);
 
 export function getWidgetDefinition(id: string): WidgetDefinition | undefined {
-  // Static core widgets win; a user-created SDK widget (`sdk.<slug>`, hydrated
-  // from the runtime) is the fallback. This is what makes a widget the user
-  // created renderable on a real page without a code change.
-  return DASHBOARD_WIDGETS.find(w => w.id === id) ?? getSdkWidgetDefinition(id);
+  return getWidget(id) ?? getSdkWidgetDefinition(id);
 }
 export function renderDashboardWidget(widgetId: string, placement: WidgetPlacement): React.ReactNode {
   const def = getWidgetDefinition(widgetId);

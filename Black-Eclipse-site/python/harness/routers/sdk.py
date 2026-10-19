@@ -15,11 +15,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from ..deps import require_operator, service
 from ..sdk.locks import LockError
 from ..sdk.model import (
+    SdkActiveDashboardInput,
     SdkAddStockInput,
     SdkAssertLockInput,
     SdkCreateFundInput,
     SdkCreateLockInput,
     SdkCreatePageInput,
+    SdkDashboardAddWidgetInput,
+    SdkDashboardMoveWidgetInput,
+    SdkDashboardResizeWidgetInput,
+    SdkDashboardRestoreInput,
+    SdkDashboardSetColumnsInput,
+    SdkDashboardSetLayoutInput,
+    SdkDashboardSetZonesInput,
+    SdkDashboardWidgetRefInput,
     SdkUnlockInput,
     SdkWidgetInput,
 )
@@ -111,6 +120,140 @@ def sdk_delete_widget(component_id: str, request: Request, _: bool = Depends(req
     except Exception as exc:  # noqa: BLE001
         _wrap(exc)
     return {"success": True, "removed": removed}
+
+
+# ── Command Center dashboards ─────────────────────────────────────────────────
+
+
+@router.get("/sdk/dashboards")
+def sdk_list_dashboards(request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.list()
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.get("/sdk/dashboards/active")
+def sdk_active_dashboard(request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.active()
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.put("/sdk/dashboards/active")
+def sdk_set_active_dashboard(request: Request, body: SdkActiveDashboardInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.set_active(body.dashboard_id)
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.get("/sdk/dashboards/{dashboard_id}")
+def sdk_get_dashboard(dashboard_id: str, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.get(dashboard_id)
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.put("/sdk/dashboards/{dashboard_id}/layout")
+def sdk_set_dashboard_layout(dashboard_id: str, request: Request, body: SdkDashboardSetLayoutInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.set_layout(dashboard_id, body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.post("/sdk/dashboards/{dashboard_id}/widgets")
+def sdk_add_dashboard_widget(dashboard_id: str, request: Request, body: SdkDashboardAddWidgetInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.add_widget(dashboard_id, body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.delete("/sdk/dashboards/{dashboard_id}/widgets/{instance_id}")
+def sdk_remove_dashboard_widget(
+    dashboard_id: str,
+    instance_id: str,
+    request: Request,
+    expectedRevision: Optional[int] = Query(None, ge=1),  # noqa: N803
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.remove_widget(
+            dashboard_id,
+            SdkDashboardWidgetRefInput(instance_id=instance_id, expected_revision=expectedRevision),
+            actor=_owner(request),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.post("/sdk/dashboards/{dashboard_id}/widgets/{instance_id}/move")
+def sdk_move_dashboard_widget(dashboard_id: str, instance_id: str, request: Request, body: SdkDashboardMoveWidgetInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        if body.instance_id != instance_id:
+            body = body.model_copy(update={"instance_id": instance_id})
+        result = _sdk().dashboards.move_widget(dashboard_id, body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.post("/sdk/dashboards/{dashboard_id}/widgets/{instance_id}/resize")
+def sdk_resize_dashboard_widget(dashboard_id: str, instance_id: str, request: Request, body: SdkDashboardResizeWidgetInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        if body.instance_id != instance_id:
+            body = body.model_copy(update={"instance_id": instance_id})
+        result = _sdk().dashboards.resize_widget(dashboard_id, body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.put("/sdk/dashboards/{dashboard_id}/columns")
+def sdk_set_dashboard_columns(dashboard_id: str, request: Request, body: SdkDashboardSetColumnsInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.set_columns(dashboard_id, body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.put("/sdk/dashboards/{dashboard_id}/zones")
+def sdk_set_dashboard_zones(dashboard_id: str, request: Request, body: SdkDashboardSetZonesInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.set_zones(dashboard_id, body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.get("/sdk/dashboards/{dashboard_id}/history")
+def sdk_dashboard_history(dashboard_id: str, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.history(dashboard_id)
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.post("/sdk/dashboards/{dashboard_id}/restore")
+def sdk_restore_dashboard(dashboard_id: str, request: Request, body: SdkDashboardRestoreInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    try:
+        result = _sdk().dashboards.restore(dashboard_id, body.revision, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
 
 
 # ── pages ─────────────────────────────────────────────────────────────────────

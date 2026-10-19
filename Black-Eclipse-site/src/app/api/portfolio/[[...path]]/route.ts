@@ -72,6 +72,9 @@ export async function GET(request: Request, ctx: Ctx) {
 export async function POST(request: Request, ctx: Ctx) {
   return proxy(request, ctx, "POST");
 }
+export async function PATCH(request: Request, ctx: Ctx) {
+  return proxy(request, ctx, "PATCH");
+}
 export async function DELETE(request: Request, ctx: Ctx) {
   return proxy(request, ctx, "DELETE");
 }

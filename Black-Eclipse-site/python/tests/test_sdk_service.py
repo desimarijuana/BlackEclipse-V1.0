@@ -189,6 +189,14 @@ def test_portfolio_lock_blocks_stock_then_allows_after_unlock(sdk):
         unlock_token_var.reset(handle)
 
 
+def test_list_pages_hides_dashboard_mirrors(sdk):
+    sdk.create_page(SdkCreatePageInput(title="User page", path="/user-page"))
+    sdk.create_page(SdkCreatePageInput(title="Main", path="/dashboard/dash-test"))
+    titles = {page["title"] for page in sdk.list_pages()["blueprints"]}
+    assert "User page" in titles
+    assert "Main" not in titles
+
+
 def test_capabilities_reports_every_surface(sdk):
     capabilities = sdk.capabilities()
     assert capabilities["widgets"]["canCreate"] is True

@@ -3,7 +3,7 @@
 // ── Fund manager (portfolio overview) ────────────────────────────────────────
 // Fund tabs + overall performance chart + market-news-style sentiment cards.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Briefcase, Car, ChartPie, Coins, FileJson, FileSpreadsheet, Flame, Gem, GraduationCap,
   Heart, Home, Landmark, PiggyBank, Plane, PencilLine, Plus, Rocket, Shield,
@@ -20,11 +20,11 @@ import { baseChartOption, useEChart } from './use-echart';
 import { marketHintFor } from './use-live-quotes';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import {
-  exportAllFundsJson, exportFundCsv, exportFundJson, isDemoFund, loadFunds, parseFundsPayload, saveFunds,
+  exportAllFundsJson, exportFundCsv, exportFundJson, isDemoFund, parseFundsPayload,
 } from './fund-store';
 import { useLiveQuotes } from './use-live-quotes';
 import { AddTransactionDialog, ConfirmDialog, CreateFundDialog, RenameFundDialog } from './fund-dialogs';
-import { newTxId, type Fund, type Transaction } from '@/lib/portfolio/types';
+import type { Fund, Transaction } from '@/lib/portfolio/types';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
   Briefcase, Rocket, Shield, Coins, Landmark, Sprout, Gem, Flame,
@@ -76,27 +76,23 @@ const SENTIMENT_META: Record<Sentiment, { label: string; border: string; bg: str
 };
 
 interface FundManagerProps {
+  funds: Fund[] | null;
   onOpenFund: (fundId: string) => void;
+  onCreate: (input: { name: string; icon: string; accent: string; goalValue: number | null; startingCash: number }) => Promise<void> | void;
+  onUpdate: (fundId: string, patch: { name?: string; goalValue?: number | null }) => Promise<void> | void;
+  onDelete: (fundId: string) => Promise<void> | void;
+  onAddTransaction: (fundId: string, tx: Transaction) => Promise<void> | void;
+  onImport: (funds: Fund[]) => Promise<void> | void;
 }
 
-export function FundManager({ onOpenFund }: FundManagerProps) {
+export function FundManager({ funds, onOpenFund, onCreate, onUpdate, onDelete, onAddTransaction, onImport }: FundManagerProps) {
   const palette = useChartPalette();
-  const [funds, setFunds] = useState<Fund[] | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [dialog, setDialog] = useState<
     { kind: 'create' } | { kind: 'rename'; fund: Fund } | { kind: 'delete'; fund: Fund }
     | { kind: 'addtx'; fund: Fund } | null
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setFunds(loadFunds().funds);
-  }, []);
-
-  const persist = (next: Fund[]) => {
-    setFunds(next);
-    saveFunds(next);
-  };
 
   // Live prices across every symbol in every fund for the ribbon, cards & chart.
   const symbols = useMemo(
@@ -203,7 +199,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
   const onImportFile = async (file: File) => {
     const text = await file.text();
     const res = parseFundsPayload(text);
-    if (res.funds.length) persist([...(funds ?? []), ...res.funds]);
+    if (res.funds.length) await onImport(res.funds);
     setImportStatus(res.errors.length ? `Imported with warnings: ${res.errors.join(' ')}` : `Imported ${res.funds.length} fund(s).`);
     setTimeout(() => setImportStatus(null), 6000);
   };
@@ -232,7 +228,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
         </div>
         <div>
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Portfolio</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Funds, ledgers and custom workspaces — everything is stored locally on this device.</p>
+          <p className="text-muted-foreground text-xs mt-0.5">Funds and custom workspaces, backed by your local Eclipse portfolio engine.</p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5 pr-40">
           <input
@@ -323,7 +319,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
         <div className="rounded-3xl glass-card p-12 text-center animate-fade-in-up">
           <Briefcase className="mx-auto text-primary" size={28} />
           <h3 className="mt-3 font-serif text-lg text-foreground">No funds yet</h3>
-          <p className="mt-1 text-xs text-muted-foreground">Create your first fund to start tracking a transaction ledger.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Create your first fund to start tracking positions and performance.</p>
           <button
             onClick={() => setDialog({ kind: 'create' })}
             className="mt-5 inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-4 py-2.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
@@ -478,15 +474,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
         <CreateFundDialog
           onClose={() => setDialog(null)}
           onCreate={(name, icon, accent, goal, startingCash) => {
-            const transactions: Transaction[] = startingCash > 0
-              ? [{ id: newTxId(), type: 'DEPOSIT', symbol: 'CASH', quantity: startingCash, price: 1, fee: 0, date: new Date().toISOString().slice(0, 10), notes: 'Starting budget' }]
-              : [];
-            const f: Fund = {
-              id: `fund-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-              name, icon, accent, goalValue: goal,
-              createdAt: new Date().toISOString(), transactions,
-            };
-            persist([...funds, f]);
+            void onCreate({ name, icon, accent, goalValue: goal, startingCash });
             setDialog(null);
           }}
         />
@@ -496,7 +484,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
           current={dialog.fund}
           onClose={() => setDialog(null)}
           onRename={(name, goal) => {
-            persist(funds.map(f => f.id === dialog.fund.id ? { ...f, name, goalValue: goal } : f));
+            void onUpdate(dialog.fund.id, { name, goalValue: goal });
             setDialog(null);
           }}
         />
@@ -504,17 +492,20 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
       {dialog?.kind === 'delete' && (
         <ConfirmDialog
           title={`Delete "${dialog.fund.name}"?`}
-          body="The fund and its transaction ledger will be removed from this device. This cannot be undone."
+          body="The fund and its transaction history will be removed from the engine. This cannot be undone."
           confirmLabel="Delete fund"
           onClose={() => setDialog(null)}
-          onConfirm={() => persist(funds.filter(f => f.id !== dialog.fund.id))}
+          onConfirm={() => {
+            void onDelete(dialog.fund.id);
+            setDialog(null);
+          }}
         />
       )}
       {dialog?.kind === 'addtx' && (
         <AddTransactionDialog
           onClose={() => setDialog(null)}
           onAdd={(tx: Transaction) => {
-            persist(funds.map(f => f.id === dialog.fund.id ? { ...f, transactions: [...f.transactions, tx] } : f));
+            void onAddTransaction(dialog.fund.id, tx);
             setDialog(null);
           }}
         />

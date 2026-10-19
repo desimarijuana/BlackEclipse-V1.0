@@ -88,6 +88,11 @@ def _normalize_path(value: Optional[str]) -> str:
     return p.lower()
 
 
+def _is_dashboard_mirror(path: Optional[str]) -> bool:
+    """Command Center mirrors are agent-readable board snapshots, not user pages."""
+    return (path or "").strip().lower().startswith("/dashboard/")
+
+
 def _empty_layout() -> WorkspaceLayout:
     return WorkspaceLayout(
         version=2,
@@ -256,11 +261,11 @@ class UiService:
         Live rendered-DOM state is provided by the front door, which augments
         this with the current page's rendered instances.
         """
-        pages, total = self._store.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=None)
+        listed = self.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=None)
         return {
             "screens": [s.model_dump(by_alias=True) for s in self._store.list_surfaces()],
-            "pages": [p.model_dump(by_alias=True) for p in pages],
-            "pageCount": total,
+            "pages": listed["blueprints"],
+            "pageCount": listed["total"],
             "capabilities": self.get_capabilities(),
         }
 
@@ -404,10 +409,7 @@ class UiService:
             source = str(raw_source) if isinstance(raw_source, str) and raw_source.strip() else None
             source_valid: Optional[bool] = None
             source_reason: Optional[str] = None
-            if source and ":" in source:
-                # A full source string — validate its shape against the grammar.
-                source_valid, source_reason = validate_source(source)
-            elif config.get("portfolioId"):
+            if config.get("portfolioId"):
                 # `portfolioId` (+ an optional bare field in `metric`) implies a
                 # portfolio source; validate that shape so a typo in the field is
                 # still surfaced.
@@ -415,6 +417,12 @@ class UiService:
                 field = f".{source}" if source else ""
                 implied = f"{PORTFOLIO_DATA_SOURCE}:{pid}:summary{field}"
                 source_valid, source_reason = validate_source(implied)
+            elif source:
+                # ANY declared source is checked against the closed grammar —
+                # including a bare token such as "rates" or "us10y". Previously a
+                # value without ":" skipped validation, so `ui_verify_page` said
+                # a page was renderable while its binding was invalid.
+                source_valid, source_reason = validate_source(source)
             available = spec is not None
             all_available = all_available and available and source_valid is not False
             instances.append({
@@ -457,10 +465,14 @@ class UiService:
 
     def list_blueprints(self, query: Optional[ListBlueprintsQuery] = None, *, owner_id: Optional[str] = None) -> dict[str, Any]:
         query = query or ListBlueprintsQuery()
-        summaries, total = self._store.list_blueprints(query, owner_id=owner_id)
+        summaries, _stored_total = self._store.list_blueprints(query, owner_id=owner_id)
+        visible = [
+            s for s in summaries
+            if query.include_dashboard_mirrors or not _is_dashboard_mirror(s.path)
+        ]
         return {
-            "blueprints": [s.model_dump(by_alias=True) for s in summaries],
-            "total": total, "limit": query.limit, "offset": query.offset,
+            "blueprints": [s.model_dump(by_alias=True) for s in visible],
+            "total": len(visible), "limit": query.limit, "offset": query.offset,
         }
 
     def get_layout(self, blueprint_id: str, *, owner_id: Optional[str] = None) -> dict[str, Any]:

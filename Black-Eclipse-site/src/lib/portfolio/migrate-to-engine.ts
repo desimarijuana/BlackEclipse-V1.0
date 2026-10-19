@@ -88,7 +88,17 @@ export async function migrateFundsToEngine(
         const created = await doFetch(`${base}/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: fund.name, costBasisMethod: 'FIFO' }),
+          body: JSON.stringify({
+            name: fund.name,
+            cost_basis_method: 'FIFO',
+            kind: 'fund',
+            metadata: {
+              kind: 'fund',
+              icon: fund.icon,
+              accent: fund.accent,
+              ...(fund.goalValue != null ? { goal: fund.goalValue } : {}),
+            },
+          }),
         });
         if (!created.ok) throw new Error(`create ${created.status}`);
         const body = (await created.json()) as { id?: string };

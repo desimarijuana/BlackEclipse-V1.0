@@ -8,6 +8,9 @@
 
 import type { WidgetPlacement } from './types';
 
+/** Where a widget may be placed: the Command Center, saved pages, or both. */
+export type WidgetSurface = 'dashboard' | 'page' | 'both';
+
 /** Widget categories shown in the Widget Library. */
 export type WidgetCategory =
   | 'markets'
@@ -66,6 +69,8 @@ export interface WidgetDefinition {
   desc: string;
   /** lucide icon name (resolved by the library). */
   icon: string;
+  /** Placement surface. Defaults to 'both'. */
+  surface?: WidgetSurface;
   /** Suggested sizes. */
   sizes: Array<'small' | 'medium' | 'large' | 'full'>;
   /**
