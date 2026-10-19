@@ -24,13 +24,21 @@ from typing import Any, Callable, Iterable, Optional
 
 _TOKEN = re.compile(r"[a-z0-9_]+")
 
+#: Grammar words carry no capability signal; without this, a query containing
+#: "a" matched every descriptor whose description contains "a".
+_STOP = frozenset({
+    "a", "an", "the", "for", "of", "to", "in", "on", "and", "or", "with",
+    "my", "me", "our", "is", "are", "be", "it", "this", "that", "some",
+    "any", "need", "want", "please", "can", "you",
+})
+
 # Trust ranking for provenance: a native capability is more trusted than a
 # downloaded/plugin one; used only as a tie-breaker, never to hide a capability.
 _TRUST = {"native": 1.0, "provider": 0.9, "skill": 0.8, "mcp": 0.7, "plugin": 0.6}
 
 
 def _tokens(text: str) -> set[str]:
-    return set(_TOKEN.findall((text or "").lower()))
+    return {t for t in _TOKEN.findall((text or "").lower()) if t not in _STOP}
 
 
 @dataclass(frozen=True)

@@ -397,6 +397,14 @@ ECLIPSE_AGENT = AgentConfig(
         "skill_create",
         "skill_update",
         "skill_delete",
+        # Skill lifecycle: read version history + review/evaluation trails; enable an
+        # evaluated version or switch automatic skill learning (both approval-gated).
+        "skill_version_history",
+        "skill_reviews",
+        "skill_learning_get",
+        "skill_version_evaluate",
+        "skill_version_activate",
+        "skill_learning_set",
         "mcp_integrations",
         "mcp_install",
         "mcp_probe",
@@ -413,6 +421,13 @@ ECLIPSE_AGENT = AgentConfig(
         "memory_search_native",
         "memory_search_external",
         "memory_provider_status",
+        # The learning loop (read-only): the same review records and captured
+        # candidates the Memory → Reviews / Skills → Learning Queue screens read.
+        "learning_review_list",
+        "learning_candidate_list",
+        # Bounded read-only GET over the app's OWN loopback API (QA Round 1):
+        # the sanctioned alternative to the hard-denied `curl` dead-end.
+        "app_api_get",
         # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
         # these five companies"). A research capability, not only a code one.
         "delegate",
@@ -836,11 +851,14 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "git_submodule_init", "git_submodule_sync",
     # read-only context, unchanged from ECLIPSE_AGENT
     "memory", "skill_list", "skill_view", "session_search", "session_open",
+    "learning_review_list", "learning_candidate_list", "app_api_get",
+    "skill_version_history", "skill_reviews", "skill_learning_get",
     # The acquire loop stays available in a coding turn: "install this skill /
     # MCP integration" is a valid code request and must not fall off the surface
     # when the front door classifies a mixed turn as `code_change`.
     "skill_install", "skill_uninstall", "skill_sources",
     "skill_create", "skill_update", "skill_delete",
+    "skill_version_evaluate", "skill_version_activate", "skill_learning_set",
     "mcp_integrations", "mcp_install", "mcp_probe",
     # finance tools stay available: a code change may need the vault for a fixture
     "market_get_quote", "fundamentals_get_financials", "research_search",
@@ -855,6 +873,12 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     # Computer Use Engine for a chat coding turn (drive a native dev tool's UI).
     # `plan_only` removes the elevated half via the ONE policy authority.
     *COMPUTER_TOOLS,
+    # UI Engineering: app-surface introspection + Eclipse's OWN saved-page
+    # composition. A turn that mentions "repository", "tabs" or "list" is often
+    # routed to this code profile, and without these the agent loses
+    # `ui_get_application_map` exactly when it is asked where something lives in
+    # the app (QA Round 1). UI configuration only — no filesystem/network/shell.
+    *UI_TOOLS,
 )
 # Deliberately ABSENT: code_commit, code_push, code_open_pr, code_deploy.
 

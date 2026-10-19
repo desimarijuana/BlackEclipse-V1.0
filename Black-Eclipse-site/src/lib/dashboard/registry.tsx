@@ -57,6 +57,7 @@ import {
 } from './live-intelligence-widget';
 import { MARKET_RAIL_WIDGETS, marketPanelIcon } from './market-rail-widgets';
 import { SOURCE_WIDGETS } from '@/lib/workspace/generic-widgets';
+import { getSdkWidgetDefinition } from '@/lib/sdk/widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
 // fetches per topic and only subscribes for visible widgets.
@@ -253,7 +254,10 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
 
 export function getWidgetDefinition(id: string): WidgetDefinition | undefined {
-  return DASHBOARD_WIDGETS.find(w => w.id === id);
+  // Static core widgets win; a user-created SDK widget (`sdk.<slug>`, hydrated
+  // from the runtime) is the fallback. This is what makes a widget the user
+  // created renderable on a real page without a code change.
+  return DASHBOARD_WIDGETS.find(w => w.id === id) ?? getSdkWidgetDefinition(id);
 }
 export function renderDashboardWidget(widgetId: string, placement: WidgetPlacement): React.ReactNode {
   const def = getWidgetDefinition(widgetId);

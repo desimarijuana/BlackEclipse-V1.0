@@ -37,6 +37,13 @@ from .graders import (
     grader_names,
     register_grader,
 )
+from .provenance import (
+    AGENT_VERSION,
+    ProvenanceError,
+    repository_commit,
+    require_provenance,
+    task_fingerprint_digest,
+)
 from .regression import DEFAULT_GATES, RegressionGate, detect_regressions
 from .report import to_html, to_json, to_jsonl, to_markdown, write_report
 from .runner import (
@@ -48,6 +55,12 @@ from .runner import (
     TaskResult,
     TrialResult,
     install_model_seam,
+)
+from .candidate_invoker import (
+    CandidateAgentInvoker,
+    SnapshotError,
+    base_snapshot_from_agent,
+    validate_snapshot,
 )
 from .scoring import (
     DEFAULT_THRESHOLDS,
@@ -61,7 +74,9 @@ from .stats import TrialStats, aggregate_trials
 from .store import EvaluationStore
 from .tasks import (
     CATEGORIES,
+    DEFAULT_SPLIT,
     DIFFICULTIES,
+    SPLITS,
     Dataset,
     EvaluationTask,
     TaskLimits,
@@ -70,13 +85,17 @@ from .tasks import (
     load_builtin_dataset,
     load_dataset,
     select_tasks,
+    task_split,
 )
 from .taxonomy import FailureLabel, classify_failure
 from .trajectory import Trajectory, TrajectoryEvent
 
 __all__ = [
+    "AGENT_VERSION",
     "CATEGORIES",
+    "CandidateAgentInvoker",
     "DEFAULT_GATES",
+    "DEFAULT_SPLIT",
     "DEFAULT_THRESHOLDS",
     "DIFFICULTIES",
     "DIMENSIONS",
@@ -93,9 +112,12 @@ __all__ = [
     "Grader",
     "GraderResult",
     "InvocationResult",
+    "ProvenanceError",
     "RegressionGate",
+    "SPLITS",
     "ScriptedAgentInvoker",
     "ServiceAgentInvoker",
+    "SnapshotError",
     "SuiteResult",
     "TASK_SCHEMA_VERSION",
     "TRAJECTORY_FORMAT_VERSION",
@@ -109,6 +131,7 @@ __all__ = [
     "UNKNOWN",
     "aggregate_trials",
     "available_datasets",
+    "base_snapshot_from_agent",
     "build_environment",
     "build_grader",
     "build_graders",
@@ -118,6 +141,11 @@ __all__ = [
     "environment_kinds",
     "grader_names",
     "install_model_seam",
+    "repository_commit",
+    "require_provenance",
+    "task_fingerprint_digest",
+    "task_split",
+    "validate_snapshot",
     "load_all_builtin",
     "load_builtin_dataset",
     "load_dataset",

@@ -42,6 +42,10 @@ class HttpDataBridge(DataBridge):
         "web_search", "web_fetch", "web_collect", "academic_search", "news_search",
         "image_search", "video_search", "playlist_search", "video_metadata",
         "transcript_fetch", "course_search", "github_search",
+        # Collection routes reach a public source (SEC, the operator's REST
+        # endpoint) through the front door's own guarded transport, which can
+        # legitimately take longer than a vault read.
+        "sec_filing_list", "custom_dataset_records",
     })
 
     def __init__(self, base_url: str, token: Optional[str]) -> None:

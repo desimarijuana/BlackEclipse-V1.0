@@ -439,6 +439,7 @@ export function ChatDock({
               images: turn.images,
               video: turn.video,
               analysis: turn.analysis,
+              acquisition: turn.acquisition,
               codeVerification: turn.codeVerification,
               autonomy: turn.autonomy,
               capability: turn.capability,

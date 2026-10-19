@@ -46,6 +46,12 @@ DATASETS_DIR = os.path.join(os.path.dirname(__file__), "datasets")
 # deterministic tier these are reported `unmeasured` rather than faked.
 LIVE_CATEGORIES = frozenset({"research", "citations"})
 
+# Dataset splits. A task declares one in `metadata.split`; a dataset may declare
+# a default in its top-level `metadata.split`. Tasks with neither are validation
+# tasks (the acceptance set), never optimization material.
+SPLITS: tuple[str, ...] = ("optimization", "validation", "held_out", "release")
+DEFAULT_SPLIT = "validation"
+
 
 class TaskValidationError(ValueError):
     """A dataset or task is malformed. Raised loudly, never swallowed."""
@@ -280,15 +286,38 @@ def load_all_builtin() -> Dataset:
     """Every built-in dataset merged, with per-task ids preserved."""
     tasks: list[EvaluationTask] = []
     names: list[str] = []
+    split_by_id: dict[str, str] = {}
     for name in available_datasets():
         ds = load_builtin_dataset(name)
         names.append(f"{ds.name}@{ds.version}")
+        dataset_split = str((ds.metadata or {}).get("split") or "").strip().lower()
+        if dataset_split in SPLITS:
+            for task in ds.tasks:
+                split_by_id[task.id] = dataset_split
         tasks.extend(ds.tasks)
     ids = {t.id for t in tasks}
     if len(ids) != len(tasks):
         raise TaskValidationError("built-in datasets contain duplicate task ids")
-    return Dataset(name="eclipse-benchmark", version="1", tasks=tasks,
-                   metadata={"datasets": names})
+    return Dataset(
+        name="eclipse-benchmark", version="1", tasks=tasks,
+        metadata={"datasets": names, "splitById": split_by_id},
+    )
+
+
+def task_split(
+    task: EvaluationTask,
+    dataset_split: str = "",
+    split_by_id: Optional[dict[str, str]] = None,
+) -> str:
+    """A task's split: its own metadata, the merged map, the dataset, validation."""
+    raw = str((task.metadata or {}).get("split") or "").strip().lower()
+    if raw in SPLITS:
+        return raw
+    mapped = str((split_by_id or {}).get(task.id) or "").strip().lower()
+    if mapped in SPLITS:
+        return mapped
+    fallback = str(dataset_split or "").strip().lower()
+    return fallback if fallback in SPLITS else DEFAULT_SPLIT
 
 
 def select_tasks(
@@ -299,8 +328,14 @@ def select_tasks(
     category: Optional[str] = None,
     difficulty: Optional[str] = None,
     tier: Optional[int] = None,
+    split: Optional[str] = None,
 ) -> list[EvaluationTask]:
-    """Filter a dataset. `suite` matches a task's ``metadata.suite`` or category."""
+    """Filter a dataset. `suite` matches a task's ``metadata.suite`` or category.
+
+    `split` is an OPTIONAL filter: `None` keeps every task (the release gate's
+    behavior), while `"validation"` returns the acceptance set. Tasks with no
+    split metadata default to validation; an unknown split is refused.
+    """
     tasks = list(dataset.tasks)
     if task_id:
         tasks = [t for t in tasks if t.id == task_id]
@@ -316,16 +351,30 @@ def select_tasks(
         tasks = [t for t in tasks if t.difficulty == difficulty]
     if tier is not None:
         tasks = [t for t in tasks if int(t.metadata.get("tier", 1)) <= tier]
+    if split is not None:
+        wanted = str(split).strip().lower()
+        if wanted not in SPLITS:
+            raise TaskValidationError(
+                f"unknown split '{split}' (expected one of {', '.join(SPLITS)})"
+            )
+        dataset_split = str((dataset.metadata or {}).get("split") or "")
+        split_by_id = (dataset.metadata or {}).get("splitById") or {}
+        tasks = [
+            t for t in tasks
+            if task_split(t, dataset_split, split_by_id) == wanted
+        ]
     return tasks
 
 
 __all__ = [
     "CATEGORIES",
     "DATASETS_DIR",
+    "DEFAULT_SPLIT",
     "DIFFICULTIES",
     "Dataset",
     "EvaluationTask",
     "LIVE_CATEGORIES",
+    "SPLITS",
     "TaskLimits",
     "TaskValidationError",
     "available_datasets",
@@ -335,4 +384,5 @@ __all__ = [
     "load_builtin_dataset",
     "load_dataset",
     "select_tasks",
+    "task_split",
 ]

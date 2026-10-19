@@ -18,6 +18,9 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import os
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
@@ -26,12 +29,19 @@ from ..events import EventBus
 from ..persistence import AgentMemoryStore
 from ..schemas import AgentConfig, ModelSettings, RunInput, RunRequest
 from ..tools import DataBridge, ToolRegistry
-from .config import EvaluationConfig
+from .config import GRADER_API_VERSION, EvaluationConfig
 from .environments import Environment, build_environment
 from .graders import GradeContext, build_graders
+from .provenance import (
+    AGENT_VERSION,
+    repository_commit,
+    require_provenance,
+    task_fingerprint_digest,
+)
 from .scoring import EvaluationScore, check_thresholds, score_trial
 from .stats import TrialStats, aggregate_trials
 from .store import EvaluationStore
+from .tasks import SPLITS, TaskValidationError, dataset_checksum as compute_dataset_checksum
 from .taxonomy import classify_failure
 from .trajectory import Trajectory
 
@@ -82,7 +92,7 @@ class ScriptedModel:
         yield await self.ainvoke(messages)
 
 
-def _script_messages(script: list[dict[str, Any]]) -> list[Any]:
+def _script_messages(script: list[dict[str, Any]], call_id_prefix: str = "") -> list[Any]:
     from langchain_core.messages import AIMessage  # noqa: PLC0415
 
     messages: list[Any] = []
@@ -90,7 +100,8 @@ def _script_messages(script: list[dict[str, Any]]) -> list[Any]:
         if step.get("type") == "tool":
             raw_calls = step.get("calls") or [{"name": step.get("name"), "args": step.get("args", {})}]
             tool_calls = [
-                {"id": f"call_{i}_{j}", "name": call["name"], "args": call.get("args", {})}
+                {"id": f"{call_id_prefix}call_{i}_{j}", "name": call["name"],
+                 "args": call.get("args", {})}
                 for j, call in enumerate(raw_calls)
             ]
             messages.append(AIMessage(content=step.get("content", ""), tool_calls=tool_calls))
@@ -116,6 +127,50 @@ class InvocationResult:
     model: dict[str, Any] = field(default_factory=dict)
     error: Optional[dict[str, Any]] = None
     unmeasured_reason: Optional[str] = None
+    #: Real usage from the model runtime, filtered to this run. Absent keys or a
+    #: None cost/latency mean the source never reported them; never 0.
+    model_usage: dict[str, Any] = field(default_factory=dict)
+
+
+def _usage_for_run(run_id: str) -> dict[str, Any]:
+    """Read the model runtime's recent usage records for ONE run.
+
+    The runtime's `UsageStore` is process-global and bounded; filtering by
+    `run_id` keeps concurrent trials separate. A missing record is `{}` — the
+    trial then keeps its event-derived metrics, which may themselves be unknown.
+    """
+    try:
+        from ..model_runtime import get_runtime  # noqa: PLC0415
+
+        records = [
+            record for record in get_runtime().usage.recent(1000)
+            if getattr(record, "run_id", None) == run_id
+        ]
+    except Exception:  # noqa: BLE001 - usage is advisory
+        return {}
+    if not records:
+        return {}
+    costs = [
+        record.cost.total_cost if getattr(record, "cost", None) is not None else None
+        for record in records
+    ]
+    cost = (
+        round(sum(float(value) for value in costs), 6)
+        if costs and all(value is not None for value in costs)
+        else None
+    )
+    latencies = [
+        float(record.latency_ms) for record in records
+        if getattr(record, "latency_ms", None) is not None and record.latency_ms > 0
+    ]
+    return {
+        "cost": cost,
+        "latencyMs": round(sum(latencies), 3) if latencies else None,
+        "promptTokens": sum(int(record.input_tokens or 0) for record in records),
+        "completionTokens": sum(int(record.output_tokens or 0) for record in records),
+        "totalTokens": sum(int(record.total_tokens or 0) for record in records),
+        "modelRequests": len(records),
+    }
 
 
 class AgentInvoker(Protocol):
@@ -130,12 +185,23 @@ def _build_registry(recorder: Optional[list[dict[str, Any]]] = None) -> ToolRegi
     from .tools import register_evaluation_tools  # noqa: PLC0415
 
     register_evaluation_tools(registry)
-    for register in ("register_finance_tools", "register_retrieval_tools"):
+    # Round 4 (W3.2): the UI engineering + durable task families are registered
+    # too, so a routing scenario exercises the REAL ui_* / task_* tools through
+    # the real graph (the invoker binds the trial's UiService/TaskManager).
+    families = (
+        "register_finance_tools", "register_retrieval_tools",
+        "register_ui_tools", "register_task_tools",
+    )
+    for register in families:
         try:
             if register == "register_finance_tools":
                 from ..finance_tools import register_finance_tools as fn  # noqa: PLC0415
-            else:
+            elif register == "register_retrieval_tools":
                 from ..retrieval_tools import register_retrieval_tools as fn  # noqa: PLC0415
+            elif register == "register_ui_tools":
+                from ..ui.tools import register_ui_tools as fn  # noqa: PLC0415
+            else:
+                from ..tasks.tools import register_task_tools as fn  # noqa: PLC0415
             fn(registry)
         except Exception:  # noqa: BLE001 - a missing tool family is not fatal
             continue
@@ -203,6 +269,23 @@ class ScriptedAgentInvoker:
         self.store = store
         install_model_seam()
 
+    def _ui_bundle(self, store: AgentMemoryStore) -> tuple[Any, Any]:
+        """The trial's UI/task runtime over the trial's OWN store (round 4, W3.2).
+
+        A routing scenario must exercise the REAL `ui_*` tools against the real
+        catalog + durable task runtime — not a stub — so the verdicts and the
+        resulting engineering task are graded end-to-end.
+        """
+        from ..tasks.manager import TaskManager  # noqa: PLC0415
+        from ..tasks.store import TaskStore  # noqa: PLC0415
+        from ..ui.catalog import UiCatalog  # noqa: PLC0415
+        from ..ui.service import UiService  # noqa: PLC0415
+        from ..ui.store import UiStore  # noqa: PLC0415
+
+        task_manager = TaskManager(TaskStore(store))
+        ui_service = UiService(UiStore(store), UiCatalog(), tasks=task_manager)
+        return ui_service, task_manager
+
     async def invoke(self, task: Any, trial_id: str, environment: Environment) -> InvocationResult:
         script = getattr(task, "agent_script", [])
         if not script:
@@ -210,6 +293,12 @@ class ScriptedAgentInvoker:
                 run_id=f"eval-{trial_id}", status="unmeasured",
                 unmeasured_reason="task ships no deterministic script (live tier only)",
             )
+        # Round 4 (W3.2): every trial runs against its OWN isolated store, so
+        # concurrent trials can never see each other's durable work (the UI/task
+        # runtime writes to this store) — the environment contract: a trial
+        # always starts from a known state.
+        trial_dir = tempfile.mkdtemp(prefix="be-eval-trial-")
+        trial_store = AgentMemoryStore(os.path.join(trial_dir, "agent-memory.db"))
         recorded: list[dict[str, Any]] = []
         registry = _build_registry(recorded)
         agent = _agent_for(task, registry)
@@ -228,21 +317,45 @@ class ScriptedAgentInvoker:
         collected: list[dict[str, Any]] = []
         unsubscribe = bus.subscribe(lambda ev: collected.append(ev))
         from .tools import bind_environment, reset_environment  # noqa: PLC0415
+        from ..ui.bootstrap import get_ui_service, set_ui_service  # noqa: PLC0415
 
+        ui_service, task_manager = self._ui_bundle(trial_store)
+        previous_ui = get_ui_service()
+        set_ui_service(ui_service)
+        bound = False
+        if hasattr(environment, "bind"):
+            # The environment owns the trial store's cleanup: grading reads it
+            # AFTER invoke returns, so it must stay open until teardown.
+            environment.bind(
+                ui_service=ui_service, task_manager=task_manager,
+                store=trial_store, store_dir=trial_dir,
+            )
+            bound = True
         env_token = bind_environment(environment)
         model_token = _MODEL_OVERRIDE.set(ScriptedModel(_script_messages(script)))
         try:
-            result = await graph_module.execute_run(request, registry, _UnavailableBridge(), self.store, bus=bus)
+            result = await graph_module.execute_run(
+                request, registry, _UnavailableBridge(), trial_store, bus=bus,
+                ui_service=ui_service,
+            )
         except Exception as exc:  # noqa: BLE001 - a crashing run is a real outcome
             return InvocationResult(
                 run_id=run_id, status="failed", events=collected,
                 error={"code": type(exc).__name__, "message": str(exc)},
                 agent={"id": agent.id}, model={"provider": "ollama", "scripted": True},
+                model_usage=_usage_for_run(run_id),
             )
         finally:
             _MODEL_OVERRIDE.reset(model_token)
             reset_environment(env_token)
+            set_ui_service(previous_ui)
             unsubscribe()
+            if not bound:
+                try:
+                    trial_store.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                shutil.rmtree(trial_dir, ignore_errors=True)
         _enrich_tool_args(collected, recorded)
         return InvocationResult(
             run_id=run_id,
@@ -252,6 +365,7 @@ class ScriptedAgentInvoker:
             agent={"id": agent.id},
             model={"provider": "ollama", "model": f"evaluation-{trial_id}", "scripted": True},
             error=result.error.model_dump() if getattr(result, "error", None) else None,
+            model_usage=_usage_for_run(run_id),
         )
 
 
@@ -286,7 +400,8 @@ class ServiceAgentInvoker:
             result = await self.service.run(request)
         except Exception as exc:  # noqa: BLE001
             return InvocationResult(run_id=run_id, status="failed", events=collected,
-                                    error={"code": type(exc).__name__, "message": str(exc)})
+                                    error={"code": type(exc).__name__, "message": str(exc)},
+                                    model_usage=_usage_for_run(run_id))
         finally:
             unsubscribe()
         return InvocationResult(
@@ -294,6 +409,7 @@ class ServiceAgentInvoker:
             agent={"id": self.agent_id},
             model={"provider": settings.provider, "model": settings.model},
             error=result.error.model_dump() if getattr(result, "error", None) else None,
+            model_usage=_usage_for_run(run_id),
         )
 
 
@@ -385,10 +501,24 @@ class SuiteResult:
     failures: list[dict[str, Any]] = field(default_factory=list)
     tier: int = 0
     thresholds: dict[str, Any] = field(default_factory=dict)
+    #: Round 4: the classifier-tier routing benchmark result injected by the
+    #: offline gate. It is NOT an agent-trial measurement; the key makes that
+    #: source explicit.
+    routing: dict[str, Any] = field(default_factory=dict)
+    agent_version: Optional[str] = None
+    git_commit: Optional[str] = None
+    config: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
         return bool(self.thresholds.get("passed", False))
+
+    @property
+    def measured_trials(self) -> int:
+        return sum(
+            1 for task in self.tasks for trial in task.trials if not trial.unmeasured
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -398,6 +528,10 @@ class SuiteResult:
                 "version": self.dataset_version,
                 "checksum": self.dataset_checksum,
             },
+            "agentVersion": self.agent_version,
+            "gitCommit": self.git_commit,
+            "config": self.config,
+            "metadata": self.metadata,
             "tier": self.tier,
             "aggregates": self.aggregates,
             "categories": self.categories,
@@ -405,6 +539,7 @@ class SuiteResult:
             "unmeasuredTasks": self.unmeasured_tasks,
             "failures": self.failures,
             "thresholds": self.thresholds,
+            "routing": self.routing,
             "tasks": [t.to_dict() for t in self.tasks],
         }
 
@@ -433,12 +568,17 @@ class EvaluationRunner:
         trials: Optional[int] = None,
         run_id: Optional[str] = None,
         persist: bool = True,
+        agent_version: Optional[str] = None,
+        git_commit: Optional[str] = None,
     ) -> TaskResult:
         count = max(1, int(trials or self.config.trials))
         results: list[TrialResult] = []
         for index in range(count):
             trial_id = f"{run_id or 'local'}-{task.id}-t{index}"
-            results.append(await self._run_trial(task, index, trial_id, run_id=run_id, persist=persist))
+            results.append(await self._run_trial(
+                task, index, trial_id, run_id=run_id, persist=persist,
+                agent_version=agent_version, git_commit=git_commit,
+            ))
         outcomes = [r.passed for r in results if not r.unmeasured]
         scores = [r.score.composite or 0.0 for r in results if not r.unmeasured]
         stats = aggregate_trials(outcomes, scores=scores, k=count)
@@ -452,6 +592,8 @@ class EvaluationRunner:
         *,
         run_id: Optional[str],
         persist: bool,
+        agent_version: Optional[str] = None,
+        git_commit: Optional[str] = None,
     ) -> TrialResult:
         environment = build_environment(getattr(task, "environment", {}) or {})
         environment.reset(getattr(task, "initial_state", {}) or {})
@@ -473,6 +615,13 @@ class EvaluationRunner:
             state_before=state_before,
             state_after=state_after,
         )
+        trajectory.agent_version = agent_version or AGENT_VERSION
+        if git_commit is not None:
+            trajectory.git_commit = git_commit
+        if invocation.model_usage:
+            # Real runtime usage wins over an event-derived guess. A None cost or
+            # latency stays None (UNKNOWN), never 0.
+            trajectory.metrics.update(invocation.model_usage)
 
         if invocation.unmeasured_reason:
             score = EvaluationScore(
@@ -551,28 +700,95 @@ class EvaluationRunner:
         run_id: Optional[str] = None,
         persist: bool = True,
         concurrency: Optional[int] = None,
+        split: str = "validation",
+        seed: Optional[int] = None,
+        temperature: Optional[float] = None,
+        agent_version: Optional[str] = None,
+        git_commit: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        extra_config: Optional[dict[str, Any]] = None,
     ) -> SuiteResult:
+        split = str(split or "").strip().lower() or "validation"
+        if split not in SPLITS:
+            raise TaskValidationError(
+                f"unknown split '{split}' (expected one of {', '.join(SPLITS)})"
+            )
         run_id = run_id or f"evalrun-{_now_token()}"
+        agent_version = agent_version or AGENT_VERSION
+        git_commit = git_commit if git_commit is not None else repository_commit()
+        if not dataset_checksum:
+            dataset_checksum = compute_dataset_checksum(tasks)
+        trial_count = trials or self.config.trials
+
+        config_payload: dict[str, Any] = {
+            "trials": trial_count,
+            "tier": tier,
+            "split": split,
+            "graderVersion": GRADER_API_VERSION,
+        }
+        if seed is not None:
+            config_payload["seed"] = int(seed)
+        if temperature is not None:
+            config_payload["temperature"] = float(temperature)
+        if extra_config:
+            config_payload = {**extra_config, **config_payload}
+
+        metadata_payload: dict[str, Any] = dict(metadata or {})
+        metadata_payload.setdefault("kind", "evaluation")
+        metadata_payload.update({
+            "split": split,
+            "graderVersion": GRADER_API_VERSION,
+            "taskCount": len(tasks),
+            "taskFingerprintDigest": task_fingerprint_digest(tasks),
+            "datasetName": dataset_name,
+            "datasetVersion": dataset_version,
+            "datasetChecksum": dataset_checksum,
+            "agentVersion": agent_version,
+            "gitCommit": git_commit,
+        })
+        if git_commit:
+            metadata_payload.pop("gitCommitUnavailable", None)
+        else:
+            metadata_payload["gitCommitUnavailable"] = True
+
         if persist:
+            require_provenance({
+                "datasetChecksum": dataset_checksum,
+                "agentVersion": agent_version,
+                "gitCommit": git_commit,
+                "config": config_payload,
+                "metadata": metadata_payload,
+            })
+            for task in tasks:
+                self.eval_store.upsert_task(task)
             self.eval_store.create_run(
                 id=run_id, suite=suite, datasetName=dataset_name,
                 datasetVersion=dataset_version, datasetChecksum=dataset_checksum,
                 tier=tier, invoker=getattr(self.invoker, "name", "unknown"),
+                agentVersion=agent_version, gitCommit=git_commit,
                 model=getattr(self.invoker, "model_settings", None) and self.invoker.model_settings.model,
                 provider=getattr(self.invoker, "model_settings", None) and self.invoker.model_settings.provider,
-                config={"trials": trials or self.config.trials, "tier": tier},
+                config=config_payload, metadata=metadata_payload,
                 status="running", startedAt=None,
             )
+
         limit = max(1, int(concurrency or self.config.max_concurrency))
         semaphore = asyncio.Semaphore(limit)
 
         async def _guarded(task: Any) -> TaskResult:
             async with semaphore:
-                return await self.run_task(task, trials=trials, run_id=run_id, persist=persist)
+                return await self.run_task(
+                    task, trials=trials, run_id=run_id, persist=persist,
+                    agent_version=agent_version, git_commit=git_commit,
+                )
 
         task_results = await asyncio.gather(*[_guarded(task) for task in tasks])
-        suite_result = self._assemble(run_id, dataset_name, dataset_version, dataset_checksum,
-                                      task_results, tier=tier, trials=trials)
+        suite_result = self._assemble(
+            run_id, dataset_name, dataset_version, dataset_checksum,
+            task_results, tier=tier, trials=trials,
+            agent_version=agent_version, git_commit=git_commit,
+            config=config_payload, metadata=metadata_payload,
+        )
         if persist:
             self._persist_suite(suite_result)
         self.last_suite = suite_result
@@ -588,6 +804,10 @@ class EvaluationRunner:
         *,
         tier: int,
         trials: Optional[int],
+        agent_version: Optional[str] = None,
+        git_commit: Optional[str] = None,
+        config: Optional[dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> SuiteResult:
         aggregates = aggregate_suite(task_results)
         suite_result = SuiteResult(
@@ -604,6 +824,10 @@ class EvaluationRunner:
                 for t in task_results for tr in t.trials if not tr.passed and not tr.unmeasured
             ],
             tier=tier,
+            agent_version=agent_version,
+            git_commit=git_commit,
+            config=dict(config or {}),
+            metadata=dict(metadata or {}),
         )
         suite_result.thresholds = check_thresholds(
             aggregates, sample_size=sum(len(t.trials) for t in task_results)
@@ -612,10 +836,32 @@ class EvaluationRunner:
 
     def _persist_suite(self, suite: SuiteResult) -> None:
         try:
-            self.eval_store.update_run(
-                suite.run_id, status="completed", finishedAt=_now_iso(),
-                trialCount=sum(len(t.trials) for t in suite.tasks),
+            trial_count = sum(len(task.trials) for task in suite.tasks)
+            metadata = dict(suite.metadata)
+            metadata.update({
+                "measuredTrials": suite.measured_trials,
+                "trialCount": trial_count,
+                "thresholds": suite.thresholds,
+                "unmeasuredTasks": suite.unmeasured_tasks,
+            })
+            suite.metadata = metadata
+            patch: dict[str, Any] = {
+                "status": "completed", "finishedAt": _now_iso(),
+                "trialCount": trial_count, "metadata": metadata,
+            }
+            first_model = next(
+                (
+                    trial.trajectory.model
+                    for task in suite.tasks for trial in task.trials
+                    if trial.trajectory.model
+                ),
+                {},
             )
+            if first_model.get("provider"):
+                patch["provider"] = first_model["provider"]
+            if first_model.get("model"):
+                patch["model"] = first_model["model"]
+            self.eval_store.update_run(suite.run_id, **patch)
             for dimension, value in suite.aggregates.items():
                 sample = sum(1 for t in suite.tasks for tr in t.trials if not tr.unmeasured
                              and dimension in tr.score.dimensions)

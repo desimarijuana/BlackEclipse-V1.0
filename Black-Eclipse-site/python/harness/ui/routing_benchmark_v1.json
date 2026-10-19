@@ -1,0 +1,57 @@
+{
+  "datasetId": "ui-routing-v1",
+  "version": 1,
+  "reviewed": true,
+  "reviewedAt": "2026-10-18",
+  "notes": "Round 4 W3.1: deterministic routing cases for the Compose/Engineer classifier. The catalog is the builtin spec set; no model is consulted. A case may expect a capability gap only when the request names a capability the catalog cannot satisfy.",
+  "cases": [
+    {
+      "id": "clock-escalates",
+      "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London",
+      "expectedMode": "engineer",
+      "expectedGap": true
+    },
+    {
+      "id": "layout-composes",
+      "text": "move the latency chart below the activity timeline and make it smaller",
+      "expectedMode": "compose",
+      "expectedGap": false
+    },
+    {
+      "id": "generic-widget-composes",
+      "text": "add a widget to my dashboard",
+      "expectedMode": "compose",
+      "expectedGap": false
+    },
+    {
+      "id": "known-component-composes",
+      "text": "put a metric-card at the top of the page",
+      "expectedMode": "compose",
+      "expectedGap": false
+    },
+    {
+      "id": "new-page-composes",
+      "text": "make me a new page for the rates desk",
+      "expectedMode": "compose",
+      "expectedGap": false
+    },
+    {
+      "id": "named-chart-composes",
+      "text": "add a pie chart to the dashboard",
+      "expectedMode": "compose",
+      "expectedGap": false
+    },
+    {
+      "id": "new-widget-engineers",
+      "text": "create a new widget that shows live swap spreads",
+      "expectedMode": "engineer",
+      "expectedGap": false
+    },
+    {
+      "id": "slider-engineers",
+      "text": "make a small calculator I can drive with sliders",
+      "expectedMode": "engineer",
+      "expectedGap": false
+    }
+  ]
+}

@@ -371,3 +371,26 @@ def test_regression_dimension_reports_no_prior_to_compare(env):
     regression = next(d for d in result["dimensions"] if d["name"] == "regression")
     assert regression["status"] == "needs_review"
     assert regression["mandatory"] is False
+
+
+def test_reevaluation_compares_against_the_declared_base(env):
+    # A v2 with a declared base v1 must keep comparing against v1 on RE-evaluation,
+    # not against its own earlier record. Otherwise "evaluate the base first" would
+    # never take effect after the candidate had been evaluated once.
+    base = evaluate_skill("research.planning", "1.0.0", env["registry"])
+    assert base["status"] == "passed"
+
+    manifest = env["registry"].manifest("research.planning")
+    candidate = manifest.model_copy(update={"version": "2.0.0", "status": "testing"})
+    env["skill_store"].save_version(
+        candidate.model_dump(), candidate.content_hash(), base_version="1.0.0",
+    )
+    env["skill_store"].set_latest_version("research.planning", "2.0.0")
+    env["registry"]._skills["research.planning"].manifest = candidate
+
+    first = evaluate_skill("research.planning", "2.0.0", env["registry"], run_regression=True)
+    again = evaluate_skill("research.planning", "2.0.0", env["registry"], run_regression=True)
+    for result in (first, again):
+        regression = next(d for d in result["dimensions"] if d["name"] == "regression")
+        assert regression["status"] == "passed"
+        assert "vs 1.0.0" in regression["detail"]

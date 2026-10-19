@@ -47,6 +47,17 @@ BARS = [
 ]
 
 
+def _ramp_bars(count: int) -> list[dict[str, Any]]:
+    """A strictly rising series — its SMA is a ramp, so the final z-score is a
+    known 1.414 (window [a..a+4]: mean a+2, population σ √2, z = 2/√2)."""
+    return [
+        {"timestamp": f"2026-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}T00:00:00Z",
+         "open": float(i + 1), "high": float(i + 2), "low": float(i),
+         "close": float(i + 1), "volume": 100.0}
+        for i in range(count)
+    ]
+
+
 @pytest.fixture()
 def stub_provider():
     def provider(symbol, interval, limit):
@@ -54,6 +65,24 @@ def stub_provider():
             "symbol": symbol, "interval": interval, "adjusted": True,
             "provider": "stub", "retrievedAt": "2026-01-02T00:00:00Z",
             "rows": BARS[-limit:],
+        }
+
+    set_series_provider(provider)
+    try:
+        yield provider
+    finally:
+        set_series_provider(None)
+
+
+@pytest.fixture()
+def long_provider():
+    rows = _ramp_bars(40)
+
+    def provider(symbol, interval, limit):
+        return {
+            "symbol": symbol, "interval": interval, "adjusted": True,
+            "provider": "stub", "retrievedAt": "2026-02-01T00:00:00Z",
+            "rows": rows[-limit:],
         }
 
     set_series_provider(provider)
@@ -238,6 +267,45 @@ def test_indicator_rejects_a_broken_series(stub_provider):
     node = _by_node(run)["ind"]
     assert run.status == RunStatus.FAILED
     assert "missing open" in (node.error or "") or "missing" in (node.error or "")
+
+
+def test_market_scan_branch_compares_the_latest_point(long_provider):
+    """The Market-scan template's shape: an indicator payload compared to a
+    number means "the LATEST value vs the threshold" — a dict-valued input must
+    not make the condition node fail."""
+    graph = _ir(
+        [
+            _node("trig", "trigger.manual", {"seed": "AAPL"}),
+            _node("mkt", "finance.market_data", {"lookback": 40}),
+            _node("sma", "finance.indicator", {"kind": "sma", "period": 3}),
+            _node("z", "quant.zscore", {"period": 5}),
+            _node("stretched", "logic.condition", {"operator": "gt", "compareTo": "1"}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e1", "trig", "start", "mkt", "symbol"),
+            _edge("e2", "mkt", "series", "sma", "series"),
+            _edge("e3", "sma", "values", "z", "values"),
+            _edge("e4", "z", "values", "stretched", "value"),
+            _edge("e5", "stretched", "result", "out", "value"),
+        ],
+    )
+    run = _run(graph)
+    assert run.status == RunStatus.SUCCEEDED, _by_node(run)["stretched"].error
+    # A strictly rising series has a large positive final z-score (> 1).
+    assert _by_node(run)["out"].inputs["value"] is True
+
+    # And the other way: a threshold the latest point cannot satisfy stays false.
+    lowered = graph.model_copy(update={
+        "nodes": [
+            node if node.id != "stretched"
+            else node.model_copy(update={"config": {"operator": "lt", "compareTo": "-99"}})
+            for node in graph.nodes
+        ],
+    })
+    other = _run(lowered)
+    assert other.status == RunStatus.SUCCEEDED
+    assert _by_node(other)["out"].inputs["value"] is False
 
 
 def test_lookback_is_bounded_by_the_config_schema():

@@ -338,6 +338,25 @@ rest of the harness uses (`kind="browser_action"`), including the pause-for-
 decision path. `browser_request_human` moves the session to `HUMAN_REQUIRED`;
 `browser_resume` returns it to `READY`.
 
+## Navigation failure honesty and the local app origin (QA Round 1)
+
+A failed page navigation reports its classified cause in the tool sentence
+(host unresolvable / connection refused / timeout / redirect loop) instead of a
+bare "couldn't open". When the target is one of the app's own origins
+(loopback, `HARNESS_CALLBACK_URL`, the `BE_CANONICAL_HOST` alias), the runtime
+probes the known origins and retries ONCE on the first reachable one, preserving
+path + query; if none answers it reports the full probe trail and the fix
+(`npm run dev` starts the canonical host and its proxy). Resolution order:
+`HARNESS_BROWSER_APP_ORIGIN` → `HARNESS_CALLBACK_URL` → `https://<canonical>` →
+`http://<canonical>` (`python/harness/browser/app_origin.py`).
+
+`browser_navigate` and `browser_snapshot` also inspect the app's boot overlay
+(`[data-global-loader][data-pct]`) and say "still starting (N%)" rather than
+letting an intentional overlay read as a stuck page. The app's own API is
+readable through the separate, bounded `app_api_get` tool (GET-only,
+loopback-only, `/api/` paths, no redirects, no credentials, 200 KB cap) — not
+through shell curl or `browser_exec`. See ADR-H220.
+
 ## Sessions, isolation and profiles
 
 `BrowserSession` tracks `session_id`, `agent_id`, `task_id`, `profile_id`,

@@ -40,6 +40,14 @@ describe("POST /api/harness/data — capability allowlist", () => {
     expect(body.status).toBe("OK");
   });
 
+  it("routes the Phase-16 collection capabilities to the bridge", async () => {
+    for (const capability of ["sec_filing_list", "custom_dataset_records"]) {
+      const res = await POST(req({ capability, params: {} }));
+      expect(res.status).toBe(200);
+      expect(fetchCapability).toHaveBeenCalledWith(capability, {});
+    }
+  });
+
   it("rejects a capability that is not allowlisted before dispatching", async () => {
     const res = await POST(req({ capability: "drop-tables" }));
     expect(res.status).toBe(400);

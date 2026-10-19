@@ -1,10 +1,10 @@
 ---
 title: "Phase 16 — Bounded Bulk Acquisition"
-status: In progress
+status: Done
 phase: 16
 depends_on: [13, 15]
 unlocks: [18, 20]
-last-verified: 2026-10-13
+last-verified: 2026-10-18
 ---
 
 # Phase 16 — Bounded Bulk Acquisition
@@ -22,9 +22,77 @@ last-verified: 2026-10-13
 > read-only bridge (no new `fetch.py` HTTP path — R3-04's one-egress decision),
 > the operator profile is the policy key above rather than a separate settings
 > file, and the planned numbers for H120/H121 were long taken, so the decision
-> is **ADR-H190**. **Remaining (not started):** more sources (SEC filing LISTS,
-> operator-declared REST), cross-call budget accumulation, the chat manifest
-> panel + `acquire.*` i18n keys, the runbook, and the opt-in live smoke.
+> is **ADR-H190**. **Cross-call accumulation + operator runbook + live smoke
+> landed (2026-10-18):** `acquire.budget.RunUsage` is a run-scoped ledger carried
+> on the tool context — every pull absorbs into it, the manifest carries BOTH
+> budgets (`limits` + `limits.run`), and a later pull in the same turn is refused
+> `RUN_LIMIT_REACHED` once the turn's ceiling is reached (env
+> `HARNESS_ACQUIRE_RUN_MAX_{CALLS,ROWS,BYTES,SECONDS}`). The operator runbook
+> `docs/harness/runbook-add-a-collection-source.md` documents one-row-one-adapter
+> addition, and `test_live_macro_collection_through_the_real_bridge` (opt-in,
+> `HARNESS_ACQUIRE_IT=1`) is the live smoke. **Remaining (not started):** SEC
+> filing-LIST and operator-declared REST sources (both require NEW bridge
+> capabilities in `data-bridge.ts` — a TS data-plane slice, not a Python row), and
+> the chat manifest panel + `acquire.*` i18n keys (the tool text already carries
+> the readable manifest: source, window, rows, completeness, licence).
+
+> **Progress (2026-10-18) — the two remaining sources landed, exactly by the
+> runbook (one capability + one row + one adapter + tests each).**
+> **SEC filing-LIST** — `src/lib/harness/data-bridge-filings.ts`
+> (`sec_filing_list`: the `data.sec.gov/submissions` index — form, filed,
+> period, accession and the primary-document URL per filing; filters `form` /
+> `date_from` / `date_to`; bounded at 1,000 filings per call with an explicit
+> `truncated` + note; the cached SEC CIK map is the issuer authority, so an
+> unknown ticker is `not_found` and a map read failure is `source_failure`) and
+> the `filings_list` registry row (Python adapter in `acquire/adapters.py`:
+> one call per symbol, rows
+> `symbol, form, filed, period, accession, document, description`). **Operator-declared REST** — `src/lib/harness/data-bridge-datasets.ts`
+> (`custom_dataset_records`: selects one dataset the operator declared in
+> Settings → Data Sources, fills the connector's OWN declared parameters with
+> caller `values` — never a URL/host/header/secret — and maps the response
+> through the existing deterministic `mapResponseDetailed`; only a DECLARED
+> dataset is reachable, an undeclared name is `not_found`; read-only — the
+> bridge writes nothing) and the `operator_datasets` registry row (long rows
+> `dataset, record, field, value`; a nested mapped value survives as JSON text,
+> never a dropped field). Both capabilities are on the route whitelist
+> (`src/app/api/harness/data/route.ts`) and dispatched through
+> `src/lib/harness/data-bridge-extensions.ts` — `data-bridge.ts` is at its
+> 1400-line ratchet and stays there (net zero). `recordCapabilityHealth` maps
+> `sec_filing_list` to its own SEC route; operator dataset pulls are NOT
+> recorded in the market-data ledger (the connector platform's own
+> `DataConnector.healthState` owns that health). Python: `acquire/registry.py`
+> rows + `acquire/adapters.py` collectors (`json` serializer for nested values),
+> `tools.py` description, and `bridge.py` puts both capabilities in the slow
+> network-timeout class (the front door's guarded transport may take longer than
+> a vault read). Tests: `data-bridge-filings.test.ts` (6),
+> `data-bridge-datasets.test.ts` (7, through the REAL custom-REST connector
+> with a fake transport), route allowlist case, `test_acquire.py` +5.
+> **Remaining (the only item left in this phase):** the chat manifest panel +
+> `acquire.*` i18n keys (the tool text already carries the readable manifest:
+> source, window, rows, completeness, licence).
+
+> **Progress (2026-10-18) — the chat manifest panel landed; the phase is DONE.**
+> The `acquire` tool now emits `acquire.completed` (the SAME manifest written
+> beside the CSV — one contract, never a second rendering shape; best-effort,
+> and a refusal emits nothing). The chat renders it through the new
+> `src/components/chat/acquisition-panel.tsx` (source / window / rows /
+> completeness chip / licence / attribution, glass system): a partial pull
+> renders PARTIAL with its stated reason, an unknown row count renders honestly
+> instead of a fabricated 0, and a blob that does not coerce renders nothing.
+> The wire blob is narrowed by `src/lib/harness/acquisition-types.ts`
+> (`coerceAcquisitionManifest` — completeness is structural: only a producer
+> `true` reads Complete). `acquire.*` keys live in the domain dictionary
+> `src/lib/i18n/dictionaries/acquire.ts`, spread into the ratcheted `en.ts`
+> (the documented precedent, `dictionaries/analysis.ts`). Plumbing: the event
+> rides the same seam as `analysis.completed` — Python `emit_code_event` →
+> `src/lib/agent/events.ts` (`{kind: 'acquisition'}`) → `use-agent-run` turn →
+> `Message.acquisition` (both message mappers) → chat-history. Tests:
+> `test_acquire.py` (+2: the emitted event carries the manifest; a refusal emits
+> none), `events.test.ts` (+2), `acquisition-types.test.ts` (4),
+> `acquisition-panel.test.tsx` (4). **No planned items remain.** Verification
+> (2026-10-18): eval gates ALL PASS (tasks=53), `npx tsc --noEmit` clean,
+> vitest 3528/3529 (the pre-existing `graph-canvas.tsx` line-ending guard),
+> full Python green except the documented pre-existing failure set.
 
 | | |
 |---|---|

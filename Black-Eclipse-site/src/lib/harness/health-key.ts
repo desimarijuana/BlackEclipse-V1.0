@@ -115,6 +115,9 @@ export const HEALTH_CAPABILITY: Readonly<Record<string, string>> = {
   fundamentals: "fundamentals",
   financial_statements: "financial_statements",
   sec_filings: "sec_filings",
+  // The submission-feed filing index (Phase 16) is its own route: a working
+  // statements fetch says nothing about the filing list.
+  sec_filing_list: "sec_filing_list",
   news: "news",
   web_search: "web_search",
   web_fetch: "web_fetch",
@@ -130,6 +133,7 @@ export const DEFAULT_HEALTH_SOURCE: Readonly<Record<string, string>> = {
   fundamentals: "JDDS",
   financial_statements: "JDDS",
   sec_filings: "SEC",
+  sec_filing_list: "SEC",
   news: "WEB",
   web_search: "WEB",
   web_fetch: "WEB",

@@ -22,11 +22,13 @@ from typing import Any, Callable, Optional
 from ..persistence import now_iso
 from . import dag
 from .model import (
+    AcceptanceCriterionInput,
     BlockedReason,
     CreatePlanInput,
     CreateTaskInput,
     CriterionState,
     DependencyKind,
+    GoalContract,
     MAX_CHILDREN_PER_TASK,
     Plan,
     PlanStatus,
@@ -41,6 +43,7 @@ from .model import (
     TaskExecution,
     TaskPriority,
     TaskStatus,
+    TaskType,
     WaitingReason,
 )
 from .state import (
@@ -191,6 +194,7 @@ class TaskManager:
             assigned_agent_id=data.assigned_agent_id, required=data.required,
             failure_policy=data.failure_policy, weight=data.weight,
             max_retries=data.max_retries, metadata=data.metadata,
+            task_type=data.task_type, goal_contract=data.goal_contract,
             created_at=moment, updated_at=moment,
         )
         # Validate dependencies BEFORE writing the task so a cycle never persists.
@@ -205,7 +209,18 @@ class TaskManager:
         self._check_no_cycle(task.id, deps, plan_id)
 
         self._store.insert_task(task)
-        for ordinal, criterion in enumerate(data.acceptance_criteria):
+        criteria = list(data.acceptance_criteria)
+        if data.goal_contract is not None:
+            # Round 4 (W8.1): the contract's acceptance lines BECOME the task's
+            # criteria (deduped against explicit ones), so the structural
+            # completion contract and the goal contract cannot disagree.
+            known = {c.text.strip().lower() for c in criteria}
+            for line in data.goal_contract.acceptance:
+                if line.strip().lower() in known:
+                    continue
+                known.add(line.strip().lower())
+                criteria.append(AcceptanceCriterionInput(text=line))
+        for ordinal, criterion in enumerate(criteria):
             self._store.add_criterion(
                 task_id=task.id, text=criterion.text, required=criterion.required,
                 ordinal=ordinal,
@@ -274,6 +289,7 @@ class TaskManager:
         status = fields.pop("status", None)
         updated = task
         if fields:
+            self._validate_contract_fields(fields)
             updated = self._store.update_task_fields(task_id, fields) or task
             self._emit(TaskEventType.TASK_UPDATED.value, task=updated,
                        data={"fields": sorted(fields.keys())})
@@ -283,6 +299,27 @@ class TaskManager:
             self._emit_for_status(updated, previous=task.status)
             self._after_terminal(updated, completed=target == TaskStatus.COMPLETED)
         return self.get_task(task_id)
+
+    def _validate_contract_fields(self, fields: dict[str, Any]) -> None:
+        """Round 4 (W8): a goal contract / task type supplied on update passes the
+        SAME validation as on create — never a raw dict into the store."""
+        if fields.get("taskType") is not None:
+            raw = fields["taskType"]
+            try:
+                fields["taskType"] = raw if isinstance(raw, TaskType) else TaskType(str(raw))
+            except ValueError as exc:
+                raise TaskError(VALIDATION_ERROR, f"unknown taskType {raw!r}") from exc
+        if fields.get("goalContract") is not None:
+            raw = fields["goalContract"]
+            if isinstance(raw, GoalContract):
+                fields["goalContract"] = raw.model_dump(by_alias=True)
+            elif isinstance(raw, dict):
+                try:
+                    fields["goalContract"] = GoalContract(**raw).model_dump(by_alias=True)
+                except Exception as exc:  # noqa: BLE001 - any invalid shape is a refusal
+                    raise TaskError(VALIDATION_ERROR, f"invalid goalContract: {exc}") from exc
+            else:
+                raise TaskError(VALIDATION_ERROR, "goalContract must be an object")
 
     # ── State transitions ────────────────────────────────────────────────────
     def _transition(
@@ -416,6 +453,7 @@ class TaskManager:
     def escalate_task(
         self, task_id: str, *, target: TaskStatus | str, error: str = "",
         error_class: Optional[str] = None, actor_id: Optional[str] = None,
+        blocked_reason: Optional[BlockedReason | str] = None,
     ) -> Task:
         """Escalate a task that exhausted its retry budget.
 
@@ -423,6 +461,8 @@ class TaskManager:
         by retrying) or ``ASKING_USER`` (only a human can unblock it). Both stay
         NON-terminal and inspectable rather than being silently failed. The
         default scheduler policy is still FAILED; escalation is opt-in per task.
+        ``blocked_reason`` names WHY a BLOCKED escalation happened (default
+        ``RESOURCE``; completion verification uses ``VERIFICATION``).
         """
         task = self.get_task(task_id)
         want = TaskStatus(target) if not isinstance(target, TaskStatus) else target
@@ -433,9 +473,13 @@ class TaskManager:
                 extra={"waitingReason": value, "error": error[:2000], "errorClass": error_class},
             )
         elif want is TaskStatus.BLOCKED:
+            reason = (
+                BlockedReason(blocked_reason) if not isinstance(blocked_reason, BlockedReason)
+                else blocked_reason
+            ) if blocked_reason is not None else BlockedReason.RESOURCE
             updated = self._transition(
                 task, TaskStatus.BLOCKED,
-                extra={"blockedReason": BlockedReason.RESOURCE,
+                extra={"blockedReason": reason,
                        "error": error[:2000], "errorClass": error_class},
             )
         else:

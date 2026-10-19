@@ -61,10 +61,13 @@ the switcher, keyboard dispatch and programmatic navigation all read/write one
 value. ChatBot belongs to both modes; when a terminal/agentic-only screen is
 opened by the palette or a deep link the switcher follows it. The switcher is
 hidden while collapsed, but the selected mode still filters the icons — switch
-with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse Memory and
-Artifacts**; the other agentic capabilities (Code, Editor, Jobs,
-Tasks, Pages, UI Builder, Plugins, Model Control Center, Search, Research,
+with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse SDK,
+Eclipse Memory and Artifacts**; the other agentic capabilities (Code, Editor,
+Jobs, Tasks, Pages, UI Builder, Plugins, Model Control Center, Search, Research,
 Backtest) are not sidebar tabs and are reached from ChatBot through its tools.
+The Eclipse SDK tab is the user-facing composition surface — declarative
+widgets, composed pages, fund portfolios, design patches and passphrase locks;
+see `docs/eclipse-sdk.md`.
 
 `src/hooks/use-page-shortcuts.ts` registers page actions against visible DOM
 roots, with matching and guards in `src/lib/keyboard.ts`. Keep-alive screens

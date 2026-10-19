@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-18
 ---
 
 # Harness Decisions
@@ -7063,3 +7063,503 @@ front-door allowlist `send`; TS `channels-{client,browser}.ts` (`sendChannelMess
 `src/app/layout.tsx`. Tests `test_channels_core.py` (mutation verbs, send),
 `test_channels_api.py` (`/send`), `channel-diff.test.ts`. Docs
 `docs/harness/channel-gateway.md`.
+
+## ADR-H209 - A goal becomes a durable contract before multi-step work starts
+
+**Decision.** An ordinary request that deserves durable work is turned into a
+`GoalContract` — objective, deliverables, constraints, acceptance, budgets —
+plus a `TaskType`, by a DETERMINISTIC intake (`tasks/goal.py::intake_goal`; no
+model call decides what a goal is), and the contract is stored as DATA on the
+durable task (additive `taskType`/`goalContract` columns), never as prompt
+text. The contract's acceptance lines become the task's criteria. An ambiguous
+request earns exactly ONE clarifying question instead of a guessed contract.
+`goal.durable_decision` is the explicit durable-by-default rule (code/workflow,
+multiple deliverables, an explicit budget or multi-step phrasing ⇒ a durable
+task); the `create_goal` tool applies it. This ADR is numbered H209 as the
+round-4 roadmap reserves H203–H208 for the earlier workstreams (still
+unwritten); the gap is deliberate, not a lost decision.
+
+**Why.** The recorded clock defect showed the failure mode: work was executed
+from a prompt, so nothing durable said what "done" meant, nothing could verify
+it, and a refusal left no signal to learn from. A contract that travels with the
+task makes completion checkable, budgets enforceable and failures diagnosable —
+and it keeps the classifier vocabulary (W0) as the routing authority rather than
+making intake a second router.
+
+**Consequences.** `python/harness/tasks/{goal.py (new), model.py (TaskType,
+TaskBudget, GoalContract), store.py (additive columns + JSON update path),
+manager.py (criteria merge, validated contract updates), tools.py (create_goal),
+context.py (retried attempts quote the most recent FAILED one)}`. Tests
+`test_tasks_goal.py`, `test_tasks_tools.py` (create_goal). Docs
+`docs/harness/task-plan-system.md`.
+
+## ADR-H210 - Completion is evidence: a task-type verifier records proof, and prose is never a completion signal
+
+**Decision.** A task that declares a `taskType` completes only when BOTH the
+durable contract passes (`verify_completion`: dependencies, children, criteria)
+AND the type's verifier (`tasks/verification.py::verify_task`) finds the
+evidence the run actually produced — zero-exit code-verification records,
+delivered artifact references, recorded research sources, observed metrics.
+A verifier reads records, never prose; a declared type with no verifier, or a
+crashing verifier, is a REFUSAL, never a pass. A failed verification with retry
+budget left is retried with the missing evidence NAMED; exhausted, the task ends
+`BLOCKED` (`BlockedReason.VERIFICATION`) with the exact missing proof — never a
+confident "done", never an infinite repair loop. The verified verdict is stored
+on the `run_complete` checkpoint. A task with no `taskType` keeps the exact
+pre-W8 contract.
+
+**Why.** "The agent said done" and "the run completed" are both too weak: the
+round's own acceptance scenario (a deliberate defect that only a test run
+catches) requires the completion decision to read the run's records. Typing the
+verifier by task type is what lets each family demand its OWN proof (tests for
+code, sources for research, artifacts for documents) without a universal
+checklist that would block honest work.
+
+**Consequences.** `python/harness/tasks/{verification.py (new), model.py
+(BlockedReason.VERIFICATION), scheduler.py (budget + verification gates before
+complete, evidence checkpoint, honest BLOCKED), bootstrap.py (bounded evidence
+blobs on the run outcome), manager.py (escalate_task blocked_reason)}`. Tests
+`test_tasks_verification.py`, `test_goal_completion.py`. Docs
+`docs/harness/task-plan-system.md` (W14's verification-by-type direction lives
+in the round-4 roadmap).
+
+## ADR-H203 - A Compose verdict must cite a catalog witness; a witness-less Compose escalates
+
+**Decision.** In the UI method classifier, a `compose` verdict for an additive,
+specific capability is valid only when it cites at least one registered
+component (`matchedComponents`). A named capability the catalog cannot satisfy
+is a **capability gap**: the classifier returns `engineer` with
+`capabilityGap: true`, and `ui_start_engineering` re-checks the catalog itself
+and ESCALATES instead of returning the recorded false refusal ("no engineering
+task was created"). Layout/restyle/page requests need no witness (their target
+is the existing page) and "add a widget" is a UI shape, not a capability. The
+match is deterministic (content tokens vs the catalog's id/name/description/
+tags); no model call is involved.
+
+**Why.** The recorded clock defect: a misclassification became an authoritative
+refusal, and nothing durable recorded that a constructible request had been
+refused. Requiring a witness makes the verdict falsifiable — a Compose that
+cannot name what it composes is exactly the failure mode.
+
+**Consequences.** `python/harness/ui/mode.py` (`assess_capability`,
+`ModeDecision.capabilityGap`), `ui/engineering.py::start` (catalog re-check +
+escalation), `ui/tools.py` (witness/gap in the tool text). Tests
+`test_ui_mode.py`, `test_ui_engineering.py`, the routing benchmark
+(`routing_benchmark_v1.json` + `routing_e2e_v1.json`). Docs
+`docs/ui-engineering.md`.
+
+## ADR-H204 - One capability-fit fact is shared by the classifier and the escalation
+
+**Decision.** `ui/mode.py::assess_capability` is the ONE deterministic
+capability-fit fact (`satisfied` / witness / gap) over the live component
+catalog. Both consumers read it: the classifier (as the witness requirement,
+ADR-H203) and `ui_start_engineering` (as its own catalog re-check before
+refusing). A diagnostic view (`additive_only=False`) finds a named capability
+even when the additive phrasing was missed — only the routing-repair proposer
+uses it, never the classifier.
+
+**Why.** Two classifiers disagreeing with no shared fact is how the clock
+request fell between them. One fact, two readers, no second matcher.
+
+**Consequences.** `ui/mode.py`, `ui/engineering.py`, `recovery/routing_repair.py`
+(the diagnostic consumer). Docs `docs/ui-engineering.md`,
+`docs/harness/failure-recovery.md`.
+
+## ADR-H205 - A request routed to a path that cannot satisfy it is a first-class failure
+
+**Decision.** "The request was routed to a path that could not satisfy it" is a
+durable, diagnosable outcome, not an invisible refusal. Two deterministic
+records carry it: the canonical `ui.capability_gap` event (emitted by an
+escalation, registered in the Event System, mapped to `FailureKind.CAPABILITY`,
+subscribed by the recovery engine) and the mistake categories
+`misrouted_request`, `capability_gap_refused`, `composed_without_witness`,
+`escalation_refused`, `intent_ambiguity` in `eclipse_memory/mistakes.py`,
+derived from the persisted run payload. A clean refusal that emits none of the
+legacy failure events still leaves a stable signature.
+
+**Why.** The single richest signal for self-repair — a task that did not get
+done — was invisible to the learning layer because a refusal is not a
+`tool.failed`.
+
+**Consequences.** `event_system/registry.py`, `recovery/{bootstrap,taxonomy}.py`,
+`eclipse_memory/mistakes.py`, `ui/engineering.py` (emission). Tests
+`test_routing_mistakes.py`, `test_routing_incident.py`. Docs
+`docs/harness/failure-recovery.md`.
+
+## ADR-H206 - Self-repair proposals are typed, minimal, worktree-authored and benchmark-verified; activation stays operator-gated
+
+**Decision.** A routing incident yields a TYPED proposal (`VOCABULARY_GAP` /
+`CATALOG_GAP` / `CAPABILITY_ABSENT` / `POLICY_GAP`); only a vocabulary gap
+produces a minimal `code.patch.PatchOp`, authored on a disposable worktree,
+verified by activating the exact rule in memory through the existing
+`ImprovementProposal` contract and re-running the fixture, then reverted.
+Landing goes through the existing single-use, digest-bound promotion (W4);
+authority files are refused before an approval is created or consumed.
+Nothing is written to the checkout and nothing is activated by the proposal
+itself.
+
+**Why.** "The harness edits its own verdict logic" is only safe when the edit
+is minimal, typed, proven on a fixture, and landed by a person.
+
+**Consequences.** `recovery/routing_repair.py`, `recovery/routing_landing.py`,
+`routers/recovery.py` (`POST /recovery/incidents/{id}/routing-repair`),
+`routers/code.py` (authority refusal), the recovery console. Tests
+`test_routing_repair.py`, `test_routing_landing.py`. Docs
+`docs/harness/failure-recovery.md`, `docs/harness/self-editing-harness-plan.md`.
+
+## ADR-H207 - The acquisition plan is a first-class incident outcome; the executor may propose install/build, never grant it
+
+**Decision.** A missing capability ends in a typed, ordered acquisition plan
+(discover → assess → propose → acquire → validate → retry) naming each step's
+surface, readiness, approval requirement and exact missing facts. The executor
+may run only AGENT-LOCAL surfaces unattended (the engineering escalation, or a
+same-plan capability task); `install`/`enable` are approval-flagged and park
+the task ASKING_USER. Validation without a real contract test is `unverified`,
+never passed; retry resumes the original task from its durable checkpoint, and
+a same-plan capability task resumes it through the existing DAG when it
+COMPLETES — that completion is the validation gate.
+
+**Why.** "No tool for X" must lead to a constructive route, but an installer
+that runs itself is exactly the authority-widening the invariants forbid.
+
+**Consequences.** `recovery/acquisition.py`, `recovery/acquire_handlers.py`,
+`tasks/scheduler.py` (the `waiting` outcome), `tasks/bootstrap.py` (the
+production caller). Tests `test_recovery_acquisition.py`,
+`test_recovery_acquire_handlers.py`. Docs `docs/harness/failure-recovery.md`.
+
+## ADR-H208 - The self-evolution loop owns its own measured dimensions; an unmeasured dimension is published as unmeasured
+
+**Decision.** The self-evolution program is measured by its own §1 block on the
+standing gate — `time_to_repair_ms`, `self_repair_precision`,
+`requirement_completeness`, `cost_per_success`, `unauthorized_action_rate` —
+computed from real records (recovery incidents, goal-contract criteria,
+evaluation trials). A dimension with no samples is printed `UNMEASURED`; it is
+never fabricated and never omitted. Progress is judged by these numbers, not
+by tool/skill/agent counts.
+
+**Why.** "Learns and solves its own problems" is only meaningful as a trend on
+frozen measurements; a blended score or an inferred number would hide exactly
+the regressions this program exists to prevent.
+
+**Consequences.** `evaluation/repair_metrics.py`, `evaluation/gate.py` (the
+report block), the round-4 routing/benchmark gates. Tests
+`test_evaluation_repair_metrics.py`. Docs `docs/harness/agent-evaluation.md`.
+
+## ADR-H213 - Parallel agents are adopted only where a measured benchmark beats the single-agent baseline
+
+**Decision.** Multi-agent orchestration is an ADOPTION decision measured on a
+frozen benchmark, never a default. `evaluation/team_benchmark.py` runs the same
+multi-step task BOTH ways through the REAL runtime — one agent (`execute_run`)
+and a 2-3 specialist team (`TeamService` → `A2AService` → `TaskScheduler` → the
+same `execute_run`) with per-subtask deterministic scripts over a per-trial
+isolated store — and grades both on the REAL resulting state with the SAME
+graders. `experiments.multi_agent_compare` publishes both recorded suites, the
+measured axes (quality, wall clock, tool calls, model steps) and a
+deterministic verdict: the team is adopted only when quality does not regress
+AND a real gain is measured (wall clock improved by at least 15%, or strictly
+fewer tool calls). An unmeasured variant decides nothing; token/cost axes the
+tier cannot measure are published UNMEASURED, never estimated.
+
+**Why.** "More agents" is a cost, not a capability: it multiplies runs, model
+steps and oversight. The round's rule is adoption on evidence, and the first
+frozen-set measurement (2026-10-18, 3 trials × 2 tasks) found equal quality with
+53.6% more wall time and three more tool calls — so the team is not used by
+default, and the harness (not an opinion) is the gate for re-measurement.
+
+**Consequences.** `python/harness/evaluation/team_benchmark.py`
+(`TeamAgentInvoker`, the team model seam, `adoption_verdict`, `variant_axes`),
+`evaluation/experiments.py` (`multi_agent_compare`),
+`evaluation/datasets/team_v1.json` (the frozen tasks; each carries both
+variants), `runner._script_messages` (a per-subtask call-id prefix, so argument
+capture across concurrent child runs cannot collide). Tests
+`test_evaluation_team_comparison.py`. Docs
+`docs/harness/agent-evaluation.md`,
+`docs/harness/bot-team-orchestration.md`.
+
+## ADR-H211 - Acquisition is a closed lifecycle, and every acquired capability must pass its own contract test
+
+**Decision.** A missing capability is handled as ONE closed lifecycle —
+discover → assess → propose → acquire → validate → retry the original task from
+its durable checkpoint — over the existing `CapabilityIndex` and the existing
+surfaces. A proposal names each step's surface (`existing_tool`, `skill`,
+`plugin`, `scaffold_kit`, `engineering`, `alternative`, `operator`), its
+readiness, its approval requirement and the exact missing facts. No step
+self-grants: `install`/`enable` run only through an operator-approved, single
+surface call; a capability task created for the original work resumes it through
+the existing DAG, and THAT completion (with its own verification) is the
+validation gate. Validation without a real contract test is reported
+`unverified`, never passed.
+
+**Why.** "No tool for X" must lead to a constructive route, but an installer
+that runs itself is exactly the authority-widening the invariants forbid.
+Closing the loop also means the original task resumes — an acquisition that
+leaves the task parked forever is not an acquisition.
+
+**Consequences.** `recovery/acquisition.py` (the ordered lifecycle),
+`recovery/acquire_handlers.py` (the production caller: build → engineering or a
+same-plan code task; install/enable → operator decision), `tasks/scheduler.py`
+(the `waiting` outcome), `tasks/bootstrap.py` (`_acquire_capability`),
+`routers/recovery.py` (`/recovery/incidents/{id}/acquisition/execute|resume`).
+Tests `test_recovery_acquisition.py`, `test_recovery_acquire_handlers.py`. Docs
+`docs/harness/failure-recovery.md`.
+
+## ADR-H212 - Learning is layered, and each layer has its own validation standard
+
+**Decision.** Self-evolution learning is five explicit layers over the existing
+stores, not one blended engine: **L1 episodic** (`eclipse_memory/mistakes.py` +
+run traces — records what happened), **L2 procedural** (`skills/learning.py`,
+`skills/procedures.py`, `learning_review.py` — reusable procedures, inert until
+promoted), **L3 strategic** (`recovery/strategy_learning.py` — which route
+works per failure signature, measured from the incident/attempt ledger), **L4
+harness** (`evaluation/improvement.py` + `code/promotion.py` — code changes,
+verified by the anti-regression gate, landed only by an operator), **L5
+evaluation** (the frozen benchmark — which changes actually help). A layer's
+output is admissible at its own standard only: an L3 preference may reorder the
+policy's OWN candidates and never add one; an L2 candidate is inert until
+evaluation + promotion; an L4 proposal lands only through the single-use,
+digest-bound promotion. A failed attempt is evidence, not proof of a fix — no
+prompt rewriting or code change after every task.
+
+**Why.** "Learns from its own runs" is only meaningful when each claim is
+validated where it is made; conflating a recurrence signal (L2) with a measured
+success rate (L3) or a benchmark improvement (L5) is how a system talks itself
+into changes that make it worse.
+
+**Consequences.** `recovery/strategy_learning.py` (`strategy_stats`,
+`preferred_strategy`, `preference_from_store`; fed into `record_failure`),
+`skills/procedures.py` (construction procedure candidates), the round-4
+`repair_metrics` dimensions for the loop itself. Tests
+`test_recovery_strategy_learning.py`, `test_construction_procedure.py`,
+`test_evaluation_repair_metrics.py`. Docs
+`docs/harness/memory-skills-evolution-plan.md`,
+`docs/harness/failure-recovery.md`.
+
+## ADR-H214 - A registered tool is not advertised as available until its capability contract and fixture pass
+
+**Decision.** Every advertised tool carries a capability contract — a stable
+name, a typed input schema, a permission/risk vocabulary, a bounded timeout —
+and is checked by `tool_contracts.check_tool_contract`; the whole-registry audit
+is a release gate (all 886 registered tools pass). Beyond metadata, each audited
+family (filesystem, terminal, git, browser, API/web, artifacts, finance) has an
+executable BEHAVIOUR fixture that drives a representative real tool through the
+one `ToolRegistry` with a real context and asserts the outcome shape — a check
+that fails means the tool is not honestly available for that family. Advisory
+gaps (untyped output, undeclared effect metadata) are counted and named, never
+blocking, and a live dependency health probe remains the operator-facing check
+(`get_source_health`, MCP verify) — a static contract cannot probe a live
+dependency, and claiming otherwise would be fabrication.
+
+**Why.** A registered name is not proof: the earlier advertised-but-dead guard
+proved admission, not behaviour. Two real metadata bugs (an invalid risk value
+and a timeout ceiling) were found only when the audit was written; a fixture per
+family is what keeps that class of drift from returning silently.
+
+**Consequences.** `python/harness/tool_contracts.py`,
+`python/harness/tool_fixtures.py` (`FAMILY_FIXTURES`, `run_family_fixture`,
+`fixture_report`), `test_tool_contracts.py`, `test_tool_behaviour_fixtures.py`.
+Docs `docs/harness/self-evolution-roadmap.md` (W13).
+
+## ADR-H215 - Autonomy tiers are enforced by the runtime, and the agent can never widen its own authority
+
+**Decision.** The external tiers map onto the EXISTING policy groups the
+authorizer enforces, as data: read → **Tier 1 autonomous** (no per-call
+approval); workspace write/execute/install → **Tier 2 guarded** (policy +
+resource caps + the `AutonomyEnvelope`); external/destructive/credential/
+live-transaction actions → **Tier 3 approval** (a single-use operator approval
+per exact action). `security/tiers.classify_tool` derives a tool's tier from its
+effect, its approval group, its guarded effects/groups, or its write permission,
+and `tier_requires_approval` is the runtime check. A consistency test pins that
+an approval-group tool can never classify below Tier 3, so the mapping agrees
+with the policy the runtime actually enforces. Policy, approvals, the autonomy
+envelope and the evaluation gates stay outside the self-edit surface: the agent
+may never grant itself permissions by changing them.
+
+**Why.** "The safe tier is the default" is only true if the tier is a runtime
+property, not a prompt instruction. Deriving the tier from the enforced groups
+(not a second parallel table) is what makes the two impossible to disagree.
+
+**Consequences.** `python/harness/security/tiers.py` (`classify_tool`,
+`tier_requires_approval`, `tier_report`), `test_security_tiers.py` (counts +
+approval-tier names + the consistency pin). Docs `docs/harness/security.md`.
+
+## ADR-H216 - The Capability Studio is a navigation shell over the existing managers, and it grants nothing
+
+**Decision.** One navigable surface — the Capability Studio
+(`src/components/screens/capability-studio/`, AppTab `ui-builder`, section deep
+link `?tab=ui-builder&sub=studio.<section>`) — presents the capability kinds in
+one place: pages & widgets (the EMBEDDED UI Builder, unchanged), tools &
+plugins (the existing `PluginsScreen`, which gains its home), skills and
+integrations (read-only summaries that NAVIGATE to their owning managers). The
+studio introduces no second registry, no second enable path and no new
+authority: plugin enable/disable is the plugin platform's own operator action,
+skill enablement stays evaluation- + promotion-gated in the Skills manager,
+connections are edited in Settings, and installing anything goes through the
+operator acquisition route (ADR-H211) — the studio never self-grants. Load
+states are honest: a failing fetch is a failure, never an empty library, and a
+summary counts only RECORDED states (an untested connection is not "failing").
+Inactive sections stay mounted (`display:none`), the shell's keep-alive
+pattern, so switching sections never drops in-flight work.
+
+**Why.** The pieces existed (UI Builder, plugin manager, skills manager,
+connectors) but were scattered — and the plugin manager was orphaned with no
+mounted tab. Phase D of the capability-extension plan called for one studio;
+building NEW managers would have created the second-registry defect the
+invariants forbid, while composing the existing ones keeps every lifecycle
+(evaluation, promotion, approvals) exactly where its tests already pin it.
+
+**Consequences.** `src/components/screens/capability-studio/`
+(`capability-studio-screen.tsx`, `skills-section.tsx`,
+`integrations-section.tsx`, `capability-studio.test.tsx`),
+`ui-builder-screen.tsx` (`embedded` prop), `stock-chat.tsx` (the `ui-builder`
+tab mounts the studio; the file stays at its 1518-line ratchet), i18n slices
+`dictionaries/navigation.ts` + `dictionaries/capability-studio.ts` (en.ts
+SHRANK 1254→1234 while adding the studio keys), `docs/ui-engineering.md`,
+`docs/harness/capability-extension-plan.md`.
+
+## ADR-H217 - RSL is a conductor over the existing owners, not a second self-improvement stack
+
+**Decision.** The Recursive Self-Improvement Loop (RSL) lives in
+`python/harness/self_improvement/` as a bounded conductor over machinery that
+already exists: post-run review and mistake capture, the ONE
+`LearningRecurrence` ledger, `EvolutionCandidate`/`EvolutionAttempt`, the
+evaluator, worktrees, `code/promotion.py` and `code/selfhost.py`. It adds no
+second runtime, database, queue, scheduler, evaluator, provider or memory
+system. R1 (observation) is dark by default (`HARNESS_RSL_MODE=off`) and makes
+no model calls; candidate execution and verification arrive only in later
+phases. The loop is one bounded `asyncio` task beside `learning_review`, not a
+fabric worker.
+
+**Why.** The measured gaps were closure gaps, not missing subsystems: the
+recurrence bridge had no production caller, mining was CLI-only, and the
+evaluator loop was test/CLI-only. Building a parallel stack would create the
+second-registry/second-counter defect the self-evolution invariants forbid.
+
+**Consequences.** `python/harness/self_improvement/` (`config`, `models`,
+`observer` for R1; `security` + `evaluation/candidate_invoker.py` for R3;
+`loop`, `proposer`, `verifier`, `landing`, `recorder` for R4),
+`code/evolution.py::record_mistake_recurrence`,
+`eclipse_memory/mistakes.py::capture_mistakes`, `learning_review.py`, the
+evaluator provenance/split work in R2, and the
+`self_improvement.{candidate_created,experiment_completed}` event specs. Tests
+`python/tests/test_rsl_{config,observation,provenance,snapshot,candidate_invoker,loop,landing,verifier}.py`.
+Code candidates record `benchmark=UNMEASURED`; only the surface path can claim a
+measured delta.
+
+## ADR-H218 - There is one landing path: promotion + selfhost; evolution_service.activate is not a code write
+
+**Decision.** A code change becomes real only through the existing
+single-use, digest-bound promotion approval. `landing.prepare` returns a
+`promotion.build_preview` preview; the operator approves through the existing
+`/code/tasks/{runId}/promote` routes. The health-gated apply is
+`code/selfhost.py::guarded_land`; the current `/promote` route calls
+`promotion.apply_promotion` and reports the restart/build verdict, so RSL must
+wire the selfhost seam explicitly rather than claim the route already
+health-checks. `code/evolution_service.py::activate` is NOT a code-landing path:
+it activates a skill version through `skills/versioning.py` (and, for a code
+subject, carries the change as a thin managed-skill description). It must never
+be presented as writing the checkout.
+
+**Why.** Two landing paths would mean two approval semantics and two rollback
+stories. The invariants require one operator-confirmed write path.
+
+**Consequences.** `docs/self-improvement/rsl-implementation-plan.md` §3.6 and
+R4/R5; the R5 routes add `prepare-landing`/`land` rather than overloading the
+existing `/evolution/candidates/{id}/activate` skill route.
+
+## ADR-H219 - RSL candidates may not edit their own judge
+
+**Decision.** The RSL subject denylist is frozen authority, enforced before a
+proposal is accepted and again before landing. It covers the evaluator and its
+graders/scoring/regression/gates, benchmark datasets, `python/tests/**`,
+`python/harness/security/**`, `code/policy.py`, `code/authorizers.py`,
+`code/promotion.py`, `code/selfhost.py`, `code/patch.py`, `code/workspace.py`,
+`code/evolution*.py`, `skills/versioning.py`, `skills/permissions.py`,
+`mcp/approvals.py`, `scripts/check-all.js`, `scripts/test-*.js`, `.env` and
+`jdds.db`. Every op path is checked, not only the candidate's `targetPath`; the
+owning test file must be byte-identical to the checkout at evaluation time and
+its hash is recorded in the attempt.
+
+**Why.** `evaluate_candidate` runs owning tests, so a candidate that edits its
+own test can game the gate. The evaluator and the datasets are the measurement
+authority; a candidate may not change the ruler.
+
+**Consequences.** R3 added `self_improvement/security.py` (`RSL_DENY_GLOBS`,
+`assert_landable_target`) and `evaluation/candidate_invoker.py`
+(`validate_snapshot`, `CandidateAgentInvoker`); R4 adds the before-propose/
+before-land checks. Tests `test_rsl_snapshot.py` +
+`test_rsl_candidate_invoker.py`. ADR-H157 and the existing
+`FROZEN_PATHS`/`FORBIDDEN_FIELDS` remain the inner floor.
+
+## ADR-H222 - Experiment identity and provenance live on EvaluationRun; a comparison without them is refused
+
+**Decision.** A persisted evaluation run carries the identity that makes it
+comparable: `agentVersion`, `gitCommit` (or an explicit
+`gitCommitUnavailable`), the dataset checksum, and a `config` identity with
+`trials`, `tier`, `split`, `graderVersion` and optional `seed`/`temperature`.
+Its `metadata` carries `taskFingerprintDigest`, `taskCount`, `graderVersion`
+and the split. Task fingerprints are persisted through the existing
+`EvaluationStore.upsert_task`; every trial's score JSON carries
+`graderVersion`. `evaluation.provenance.require_provenance` refuses a run
+missing any required piece. Cost and latency are `None` when no real source
+reported them, never `0`; `cost_per_success` is UNMEASURED if any measured
+trial's cost is unknown.
+
+**Why.** A delta between two runs is only evidence when both runs name the same
+tasks, grader version and configuration — and differ only on the axis the
+experiment claims to vary. A NULL checksum, empty config or fabricated zero
+would make a comparison unfalsifiable.
+
+**Consequences.** `evaluation/provenance.py` (`AGENT_VERSION`,
+`repository_commit`, `task_fingerprint_digest`, `require_provenance`),
+`evaluation/runner.py` (`run_suite` identity + `upsert_task`),
+`evaluation/tasks.py` (`SPLITS`, `select_tasks(split=...)`),
+`evaluation/scoring.py` (`graderVersion`, `costKnown`/`latencyKnown`),
+`evaluation/improvement.py` (persisted candidate run, measured-only acceptance),
+tests `test_rsl_provenance.py`. Built-in splits: `benchmark_v1` +
+`construction_v1` = validation (47), `routing_e2e_v1` = optimization (4),
+`team_v1` = held_out (2).
+
+## ADR-H220 - Local app reads are a bounded GET surface, and browser failures name their cause
+
+**Decision.** The agent gets one sanctioned read path into the app it is
+running: `app_api_get`, GET-only, loopback-only (`HARNESS_CALLBACK_URL`), path
+prefix `/api/`, no redirects, no credentials, 10 s timeout and a 200 KB cap. It
+is a read of the user's own app, never a general HTTP client; a canonical public
+host is for the browser, not this surface. In the same change, a Playwright
+navigation failure carries its CLASSIFIED cause (host unresolvable, connection
+refused, timeout, redirect loop) in the tool sentence, not only in metadata; an
+app-URL failure probes the known app origins and retries ONCE on the first
+reachable one, reporting the probe trail when none answers. The browser also
+reports the app's boot overlay (`[data-global-loader][data-pct]`) as "still
+starting" instead of letting a reader interpret it as a stuck page.
+
+**Why.** QA Round 1 showed the agent could not read the app's own `/api/*` facts
+(`curl` is hard-denied, `health_check` returns a status only, web research
+blocks loopback) and misread a hidden transport error as a policy boundary. A
+bounded read surface removes a whole class of dead ends without widening
+authority; naming the transport cause removes the incentive to invent one.
+
+**Consequences.** New `python/harness/app_api_tools.py` and
+`python/harness/browser/app_origin.py`; `browser_{navigate,snapshot}` gained the
+origin retry and boot note; `app_api_get` is on `ECLIPSE_AGENT` and
+`CHAT_CODE_TOOLS`. Tests `test_app_api_tools.py` + `test_browser_app_origin.py`.
+The tool cannot mutate, cannot leave loopback, and cannot follow a redirect.
+
+## ADR-H221 - The chat step budget is configurable and defaults to 12
+
+**Decision.** An ordinary `eclipse-agent` run gets 12 model steps by default
+(was 8). `ECLIPSE_CHAT_MAX_STEPS` overrides it, clamped to 1..32. An EXPLICIT
+per-run `agent` config (a caller-supplied `AgentConfig` with its own
+`maxSteps`) wins over both. Code-autonomy floors (24 at `edit_verify` /
+`approve_external`) and every skill manifest's own budget are unchanged, as are
+the browser/computer sub-budgets.
+
+**Why.** QA Round 1 hit the 8-step cap mid-navigation: discovery, a tool call,
+a retry and a page read do not fit in eight model turns. The cap is a cost
+guard, not a capability contract; making it explicit and slightly larger keeps
+multi-tool turns completable while preserving a hard ceiling.
+
+**Consequences.** `graph.chat_step_budget` is the ONE resolver
+(`build_graph` and the `run.started` event both use it); tests
+`test_chat_step_budget.py`. Operators can lower the cap without a code change
+when cost matters more than depth.

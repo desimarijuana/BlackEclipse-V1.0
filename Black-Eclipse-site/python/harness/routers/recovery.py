@@ -37,6 +37,53 @@ def recovery_summary() -> dict[str, Any]:
     return _engine().summary()
 
 
+@router.get("/recovery/metrics")
+def recovery_metrics() -> dict[str, Any]:
+    """The self-evolution metric block (round 4, W7), from the REAL records.
+
+    Store-backed dimensions (time_to_repair, self_repair_precision,
+    requirement_completeness) are measured from this runtime's incidents and
+    goal tasks; a dimension with no samples stays None. Read-only.
+    """
+    from ..evaluation.repair_metrics import collect_self_evolution_metrics
+
+    engine = _engine()
+    incidents: list[dict[str, Any]] = []
+    attempts_by_incident: dict[str, list[dict[str, Any]]] = {}
+    try:
+        incidents = engine.store.list_incidents(limit=500)
+        # The outcome is an `action="outcome"` attempt; read it for resolved
+        # incidents only (bounded), so the metric is real, never inferred.
+        for incident in incidents[:200]:
+            if str(incident.get("status")) != "resolved":
+                continue
+            attempts_by_incident[str(incident.get("id"))] = engine.store.list_attempts(
+                incident["id"], limit=50,
+            )
+    except Exception:  # noqa: BLE001 - an unreadable ledger reports unmeasured, never a guess
+        incidents, attempts_by_incident = [], {}
+    tasks: list[dict[str, Any]] = []
+    manager = getattr(service, "tasks", None)
+    if manager is not None:
+        try:
+            for plan in manager.list_plans(limit=200):
+                for task in manager.list_tasks(plan_id=plan.id, limit=500):
+                    tasks.append({
+                        "goalContract": (
+                            task.goal_contract.model_dump() if task.goal_contract else None
+                        ),
+                        "criteria": [
+                            {"required": criterion.required, "state": criterion.state.value}
+                            for criterion in manager.list_criteria(task.id)
+                        ],
+                    })
+        except Exception:  # noqa: BLE001
+            tasks = []
+    return collect_self_evolution_metrics(
+        incidents=incidents, attempts_by_incident=attempts_by_incident, tasks=tasks,
+    )
+
+
 @router.get("/recovery/incidents")
 def list_incidents(
     status: Optional[str] = Query(default=None),
@@ -124,6 +171,139 @@ def diagnose(
     if diagnosis is None:
         raise HTTPException(status_code=404, detail="incident not found")
     return {"diagnosis": diagnosis}
+
+
+@router.post("/recovery/incidents/{incident_id}/routing-repair")
+def prepare_routing_repair(
+    incident_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Prepare a verified routing repair in a disposable copy.
+
+    Returns the proposal, the promotion preview and the self-host landing verdict;
+    the existing `/code/tasks/{runId}/promote` card performs the actual landing.
+    This route never writes the real checkout.
+    """
+    from ..recovery import routing_landing  # noqa: PLC0415
+
+    try:
+        result = routing_landing.prepare(service, incident_id)
+    except routing_landing.RoutingLandingError as exc:
+        status = 404 if exc.code == "ROUTING_INCIDENT_NOT_FOUND" else 409
+        raise HTTPException(status_code=status, detail=exc.code) from exc
+    return {"success": True, **result}
+
+
+@router.post("/recovery/incidents/{incident_id}/acquisition")
+def plan_incident_acquisition(
+    incident_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """The ordered acquisition lifecycle for a stored capability incident."""
+    plan = _engine().plan_incident_acquisition(incident_id)
+    if plan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="incident not found or it carries no capability request",
+        )
+    return {"acquisition": plan}
+
+
+@router.post("/recovery/incidents/{incident_id}/acquisition/execute")
+def execute_incident_acquisition(
+    incident_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Execute ONE acquisition step through its surface, operator-gated.
+
+    `approved: true` is the operator's explicit decision that authorizes a
+    mutation step (`install`/`enable`); without it the step is handed back with
+    its exact approval requirement. Nothing self-grants: the handler still runs
+    through the named existing gate.
+    """
+    from ..recovery.acquire_handlers import (
+        build_acquisition_handlers, park_for_acquisition, proposal_from_dict,
+    )
+    from ..recovery.acquisition import execute_step
+
+    engine = _engine()
+    body = payload or {}
+    facts = body.get("facts") if isinstance(body.get("facts"), dict) else None
+    plan = engine.plan_incident_acquisition(incident_id, facts=facts)
+    if plan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="incident not found or it carries no capability request",
+        )
+    proposal = proposal_from_dict(plan)
+    index = int(body.get("stepIndex") or 0)
+    approved = bool(body.get("approved"))
+    manager = getattr(service, "tasks", None)
+    task = None
+    incident = engine.store.get_incident(incident_id) or {}
+    if manager is not None and incident.get("taskId"):
+        try:
+            task = manager.get_task(str(incident["taskId"]))
+        except Exception:  # noqa: BLE001 - a missing task is reported, not invented
+            task = None
+    handlers = (
+        build_acquisition_handlers(service, manager, task, facts=facts)
+        if manager is not None and task is not None else {}
+    )
+    outcome = execute_step(proposal, index, handlers=handlers, approved=approved)
+    result = outcome.get("result") if isinstance(outcome.get("result"), dict) else {}
+    result_status = str(result.get("status") or "")
+    # A `build` step routed through the production surfaces parks the original
+    # task (dependency or operator wait); the DAG or the resume route wakes it.
+    # Parking NEVER re-executes the step. A handler-level `approval_required`
+    # (e.g. a skill install whose single-use approval is not granted yet) parks
+    # the task for the operator the same way.
+    parked = None
+    if outcome.get("status") == "executed" and manager is not None and task is not None:
+        if result_status == "approval_required":
+            try:
+                manager.wait_task(task.id, reason="APPROVAL")
+            except Exception:  # noqa: BLE001 - parking is best-effort
+                pass
+            parked = {"resume": "operator"}
+        else:
+            parked = park_for_acquisition(manager, task, outcome.get("result"))
+    elif (outcome.get("status") == "approval_required"
+          and manager is not None and task is not None):
+        try:
+            manager.wait_task(task.id, reason="APPROVAL")
+        except Exception:  # noqa: BLE001 - parking is best-effort
+            pass
+        parked = {"resume": "operator"}
+    return {
+        "success": outcome.get("status") == "executed"
+        and result_status not in ("approval_required", "failed"),
+        "outcome": outcome, "parked": parked,
+    }
+
+
+@router.post("/recovery/incidents/{incident_id}/acquisition/resume")
+def resume_incident_task(
+    incident_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Resume the incident's original task from its latest durable checkpoint."""
+    from ..recovery.acquire_handlers import resume_callback
+
+    engine = _engine()
+    incident = engine.store.get_incident(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    task_id = incident.get("taskId")
+    manager = getattr(service, "tasks", None)
+    if not task_id or manager is None:
+        raise HTTPException(
+            status_code=409,
+            detail="the incident names no task to resume, or the task runtime is unavailable",
+        )
+    result = resume_callback(manager, str(task_id))()
+    return {"success": True, "resume": result}
 
 
 @router.post("/recovery/incidents/{incident_id}/reproduce")

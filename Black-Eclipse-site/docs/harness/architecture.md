@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-17
+last-verified: 2026-10-18
 ---
 
 # Harness Architecture
@@ -67,6 +67,7 @@ Two boundaries, both deliberate:
 | `profile.py` (in `eclipse_memory/`) | the compact prompt profile — a deterministic, bounded projection over active memory injected once at run start (`MemoryProfileSnapshot`, migration 12) |
 | `session_index.py` | builds the bounded, redacted `SessionMessage` search index of a completed run (never a second copy of the trace) + `build_summary` (a bounded deterministic session summary; searchable, never auto-injected) |
 | `learning_review.py` | the bounded in-process post-run learning-review queue (priority-ordered, per-session coalescing, idle-aware; deterministic + optional inert model proposal; never enables a skill) |
+| `self_improvement/` | the native Recursive Self-Improvement Loop (R0–R4): `config.py` (`RSLConfig` from `HARNESS_RSL_MODE`, dark by default; clamped budgets), `models.py` (`HarnessSnapshot`/`Observation` contracts), `observer.py` (deterministic observation → inert candidate), `security.py` (`RSL_DENY_GLOBS`/`assert_landable_target`), `loop.py` (bounded conductor: scan/claim/lease/daily budget, one experiment at a time), `proposer.py` (v1a validated code ops), `verifier.py` (worktree owning tests with `benchmark=UNMEASURED` for code; measured surface benchmark via the candidate invoker), `landing.py` (promotion preview only), `recorder.py` (experiment identity + event). R5–R8 are not started; nothing activates automatically. |
 | `prompt_segments.py` | immutable prompt segments + a stable `prompt_cache_key` that covers the CONTENT hashes of the reusable (`STATIC_SEGMENTS`) segments (so a prompt edit changes the key), selective bounded skill-manifest injection, the run-scoped `runtime_context_block` date/time segment, and `prompt.plan` observability (`build_prompt_plan`, `build_skill_manifest`, `compare_plans`; `RUN_FROZEN_SEGMENTS` excluded from reuse accounting and the key) |
 | `context_budget.py` | the measured per-run history budget: sums the resolved system prompt, advertised tool schemas, per-run blocks and user turn, derives the history allowance from the resolved model's declared window (unknown → conservative ceiling), and keeps `MAX_HISTORY_CHARS` as an absolute cap (`compute_history_budget`) |
 | `memory_providers/` | the M8 external-memory-provider layer: `protocol.py` (`MemoryProvider` contract + typed request/response, external `provenance`/`verified=false` defaults), `native.py`, `mcp.py` (read-only-first, L2 write-gated, no automatic writes), `registry.py`, `routing.py` (native-first + external fencing, never promotes), `diagnostics.py` |
@@ -1248,6 +1249,25 @@ digest-bound operator approval per call (pause-in-card-mode included). The older
 inert-draft path (`_create_explicit_skill_draft` → `skills/draft.py`) remains for
 the "turn this into a skill" intent; both land in the same reviewable store.
 
+**The lifecycle surface (`skills/lifecycle_tools.py`).** The Skills UI could read
+version history and reviews and change lifecycle state, but the agent had no bound
+tool for any of it — a self-improvement run asked for version history, review data,
+patch activation and a learning switch and was refused on all four. Six tools now
+wrap the SAME paths, never a second lifecycle: `skill_version_history`,
+`skill_reviews` and `skill_learning_get` are read-only (versions via
+`versioning.version_history`, reviews + evaluations via
+`store.list_reviews`/`registry.evaluation_history`, the persisted mode via
+`PolicyStore.get_all`); `skill_version_evaluate` runs the deterministic
+`versioning.evaluate_version`, `skill_version_activate` calls
+`versioning.activate_version` (a passing evaluation is still required) and
+`skill_learning_set` calls `PolicyStore.set` for `skill_learning_mode` (the closed
+mode vocabulary + hard floors still apply). The three writes join
+`code.policy.ACQUISITION_WRITE_TOOLS` (removed at `plan_only`) and are gated by
+`make_skill_lifecycle_authorizer` (single-use, digest-bound operator approval; the
+evaluation/activation digests bind the version, the learning digest binds the
+mode). Evaluation never enables anything — it only records the result activation
+then checks.
+
 **Self-hosting safety (`code/selfhost.py`, Track B).** A change that reaches
 Eclipse's OWN live code carries hazards a disposable-worktree task does not, so
 landing it goes through an extra gate. `classify_landing(paths)` is pure: a path
@@ -1272,6 +1292,7 @@ front door can raise a restart/build requirement; `test_selfhost_landing.py`.
 |---|---|
 | A chat slash command | Add a `ChatCommand` to `CHAT_COMMANDS` in `src/lib/harness/commands.ts` (name, aliases, summary, forced `profile`); the front door parses/strips it in `startChatRun`. No runtime change unless the command needs a new marker. |
 | An agent-authored skill / extension | No code change: the agent calls `skill_create`/`skill_update`/`skill_delete` (approval-gated). To add a new *kind* of extension tool, add a handler + `ToolDefinition` in `python/harness/skills/manage_tools.py`, gate it in `make_skill_manage_authorizer`, and add its name to `code.policy.ACQUISITION_WRITE_TOOLS`. |
+| A skill lifecycle tool (history/review/evaluate/activate/learning mode) | Add it next to the existing six in `python/harness/skills/lifecycle_tools.py`; reuse `versioning.*` / `PolicyStore.set`, gate writes in `make_skill_lifecycle_authorizer`, register it in `install_tools.register_skill_install_tools`, and add any write name to `code.policy.ACQUISITION_WRITE_TOOLS` + the agent allowlists. |
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
 | A file system operation / tool | Add the operation in `python/harness/code/fs/operations.py` (or `editing.py`) taking an `FsContext`; add the tool in `python/harness/code/fs_tools.py`; if it mutates, add its name to `code/policy.FS_WRITE_TOOLS`. See `docs/harness/code-filesystem.md`. |
 | A tool that needs JDdS data | Add a capability to `data-bridge.ts` + a `DataCapability` union member; call `ctx.data_bridge.fetch(...)`. |

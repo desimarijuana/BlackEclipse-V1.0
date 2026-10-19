@@ -151,7 +151,7 @@ export function buildMemoryRunView(memory: unknown): MemoryRunView | null {
     out.eligibility = {
       eligible: Boolean(eligibility.eligible),
       reason: str(eligibility.reason) ?? '',
-      learnQueuePath: str(eligibility.learnQueuePath) ?? '/api/learning/candidates',
+      learnQueuePath: str(eligibility.learnQueuePath) ?? '/?tab=skills&sub=skills.learning',
       skillRequested: Boolean(eligibility.skillRequested),
       autoCaptured: Boolean(eligibility.autoCaptured),
       skillDraftReady: Boolean(eligibility.skillDraftReady),

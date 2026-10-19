@@ -23,7 +23,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from ..event_system.emit import publish_event
 from ..tasks.model import AcceptanceCriterionInput, CriterionState, CreatePlanInput, CreateTaskInput
+from .mode import ENGINEER_TOOLS, assess_capability
 from .model import UiComponentSpec
 
 log = logging.getLogger("harness.ui.engineering")
@@ -73,6 +75,7 @@ class UiEngineering:
         autonomy: str = "edit_verify",
         priority: str = "NORMAL",
         model_settings: Optional[dict[str, Any]] = None,
+        run_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create a durable engineering task for an Engineer/Both-mode request.
 
@@ -87,16 +90,56 @@ class UiEngineering:
             raise UiEngineeringError("UI_ENGINEERING_UNAVAILABLE", "the task runtime is not available")
         decision = self._ui.classify_request(text, blueprint_id=blueprint_id, owner_id=owner_id)
         if decision["mode"] == "compose":
-            return {
-                "created": False,
-                "mode": "compose",
-                "reasons": decision["reasons"],
-                "suggestedTools": decision["suggestedTools"],
-                "message": "This request can be Composed from registered components; no engineering task was created.",
-            }
+            # Never inherit the classifier's label blindly. Re-check the catalog
+            # here: a Compose label for a capability the catalog cannot satisfy
+            # is exactly the recorded defect (a "world clock" refused as
+            # "nothing to engineer"). A gap ESCALATES; it never refuses.
+            fit = assess_capability(text, catalog=getattr(self._ui, "catalog", None))
+            if fit.capability_gap:
+                decision = {
+                    **decision,
+                    "mode": "engineer",
+                    "capabilityGap": True,
+                    "reasons": [*decision.get("reasons", []), fit.reason],
+                    "suggestedTools": list(dict.fromkeys([
+                        *decision.get("suggestedTools", []), *ENGINEER_TOOLS,
+                    ])),
+                }
+            else:
+                return {
+                    "created": False,
+                    "mode": "compose",
+                    "capabilityGap": False,
+                    "reasons": decision["reasons"],
+                    "suggestedTools": decision["suggestedTools"],
+                    "message": "This request can be Composed from registered components; no engineering task was created.",
+                }
+        if decision.get("capabilityGap"):
+            # One durable signal per escalation, so the self-repair loop can
+            # diagnose the gap. Best-effort and loop-aware: a missing Event
+            # System is a harmless no-op and never blocks the task.
+            publish_event(
+                "ui.capability_gap",
+                {
+                    "code": "UI_CAPABILITY_GAP",
+                    # The request text travels in the message so the durable
+                    # incident is actionable without the original run payload.
+                    "message": f"no registered component matches: {text[:200]}",
+                    "capability": text[:500],
+                    "mode": decision.get("mode"),
+                    "runId": run_id,
+                    "capabilityGap": True,
+                    "vocabularyGap": False,
+                    "capabilityAbsent": False,
+                    "policyDenied": False,
+                },
+                source="ui",
+            )
+
         name = (title or text.strip() or "UI engineering task")[:120]
         metadata: dict[str, Any] = {
             "kind": "ui-engineering", "mode": decision["mode"],
+            "capabilityGap": bool(decision.get("capabilityGap", False)),
             "blueprintId": blueprint_id, "autonomy": autonomy,
         }
         if isinstance(model_settings, dict) and model_settings.get("provider") and model_settings.get("model"):
@@ -120,6 +163,7 @@ class UiEngineering:
         return {
             "created": True,
             "mode": decision["mode"],
+            "capabilityGap": bool(decision.get("capabilityGap", False)),
             "planId": plan.id,
             "taskId": task.id,
             "dispatched": dispatched,

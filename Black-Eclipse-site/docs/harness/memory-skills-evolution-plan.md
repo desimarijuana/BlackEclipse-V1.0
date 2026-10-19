@@ -564,6 +564,48 @@ execution gate unchanged. The owning modules are `skills/install.py`,
 `code/request_intent.py` (software acquisition routes to the code profile).
 Design detail: `phase-3-architecture.md`; decision: ADR-H188.
 
+## Construction procedure learning — round 4, W6 (2026-10-18)
+
+The recorded clock defect's lesson was know-how, not a recovery strategy: a
+missing UI capability must be *engineered* (escalate → implement → register →
+compose), and the run had to re-derive the widget layer's constraints every
+time. `skills/procedures.py` encodes that sequence as an inert
+`successful_procedure` candidate on the EXISTING learning store — same candidate
+type, same signature scheme (`skills/learning.py::_signature`), same review path.
+
+Rules (conservative by construction, matching `recovery/learning.py`):
+
+- **First occurrence → candidate.** A completed run with a SUCCESSFUL
+  `ui_register_engineered_component` (the registration actually ran — the
+  loop-closing act) yields the candidate via `analyze_run`; the generic
+  tool-sequence candidate is suppressed for that run. One stable signature
+  (`CONSTRUCTION_PROBLEM`) deduplicates every construction into ONE candidate —
+  the procedure is "engineer + register a UI capability", not one per widget.
+- **Repeat → inert draft.** The post-run review (`learning_review.py`,
+  `maybe_draft_construction`) opens the draft only when the stable recurrence
+  key (`CONSTRUCTION_RECURRENCE_KEY`, via the existing `LearningRecurrence`
+  ledger) has been seen ≥ 2 times and the candidate is still `detected`. The
+  draft goes through the SAME `propose_draft` the operator route uses:
+  `status: draft`, `evaluationStatus: not_evaluated`, `origin: learning`.
+- **Operator-only activation.** Nothing in the automatic path enables a skill;
+  promotion remains the existing evaluation + `request_promotion`/
+  `approve_promotion` operator gate. A second review run is a no-op.
+- **Encoded constraints.** The procedure carries the re-derived facts:
+  implement in `src/lib/dashboard/widgets.tsx` within the 1200-line hard
+  ceiling (split, do not exceed), register in `src/lib/dashboard/registry.tsx`,
+  add the icon name to its `ICONS` map, run `npx tsc --noEmit` + the front-end
+  tests, then `ui_register_engineered_component`, then Compose. `draft.py`
+  renders each step's `detail` into the SKILL.md instructions so the
+  constraints are not lost.
+- **Recovery seam.** A resolved CAPABILITY incident
+  (`recovery/learning.py::incident_to_candidate`) now yields the SAME
+  construction candidate instead of a generic `failure_recovery` — the two
+  sources collapse into one by signature.
+
+Tests: `python/tests/test_construction_procedure.py` (detection, encoding,
+first-occurrence candidate, repeat → inert draft, no auto-enable, tool-evidence
+filtering, review surfacing, incident-path signature equality, dedupe).
+
 ## Future architecture
 
 - A pluggable authentication seam that resolves `scopeId` from a real identity,

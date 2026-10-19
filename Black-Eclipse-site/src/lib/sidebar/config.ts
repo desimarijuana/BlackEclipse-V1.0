@@ -11,7 +11,7 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
-  GitBranch,
+  GitBranch, Wrench,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -55,6 +55,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'economics', label: 'Economics', icon: Globe, group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
+  { id: 'sdk', label: 'Eclipse SDK', icon: Wrench, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
   { id: 'graph-studio', label: 'Graph Studio', icon: GitBranch, group: 'graph' },

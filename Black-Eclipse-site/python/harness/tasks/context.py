@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .manager import TaskManager
-from .model import Task, TaskStatus
+from .model import ExecutionStatus, Task, TaskStatus
 
 #: Caps keep a context from becoming an unbounded memory dump.
 MAX_CONTEXT_ARTIFACTS = 20
@@ -89,6 +89,9 @@ def build_task_context(
         {"kind": a.kind, "uri": a.uri, "digest": a.digest, "label": a.label}
         for a in manager.list_artifacts(task.id)[:MAX_CONTEXT_ARTIFACTS]
     ]
+    # PREVIOUS attempts only: the current attempt's own execution row (PENDING/
+    # RUNNING) is created before the run starts, and quoting it as "a previous
+    # failed attempt" would both hide the real failure and confuse the model.
     attempts = [
         {
             "attempt": e.attempt,
@@ -97,8 +100,9 @@ def build_task_context(
             "errorClass": e.error_class,
             "runId": e.run_id,
         }
-        for e in manager.list_executions(task.id)[-MAX_CONTEXT_ATTEMPTS:]
-    ]
+        for e in manager.list_executions(task.id)
+        if e.status not in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING)
+    ][-MAX_CONTEXT_ATTEMPTS:]
     criteria = [c.text for c in manager.list_criteria(task.id) if c.required]
     return TaskContext(
         task_id=task.id,
@@ -145,14 +149,16 @@ def render_task_query(context: TaskContext) -> str:
             lines.extend(
                 f"- {d['title']} (output: {d['outputReference'] or 'n/a'})" for d in done
             )
-    if context.previous_attempts:
-        last = context.previous_attempts[-1]
-        if last.get("error"):
-            lines.append("")
-            lines.append(
-                f"A previous attempt failed ({last.get('errorClass') or 'error'}): "
-                f"{last['error']}. Address the cause rather than repeating it."
-            )
+    # The most recent FAILED attempt (not merely the most recent one) is quoted,
+    # so a retry is told what went wrong even after an intervening clean run.
+    failed = [a for a in context.previous_attempts if a.get("error")]
+    if failed:
+        last = failed[-1]
+        lines.append("")
+        lines.append(
+            f"A previous attempt failed ({last.get('errorClass') or 'error'}): "
+            f"{last['error']}. Address the cause rather than repeating it."
+        )
     if context.artifacts:
         lines.append("")
         lines.append("Artifacts already attached:")

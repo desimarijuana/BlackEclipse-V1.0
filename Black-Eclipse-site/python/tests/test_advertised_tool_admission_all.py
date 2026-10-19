@@ -105,6 +105,8 @@ def _args_for(registry: ToolRegistry) -> dict:
         "command": "ls", "path": "a", "portfolio_id": "p", "prompt": "a cat",
         "status": "done", "node_id": "n",
         "symbol": "AAPL", "entry": 1, "quantity": 1,
+        # Skill lifecycle writes: activation needs a version, the learning switch a mode.
+        "version": "1.0.0", "mode": "off",
     }
 
 

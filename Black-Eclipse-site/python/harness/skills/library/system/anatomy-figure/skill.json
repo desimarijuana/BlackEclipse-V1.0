@@ -1,7 +1,7 @@
 {
   "id": "system.anatomy-figure",
   "name": "Interactive Anatomy Figure",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Explain how a system, machine or process works as an interactive, orbitable 3D mechanism model — labelled parts, connections and step-through stages — rendered inline in chat as a `model3d` block (recipes, primitives, GLB export).",
   "category": "system",
   "tags": ["visual", "explanation", "anatomy", "diagram", "teaching"],

@@ -6,11 +6,18 @@
 // the browser (which already loads the widget registry) pushes the adapted specs
 // into the runtime ONCE; the runtime persists them on agent-memory.db, so they
 // survive restarts. Idempotent: `register_component` upserts by id.
+//
+// The second sync ships the app's FIXED screen inventory (tabs + sub-tabs +
+// deep links) derived from `src/lib/app-surfaces.ts`, so the agent can answer
+// "where is X in the app?" and never treats a saved dashboard as the app's
+// screen list. Idempotent: `replace_surfaces` upserts the whole batch.
 
+import { appSurfaces } from '@/lib/app-surfaces';
 import { dashboardComponentSpecs } from '@/lib/ui-engineering/registry-catalog';
-import { registerComponents } from '@/lib/harness/ui-client';
+import { registerComponents, registerSurfaces } from '@/lib/harness/ui-client';
 
 let synced = false;
+let surfacesSynced = false;
 
 export interface SyncResult { total: number; registered: number; failed: number }
 
@@ -35,5 +42,26 @@ export async function syncCoreCatalog(force = false): Promise<SyncResult> {
     return { total: res.total ?? specs.length, registered, failed: res.failed?.length ?? 0 };
   } catch {
     return { total: specs.length, registered: 0, failed: specs.length };
+  }
+}
+
+/** Push the app's screen inventory into the runtime. Safe to call often. */
+export async function syncAppSurfaces(force = false): Promise<SyncResult> {
+  if (surfacesSynced && !force) return { total: 0, registered: 0, failed: 0 };
+  let surfaces;
+  try {
+    surfaces = appSurfaces();
+  } catch {
+    return { total: 0, registered: 0, failed: 0 };
+  }
+  if (surfaces.length === 0) return { total: 0, registered: 0, failed: 0 };
+  try {
+    const res = await registerSurfaces(surfaces);
+    const registered = res.registered ?? 0;
+    if (registered > 0) surfacesSynced = true;
+    const total = res.total ?? surfaces.length;
+    return { total, registered, failed: Math.max(0, total - registered) };
+  } catch {
+    return { total: surfaces.length, registered: 0, failed: surfaces.length };
   }
 }

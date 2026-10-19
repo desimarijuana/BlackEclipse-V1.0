@@ -3,6 +3,7 @@
 // usable on a machine without the runtime — the TS suite still gates the app.
 const { spawnSync } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
@@ -42,7 +43,21 @@ if (!py) {
 // sys.path[0] insertion, so `-m harness.*` cannot resolve the package from cwd
 // alone. Set PYTHONPATH explicitly for every child (pytest and the smoke runner)
 // so the vendored and system interpreters behave identically.
-const childEnv = { ...process.env, PYTHONPATH: pythonDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : "") };
+// Isolate the suite from the developer's real memory database. `eclipse-memory.db`
+// carries installed skill versions; reusing it across runs made `test_skills_api`
+// fail on a stale content hash. Tests are expected to get a temp file (see
+// `harness/eclipse_memory/config.py`); this runner makes that true for the whole
+// suite, not just the modules that call `setdefault` themselves.
+const isolatedMemoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "be-pytest-"));
+const childEnv = {
+  ...process.env,
+  // Both stores are per-run temp files. The harness service reads these paths at
+  // import time; modules that call `setdefault` then agree with the booted
+  // service instead of racing it with their own temp path.
+  AGENT_MEMORY_DB_PATH: path.join(isolatedMemoryDir, "agent-memory.db"),
+  ECLIPSE_MEMORY_DB_PATH: path.join(isolatedMemoryDir, "eclipse-memory.db"),
+  PYTHONPATH: pythonDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
+};
 
 if (process.argv.includes("smoke")) {
   console.log("[test] Running live network smoke checks (contacts real providers)…");

@@ -73,6 +73,7 @@ import {
   coverageCapability,
   routeProbe,
 } from "@/lib/harness/health-ledger";
+import { dispatchExtendedCapability } from "./data-bridge-extensions";
 
 /**
  * Resolve a symbol + raw market qualifier to a canonical instrument using the
@@ -474,7 +475,7 @@ async function dispatchCapability(
     case "web_collect": // bounded page → records (SSRF-hardened + cheerio; R3-04)
       return (await import("./data-bridge-collect")).webCollectCapability(params);
     default:
-      return unavailable(`Unknown capability: ${String(capability)}`);
+      return (await dispatchExtendedCapability(capability, params)) ?? unavailable(`Unknown capability: ${String(capability)}`);
   }
 }
 
@@ -898,7 +899,6 @@ function extractHostname(url: string): string {
     return "web";
   }
 }
-
 
 // ── Live structured providers (Phase 2) ─────────────────────────────────────
 // Reuse the existing scraper fallback chain and Yahoo bridge — NOT a new

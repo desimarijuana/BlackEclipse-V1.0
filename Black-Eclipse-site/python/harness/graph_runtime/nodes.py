@@ -348,8 +348,28 @@ def _exec_formula(context: NodeExecContext) -> dict[str, Any]:
     return {"result": evaluate_formula(expression, variables)}
 
 
+def _numeric_operand(value: Any) -> Any:
+    """A comparison against a SERIES means against its latest point.
+
+    An indicator payload is a dict of series; comparing it to a number is a
+    legitimate, common intent ("is the latest z-score above 1?"), so resolve the
+    operand to the series' last value instead of rejecting the node. Returns the
+    input unchanged when it is not a series payload.
+    """
+    if isinstance(value, dict):
+        last = value.get("last")
+        if isinstance(last, (int, float)) and not isinstance(last, bool):
+            return last
+        values = value.get("values")
+        if isinstance(values, list):
+            for candidate in reversed(values):
+                if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+                    return candidate
+    return value
+
+
 def _exec_condition(context: NodeExecContext) -> dict[str, Any]:
-    value = context.inputs.get("value")
+    value = _numeric_operand(context.inputs.get("value"))
     operator = context.config.get("operator", "truthy")
     compare_to = str(context.config.get("compareTo", ""))
     if operator == "truthy":
@@ -360,6 +380,10 @@ def _exec_condition(context: NodeExecContext) -> dict[str, Any]:
         result = not _compare_equal(value, compare_to)
     elif operator in ("gt", "gte", "lt", "lte"):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
+            if isinstance(context.inputs.get("value"), dict) and "values" in (context.inputs.get("value") or {}):
+                raise ValueError(
+                    "the series has no computed value yet — its warm-up still needs more points"
+                )
             raise ValueError("numeric comparison requires a numeric input")
         try:
             other = float(compare_to)

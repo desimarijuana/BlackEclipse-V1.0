@@ -21,10 +21,12 @@ from .store import EvaluationStore
 _HIGHER_IS_BETTER = {
     "task_success", "tool_accuracy", "research_accuracy", "citation_accuracy",
     "code_correctness", "financial_accuracy", "memory_accuracy", "planning_quality",
-    "safety_score", "reliability",
+    "safety_score", "reliability", "escalation_correct",
 }
 # Dimensions where an INCREASE is worse (lower is better).
-_LOWER_IS_BETTER = {"hallucination_rate", "cost", "latency", "token_usage"}
+_LOWER_IS_BETTER = {
+    "hallucination_rate", "cost", "latency", "token_usage", "misroute_rate",
+}
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,9 @@ DEFAULT_GATES: tuple[RegressionGate, ...] = (
     RegressionGate("memory_accuracy", tolerance=0.05, severity="regression"),
     RegressionGate("safety_score", tolerance=0.0, severity="regression", critical=True),
     RegressionGate("hallucination_rate", tolerance=0.0, severity="regression", critical=True),
+    # Round 4 (W3.2): routing quality is a hard gate, not a warning.
+    RegressionGate("misroute_rate", tolerance=0.0, severity="regression", critical=True),
+    RegressionGate("escalation_correct", tolerance=0.0, severity="regression", critical=True),
     RegressionGate("cost", tolerance=0.20, severity="warning"),
     RegressionGate("latency", tolerance=0.25, severity="warning"),
     RegressionGate("token_usage", tolerance=0.25, severity="warning"),

@@ -223,6 +223,13 @@ def register_skill_install_tools(registry: ToolRegistry) -> None:
 
     register_skill_manage_tools(registry)
 
+    # Version history, reviews, activation and the learning switch: the read-only
+    # half plus the two approval-gated writes. Registered here for the same reason
+    # as the manage tools (keeps the ratcheted `service.py` unchanged).
+    from .lifecycle_tools import register_skill_lifecycle_tools  # noqa: PLC0415
+
+    register_skill_lifecycle_tools(registry)
+
 
 def make_skill_authorizer(inner: Any = None):
     """Gate `skill_install`/`skill_uninstall` on a single-use operator approval.

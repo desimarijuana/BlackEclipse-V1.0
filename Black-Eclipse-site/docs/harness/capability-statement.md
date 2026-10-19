@@ -59,7 +59,7 @@ reason, never omitted.
 | `capability.class.artifactVerification` | `capability.status.yes` | graded through `harness.code.verify` | — |
 | `capability.class.changeReview` | `capability.status.yes` | graded through `harness.code.review` | — |
 | `capability.class.documentAttachment` | `capability.status.yes` | `vitest:src/lib/chat/extract.test.ts`, `vitest:src/lib/chat/session-store.test.ts` | — |
-| `capability.class.figureProvenance` | `capability.status.yes` | `pytest:python/tests/test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies`, `pytest:python/tests/test_analysis_execution.py` | — |
+| `capability.class.figureProvenance` | `capability.status.yes` | `pytest:python/tests/test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies`, `pytest:python/tests/test_analysis_recipes.py::test_a_figure_run_carries_its_payload_on_the_run_blob`, `pytest:python/tests/test_analysis_recipes.py::test_monte_carlo_is_bounded_seeded_and_samples_the_supplied_returns`, `vitest:src/components/chat/artifact-view.test.tsx`, `vitest:src/lib/harness/analysis-types.test.ts`, `pytest:python/tests/test_analysis_execution.py` | — |
 | `capability.class.advisoryVerification` | `capability.status.yes` | `pytest:python/tests/test_advisory_gate.py`, `pytest:python/tests/test_advisory_ledger.py` | — |
 | `capability.class.priceAuthority` | `capability.status.notMeasuredYet` | `harness.retrieval.authority` | Not graded yet — the source-choice logic is tested in pieces, not end to end. |
 | `capability.class.promotion` | `capability.status.notMeasuredYet` | `harness.code.actions` | Not graded yet — putting a change into your files is tested in pieces, not end to end. |

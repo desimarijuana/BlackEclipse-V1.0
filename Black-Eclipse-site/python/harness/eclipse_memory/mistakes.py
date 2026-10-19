@@ -54,6 +54,14 @@ CATEGORIES = (
     "artifact_digest_mismatch",     # the reported digest does not match the file
     "unreachable_module",           # a new module nothing imports
     "unstated_limitation",          # a limitation that existed and was not reported
+    # Round 4 (routing): a request routed to a path that could not satisfy it.
+    # These are the recorded "world clock" defect class; each is derived from
+    # the persisted tool text, never guessed.
+    "misrouted_request",            # Compose/route ended in an avoidable refusal
+    "capability_gap_refused",       # a catalog gap was refused instead of escalated
+    "composed_without_witness",     # Compose verdict cited no registered component
+    "escalation_refused",           # ui_start_engineering refused a constructible request
+    "intent_ambiguity",             # no signal; the classifier defaulted to Compose
 )
 
 _SEVERITY = {
@@ -78,6 +86,11 @@ _SEVERITY = {
     "unstated_limitation": "medium",
     "unbounded_retry": "medium",
     "sandbox_unavailable": "medium",
+    "misrouted_request": "high",
+    "capability_gap_refused": "high",
+    "composed_without_witness": "medium",
+    "escalation_refused": "high",
+    "intent_ambiguity": "low",
 }
 
 _PRECISE_NUMBER = __import__("re").compile(r"\b\d[\d,]*(\.\d+)?\s?(%|billion|million|bn|mn|cr|b|m)?\b")
@@ -213,6 +226,10 @@ def analyze_run_for_mistakes(run_id: str, run_store: Any) -> list[dict[str, Any]
     #    blob + command events. A mistake is a recorded observation, never a guess.
     _code_mistakes(add, run, events, tools, output)
 
+    # 10. Round 4 (routing): the recorded "world clock" defect class. Derived
+    #     from the persisted UI tool texts, so no model call is involved.
+    _routing_mistakes(add, tools, output)
+
     return mistakes
 
 
@@ -331,6 +348,88 @@ def _code_mistakes(add, run, events, tools, output) -> None:  # noqa: ANN001 - l
         )
 
 
+def _routing_mistakes(add, tools, output) -> None:  # noqa: ANN001 - local helper
+    """Deterministic routing observations from the persisted UI tool texts.
+
+    Signals (all text-level, persisted with the run):
+      * ``ui_classify_request`` -> ``Mode: compose`` and ``Components: none``
+      * ``ui_start_engineering`` -> "no engineering task was created"
+      * the no-signal default reason -> "defaulting to Compose"
+
+    A capability-gap refusal is the CONJUNCTION of the first two; a bare
+    Compose refusal (e.g. a layout request with no page context) is not a gap.
+    """
+    classify = [t for t in tools if t.get("name") == "ui_classify_request"]
+    starts = [t for t in tools if t.get("name") == "ui_start_engineering"]
+    if not classify and not starts:
+        return
+
+    def text(tool: dict[str, Any]) -> str:
+        return str(tool.get("text") or "")
+
+    compose = [t for t in classify if "Mode: compose" in text(t)]
+    ambiguous = [t for t in compose if "defaulting to Compose" in text(t)]
+    # The no-signal default (e.g. "hello") is ambiguity, not a witness-less
+    # capability verdict; only a real Compose signal with no component is a gap.
+    no_witness = [
+        t for t in compose
+        if "Components: none" in text(t) and "defaulting to Compose" not in text(t)
+    ]
+    refused = [t for t in starts if "no engineering task was created" in text(t)]
+    refusal_words = ("no registered component", "not in the catalog", "no component matches")
+    output_refused = any(word in (output or "").lower() for word in refusal_words)
+
+    def evidence(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"toolCallIds": [r.get("toolCallId") for r in rows[:3]]}
+
+    if no_witness:
+        add(
+            "composed_without_witness",
+            expected="a Compose verdict cites at least one registered component",
+            actual="the classifier chose Compose with no component witness",
+            evidence=evidence(no_witness),
+            reusable=True,
+        )
+    if refused:
+        add(
+            "escalation_refused",
+            expected="a constructible request is escalated to engineering",
+            actual="ui_start_engineering returned the false 'nothing to engineer' refusal",
+            evidence=evidence(refused),
+            reusable=True,
+        )
+    if no_witness and refused:
+        add(
+            "capability_gap_refused",
+            expected="a catalog gap escalates instead of refusing",
+            actual="a witness-less Compose was followed by an engineering refusal",
+            evidence={
+                "classify": evidence(no_witness),
+                "start": evidence(refused),
+            },
+            reusable=True,
+        )
+    if refused or (no_witness and output_refused):
+        add(
+            "misrouted_request",
+            expected="the request reaches a path that can satisfy it",
+            actual="the request was routed to Compose and then refused",
+            evidence={
+                "classify": evidence(no_witness),
+                "start": evidence(refused),
+            },
+            reusable=True,
+        )
+    if ambiguous:
+        add(
+            "intent_ambiguity",
+            expected="the classifier identifies a specific capability",
+            actual="no signal; the classifier defaulted to Compose",
+            evidence=evidence(ambiguous),
+            reusable=True,
+        )
+
+
 def capture_mistakes(run_id: str, run_store: Any, skill_store: EclipseMemoryStore) -> list[dict[str, Any]]:
     """Detect and persist mistakes for a run (deduplicated by category+tool).
 
@@ -351,6 +450,17 @@ def capture_mistakes(run_id: str, run_store: Any, skill_store: EclipseMemoryStor
     if created:
         skill_store.append_event("skill.mistakes_captured", run_id=run_id,
                                  data={"count": len(created), "categories": sorted({m["category"] for m in created})})
+        # Feed the ONE recurrence ledger the categories this run actually
+        # captured. The evolution bridge reads it; `(runId, signature)` dedupe
+        # makes re-analysing a run a no-op. Observation never breaks capture.
+        try:
+            from ..code.evolution import record_mistake_recurrence  # noqa: PLC0415
+
+            record_mistake_recurrence(
+                run_store, [m["category"] for m in created], run_id,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return created
 
 

@@ -53,7 +53,63 @@ def test_compose_request_creates_no_task(ui):
     result = ui.engineering.start("move the latency chart below the timeline")
     assert result["created"] is False
     assert result["mode"] == "compose"
+    assert result["capabilityGap"] is False
     assert "message" in result
+
+
+def test_catalog_gap_escalates_instead_of_refusing(ui):
+    # The recorded defect: Compose with no witness must create an engineering
+    # task, never return the false "nothing to engineer" refusal.
+    result = ui.engineering.start("add a multi-zone world clock to the dashboard")
+    assert result["created"] is True
+    assert result["mode"] == "engineer"
+    assert result["capabilityGap"] is True
+    assert result["taskId"] and result["planId"]
+
+
+def test_capability_gap_emits_the_canonical_event(ui, monkeypatch):
+    import harness.ui.engineering as engineering
+
+    seen = []
+    monkeypatch.setattr(engineering, "publish_event", lambda *a, **k: seen.append((a, k)))
+    result = ui.engineering.start(
+        "add a multi-zone world clock to the dashboard", run_id="run_clock",
+    )
+    assert result["capabilityGap"] is True
+    assert seen, "the gap must emit a canonical event"
+    args, kwargs = seen[0]
+    assert args[0] == "ui.capability_gap"
+    payload = args[1]
+    assert payload["code"] == "UI_CAPABILITY_GAP"
+    assert payload["runId"] == "run_clock"
+    assert "clock" in payload["capability"]
+    assert kwargs.get("source") == "ui"
+
+
+def test_a_compose_request_emits_no_capability_gap(ui, monkeypatch):
+    import harness.ui.engineering as engineering
+
+    seen = []
+    monkeypatch.setattr(engineering, "publish_event", lambda *a, **k: seen.append((a, k)))
+    result = ui.engineering.start("move the latency chart below the timeline")
+    assert result["created"] is False
+    assert seen == []
+
+
+def test_engineering_rechecks_the_catalog_even_when_the_label_says_compose(ui, monkeypatch):
+    # W0.2: do not inherit the classifier's label. A stale/forced Compose label
+    # for a capability the catalog cannot satisfy must still escalate.
+    monkeypatch.setattr(ui, "classify_request", lambda *a, **k: {
+        "mode": "compose",
+        "reasons": ["forced compose label"],
+        "suggestedTools": [],
+        "matchedComponents": [],
+        "capabilityGap": False,
+    })
+    result = ui.engineering.start("add a multi-zone world clock to the dashboard")
+    assert result["created"] is True
+    assert result["mode"] == "engineer"
+    assert result["capabilityGap"] is True
 
 
 def test_register_component_closes_the_loop(ui):

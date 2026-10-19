@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..persistence import now_iso
+from .app_origin import classify_navigation_error
 from .errors import (
     BrowserDialogError,
     BrowserDownloadError,
@@ -432,10 +433,15 @@ class BrowserSession:
             response = await page.goto(url, wait_until=wait_until or "domcontentloaded", timeout=self._timeout(timeout))
         except Exception as exc:  # noqa: BLE001
             self._transition(SessionState.READY)
+            cause, hint = classify_navigation_error(exc)
+            # Surface the classified cause IN the user-facing sentence (the raw
+            # Playwright text used to live only in metadata, so the tool said
+            # "Eclipse couldn't open <url>" and the agent invented a policy story).
             raise BrowserNavigationError(
-                f"Eclipse couldn't open {url}.",
+                f"Eclipse couldn't open {url}: {cause} — {hint}. "
+                f"(browser detail: {str(exc)[:180]})",
                 session_id=self.id, provider=self.provider.id, action="navigate",
-                retryable=True, metadata={"error": str(exc)[:300]},
+                retryable=True, metadata={"error": str(exc)[:300], "cause": cause},
             ) from exc
         self._transition(SessionState.READY)
         self.touch()
@@ -444,6 +450,25 @@ class BrowserSession:
             "status": response.status if response else None,
             "title": await self._safe_title(page),
         }
+
+    async def boot_state(self) -> dict[str, Any]:
+        """Report the app's own boot overlay, when present.
+
+        The Command Center renders `[data-global-loader][data-pct]` while the
+        shell warms up. A page captured during that window is not "stuck" — it
+        is still starting. Reporting the real state stops a reader from
+        interpreting an intentional boot overlay as a failure.
+        """
+        try:
+            pct = await self.page().evaluate(
+                "() => { const el = document.querySelector('[data-global-loader]');"
+                " return el ? Number(el.getAttribute('data-pct') || 0) : null; }"
+            )
+        except Exception:  # noqa: BLE001
+            return {"starting": False, "percent": None}
+        if pct is None:
+            return {"starting": False, "percent": None}
+        return {"starting": True, "percent": int(pct)}
 
     async def go_back(self, *, timeout: Optional[float] = None) -> dict[str, Any]:
         page = self.page()

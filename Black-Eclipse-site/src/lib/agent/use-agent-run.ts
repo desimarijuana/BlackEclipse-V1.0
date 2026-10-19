@@ -261,6 +261,14 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           publish(true);
           break;
         }
+        case 'acquisition': {
+          // A dataset collection finished: keep the manifest so the transcript
+          // can show source/window/rows/completeness/licence — a partial pull
+          // is shown partial, never as the dataset.
+          t.acquisition = event.manifest;
+          publish(true);
+          break;
+        }
         case 'response_plan': {
           // The orchestrator's chosen presentation mode — display only, so the UI
           // can show how the turn was framed (it never changes the answer).

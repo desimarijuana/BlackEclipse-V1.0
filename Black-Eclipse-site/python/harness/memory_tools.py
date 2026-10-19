@@ -176,6 +176,31 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             )
         return "\n".join(lines), {"count": len(result.memories), "memories": result.memories}
 
+    if action == "inventory":
+        # Counts only — never content. Answers "what is actually in the store?"
+        # with the whole-store totals that list/search deliberately do not expose
+        # (they are scoped/paged/relevance-filtered).
+        counts = svc.store.memory_lifecycle_counts()
+        total = sum(
+            int(counts.get(key, 0) or 0)
+            for key in ("active", "expired", "archived", "superseded", "rejected", "proposed")
+        )
+        lines = [
+            f"Memory inventory: {total} record(s) in the store (counts only).",
+            "  status: " + ", ".join(
+                f"{key}={int(counts.get(key, 0) or 0)}"
+                for key in ("active", "expired", "archived", "superseded", "rejected", "proposed")
+            ),
+            "  lifecycle: " + ", ".join(
+                f"{key}={int(counts.get(key, 0) or 0)}"
+                for key in ("neverUsed", "frequentlyRecalled", "expiring", "stale", "automatic", "explicit")
+            ),
+            "Reads differ by design: list = recent ACTIVE rows in this scope; search = "
+            "relevance over this scope + general, excluding proposed/expired/low-confidence "
+            "unverified. The totals above are the whole store.",
+        ]
+        return "\n".join(lines), {"total": total, "counts": counts}
+
     # list
     default_list_scope = "conversation" if ctx.conversation_id else args.get("scope")
     memories = svc.store.list_memories(
@@ -269,6 +294,82 @@ async def session_open_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[
         content = (message.get("content") or message.get("snippet") or "")[:1200]
         lines.append(f"  [{message['role']}/{message['kind']}] {content}")
     return "\n".join(lines), window
+
+
+# ── learning loop (read-only) ──────────────────────────────────────────────
+# QA Round 1 (F3): no tool read the automatic review records or the captured
+# learning candidates, so an agent asked to summarize them guessed ("only the
+# buttons create reviews"). These expose exactly what the Memory → Reviews and
+# Skills → Learning Queue screens read. Read-only: running a review and
+# accepting/rejecting/enabling anything stay UI/operator actions.
+
+MAX_LEARNING_ROWS = 50
+
+
+def _learning_review_store(ctx: ToolContext) -> Any:
+    store = getattr(ctx, "memory_store", None)
+    if store is None:
+        raise RuntimeError("the learning review store is not available in this run")
+    return store
+
+
+def _learning_candidate_store(ctx: ToolContext) -> Any:
+    store = getattr(ctx, "learning_store", None)
+    if store is None:
+        memory = getattr(ctx, "memory_service", None)
+        store = getattr(memory, "store", None) if memory is not None else None
+    if store is None:
+        raise RuntimeError("the learning candidate store is not available in this run")
+    return store
+
+
+async def learning_review_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    store = _learning_review_store(ctx)
+    status = str(args.get("status") or "").strip() or None
+    limit = max(1, min(int(args.get("limit") or 10), MAX_LEARNING_ROWS))
+    health = store.learning_review_health()
+    reviews = store.list_learning_reviews(status=status, limit=limit)
+    by_status = ", ".join(f"{key} {value}" for key, value in sorted((health.get("byStatus") or {}).items()))
+    header = f"Learning reviews: {health.get('total', 0)} total" + (f" ({by_status})" if by_status else "") + "."
+    if not reviews:
+        return (
+            header + " No review records yet. One is queued automatically after every completed or "
+            "failed chat run and persisted after a short idle; Memory → Reviews can also run one on demand.",
+            {"health": health, "reviews": [], "count": 0},
+        )
+    lines = [header]
+    for review in reviews:
+        outcomes = (review.get("result") or {}).get("outcomes") or []
+        kinds = ", ".join(str(outcome.get("category") or "outcome") for outcome in outcomes[:5]) or "no outcomes"
+        lines.append(
+            f"  {review.get('id')} run={review.get('runId')} "
+            f"[{review.get('status')}/{review.get('mode')}] "
+            f"{str(review.get('createdAt') or '')[:19]} — {len(outcomes)} outcome(s): {kinds}"
+        )
+    lines.append("Read-only. Running a review and accept/reject decisions are operator actions (Memory → Reviews).")
+    return "\n".join(lines), {"health": health, "reviews": reviews, "count": len(reviews)}
+
+
+async def learning_candidate_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    store = _learning_candidate_store(ctx)
+    status = str(args.get("status") or "").strip() or None
+    limit = max(1, min(int(args.get("limit") or 10), MAX_LEARNING_ROWS))
+    candidates = store.list_candidates(status=status, limit=limit)
+    if not candidates:
+        return (
+            "No learning candidates captured yet. A candidate is created automatically at run end when "
+            "a reusable lesson is detected; they appear in Skills → Learning Queue.",
+            {"count": 0, "candidates": []},
+        )
+    lines = [f"{len(candidates)} learning candidate(s), most recent first:"]
+    for candidate in candidates:
+        title = candidate.get("title") or candidate.get("proposedLesson") or candidate.get("signature") or ""
+        lines.append(
+            f"  {candidate.get('id')} [{candidate.get('status')}] {candidate.get('candidateType')} "
+            f"run={candidate.get('sourceRunId')} confidence={candidate.get('confidence')} — {str(title)[:160]}"
+        )
+    lines.append("Read-only. Candidates are inert; review/accept them in Skills → Learning Queue.")
+    return "\n".join(lines), {"count": len(candidates), "candidates": candidates}
 
 
 # ── skill_list / skill_view ─────────────────────────────────────────────────
@@ -501,9 +602,13 @@ async def memory_provider_status_handler(args: dict[str, Any], ctx: ToolContext)
         health = provider.get("health", {})
         caps = provider.get("capabilities", {})
         caps_on = ",".join(k for k, v in caps.items() if v) or "none"
+        # Render `health.detail` (the native provider's "N active" count) — it was
+        # computed but omitted from the text, so a count question looked unanswerable.
+        detail = health.get("detail")
+        detail_text = f", {detail}" if detail else ""
         lines.append(
             f"  {provider['name']}: {health.get('state')} "
-            f"(ok={health.get('ok')}, caps={caps_on})"
+            f"(ok={health.get('ok')}, caps={caps_on}{detail_text})"
         )
     return "\n".join(lines), report
 
@@ -515,14 +620,15 @@ def register_memory_tools(registry: ToolRegistry) -> None:
             description=(
                 "Persistent agent memory across sessions. action='save' stores a durable fact "
                 "(type: preference|semantic|procedural|episodic|constraint|observation|summary); "
-                "action='search' retrieves relevant memories; action='list' lists stored memory. "
+                "action='search' retrieves relevant memories; action='list' lists stored memory; "
+                "action='inventory' returns whole-store counts by status/lifecycle (no content). "
                 "Save only durable, reusable facts — not every sentence. User preferences are "
                 "user-scoped; never turn them into universal rules."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["save", "search", "list"], "description": "Operation to perform."},
+                    "action": {"type": "string", "enum": ["save", "search", "list", "inventory"], "description": "Operation to perform."},
                     "content": {"type": "string", "description": "The memory content (action=save). Write a declarative fact, not an instruction."},
                     "type": {"type": "string", "enum": ["preference", "semantic", "procedural", "episodic", "constraint", "observation", "summary"], "description": "Memory type."},
                     "scope": {"type": "string", "enum": ["user", "general", "market", "task", "conversation"], "description": "Memory scope."},
@@ -537,6 +643,49 @@ def register_memory_tools(registry: ToolRegistry) -> None:
             },
             handler=memory_handler,
             permission="read",  # memory is agent-local state, not a data mutation
+            risk="low",
+            timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="learning_review_list",
+            description=(
+                "Read the automatic learning reviews — the same records the Memory → Reviews "
+                "screen shows. A review is queued automatically after every completed or failed "
+                "chat run and persisted after a short idle; this returns the stored records plus "
+                "queue counts. Read-only; never claim a review does not exist without calling it."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["queued", "running", "completed", "failed"]},
+                    "limit": {"type": "integer", "description": "Max reviews (1..50)."},
+                },
+            },
+            handler=learning_review_list_handler,
+            permission="read",
+            risk="low",
+            timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="learning_candidate_list",
+            description=(
+                "Read captured learning candidates — the same records the Skills → Learning "
+                "Queue screen shows. Candidates are inert lessons captured automatically at run "
+                "end. Read-only: generating a draft and accepting/rejecting stay UI/operator actions."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Optional candidate status filter."},
+                    "limit": {"type": "integer", "description": "Max candidates (1..50)."},
+                },
+            },
+            handler=learning_candidate_list_handler,
+            permission="read",
             risk="low",
             timeout_ms=10_000,
         )

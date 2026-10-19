@@ -8,6 +8,7 @@ transport: they all go through the ONE read-only bridge (`ctx.data_bridge.fetch`
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .budget import AcquisitionBudget
@@ -35,6 +36,10 @@ async def collect(
         return await _collect_macro(source, params=params, bridge=bridge, budget=budget)
     if source.id == "statements_annual":
         return await _collect_statements(source, symbols=symbols, params=params, bridge=bridge, budget=budget)
+    if source.id == "filings_list":
+        return await _collect_filings(source, symbols=symbols, params=params, bridge=bridge, budget=budget)
+    if source.id == "operator_datasets":
+        return await _collect_operator_datasets(source, params=params, bridge=bridge, budget=budget)
     return [], [f"{source.label} has no collector in this build"]
 
 
@@ -158,6 +163,111 @@ async def _collect_statements(
                 rows.append({"symbol": symbol, "period": period, "field": field, "value": value})
         if budget.rows + len(rows) >= budget.max_rows:
             break
+    return rows, problems
+
+
+async def _collect_filings(
+    source: AcquisitionSource, *, symbols: list[str], params: dict[str, Any],
+    bridge: Any, budget: AcquisitionBudget,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The SEC filing index, one bounded call per symbol (the filters ride each)."""
+    rows: list[dict[str, Any]] = []
+    problems: list[str] = []
+    call_params = {
+        key: str(params[key])
+        for key in ("form", "date_from", "date_to")
+        if str(params.get(key) or "").strip()
+    }
+    for symbol in symbols:
+        if not budget.allow_call():
+            break
+        payload = await bridge.fetch(source.capability, {"symbol": symbol, **call_params})
+        budget.record_call()
+        if not isinstance(payload, dict) or payload.get("status") != "OK":
+            error = (payload or {}).get("error") if isinstance(payload, dict) else "no response"
+            _problem(problems, f"{symbol}: {error or 'no filings returned'}")
+            continue
+        filings = payload.get("filings") or []
+        if not isinstance(filings, list) or not filings:
+            _problem(problems, f"{symbol}: no filings matched the request")
+            continue
+        for filing in filings:
+            if not isinstance(filing, dict):
+                continue
+            rows.append({
+                "symbol": symbol,
+                "form": filing.get("form"),
+                "filed": filing.get("filed"),
+                "period": filing.get("period"),
+                "accession": filing.get("accession"),
+                "document": filing.get("document"),
+                "description": filing.get("description"),
+            })
+        if payload.get("truncated"):
+            _problem(
+                problems,
+                f"{symbol}: reached this pull's filing ceiling — narrow the window "
+                "(form / date_from / date_to) to collect the rest",
+            )
+        if len(rows) >= budget.max_rows:
+            break
+    return rows, problems
+
+
+async def _collect_operator_datasets(
+    source: AcquisitionSource, *, params: dict[str, Any],
+    bridge: Any, budget: AcquisitionBudget,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """One declared dataset's records, flattened to long rows.
+
+    The dataset NAME selects among the operator's declared datasets (the bridge
+    refuses anything undeclared); `values` fills that connector's OWN declared
+    parameters. A nested value is serialized as JSON text so no mapped field is
+    silently dropped from the file.
+    """
+    rows: list[dict[str, Any]] = []
+    problems: list[str] = []
+    if not budget.allow_call():
+        return rows, problems
+    dataset = str(params.get("dataset") or "").strip()
+    call_params: dict[str, Any] = {"dataset": dataset}
+    values = params.get("values")
+    if isinstance(values, dict):
+        call_params["values"] = {str(key): value for key, value in values.items() if value is not None}
+    elif isinstance(values, str) and values.strip():
+        call_params["values"] = values.strip()
+    payload = await bridge.fetch(source.capability, call_params)
+    budget.record_call()
+    if not isinstance(payload, dict):
+        _problem(problems, f"{dataset or 'the dataset'}: no response from the data connection")
+        return rows, problems
+    if payload.get("status") != "OK":
+        _problem(problems, f"{dataset or 'the dataset'}: {payload.get('error') or 'no data returned'}")
+        return rows, problems
+    named = payload.get("dataset")
+    dataset_name = named.get("name") if isinstance(named, dict) else (str(named) if named else dataset)
+    records = payload.get("records") or []
+    if not isinstance(records, list):
+        _problem(problems, f"{dataset_name}: the response carried no usable records")
+        return rows, problems
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            continue
+        key = str(record.get("recordKey") or index)
+        record_values = record.get("values")
+        if not isinstance(record_values, dict):
+            continue
+        for field, value in record_values.items():
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, sort_keys=True, ensure_ascii=False)
+            rows.append({"dataset": dataset_name, "record": key, "field": str(field), "value": value})
+        if len(rows) >= budget.max_rows:
+            break
+    if payload.get("truncated"):
+        _problem(
+            problems,
+            f"{dataset_name}: reached this pull's record ceiling — ask again for a narrower set",
+        )
     return rows, problems
 
 

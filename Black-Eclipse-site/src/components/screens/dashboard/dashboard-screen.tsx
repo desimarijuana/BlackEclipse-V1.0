@@ -18,7 +18,13 @@ import { getDashboardTemplate } from '@/lib/dashboard/templates';
 import { getDefaultBoard } from '@/lib/dashboard/default-board';
 import { useMarketViews } from '@/lib/dashboard/market-views';
 import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
-import { publishDashboardLayout } from '@/lib/ui-engineering/dashboard-blueprint';
+import {
+  fetchDashboardLayout,
+  isOwnPublish,
+  publishDashboardLayout,
+  stableLayoutKey,
+} from '@/lib/ui-engineering/dashboard-blueprint';
+import { loadWorkspace, saveWorkspace } from '@/lib/workspace/persistence';
 import type { WorkspaceLayout } from '@/lib/workspace/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
@@ -107,6 +113,40 @@ export function DashboardScreen() {
     }, 2500);
   }, [dashboards.active]);
 
+  // Reverse sync (Phase E): an agent (or another client) edit to this
+  // dashboard's mirrored blueprint lands on the live board. On a revision this
+  // client did NOT publish, the fetched layout is persisted into this
+  // dashboard's storage and the workspace remounts (`remoteRevision` keys it).
+  // The immediate first poll runs BEFORE the mount publish (2.5 s debounce), so
+  // an edit made while the page was closed is applied, not overwritten.
+  const [remoteRevision, setRemoteRevision] = useState(0);
+  const syncSeen = useRef<Map<string, number>>(new Map());
+  const activeDashboardId = dashboards.active?.id;
+  useEffect(() => {
+    if (!activeDashboardId || typeof window === 'undefined') return;
+    let cancelled = false;
+    const poll = async () => {
+      const snapshot = await fetchDashboardLayout(activeDashboardId);
+      if (cancelled || !snapshot) return;
+      const seen = syncSeen.current.get(activeDashboardId) ?? 0;
+      if (snapshot.revision <= seen) return;
+      syncSeen.current.set(activeDashboardId, snapshot.revision);
+      if (isOwnPublish(activeDashboardId, snapshot.revision)) return;
+      const local = loadWorkspace(storageKey, defaultLayout);
+      if (!local.corrupt && stableLayoutKey(local.layout) === stableLayoutKey(snapshot.layout)) {
+        return; // identical arrangement — never remount for nothing
+      }
+      saveWorkspace(storageKey, snapshot.layout);
+      setRemoteRevision((value) => value + 1);
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeDashboardId, storageKey, defaultLayout]);
+
   usePageShortcuts(rootRef, [
     { id: 'dashboard-new', label: 'New dashboard', keys: 'shift+d', run: createDashboard, enabled: dashboards.loaded && !showOnboarding },
     { id: 'dashboard-fullscreen', label: 'Toggle fullscreen', keys: 'shift+f', run: toggleFullscreen, enabled: dashboards.loaded && !showOnboarding },
@@ -132,7 +172,7 @@ export function DashboardScreen() {
   // portal. It is hoisted into a variable so both paths share one instance.
   const workspaceEl = (
     <CustomizableWorkspace
-      key={storageKey}
+      key={`${storageKey}:${remoteRevision}`}
       storageKey={storageKey}
       defaultLayout={defaultLayout}
       widgets={DASHBOARD_WIDGETS}

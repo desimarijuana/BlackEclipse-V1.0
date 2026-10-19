@@ -77,3 +77,57 @@ async def test_tools_are_registered_as_read_permission(registry):
         tool = registry.get(name)
         assert tool is not None
         assert tool.permission == "read"
+
+
+@pytest.mark.asyncio
+async def test_create_goal_builds_a_contract_task_and_starts_it(registry, ctx):
+    res = await _call(registry, ctx, "create_goal", {
+        "request": "build a small greeting app with tests",
+    })
+    assert res.data["ok"] and res.data["created"] is True
+    task = res.data["task"]
+    assert task["taskType"] == "code"
+    assert task["goalContract"]["deliverables"] == ["greeting app"]
+    assert task["goalContract"]["acceptance"] == ["the produced files exist", "tests pass"]
+    assert res.data["plan"]["status"] == "RUNNING"
+    # The acceptance lines became real criteria on the durable task.
+    view = (await _call(registry, ctx, "read_task", {"taskId": task["id"]})).data["task"]
+    assert [c["text"] for c in view["criteria"]] == [
+        "the produced files exist", "tests pass",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_goal_asks_one_question_instead_of_guessing(registry, ctx):
+    res = await _call(registry, ctx, "create_goal", {"request": "help"})
+    assert res.data["ok"] is True
+    assert res.data["created"] is False
+    assert len(res.data["questions"]) == 1
+    # Nothing durable was created.
+    assert (await _call(registry, ctx, "list_tasks", {})).data["tasks"] == []
+
+
+@pytest.mark.asyncio
+async def test_create_goal_explicit_fields_win(registry, ctx):
+    res = await _call(registry, ctx, "create_goal", {
+        "request": "build an app",
+        "taskType": "research",
+        "deliverables": ["source list"],
+        "acceptance": ["claims trace to named sources"],
+        "budgets": {"maxToolCalls": 4},
+    })
+    assert res.data["created"] is True
+    task = res.data["task"]
+    assert task["taskType"] == "research"
+    assert task["goalContract"]["budgets"]["maxToolCalls"] == 4
+
+
+@pytest.mark.asyncio
+async def test_create_goal_parallel_worker_cap_rides_the_scheduler_metadata(registry, ctx):
+    res = await _call(registry, ctx, "create_goal", {
+        "request": "build a small greeting app with tests",
+        "budgets": {"maxParallelWorkers": 2},
+    })
+    assert res.data["created"] is True
+    # Enforced through the EXISTING per-agent concurrency cap, not a new limiter.
+    assert res.data["task"]["metadata"]["maxConcurrency"] == 2

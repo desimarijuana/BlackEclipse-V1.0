@@ -26,6 +26,10 @@ log = logging.getLogger("harness.recovery")
 # registry's failure vocabulary). Kept here so the engine owns its own filter.
 _FAILURE_TYPES = (
     "tool.failed",
+    # Round 4: a constructed request could not be satisfied by the catalog and
+    # was escalated; the incident records the gap so the self-repair loop can
+    # diagnose it. It is a failure of the route, not of the user's request.
+    "ui.capability_gap",
     "run.failed",
     "task.failed",
     "agent.failed",
@@ -118,6 +122,19 @@ def _make_handler(recovery: RecoveryService):
         payload = getattr(event, "payload", None) or {}
         if not isinstance(payload, dict):
             payload = {}
+        details: dict[str, Any] = {
+            "eventType": event.type, "eventId": getattr(event, "id", None),
+        }
+        # Round 4: carry the routing facts as diagnosis evidence (booleans only;
+        # the request text stays in `message`).
+        for src, dst in (
+            ("capabilityGap", "capability_gap"),
+            ("vocabularyGap", "vocabulary_gap"),
+            ("capabilityAbsent", "capability_absent"),
+            ("policyDenied", "policy_denied"),
+        ):
+            if src in payload:
+                details[dst] = bool(payload[src])
         try:
             recovery.record_failure(
                 code=str(payload.get("code") or payload.get("errorCode") or event.type),
@@ -130,7 +147,7 @@ def _make_handler(recovery: RecoveryService):
                 location=payload.get("tool"),
                 run_id=payload.get("runId") or payload.get("run_id"),
                 task_id=getattr(event, "task_id", None),
-                details={"eventType": event.type, "eventId": getattr(event, "id", None)},
+                details=details,
             )
         except Exception:  # noqa: BLE001 - capture must never break the bus
             log.debug("recovery incident capture failed", exc_info=True)

@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .config import GRADER_API_VERSION
+
 # The dimension vocabulary, in report order.
 DIMENSIONS: tuple[str, ...] = (
     "task_success",
@@ -23,6 +25,8 @@ DIMENSIONS: tuple[str, ...] = (
     "memory_accuracy",
     "planning_quality",
     "recovery_success",
+    "misroute_rate",
+    "escalation_correct",
     "provenance",
     "honesty",
     "artifact_delivery",
@@ -88,9 +92,11 @@ class EvaluationScore:
     grader_results: list[dict[str, Any]] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
     unmeasured: bool = False
-    cost: float = 0.0
+    #: None means the cost was never reported; 0.0 is a MEASURED free run.
+    cost: Optional[float] = None
     latency_ms: Optional[float] = None
     total_tokens: int = 0
+    grader_version: int = GRADER_API_VERSION
 
     @property
     def composite(self) -> Optional[float]:
@@ -108,8 +114,11 @@ class EvaluationScore:
             "composite": self.composite,
             "labels": self.labels,
             "cost": self.cost,
+            "costKnown": self.cost is not None,
             "latencyMs": self.latency_ms,
+            "latencyKnown": self.latency_ms is not None,
             "totalTokens": self.total_tokens,
+            "graderVersion": self.grader_version,
             "graders": self.grader_results,
         }
 
@@ -138,6 +147,16 @@ def weighted_composite(dimensions: dict[str, Optional[float]]) -> Optional[float
     return round(total / weight, 4)
 
 
+def _optional_float(value: Any) -> Optional[float]:
+    """Preserve an absent measurement as None; never turn it into 0."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def score_trial(task: Any, trajectory: Any, grader_results: list[Any]) -> EvaluationScore:
     """Assemble an EvaluationScore from the grader results for one trial."""
     from .taxonomy import classify_failure  # noqa: PLC0415
@@ -161,7 +180,8 @@ def score_trial(task: Any, trajectory: Any, grader_results: list[Any]) -> Evalua
         dimensions[dim] = value if prev is None else min(prev, value)
 
     metrics = getattr(trajectory, "metrics", {}) or {}
-    dimensions["cost"] = float(metrics.get("cost") or 0.0)
+    cost = _optional_float(metrics.get("cost"))
+    dimensions["cost"] = cost
     if metrics.get("latencyMs") is not None:
         dimensions["latency"] = float(metrics["latencyMs"]) / 1000.0
     dimensions["token_usage"] = float(metrics.get("totalTokens") or 0)
@@ -195,7 +215,7 @@ def score_trial(task: Any, trajectory: Any, grader_results: list[Any]) -> Evalua
         grader_results=payload,
         labels=labels,
         unmeasured=any_unmeasured and not measured_results,
-        cost=float(metrics.get("cost") or 0.0),
+        cost=cost,
         latency_ms=metrics.get("latencyMs"),
         total_tokens=int(metrics.get("totalTokens") or 0),
     )
@@ -239,6 +259,13 @@ DEFAULT_THRESHOLDS: tuple[Threshold, ...] = (
               description="task completion floor (measured 1.0; gated below it)"),
     Threshold("recovery_success", minimum=0.85,
               description="recovery floor over failure scenarios (measured 1.0; gated below it)"),
+    # Round 4 (W3.2): the routing benchmark is measured by
+    # `evaluation.routing` and injected into the offline gate. A misroute is a
+    # hard failure; every expected escalation must reach a constructive route.
+    Threshold("misroute_rate", maximum=0.0, critical=True,
+              description="a routing verdict that misses its recorded case is a hard failure"),
+    Threshold("escalation_correct", minimum=1.0, critical=True,
+              description="every expected escalation must reach engineer/both"),
 )
 
 

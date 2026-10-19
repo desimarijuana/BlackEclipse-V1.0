@@ -1,7 +1,7 @@
 ---
 title: UI Engineering Foundation
 status: Current
-last-verified: 2026-10-16
+last-verified: 2026-10-18
 ---
 
 # UI Engineering Foundation
@@ -99,10 +99,20 @@ and no second layout engine.
 
 Operator routes (`/ui/*`, operator-gated) live in `routers/ui.py`; the Next.js
 front door proxies them at `/api/ui/[[...path]]` and exposes a client-safe
-`src/lib/harness/ui-client.ts`. The **UI Builder** screen
-(`src/components/screens/ui-builder/ui-builder-screen.tsx`, AppTab `ui-builder`)
-is the visible surface: navigator, component catalog, structural preview,
-properties inspector, AI command panel, revision history and diagnostics.
+`src/lib/harness/ui-client.ts`. The **Capability Studio**
+(`src/components/screens/capability-studio/capability-studio-screen.tsx`,
+AppTab `ui-builder`) is the visible surface: ONE navigable place for pages &
+widgets (the embedded **UI Builder**,
+`src/components/screens/ui-builder/ui-builder-screen.tsx` — navigator, component
+catalog, structural preview, properties inspector, AI command panel, revision
+history and diagnostics), tools & plugins (the plugin platform's own manager,
+`src/components/screens/plugins/plugins-screen.tsx`), skills (a read-only
+summary with counts; create/edit/enable stay in the evaluation- and
+promotion-gated Skills manager) and integrations (read-only summaries of the
+operator's data sources + MCP servers; edits stay in Settings). The studio is a
+navigation shell over the EXISTING managers — it adds no second registry and no
+enable path of its own. Section deep link:
+`?tab=ui-builder&sub=studio.<section>`.
 
 **Tool naming:** the ToolRegistry rejects `.` in tool names, so the conceptual
 `ui.get_application_map` is registered as `ui_get_application_map` (and so on).
@@ -114,6 +124,36 @@ properties inspector, AI command panel, revision history and diagnostics.
 distinguishable from the text alone. `BlueprintSummary` carries `path` and
 `componentIds`, and `ui_get_current_page` can resolve `path` against the full
 blueprint.
+
+**Screens vs saved pages (the application map's two halves).** The map now has
+three DISTINCT sections, never conflated:
+
+- `screens` — the app's FIXED product screens with their sub-tabs and deep
+  links (e.g. `memory` → `memory.reviews`, label "Reviews", href
+  `/?tab=memory&sub=memory.reviews`). The host derives this inventory from
+  `src/lib/app-surfaces.ts`; the tabs come from `app-tabs.ts` + the screen tab
+  arrays in `src/lib/app-screens.ts` (Memory: 15 rendered tabs incl. Facts,
+  Session Search, Reviews; Skills: 10 incl. Maintenance) with
+  `search/registry.ts` as the source for every other screen, plus
+  `search/deep-link.ts` for the href form and the sidebar labels as fallback.
+  The screen components import the SAME arrays, so the rendered bar, its deep
+  links and the agent's map cannot drift. The host pushes the batch through the
+  existing `ui-sync.ts` bridge to `POST /ui/surfaces`; the runtime persists it
+  on `agent-memory.db` (`UiSurface`) so it survives a restart. An empty batch
+  is a no-op, never a wipe.
+- `pages` — the user's saved dashboards/workspaces (`UiBlueprint` rows).
+- `capabilities` — the composable component catalog.
+
+An agent asked "where is Memory → Reviews?" must answer from `screens`; it must
+never infer the app's screen list from `pages`. The `ui_get_application_map`
+tool text prints both sections under explicit headers, and
+`ui_list_blueprints` is described as the user's dashboards only.
+
+**Deterministic first-run dashboard id.** The auto-seeded "Main" dashboard uses
+the stable id `main` (`src/lib/dashboard/use-dashboards.ts`), so its mirrored
+blueprint (`dash-bp:main`) is upserted rather than re-created on every fresh
+browser session — non-persistent QA browser contexts used to leave a trail of
+duplicate "Main" pages in the map.
 
 **Unique titles on create.** `create_page` guarantees a title unique among the
 owner's pages — a duplicate is suffixed ("Main" → "Main 2") — so a create never
@@ -315,6 +355,29 @@ It errs toward Compose so a misread can never silently turn a configuration
 change into a source-code release. Exposed as the `ui_classify_request` tool and
 `POST /ui/classify`.
 
+**Catalog witness (round 4, W0.1).** A Compose verdict for an *additive, specific*
+capability is valid only when it cites at least one registered component
+(`matchedComponents`). A named capability the catalog cannot satisfy — the
+recorded "multi-zone world clock" defect — is a **capability gap**: the
+classifier returns `engineer` with `capabilityGap: true` in the payload, never a
+witness-less Compose that later refuses. Layout/restyle/page requests need no
+witness because their target is the existing page, and "add a widget" is a UI
+shape rather than a capability. The match is deterministic (content tokens vs the
+catalog's id/name/description/tags); no model call is involved. A diagnostic
+view (`assess_capability(..., additive_only=False)`) finds a named capability
+even when the additive phrasing was missed; only the routing repair proposer
+uses it, never the classifier.
+
+**Routing observations and the incident (round 4, W1.1/W1.2).** The
+`ui_classify_request` text carries the witness (`Components: …`) and, when
+relevant, a capability-gap marker; `ui_start_engineering` prefixes an escalated
+result with `Capability gap —`. The deterministic mistake detector
+(`eclipse_memory/mistakes.py`) records `composed_without_witness`,
+`escalation_refused`, `capability_gap_refused`, `misrouted_request` and
+`intent_ambiguity` from the persisted run. The escalation emits the canonical
+`ui.capability_gap` event, which the recovery engine records as a
+`FailureKind.CAPABILITY` incident (see `docs/harness/failure-recovery.md`).
+
 ## UI Engineering Agent (Phase 7)
 
 When a request needs genuinely new functionality, Eclipse does **not** start a
@@ -333,6 +396,14 @@ component, `ui_register_engineered_component` (or `POST
 follow-up Compose request can use it), satisfies the "registered in the UI
 catalog" criterion with evidence, and attaches a `ui-component` artifact to the
 task. Compose-mode requests create **no** task — `start` reports that honestly.
+
+`start` does **not** inherit the classifier's label: it re-runs the same
+deterministic catalog check and, when the request names a capability the catalog
+cannot satisfy, **escalates** to an engineering task instead of returning the
+false "nothing to engineer" refusal (round 4, W0.2). When it does refuse, the
+response carries `capabilityGap: false`, so a caller can distinguish a genuine
+Compose request from a mislabel.
+
 Tools: `ui_start_engineering`, `ui_engineering_status`,
 `ui_register_engineered_component`, `ui_link_engineering_artifact`; routes
 `POST /ui/engineering`, `GET /ui/engineering/{plan_id}`, `POST

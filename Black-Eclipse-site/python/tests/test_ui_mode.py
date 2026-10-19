@@ -89,3 +89,51 @@ def test_interaction_signal_does_not_false_positive_on_performance():
     # "form" must not match inside "performance" — a dashboard restyle is compose.
     decision = classify_request("improve the performance of my trading dashboard", catalog=_catalog())
     assert decision.mode is UiMode.COMPOSE
+
+
+# ── catalog witness (round 4, W0.1) ───────────────────────────────────────────
+
+
+def test_named_capability_absent_from_catalog_escalates():
+    # The recorded defect: a "world clock" classified Compose with no witness,
+    # then `ui_start_engineering` refused as "nothing to engineer".
+    decision = classify_request(
+        "add a multi-zone world clock to my dashboard showing New York, Karachi and London",
+        catalog=_catalog(),
+    )
+    assert decision.mode is UiMode.ENGINEER
+    assert decision.capability_gap is True
+    assert decision.matched_components == []
+    assert "no registered component matches" in decision.reasons[0]
+
+
+def test_generic_add_widget_stays_compose_without_a_witness():
+    # "widget" is a UI shape, not a capability: the ordinary compose flow stays.
+    decision = classify_request("add a widget to my dashboard", catalog=_catalog())
+    assert decision.mode is UiMode.COMPOSE
+    assert decision.capability_gap is False
+
+
+def test_layout_without_a_catalog_witness_stays_compose():
+    # The target is the existing page, so no component witness is required.
+    decision = classify_request("move the latency chart below the timeline", catalog=_catalog())
+    assert decision.mode is UiMode.COMPOSE
+    assert decision.capability_gap is False
+
+
+def test_named_capability_present_in_catalog_composes_with_a_witness():
+    catalog = UiCatalog([
+        UiComponentSpec(id="metric-card", display_name="Metric", category="metrics"),
+        UiComponentSpec(id="pie-chart", display_name="Pie Chart", category="charts", tags=["charts"]),
+    ])
+    decision = classify_request("add a pie chart to the dashboard", catalog=catalog)
+    assert decision.mode is UiMode.COMPOSE
+    assert decision.capability_gap is False
+    assert "pie-chart" in decision.matched_components
+
+
+def test_no_catalog_never_invents_a_gap():
+    # Without a catalog there is no basis for a gap; stay on the safe default.
+    decision = classify_request("add a multi-zone world clock", catalog=None)
+    assert decision.mode is UiMode.COMPOSE
+    assert decision.capability_gap is False

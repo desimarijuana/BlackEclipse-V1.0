@@ -10,7 +10,7 @@ from .bootstrap import get_ui_service, install_ui_layer, set_ui_service
 from .catalog import CatalogError, UiCatalog, builtin_specs, validate_component_config
 from .engine import apply_ops, diff_blueprints, validate_blueprint, widget_count
 from .engineering import UiEngineering, UiEngineeringError
-from .mode import ModeDecision, UiMode, classify_request
+from .mode import CapabilityFit, ModeDecision, UiMode, assess_capability, classify_request
 from .model import (
     Availability,
     BlueprintKind,
@@ -29,6 +29,7 @@ __all__ = [
     "Availability",
     "BlueprintKind",
     "BlueprintScope",
+    "CapabilityFit",
     "CatalogError",
     "CatalogQuery",
     "CreatePageInput",
@@ -47,6 +48,7 @@ __all__ = [
     "UiService",
     "UiStore",
     "apply_ops",
+    "assess_capability",
     "builtin_specs",
     "classify_request",
     "diff_blueprints",

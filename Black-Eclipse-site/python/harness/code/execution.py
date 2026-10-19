@@ -190,12 +190,45 @@ class ArtifactRef(BaseModel):
     media_type: str = "application/octet-stream"
 
 
+class FigurePayload(BaseModel):
+    """Phase 18 (§6.1): the metadata of a figure that crossed the sandbox.
+
+    A figure is a computed artifact, so it carries what it was drawn from (the
+    named series and their point counts), the recorded seed when the computation
+    was stochastic, and the `computed` label — the same honesty rule numbers
+    follow. `is_evidence` is False for anything a figure carries: a picture is
+    the easiest way to break the retrieved-vs-computed rule, so the label is
+    part of the contract, not a caption.
+    """
+
+    model_config = _CAMEL
+
+    kind: Literal["line", "histogram", "heatmap", "paths", "scatter"]
+    label: str = "computed"
+    artifact: Optional[str] = None
+    series: list[dict[str, Any]] = Field(default_factory=list)
+    seed: Optional[int] = None
+
+    @property
+    def is_evidence(self) -> bool:
+        return False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind, "label": self.label, "artifact": self.artifact,
+            "series": list(self.series), "seed": self.seed, "isEvidence": False,
+        }
+
+
 class AnalysisResult(BaseModel):
     model_config = _CAMEL
 
     status: Literal["ok", "failed", "refused", "timed_out"]
     outputs: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[ArtifactRef] = Field(default_factory=list)
+    # Phase 18 (additive): the figure payload when a recipe drew one — the
+    # plotted-series metadata that rides the run blob beside the numbers.
+    figure: Optional[FigurePayload] = None
     stderr: str = ""
     source_digest: str = ""
     input_digests: dict[str, str] = Field(default_factory=dict)
@@ -211,6 +244,7 @@ class AnalysisResult(BaseModel):
             "status": self.status,
             "outputs": _bounded_outputs(self.outputs),
             "artifacts": [a.model_dump(by_alias=True) for a in self.artifacts[:20]],
+            "figure": self.figure.to_dict() if self.figure else None,
             "sourceDigest": self.source_digest,
             "inputDigests": self.input_digests,
             "interpreter": self.interpreter,

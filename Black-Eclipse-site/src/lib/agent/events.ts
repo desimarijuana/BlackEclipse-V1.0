@@ -72,6 +72,13 @@ export type HarnessUiEvent =
    */
   | { kind: 'analysis'; result: unknown }
   /**
+   * A dataset collection completed (runtime `acquire.completed`): the pull
+   * manifest (source, window, rows, completeness, licence, attribution) the
+   * chat renders as a readable panel. A partial pull is shown partial — never
+   * presented as the dataset.
+   */
+  | { kind: 'acquisition'; manifest: unknown }
+  /**
    * The Intelligent Response Orchestrator chose this turn's presentation mode
    * (runtime `response.plan`). Display-only — it never changes the answer.
    */
@@ -342,6 +349,16 @@ export function normalizeHarnessEvent(
     const result = payload.result;
     if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
     return { kind: 'analysis', result };
+  }
+
+  // A completed dataset collection (runtime `acquire.completed`). The payload
+  // carries the SAME manifest the runtime writes beside the CSV, so the chat
+  // shows source/window/rows/completeness/licence without a second contract.
+  // A malformed payload is dropped — never a half-rendered manifest.
+  if (event === 'acquire.completed') {
+    const manifest = payload.manifest;
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return null;
+    return { kind: 'acquisition', manifest };
   }
 
   // The Intelligent Response Orchestrator's chosen presentation mode

@@ -418,6 +418,10 @@ def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[s
         preview = promotion.build_preview(task_id, code_store=service.code_store)
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=400, detail=exc.code) from exc
+    verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
+    if verdict.refused:
+        # Never request an approval for a change the self-host floor refuses.
+        raise HTTPException(status_code=403, detail="SELFHOST_AUTHORITY_REFUSED")
     approval = None
     if service.approvals is not None:
         approval = service.approvals.request_kind(
@@ -434,7 +438,6 @@ def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[s
             risk="high",
         )
     view = {k: v for k, v in preview.items() if k != "worktreeRoot"}
-    verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
     return {"success": True, "preview": view, "approval": approval, "landing": verdict.to_dict()}
 
 
@@ -458,6 +461,11 @@ def promote_apply(
         raise HTTPException(status_code=400, detail=exc.code) from exc
     if preview["previewDigest"] != body.previewDigest:
         raise HTTPException(status_code=409, detail="PROMOTION_PREVIEW_STALE")
+    verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
+    if verdict.refused:
+        # Refuse BEFORE consuming the approval: the change can never be landed
+        # through this path, so the operator must not spend the decision.
+        raise HTTPException(status_code=403, detail="SELFHOST_AUTHORITY_REFUSED")
     claimed = service.approvals.consume_kind(
         kind=promotion.PROMOTION_KIND,
         request_key=preview["workspaceId"],
@@ -474,7 +482,6 @@ def promote_apply(
     # (self-hosting). The route cannot restart the process, so it reports the
     # requirement; `code/selfhost.py` owns the health-gated apply when a restart
     # seam is available.
-    verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
     return {"success": True, "promotion": result, "landing": verdict.to_dict()}
 
 

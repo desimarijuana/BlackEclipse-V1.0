@@ -143,38 +143,34 @@ FINANCE_IR = _ir(
 def test_finance_graph_runs_over_stored_bars():
     """The Phase-5 promise end to end: graph → stored bars → tested math."""
     from harness.graph_runtime import finance_nodes
-    from harness.market.series_store import SeriesStore
-    from harness.persistence import AgentMemoryStore
 
-    store = AgentMemoryStore(os.environ["AGENT_MEMORY_DB_PATH"])
-    try:
-        bars = SeriesStore(store)
-        bars.save_bars("AAPL", "1d", "test", True, [
-            {"timestamp": f"2026-02-0{i+1}T00:00:00Z", "open": float(i + 1), "high": float(i + 2),
-             "low": float(i), "close": float(i + 1), "volume": 10.0}
-            for i in range(5)
-        ])
-        # Boot must have bound the runtime's series store to THIS database.
-        assert finance_nodes._series_store is not None, "graph boot did not wire the series store"  # noqa: SLF001
+    # Seed the SAME series store the graph runtime is bound to. A second
+    # `AgentMemoryStore` over the env path looks equivalent but can hold a
+    # different connection/snapshot; the production binding is the contract.
+    bars = finance_nodes._series_store  # noqa: SLF001
+    assert bars is not None, "graph boot did not wire the series store"
+    bars.save_bars("AAPL", "1d", "test", True, [
+        {"timestamp": f"2026-02-0{i+1}T00:00:00Z", "open": float(i + 1), "high": float(i + 2),
+         "low": float(i), "close": float(i + 1), "volume": 10.0}
+        for i in range(5)
+    ])
 
-        started = client.post("/graphs/runs", json={"ir": FINANCE_IR})
-        assert started.status_code == 201, started.text
-        run_id = started.json()["run"]["id"]
+    started = client.post("/graphs/runs", json={"ir": FINANCE_IR})
+    assert started.status_code == 201, started.text
+    run_id = started.json()["run"]["id"]
 
-        deadline = time.time() + 15
-        record = started.json()["run"]
-        while time.time() < deadline and record["status"] == "running":
-            time.sleep(0.05)
-            record = client.get(f"/graphs/runs/{run_id}").json()["run"]
-        assert record["status"] == "succeeded", record.get("error")
+    deadline = time.time() + 15
+    record = started.json()["run"]
+    while time.time() < deadline and record["status"] == "running":
+        time.sleep(0.05)
+        record = client.get(f"/graphs/runs/{run_id}").json()["run"]
+    assert record["status"] == "succeeded", record.get("error")
 
-        by_node = {n["nodeId"]: n for n in record["nodeRuns"]}
-        assert by_node["mkt"]["outputs"]["provenance"]["rows"] == 5
-        assert by_node["mkt"]["outputs"]["provenance"]["asOf"] == "2026-02-05T00:00:00Z"
-        # closes 1..5 → SMA(3) = [null, null, 2, 3, 4]
-        assert by_node["sma"]["outputs"]["values"]["values"] == [None, None, 2.0, 3.0, 4.0]
-    finally:
-        store.close()
+    by_node = {n["nodeId"]: n for n in record["nodeRuns"]}
+    assert by_node["mkt"]["outputs"]["provenance"]["rows"] == 5
+    assert by_node["mkt"]["outputs"]["provenance"]["asOf"] == "2026-02-05T00:00:00Z"
+    # closes 1..5 → SMA(3) = [null, null, 2, 3, 4]
+    assert by_node["sma"]["outputs"]["values"]["values"] == [None, None, 2.0, 3.0, 4.0]
 
 
 def test_finance_graph_fails_honestly_without_bars():

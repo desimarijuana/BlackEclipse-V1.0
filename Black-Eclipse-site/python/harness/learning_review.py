@@ -205,6 +205,42 @@ def review_run(
     except Exception as exc:  # noqa: BLE001 - a failed review is recorded, not fatal
         outcomes.append({"category": "no_learning", "created": False, "reason": f"deterministic analysis error: {exc}"})
 
+    # RSL R1: deterministic observation after the review analysis. It may create
+    # inert candidates, but it never proposes, evaluates or activates a change.
+    # Observation is mode-gated (`HARNESS_RSL_MODE`) and always best-effort.
+    if run:
+        try:
+            from .self_improvement.observer import observe_run  # noqa: PLC0415
+
+            observed = observe_run(
+                run_id, str(run.get("status") or ""), run_store=run_store,
+            )
+            if observed.get("candidates"):
+                outcomes.append({
+                    "category": "skill_candidate", "created": True, "inert": True,
+                    "reason": (
+                        "a repeated mistake crossed the recurrence threshold; an "
+                        "inert evolution candidate was created"
+                    ),
+                    "payload": {
+                        "category": "evolution", "evidenceRunId": run_id,
+                        "recurrence": len(observed["candidates"]),
+                    },
+                })
+            if observed.get("errors"):
+                outcomes.append({
+                    "category": "no_learning", "created": False,
+                    "reason": (
+                        "self-improvement observation error: "
+                        + "; ".join(str(error) for error in observed["errors"])[:300]
+                    ),
+                })
+        except Exception as exc:  # noqa: BLE001 - observation never breaks a review
+            outcomes.append({
+                "category": "no_learning", "created": False,
+                "reason": f"self-improvement observation error: {exc}",
+            })
+
     model_used = False
     if model and model_settings is not None:
         try:
@@ -255,6 +291,31 @@ def _deterministic_outcomes(service: Any, run_store: Any, run_id: str) -> list[d
     patch_proposal = _skill_patch_proposal(service, run_store, run_id)
     if patch_proposal:
         outcomes.append(patch_proposal)
+
+    # 1c) Round 4 (W6): a REPEATED successful construction sequence (engineer →
+    #     register a UI capability) opens its inert draft skill. The first
+    #     occurrence only records the candidate; the repeat is the recurrence
+    #     evidence. The draft is `status: draft` / `not_evaluated` — only the
+    #     existing evaluation + operator promotion can enable it.
+    try:
+        from .skills.procedures import maybe_draft_construction  # noqa: PLC0415
+
+        drafted = maybe_draft_construction(run_id, run_store, service.store)
+        if drafted.get("drafted"):
+            outcomes.append({
+                "category": "skill_candidate", "created": True, "inert": True,
+                "reason": (
+                    "a repeated construction sequence was encoded as an inert draft "
+                    "skill (not evaluated; activation stays operator-only)"
+                ),
+                "payload": {
+                    "skill": drafted.get("skillId"), "category": "skill",
+                    "evidenceRunId": run_id,
+                    "recurrence": drafted.get("recurrence"),
+                },
+            })
+    except Exception:  # noqa: BLE001 - drafting must never break a review
+        pass
 
     # 2) Durable-memory proposal from the run's captured memory outcome. This
     #    only inspects what the run's own gate already surfaced; it re-runs the

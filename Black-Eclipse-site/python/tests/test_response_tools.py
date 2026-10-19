@@ -45,6 +45,32 @@ async def test_schema_tool_formats_exact_fields():
 
 
 @pytest.mark.asyncio
+async def test_unknown_block_type_names_the_registered_types():
+    reg = ToolRegistry()
+    register_response_contract_tools(reg)
+
+    class _TypoBridge:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def fetch(self, capability: str, params: dict) -> dict:
+            self.calls.append(params)
+            if params.get("block_type"):
+                return {"status": "OK", "blocks": []}
+            return {
+                "status": "OK",
+                "blocks": [{"type": "model3d", "fields": []}, {"type": "anatomy", "fields": []}],
+            }
+
+    bridge = _TypoBridge()
+    result = await reg.execute("response_block_schema", "c1", {"block_type": "model_3d"}, _ctx(bridge))
+    assert result.ok
+    assert "Unknown block type 'model_3d'" in result.text
+    assert "model3d, anatomy" in result.text
+    assert len(bridge.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_schema_tool_lists_the_live_icon_vocabulary():
     reg = ToolRegistry()
     register_response_contract_tools(reg)

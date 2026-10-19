@@ -83,10 +83,10 @@ describe('buildMemoryRunView', () => {
 
   it('surfaces learning eligibility and always provides the queue path', () => {
     const view = buildMemoryRunView({
-      learningEligibility: { eligible: false, reason: 'no tool use', learnQueuePath: '/api/learning/candidates' },
+      learningEligibility: { eligible: false, reason: 'no tool use', learnQueuePath: '/?tab=skills&sub=skills.learning' },
     });
     expect(view?.eligibility?.eligible).toBe(false);
-    expect(view?.eligibility?.learnQueuePath).toBe('/api/learning/candidates');
+    expect(view?.eligibility?.learnQueuePath).toBe('/?tab=skills&sub=skills.learning');
     expect(view?.eligibility?.autoCaptured).toBe(false);
   });
 
@@ -101,7 +101,7 @@ describe('buildMemoryRunView', () => {
 
   it('defaults the queue path when the backend omits it', () => {
     const view = buildMemoryRunView({ learningEligibility: { eligible: true, reason: 'multi-step' } });
-    expect(view?.eligibility?.learnQueuePath).toBe('/api/learning/candidates');
+    expect(view?.eligibility?.learnQueuePath).toBe('/?tab=skills&sub=skills.learning');
   });
 
   it('surfaces an explicit skill draft as ready (not a prompt)', () => {

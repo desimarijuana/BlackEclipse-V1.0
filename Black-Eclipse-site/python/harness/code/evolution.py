@@ -109,12 +109,44 @@ def _category_signature(category: str) -> str:
     return hashlib.sha256(f"mistake|{category}".encode("utf-8")).hexdigest()[:32]
 
 
+def record_mistake_recurrence(
+    run_store: Any,
+    categories: Any,
+    run_id: Optional[str] = None,
+) -> dict[str, int]:
+    """Write one recurrence per mistake category into the ONE ledger.
+
+    This is the production trigger the bridge reads: `record_learning_recurrence`
+    dedupes on `(runId, signature)`, so re-analysing the same run cannot inflate a
+    category. No model call, no candidate, no second counter.
+    """
+    counts: dict[str, int] = {}
+    if run_store is None:
+        return counts
+    seen = {
+        str(category).strip()
+        for category in (categories or ())
+        if str(category).strip()
+    }
+    for category in sorted(seen):
+        try:
+            counts[category] = int(
+                run_store.record_learning_recurrence(
+                    _category_signature(category), run_id,
+                )
+            )
+        except Exception:  # noqa: BLE001 - observation must never break analysis
+            continue
+    return counts
+
+
 def candidates_from_mistakes(
     *,
     store: Any,
     since_iso: str,
     db: Any = None,
     max_candidates: int = MAX_CANDIDATES_PER_SCAN,
+    created_by_run_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Return INERT candidates for eligible categories whose recurrence crosses
     RECURRENCE_THRESHOLD.
@@ -161,6 +193,7 @@ def candidates_from_mistakes(
             "problemStatement": _problem_statement(category, target_kind, observed),
             "targetPath": None,
             "status": "inert",
+            "createdByRunId": created_by_run_id,
         }))
     return created
 
@@ -479,4 +512,5 @@ __all__ = [
     "is_frozen",
     "owning_test_paths",
     "propose_ops",
+    "record_mistake_recurrence",
 ]

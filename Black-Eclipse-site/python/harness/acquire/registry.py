@@ -74,6 +74,37 @@ SOURCES: dict[str, AcquisitionSource] = {
         licence="public domain (SEC EDGAR)",
         attribution="U.S. Securities and Exchange Commission",
     ),
+    "filings_list": AcquisitionSource(
+        id="filings_list",
+        label="Company filings index",
+        capability="sec_filing_list",
+        # `form` is free text validated by the bridge (SEC form vocabulary is
+        # large and versioned); the dates bound the filing window.
+        query_params=("form", "date_from", "date_to"),
+        accepts_symbols=True,
+        per_call_param="symbol",
+        rate_per_minute=10,
+        max_rows_per_call=2_000,
+        columns=("symbol", "form", "filed", "period", "accession", "document", "description"),
+        licence="public domain (SEC EDGAR)",
+        attribution="U.S. Securities and Exchange Commission",
+    ),
+    "operator_datasets": AcquisitionSource(
+        id="operator_datasets",
+        label="Connected data sources",
+        capability="custom_dataset_records",
+        # The dataset is SELECTED by name; only datasets the operator declared
+        # are reachable. `values` fills the connector's OWN declared parameters
+        # (never a URL/host/secret — those are the operator's configuration).
+        query_params=("dataset", "values"),
+        accepts_symbols=False,
+        per_call_param="dataset",
+        rate_per_minute=30,
+        max_rows_per_call=5_000,
+        columns=("dataset", "record", "field", "value"),
+        licence="as arranged by the operator with the data source",
+        attribution="the operator's declared data source (Settings → Data Sources)",
+    ),
 }
 
 # The values the agent may pass for each of these; anything else is refused.

@@ -1,7 +1,7 @@
 ---
 title: Task / Plan System
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-18
 ---
 
 # Task / Plan System
@@ -44,14 +44,16 @@ run may itself use `task_fork` to fan out.
 
 | Module | Owns |
 |---|---|
-| `model.py` | The closed vocabularies (states, priorities, reasons, dependency kinds, event types) and the validated input contracts. |
+| `model.py` | The closed vocabularies (states, priorities, reasons, dependency kinds, event types, task types) and the validated input contracts (including `GoalContract` / `TaskBudget`). |
 | `state.py` | The task and plan state machines — closed transition tables, no wildcards. |
-| `store.py` | The durable tables on the ONE agent-memory connection; the atomic claim SQL. |
+| `store.py` | The durable tables on the ONE agent-memory connection; the atomic claim SQL; the additive `taskType`/`goalContract` columns. |
 | `dag.py` | Pure graph math: cycle detection, unmet dependencies, parent status, weighted progress, topological layers. |
 | `manager.py` | `TaskManager` — the ONE writer of task/plan state (CRUD, dependencies, criteria, verification, cancellation, roll-ups). |
-| `context.py` | The execution context envelope built from durable state, and its renderer. |
-| `scheduler.py` | `TaskScheduler` — claim, heartbeat, retry/backoff, lease-expiry recovery, dispatch. |
-| `tools.py` | The curated LLM-facing tool surface. |
+| `context.py` | The execution context envelope built from durable state, and its renderer (quotes the most recent FAILED attempt). |
+| `goal.py` | Round 4 (W8.1): the deterministic goal intake (`intake_goal`, `classify_task_type`, `durable_decision`) and `budget_violations`. PURE. |
+| `verification.py` | Round 4 (W8.4): the task-type verifier registry (`verify_task`) — evidence-based completion per `taskType`. PURE. |
+| `scheduler.py` | `TaskScheduler` — claim, heartbeat, retry/backoff, lease-expiry recovery, dispatch, budget + verification gates. |
+| `tools.py` | The curated LLM-facing tool surface (`create_goal` included). |
 | `bootstrap.py` | Boot wiring onto `AgenticService` (the production executor). |
 
 ## Task states
@@ -91,8 +93,10 @@ edge. Crossing back requires an explicit **operation**:
 `WAITING` and `BLOCKED` are deliberately separate: **WAITING** is an external
 event (`USER_INPUT`, `APPROVAL`, `EXTERNAL_EVENT`, `TOOL`, `SCHEDULE`, `AGENT`);
 **BLOCKED** is an unavailable prerequisite (`DEPENDENCY`, `RESOURCE`,
-`PERMISSION`, `PARENT`). `BLOCKED` dependency edges carry `blockedBy` (the unmet
-prerequisite ids) so the UI can name what it is waiting for.
+`PERMISSION`, `PARENT`, and round 4's `VERIFICATION` — the task-type verifier
+cannot pass with the evidence the work produced). `BLOCKED` dependency edges
+carry `blockedBy` (the unmet prerequisite ids) so the UI can name what it is
+waiting for.
 
 ### Escalation on retry exhaustion
 
@@ -174,7 +178,10 @@ at a time, bounded in-flight work (`HARNESS_TASK_MAX_IN_FLIGHT`, default 2).
 5. **Settle** — on a completed run, apply any returned criteria, then
    `complete_task` (which VERIFIES the contract and may refuse). On failure,
    retry with exponential backoff when the error class is retryable, otherwise
-   fail.
+   fail. A `waiting` outcome (round 4, W5/W9) means the executor deliberately
+   PARKED the task — an acquisition routed to a dependency, or an operator
+   decision pending — and the scheduler records the execution honestly without
+   retrying or failing it; the DAG (or an explicit resume) wakes the task.
 
 ### Retry
 
@@ -216,6 +223,81 @@ runtime AND the contract must pass. When a run completes, the scheduler marks th
 task's declared criteria `PASSED` with the run id as evidence unless the task sets
 `metadata.criteriaRequireExplicit` (then only explicitly reported criteria pass).
 
+### Verified completion by task type (round 4, W8.4)
+
+`verify_completion` checks durable STATE (dependencies, children, criteria). The
+task-type verifier checks EVIDENCE — and it runs FIRST, inside the scheduler,
+between `begin_verification` and `complete_task`:
+
+- `verify_task(task, …)` (`verification.py`) dispatches on `task.taskType`. A
+  task with **no** `taskType` keeps the exact pre-W8 contract (the verifier
+  returns `None`) — every pre-W8 task is unchanged.
+- Verifiers read records the runtime already wrote: the run's
+  `codeVerification` ledger (zero-exit `unit_test`/`python_test`/`build`/
+  `typecheck`/`lint` records), attached artifact references, recorded research
+  `sources`/`claims`, observed metrics. Never the model's prose.
+- `code` ⇒ the run completed, every check the acceptance/deliverables NAME has a
+  zero-exit record (tests/build/typecheck/lint — matched on word boundaries, so
+  the verb "build" is not a build check), and every declared deliverable has a
+  matching delivered artifact. `research` ⇒ recorded sources. `document` ⇒ a
+  delivered artifact (or document record). `workflow` ⇒ observed steps + a
+  result reference. `finance` ⇒ provenance (sources). `general` ⇒ a completed
+  run with a recorded result reference or artifact.
+- A declared `taskType` with NO registered verifier is a REFUSAL, never a pass;
+  a crashing verifier is also a refusal (`verification.py` logs and refuses).
+- A failed verification with retry budget left is retried with the missing
+  evidence NAMED — the next attempt's rendered context quotes the failure
+  (`context.py` lists only CONCLUDED attempts and the renderer quotes the most
+  recent FAILED one). With the budget exhausted the task ends `BLOCKED` with
+  `blockedReason: VERIFICATION` and the exact missing evidence, emitting
+  `TASK_COMPLETION_REJECTED` + `TASK_ESCALATED` — a non-terminal, inspectable
+  dead end, never a confident "done" and never an infinite repair loop.
+- On success the `run_complete` checkpoint payload carries the verdict
+  (`verification: {ok, checks, missing}`), so a resumed or audited task shows
+  WHAT proved it.
+
+### Contract budgets (round 4, W8.6)
+
+A `GoalContract` may declare `TaskBudget` caps (`maxDurationMs`, `maxToolCalls`,
+`maxTokens`, `maxModelSteps` — the measurable classes; `maxParallelWorkers`
+rides the scheduler's EXISTING per-agent concurrency cap via
+`metadata.maxConcurrency`; unmeasurable caps such as model cost are not
+invented). The scheduler compares them to the run's own recorded metrics AFTER
+the run: exceeding a cap records the real usage, emits
+`TASK_COMPLETION_REJECTED`, and ends the task `BLOCKED` with
+`BlockedReason.RESOURCE` and the violated cap named — never a silent truncation
+and never a retry that spends more of the same budget. A `None` observation
+never violates a cap (unmeasured ≠ violation).
+
+## The goal contract (round 4, W8.1)
+
+`GoalContract` (`objective`, `deliverables`, `constraints`, `acceptance`,
+`budgets`) plus a `TaskType` are DATA on the task (additive `taskType`/
+`goalContract` columns; `metadata` stays free-form). The deterministic intake
+`goal.intake_goal` derives them from a request — task-type classification on
+word boundaries, deliverable objects from build/create-style clauses, acceptance
+lines from the request's own check words — or from explicit fields (explicit
+always wins). An ambiguous request earns exactly ONE clarifying question instead
+of a guessed contract. The contract's `acceptance` lines BECOME the task's
+criteria (deduped against explicit ones), so the structural contract and the
+goal contract cannot disagree; `update_task` validates a supplied
+`taskType`/`goalContract` through the same pydantic models (a bad shape is
+`VALIDATION_ERROR`, never a raw dict into the store).
+
+`goal.durable_decision` is the W8.2 rule: code/workflow work, multiple
+deliverables, an explicit budget or multi-step phrasing ⇒ a durable task; a
+single short result does not need one. The `create_goal` tool applies it — it
+creates the plan + contract-bearing task (assigned `edit_verify`-era work runs
+through the ordinary scheduler) and starts the plan; an ambiguous request
+returns the question with `created: false`. **The chat path is now
+durable-by-default too:** `goal_runtime.wrap_service_for_goals` (installed by
+`install_task_layer`) wraps `service.run`/`run_background` — a durable chat
+request creates the goal task BEFORE the run and the run is its FIRST attempt
+(nothing executes twice), then settlement verifies through the task-type
+verifier: verified completion, or a bounded repair attempt re-queued (TODO)
+for the scheduler. A task-dispatched run is never wrapped again, and a
+bookkeeping failure never breaks a chat turn.
+
 ## Events, executions, checkpoints, artifacts
 
 - `HarnessTaskEvent` is the immutable history (every transition emits one; also
@@ -245,12 +327,12 @@ every non-terminal task in a plan (deepest-first) and marks the plan
 ## Tools and API
 
 LLM-facing tools (permission `read` — a task is agent-local state, like a memory
-save): `create_plan`, `read_plan`, `run_plan`, `create_task`, `read_task`,
-`list_tasks`, `read_task_tree`, `update_task`, `complete_task`, `cancel_task`,
-`cancel_plan`, `delete_task`, `add_subtask`, `decompose_task`, `add_dependency`,
-`remove_dependency`, `start_task`, `block_task`, `unblock_task`, `retry_task`,
-`resume_task`, `escalate_task`, `attach_task_artifact`, `set_task_criterion`,
-`checkpoint_task`.
+save): `create_goal`, `create_plan`, `read_plan`, `run_plan`, `create_task`,
+`read_task`, `list_tasks`, `read_task_tree`, `update_task`, `complete_task`,
+`cancel_task`, `cancel_plan`, `delete_task`, `add_subtask`, `decompose_task`,
+`add_dependency`, `remove_dependency`, `start_task`, `block_task`, `unblock_task`,
+`retry_task`, `resume_task`, `escalate_task`, `attach_task_artifact`,
+`set_task_criterion`, `checkpoint_task`.
 
 Operator-gated HTTP routes (reads AND mutations, the jobs/MCP convention):
 `GET/POST /plans`, `GET /plans/{id}`, `GET /plans/{id}/tasks`,
@@ -304,6 +386,18 @@ with no network.
 lifecycle, scheduler-entered verification, retry-exhaustion escalation
 (`BLOCKED`/`ASKING_USER`/default `FAILED`), plan cancel + revision, checkpoint
 write/restore, Artifact-Center linking and retention pruning.
+
+`python/tests/test_tasks_goal.py` pins the deterministic intake (task-type
+classification, deliverable/acceptance inference, the ONE-question ambiguity
+rule, the durable decision, budget comparison, contract persistence + update
+validation). `python/tests/test_tasks_verification.py` pins the verifier
+registry (dispatch, accept/reject per type, deliverable coverage, unknown and
+crashing verifiers refuse). `python/tests/test_goal_completion.py` is the round-4
+acceptance: build → deliberate defect → the verifier rejects → repair (told what
+was missing) → verified completion with the artifact and the evidence-bearing
+checkpoint; an unverifiable goal ends `BLOCKED` (`VERIFICATION`); an exceeded
+budget ends `BLOCKED` (`RESOURCE`); a crashed worker's task resumes from its
+durable claim/lease/checkpoint and delivers exactly once.
 
 ## Configuration
 

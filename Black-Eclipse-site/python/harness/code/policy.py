@@ -423,6 +423,9 @@ ACQUISITION_WRITE_TOOLS: tuple[str, ...] = (
     # Declarative only (a validated manifest + bounded instructions, never code);
     # each call still requires a single-use operator approval in the effect chain.
     "skill_create", "skill_update", "skill_delete",
+    # Skill lifecycle writes (`skills/lifecycle_tools.py`): evaluation, activation
+    # and the learning switch. Also approval-gated in the effect chain.
+    "skill_version_evaluate", "skill_version_activate", "skill_learning_set",
 )
 
 # ── Bulk data acquisition (Phase 16, first slice) ─────────────────────────────

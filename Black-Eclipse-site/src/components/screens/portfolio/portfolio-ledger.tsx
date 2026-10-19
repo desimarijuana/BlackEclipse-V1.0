@@ -12,6 +12,7 @@
 // server-only). Types are imported type-only, so they are erased.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { sdkUnlockHeaders } from '@/lib/sdk';
 import type {
   MarksMap,
   PortfolioRead,
@@ -25,7 +26,7 @@ const BASE = '/api/portfolio';
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...sdkUnlockHeaders(), ...(init.headers ?? {}) },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

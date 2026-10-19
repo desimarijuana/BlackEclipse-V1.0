@@ -55,7 +55,13 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 29252→29994 for the Fiduciary Gate `<fiduciary_advice>` guidance
     # block (a genuine capability: ground recommendations in a portfolio
     # computation). Matches `test_memory_tools.py::test_prompt_char_ceiling`.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 29994
+    # Re-pinned 29994→30420 for the app-surface guidance: the Q1 QA run answered
+    # "where is X" from repository greps (once with no deep link) instead of
+    # calling `ui_get_application_map` first. One guidance bullet; matches the
+    # same test in `test_memory_tools.py`.
+    # Re-pinned 30420→30897 for the learning-loop guidance (read the automatic
+    # reviews/candidates instead of guessing). Matches the same test.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 30897
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

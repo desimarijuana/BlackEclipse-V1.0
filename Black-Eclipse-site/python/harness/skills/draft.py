@@ -68,7 +68,11 @@ def _procedure_steps(
     steps: list[str] = []
     for item in candidate.get("proposedProcedure") or []:
         if isinstance(item, dict) and item.get("action"):
-            steps.append(str(item["action"]))
+            action = str(item["action"])
+            # A step's detail carries the constraints (files, ceilings, proof);
+            # render it so the draft's instructions do not lose them.
+            detail = str(item.get("detail") or "").strip()
+            steps.append(f"{action} — {detail}" if detail else action)
         elif isinstance(item, str) and item.strip():
             steps.append(item.strip())
     if not steps:

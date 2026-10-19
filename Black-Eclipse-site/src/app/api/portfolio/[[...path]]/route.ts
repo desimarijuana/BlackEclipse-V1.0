@@ -39,11 +39,13 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
   }
   const token = runtimeCallbackToken();
   const user = request.headers.get("x-eclipse-user");
+  const unlock = request.headers.get("x-eclipse-unlock");
   const init: RequestInit = {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { "X-Harness-Operator": token } : {}),
+      ...(unlock ? { "X-Eclipse-Unlock": unlock } : {}),
       ...(await runtimeIdentityHeaders(request)),
       ...(user ? { "X-Harness-User": user } : {}),
     },

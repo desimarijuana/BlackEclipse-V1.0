@@ -8,14 +8,18 @@
 // operator-gated Python routes. Renders with the frosted-glass system.
 
 import { useCallback, useEffect, useState } from "react";
+import { PromoteChange } from "@/components/chat/promote-change";
 import {
   countByStatus,
   diagnosisHeadline,
   formatIncidentLine,
+  isRoutingRepairIncident,
   statusTone,
   type RecoveryAttemptView,
   type RecoveryDiagnosisView,
+  type AcquisitionView,
   type RecoveryIncidentView,
+  type RoutingRepairView,
 } from "@/lib/harness/recovery-view";
 
 type Tab = "incidents" | "discover" | "autonomy";
@@ -110,6 +114,10 @@ function IncidentsTab({ onError }: { onError: (e: string | null) => void }) {
   const [current, setCurrent] = useState<RecoveryIncidentView | null>(null);
   const [attempts, setAttempts] = useState<RecoveryAttemptView[]>([]);
   const [diagnosis, setDiagnosis] = useState<RecoveryDiagnosisView | null>(null);
+  const [repair, setRepair] = useState<RoutingRepairView | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const [acquisition, setAcquisition] = useState<AcquisitionView | null>(null);
+  const [acquisitionError, setAcquisitionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("");
 
   const load = useCallback(async () => {
@@ -132,6 +140,10 @@ function IncidentsTab({ onError }: { onError: (e: string | null) => void }) {
       setCurrent(body.incident);
       setAttempts(body.attempts ?? []);
       setDiagnosis(body.incident.diagnosis);
+      setRepair(null);
+      setRepairError(null);
+      setAcquisition(null);
+      setAcquisitionError(null);
     } catch (e) {
       onError(e instanceof Error ? e.message : "detail failed");
     }
@@ -163,6 +175,30 @@ function IncidentsTab({ onError }: { onError: (e: string | null) => void }) {
       onError(e instanceof Error ? e.message : "diagnose failed");
     }
   }, [onError]);
+
+  const prepareRepair = useCallback(async (id: string) => {
+    setRepairError(null);
+    try {
+      const body = await api<RoutingRepairView & { success?: boolean }>(
+        `/incidents/${id}/routing-repair`, { method: "POST" },
+      );
+      setRepair(body);
+    } catch (e) {
+      setRepairError(e instanceof Error ? e.message : "prepare failed");
+    }
+  }, []);
+
+  const planAcquisition = useCallback(async (id: string) => {
+    setAcquisitionError(null);
+    try {
+      const body = await api<{ acquisition: AcquisitionView }>(
+        `/incidents/${id}/acquisition`, { method: "POST" },
+      );
+      setAcquisition(body.acquisition);
+    } catch (e) {
+      setAcquisitionError(e instanceof Error ? e.message : "acquisition plan failed");
+    }
+  }, []);
 
   const promote = useCallback(async () => {
     try {
@@ -256,6 +292,76 @@ function IncidentsTab({ onError }: { onError: (e: string | null) => void }) {
                 ))}
               </ul>
             ) : null}
+            {isRoutingRepairIncident(current) && (
+              <div className="glass-card-subtle rounded-xl p-2">
+                <p className="text-[11px] text-zinc-500">
+                  A verified routing repair can be prepared in a disposable copy; nothing lands without your confirmation.
+                </p>
+                {!repair && (
+                  <button
+                    onClick={() => void prepareRepair(selected)}
+                    className="mt-1 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
+                  >
+                    Prepare self-repair
+                  </button>
+                )}
+                {repairError && <p className="mt-1 text-[11px] text-red-300">{repairError}</p>}
+                {repair && (
+                  <div className="mt-1 flex flex-col gap-1 text-[11px] text-zinc-400">
+                    <p>
+                      <span className="text-zinc-300">{repair.proposal.cause}</span>
+                      {" · "}{repair.proposal.summary}
+                    </p>
+                    <p className="text-zinc-500">
+                      {repair.preview.filesChanged} file(s): {repair.preview.files.map((f) => f.path).join(", ")}
+                    </p>
+                    {repair.landing.restartRequired && (
+                      <p className="text-amber-300">needs a runtime restart after landing</p>
+                    )}
+                    <PromoteChange runId={repair.runId} compact />
+                  </div>
+                )}
+              </div>
+            )}
+            {current?.kind === "capability" && (
+              <div className="glass-card-subtle rounded-xl p-2">
+                <p className="text-[11px] text-zinc-500">
+                  What can satisfy this need, and what would have to be approved?
+                </p>
+                {!acquisition && (
+                  <button
+                    onClick={() => void planAcquisition(selected)}
+                    className="mt-1 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
+                  >
+                    Plan acquisition
+                  </button>
+                )}
+                {acquisitionError && <p className="mt-1 text-[11px] text-red-300">{acquisitionError}</p>}
+                {acquisition && (
+                  <div className="mt-1 flex flex-col gap-1 text-[11px] text-zinc-400">
+                    <p className="text-zinc-500">
+                      {acquisition.resolvedBy
+                        ? `resolved by ${acquisition.resolvedBy}`
+                        : "no existing capability resolves this need"}
+                    </p>
+                    <ul className="flex flex-col gap-0.5">
+                      {acquisition.steps.map((step, index) => (
+                        <li key={`${step.action}:${index}`}>
+                          <span className="text-zinc-300">{step.action}</span>
+                          {" · "}{step.surface}
+                          {step.ready ? " · ready" : ""}
+                          {step.requiresApproval ? " · needs approval" : ""}
+                          {step.missing.length ? ` · missing: ${step.missing.join("; ")}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-zinc-600">
+                      retry: {String(acquisition.retry.action ?? "resume_task")} from {String(acquisition.retry.from ?? "checkpoint")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <h2 className="text-sm font-medium text-zinc-200">Attempts</h2>
               <ul className="flex flex-col gap-1">

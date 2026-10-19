@@ -260,6 +260,14 @@ export interface AssistantTurn {
    */
   analysis?: unknown;
   /**
+   * A dataset collection this turn completed (`acquire.completed`): the pull
+   * manifest (source, window, rows, completeness, licence, attribution).
+   * `undefined` when the turn collected nothing; narrowed by the chat surface
+   * via `coerceAcquisitionManifest`, which can never round an unknown
+   * completeness up to "complete".
+   */
+  acquisition?: unknown;
+  /**
    * The action the agent is currently blocked on pending an operator decision,
    * or undefined when it is not waiting. Set from `approval.requested`, cleared
    * by `approval.resolved` or the decision POST.

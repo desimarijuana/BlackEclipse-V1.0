@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from ..persistence import new_id, now_iso
 from .model import (
+    AppSurface,
     Availability,
     BlueprintKind,
     BlueprintOwner,
@@ -97,6 +98,15 @@ CREATE TABLE IF NOT EXISTS UiIdempotency (
   key         TEXT PRIMARY KEY,
   blueprintId TEXT NOT NULL,
   createdAt   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS UiSurface (
+  id          TEXT PRIMARY KEY,
+  ordinal     INTEGER NOT NULL DEFAULT 0,
+  label       TEXT NOT NULL,
+  deepLink    TEXT NOT NULL,
+  tabs        TEXT NOT NULL DEFAULT '[]',
+  updatedAt   TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_uibp_scope    ON UiBlueprint(scope, kind);
@@ -358,6 +368,48 @@ class UiStore:
             (key, blueprint_id, now_iso()),
         )
         self._db.commit()
+
+    # ── app surfaces ──────────────────────────────────────────────────────────
+
+    def replace_surfaces(self, surfaces: list[AppSurface]) -> int:
+        """Replace the synced screen inventory with this batch.
+
+        The host is the source of truth, so a non-empty batch also drops rows for
+        screens that no longer exist. An empty batch is a no-op (a failed/blank
+        sync must never wipe the inventory).
+        """
+        if not surfaces:
+            return 0
+        now = now_iso()
+        for ordinal, surface in enumerate(surfaces):
+            self._db.execute(
+                """
+                INSERT INTO UiSurface (id, ordinal, label, deepLink, tabs, updatedAt)
+                VALUES (?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                  ordinal=excluded.ordinal, label=excluded.label,
+                  deepLink=excluded.deepLink, tabs=excluded.tabs,
+                  updatedAt=excluded.updatedAt
+                """,
+                (
+                    surface.id, ordinal, surface.label, surface.deep_link,
+                    _json([tab.model_dump(by_alias=True) for tab in surface.tabs]), now,
+                ),
+            )
+        placeholders = ",".join("?" for _ in surfaces)
+        self._db.execute(f"DELETE FROM UiSurface WHERE id NOT IN ({placeholders})", [s.id for s in surfaces])  # noqa: S608
+        self._db.commit()
+        return len(surfaces)
+
+    def list_surfaces(self) -> list[AppSurface]:
+        rows = self._db.execute("SELECT * FROM UiSurface ORDER BY ordinal ASC, id ASC").fetchall()
+        return [
+            AppSurface.model_validate({
+                "id": row["id"], "label": row["label"],
+                "deepLink": row["deepLink"], "tabs": _loads(row["tabs"], []),
+            })
+            for row in rows
+        ]
 
     # ── row mapping ───────────────────────────────────────────────────────────
 

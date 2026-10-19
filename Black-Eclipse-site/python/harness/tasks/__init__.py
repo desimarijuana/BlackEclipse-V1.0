@@ -20,6 +20,7 @@ Package layout:
 
 from .bootstrap import build_task_executor, install_task_layer
 from .context import TaskContext, build_task_context, render_task_query
+from .goal import GoalIntake, budget_violations, intake_goal
 from .manager import TaskError, TaskManager
 from .model import (
     AcceptanceCriterionInput,
@@ -31,11 +32,13 @@ from .model import (
     DependencyKind,
     ExecutionStatus,
     FailurePolicy,
+    GoalContract,
     Plan,
     PlanStatus,
     Task,
     TaskAcceptanceCriterion,
     TaskArtifact,
+    TaskBudget,
     TaskCheckpoint,
     TaskDependency,
     TaskEvent,
@@ -43,6 +46,7 @@ from .model import (
     TaskExecution,
     TaskPriority,
     TaskStatus,
+    TaskType,
     WaitingReason,
 )
 from .scheduler import TaskRunOutcome, TaskScheduler
@@ -55,6 +59,7 @@ from .state import (
 )
 from .store import TaskStore
 from .tools import TASK_TOOLS, register_task_tools
+from .verification import TaskVerification, register_verifier, verify_task
 
 __all__ = [
     "AcceptanceCriterionInput",
@@ -66,6 +71,8 @@ __all__ = [
     "DependencyKind",
     "ExecutionStatus",
     "FailurePolicy",
+    "GoalContract",
+    "GoalIntake",
     "InvalidPlanTransition",
     "InvalidTaskTransition",
     "Plan",
@@ -74,6 +81,7 @@ __all__ = [
     "Task",
     "TaskAcceptanceCriterion",
     "TaskArtifact",
+    "TaskBudget",
     "TaskCheckpoint",
     "TaskContext",
     "TaskDependency",
@@ -88,12 +96,18 @@ __all__ = [
     "TaskScheduler",
     "TaskStatus",
     "TaskStore",
+    "TaskType",
+    "TaskVerification",
     "WaitingReason",
+    "budget_violations",
     "build_task_context",
     "build_task_executor",
     "can_transition_plan",
     "can_transition_task",
     "install_task_layer",
+    "intake_goal",
     "register_task_tools",
+    "register_verifier",
     "render_task_query",
+    "verify_task",
 ]

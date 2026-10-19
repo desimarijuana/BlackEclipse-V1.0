@@ -441,6 +441,103 @@ class CompositeEnvironment(Environment):
         self.parts = {}
 
 
+class UiStateEnvironment(Environment):
+    """The UI/task runtime's durable state, read back for grading (round 4, W3.2).
+
+    Holds no private resources: the state lives in the invoker's trial store
+    (agent-memory.db) and is BOUND IN by the invoker at invoke time (the same
+    store its `UiService`/`TaskManager` write to). `inspect_state` reports the
+    REAL engineering tasks/plans the `ui_*` tools created — never the model's
+    prose — so a routing scenario is graded end-to-end through the real graph.
+    """
+
+    kind = "ui"
+
+    def __init__(self, spec: Optional[dict[str, Any]] = None) -> None:
+        super().__init__(spec)
+        self._ui_service: Any = None
+        self._task_manager: Any = None
+        self._store: Any = None
+        self._store_dir: Any = None
+
+    def bind(
+        self, *, ui_service: Any = None, task_manager: Any = None,
+        store: Any = None, store_dir: Any = None,
+    ) -> None:
+        """Attach the trial's live services + store (called by the invoker).
+
+        The invoker defers store cleanup to `teardown`: grading reads the store
+        AFTER invoke returns, so closing it there would grade an empty state.
+        """
+        self._ui_service = ui_service
+        self._task_manager = task_manager
+        self._store = store
+        self._store_dir = store_dir
+
+    def setup(self) -> None:
+        return
+
+    def seed(self, initial_state: dict[str, Any]) -> None:
+        return
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"kind": self.kind}
+
+    def restore(self, snapshot: dict[str, Any]) -> None:
+        return
+
+    def inspect_state(self) -> dict[str, Any]:
+        tasks: list[dict[str, Any]] = []
+        plans: list[dict[str, Any]] = []
+        if self._task_manager is not None:
+            try:
+                for plan in self._task_manager.list_plans(limit=50):
+                    plans.append({
+                        "planId": plan.id, "name": plan.name, "status": plan.status.value,
+                    })
+                    for task in self._task_manager.list_tasks(plan_id=plan.id, limit=200):
+                        meta = dict(task.metadata or {})
+                        tasks.append({
+                            "taskId": task.id, "planId": task.plan_id,
+                            "status": task.status.value, "title": task.title,
+                            "kind": meta.get("kind"),
+                            "capabilityGap": bool(meta.get("capabilityGap", False)),
+                            "acceptanceCount": len(self._task_manager.list_criteria(task.id)),
+                        })
+            except Exception:  # noqa: BLE001 - a state read failure yields empty, never a fake pass
+                pass
+        component_count = 0
+        if self._ui_service is not None:
+            try:
+                component_count = len(self._ui_service.catalog.list())
+            except Exception:  # noqa: BLE001
+                component_count = 0
+        return {
+            "kind": self.kind,
+            "ui": {
+                "engineeringTaskCount": len(tasks),
+                "engineeringTasks": tasks,
+                "plans": plans,
+                "componentCount": component_count,
+            },
+        }
+
+    def teardown(self) -> None:
+        self._ui_service = None
+        self._task_manager = None
+        store, self._store = self._store, None
+        store_dir, self._store_dir = self._store_dir, None
+        if store is not None:
+            try:
+                store.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if store_dir:
+            import shutil  # noqa: PLC0415
+
+            shutil.rmtree(str(store_dir), ignore_errors=True)
+
+
 _REGISTRY: dict[str, Callable[[Optional[dict[str, Any]]], Environment]] = {
     "filesystem": FilesystemEnvironment,
     "database": SqliteEnvironment,
@@ -448,6 +545,9 @@ _REGISTRY: dict[str, Callable[[Optional[dict[str, Any]]], Environment]] = {
     "memory": MemoryEnvironment,
     "mock_services": MockServiceEnvironment,
     "composite": CompositeEnvironment,
+    # The UI/task runtime's durable state (round 4, W3.2): bound in by the
+    # scripted invoker; a routing scenario is graded on what the tools DID.
+    "ui": UiStateEnvironment,
     # A no-op environment for pure-output tasks.
     "none": lambda spec=None: FinanceEnvironment({**(spec or {}), "kind": "none"}),
 }
@@ -488,6 +588,7 @@ __all__ = [
     "MemoryEnvironment",
     "MockServiceEnvironment",
     "SqliteEnvironment",
+    "UiStateEnvironment",
     "build_environment",
     "environment_kinds",
     "register_environment",

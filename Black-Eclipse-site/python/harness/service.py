@@ -77,6 +77,11 @@ class AgenticService:
         # The memory/skill tools the system prompt promises — on the SAME
         # registry, so validation/permission/timeout machinery is shared.
         register_memory_tools(self.registry)
+        # Bounded read-only GET over the app's OWN loopback API (QA Round 1). The
+        # sanctioned alternative to the hard-denied `curl` dead-end.
+        from .app_api_tools import register_app_api_tools  # noqa: PLC0415
+
+        register_app_api_tools(self.registry)
         # The acquire loop: install skills from a GitHub repo (approval-gated),
         # uninstall them, and list installed sources. Handlers in
         # `skills/install_tools.py`; the effect authorizer is composed in
@@ -489,6 +494,13 @@ class AgenticService:
         from .ui.bootstrap import install_ui_layer  # noqa: PLC0415
 
         install_ui_layer(self)
+        # Eclipse SDK: the user-facing composition surface over the UI and
+        # Portfolio services (declarative widgets, composed pages, fund
+        # portfolios, design + passphrase locks). It owns no second engine; the
+        # lock registry is enforced by those services. Best-effort.
+        from .sdk.bootstrap import install_sdk_layer  # noqa: PLC0415
+
+        install_sdk_layer(self)
         # The Plugin Platform: ONE process-wide manager owning the registry, the
         # runtime instances, the event bridge, the hook registry, per-plugin
         # config/secrets/storage and health. Boot wiring lives in

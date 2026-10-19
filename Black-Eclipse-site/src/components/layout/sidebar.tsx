@@ -16,6 +16,7 @@ import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
 import { GraphModePanel } from '@/components/screens/graph-studio/graph-mode-panel';
 import { SidebarGatewayDialog } from '@/components/layout/sidebar-gateway-dialog';
 import { SidebarGraphDialog } from '@/components/layout/sidebar-graph-dialog';
+import { SdkPagesNav } from '@/components/layout/sdk-pages-nav';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -428,6 +429,9 @@ export function Sidebar({
             );
           })}
           </nav>
+        )}
+        {navMode !== 'bots' && navMode !== 'graph' && (
+          <SdkPagesNav collapsed={isCollapsed} />
         )}
       </div>
 

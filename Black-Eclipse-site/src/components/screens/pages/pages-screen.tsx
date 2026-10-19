@@ -21,6 +21,7 @@ import {
   createPage,
   getCurrentPage,
   listBlueprints,
+  resolveCurrentPage,
   saveLayout,
   type BlueprintSummary,
   type UiBlueprint,
@@ -31,6 +32,23 @@ import {
   pageStorageKey,
 } from '@/lib/ui-engineering/live-page';
 import { setUiFocus } from '@/lib/ui-engineering/ui-focus';
+import { useSdkWidgetDefinitions } from '@/lib/sdk/widgets';
+
+/** The page requested by `?tab=pages&page=<id|path>` (SDK/sidebar deep link). */
+function requestedPage(): string | null {
+  if (typeof window === 'undefined') return null;
+  const sp = new URLSearchParams(window.location.search);
+  return sp.get('tab') === 'pages' ? sp.get('page') : null;
+}
+
+/** Reflect the open page in the URL so it is shareable and back/forward works. */
+function rememberPage(blueprintId: string) {
+  if (typeof window === 'undefined') return;
+  const sp = new URLSearchParams(window.location.search);
+  sp.set('tab', 'pages');
+  sp.set('page', blueprintId);
+  window.history.replaceState(null, '', `/?${sp.toString()}`);
+}
 
 export function PagesScreen() {
   const [blueprints, setBlueprints] = useState<BlueprintSummary[]>([]);
@@ -41,6 +59,13 @@ export function PagesScreen() {
   const [note, setNote] = useState<string | null>(null);
   // Bumped to force the workspace to remount (re-seed from the blueprint).
   const [remount, setRemount] = useState(0);
+  // User-created declarative widgets live in the runtime; merge them with the
+  // static registry so the library, placement and rendering all see them.
+  const sdkWidgets = useSdkWidgetDefinitions();
+  const allWidgets = useMemo(() => {
+    const ids = new Set(DASHBOARD_WIDGET_IDS);
+    return [...DASHBOARD_WIDGETS, ...sdkWidgets.filter((w) => !ids.has(w.id))];
+  }, [sdkWidgets]);
 
   const refreshList = useCallback(async () => {
     try {
@@ -54,12 +79,24 @@ export function PagesScreen() {
     }
   }, []);
 
-  const openPage = useCallback(async (id: string) => {
+  const openPage = useCallback(async (idOrPath: string) => {
     setBusy(true);
     try {
-      const { blueprint: bp } = await getCurrentPage(id);
-      setSelectedId(id);
+      let bp: UiBlueprint;
+      if (/^uibp[_-]/.test(idOrPath)) {
+        bp = (await getCurrentPage(idOrPath)).blueprint;
+      } else {
+        // A path (or an id from an older SDK) resolves through the runtime's
+        // path lookup; fall back to id lookup so both forms work.
+        try {
+          bp = (await resolveCurrentPage({ path: idOrPath })).blueprint;
+        } catch {
+          bp = (await getCurrentPage(idOrPath)).blueprint;
+        }
+      }
+      setSelectedId(bp.id);
       setBlueprint(bp);
+      rememberPage(bp.id);
       // Tell the chat which page the user is working on.
       setUiFocus({ page: { blueprintId: bp.id, title: bp.title, path: bp.path ?? undefined } });
       setError(null);
@@ -70,10 +107,25 @@ export function PagesScreen() {
     }
   }, []);
 
+  // SDK/sidebar deep links: open the requested page on mount and whenever the
+  // shell navigates to another `?tab=pages&page=…` entry (popstate).
+  useEffect(() => {
+    const onPop = () => {
+      const wanted = requestedPage();
+      if (wanted) void openPage(wanted);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [openPage]);
+
   useEffect(() => {
     void (async () => {
       const list = await refreshList();
-      if (list.length && !selectedId) await openPage(list[0].id);
+      const wanted = requestedPage();
+      const target = wanted
+        ? (list.find((b) => b.id === wanted || b.path === wanted)?.id ?? wanted)
+        : list[0]?.id;
+      if (target && (wanted || !selectedId)) await openPage(target);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open the first page once on mount
   }, [refreshList, openPage]);
@@ -133,14 +185,14 @@ export function PagesScreen() {
   // does not render yet (an agent-added or engineered widget) — so the kernel
   // does not silently drop it. Unknown ids render a visible placeholder.
   const knownWidgetIds = useMemo(() => {
-    const ids = new Set<string>(DASHBOARD_WIDGET_IDS);
+    const ids = new Set<string>([...DASHBOARD_WIDGET_IDS, ...allWidgets.map((w) => w.id)]);
     for (const section of blueprint?.layout.sections ?? []) {
       for (const column of section.columns ?? []) {
         for (const widget of column.widgets ?? []) ids.add(widget.widgetId);
       }
     }
     return [...ids];
-  }, [blueprint]);
+  }, [blueprint, allWidgets]);
 
   const handleCreate = async () => {
     setBusy(true);
@@ -263,7 +315,7 @@ export function PagesScreen() {
                   key={`${blueprint.id}:${blueprint.revision}:${blueprint.updatedAt}:${remount}`}
                   storageKey={pageStorageKey(blueprint.id, blueprint.revision)}
                   defaultLayout={defaultLayout}
-                  widgets={DASHBOARD_WIDGETS}
+                  widgets={allWidgets}
                   knownWidgetIds={knownWidgetIds}
                   widgetIcon={widgetIcon}
                   renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}

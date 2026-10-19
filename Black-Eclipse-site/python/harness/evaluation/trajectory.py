@@ -18,11 +18,13 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .config import TRAJECTORY_FORMAT_VERSION
+from .provenance import AGENT_VERSION
 
 # The events that carry a tool invocation, in order.
 _TOOL_REQUEST_EVENTS = ("tool.requested",)
 _TOOL_DONE_EVENTS = ("tool.completed", "tool.failed", "tool.truncated")
 _MODEL_EVENTS = ("model.requested", "model.completed")
+_MODEL_REQUEST_EVENTS = ("model.request.completed", "model.request.failed")
 
 
 def _git_commit() -> Optional[str]:
@@ -124,6 +126,7 @@ class Trajectory:
             model=dict(model or {}),
             final_answer=dict(final_answer or {}),
             outcome=dict(outcome or {}),
+            agent_version=AGENT_VERSION,
             git_commit=_git_commit(),
         )
         trajectory.metrics = trajectory.derive_metrics(state_before, state_after)
@@ -200,16 +203,18 @@ class Trajectory:
     ) -> dict[str, Any]:
         prompt = completion = total = 0
         cost = 0.0
+        cost_seen = False
         latencies: list[float] = []
         for event in self.events:
             if event.type == "model.completed":
                 prompt += int(event.data.get("promptTokens") or 0)
                 completion += int(event.data.get("completionTokens") or 0)
                 total += int(event.data.get("totalTokens") or 0)
-                if event.data.get("latencyMs") is not None:
-                    latencies.append(float(event.data["latencyMs"]))
-                if event.data.get("cost") is not None:
-                    cost += float(event.data["cost"])
+            if event.type in _MODEL_REQUEST_EVENTS and event.data.get("latencyMs") is not None:
+                latencies.append(float(event.data["latencyMs"]))
+            if event.data.get("cost") is not None:
+                cost += float(event.data["cost"])
+                cost_seen = True
         tool_calls = self.tool_calls()
         metrics: dict[str, Any] = {
             "events": len(self.events),
@@ -220,7 +225,7 @@ class Trajectory:
             "promptTokens": prompt,
             "completionTokens": completion,
             "totalTokens": total,
-            "cost": round(cost, 6),
+            "cost": round(cost, 6) if cost_seen else None,
             "latencyMs": round(sum(latencies), 3) if latencies else None,
         }
         if state_before is not None and state_after is not None:

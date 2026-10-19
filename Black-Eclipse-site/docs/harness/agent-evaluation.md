@@ -1,7 +1,7 @@
 ---
 title: Agent Evaluation System
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-18
 ---
 
 # Agent Evaluation System
@@ -174,6 +174,41 @@ the final answer — never prose alone:
 The scenario signals are declared per task in `metadata.measures`; latency, cost
 and tokens are captured for **every** trial by the trajectory.
 
+### 5.2 Routing benchmark (round 4, W3.2)
+
+`evaluation/routing.py` runs `harness/ui/routing_benchmark_v1.json` (eight
+deterministic Compose/Engineer cases, including the multi-zone clock) through
+the REAL classifier. `run_offline_gate` injects its two dimensions into the
+SAME threshold check as the agent suite and records the source in
+`SuiteResult.routing` — it is explicitly **not** an agent-trial measurement:
+
+| dimension | source | gate |
+|---|---|---|
+| `misroute_rate` | mismatched cases / all cases | maximum 0.0 |
+| `escalation_correct` | correct engineer/both verdicts / expected-escalation cases | minimum 1.0 |
+
+The benchmark grows from a production misroute: add the failing request with its
+recorded expected verdict, then fix the classifier until the gate is green again.
+
+**The end-to-end tier (`routing_e2e_v1.json`).** The classifier tier above is
+the fast gate; four of the same scenarios ALSO run through the real
+`execute_run` graph as ordinary evaluation tasks (`routing_e2e.*`, category
+`recovery`/`tools`) and are graded on the REAL resulting state:
+
+- the `ui` environment (`environments.py::UiStateEnvironment`) reports the
+  durable engineering tasks/plans a trial created (kind, `capabilityGap`,
+  status, acceptance count) — the invoker binds the trial's real `UiService` +
+  `TaskManager` and hands store cleanup to the environment's teardown (grading
+  reads the store after invoke);
+- every trial gets its OWN isolated store, so concurrent trials can never see
+  each other's durable work;
+- `ScriptedAgentInvoker` registers the `ui_*` + `task_*` families, so a
+  scenario calls the real `ui_classify_request` / `ui_start_engineering` tools;
+- a restored pre-W0 defect (a witness-less Compose verdict plus no catalog
+  re-check) makes the clock task FAIL on the missing engineering task — the
+  tier is a release gate for the whole escalation path, not just the
+  classifier (`test_evaluation_routing_e2e.py`).
+
 ## 6. Custom graders
 
 ```python
@@ -215,6 +250,43 @@ Tiers: **0** deterministic (offline), **1** integration, **2** live. Select with
 `--tier`. The runner executes independent trials concurrently
 (`--concurrency`, default `HARNESS_EVAL_CONCURRENCY=4`) with a bounded semaphore.
 
+**Candidate harnesses (RSL R3).** `evaluation/candidate_invoker.py` implements
+the `AgentInvoker` protocol for a validated `HarnessSnapshot`: the real graph
+runs with the snapshot's system prompt, tool subset and step/call ceilings, in a
+private per-trial store/registry, with the trial environment bound and cleaned
+up. `validate_snapshot` refuses a tool outside the base allowlist, a raised
+ceiling or an unknown skill id. `self_improvement/security.py`
+(`RSL_DENY_GLOBS`, `assert_landable_target`) refuses a subject that owns the
+evaluator, tests, policy, approvals or landing machinery. Candidate runs never
+write the production store and never activate a change.
+
+**R4 conductor.** `self_improvement/loop.py` scans and atomically claims
+`EvolutionCandidate` rows (one experiment at a time, daily budget + lease).
+Code candidates use `verify_code` (owning tests in a worktree; the benchmark is
+recorded as UNMEASURED), while surface candidates use `verify_surface` (the only
+measured path, recorded on an `EvaluationRun` with RSL metadata).
+`landing.prepare` returns the existing promotion preview and never applies it.
+
+## 7.1 Splits and provenance
+
+**Splits.** `select_tasks(..., split=...)` filters `optimization`,
+`validation`, `held_out` and `release`. A task's `metadata.split` wins, then the
+dataset's top-level `metadata.split` (preserved per task by
+`load_all_builtin`'s `splitById` map), then `validation`. The built-ins are:
+`benchmark_v1` + `construction_v1` = validation (47), `routing_e2e_v1` =
+optimization (4), `team_v1` = held_out (2). `select_tasks` without `split`
+still returns every task (53) for the release gate; an unknown split is refused.
+
+**Provenance.** A persisted run records `agentVersion`, `gitCommit` (or
+`gitCommitUnavailable`), the dataset checksum, and a config identity
+(`trials`, `tier`, `split`, `graderVersion`, optional `seed`/`temperature`).
+Metadata carries `taskFingerprintDigest`, `taskCount`, `graderVersion`, the
+split and the measured-trial count. Task fingerprints are persisted through
+`upsert_task`; each trial's score JSON carries `graderVersion`.
+`evaluation.provenance.require_provenance` refuses a run missing a required
+piece. Cost and latency are `None` when no real source reported them, never
+`0`; `cost_per_success` is UNMEASURED if any measured trial's cost is unknown.
+
 ## 8. Adding tasks
 
 1. Add a task object to `python/harness/evaluation/datasets/benchmark_v1.json`
@@ -225,6 +297,8 @@ Tiers: **0** deterministic (offline), **1** integration, **2** live. Select with
    `version`. Never edit a task in place without bumping `version`.
 3. A construction task should declare `metadata.suites: ["construction"]`,
    `metadata.scenario` and `metadata.measures` (the signals it exercises).
+   A task that is not part of the validation acceptance set declares
+   `metadata.split` (`optimization`, `held_out` or `release`).
 4. Run `python -m harness.evaluation` — the gate must stay green.
 
 ## 9. Creating regression tests
@@ -269,6 +343,8 @@ DIMENSION and reports `regressions` and `warnings` (never a blend). Default gate
 | financial_accuracy | drop > 1% | regression (critical) |
 | safety_score | any drop | regression (critical) |
 | hallucination_rate | any rise | regression (critical) |
+| misroute_rate | any rise | regression (critical) |
+| escalation_correct | any drop | regression (critical) |
 | cost / latency / token_usage | rise > 20% / 25% / 25% | warning |
 
 ## 12. CI integration
@@ -280,19 +356,35 @@ R3-08, `task_success >= 0.9` and `recovery_success >= 0.85` are gated too (both
 measured 1.0 offline) — never weakened to make a run pass.
 
 ```
-evaluation gate: PASS (tasks=47 run=…)
+evaluation gate: PASS (tasks=53 run=…)
   construction: 16/16 measured, 100%
   finance: 7/7 measured, 100%
   …
   task_success: 1.0
   recovery_success: 1.0
+  misroute_rate: 0.0
+  escalation_correct: 1.0
   safety_score: 1.0
+  routing: cases=8 misroute_rate=0.0 escalation_correct=1.0
 construction gate: PASS tasks=16 task_success=1.0 recovery_success=1.0
 ```
 
 It runs on a **private temp `agent-memory.db`** so CI never touches the dev
 runtime DB. `node scripts/test-evals.js` exits non-zero on a gate failure; when
 the Python stack is absent it skips honestly (exit 0).
+
+### 12.1 Self-evolution metrics (round 4, W7)
+
+`evaluation/repair_metrics.py` adds the §1 metric block to the gate report:
+`time_to_repair_ms` + `self_repair_precision` (recovery incidents),
+`requirement_completeness` (goal-contract task criteria), `cost_per_success` +
+`unauthorized_action_rate` (evaluation trials). The offline gate measures the
+suite-backed dimensions and prints `UNMEASURED` for the store-backed ones (no
+incidents/tasks exist on the temp DB) — an unmeasured dimension is never
+fabricated. A production run can pass real incidents/tasks via
+`collect_self_evolution_metrics(...)`; the runtime exposes the same block
+read-only at `GET /recovery/metrics` (incident outcomes read from the
+`action="outcome"` attempts, goal tasks from the task store).
 
 ## 13. Model benchmarking
 
@@ -302,6 +394,67 @@ metrics. `experiments.ab_evaluate` compares two invokers with everything else
 held constant; `experiments.routing_accuracy` grades the router against labelled
 cases; `skill_delta` / `memory_delta` measure the with/without effect. Providers
 are never hard-coded — the existing model registry is used.
+
+### 13.1 Multi-agent comparison (round 4, W12)
+
+`evaluation/team_benchmark.py` + `experiments.multi_agent_compare` compare ONE
+agent against a 2–3 specialist team on the SAME frozen task. This is the
+adoption gate for parallelism (ADR-H213), not a second orchestration system.
+
+- The team trial runs the REAL stack — `TeamService` → `A2AService` →
+  `TaskScheduler` → the ONE `execute_run` graph — over a per-trial isolated
+  store (`TeamAgentInvoker`, the `ScriptedAgentInvoker` isolation pattern; a
+  lightweight host instead of a full `AgenticService`, so a benchmark never
+  touches process-wide singletons or the developer's databases). Each subtask
+  executes its own deterministic script; the model seam answers ONLY while a
+  team trial is active, so a team trial can never reach a provider (a repair
+  task created with no script gets a deterministic "(no script)" answer).
+- Both variants are graded by the SAME graders on the REAL resulting state
+  (`state` + `tool`). Tool-call arguments are captured at the registry boundary
+  and folded back into the AGGREGATED trajectory; call ids carry a per-subtask
+  prefix (`_script_messages(call_id_prefix=…)`) so concurrent child runs cannot
+  collide.
+- `multi_agent_compare` returns both suites' recorded run ids + metrics,
+  measured axes (`taskSuccess`, wall clock, `toolCalls`, `modelSteps`) and a
+  deterministic `adoption` verdict: the team is adopted ONLY when quality does
+  not regress AND it shows a real gain (wall clock improved ≥ 15%, or strictly
+  fewer tool calls). An unmeasured variant decides nothing. Cost/tokens are
+  published as `UNMEASURED` for the scripted tier — never a fabricated 0.
+- With `persist=True` both variants also write their durable
+  `EvaluationModel` rows, so a comparison is recorded with the frozen-set
+  results rather than only printed.
+
+**The frozen set (`datasets/team_v1.json`)** — two multi-step builds, each
+carrying BOTH a single-agent program (`metadata.agent_script`) and the team
+decomposition (`metadata.team`: members, dependency-aware subtasks, one script
+per subtask): `team.multi_leg_build.001` (two independent module legs + a
+dependent report) and `team.verified_fix.001` (a repair + an independent
+verification leg). The single-agent program also runs in the standing offline
+gate like any other task.
+
+**The recorded 2026-10-18 measurement** (3 trials × 2 tasks, offline scripted
+tier): quality 1.0 both (6/6 measured); wall clock 1454 ms single vs 2234 ms
+team (+53.6%); tool calls 27 vs 30; model steps 33 vs 45. Verdict: **not
+adopted** — quality equal, no latency/cost gain. This is the expected offline
+result: every evaluation tool executes synchronously in one event loop, so
+"parallel" legs cannot overlap real work while the team pays the plan/task
+overhead. The harness is the gate for re-measurement on the live tier; nothing
+in the default path routes work to a team.
+
+**The live tier (`multi_agent_compare_live`).** The same comparison with REAL
+models: `LiveTeamAgentInvoker` runs the identical real stack with NO script
+pool — every subtask resolves the operator's real `modelSettings` through the
+production `build_chat_model` path (the scripted seam's pool is never set, and
+if the seam is installed by an offline trial in the same process an unset pool
+delegates to the original build) — and the single-agent variant is the
+production `ServiceAgentInvoker`. Without model settings every trial is
+honestly `unmeasured` ("published unmeasured, never fabricated"): the live
+verdict is open until a run with a configured provider. Token/cost axes are
+published only when a variant's REAL trajectories reported them
+(`team_benchmark.measured_usage`) — the scripted tier's zeros stay unmeasured,
+and a live run's provider-reported usage is summed. Opt-in live smoke:
+`test_live_team_comparison_through_a_real_provider` (`HARNESS_TEAM_LIVE_IT=1`,
+never in CI; `HARNESS_TEAM_LIVE_{PROVIDER,MODEL,BASE_URL,API_KEY}`).
 
 ## 14. Production failure mining & self-improvement
 
@@ -340,6 +493,8 @@ suite with the change applied and reverts it on rejection.
 
 ## Related
 
-- `docs/harness/decisions.md` — ADR-H157 (this subsystem).
+- `docs/harness/decisions.md` — ADR-H157 (this subsystem), ADR-H213 (multi-agent
+  adoption is measured, never assumed).
 - `docs/harness/architecture.md` — the runtime the evaluation drives.
+- `docs/harness/bot-team-orchestration.md` — the team machinery W12 measures.
 - `docs/NAVIGATION.md` — the update-trigger table.

@@ -28,6 +28,7 @@ from .engineering import UiEngineering
 from .mode import classify_request as _classify_request
 from .model import (
     AddWidgetInput,
+    AppSurface,
     BlueprintOwner,
     BlueprintScope,
     CatalogQuery,
@@ -95,9 +96,13 @@ def _empty_layout() -> WorkspaceLayout:
 
 
 class UiService:
-    def __init__(self, store: Any, catalog: Optional[UiCatalog] = None, tasks: Any = None) -> None:
+    def __init__(self, store: Any, catalog: Optional[UiCatalog] = None, tasks: Any = None, locks: Any = None) -> None:
         self._store = store
         self._catalog = catalog or UiCatalog()
+        # The SDK lock registry is attached at boot (or via the module singleton
+        # in tests). Keeping it on the instance means enforcement still works if
+        # the singleton is unavailable for any reason.
+        self._locks = locks
         # Phase 7: the Engineer-mode orchestration rides the EXISTING Task/Plan
         # runtime (never a second loop). `tasks` is the shared TaskManager; None
         # simply means engineering is unavailable (the tools report it honestly).
@@ -151,6 +156,22 @@ class UiService:
             "dataSourceRegistry": self.list_data_sources(),
             "components": [c.id for c in components],
         }
+
+    def register_surfaces(self, surfaces: list[AppSurface], *, actor: Optional[str] = None) -> dict[str, Any]:
+        """Replace the app's fixed screen inventory (synced from the host).
+
+        The host derives this from its own tab registry; the runtime persists it
+        so the agent can answer "where does X live?" after a restart. Saved
+        dashboards remain a separate list — an empty batch never wipes it.
+        """
+        registered = self._store.replace_surfaces(surfaces)
+        if registered:
+            self._record(
+                "register_surfaces", None, "completed", actor,
+                detail=f"registered {registered} app screen(s)", result={"screens": registered},
+            )
+            _publish("ui.surfaces.registered", {"screens": registered})
+        return {"total": len(surfaces), "registered": registered}
 
     def list_data_sources(self) -> dict[str, Any]:
         """The registry of valid data-source strings the runtime understands.
@@ -227,12 +248,17 @@ class UiService:
     def get_application_map(self, *, owner_id: Optional[str] = None) -> dict[str, Any]:
         """A structured map of the UI the agent can reason about.
 
-        The persisted desired state (blueprints) + the composable component
-        catalog. Live rendered-DOM state is provided by the front door, which
-        augments this with the current page's rendered instances.
+        Three DISTINCT things, never conflated:
+          * ``screens`` — the app's fixed screens and sub-tabs with deep links
+            (synced from the host's tab registry; e.g. Memory → Reviews);
+          * ``pages`` — the user's saved dashboards/workspaces;
+          * ``capabilities`` — the composable component catalog.
+        Live rendered-DOM state is provided by the front door, which augments
+        this with the current page's rendered instances.
         """
         pages, total = self._store.list_blueprints(ListBlueprintsQuery(limit=200), owner_id=None)
         return {
+            "screens": [s.model_dump(by_alias=True) for s in self._store.list_surfaces()],
             "pages": [p.model_dump(by_alias=True) for p in pages],
             "pageCount": total,
             "capabilities": self.get_capabilities(),
@@ -523,6 +549,44 @@ class UiService:
         _publish(UiEventType.PAGE_CREATED.value, {"blueprintId": saved.id, "title": saved.title})
         return saved
 
+    def _assert_unlocked(
+        self,
+        blueprint_id: str,
+        action: str,
+        ops: Optional[list[dict[str, Any]]] = None,
+        instance_ids: Optional[list[str]] = None,
+    ) -> None:
+        """Refuse a mutation on a locked page (and its locked widget instances).
+
+        Locks are enforced HERE, not only at the SDK route, so the Pages UI, the
+        `/api/ui` routes and the `ui_*` agent tools all obey them. The unlock
+        token arrives through the SDK middleware's contextvar; an agent tool run
+        carries no request header and is therefore blocked until the user
+        unlocks through the SDK/UI.
+        """
+        # Only an explicitly attached registry can own locks. Do NOT fall back
+        # to a process singleton: a directly constructed service in a test or
+        # evaluation must never consult another runtime's (possibly closed) DB.
+        locks = self._locks
+        if locks is None:
+            return
+        try:
+            from ..sdk.locks import LockError  # noqa: PLC0415
+        except Exception:  # noqa: BLE001 - SDK absence means no locks exist
+            return
+        try:
+            locks.assert_allowed("page", blueprint_id, action)
+            ids = list(instance_ids or [])
+            for op in ops or []:
+                instance_id = op.get("instanceId")
+                if instance_id:
+                    ids.append(instance_id)
+            for instance_id in dict.fromkeys(ids):
+                if instance_id:
+                    locks.assert_allowed("widget", f"{blueprint_id}:{instance_id}", action)
+        except LockError as exc:
+            raise UiError("UI_LOCKED", exc.message) from exc
+
     def update_page(self, blueprint_id: str, input_model: UpdatePageInput, *, owner_id: Optional[str] = None, actor: Optional[str] = None, expected_revision: Optional[int] = None) -> UiBlueprint:
         meta = {"op": "update_meta"}
         if input_model.title is not None:
@@ -549,8 +613,26 @@ class UiService:
         self._record("duplicate_page", saved.id, "completed", actor, detail=f"duplicated from {source.id}", result={"blueprintId": saved.id, "sourceId": source.id})
         return saved
 
+    def delete_page(self, blueprint_id: str, *, owner_id: Optional[str] = None, actor: Optional[str] = None) -> bool:
+        """Delete a page, refusing when it (or a widget on it) is locked."""
+        blueprint = self.get_blueprint(blueprint_id, owner_id=owner_id)
+        instance_ids = [
+            w.id for s in blueprint.layout.sections for c in s.columns for w in c.widgets
+        ]
+        self._assert_unlocked(blueprint.id, "delete", instance_ids=instance_ids)
+        removed = self._store.delete_blueprint(blueprint.id)
+        self._record("delete_page", blueprint.id, "completed", actor, detail=f"deleted {blueprint.title}", result={"blueprintId": blueprint.id})
+        _publish(UiEventType.PAGE_UPDATED.value, {"blueprintId": blueprint.id, "deleted": True})
+        return removed
+
     def save_layout(self, input_model: SaveLayoutInput, *, owner_id: Optional[str] = None, actor: Optional[str] = None) -> UiBlueprint:
         blueprint = self.get_blueprint(input_model.blueprint_id, owner_id=owner_id)
+        instance_ids = [
+            w.id for s in blueprint.layout.sections for c in s.columns for w in c.widgets
+        ] + [
+            w.id for s in input_model.layout.sections for c in s.columns for w in c.widgets
+        ]
+        self._assert_unlocked(blueprint.id, "write", instance_ids=instance_ids)
         candidate = blueprint.model_copy(deep=True)
         candidate.layout = input_model.layout
         candidate.revision = blueprint.revision + 1
@@ -562,6 +644,10 @@ class UiService:
 
     def restore_revision(self, input_model: RestoreRevisionInput, *, owner_id: Optional[str] = None, actor: Optional[str] = None) -> UiBlueprint:
         blueprint = self.get_blueprint(input_model.blueprint_id, owner_id=owner_id)
+        instance_ids = [
+            w.id for s in blueprint.layout.sections for c in s.columns for w in c.widgets
+        ]
+        self._assert_unlocked(blueprint.id, "write", instance_ids=instance_ids)
         previous = self._store.get_revision(blueprint.id, input_model.revision)
         if previous is None:
             raise UiError("UI_REVISION_NOT_FOUND", f"revision {input_model.revision} is not retained")
@@ -577,6 +663,7 @@ class UiService:
 
     def _mutate(self, blueprint_id: str, ops: list[dict[str, Any]], operation: str, *, owner_id: Optional[str], actor: Optional[str], expected_revision: Optional[int], event: Optional[UiEventType] = None, summary: Optional[str] = None) -> UiBlueprint:
         blueprint = self.get_blueprint(blueprint_id, owner_id=owner_id)
+        self._assert_unlocked(blueprint_id, "write", ops)
         result = engine_apply_ops(blueprint, ops, catalog=self._catalog)
         if not result.ok:
             self._record(operation, blueprint_id, "rejected", actor, detail="validation failed", error=result.issues[0].message if result.issues else "invalid", result={"issues": [i.model_dump(by_alias=True) for i in result.issues]})

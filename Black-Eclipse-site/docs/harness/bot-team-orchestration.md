@@ -1,7 +1,7 @@
 ---
 title: Bot Team Orchestration
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-18
 ---
 
 # Bot Team Orchestration
@@ -174,6 +174,23 @@ repair → re-verification, conflict disclosure), `test_team_e2e.py` (the real
   executor (`tasks/bootstrap.py`) records each A2A-dispatched run's
   `totalTokens`/`toolCalls` onto the root run's `BudgetTracker`, and refuses new
   work with a non-retryable `BUDGET_EXCEEDED` once the token budget is spent.
+
+## Measured adoption (round 4, W12)
+
+Concurrency is used **only where the benchmark shows a gain** (ADR-H213).
+`evaluation/team_benchmark.py` runs a frozen multi-step build both ways on the
+same task — one agent, and a 2–3 specialist team through this exact stack
+(`TeamService` → A2A → `TaskScheduler` → `execute_run`) — and
+`experiments.multi_agent_compare` grades both on the real resulting state,
+reporting quality, wall clock and tool calls with a deterministic adoption
+verdict (quality must not regress; adopt only on a ≥15% wall-clock gain or
+strictly fewer tool calls). The frozen set is
+`evaluation/datasets/team_v1.json`; each task carries both its single-agent
+program and its team decomposition. The first recorded measurement (2026-10-18,
+offline scripted tier, 3 trials × 2 tasks) found equal quality (1.0 vs 1.0) with
++53.6% wall time and more tool calls, so **the default path does not route work
+to a team**; the harness is the gate for re-measuring on the live tier. See
+`docs/harness/agent-evaluation.md` §13.1.
 
 ## Known limitations (with exact cause + remediation)
 

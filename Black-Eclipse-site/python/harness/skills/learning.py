@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
+from typing import Any, Optional
 
 from ..persistence import now_iso
 
@@ -315,11 +315,28 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
         }
         drafts.append(draft)
 
-    # ── 3. Successful procedure: a multi-step run completed with verified
-    #         evidence, AND the same successful workflow was observed at least
-    #         once before. An eligible run is not by itself proof a procedure
-    #         generalizes — recurrence is the evidence.
-    if (
+    # ── 3. Successful procedure. Round 4 (W6): a successful CONSTRUCTION
+    #         sequence (engineer → register a UI capability) is encoded with its
+    #         actual steps and constraints on the FIRST occurrence — the
+    #         registration ran, which is strong observable evidence — and the
+    #         generic tool-sequence candidate is suppressed for that run. The
+    #         generic path keeps its existing recurrence requirement.
+    construction_draft: Optional[dict[str, Any]] = None
+    if run.get("status") == "completed":
+        try:
+            from .procedures import (  # noqa: PLC0415 - keep the module import-light
+                construction_candidate_draft,
+                record_construction_recurrence,
+            )
+
+            construction_draft = construction_candidate_draft(run_id, store)
+            if construction_draft is not None:
+                record_construction_recurrence(store, run_id)
+        except Exception:  # noqa: BLE001 - detection must never break a run
+            construction_draft = None
+    if construction_draft is not None:
+        drafts.append(construction_draft)
+    elif (
         run.get("status") == "completed"
         and run.get("modelSteps", 0) >= _REUSABLE_MIN_STEPS
         and tool_successes

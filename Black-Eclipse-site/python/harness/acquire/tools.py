@@ -16,11 +16,12 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from ..code.events import emit_code_event
 from ..jobs.delivery import artifact_dir_for
 from ..persistence import now_iso
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
 from .adapters import collect
-from .budget import AcquisitionBudget
+from .budget import AcquisitionBudget, RunUsage
 from .registry import CLOSED_VALUE_SETS, MAX_SYMBOLS_PER_CALL, get_source, list_sources
 from .writer import write_csv
 
@@ -133,6 +134,17 @@ async def _acquire(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
             "The data connection isn't reachable from here, so I didn't collect anything.",
         )
 
+    # The RUN-scoped ledger: several pulls in one turn accumulate, so "bounded
+    # per call" can never mean "unbounded per turn".
+    usage = RunUsage.of(ctx)
+    if usage.exhausted:
+        return _refusal(
+            "RUN_LIMIT_REACHED",
+            f"This turn has already collected its share of data — {usage.exhausted}. "
+            "Ask again in a new turn to collect more.",
+            runUsage=usage.snapshot(),
+        )
+
     try:
         directory = artifact_dir_for(str(getattr(ctx, "run_id", "") or "run"))
     except Exception:  # noqa: BLE001 - no artifact destination is a refusal
@@ -140,6 +152,7 @@ async def _acquire(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
     budget = new_budget()
     rows, problems = await collect(source, symbols=symbols, params=params, bridge=bridge, budget=budget)
+    usage.absorb(budget)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"{source.id}_{stamp}.csv"
@@ -171,7 +184,7 @@ async def _acquire(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
             "licence": source.licence,
             "attribution": source.attribution,
         }],
-        "limits": budget.snapshot(),
+        "limits": {**budget.snapshot(), "run": usage.snapshot()},
     }
     (directory / f"{source.id}_{stamp}.manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
@@ -187,6 +200,16 @@ async def _acquire(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     else:
         text = f"I couldn't collect {source.label}: {stopped or 'no data was returned'}."
     status = "ok" if manifest["sources"][0]["complete"] else "partial"
+    # The chat's readable panel rides the run event stream (the same seam the
+    # computed-result panel uses): source, window, rows, completeness, licence
+    # and attribution come from the ONE manifest already written beside the CSV.
+    # Best-effort — an event never breaks a collection that succeeded.
+    await emit_code_event(ctx, "acquire.completed", {
+        "status": status,
+        "file": filename if written else None,
+        "manifest": manifest,
+        "problems": problems[:8],
+    })
     return text, {"status": status, "manifest": manifest, "file": filename if written else None, "problems": problems}
 
 
@@ -198,11 +221,12 @@ def register_acquire_tools(registry: ToolRegistry) -> list[str]:
         name="acquire",
         description=(
             "Collect a DATASET (many rows) from one declared source: daily price "
-            "history, an economic series, or company statements. Provide the source "
-            "id, the purpose (for the record), the instrument symbols when the source "
-            "takes them, and the source's own options. Writes a CSV plus a manifest; "
-            "a pull stopped at a limit is marked partial. For ONE fact, use the "
-            "retrieval tools instead — this is for volume."
+            "history, an economic series, company statements, a company's filing "
+            "index, or a connected dataset the operator declared. Provide the "
+            "source id, the purpose (for the record), the instrument symbols when "
+            "the source takes them, and the source's own options. Writes a CSV "
+            "plus a manifest; a pull stopped at a limit is marked partial. For ONE "
+            "fact, use the retrieval tools instead — this is for volume."
         ),
         input_schema=_obj({
             "source": {"type": "string", "enum": [s["id"] for s in list_sources()]},

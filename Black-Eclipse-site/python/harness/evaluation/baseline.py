@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .config import GRADER_API_VERSION
+from .provenance import require_provenance
 from .store import EvaluationStore
 
 
@@ -36,16 +37,44 @@ def save_baseline(
     provider: Optional[str] = None,
     config: Optional[dict[str, Any]] = None,
 ) -> str:
+    first_model = next(
+        (
+            trial.trajectory.model
+            for task in getattr(suite, "tasks", [])
+            for trial in getattr(task, "trials", [])
+            if getattr(getattr(trial, "trajectory", None), "model", None)
+        ),
+        {},
+    )
+    agent_version = agent_version or getattr(suite, "agent_version", None)
+    git_commit = git_commit or getattr(suite, "git_commit", None)
+    model = model or first_model.get("model")
+    provider = provider or first_model.get("provider")
+    metadata = getattr(suite, "metadata", None) or {}
+    config = dict(config or getattr(suite, "config", None) or {})
+    require_provenance({
+        "datasetChecksum": getattr(suite, "dataset_checksum", ""),
+        "agentVersion": agent_version,
+        "gitCommit": git_commit,
+        "config": config,
+        "metadata": metadata,
+    })
+    config = {
+        **config,
+        "graderVersion": GRADER_API_VERSION,
+        "taskFingerprintDigest": metadata.get("taskFingerprintDigest"),
+        "gitCommitUnavailable": bool(metadata.get("gitCommitUnavailable") or not git_commit),
+    }
     return eval_store.save_baseline(
         name=name,
-        runId=suite.run_id,
-        datasetChecksum=suite.dataset_checksum,
+        runId=getattr(suite, "run_id", ""),
+        datasetChecksum=getattr(suite, "dataset_checksum", ""),
         agentVersion=agent_version,
         gitCommit=git_commit,
         model=model,
         provider=provider,
         graderVersion=GRADER_API_VERSION,
-        config=config or {},
+        config=config,
         metrics=suite_metrics(suite),
     )
 

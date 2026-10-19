@@ -247,6 +247,9 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         "provenance": result.provenance.to_dict() if result.provenance else None,
         "outputs": result.outputs,
         "artifacts": [a.model_dump(by_alias=True) for a in result.artifacts],
+        # Phase 18 (§6.1): the figure payload when a recipe drew one — drawn from
+        # which recorded series, with the seed, and always the computed label.
+        "figure": result.figure.to_dict() if result.figure else None,
         "sourceDigest": result.source_digest,
         "inputDigests": result.input_digests,
         "interpreter": result.interpreter,

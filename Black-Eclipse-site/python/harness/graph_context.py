@@ -443,7 +443,7 @@ def _eligibility_dict(
         "toolCalls": tool_calls,
         "skillRequested": skill_requested,
         "isSkillRun": False,
-        "learnQueuePath": "/api/learning/candidates",
+        "learnQueuePath": "/?tab=skills&sub=skills.learning",
     }
 
 

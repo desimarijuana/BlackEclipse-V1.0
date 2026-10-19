@@ -6,32 +6,16 @@
 // Scope: interface chrome only (navigation, buttons, settings labels, empty
 // states). Never financial data, news, or AI output — those come from the API
 // and are not translated here.
+//
+// Domain slices live beside this file and are spread in (`./analysis`) so this
+// canonical file can SHRINK as domains move out (the size ratchet's intent).
+
+import { analysis } from './analysis';
+import { acquire } from './acquire';
+import { navigation } from './navigation';
+import { capabilityStudio } from './capability-studio';
 
 export const en = {
-  // Navigation (sidebar primary menu)
-  'nav.chat': 'ChatBot',
-  'nav.dashboard': 'Command Center',
-  'nav.investorEye': 'Investor Eye',
-  'nav.marketWorkspace': 'Chart Workspace',
-  'nav.discovery': 'Market Discover',
-  'nav.portfolio': 'Portfolio',
-  'nav.journal': 'Journal',
-  'nav.news': 'Market News',
-  'nav.earnings': 'Earnings',
-  'nav.heatmap': 'Market Bubbles',
-  'nav.economics': 'Economics',
-  'nav.alerts': 'Price Alerts',
-  'nav.skills': 'Skills',
-  'nav.memory': 'Eclipse Memory',
-  'nav.artifacts': 'Artifacts',
-  'nav.tasks': 'Tasks',
-  'nav.pages': 'Pages',
-  'nav.uiBuilder': 'UI Builder',
-  'nav.backtest': 'Quant Research',
-  'nav.researchData': 'Research Data',
-  'nav.graphStudio': 'Graph Studio',
-  'nav.bots': 'Bots',
-
   // Bots (autonomous, scheduled agents)
   'bots.title': 'Bots',
   'bots.subtitle': 'Persistent agents that run on a schedule or on demand — even after you close the browser.',
@@ -982,17 +966,8 @@ export const en = {
   'automations.delivery.message.trouble': 'I couldn’t finish {automationName}. It is saved in the app — open it there.',
 
   // ── Analysis / computed results (Phase 8) ────────────────────────────────
-  // A computed number says so, in words. It names the finance job, never the
-  // mechanism (no interpreter/module/exit-code vocabulary).
-  'analysis.computed': 'Worked out by Eclipse',
-  'analysis.retrieved': 'From a source',
-  'analysis.unavailable': 'This number has no record of where it came from, so Eclipse won’t show it.',
-  'analysis.noOutputs': 'Nothing came back from that.',
-  'analysis.saved': 'Saved',
-  'analysis.notASource': 'This was worked out by Eclipse from the data above — it isn’t a figure from a data source.',
-  'analysis.details': 'How Eclipse worked this out',
-  'analysis.needsInput': 'I need a bit more to work that out: {what}',
-  'analysis.notEnabled': 'Eclipse isn’t set up to work numbers out in this session.',
+  // The `analysis.*` language lives in `./analysis` (a domain slice spread into
+  // this dictionary at the end) — see that file.
 
   // ── Ready-made finance tools (Phase 9) ───────────────────────────────────
   // The user asks in words and answers in words. A "kit"/"scaffold"/"template"
@@ -1252,4 +1227,8 @@ export const en = {
   'modelRuntime.task.image_generation': 'Making images',
   'modelRuntime.task.audio': 'Audio',
   'modelRuntime.task.default': 'General',
+  ...analysis,
+  ...acquire,
+  ...navigation,
+  ...capabilityStudio,
 } as const;

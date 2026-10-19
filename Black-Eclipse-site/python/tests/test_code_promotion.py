@@ -296,3 +296,18 @@ def test_route_preview_unknown_task_404(monkeypatch):
     client = _client(monkeypatch, _StubPromoteService(_FakeStore([]), approvals, run_exists=False))
     assert client.post("/code/tasks/missing/promote/preview").status_code == 404
 
+
+def test_route_refuses_an_authority_change_before_requesting_approval(repo, monkeypatch):
+    # Round 4 (W4): the self-host floor refuses its own authority files, and the
+    # refusal happens BEFORE a single-use approval is created. `authorizers.py` is
+    # an authority path in selfhost.py but not a PROTECTED_PATHS entry, so this
+    # exercises the route's self-host check (policy.py is refused even earlier).
+    ws, store = _prepare(repo, "run10", {"python/harness/code/authorizers.py": "# changed\n"})
+    approvals = _FakeApprovals()
+    client = _client(monkeypatch, _StubPromoteService(store, approvals))
+
+    refused = client.post("/code/tasks/run10/promote/preview")
+    assert refused.status_code == 403
+    assert "SELFHOST_AUTHORITY_REFUSED" in refused.text
+    assert approvals._rows == {}  # noqa: SLF001 - the test owns the fake
+

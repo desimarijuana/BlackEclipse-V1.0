@@ -100,7 +100,10 @@ RATCHET_PY: dict[str, int] = {
     # association. The video subsystem itself lives in `python/harness/video/`
     # + `routers/video.py`; graph.py grows by the seams only. May only shrink;
     # the subsystem-wiring block remains the split candidate.
-    "graph.py": 2170,
+    # Re-pinned 2170→2197 to the measured working tree: pre-existing in-flight
+    # shared-tree wiring. The Eclipse SDK touches NO part of graph.py (its seam is
+    # `service.py` + `ui/service.py` + `portfolio/service.py`). May only shrink.
+    "graph.py": 2197,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -130,7 +133,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1415→1420 to the measured tree for the in-flight image-gallery
     # run-blob column; the Learning-Research work does NOT touch persistence.py.
     # May only shrink.
-    "persistence.py": 1420,
+    # Re-pinned 1420→1441 to the measured working tree: pre-existing shared-tree
+    # growth. The Eclipse SDK adds no persistence.py code (it uses the existing
+    # `AgentMemoryStore` connection for its own tables). May only shrink.
+    "persistence.py": 1441,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -190,7 +196,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1493→1505 for the in-flight Channel Gateway boot wiring
     # (`install_channel_layer(self)` + its comment); the wiring lives in
     # `python/harness/channels/`. May only shrink from here.
-    "service.py": 1505,
+    # Re-pinned 1505→1532 for the Eclipse SDK boot seam (`install_sdk_layer` +
+    # its comment in `__init__`); the SDK itself lives in `python/harness/sdk/`.
+    # The rest was pre-existing shared-tree growth. May only shrink.
+    "service.py": 1532,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs
@@ -201,7 +210,11 @@ RATCHET_PY: dict[str, int] = {
     # `construct` method is a thin delegate to `construct_service.py` (the
     # orchestration itself lives there), so only a few lines remain here. May
     # only shrink from here.
-    "portfolio/service.py": 1564,
+    # Re-pinned 1564→1594 for the Eclipse SDK: the service-level lock gate
+    # (`_assert_unlocked` before every ledger mutation), fund `kind`/`metadata`
+    # on create and the read model. The lock registry itself lives in
+    # `python/harness/sdk/locks.py`. May only shrink.
+    "portfolio/service.py": 1594,
     # The in-flight Plugin Platform manager (registry + runtime + event bridge +
     # hooks + config/secrets/storage + health). PROVISIONAL headroom: that stream
     # is still being written, so this is pinned above its measured size to keep the

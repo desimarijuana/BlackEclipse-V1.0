@@ -328,6 +328,24 @@ def test_version_immutability(store):
         store.save_version(m.model_dump(), m.content_hash())
 
 
+def test_a_source_version_bump_records_its_base(store):
+    from harness.skills.registry import _source_base_version
+
+    first = SkillManifest(**_manifest())
+    store.upsert_skill(skill_id=first.id, name=first.name, description=first.description,
+                       category=first.category, latest_version=first.version,
+                       status=first.status, tags=first.tags)
+    store.save_version(first.model_dump(), first.content_hash())
+
+    bump = SkillManifest(**_manifest(version="1.1.0"))
+    assert _source_base_version(store, bump) == "1.0.0"
+    assert _source_base_version(store, first) is None
+
+    store.save_version(bump.model_dump(), bump.content_hash(), base_version="1.0.0")
+    major = SkillManifest(**_manifest(version="2.0.0"))
+    assert _source_base_version(store, major) == "1.1.0"
+
+
 # -- Dependency visibility / preflight (Phase 14) ----------------------------
 
 

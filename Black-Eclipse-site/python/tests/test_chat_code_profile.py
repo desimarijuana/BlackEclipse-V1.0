@@ -8,7 +8,7 @@ push, open a review request or deploy.
 
 from __future__ import annotations
 
-from harness.agents import BROWSER_TOOLS, CHAT_CODE_TOOLS, CODE_AGENT_TOOLS, COMPUTER_TOOLS, ECLIPSE_AGENT
+from harness.agents import BROWSER_TOOLS, CHAT_CODE_TOOLS, CODE_AGENT_TOOLS, COMPUTER_TOOLS, ECLIPSE_AGENT, UI_TOOLS
 from harness.code.policy import EXTERNAL_ACTION_TOOLS, allowed_tools
 from harness.code.tools import register_code_tools
 from harness.graph import chat_code_allowlist
@@ -295,6 +295,17 @@ EXPECTED = (
     'skill_view',
     'session_search',
     'session_open',
+    # The learning loop is read-only and must survive a code-profile turn, like
+    # the app-surface tools do.
+    'learning_review_list',
+    'learning_candidate_list',
+    # Bounded read-only GET over the app's own loopback API (QA Round 1).
+    'app_api_get',
+    # Skill lifecycle: versions + review trails are read-only; activation and the
+    # learning switch are approval-gated writes (removed at plan_only).
+    'skill_version_history',
+    'skill_reviews',
+    'skill_learning_get',
     # The acquire loop (skill install/uninstall/sources + MCP catalog/install) —
     # deliberately part of the chat code profile: "install this skill / MCP
     # integration" is a valid code request and must not fall off the surface.
@@ -306,6 +317,9 @@ EXPECTED = (
     'skill_create',
     'skill_update',
     'skill_delete',
+    'skill_version_evaluate',
+    'skill_version_activate',
+    'skill_learning_set',
     'mcp_integrations',
     'mcp_install',
     'mcp_probe',
@@ -320,7 +334,10 @@ EXPECTED = (
     'job_run_now',
     # Change review (Phase 19): the repo's own rules over the turn's diff.
     'review_change',
-) + tuple(BROWSER_TOOLS) + tuple(COMPUTER_TOOLS)
+    # UI Engineering: app-surface introspection must survive the code profile —
+    # a QA turn phrased with "repository"/"tabs" is classified as code, and the
+    # agent still needs `ui_get_application_map` to answer where something lives.
+) + tuple(BROWSER_TOOLS) + tuple(COMPUTER_TOOLS) + tuple(UI_TOOLS)
 
 
 def _registry() -> ToolRegistry:

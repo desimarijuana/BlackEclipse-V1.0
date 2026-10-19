@@ -75,6 +75,16 @@ async function getHealth(timeoutMs = 1500): Promise<HealthInfo | null> {
   }
 }
 
+/**
+ * Is the runtime reachable WITHOUT spawning it? Used by non-agent checks (the
+ * SDK design lock) that must not pay a cold-start cost or start Python merely
+ * to look for locks. A runtime that is down cannot hold locks.
+ */
+export async function pythonRuntimeReachable(timeoutMs = 1_200): Promise<boolean> {
+  if (g.__harnessPyHealthyAt && Date.now() - g.__harnessPyHealthyAt < HEALTH_TTL_MS) return true;
+  return (await getHealth(timeoutMs)) !== null;
+}
+
 async function isHealthy(timeoutMs = 1500): Promise<boolean> {
   return (await getHealth(timeoutMs)) !== null;
 }

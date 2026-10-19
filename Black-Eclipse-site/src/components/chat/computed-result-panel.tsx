@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Calculator, ChevronDown, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
+import { ArtifactView, entryFor, useRunArtifactIndex } from './artifact-view';
 import {
   coerceComputedResult,
   provenanceStatusKey,
@@ -15,6 +16,11 @@ import {
 // an always-visible "Worked out by Eclipse" label plus the method line, and a
 // "how did you get this" affordance behind which the inputs and method live. A
 // computed number without a provenance record renders UNAVAILABLE, never bare.
+//
+// Phase 15/18: the artifacts this run produced render through `ArtifactView`
+// (an image inline via the Artifact Center route, everything else a download),
+// and a FIGURE (Phase 18) shows its plotted series and seed beside the image —
+// always under the computed label, never presented as evidence.
 
 const MAX_ROWS = 20;
 
@@ -30,9 +36,18 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export function ComputedResultPanel({ result, compact = false }: { result: unknown; compact?: boolean }) {
+export function ComputedResultPanel({
+  result,
+  compact = false,
+  runId,
+}: {
+  result: unknown;
+  compact?: boolean;
+  runId?: string;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const entries = useRunArtifactIndex(runId);
   const data = coerceComputedResult(result);
   if (!data) return null;
 
@@ -41,6 +56,10 @@ export function ComputedResultPanel({ result, compact = false }: { result: unkno
   const rows = Object.entries(data.outputs)
     .filter(([key]) => !key.startsWith('_'))
     .slice(0, MAX_ROWS);
+  const figure = data.figure;
+  const figureArtifact = figure?.artifact
+    ? data.artifacts.find((a) => a.name === figure.artifact) ?? null
+    : null;
 
   return (
     <div className={cn('mt-2 rounded-xl border border-border/30 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
@@ -58,6 +77,29 @@ export function ComputedResultPanel({ result, compact = false }: { result: unkno
 
       {open ? (
         <div className="mt-2 space-y-2 text-[10px]">
+          {figure ? (
+            <div className="space-y-1">
+              {figureArtifact ? (
+                <ArtifactView
+                  artifact={figureArtifact}
+                  entry={entryFor(entries, figureArtifact)}
+                />
+              ) : null}
+              {figure.series.length > 0 ? (
+                <p className="text-[9px] text-muted-foreground/80">
+                  {t('analysis.figureDrawnFrom', {
+                    what: figure.series.map((s) => `${s.name} (${s.points})`).join(', '),
+                  })}
+                </p>
+              ) : null}
+              {figure.seed !== null ? (
+                <p className="text-[9px] text-muted-foreground/60">
+                  {t('analysis.figureSeed', { seed: String(figure.seed) })}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {rows.length > 0 ? (
             <ul className="space-y-0.5">
               {rows.map(([key, value]) => (
@@ -75,12 +117,13 @@ export function ComputedResultPanel({ result, compact = false }: { result: unkno
             <div>
               <p className="font-semibold text-foreground">{t('analysis.saved')}</p>
               <ul className="space-y-0.5 text-muted-foreground/80">
-                {data.artifacts.map((a) => (
-                  <li key={a.sha256} className="flex items-center gap-1.5">
-                    <span>{a.name}</span>
-                    <span className="font-mono text-[9px] text-muted-foreground/60">{a.sha256.slice(0, 12)}</span>
-                  </li>
-                ))}
+                {data.artifacts
+                  .filter((a) => !figureArtifact || a.name !== figureArtifact.name)
+                  .map((a) => (
+                    <li key={a.sha256}>
+                      <ArtifactView artifact={a} entry={entryFor(entries, a)} compact={compact} />
+                    </li>
+                  ))}
               </ul>
             </div>
           ) : null}

@@ -23,7 +23,9 @@ import type {
 
 // SEC's fair-access policy requires a declared User-Agent with a contact email.
 // Verified: an email-shaped contact gets 200 where a URL-only UA gets 403.
-const USER_AGENT = 'BlackEclipse/1.0 (open-source financial research; contact@blackeclipse.local)';
+// Exported so every SEC route (this provider, the filing-list capability)
+// declares the SAME contact — one UA, not two that can drift.
+export const SEC_USER_AGENT = 'BlackEclipse/1.0 (open-source financial research; contact@blackeclipse.local)';
 const TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json';
 const FACTS_URL = (cik: number) =>
   `https://data.sec.gov/api/xbrl/companyfacts/CIK${String(cik).padStart(10, '0')}.json`;
@@ -56,7 +58,7 @@ async function loadCikMap(): Promise<Map<string, number>> {
 
   const res = await safeGet({
     url: TICKERS_URL,
-    headers: { 'user-agent': USER_AGENT },
+    headers: { 'user-agent': SEC_USER_AGENT },
     timeoutMs: 10_000,
     maxBytes: 8 * 1024 * 1024,
   });
@@ -81,6 +83,20 @@ async function loadCikMap(): Promise<Map<string, number>> {
 /** Test seam. */
 export function __resetSecCikCache(): void {
   memoryMap = null;
+}
+
+/**
+ * Resolve a US ticker to its SEC CIK via the cached company_tickers map.
+ * Exposed for the filing-LIST bridge capability: the CIK map IS the US issuer
+ * index, so that route needs no JDDS read and a ticker outside the map is
+ * honestly unresolved (null) rather than guessed. A map READ failure throws —
+ * the caller must tell "unreachable" apart from "no such ticker".
+ */
+export async function resolveSecCik(symbol: string): Promise<number | null> {
+  const ticker = symbol.trim().toUpperCase();
+  if (!ticker) return null;
+  const map = await loadCikMap();
+  return map.get(ticker) ?? null;
 }
 
 // ── XBRL fact extraction ────────────────────────────────────────────────────
@@ -403,7 +419,7 @@ export const secFundamentalsProvider: FundamentalsProvider = {
     try {
       const res = await safeGet({
         url: FACTS_URL(cik),
-        headers: { 'user-agent': USER_AGENT },
+        headers: { 'user-agent': SEC_USER_AGENT },
         timeoutMs: 10_000,
         maxBytes: 25 * 1024 * 1024,
       });

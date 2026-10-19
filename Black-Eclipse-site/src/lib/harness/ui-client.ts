@@ -6,6 +6,11 @@
 // The wire contract is the Python runtime's camelCase form; it mirrors
 // `src/lib/ui-engineering/` (the pure TS foundation) so a blueprint produced
 // here validates and renders identically in the browser.
+//
+// When the user unlocked a resource through the Eclipse SDK, the session's
+// unlock token is attached so mutations obey the same lock gate as `/api/sdk`.
+
+import { sdkUnlockHeaders } from '@/lib/sdk';
 
 export type ComponentAvailability = "available" | "unavailable";
 export type OwnershipKind = "core" | "plugin" | "user";
@@ -133,7 +138,7 @@ interface UiEnvelope { success?: boolean; error?: string }
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/ui${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...sdkUnlockHeaders(), ...(init?.headers ?? {}) },
   });
   const data = (await res.json().catch(() => ({}))) as T & UiEnvelope;
   if (!res.ok) throw new Error(data.error || `ui request failed (${res.status})`);
@@ -141,7 +146,10 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function getApplicationMap() {
-  return req<{ pageCount: number; pages: BlueprintSummary[]; capabilities: UiCapabilities }>("/application-map");
+  return req<{ screens: AppSurfaceView[]; pageCount: number; pages: BlueprintSummary[]; capabilities: UiCapabilities }>("/application-map");
+}
+export function registerSurfaces(surfaces: unknown[]) {
+  return req<{ total: number; registered: number }>("/surfaces", { method: "POST", body: JSON.stringify({ surfaces }) });
 }
 export function getCapabilities() {
   return req<UiCapabilities>("/capabilities");
@@ -253,4 +261,17 @@ export interface UiCapabilities {
   categories: string[];
   dataSources: string[];
   components: string[];
+}
+
+export interface AppSurfaceTabView {
+  id: string;
+  label: string;
+  deepLink: string;
+}
+
+export interface AppSurfaceView {
+  id: string;
+  label: string;
+  deepLink: string;
+  tabs: AppSurfaceTabView[];
 }

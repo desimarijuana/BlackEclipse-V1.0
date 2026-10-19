@@ -1,13 +1,14 @@
 "use client";
 
 // ── Skill Control Room — the Phase-3 screen ─────────────────────────────────
-// Tabs: Skills Library · Learning Queue · Evaluation Center · Execution
-// Activity. Skill Detail and Draft Review are drill-down views inside the
-// Library tab. All data comes from the Python runtime through the front door;
-// every mutating action is re-checked server-side.
+// Tabs come from SKILLS_TABS (src/lib/app-screens.ts) — the same list the
+// agent's surface map reads. Skill Detail and Draft Review are drill-down
+// views inside the Library tab. All data comes from the Python runtime through
+// the front door; every mutating action is re-checked server-side.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb, Sparkles, Wrench } from "@/lib/icons";
+import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb, Sparkles, Wrench, type LucideIcon } from "@/lib/icons";
+import { SKILLS_TABS, screenTab, type SkillsTabId } from "@/lib/app-screens";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import {
@@ -32,15 +33,24 @@ import { LearningJourneyPanel } from "./learning-journey";
 import { OnboardingPanel } from "./onboarding";
 import { SkillMaintenancePanel } from "./skill-maintenance";
 
-type Tab = "library" | "start" | "project" | "bundles" | "learn" | "learning" | "journey" | "maintenance" | "evaluation" | "activity";
+type Tab = SkillsTabId;
+
+// Labels + ids come from `SKILLS_TABS` (the same list the agent's surface map
+// reads); only the icons/badges are screen-local presentation.
+const TAB_ICONS: Record<Tab, LucideIcon> = {
+  library: Library, start: Sparkles, project: FolderGit2, bundles: Boxes,
+  learn: GraduationCap, learning: Lightbulb, journey: GitBranch, maintenance: Wrench,
+  evaluation: FlaskConical, activity: Activity,
+};
 
 export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("library");
   // Deep links (e.g. "Learning Queue" from an originating chat run) land on the
-  // matching sub-tab: skills.library/learning/evaluation/activity.
+  // matching sub-tab. The slug list is the rendered tab list, so a tab cannot
+  // exist in the bar but be unreachable by link.
   useSubroute("skills", (req) => {
-    const next = req.subroute.split(".")[1] as Tab | undefined;
-    if (next && ["library", "start", "project", "bundles", "learn", "learning", "journey", "maintenance", "evaluation", "activity"].includes(next)) setTab(next);
+    const def = screenTab(SKILLS_TABS, req.subroute.split(".")[1]);
+    if (def) setTab(def.id);
   });
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
@@ -262,18 +272,12 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     }
   }, [flash, loadSkills]);
 
-  const tabs = useMemo(() => [
-    { id: "library", label: "Skills Library", icon: Library },
-    { id: "start", label: "Start Here", icon: Sparkles },
-    { id: "project", label: "Project Skills", icon: FolderGit2 },
-    { id: "bundles", label: "Bundles", icon: Boxes },
-    { id: "learn", label: "Learn a Skill", icon: GraduationCap },
-    { id: "learning", label: "Learning Queue", icon: Lightbulb, badge: candidates.length > 0 ? <Badge>{candidates.length}</Badge> : undefined },
-    { id: "journey", label: "Journey", icon: GitBranch },
-    { id: "maintenance", label: "Maintenance", icon: Wrench },
-    { id: "evaluation", label: "Evaluation Center", icon: FlaskConical },
-    { id: "activity", label: "Execution Activity", icon: Activity },
-  ], [candidates.length]);
+  const tabs = useMemo(() => SKILLS_TABS.map((t) => ({
+    id: t.id,
+    label: t.label,
+    icon: TAB_ICONS[t.id],
+    badge: t.id === "learning" && candidates.length > 0 ? <Badge>{candidates.length}</Badge> : undefined,
+  })), [candidates.length]);
 
   return (
     // Full-width screen container matching the app convention (`w-full`,

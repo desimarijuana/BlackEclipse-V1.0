@@ -140,6 +140,8 @@ _CODE_KINDS: dict[str, FailureKind] = {
     "permission_denied": FailureKind.AUTHORIZATION,
     "auth_error": FailureKind.AUTHENTICATION,
     "security_blocked": FailureKind.POLICY_DENIED,
+    # Round 4: a UI request named a capability the catalog cannot satisfy.
+    "ui_capability_gap": FailureKind.CAPABILITY,
     "cancelled": FailureKind.UNKNOWN,
     "deterministic_error": FailureKind.UNKNOWN,
     "tool_budget_exceeded": FailureKind.RESOURCE_EXHAUSTION,
@@ -185,6 +187,10 @@ _MESSAGE_RULES: tuple[tuple[FailureKind, tuple[str, ...]], ...] = (
     (FailureKind.ASSERTION, ("assertionerror", "assertion failed", "test failed", "expected")),
     (FailureKind.BROWSER, ("element not found", "navigation", "locator", "selector", "no such element")),
     (FailureKind.PLUGIN, ("plugin", "manifest", "contribution")),
+    (FailureKind.CAPABILITY, (
+        "no registered component", "capability gap", "no component matches",
+        "not in the catalog",
+    )),
     (FailureKind.DATA_QUALITY, ("stale", "no data", "missing data", "data quality", "unavailable")),
     (FailureKind.PROVIDER_OUTAGE, (
         "internal server", "server error", "bad gateway", "service unavailable",

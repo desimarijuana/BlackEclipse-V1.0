@@ -1,7 +1,7 @@
 ---
 title: Capability Extension Plan (author pages, widgets, tools, skills)
 status: Draft
-last-verified: 2026-10-10
+last-verified: 2026-10-18
 ---
 
 # Capability Extension Plan
@@ -108,7 +108,7 @@ background (tracked) → register → compose again.**
   This is the deepest change and is deliberately last; Phase A already proves
   the render path.
 
-## Implementation status (2026-10-10)
+## Implementation status (2026-10-10; updated 2026-10-18)
 
 - **Phase A — done.** Pages tab renders blueprints live; save/revert; `live-page.ts` bridge.
 - **Phase B — done.** Prompt section; classifier signals; and the current page is
@@ -120,14 +120,30 @@ background (tracked) → register → compose again.**
   existing scheduler dispatches the task (the bug: it stopped at PLANNING), and
   pins the invoking run's model on the plan metadata so the dispatched task uses
   the operator's provider.
-- **Phase D — started.** The UI Builder shows a live engineering-task status card
-  (polls `GET /ui/engineering/{planId}`). The full Capability Studio (tools /
-  plugins / skills in one place) remains.
-- **Phase E — started (one-way).** `CustomizableWorkspace` gained
-  `onLayoutChange`; the Command Center mirrors its board into a per-dashboard
-  blueprint (`dashboard-blueprint.ts`), so Eclipse can see/edit the board the
-  user actually has and it appears as a page. The reverse (agent edit → live
-  dashboard) is the deliberate follow-up.
+- **Phase D — done (updated 2026-10-18).** The UI Builder shows a live
+  engineering-task status card (polls `GET /ui/engineering/{planId}`). The
+  **install half is real through the operator route, not an unattended agent
+  tool**: the acquisition install handler performs a plugin install through the
+  ONE plugin platform (`pluginPath` fact, `operator=true`, `enable=false` — never
+  self-enables), a skill install through the single-use digest-bound
+  `skill_install` approval, and a kit through a durable code task
+  (`recovery/acquire_handlers.py`, `test_recovery_install_handlers.py`). Skills
+  stay evaluation+promotion gated for enablement. The **Capability Studio**
+  (`src/components/screens/capability-studio/`, AppTab `ui-builder`) is now the
+  one navigable surface: pages & widgets (the embedded UI Builder), tools &
+  plugins (`PluginsScreen`), skills (a read-only summary; enable stays in the
+  Skills manager) and integrations (read-only data-sources + MCP summaries;
+  edits stay in Settings). It is a navigation shell over the existing managers —
+  no second registry, no enable path of its own; section deep link
+  `?tab=ui-builder&sub=studio.<section>`; ADR-H216.
+- **Phase E — done (updated 2026-10-18).** The one-way mirror had already landed
+  (`onLayoutChange` → per-dashboard blueprint). The **reverse sync is now
+  implemented**: `dashboard-blueprint.ts` fetches the mirrored layout
+  (`fetchDashboardLayout`), tracks the revisions this client published
+  (`isOwnPublish`) so it never fights the user, and the Command Center applies a
+  REMOTE revision — persist into this dashboard's storage + remount — only when a
+  key-order-insensitive comparison (`stableLayoutKey`) finds a real difference.
+  Tests: `dashboard-blueprint.test.ts`.
 
 Metrics: `vitest` 239 files / 2524 tests, UI `pytest` 62, `tsc` + `eslint` clean.
 

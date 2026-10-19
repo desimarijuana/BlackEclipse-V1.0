@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import require_operator, service
 from ..ui.model import (
+    AppSurface,
     Availability,
     BlueprintKind,
     BlueprintScope,
@@ -60,6 +61,8 @@ def _raise(exc: Exception) -> None:
             code = 403
         elif exc.code == "UI_CONFLICT":
             code = 409
+        elif "LOCK" in exc.code:
+            code = 423
         else:
             code = 400
         detail: Any = {"code": exc.code, "message": exc.message}
@@ -164,6 +167,16 @@ class RegisterComponentsBody(BaseModel):
     specs: list[UiComponentSpec] = Field(default_factory=list)
 
 
+class RegisterSurfacesBody(BaseModel):
+    """The app's fixed screen inventory, derived and synced by the host.
+
+    An empty batch is accepted as a no-op — a failed or blank sync must never
+    wipe the runtime's screen inventory.
+    """
+
+    surfaces: list[AppSurface] = Field(default_factory=list)
+
+
 class ClassifyBody(BaseModel):
     text: str = Field(..., min_length=1)
     blueprintId: Optional[str] = None  # noqa: N815
@@ -202,6 +215,16 @@ def classify_request(request: Request, body: ClassifyBody, _: bool = Depends(req
 def application_map(request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         result = _service().get_application_map()
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
+    return {"success": True, **result}
+
+
+@router.post("/ui/surfaces")
+def register_surfaces(request: Request, body: RegisterSurfacesBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Replace the runtime's app-screen inventory (synced from the host)."""
+    try:
+        result = _service().register_surfaces(body.surfaces)
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, **result}
@@ -357,7 +380,7 @@ def update_page(blueprint_id: str, request: Request, body: UpdatePageBody, _: bo
 @router.delete("/ui/blueprints/{blueprint_id}")
 def delete_blueprint(blueprint_id: str, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
-        removed = service.ui_store.delete_blueprint(blueprint_id)
+        removed = _service().delete_page(blueprint_id, actor=_owner(request))
     except Exception as exc:  # noqa: BLE001
         _raise(exc)
     return {"success": True, "removed": removed}

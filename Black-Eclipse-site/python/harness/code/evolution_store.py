@@ -215,6 +215,62 @@ class EvolutionStore:
         return self.get_candidate(candidate_id)
 
     # ── Attempts ──────────────────────────────────────────────────────────────
+    def claim(
+        self, candidate_id: str, *, statuses: tuple[str, ...] = ("inert", "proposed"),
+    ) -> Optional[dict[str, Any]]:
+        """Atomically move a candidate to `evaluating`; return it only on success.
+
+        The conditional UPDATE is the single-flight lease: a second conductor (or
+        a second process) sees rowcount 0 and must not run the same candidate.
+        """
+        allowed = tuple(status for status in statuses if status in STATUSES)
+        if not allowed:
+            return None
+        placeholders = ",".join("?" for _ in allowed)
+        cursor = self._db.execute(
+            "UPDATE EvolutionCandidate SET status='evaluating', updatedAt=? "
+            f"WHERE id=? AND status IN ({placeholders})",
+            (now_iso(), candidate_id, *allowed),
+        )
+        self._db.commit()
+        return self.get_candidate(candidate_id) if cursor.rowcount == 1 else None
+
+    def reclaim_stale(
+        self, lease_seconds: int, *, now: Optional[str] = None,
+    ) -> list[str]:
+        """Move stale `evaluating` rows back to `proposed`; return their ids."""
+        import datetime as _dt  # noqa: PLC0415
+
+        current = now or now_iso()
+        cutoff = (
+            _dt.datetime.now(_dt.timezone.utc)
+            - _dt.timedelta(seconds=max(1, int(lease_seconds)))
+        ).strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
+        rows = self._db.execute(
+            "SELECT id FROM EvolutionCandidate "
+            "WHERE status='evaluating' AND updatedAt < ?",
+            (cutoff,),
+        ).fetchall()
+        ids = [str(row["id"]) for row in rows]
+        for candidate_id in ids:
+            self._db.execute(
+                "UPDATE EvolutionCandidate SET status='proposed', updatedAt=? "
+                "WHERE id=? AND status='evaluating'",
+                (current, candidate_id),
+            )
+        if ids:
+            self._db.commit()
+        return ids
+
+    def experiments_started_since(self, since_iso: str) -> int:
+        """Count non-refused attempts started at/after `since_iso` (daily budget)."""
+        row = self._db.execute(
+            "SELECT COUNT(*) AS n FROM EvolutionAttempt "
+            "WHERE startedAt >= ? AND outcome != 'refused'",
+            (since_iso,),
+        ).fetchone()
+        return int(row["n"]) if row else 0
+
     def save_attempt(self, attempt: dict[str, Any]) -> dict[str, Any]:
         candidate_id = attempt["candidateId"]
         index_row = self._db.execute(

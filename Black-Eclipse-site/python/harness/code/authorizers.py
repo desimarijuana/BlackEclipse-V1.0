@@ -153,6 +153,12 @@ def build_effect_authorizer(
     from ..skills.manage_tools import make_skill_manage_authorizer  # noqa: PLC0415
 
     code_authorizer = make_skill_manage_authorizer(code_authorizer)
+
+    # The skill lifecycle: activating an evaluated version and switching automatic
+    # skill learning are writes, each needing its own single-use operator approval.
+    from ..skills.lifecycle_tools import make_skill_lifecycle_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_skill_lifecycle_authorizer(code_authorizer)
     from ..mcp.install_tools import make_mcp_install_authorizer  # noqa: PLC0415
 
     code_authorizer = make_mcp_install_authorizer(code_authorizer)

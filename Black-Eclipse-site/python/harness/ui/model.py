@@ -101,11 +101,11 @@ class UiEventType(str, Enum):
 
 #: The closed operation vocabulary recorded for every mutation.
 OPERATION_TYPES = (
-    "create_page", "update_page", "duplicate_page",
+    "create_page", "update_page", "duplicate_page", "delete_page",
     "create_workspace", "add_widget", "remove_widget", "move_widget",
     "reorder_widget", "resize_widget", "update_config", "set_column_count",
     "set_column_weight", "remove_section", "save_layout", "restore_layout",
-    "apply_ops", "register_component",
+    "apply_ops", "register_component", "register_surfaces",
 )
 
 #: The action names a component advertises (mirrors catalog.ts COMPONENT_ACTIONS).
@@ -464,8 +464,31 @@ class CatalogQuery(BaseModel):
         return cleaned or None
 
 
+class AppSurfaceTab(BaseModel):
+    """One sub-tab of a fixed app screen (e.g. Memory → Reviews)."""
+
+    model_config = _CAMEL
+
+    id: str = Field(..., min_length=1, max_length=MAX_COMPONENT_ID)
+    label: str = Field(..., min_length=1, max_length=MAX_TITLE)
+    deep_link: str = Field(..., min_length=1, max_length=MAX_PATH)
+
+
+class AppSurface(BaseModel):
+    """A fixed product screen synced from the host, never a saved dashboard."""
+
+    model_config = _CAMEL
+
+    id: str = Field(..., min_length=1, max_length=MAX_COMPONENT_ID)
+    label: str = Field(..., min_length=1, max_length=MAX_TITLE)
+    deep_link: str = Field(..., min_length=1, max_length=MAX_PATH)
+    tabs: list[AppSurfaceTab] = Field(default_factory=list)
+
+
 __all__ = [
     "AddWidgetInput",
+    "AppSurface",
+    "AppSurfaceTab",
     "Availability",
     "BlueprintChange",
     "BlueprintKind",

@@ -73,6 +73,54 @@ _NOT_A_UI_REQUEST = (
     "backtest", "valuation",
 )
 
+#: Verbs that introduce a NEW thing on the page. Layout/restyle verbs are
+#: deliberately absent: moving or restyling an EXISTING widget does not need a
+#: catalog witness because the target is the page the user is looking at.
+_ADDITIVE_VERBS = (
+    "add", "create", "build", "make", "put", "place", "insert", "include",
+    "show", "display", "need", "want",
+)
+
+#: Nouns that name a UI *shape*, not a capability. "add a widget" is a generic
+#: compose request; "add a clock" names a capability the catalog may not have.
+_GENERIC_UI_NOUNS = frozenset({
+    "widget", "widgets", "card", "cards", "chart", "charts", "table", "tables",
+    "metric", "metrics", "panel", "panels", "page", "pages", "dashboard",
+    "dashboards", "workspace", "workspaces", "view", "views", "list", "lists",
+    "tile", "tiles", "module", "modules", "layout", "layouts", "section",
+    "sections", "area", "areas", "part", "parts", "screen", "screens",
+    "component", "components",
+})
+
+#: Words that carry no capability meaning in a UI request (verbs, articles,
+#: prepositions, layout adjectives).
+_STOPWORDS = frozenset({
+    "the", "a", "an", "to", "on", "in", "of", "for", "my", "me", "and", "or",
+    "with", "that", "this", "it", "is", "are", "be", "at", "top", "bottom",
+    "left", "right", "up", "down", "please", "can", "you", "i", "we", "our",
+    "some", "new", "using", "use", "like", "showing", "shows", "render",
+    "renders", "want", "need", "more", "less", "small", "smaller", "big",
+    "bigger", "large", "larger", "same", "current", "existing", "better",
+    "improve", "fix", "update", "change", "make", "let", "from", "into",
+    "over", "under", "below", "above", "between", "all", "any", "each",
+    # Actions are never capability nouns.
+    "add", "create", "build", "put", "place", "insert", "include", "show",
+    "display", "move", "reorder", "resize", "restyle", "redesign",
+    "configure", "filter", "hide", "remove", "delete", "arrange", "pin",
+    "duplicate", "set", "then", "also",
+})
+
+_CLAUSE_SPLIT_RE = re.compile(r"[.!?;\n]+|\bthen\b|\band\b|\bbut\b", re.IGNORECASE)
+
+#: "make me a new page" / "create a dashboard" compose a page; a component
+#: request ("add a clock to the dashboard") does not match because a capability
+#: noun sits between the verb and "dashboard".
+_PAGE_OBJECT_RE = re.compile(
+    r"\b(?:new|create|make|build|add)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?"
+    r"(?:new\s+)?(page|workspace|dashboard)\b",
+)
+_WORD_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
 
 @dataclass
 class ModeDecision:
@@ -81,6 +129,10 @@ class ModeDecision:
     suggested_tools: list[str] = field(default_factory=list)
     confidence: float = 0.5
     matched_components: list[str] = field(default_factory=list)
+    #: True when the request names a capability the catalog cannot satisfy. A
+    #: Compose verdict with this flag is a routing defect: the request must be
+    #: escalated, never refused as "nothing to engineer".
+    capability_gap: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -89,15 +141,126 @@ class ModeDecision:
             "suggestedTools": self.suggested_tools,
             "confidence": round(self.confidence, 2),
             "matchedComponents": self.matched_components,
+            "capabilityGap": self.capability_gap,
         }
+
+
+@dataclass
+class CapabilityFit:
+    """Whether the catalog can satisfy the capability the request names."""
+
+    satisfied: bool
+    witness: list[str] = field(default_factory=list)
+    capability_gap: bool = False
+    reason: str = ""
 
 
 _COMPOSE_TOOLS = ["ui_get_current_page", "ui_get_component_catalog", "ui_add_widget", "ui_move_widget", "ui_preview_change", "ui_save_layout"]
 _ENGINEER_TOOLS = ["code_search", "code_edit", "scaffold_kit", "ui_get_component_catalog", "ui_create_page", "ui_add_widget"]
 
+#: Public aliases so callers (e.g. the engineering escalator) do not import a
+#: private name.
+COMPOSE_TOOLS: tuple[str, ...] = tuple(_COMPOSE_TOOLS)
+ENGINEER_TOOLS: tuple[str, ...] = tuple(_ENGINEER_TOOLS)
+
 
 def _hits(text: str, phrases: tuple[str, ...]) -> list[str]:
     return [p for p in phrases if p in text]
+
+
+def _content_tokens(text: str) -> list[str]:
+    """The words that name a capability, with UI shape/grammar removed."""
+    return [
+        token for token in _WORD_RE.findall(text)
+        if len(token) > 2
+        and token not in _STOPWORDS
+        and token not in _GENERIC_UI_NOUNS
+    ]
+
+
+def _is_additive(text: str) -> bool:
+    return any(
+        re.search(rf"(?<![a-z0-9]){re.escape(verb)}(?![a-z0-9])", text)
+        for verb in _ADDITIVE_VERBS
+    )
+
+
+def _matches_token(haystack: str, token: str) -> bool:
+    """Whole-word match, plus a conservative plural (trades -> trade)."""
+    if re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", haystack):
+        return True
+    if token.endswith("s") and len(token) > 4:
+        singular = token[:-1]
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(singular)}(?![a-z0-9])", haystack))
+    return False
+
+
+def _catalog_witness(tokens: list[str], catalog: UiCatalog) -> list[str]:
+    """Registered component ids whose text matches at least one content token."""
+    hits: list[str] = []
+    for spec in catalog.list():
+        haystack = " ".join([
+            spec.id, spec.display_name, spec.description, spec.category,
+            *spec.tags,
+        ]).lower()
+        if any(_matches_token(haystack, token) for token in tokens):
+            hits.append(spec.id)
+    return hits
+
+
+def assess_capability(
+    text: str,
+    *,
+    catalog: Optional[UiCatalog] = None,
+    additive_only: bool = True,
+) -> CapabilityFit:
+    """Does the catalog hold a component for the capability this request names?
+
+    Deterministic and model-free. The rule is deliberately narrow so it fixes
+    the recorded defect without turning ordinary layout work into engineering:
+
+    * a page/workspace request is composable (an empty page is valid);
+    * a request that names no specific capability ("add a widget") is composable;
+    * a generic UI noun is not a capability ("add a card" is composable);
+    * a request that names a capability (``clock``) and matches no registered
+      component is a GAP — and is escalated, never refused;
+    * a layout/restyle request needs no witness (its target is the page).
+
+    ``additive_only=False`` is the DIAGNOSTIC view: it looks for a capability
+    the request names even when the additive phrasing was missed. The classifier
+    never uses it (a layout clause must not become an escalation); the routing
+    repair proposer does, to distinguish a vocabulary miss from a catalog gap.
+    """
+    lowered = (text or "").lower().strip()
+    if not lowered:
+        return CapabilityFit(True, reason="empty request")
+    if catalog is None:
+        return CapabilityFit(True, reason="no catalog to check against")
+    if _PAGE_OBJECT_RE.search(lowered):
+        return CapabilityFit(True, reason="page/workspace composition")
+
+    # Only an ADDITIVE clause can introduce a new capability. A layout clause
+    # ("move it", "make it smaller") must never be read as "make a clock".
+    tokens: list[str] = []
+    if additive_only:
+        for clause in _CLAUSE_SPLIT_RE.split(lowered):
+            if _is_additive(clause):
+                tokens.extend(_content_tokens(clause))
+    else:
+        tokens = _content_tokens(lowered)
+    if not tokens:
+        return CapabilityFit(True, reason="no additive capability named")
+
+    witness = _catalog_witness(tokens, catalog)
+    if witness:
+        return CapabilityFit(
+            True, witness, False,
+            f"registered component(s) match: {', '.join(witness[:4])}",
+        )
+    return CapabilityFit(
+        False, [], True,
+        f"no registered component matches: {', '.join(tokens[:4])}",
+    )
 
 
 def classify_request(text: str, *, catalog: Optional[UiCatalog] = None, existing_components: Optional[list[str]] = None) -> ModeDecision:
@@ -119,6 +282,8 @@ def classify_request(text: str, *, catalog: Optional[UiCatalog] = None, existing
         if re.search(rf"(?<![a-z0-9]){re.escape(component_id.lower())}(?![a-z0-9])", lowered):
             matched.append(component_id)
 
+    fit = assess_capability(lowered, catalog=catalog)
+
     if engineer_hits and not compose_hits:
         return ModeDecision(
             mode=UiMode.ENGINEER,
@@ -135,22 +300,49 @@ def classify_request(text: str, *, catalog: Optional[UiCatalog] = None, existing
             suggested_tools=list(dict.fromkeys([*_ENGINEER_TOOLS, *_COMPOSE_TOOLS])),
             confidence=0.6, matched_components=matched,
         )
+
+    # A specific capability the catalog cannot satisfy is a GAP: escalate. This
+    # is the recorded "world clock" defect — a Compose verdict with no witness
+    # became an authoritative refusal, and the turn had no tool to author one.
+    # It runs AFTER the explicit new-capability signals so an engineer/both
+    # verdict keeps its own reason and tool set.
+    if fit.capability_gap and not matched:
+        return ModeDecision(
+            mode=UiMode.ENGINEER,
+            reasons=[
+                fit.reason,
+                *([f"compose signal(s): {', '.join(compose_hits[:4])}"] if compose_hits else []),
+            ],
+            suggested_tools=list(_ENGINEER_TOOLS), confidence=0.7,
+            matched_components=[], capability_gap=True,
+        )
+
     if compose_hits or matched:
+        witnesses = list(dict.fromkeys([*matched, *fit.witness]))
         return ModeDecision(
             mode=UiMode.COMPOSE,
             reasons=(
                 [f"compose signal(s): {', '.join(compose_hits[:4])}"]
-                if compose_hits else [f"references existing component(s): {', '.join(matched[:4])}"]
+                if compose_hits else [f"references existing component(s): {', '.join(witnesses[:4])}"]
             ),
             suggested_tools=list(_COMPOSE_TOOLS), confidence=0.8 if compose_hits else 0.7,
-            matched_components=matched,
+            matched_components=witnesses,
         )
     # No signal: prefer the cheaper, safer mode.
     return ModeDecision(
         mode=UiMode.COMPOSE,
         reasons=["no new-capability signal; defaulting to Compose (prefer the cheaper mode)"],
-        suggested_tools=list(_COMPOSE_TOOLS), confidence=0.3, matched_components=matched,
+        suggested_tools=list(_COMPOSE_TOOLS), confidence=0.3,
+        matched_components=list(dict.fromkeys([*matched, *fit.witness])),
     )
 
 
-__all__ = ["ModeDecision", "UiMode", "classify_request"]
+__all__ = [
+    "CapabilityFit",
+    "COMPOSE_TOOLS",
+    "ENGINEER_TOOLS",
+    "ModeDecision",
+    "UiMode",
+    "assess_capability",
+    "classify_request",
+]

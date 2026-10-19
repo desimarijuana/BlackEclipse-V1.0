@@ -112,6 +112,7 @@ async def run_with_recovery(
     max_attempts: Optional[int] = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     details: Optional[dict[str, Any]] = None,
+    strategy_handlers: Optional[dict[str, Any]] = None,
 ) -> RunRecovery:
     """Run `run_once(attempt, run_id)` through the bounded recovery executor.
 
@@ -135,6 +136,19 @@ async def run_with_recovery(
             )
         return RunRecovery(ok=True, value=value, attempts=1)
 
+    # Round 4 (W5/W9): when a capability is missing, propose the ordered
+    # acquisition route and STOP; never repeat the same failed call unchanged.
+    from .acquisition import default_strategy_handlers  # noqa: PLC0415
+
+    query = str(
+        (details or {}).get("objective") or (details or {}).get("query") or ""
+    ).strip()
+    handlers = default_strategy_handlers(
+        query, getattr(recovery_service, "capability_index", None),
+    )
+    if strategy_handlers:
+        handlers.update(strategy_handlers)
+
     state: dict[str, Any] = {"attempt": 0}
 
     async def _attempt() -> Any:
@@ -155,6 +169,7 @@ async def run_with_recovery(
         details=details,
         max_attempts=max_attempts,
         sleep=sleep,
+        strategy_handlers=handlers,
     )
     return RunRecovery(
         ok=result.ok,

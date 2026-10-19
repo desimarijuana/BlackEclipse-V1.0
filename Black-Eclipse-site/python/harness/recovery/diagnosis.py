@@ -127,6 +127,20 @@ _CATALOG: tuple[_Cause, ...] = (
     _Cause("the current strategy is repeating without progress", FailureKind.NO_PROGRESS,
            confirms="no_progress", test="compare the last N step outcomes for change",
            repair_hint="change strategy or stop and report"),
+    # Round 4: the capability-routing causes. The evidence keys are supplied by
+    # the incident payload (a UI gap) or by the routing repair proposer.
+    _Cause("the component catalog has no implementation for the requested capability", FailureKind.CAPABILITY,
+           confirms="capability_gap", test="run the capability-fit check against the component catalog",
+           repair_hint="escalate to engineering and register the component"),
+    _Cause("the request vocabulary does not match any capability the classifier knows", FailureKind.CAPABILITY,
+           confirms="vocabulary_gap", test="classify the request and inspect its content tokens",
+           repair_hint="add the missing additive/engineer signal and a regression fixture"),
+    _Cause("the required capability needs a tool or integration that is not available", FailureKind.CAPABILITY,
+           confirms="capability_absent", test="search the capability index for an available equivalent",
+           repair_hint="run the acquisition plan (enable/install/build/alternative)"),
+    _Cause("policy refuses the route to the requested capability", FailureKind.CAPABILITY,
+           confirms="policy_denied", test="authorize the action against the policy gateway",
+           repair_hint="request operator authorization or use a permitted route"),
 )
 
 

@@ -19,6 +19,7 @@ import time
 from typing import Any
 
 from .config import recovery_enabled
+from .progress import ProgressTracker
 from .taxonomy import normalize_failure
 from .tools import get_recovery_service
 
@@ -55,6 +56,18 @@ def _state_for(ctx: Any) -> dict[str, Any]:
         except Exception:  # noqa: BLE001 - a read-only ctx must not break the call
             pass
     return state
+
+
+def _tracker_for(ctx: Any) -> ProgressTracker:
+    """The per-run stuck-loop tracker (round 4, W10), kept on the run context."""
+    tracker = getattr(ctx, "_recovery_progress", None)
+    if tracker is None:
+        tracker = ProgressTracker()
+        try:
+            ctx._recovery_progress = tracker
+        except Exception:  # noqa: BLE001 - a read-only ctx must not break the call
+            pass
+    return tracker
 
 
 def _is_read_only(registry: Any, name: str) -> bool:
@@ -115,6 +128,11 @@ async def run_tool_with_recovery(
         name, call_id, args, ctx, allowed=allowed, timeout_ms=timeout_ms
     )
     if result.ok:
+        # A success IS progress: the stuck-loop counter resets.
+        try:
+            _tracker_for(ctx).note_success()
+        except Exception:  # noqa: BLE001
+            pass
         return result
     try:
         return await _recover(registry, name, call_id, args, ctx, allowed, timeout_ms, request, result)
@@ -165,11 +183,19 @@ async def _recover(
     decision = record.get("decision") or {}
     incident_id = str(record.get("incidentId") or "")
 
+    # Round 4 (W10): the same (tool, args, signature) triple must never repeat
+    # unchanged, and a run with no progress is a stuck loop with an actual blocker.
+    tracker = _tracker_for(ctx)
+    already_repeated = tracker.identical_repeats(tool=name, args=args, signature=signature)
+    tracker.note_failure(tool=name, args=args, signature=signature, blocker=message)
+    stuck_reason = tracker.stuck()
+
     retried = False
     can_retry = (
         str(decision.get("action")) == "recover"
         and str(decision.get("strategy")) in _RETRY_STRATEGIES
         and _is_read_only(registry, name)
+        and already_repeated < tracker.max_identical
     )
     if can_retry:
         state["attempts"] = int(state["attempts"]) + 1
@@ -197,6 +223,8 @@ async def _recover(
             return result
 
     result.text = f"{result.text}{_hint(failure.to_dict(), decision, incident_id, retried)}"
+    if stuck_reason:
+        result.text += f"\n\n[recovery] STUCK LOOP: {stuck_reason}"
     await _emit(ctx, record)
     return result
 

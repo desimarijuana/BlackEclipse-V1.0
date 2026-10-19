@@ -63,6 +63,69 @@ export interface RecoveryAttemptView {
   createdAt: string;
 }
 
+export interface RoutingRepairFileView {
+  path: string;
+  op: string;
+  beforeHash: string | null;
+  afterHash: string | null;
+}
+
+/** A prepared routing repair (round 4, W4): proposal + preview + landing verdict. */
+export interface RoutingRepairView {
+  incidentId: string;
+  runId: string;
+  proposal: {
+    cause: string;
+    kind: string;
+    summary: string;
+    targetFile: string | null;
+    patch: { old: string; new: string } | null;
+    fixture: { text: string; expectedMode: string; expectedGap: boolean };
+    evidence: Record<string, unknown>;
+  };
+  preview: {
+    filesChanged: number;
+    files: RoutingRepairFileView[];
+    previewDigest: string;
+    added: number;
+    modified: number;
+    deleted: number;
+  };
+  landing: {
+    restartRequired: boolean;
+    buildRequired: boolean;
+    authorities: string[];
+  };
+}
+
+export interface AcquisitionStepView {
+  action: string;
+  description: string;
+  capabilityId: string | null;
+  requiresApproval: boolean;
+  surface: string;
+  ready: boolean;
+  reason: string;
+  missing: string[];
+}
+
+/** The typed acquisition lifecycle for a capability incident (W5/W9). */
+export interface AcquisitionView {
+  query: string;
+  resolvedBy: string | null;
+  steps: AcquisitionStepView[];
+  requiresApproval: boolean;
+  gaps: string[];
+  retry: Record<string, unknown>;
+}
+
+/** True for a routing incident that has a landable repair path. */
+export function isRoutingRepairIncident(incident: RecoveryIncidentView | null): boolean {
+  if (!incident) return false;
+  return incident.kind === "capability" ||
+    (incident.code ?? "").toUpperCase() === "UI_CAPABILITY_GAP";
+}
+
 /** Count incidents per status. */
 export function countByStatus(incidents: RecoveryIncidentView[]): Record<string, number> {
   const out: Record<string, number> = {};

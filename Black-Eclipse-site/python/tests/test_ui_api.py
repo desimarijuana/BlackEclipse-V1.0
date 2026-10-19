@@ -177,3 +177,38 @@ def test_export_import_roundtrip():
     current = client.get(f"/ui/blueprints/{new_id}/current")
     assert current.status_code == 200
     assert current.json()["instances"][0]["componentId"] == "metric-card"
+
+
+def test_register_surfaces_and_map_them_separately_from_pages():
+    payload = {
+        "surfaces": [
+            {
+                "id": "memory",
+                "label": "Eclipse Memory",
+                "deepLink": "/?tab=memory",
+                "tabs": [
+                    {
+                        "id": "memory.reviews",
+                        "label": "Learning Reviews",
+                        "deepLink": "/?tab=memory&sub=memory.reviews",
+                    },
+                ],
+            },
+        ],
+    }
+    registered = client.post("/ui/surfaces", json=payload)
+    assert registered.status_code == 200, registered.text
+    assert registered.json()["registered"] == 1
+
+    app_map = client.get("/ui/application-map").json()
+    assert any(s["id"] == "memory" for s in app_map["screens"])
+    memory = next(s for s in app_map["screens"] if s["id"] == "memory")
+    assert memory["tabs"][0]["deepLink"] == "/?tab=memory&sub=memory.reviews"
+    # Saved pages remain their own list — never conflated with the screens.
+    assert isinstance(app_map["pages"], list)
+
+    # An empty batch must not wipe the inventory.
+    empty = client.post("/ui/surfaces", json={"surfaces": []})
+    assert empty.status_code == 200
+    assert empty.json()["registered"] == 0
+    assert any(s["id"] == "memory" for s in client.get("/ui/application-map").json()["screens"])

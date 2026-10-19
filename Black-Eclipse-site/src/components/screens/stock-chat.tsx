@@ -36,7 +36,6 @@ import { restoreWorkspaceForChat } from '@/lib/agent-workspace/restore';
 // only fetched when their tab is opened, so the first paint compiles/loads
 // just the chat shell instead of the whole app.
 import type { NewsItem } from './market-news';
-
 const MarketOverviewScreen = dynamic(
   () => import('./market-overview').then((m) => m.MarketOverviewScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -116,13 +115,14 @@ const BotsScreen = dynamic(
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 const UiBuilderScreen = dynamic(
-  () => import('@/components/screens/ui-builder/ui-builder-screen').then((m) => m.UiBuilderScreen),
+  () => import('@/components/screens/capability-studio/capability-studio-screen').then((m) => m.CapabilityStudioScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 const PagesScreen = dynamic(
   () => import('@/components/screens/pages/pages-screen').then((m) => m.PagesScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+import { SdkTab } from '@/components/screens/sdk/sdk-tab';
 const BacktestScreen = dynamic(
   () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -299,7 +299,6 @@ function StockChatContent() {
   const [settingsAnchor, setSettingsAnchor] = useState<string | undefined>(undefined);
 
   useEffect(() => { setMounted(true); }, []);
-
   // User-assigned F1–F12 shortcuts open their sidebar tab anywhere in the app.
   useSidebarKeybinds(setActiveTab);
 
@@ -452,7 +451,6 @@ function StockChatContent() {
       }
     } catch { /* ignore malformed URLs */ }
   }, [mounted, activeTab, selectedChartSymbol]);
-
 
   // Workspace panels dispatch `be:navigate` to switch the SPA tab (e.g. the
   // Screener panel links out to the full screener tab).
@@ -722,7 +720,7 @@ function StockChatContent() {
         research: turn.research, vision: turn.vision, images: turn.images,
         documents: turn.documents, memory: turn.memory, video: turn.video,
         codeVerification: turn.codeVerification, autonomy: turn.autonomy,
-        capability: turn.capability, analysis: turn.analysis,
+        capability: turn.capability, analysis: turn.analysis, acquisition: turn.acquisition,
         responsePlan: turn.responsePlan,
         runId: turn.runId,
         model: turn.model,
@@ -1380,6 +1378,8 @@ function StockChatContent() {
               </div>
             </div>
           )}
+
+          {visited.has('sdk') && <SdkTab active={activeTab === 'sdk'} />}
 
           {visited.has('backtest') && (
             <div className={cn('w-full h-full', activeTab === 'backtest' ? '' : 'hidden')}>

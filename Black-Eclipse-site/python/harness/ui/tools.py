@@ -80,14 +80,26 @@ async def _get_application_map(args: dict[str, Any], ctx: ToolContext) -> Any:
         result = _service(ctx).get_application_map(owner_id=None)
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
-    # Name each page by id + title: a bare count left the agent unable to target
-    # a page (it needs the id for ui_add_widget / ui_update_page / …).
-    lines = [f'{p["id"]}  {p["title"]}' for p in result["pages"]]
-    suffix = ("\n" + "\n".join(lines)) if lines else ""
-    return _ok(
-        f"{result['pageCount']} page(s); {result['capabilities']['componentCount']} component(s) available.{suffix}",
-        result,
+    screens = result.get("screens") or []
+    pages = result["pages"]
+    summary = (
+        f"{len(screens)} app screen(s); {result['pageCount']} saved page(s); "
+        f"{result['capabilities']['componentCount']} component(s) available."
     )
+    # App screens are the FIXED product surfaces (with their sub-tabs and deep
+    # links) — the answer to "where does X live?". Saved pages are the user's
+    # own dashboards. Keep them visually separate so the two are never confused.
+    screen_lines: list[str] = []
+    for screen in screens:
+        screen_lines.append(f'{screen["label"]}  [{screen["id"]}]  {screen["deepLink"]}')
+        for tab in screen.get("tabs") or []:
+            screen_lines.append(f'    - {tab["label"]}  {tab["deepLink"]}')
+    page_lines = [f'{p["id"]}  {p["title"]}' for p in pages]
+    parts = [summary]
+    if screen_lines:
+        parts.append("App screens (fixed):\n" + "\n".join(screen_lines))
+    parts.append("Saved pages (user dashboards):\n" + ("\n".join(page_lines) if page_lines else "(none yet)"))
+    return _ok("\n".join(parts), result)
 
 
 async def _get_current_page(args: dict[str, Any], ctx: ToolContext) -> Any:
@@ -214,8 +226,17 @@ async def _classify_request(args: dict[str, Any], ctx: ToolContext) -> Any:
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
     mode = result["mode"]
+    reason = result["reasons"][0] if result["reasons"] else ""
     hint = "" if mode == "compose" else " This needs the Engineer (code) path."
-    return _ok(f"Mode: {mode}. {result['reasons'][0] if result['reasons'] else ''}{hint}", result)
+    if mode == "compose":
+        # The witness is part of the verdict, not trivia: a Compose decision
+        # with no registered component is the recorded routing defect and must
+        # be visible to the model (and to deterministic mistake detection).
+        matched = result.get("matchedComponents") or []
+        hint += f" Components: {', '.join(matched[:6]) if matched else 'none'}."
+    if result.get("capabilityGap"):
+        hint += " This is a capability gap; escalate to engineering."
+    return _ok(f"Mode: {mode}. {reason}{hint}", result)
 
 
 async def _start_engineering(args: dict[str, Any], ctx: ToolContext) -> Any:
@@ -236,14 +257,16 @@ async def _start_engineering(args: dict[str, Any], ctx: ToolContext) -> Any:
         result = _service(ctx).engineering.start(
             str(args.get("text") or ""), blueprint_id=args.get("blueprintId"),
             title=args.get("title"), autonomy=str(args.get("autonomy") or "edit_verify"),
-            model_settings=model_settings,
+            model_settings=model_settings, run_id=getattr(ctx, "run_id", None),
         )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
     if not result.get("created"):
         return _ok(f"Compose mode — {result.get('message', '')}", result)
+    prefix = "Capability gap — " if result.get("capabilityGap") else ""
     return _ok(
-        f"Created engineering task {result['taskId']} (plan {result['planId']}, mode {result['mode']}) "
+        f"{prefix}Created engineering task {result['taskId']} "
+        f"(plan {result['planId']}, mode {result['mode']}) "
         f"with {len(result['acceptance'])} acceptance criteria.",
         result,
     )
@@ -465,7 +488,7 @@ async def _preview_change(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 
 _DEFS: list[tuple[str, str, dict[str, Any]]] = [
-    ("ui_get_application_map", "Get the current UI map: the saved pages/workspaces and the component catalog summary.", {"type": "object", "properties": {}}),
+    ("ui_get_application_map", "Get the current UI map: the app's FIXED screens (each with its sub-tabs and deep links, e.g. Memory → Reviews), the user's saved pages/workspaces (dashboards), and the component catalog summary. Use this to answer where a feature lives; saved pages are NOT the app's screen list.", {"type": "object", "properties": {}}),
     ("ui_get_current_page", "Get the page the user is viewing with its widget instances. Identify it by blueprintId, path or title; with none, resolves the owner's most recently updated page and says which it chose.", {"type": "object", "properties": {"blueprintId": {"type": "string"}, "path": {"type": "string"}, "title": {"type": "string"}}}),
     ("ui_verify_page", "Read a page back and verify each widget is renderable: its component id exists in the catalog and any portfolio source string is well-formed. Use after composing to confirm before claiming success.", {"type": "object", "properties": {"blueprintId": {"type": "string"}}, "required": ["blueprintId"]}),
     ("ui_get_component_catalog", "List/search the components available to compose. Filter by text, category or data source.", {"type": "object", "properties": {"text": {"type": "string"}, "category": {"type": "string"}, "dataSource": {"type": "string"}, "limit": {"type": "integer"}}}),
@@ -474,7 +497,7 @@ _DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ("ui_get_capabilities", "Summarize the UI capabilities: component count, categories and data sources.", {"type": "object", "properties": {}}),
     ("ui_get_blueprint", "Get a full page/workspace blueprint by id.", {"type": "object", "properties": {"blueprintId": {"type": "string"}}, "required": ["blueprintId"]}),
     ("ui_get_operation_status", "Inspect the status of a previously executed UI operation by id.", {"type": "object", "properties": {"operationId": {"type": "string"}}, "required": ["operationId"]}),
-    ("ui_list_blueprints", "List the saved pages and workspaces.", {"type": "object", "properties": {"limit": {"type": "integer"}}}),
+    ("ui_list_blueprints", "List the user's saved pages and workspaces (their dashboards). This is NOT the app's fixed screen list — use ui_get_application_map for that.", {"type": "object", "properties": {"limit": {"type": "integer"}}}),
     ("ui_classify_request", "Decide whether a UI request can be Composed from registered components or needs the Engineer (source-code) path. Call this FIRST for any UI change request.", {"type": "object", "properties": {"text": {"type": "string"}, "blueprintId": {"type": "string"}}, "required": ["text"]}),
     ("ui_start_engineering", "Create a durable engineering task (Task/Plan runtime) for a UI request that needs NEW functionality. Returns the task/plan ids. For Compose-mode requests it creates nothing and says so.", {"type": "object", "properties": {"text": {"type": "string"}, "blueprintId": {"type": "string"}, "title": {"type": "string"}, "autonomy": {"type": "string"}}, "required": ["text"]}),
     ("ui_engineering_status", "Get the status of a UI engineering plan (tasks, criteria, progress).", {"type": "object", "properties": {"planId": {"type": "string"}}, "required": ["planId"]}),

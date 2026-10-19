@@ -14,6 +14,7 @@
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import { sdkUnlockHeaders } from '@/lib/sdk';
 import {
   DEFAULT_ECLIPSE_THEME,
   BRAND_MARK_SRC,
@@ -278,7 +279,7 @@ function pushThemeToServer(theme: EclipseTheme) {
   void window
     .fetch('/api/theme', {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...sdkUnlockHeaders() },
       body,
       keepalive,
     })
@@ -287,7 +288,9 @@ function pushThemeToServer(theme: EclipseTheme) {
 
 function clearServerTheme() {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
-  void window.fetch('/api/theme', { method: 'DELETE', keepalive: true }).catch(() => {});
+  void window
+    .fetch('/api/theme', { method: 'DELETE', headers: { ...sdkUnlockHeaders() }, keepalive: true })
+    .catch(() => {});
 }
 
 function persist(theme: EclipseTheme) {

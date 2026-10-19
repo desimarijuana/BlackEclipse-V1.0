@@ -45,6 +45,15 @@ def incident_to_candidate(
         return None
     if int(incident.get("occurrenceCount", 0)) < max(2, int(min_occurrences)):
         return None
+    # Round 4 (W6): a resolved CAPABILITY gap's reusable lesson is the
+    # CONSTRUCTION procedure (engineer → implement → register), not a generic
+    # recovery strategy. It is the SAME candidate the run-trace path produces
+    # (`skills/procedures.py`), so the two sources collapse into one by
+    # signature; no strategy attempt is required for it.
+    if str(incident.get("kind") or "") == "capability":
+        from ..skills.procedures import construction_candidate_from_incident  # noqa: PLC0415
+
+        return construction_candidate_from_incident(incident, attempts)
     strategies = _successful_strategies(attempts)
     if not strategies:
         return None
@@ -120,7 +129,9 @@ def promote_incidents(
             skill_store.append_event(
                 "skill.learning_candidate_created",
                 run_id=incident.get("runId"),
-                data={"candidateId": candidate_id, "candidateType": "failure_recovery", "origin": "recovery_incident"},
+                data={"candidateId": candidate_id,
+                      "candidateType": draft.get("candidateType", "failure_recovery"),
+                      "origin": "recovery_incident"},
             )
         except Exception:  # noqa: BLE001 - the audit event is best-effort
             pass

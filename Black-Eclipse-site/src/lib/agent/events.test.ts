@@ -417,6 +417,32 @@ describe('analysis.completed (R3-06 computed results)', () => {
   });
 });
 
+describe('acquire.completed (Phase 16 collection manifest)', () => {
+  it('maps a completed collection to an acquisition event with the manifest', () => {
+    const manifest = {
+      purpose: 'watchlist',
+      sources: [{ id: 'prices_daily', label: 'Daily price history', rows: 4, complete: true }],
+    };
+    const e = normalizeHarnessEvent('acquire.completed', {
+      type: 'acquire.completed',
+      data: { status: 'ok', manifest },
+    });
+    expect(e).toEqual({ kind: 'acquisition', manifest });
+  });
+
+  it('ignores a completion without a manifest object', () => {
+    expect(
+      normalizeHarnessEvent('acquire.completed', { type: 'acquire.completed', data: { status: 'ok' } }),
+    ).toBeNull();
+    expect(
+      normalizeHarnessEvent('acquire.completed', {
+        type: 'acquire.completed',
+        data: { manifest: ['not', 'a', 'manifest'] },
+      }),
+    ).toBeNull();
+  });
+});
+
 describe('response.plan (Intelligent Response Orchestrator)', () => {
   const plan = {
     mode: 'visualization',

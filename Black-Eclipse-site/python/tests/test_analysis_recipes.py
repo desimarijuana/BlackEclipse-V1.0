@@ -33,6 +33,8 @@ _VALID_INPUTS: dict[str, dict] = {
     "period_comparison": {"current": 120.0, "previous": 100.0},
     "scenario_shock": {"values": [{"name": "AAPL", "value": 100}, {"name": "MSFT", "value": 200}], "shockPct": -20.0},
     "drawdown_figure": {"prices": [100, 90, 95, 80, 120]},
+    "distribution_profile": {"values": [1.0, 2.0, 2.5, 3.0, 9.0, 10.0]},
+    "monte_carlo_paths": {"returns": [0.01, -0.02, 0.0, 0.03], "start_value": 100.0},
 }
 
 
@@ -51,9 +53,11 @@ def test_the_named_recipes_are_shipped():
     assert _NAMES == {
         "returns_series", "drawdown_profile", "correlation_matrix",
         "contribution_to_return", "reconciliation", "period_comparison", "scenario_shock",
-        "drawdown_figure",  # Phase 18: the first figure recipe
+        "drawdown_figure",       # Phase 18: the first figure recipe
+        "distribution_profile",  # Phase 18: histogram + summary
+        "monte_carlo_paths",     # Phase 18: bounded, seeded bootstrap
     }
-    assert len(list_recipes()) == 8
+    assert len(list_recipes()) == 10
 
 
 @pytest.mark.parametrize("name", sorted(_NAMES))
@@ -154,3 +158,83 @@ def test_get_recipe_returns_a_declared_input_set():
     recipe = get_recipe("correlation_matrix")
     assert recipe is not None
     assert any(i.name == "returns" for i in recipe.inputs)
+
+
+# ── Phase 18: the figure payload contract (§6.1) ────────────────────────────
+
+
+@requires_runner
+def test_a_figure_run_carries_its_payload_on_the_run_blob(tmp_path):
+    """The plotted-series metadata rides the result/run blob: kind, the series
+    and their point counts, the artifact, and the computed label — never
+    evidence."""
+    result = run_recipe("drawdown_figure", {"prices": [100, 90, 95, 80, 120]},
+                        output_dir=tmp_path)
+    assert result.status == "ok", result.stderr
+    assert result.figure is not None
+    payload = result.figure.to_dict()
+    assert payload["kind"] == "line"
+    assert payload["artifact"] == "drawdown.png"
+    assert payload["series"] == [{"name": "prices", "points": 5}]
+    assert payload["label"] == "computed"
+    assert payload["isEvidence"] is False
+    # It is part of the persisted blob, not a second rendering contract.
+    blob = result.to_blob()
+    assert blob["figure"]["kind"] == "line"
+    assert blob["figure"]["isEvidence"] is False
+
+
+def test_a_non_figure_recipe_carries_no_figure_payload():
+    recipe = get_recipe("drawdown_profile")
+    assert recipe is not None and recipe.figure_kind is None
+    result = run_recipe("drawdown_profile", {})  # refused: no prices
+    assert result.figure is None
+
+
+@requires_runner
+def test_distribution_profile_computes_the_middle_and_the_tails(tmp_path):
+    result = run_recipe(
+        "distribution_profile", {"values": [1.0, 2.0, 2.5, 3.0, 9.0, 10.0]},
+        output_dir=tmp_path,
+    )
+    assert result.status == "ok", result.stderr
+    assert result.outputs["count"] == 6
+    assert result.outputs["median"] == 2.75
+    assert result.outputs["p05"] <= result.outputs["median"] <= result.outputs["p95"]
+    assert result.figure is not None and result.figure.kind == "histogram"
+    assert any(a.name == "distribution.png" for a in result.artifacts)
+
+
+@requires_runner
+def test_monte_carlo_is_bounded_seeded_and_samples_the_supplied_returns(tmp_path):
+    """The Monte Carlo rule as a gate: bootstrap the supplied returns (a sampled
+    value is a member of the input set), record the seed, reproduce with it, and
+    label the result a what-if — never an assumed distribution."""
+    inputs = {"returns": [0.01, -0.02, 0.0, 0.03], "start_value": 100.0,
+              "paths": 50, "horizon": 20, "seed": 7}
+    first = run_recipe("monte_carlo_paths", inputs, output_dir=tmp_path)
+    assert first.status == "ok", first.stderr
+    assert first.outputs["paths"] == 50 and first.outputs["horizon"] == 20
+    assert first.outputs["seed"] == 7
+    assert first.outputs["label"] == "what-if"
+    assert first.figure is not None and first.figure.kind == "paths"
+    assert first.figure.seed == 7
+    assert any(a.name == "monte_carlo.png" for a in first.artifacts)
+
+    # Same seed ⇒ the same percentiles (reproducible), a different seed need not be.
+    second = run_recipe("monte_carlo_paths", inputs, output_dir=tmp_path)
+    assert second.outputs["p50"] == first.outputs["p50"]
+    other_seed = run_recipe("monte_carlo_paths", {**inputs, "seed": 8}, output_dir=tmp_path)
+    assert other_seed.status == "ok"
+
+    # Bounds are enforced in the program: an absurd ask is clamped, not run away.
+    bounded = run_recipe("monte_carlo_paths", {**inputs, "paths": 100_000, "horizon": 100_000},
+                         output_dir=tmp_path)
+    assert bounded.outputs["paths"] == 500 and bounded.outputs["horizon"] == 1000
+
+
+def test_monte_carlo_refuses_without_returns_or_a_start_value():
+    result = run_recipe("monte_carlo_paths", {"returns": [0.01]})
+    assert result.status == "refused"
+    assert result.code == INPUT_INVALID
+    assert "start_value" in result.outputs["_missing"]

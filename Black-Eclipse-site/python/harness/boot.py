@@ -106,6 +106,12 @@ async def _boot() -> None:
     # The bounded learning-review queue: reviews completed runs in the background.
     # It only creates inert records/suggestions and never enables a skill.
     await service.start_learning_review()
+    # RSL (R0–R4): one bounded conductor task beside learning review. It is dark
+    # by default (`HARNESS_RSL_MODE=off`); observe mode is a no-op here because
+    # the post-run observer owns observation.
+    from .self_improvement.loop import RSLLoop
+    service._rsl_loop = RSLLoop(service)
+    await service._rsl_loop.start()
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
@@ -240,6 +246,9 @@ async def _shutdown() -> None:
     orchestration = getattr(service, "orchestration", None)
     if orchestration is not None:
         await orchestration.primary.shutdown()
+    rsl_loop = getattr(service, "_rsl_loop", None)
+    if rsl_loop is not None:
+        await rsl_loop.stop()
     await service.stop_learning_review()
     await service.stop_code_intel()
     await service.stop_browser()

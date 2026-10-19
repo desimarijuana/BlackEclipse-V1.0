@@ -33,6 +33,11 @@ last-verified: 2026-10-11
 > phase 18. The **caps remain deliberately bounded** (`SESSION_LIMITS`: 20k/doc,
 > 60k total) — raising them is a context-budget decision, recorded here rather
 > than silently tuned. Scanned-PDF OCR stays an unrelated recorded gap.
+> **Inline chat renderer landed (2026-10-18):** the computed-result panel renders
+> each produced artifact through `ArtifactView` — an image inline via the
+> Artifact Center's own route (the path is derived server-side by id), anything
+> else a download, and an honest name+digest fallback with NO link when the
+> catalog has no entry. Test: `src/components/chat/artifact-view.test.tsx`.
 
 # Phase 15 — Documents In, Files Out, and Landing a Change
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
+import { designLockBlocked } from "@/lib/sdk/locks-server";
 import {
   clearServerTheme,
   getServerThemeState,
@@ -31,6 +32,8 @@ export async function GET() {
 export async function PUT(request: Request) {
   const blocked = guardMutation(request, "theme");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
+  const locked = await designLockBlocked(request);
+  if (locked) return locked;
   try {
     const body = (await request.json().catch(() => ({}))) as { theme?: unknown };
     const theme = await setServerTheme(body.theme);
@@ -47,6 +50,8 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const blocked = guardMutation(request, "theme");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
+  const locked = await designLockBlocked(request);
+  if (locked) return locked;
   try {
     await clearServerTheme();
     return NextResponse.json({ success: true });

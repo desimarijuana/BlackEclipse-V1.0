@@ -237,8 +237,25 @@ async def recover_operation(
                         pass  # already applied in a prior attempt — do not repeat
                     else:
                         try:
-                            await _maybe_await(handler(last_decision))
-                            service.operations.complete(op_record["id"], result={"applied": True})
+                            handler_result = await _maybe_await(handler(last_decision))
+                            service.operations.complete(
+                                op_record["id"],
+                                result={"applied": True, "handler": handler_result},
+                            )
+                            # A capability handler hands back a typed acquisition
+                            # plan and asks the loop to stop: retrying the SAME
+                            # failed call unchanged is exactly what it must not do.
+                            if isinstance(handler_result, dict) and handler_result.get("stop"):
+                                service.record_outcome(
+                                    incident_id, outcome="failed",
+                                    detail={"reason": "acquisition_required", "strategy": str(strategy)},
+                                )
+                                return RecoveryRunResult(
+                                    ok=False, attempts=attempts, incident_id=incident_id,
+                                    decision=last_decision, diagnosis=diagnosis,
+                                    stopped_reason="acquisition_required",
+                                    value=handler_result,
+                                )
                         except BaseException as handler_exc:  # noqa: BLE001
                             service.operations.fail(op_record["id"], result={"error": str(handler_exc)})
                             service.record_outcome(

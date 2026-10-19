@@ -17,7 +17,14 @@ export function UiCatalogSync() {
     // defeating the code-splitting in stock-chat.tsx and inflating dev compile
     // time and server memory. It is fire-and-forget, so loading it after mount
     // is equivalent.
-    void import('@/lib/harness/ui-sync').then((m) => m.syncCoreCatalog());
+    void import('@/lib/harness/ui-sync').then((m) => {
+      void m.syncCoreCatalog();
+      void m.syncAppSurfaces();
+    });
+    // User-created SDK widgets are runtime data, not part of the static
+    // registry. Hydrate them on boot so the Pages widget library can place them
+    // even if the SDK screen was never opened.
+    void import('@/lib/sdk/widgets').then((m) => m.hydrateSdkWidgets());
   }, []);
   return null;
 }

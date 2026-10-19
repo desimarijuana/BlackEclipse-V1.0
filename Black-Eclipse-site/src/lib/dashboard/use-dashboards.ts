@@ -123,8 +123,14 @@ function persistActiveId(id: string | null) {
   } catch { /* best effort */ }
 }
 
-function seedDashboard(name: string, templateId: string): DashboardEntry {
-  const id = newId('dash');
+/**
+ * A dashboard entry. The FIRST-RUN default uses the stable id `main` so its
+ * mirrored UI blueprint (idempotency key `dash-bp:main`) is upserted instead of
+ * re-created every time a fresh browser session (empty localStorage, e.g. the
+ * in-app QA browser) auto-seeds a "Main" board — that used to leave a trail of
+ * duplicate pages in the runtime's application map.
+ */
+function seedDashboard(name: string, templateId: string, id = newId('dash')): DashboardEntry {
   return { id, name, storageKey: `${DASHBOARD_STORAGE_PREFIX}${id}`, templateId, isDefault: false };
 }
 
@@ -157,7 +163,7 @@ export function useDashboards() {
     let next = existing;
     if (next.length === 0) {
       // First run: seed a default "Main" dashboard from the Trader template.
-      const main = seedDashboard('Main', 'tape-reader');
+      const main = seedDashboard('Main', 'tape-reader', 'main');
       main.isDefault = true;
       next = [main];
       persistIndex(next);
@@ -221,7 +227,7 @@ export function useDashboards() {
       const target = prev.find(d => d.id === id);
       const next = prev.filter(d => d.id !== id);
       if (next.length === 0) {
-        const main = seedDashboard('Main', 'tape-reader');
+        const main = seedDashboard('Main', 'tape-reader', 'main');
         main.isDefault = true;
         next.push(main);
       }

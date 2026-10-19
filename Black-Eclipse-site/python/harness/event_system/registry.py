@@ -263,6 +263,8 @@ def _build_default_specs() -> list[EventTypeSpec]:
         _spec("memory.candidate.created", description="An event was proposed as a memory candidate", producer=("events",), consumers=("memory",), priority="low", retention_days=30),
         _spec("evaluation.started", description="An evaluation started", producer=("eval", "self_improvement"), retention_days=180),
         _spec("evaluation.completed", description="An evaluation completed", producer=("eval", "self_improvement"), consumers=("self_improvement",), retention_days=365),
+        _spec("self_improvement.candidate_created", description="An inert self-improvement candidate was created", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=90),
+        _spec("self_improvement.experiment_completed", description="An RSL experiment completed with a recorded decision", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=180),
         _spec("recovery.completed", description="A recovery attempt completed", producer=("self_improvement",), retention_days=180),
     ]
 
@@ -275,6 +277,22 @@ def _build_default_specs() -> list[EventTypeSpec]:
         _spec("prompt.plan", description="A prompt plan was produced", producer=("harness",), priority="low", retention_days=7),
         _spec("context.retry", description="Context was rebuilt and retried", producer=("harness",), priority="low", retention_days=7),
         _spec("notification.sent", description="A notification was delivered", producer=("harness",), priority="low", retention_days=30),
+    ]
+
+    # ── UI capability routing ────────────────────────────────────────────────
+    s += [
+        _spec(
+            "ui.capability_gap",
+            description=(
+                "A UI request named a capability the component catalog cannot "
+                "satisfy; the request was escalated to engineering"
+            ),
+            producer=("ui",),
+            consumers=("recovery", "self_improvement"),
+            priority="high",
+            retention_days=90,
+            required_fields=("capability",),
+        ),
     ]
 
     # ── namespaces (many sub-events, one policy) ─────────────────────────────

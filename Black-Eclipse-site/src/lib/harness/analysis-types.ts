@@ -22,11 +22,22 @@ export interface ComputedArtifact {
   mediaType: string;
 }
 
+/** Phase 18: the figure payload that rides a computed result (never evidence). */
+export interface ComputedFigure {
+  kind: string;
+  label: string;
+  artifact: string | null;
+  series: { name: string; points: number }[];
+  seed: number | null;
+  isEvidence: boolean;
+}
+
 export interface ComputedResult {
   status: "ok" | "failed" | "refused" | "timed_out";
   provenance: Provenance | null;
   outputs: Record<string, unknown>;
   artifacts: ComputedArtifact[];
+  figure: ComputedFigure | null;
   sourceDigest?: string;
   durationMs?: number;
 }
@@ -66,6 +77,27 @@ function coerceProvenance(raw: unknown): Provenance | null {
   };
 }
 
+function coerceFigure(raw: unknown): ComputedFigure | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const blob = raw as Record<string, unknown>;
+  const kind = typeof blob.kind === 'string' ? blob.kind : '';
+  if (!kind) return null;
+  const series = Array.isArray(blob.series)
+    ? (blob.series as Record<string, unknown>[])
+        .filter((s) => s && typeof s.name === 'string')
+        .map((s) => ({ name: String(s.name), points: Number(s.points) || 0 }))
+    : [];
+  return {
+    kind,
+    label: typeof blob.label === 'string' ? blob.label : 'computed',
+    artifact: typeof blob.artifact === 'string' ? blob.artifact : null,
+    series,
+    seed: typeof blob.seed === 'number' ? blob.seed : null,
+    // A figure is computed, never evidence — the wire may not claim otherwise.
+    isEvidence: false,
+  };
+}
+
 /** Narrow an unknown tool/result blob to a ComputedResult, or null. */
 export function coerceComputedResult(raw: unknown): ComputedResult | null {
   if (raw === null || typeof raw !== 'object') return null;
@@ -84,6 +116,7 @@ export function coerceComputedResult(raw: unknown): ComputedResult | null {
     provenance: coerceProvenance(blob.provenance),
     outputs,
     artifacts,
+    figure: coerceFigure(blob.figure),
     sourceDigest: typeof blob.sourceDigest === 'string' ? blob.sourceDigest : undefined,
     durationMs: typeof blob.durationMs === 'number' ? blob.durationMs : undefined,
   };

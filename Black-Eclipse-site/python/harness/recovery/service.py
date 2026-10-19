@@ -20,7 +20,7 @@ from typing import Any, Optional
 from .config import budget_from_env, recovery_enabled
 from .controller import RecoveryAction, RecoveryController, RecoveryDecision
 from .diagnosis import Diagnosis, DiagnosisEngine
-from .discovery import CapabilityIndex, acquisition_plan
+from .discovery import CapabilityIndex
 from .envelope import AutonomyEnvelope, from_dict, load_envelope
 from .learning import promote_incidents
 from .operations import OperationLedger
@@ -107,6 +107,32 @@ class RecoveryService:
             elapsed_ms=int(state.get("elapsed_ms", 0)),
         )
         diagnosis = self.diagnosis.diagnose(failure, evidence=details)
+        # Round 4 (W11, L3): the ledger's measured preference may REORDER the
+        # policy's own candidates — it never adds a strategy the policy did not
+        # offer, so every safety invariant (auth denials, non-retryable kinds,
+        # approval gating) is unchanged. The evidence rides the result.
+        preference = None
+        try:
+            preference = self.preferred_strategy(failure.signature)
+        except Exception:  # noqa: BLE001 - a preference lookup must never block recovery
+            preference = None
+        if preference is not None and decision.strategy is not None:
+            candidates = list(decision.candidates)
+            match = next(
+                (c for c in candidates if c.strategy.value == preference.strategy), None,
+            )
+            if match is not None and match.strategy != decision.strategy:
+                from dataclasses import replace  # noqa: PLC0415
+
+                decision = replace(
+                    decision,
+                    strategy=match.strategy,
+                    candidates=[match, *[c for c in candidates if c.strategy != match.strategy]],
+                    reason=(
+                        f"{decision.reason}; L3 preference: {preference.strategy} "
+                        f"({preference.success_rate:.2f} over {preference.observations} observation(s))"
+                    ),
+                )
         incident = self.store.record_failure(
             failure, task_id=task_id, run_id=run_id, decision=decision, metadata=details,
         )
@@ -119,6 +145,8 @@ class RecoveryService:
             "occurrenceCount": incident["occurrenceCount"],
             "recurrent": prior >= 1,
         }
+        if preference is not None:
+            result["strategyPreference"] = preference.to_dict()
         if record_attempt and decision.strategy is not None:
             attempt = self.store.record_attempt(
                 incident["id"],
@@ -134,6 +162,22 @@ class RecoveryService:
             if decision.action == RecoveryAction.STOP:
                 self.store.set_status(incident["id"], FAILED if decision.exhausted else RESOLVED)
         return result
+
+    def propose_routing_repair(
+        self, incident_id: str, *, catalog: Any = None,
+    ) -> Optional[dict[str, Any]]:
+        """A minimal, typed routing-repair proposal for a stored incident.
+
+        READ-ONLY: it never writes the tree and never activates the change. The
+        proposal names its cause, the exact patch op (if any), and the fixture
+        that must flip; verification and landing are separate, gated steps.
+        """
+        incident = self.store.get_incident(incident_id)
+        if incident is None:
+            return None
+        from .routing_repair import proposal_from_incident  # noqa: PLC0415
+
+        return proposal_from_incident(incident, catalog=catalog).to_dict()
 
     def record_outcome(
         self,
@@ -257,10 +301,37 @@ class RecoveryService:
             return []
         return [m.to_dict() for m in self.capability_index.search(query, **kwargs)]
 
-    def plan_acquisition(self, query: str) -> Optional[dict[str, Any]]:
+    def plan_acquisition(
+        self, query: str, *, task_id: Optional[str] = None,
+        facts: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """The typed acquisition lifecycle (W5/W9): surface, approval, gaps, retry.
+
+        `facts` (an operator-supplied GitHub source / plugin folder / kit id)
+        only resolve which EXISTING gate an install step names; nothing is
+        granted and the step stays approval-flagged.
+        """
         if self.capability_index is None:
             return None
-        return acquisition_plan(query, self.capability_index).to_dict()
+        from .acquisition import propose  # noqa: PLC0415
+
+        return propose(query, self.capability_index, task_id=task_id, facts=facts).to_dict()
+
+    def plan_incident_acquisition(
+        self, incident_id: str, *, facts: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Plan the acquisition for a stored incident's original request."""
+        incident = self.store.get_incident(incident_id)
+        if incident is None:
+            return None
+        query = str(incident.get("message") or "").strip()
+        for prefix in ("no registered component matches: ", "capability gap: "):
+            if query.startswith(prefix):
+                query = query[len(prefix):].strip()
+                break
+        if not query:
+            return None
+        return self.plan_acquisition(query, task_id=incident.get("taskId"), facts=facts)
 
     def promote_incidents(
         self,
@@ -269,6 +340,18 @@ class RecoveryService:
     ) -> dict[str, Any]:
         """Promote qualifying incidents into inert skill candidates."""
         return promote_incidents(self, incidents, **kwargs)
+
+    def preferred_strategy(
+        self, failure_signature: str, **kwargs: Any,
+    ) -> Optional[Any]:
+        """L3 (round 4, W11): the route the ledger supports for a signature.
+
+        Read-only; returns `None` when the evidence is too thin — an unmeasured
+        choice stays unmade.
+        """
+        from .strategy_learning import preference_from_store  # noqa: PLC0415
+
+        return preference_from_store(self.store, failure_signature, **kwargs)
 
     def health(self) -> dict[str, Any]:
         try:

@@ -62,7 +62,7 @@ function firstTarget(blueprint: UiBlueprint | null): { sectionId: string; column
   return { sectionId: section.id, columnId: column.id, index: column.widgets.length };
 }
 
-export function UiBuilderScreen() {
+export function UiBuilderScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const [blueprints, setBlueprints] = useState<BlueprintSummary[]>([]);
   const [components, setComponents] = useState<UiComponentSpec[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -275,10 +275,12 @@ export function UiBuilderScreen() {
     <div className="flex h-full w-full flex-col gap-4">
       <DesktopOnlyNotice title="UI Builder" />
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-semibold text-foreground">UI Builder</h1>
-          <p className="text-xs text-muted-foreground">Compose pages, workspaces and widgets over the live UI runtime.</p>
-        </div>
+        {embedded ? null : (
+          <div>
+            <h1 className="font-serif text-2xl font-semibold text-foreground">UI Builder</h1>
+            <p className="text-xs text-muted-foreground">Compose pages, workspaces and widgets over the live UI runtime.</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => void refreshList()} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground">Refresh</button>
           <button type="button" onClick={() => void syncCoreCatalog(true).then((r) => { note(`Synced ${r.registered}/${r.total} components`, r.failed === 0); void refreshList(); })} className="glass-button rounded-lg px-3 py-1.5 text-xs text-foreground">Sync catalog</button>

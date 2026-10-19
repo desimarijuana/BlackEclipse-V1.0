@@ -16,12 +16,16 @@ import json
 from typing import Any, Optional
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
+from .goal import intake_goal
 from .manager import TaskError, TaskManager
 from .model import (
+    CreatePlanInput,
+    CreateTaskInput,
     DependencyKind,
     FailurePolicy,
     TaskPriority,
     TaskStatus,
+    TaskType,
 )
 from .store import TaskStore
 
@@ -377,12 +381,83 @@ async def _checkpoint_task(args: dict[str, Any], ctx: ToolContext) -> Any:
                {"checkpoint": checkpoint.model_dump(by_alias=True)})
 
 
+async def _create_goal(args: dict[str, Any], ctx: ToolContext) -> Any:
+    """Turn a request into a durable goal contract and start it (round 4, W8).
+
+    The deterministic intake (`goal.intake_goal`) derives the task type,
+    deliverables, acceptance and budgets from the request — or from explicit
+    fields. An ambiguous request earns ONE clarifying question instead of a
+    guessed contract; nothing durable is created until it is answered (or
+    fields are supplied).
+    """
+    try:
+        request = str(args.get("request") or "").strip()
+        explicit = any(
+            args.get(key) is not None
+            for key in ("deliverables", "acceptance", "taskType", "task_type")
+        )
+        intake = intake_goal(
+            request,
+            task_type=args.get("taskType") or args.get("task_type"),
+            deliverables=args.get("deliverables"),
+            constraints=args.get("constraints"),
+            acceptance=args.get("acceptance"),
+            budgets=_clean(args.get("budgets")),
+            title=args.get("title"),
+        )
+        if intake.ambiguous and not explicit:
+            return _ok(
+                "One question before this becomes a durable task: " + intake.questions[0],
+                {"created": False, "questions": intake.questions,
+                 "intake": intake.to_dict()},
+            )
+        manager = _manager(ctx)
+        plan = manager.create_plan(CreatePlanInput(
+            name=intake.title, objective=intake.contract.objective,
+            description=intake.contract.objective, metadata={"source": "goal"},
+        ))
+        task_fields: dict[str, Any] = {
+            "plan_id": plan.id, "title": intake.title,
+            "objective": intake.contract.objective,
+            "description": intake.contract.objective,
+            "task_type": intake.task_type, "goal_contract": intake.contract,
+        }
+        budgets = intake.contract.budgets
+        if budgets is not None and budgets.max_parallel_workers is not None:
+            # Enforced through the scheduler's EXISTING per-agent cap.
+            task_fields["metadata"] = {"maxConcurrency": int(budgets.max_parallel_workers)}
+        agent = args.get("agentId") or args.get("agent_id")
+        if agent:
+            task_fields["assigned_agent_id"] = str(agent)
+        if args.get("priority"):
+            task_fields["priority"] = str(args["priority"])
+        retries = args.get("maxRetries") if args.get("maxRetries") is not None else args.get("max_retries")
+        if retries is not None:
+            task_fields["max_retries"] = int(retries)
+        task = manager.create_task(CreateTaskInput(**task_fields))
+        plan = manager.start_plan(plan.id)
+        text = (
+            f"Goal started as a durable task: {task.id} · {intake.task_type.value} · "
+            f"plan {plan.id} is {plan.status.value}. The task completes only when "
+            f"its evidence passes the {intake.task_type.value} verifier."
+        )
+        if intake.questions:
+            text += " Open question: " + intake.questions[0]
+        return _ok(text, {
+            "created": True, "task": task.model_dump(by_alias=True),
+            "plan": plan.model_dump(by_alias=True), "intake": intake.to_dict(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 # ── Tool metadata ─────────────────────────────────────────────────────────────
 
 _PRIORITIES = [p.value for p in TaskPriority]
 _STATUSES = [s.value for s in TaskStatus]
 _DEP_KINDS = [k.value for k in DependencyKind]
 _FAILURE_POLICIES = [f.value for f in FailurePolicy]
+_TASK_TYPES = [t.value for t in TaskType]
 
 _TASK_REF = {"type": "string", "description": "A task id."}
 _PLAN_REF = {"type": "string", "description": "A plan id."}
@@ -397,6 +472,36 @@ _CRITERIA = {
 }
 
 _DEFS: list[tuple[str, str, dict[str, Any]]] = [
+    (
+        "create_goal",
+        "Start a durable goal. A deterministic intake turns the request into a "
+        "contract (objective, deliverables, acceptance, task type, budgets) and "
+        "runs it as a tracked task that completes ONLY when its evidence passes "
+        "the task-type verifier. Use for multi-step, long-horizon or resumable "
+        "work; a one-line answer does not need it.",
+        {
+            "type": "object",
+            "properties": {
+                "request": {"type": "string", "description": "The user's goal in their words."},
+                "title": {"type": "string"},
+                "taskType": {"type": "string", "enum": _TASK_TYPES},
+                "deliverables": {"type": "array", "items": {"type": "string"}},
+                "constraints": {"type": "array", "items": {"type": "string"}},
+                "acceptance": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "What must be proven before the goal is done.",
+                },
+                "budgets": {
+                    "type": "object",
+                    "description": "Contract caps: maxDurationMs, maxToolCalls, maxTokens.",
+                },
+                "agentId": {"type": "string"},
+                "priority": {"type": "string", "enum": _PRIORITIES},
+                "maxRetries": {"type": "integer"},
+            },
+            "required": ["request"],
+        },
+    ),
     (
         "create_plan",
         "Create a durable plan (a named objective that will contain tasks). Use this "
@@ -652,6 +757,7 @@ _DEFS: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 _HANDLERS = {
+    "create_goal": _create_goal,
     "create_plan": _create_plan,
     "read_plan": _read_plan,
     "run_plan": _run_plan,

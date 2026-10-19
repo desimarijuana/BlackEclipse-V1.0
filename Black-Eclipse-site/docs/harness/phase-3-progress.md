@@ -294,8 +294,11 @@ Phase-2 regression: `test_retrieval.py`, `test_retrieval_scenarios.py`,
 - Generated drafts are manifest-only (no `SKILL.md`); a reviewer must author the
   procedure prose before a learned skill is truly usable.
 - The legacy `AgentSkill` table is not migrated into the new model (deferred).
-- The evaluation regression dimension compares against the newest prior
-  evaluation for the same version; cross-version regression is a future step.
+- The evaluation regression dimension compares against the candidate's DECLARED
+  `baseVersion` when that base has an evaluation; otherwise it uses the newest
+  prior evaluation of the same version, then the newest prior version. Re-running
+  "evaluate the base first, then re-evaluate the candidate" therefore compares
+  against the base, not against the candidate's own earlier record.
 - Skill instructions are bounded to 20k chars to protect context.
 
 ## Blockers

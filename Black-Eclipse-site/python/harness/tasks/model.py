@@ -114,6 +114,25 @@ class BlockedReason(str, Enum):
     RESOURCE = "RESOURCE"
     PERMISSION = "PERMISSION"
     PARENT = "PARENT"
+    #: The task-type verifier (round 4, W8.4/W8.5) cannot pass with the evidence
+    #: the work produced — the run(s) finished but the goal contract's proof is
+    #: missing. Non-terminal and inspectable: the missing evidence is named.
+    VERIFICATION = "VERIFICATION"
+
+
+class TaskType(str, Enum):
+    """The task-type key a completion verifier is registered under (W8.4).
+
+    An explicit, closed vocabulary — never inferred from prose at verification
+    time. `general` is the honest fallback for work that fits no other class.
+    """
+
+    CODE = "code"
+    RESEARCH = "research"
+    DOCUMENT = "document"
+    WORKFLOW = "workflow"
+    FINANCE = "finance"
+    GENERAL = "general"
 
 
 class CriterionState(str, Enum):
@@ -217,9 +236,75 @@ DEFAULT_MAX_RETRIES = 2
 DEFAULT_LEASE_SECONDS = 600
 DEFAULT_BACKOFF_MS = 1_000
 MAX_BACKOFF_MS = 300_000
+MAX_DELIVERABLES = 12
+MAX_GOAL_CONSTRAINTS = 12
+MAX_GOAL_ACCEPTANCE = 20
+MAX_GOAL_LINE = 500
 
 
 # ── Contracts ─────────────────────────────────────────────────────────────────
+
+
+class TaskBudget(BaseModel):
+    """Contract-level caps for one task (round 4, W8.6).
+
+    Enforced AFTER the run against the run's own recorded metrics; exceeding a
+    cap is a BLOCKED outcome with the violated cap named — never a silent
+    truncation and never a retry that burns more of the same budget. Only the
+    measurable caps are declared here; an unenforceable cap (e.g. model cost,
+    which the runtime does not price) is not invented.
+    """
+
+    model_config = _CAMEL
+
+    max_duration_ms: Optional[int] = Field(None, ge=0)
+    max_tool_calls: Optional[int] = Field(None, ge=0)
+    max_tokens: Optional[int] = Field(None, ge=0)
+    max_model_steps: Optional[int] = Field(None, ge=0)
+    #: A cap on how many tasks for this goal may run at once. Enforced through
+    #: the scheduler's EXISTING per-agent concurrency cap (the goal task carries
+    #: `metadata.maxConcurrency`), not by a second limiter.
+    max_parallel_workers: Optional[int] = Field(None, ge=1)
+
+
+class GoalContract(BaseModel):
+    """A goal as DATA on the durable task (round 4, W8.1).
+
+    The deterministic intake (`goal.py::intake_goal`) turns a request into this
+    contract, which travels with the task — not with a prompt. `deliverables`
+    and `acceptance` are what the task-type verifier checks before the task may
+    complete; `constraints` and `budgets` bound the work.
+    """
+
+    model_config = _CAMEL
+
+    objective: str = Field("", max_length=MAX_OBJECTIVE)
+    deliverables: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    acceptance: list[str] = Field(default_factory=list)
+    budgets: Optional[TaskBudget] = None
+
+    @field_validator("objective")
+    @classmethod
+    def _strip_objective(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("deliverables", "constraints", "acceptance", mode="before")
+    @classmethod
+    def _strip_lines(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        return value
+
+    @model_validator(mode="after")
+    def _bounded(self) -> "GoalContract":
+        if len(self.deliverables) > MAX_DELIVERABLES:
+            raise ValueError(f"too many deliverables (max {MAX_DELIVERABLES})")
+        if len(self.constraints) > MAX_GOAL_CONSTRAINTS:
+            raise ValueError(f"too many constraints (max {MAX_GOAL_CONSTRAINTS})")
+        if len(self.acceptance) > MAX_GOAL_ACCEPTANCE:
+            raise ValueError(f"too many acceptance tests (max {MAX_GOAL_ACCEPTANCE})")
+        return self
 
 
 class TaskAcceptanceCriterion(BaseModel):
@@ -344,6 +429,12 @@ class Task(BaseModel):
     description: str = Field("", max_length=MAX_DESCRIPTION)
     objective: str = Field("", max_length=MAX_OBJECTIVE)
 
+    # Round 4 (W8): the task-type key that selects the completion verifier, and
+    # the goal contract it verifies against. Both optional — a task created
+    # without them keeps the pre-W8 completion contract exactly as it was.
+    task_type: Optional[TaskType] = None
+    goal_contract: Optional[GoalContract] = None
+
     status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.NORMAL
     progress: int = Field(0, ge=0, le=100)
@@ -421,6 +512,11 @@ class CreateTaskInput(BaseModel):
     weight: float = Field(1.0, gt=0)
     max_retries: int = Field(DEFAULT_MAX_RETRIES, ge=0, le=MAX_MAX_RETRIES)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Round 4 (W8): a goal contract creates acceptance criteria from its
+    # `acceptance` lines (deduped against `acceptance_criteria`) and selects the
+    # completion verifier through `task_type`.
+    task_type: Optional[TaskType] = None
+    goal_contract: Optional[GoalContract] = None
 
     @field_validator("title", "description", "objective")
     @classmethod
@@ -462,11 +558,16 @@ __all__ = [
     "DependencyKind",
     "ExecutionStatus",
     "FailurePolicy",
+    "GoalContract",
     "MAX_BACKOFF_MS",
     "MAX_CHILDREN_PER_TASK",
     "MAX_CRITERIA_PER_TASK",
+    "MAX_DELIVERABLES",
     "MAX_DEPENDENCIES_PER_TASK",
     "MAX_DESCRIPTION",
+    "MAX_GOAL_ACCEPTANCE",
+    "MAX_GOAL_CONSTRAINTS",
+    "MAX_GOAL_LINE",
     "MAX_MAX_RETRIES",
     "MAX_OBJECTIVE",
     "MAX_TITLE",
@@ -479,6 +580,7 @@ __all__ = [
     "Task",
     "TaskAcceptanceCriterion",
     "TaskArtifact",
+    "TaskBudget",
     "TaskCheckpoint",
     "TaskDependency",
     "TaskEvent",
@@ -486,6 +588,7 @@ __all__ = [
     "TaskExecution",
     "TaskPriority",
     "TaskStatus",
+    "TaskType",
     "TASK_TERMINAL",
     "WaitingReason",
 ]

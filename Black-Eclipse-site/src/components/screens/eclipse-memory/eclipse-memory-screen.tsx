@@ -1,15 +1,17 @@
 "use client";
 
 // ── Eclipse Memory — the Memory Control Room (Phase 3-M) ────────────────────
-// Tabs: Overview · Memories · Corrections/Mistakes · Health. Reuses the Skills
+// Tabs come from MEMORY_TABS (src/lib/app-screens.ts) — the same list the
+// agent's surface map reads. Reuses the Skills
 // Control Room primitives (frosted glass, tab bar, badges) — no new visual
 // language. All counts are real; no fabricated activity.
 
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity, AlertCircle, Brain, Database, FileText, Lightbulb, Loader2, Lock, MessageSquare, Plug, Plus,
-  RefreshCcw, Search, Settings2, ShieldCheck, Trash2, Wrench, X,
+  RefreshCcw, Search, Settings2, ShieldCheck, Trash2, Wrench, X, type LucideIcon,
 } from "@/lib/icons";
+import { MEMORY_TABS, screenTab, type MemoryTabId } from "@/lib/app-screens";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import { Button } from "@/components/ui/button";
@@ -55,7 +57,16 @@ import type {
   LearningReviewHealth, LearningReviewRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
-type Tab = "overview" | "memories" | "profile" | "profiles" | "history" | "sessions" | "reviews" | "lifecycle" | "suggestions" | "activity" | "providers" | "files" | "skills" | "policies" | "health";
+type Tab = MemoryTabId;
+
+// Labels + ids come from `MEMORY_TABS` (the same list the agent's surface map
+// reads); only the icons are screen-local presentation.
+const TAB_ICONS: Record<Tab, LucideIcon> = {
+  overview: Brain, memories: Database, sessions: MessageSquare, history: Search,
+  skills: Wrench, suggestions: Lightbulb, lifecycle: RefreshCcw, reviews: Activity,
+  activity: Activity, profile: Lock, profiles: ShieldCheck, providers: Plug,
+  files: FileText, policies: Settings2, health: ShieldCheck,
+};
 
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
@@ -73,40 +84,18 @@ function formatConfidence(value: number | null | undefined): string {
 
 export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("overview");
-  // Deep links land on the matching sub-page:
-  // memory.explorer/activity/health → Memories/Activity/Health.
+  // Deep links land on the matching sub-page. Slugs and legacy aliases come
+  // from the ONE tab list, so every rendered tab (incl. Profiles/Providers/
+  // Files/Skills) is reachable and the alias map cannot drift.
   useSubroute("memory", (req) => {
-    const slug = req.subroute.split(".")[1];
-    const map: Record<string, Tab> = {
-      explorer: "memories", activity: "activity", health: "health",
-      memories: "memories", overview: "overview", policies: "policies",
-      suggestions: "suggestions", lifecycle: "lifecycle", profile: "profile",
-      history: "history", sessions: "sessions",
-      reviews: "reviews", learning: "reviews",
-    };
-    if (slug && map[slug]) setTab(map[slug]);
+    const def = screenTab(MEMORY_TABS, req.subroute.split(".")[1]);
+    if (def) setTab(def.id);
   });
 
   return (
     <div className="w-full px-4 py-6 md:px-8 pb-24">
       <TabBar
-        items={[
-          { id: "overview", label: "Overview", icon: Brain },
-          { id: "memories", label: "Facts", icon: Database },
-          { id: "sessions", label: "Sessions", icon: MessageSquare },
-          { id: "history", label: "Session Search", icon: Search },
-          { id: "skills", label: "Skills", icon: Wrench },
-          { id: "suggestions", label: "Suggestions", icon: Lightbulb },
-          { id: "lifecycle", label: "Lifecycle", icon: RefreshCcw },
-          { id: "reviews", label: "Reviews", icon: Activity },
-          { id: "activity", label: "Activity", icon: Activity },
-          { id: "profile", label: "Profile", icon: Lock },
-          { id: "profiles", label: "Profiles", icon: ShieldCheck },
-          { id: "providers", label: "Providers", icon: Plug },
-          { id: "files", label: "Files", icon: FileText },
-          { id: "policies", label: "Policies", icon: Settings2 },
-          { id: "health", label: "Health/Export", icon: ShieldCheck },
-        ]}
+        items={MEMORY_TABS.map((t) => ({ id: t.id, label: t.label, icon: TAB_ICONS[t.id] }))}
         activeId={tab}
         onChange={(id) => setTab(id as Tab)}
         variant="subtle"

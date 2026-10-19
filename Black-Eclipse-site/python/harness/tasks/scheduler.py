@@ -28,8 +28,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from .context import build_task_context
+from .goal import budget_violations
 from .manager import TaskManager
 from .model import (
+    BlockedReason,
+    DEFAULT_BACKOFF_MS,
     DEFAULT_LEASE_SECONDS,
     ExecutionStatus,
     MAX_MAX_RETRIES,
@@ -39,6 +42,7 @@ from .model import (
     Task,
     TaskStatus,
 )
+from .verification import TaskVerification, verify_task
 
 log = logging.getLogger("harness.tasks.scheduler")
 
@@ -67,13 +71,17 @@ class TaskRunOutcome:
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     criteria: list[dict[str, Any]] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
+    #: Round 4 (W8.4): bounded evidence blobs from the run result (the code
+    #: verification ledger, research sources/claims, documents, images). The
+    #: task-type verifier reads THESE, never the model's prose.
+    evidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status, "output": self.output, "error": self.error,
             "errorClass": self.error_class, "runId": self.run_id,
             "artifacts": self.artifacts, "criteria": self.criteria,
-            "metrics": self.metrics,
+            "metrics": self.metrics, "evidence": self.evidence,
         }
 
 
@@ -341,6 +349,17 @@ class TaskScheduler:
                 error_class="CANCELLED", run_id=outcome.run_id or run_id,
             )
             return
+        if str(outcome.status) == "waiting":
+            # The executor deliberately PARKED the task (e.g. an acquisition was
+            # routed to a dependency, or an operator decision is pending). The
+            # run did not fail — never retry or fail a task someone is waiting on.
+            self._manager._store.finish_execution(  # noqa: SLF001
+                execution_id, status=ExecutionStatus.FAILED,
+                error=outcome.error or "the task is parked, awaiting an external step",
+                error_class=outcome.error_class or "WAITING_ON_EXTERNAL",
+                run_id=outcome.run_id or None, metrics=outcome.metrics,
+            )
+            return
         if live.status != TaskStatus.IN_PROGRESS:
             self._manager._store.finish_execution(  # noqa: SLF001
                 execution_id, status=ExecutionStatus.CANCELLED,
@@ -414,6 +433,28 @@ class TaskScheduler:
             self._manager.begin_verification(task.id, actor_id=self._worker_id)
         except Exception:  # noqa: BLE001 - a status race must not crash the tick
             log.warning("begin_verification refused for task %s", task.id, exc_info=True)
+        # Round 4 (W8.6): a goal-contract budget exceeded by THIS run is a BLOCKED
+        # outcome with the violated cap named — never a silent truncation and
+        # never a retry that burns more of the same budget.
+        violations = budget_violations(
+            task.goal_contract.budgets if task.goal_contract else None,
+            elapsed_ms=self._elapsed_ms(task),
+            tool_calls=int(outcome.metrics.get("toolCalls") or 0),
+            tokens=int(outcome.metrics.get("totalTokens") or 0),
+            model_steps=int(outcome.metrics.get("modelSteps") or 0),
+        )
+        if violations:
+            self._on_budget_exceeded(task, execution_id, outcome, violations)
+            return
+        # Round 4 (W8.4): a task that declares a taskType must ALSO pass its
+        # type's verifier — evidence the run actually produced, never prose.
+        verification = verify_task(
+            task, status=outcome.status, evidence=outcome.evidence,
+            artifacts=outcome.artifacts, metrics=outcome.metrics,
+        )
+        if verification is not None and not verification.ok:
+            self._on_verification_failure(task, execution_id, outcome, verification)
+            return
         self._apply_criteria(task, outcome)
         try:
             self._manager.complete_task(
@@ -432,14 +473,107 @@ class TaskScheduler:
             execution_id, status=ExecutionStatus.COMPLETED, run_id=outcome.run_id or None,
             metrics=outcome.metrics,
         )
+        checkpoint_payload: dict[str, Any] = {
+            "runId": outcome.run_id, "progress": 100,
+            "outputReference": outcome.run_id,
+        }
+        if verification is not None:
+            # Completion is evidence: the verified verdict rides the durable
+            # resume boundary, so a resumed/audited task shows WHAT proved it.
+            checkpoint_payload["verification"] = verification.to_dict()
         try:
             self._manager.save_checkpoint(
                 task.id, label="run_complete", execution_id=execution_id,
-                payload={"runId": outcome.run_id, "progress": 100,
-                         "outputReference": outcome.run_id},
+                payload=checkpoint_payload,
             )
         except Exception:  # noqa: BLE001 - a checkpoint must never fail a task
             log.warning("failed to write run_complete checkpoint", exc_info=True)
+
+    def _elapsed_ms(self, task: Task) -> Optional[int]:
+        """Wall-clock since the task first started, when it can be compared."""
+        started = task.started_at
+        if not started:
+            return None
+        try:
+            started_at = _dt.datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=_dt.timezone.utc)
+        return max(0, int((self._now() - started_at).total_seconds() * 1000))
+
+    def _on_budget_exceeded(
+        self, task: Task, execution_id: str, outcome: TaskRunOutcome,
+        violations: list[str],
+    ) -> None:
+        """A contract budget was exceeded: record the real usage and end BLOCKED.
+
+        Blames the RESOURCE, not the goal: the work is inspectable and resumable
+        (fix the cap or the approach), and retrying cannot help — it spends more.
+        """
+        error = "budget exceeded — " + "; ".join(violations)
+        log.warning("task %s budget exceeded: %s", task.id, error)
+        self._manager._store.finish_execution(  # noqa: SLF001
+            execution_id, status=ExecutionStatus.FAILED, error=error,
+            error_class="BUDGET_EXCEEDED", run_id=outcome.run_id or None,
+            metrics=outcome.metrics,
+        )
+        self._manager._emit(  # noqa: SLF001
+            "TASK_COMPLETION_REJECTED", task=task,
+            data={"reasons": violations, "reason": "budget"},
+        )
+        try:
+            self._manager.escalate_task(
+                task.id, target=TaskStatus.BLOCKED, error=error,
+                error_class="BUDGET_EXCEEDED", actor_id=self._worker_id,
+                blocked_reason=BlockedReason.RESOURCE,
+            )
+            return
+        except Exception:  # noqa: BLE001 - fall back to an honest failure
+            log.warning("budget escalation refused for task %s", task.id, exc_info=True)
+        self._manager.fail_task(task.id, error=error, error_class="BUDGET_EXCEEDED",
+                                actor_id=self._worker_id)
+
+    def _on_verification_failure(
+        self, task: Task, execution_id: str, outcome: TaskRunOutcome,
+        verification: TaskVerification,
+    ) -> None:
+        """The task-type verifier refused completion (W8.4/W8.5).
+
+        A failed verification with retry budget left is retried WITH the missing
+        evidence named (the next attempt is told what proof it must produce). An
+        exhausted budget ends the task BLOCKED with `BlockedReason.VERIFICATION`
+        and the exact missing evidence — a non-terminal, inspectable dead end,
+        never a confident "done" and never an infinite repair loop.
+        """
+        summary = verification.summary()
+        log.warning("task %s verification failed: %s", task.id, summary)
+        self._manager._store.finish_execution(  # noqa: SLF001
+            execution_id, status=ExecutionStatus.FAILED, error=summary,
+            error_class="VERIFICATION_FAILED", run_id=outcome.run_id or None,
+            metrics=outcome.metrics,
+        )
+        self._manager._emit(  # noqa: SLF001
+            "TASK_COMPLETION_REJECTED", task=task,
+            data={"reasons": verification.missing, "verification": verification.to_dict()},
+        )
+        live = self._manager._store.get_task(task.id)  # noqa: SLF001
+        if (live is not None
+                and live.status in (TaskStatus.IN_PROGRESS, TaskStatus.VERIFYING)
+                and live.retry_count < min(live.max_retries, MAX_MAX_RETRIES)):
+            self._schedule_retry(live, error=summary, error_class="VERIFICATION_FAILED")
+            return
+        try:
+            self._manager.escalate_task(
+                task.id, target=TaskStatus.BLOCKED, error=summary,
+                error_class="VERIFICATION_FAILED", actor_id=self._worker_id,
+                blocked_reason=BlockedReason.VERIFICATION,
+            )
+            return
+        except Exception:  # noqa: BLE001 - fall back to an honest failure
+            log.warning("verification escalation refused for task %s", task.id, exc_info=True)
+        self._manager.fail_task(task.id, error=summary, error_class="VERIFICATION_FAILED",
+                                actor_id=self._worker_id)
 
     def _apply_criteria(self, task: Task, outcome: TaskRunOutcome) -> None:
         criteria = self._manager.list_criteria(task.id)
@@ -490,15 +624,19 @@ class TaskScheduler:
         live = self._manager._store.get_task(task.id)  # noqa: SLF001
         if live is None or live.status not in (TaskStatus.IN_PROGRESS, TaskStatus.VERIFYING):
             return
-        if (self._is_retryable(error_class)
-                and live.retry_count < min(live.max_retries, MAX_MAX_RETRIES)):
-            self._manager.retry_task(task.id, actor_id=self._worker_id)
-            delay = self._backoff_seconds(live.retry_count + 1, live.backoff_ms)
-            available_at = (self._now() + _dt.timedelta(seconds=delay)).isoformat()
-            self._manager._store.update_task_fields(  # noqa: SLF001
-                task.id, {"availableAt": available_at, "error": error[:2000],
-                          "errorClass": error_class}
+        # Round 4 (W10): no progress is a first-class blocker. Two consecutive
+        # IDENTICAL failures mean the repair attempt changed nothing — do not
+        # spend another retry on the same outcome; escalate with the actual one.
+        streak, streak_class = self._identical_failure_streak(task.id)
+        if streak >= 2 and streak_class:
+            error = (
+                f"no progress: the same failure ({streak_class}) recurred {streak} "
+                f"times unchanged; the actual blocker: {error}"
             )
+            error_class = streak_class
+        elif (self._is_retryable(error_class)
+                and live.retry_count < min(live.max_retries, MAX_MAX_RETRIES)):
+            self._schedule_retry(live, error=error, error_class=error_class)
             return
         # Retries are exhausted (or the error is non-retryable). A task may opt
         # into ESCALATION (metadata.escalateOnExhaustion = "BLOCKED" |
@@ -522,6 +660,39 @@ class TaskScheduler:
         if not error_class or error_class in NON_RETRYABLE_ERRORS:
             return False
         return error_class in RETRYABLE_ERRORS
+
+    def _identical_failure_streak(self, task_id: str) -> tuple[int, str]:
+        """How many consecutive finished attempts share the same error class."""
+        streak = 0
+        error_class: Optional[str] = None
+        finished = {
+            ExecutionStatus.FAILED, ExecutionStatus.TIMED_OUT,
+            ExecutionStatus.REFUSED, ExecutionStatus.CANCELLED,
+        }
+        for execution in reversed(self._manager.list_executions(task_id)):
+            if execution.status not in finished:
+                break
+            current = execution.error_class or ""
+            if error_class is None:
+                error_class = current
+            if current != error_class or not current:
+                break
+            streak += 1
+        return streak, error_class or ""
+
+    def _schedule_retry(self, task: Task, *, error: str, error_class: str) -> None:
+        """Move a task back to TODO with the failure NAMED and a backoff gate.
+
+        The recorded error is what the next attempt's context quotes, so a retry
+        addresses the cause instead of repeating it blindly.
+        """
+        delay = self._backoff_seconds(task.retry_count + 1, task.backoff_ms)
+        self._manager.retry_task(task.id, actor_id=self._worker_id)
+        available_at = (self._now() + _dt.timedelta(seconds=delay)).isoformat()
+        self._manager._store.update_task_fields(  # noqa: SLF001
+            task.id, {"availableAt": available_at, "error": error[:2000],
+                      "errorClass": error_class}
+        )
 
     def _backoff_seconds(self, attempt: int, base_ms: int) -> float:
         base = max(0.1, base_ms / 1000.0)
@@ -571,6 +742,7 @@ def _coerce_outcome(raw: Any, run_id: str) -> TaskRunOutcome:
             artifacts=list(raw.get("artifacts") or []),
             criteria=list(raw.get("criteria") or []),
             metrics=dict(raw.get("metrics") or {}),
+            evidence=dict(raw.get("evidence") or {}),
         )
     return TaskRunOutcome(
         status="failed", run_id=run_id, error_class="RUNTIME_ERROR",

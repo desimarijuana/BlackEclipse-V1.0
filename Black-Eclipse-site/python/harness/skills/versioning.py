@@ -261,6 +261,19 @@ def activate_version(
 
     prior = registry.store.get_skill(skill_id)
     prior_version = (prior or {}).get("latestVersion")
+    # `latestVersion` can already point at the CANDIDATE (a source version bump
+    # updates it before activation). Retiring only that value would leave the
+    # previously ENABLED version enabled, so two versions would run. Retire every
+    # other version that is currently executable, and report the first as the
+    # prior version for the review/event.
+    other_active = [
+        v["version"]
+        for v in registry.store.list_versions(skill_id)
+        if v["version"] != version
+        and str(v.get("status") or "") in ("enabled", "active", "canary")
+    ]
+    for stale in other_active:
+        registry.store.set_version_status(skill_id, stale, "superseded")
     _retire_prior(registry, skill_id, prior_version, version)
     registry.store.set_version_status(skill_id, version, "enabled")
     registry.store.set_latest_version(skill_id, version)
@@ -271,7 +284,7 @@ def activate_version(
         decision="activate", notes=reason or "activation",
     )
     registry.store.append_event("skill.activated", skill_id=skill_id, version=version,
-                                data={"priorVersion": prior_version})
+                                data={"priorVersion": other_active[0] if other_active else prior_version})
     _reload(registry)
     return {"ok": True, "skillId": skill_id, "version": version, "status": "enabled", "canary": False}
 

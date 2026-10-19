@@ -25,10 +25,40 @@ from .loader import LoadedSkill, load_catalog
 from .manifest import (
     EXECUTABLE_STATUSES,
     SkillManifest,
+    parse_version,
     version_satisfies,
 )
 from .permissions import Actor, PermissionDecision, check_permissions
 from .store import SkillStore
+
+
+def _source_base_version(store: Any, manifest: SkillManifest) -> Optional[str]:
+    """The declared base for a NEW catalog/source version.
+
+    A source bump (e.g. `1.1.0` → `1.1.1`) is still a lineage edge. Without this,
+    the new row carried `baseVersion = NULL`, so an evaluation could only compare
+    it against itself (or fall back to "any prior version") instead of a declared
+    base. Returns the highest stored version LOWER than the source version; a
+    first version, an equal version or an unparseable one has no base.
+    """
+    try:
+        current = parse_version(manifest.version)
+        candidates: list[tuple[tuple[int, int, int, str], str]] = []
+        for row in store.list_versions(manifest.id):
+            version = str(row.get("version") or "")
+            if not version or version == manifest.version:
+                continue
+            try:
+                parsed = parse_version(version)
+            except ValueError:
+                continue
+            if parsed < current:
+                candidates.append((parsed, version))
+    except Exception:  # noqa: BLE001 - lineage is best-effort, never a boot failure
+        return None
+    if not candidates:
+        return None
+    return max(candidates)[1]
 
 
 def _safe_instructions(loaded: LoadedSkill) -> str:
@@ -332,6 +362,7 @@ class SkillRegistry:
                 self.store.save_version(
                     manifest.model_dump(), manifest.version_identity(_safe_instructions(loaded)),
                     instructions=loaded.instructions_text,
+                    base_version=_source_base_version(self.store, manifest),
                 )
             except ValueError:
                 # Immutable version already stored. A version's persisted identity
@@ -345,7 +376,20 @@ class SkillRegistry:
                     existing_version = self.store.get_version(manifest.id, manifest.version)
                     if existing_version:
                         stored = existing_version.get("contentHash")
-                        identity = manifest.version_identity(_safe_instructions(loaded))
+                        # Lifecycle fields are stored in their own columns and are
+                        # changed by activation/rollback/evaluation — NOT by editing
+                        # the skill. Fold their STORED values back in before hashing,
+                        # or an activation would look like a content change on every
+                        # later reload.
+                        stored_manifest = existing_version.get("manifest") or {}
+                        pinned = {
+                            field: stored_manifest[field]
+                            for field in ("status", "evaluationStatus")
+                            if field in stored_manifest
+                        }
+                        identity = manifest.model_copy(update=pinned).version_identity(
+                            _safe_instructions(loaded)
+                        )
                         if stored not in (identity, manifest.content_hash()):
                             drift = (
                                 f"skill {manifest.id!r} version {manifest.version!r} content changed "

@@ -588,4 +588,10 @@ export type DataCapability =
   | "market_data"
   | "market_stream_config"
   | "world_events"
-  | "response_contract";
+  | "response_contract"
+  // Phase-16 collection routes: the SEC filing index (the submissions feed)
+  // and the operator's declared dataset (a custom REST connector). Dispatched
+  // from `data-bridge.ts`'s default branch via `data-bridge-extensions.ts`,
+  // because data-bridge.ts is at its size ratchet.
+  | "sec_filing_list"
+  | "custom_dataset_records";

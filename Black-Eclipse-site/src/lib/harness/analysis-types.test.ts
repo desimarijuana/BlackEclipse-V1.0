@@ -49,5 +49,33 @@ describe('computed vs retrieved', () => {
     expect(result?.provenance?.kind).toBe('computed');
     expect(result?.outputs.changePct).toBe(20);
     expect(result?.artifacts).toHaveLength(1);
+    expect(result?.figure).toBeNull();
+  });
+
+  it('coerces a figure payload and NEVER lets it claim evidence (Phase 18)', () => {
+    const result = coerceComputedResult({
+      status: 'ok',
+      provenance: { kind: 'computed', label: 'Worked out by Eclipse', detail: 'paths' },
+      outputs: { seed: 7 },
+      artifacts: [],
+      figure: {
+        kind: 'paths',
+        label: 'computed',
+        artifact: 'monte_carlo.png',
+        series: [{ name: 'returns', points: 4 }],
+        seed: 7,
+        isEvidence: true, // the wire may lie; the coercion must not repeat it
+      },
+    });
+    expect(result?.figure?.kind).toBe('paths');
+    expect(result?.figure?.artifact).toBe('monte_carlo.png');
+    expect(result?.figure?.series).toEqual([{ name: 'returns', points: 4 }]);
+    expect(result?.figure?.seed).toBe(7);
+    expect(result?.figure?.isEvidence).toBe(false);
+  });
+
+  it('drops a figure payload with no kind', () => {
+    const result = coerceComputedResult({ status: 'ok', provenance: null, outputs: {}, figure: { series: [] } });
+    expect(result?.figure).toBeNull();
   });
 });

@@ -1,0 +1,582 @@
+{
+  "datasetName": "eclipse-team",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-18",
+  "notes": "The W12 multi-agent benchmark: frozen multi-step build tasks. Every task carries BOTH a single-agent program (metadata.agent_script) and an explicit 2-3 specialist decomposition (metadata.team: members, dependency-aware subtasks, one deterministic script per subtask). Both variants run through the SAME real runtime (team/ + A2A + TaskScheduler + execute_run) and are graded on the REAL resulting state, so the comparison in evaluation/team_benchmark.py measures orchestration, not prose. The single-agent variant also runs in the standing offline gate like any other task; the team variant is only ever run by the comparison harness. Synthetic and deterministic - no production data and no jdds.db content.",
+  "metadata": {
+    "split": "held_out",
+    "tiers": {
+      "0": "deterministic",
+      "1": "integration",
+      "2": "live"
+    }
+  },
+  "tasks": [
+    {
+      "version": 1,
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "parallel"
+        ],
+        "scenario": "multi_leg_build",
+        "measures": [
+          "completion",
+          "correctness",
+          "parallel_legs",
+          "orchestration_overhead"
+        ],
+        "expected_tool_calls": [
+          {
+            "name": "eval_fs_write",
+            "args": {
+              "path": "alpha.py",
+              "content": "print('ALPHA_OK')\n"
+            }
+          },
+          {
+            "name": "eval_run",
+            "args": {
+              "command": [
+                "{python}",
+                "alpha.py"
+              ]
+            }
+          },
+          {
+            "name": "eval_fs_write",
+            "args": {
+              "path": "beta.py",
+              "content": "print('BETA_OK')\n"
+            }
+          },
+          {
+            "name": "eval_run",
+            "args": {
+              "command": [
+                "{python}",
+                "beta.py"
+              ]
+            }
+          },
+          {
+            "name": "eval_fs_write",
+            "args": {
+              "path": "report.txt",
+              "content": "ALPHA_OK\nBETA_OK\n"
+            }
+          }
+        ],
+        "agent_script": [
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_fs_write",
+                "args": {
+                  "path": "alpha.py",
+                  "content": "print('ALPHA_OK')\n"
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_run",
+                "args": {
+                  "command": [
+                    "{python}",
+                    "alpha.py"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_fs_write",
+                "args": {
+                  "path": "beta.py",
+                  "content": "print('BETA_OK')\n"
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_run",
+                "args": {
+                  "command": [
+                    "{python}",
+                    "beta.py"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_fs_write",
+                "args": {
+                  "path": "report.txt",
+                  "content": "ALPHA_OK\nBETA_OK\n"
+                }
+              }
+            ]
+          },
+          {
+            "type": "final",
+            "content": "Built alpha.py and beta.py, ran both, and wrote report.txt from the two results."
+          }
+        ],
+        "team": {
+          "id": "bench-multi-leg",
+          "name": "Multi-leg module build",
+          "agentId": "eclipse-orchestrator",
+          "objective": "Build two independent modules, run each, then write report.txt from their results.",
+          "members": [
+            {
+              "agentId": "bench-builder-a",
+              "role": "specialist",
+              "capabilities": [
+                "module_build_a"
+              ]
+            },
+            {
+              "agentId": "bench-builder-b",
+              "role": "specialist",
+              "capabilities": [
+                "module_build_b"
+              ]
+            },
+            {
+              "agentId": "bench-reporter",
+              "role": "specialist",
+              "capabilities": [
+                "reporting"
+              ]
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "alpha",
+              "objective": "Write alpha.py (it prints ALPHA_OK) and run it.",
+              "assignedAgentId": "bench-builder-a"
+            },
+            {
+              "id": "beta",
+              "objective": "Write beta.py (it prints BETA_OK) and run it.",
+              "assignedAgentId": "bench-builder-b"
+            },
+            {
+              "id": "report",
+              "objective": "Write report.txt from the two module results.",
+              "assignedAgentId": "bench-reporter",
+              "dependsOn": [
+                "alpha",
+                "beta"
+              ]
+            }
+          ],
+          "scripts": {
+            "alpha": [
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_fs_write",
+                    "args": {
+                      "path": "alpha.py",
+                      "content": "print('ALPHA_OK')\n"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_run",
+                    "args": {
+                      "command": [
+                        "{python}",
+                        "alpha.py"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "final",
+                "content": "alpha.py written and run; it prints ALPHA_OK."
+              }
+            ],
+            "beta": [
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_fs_write",
+                    "args": {
+                      "path": "beta.py",
+                      "content": "print('BETA_OK')\n"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_run",
+                    "args": {
+                      "command": [
+                        "{python}",
+                        "beta.py"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "final",
+                "content": "beta.py written and run; it prints BETA_OK."
+              }
+            ],
+            "report": [
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_fs_write",
+                    "args": {
+                      "path": "report.txt",
+                      "content": "ALPHA_OK\nBETA_OK\n"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "final",
+                "content": "report.txt written from the two module results."
+              }
+            ]
+          },
+          "policy": {
+            "requireReview": true,
+            "maxConcurrency": 4
+          }
+        }
+      },
+      "id": "team.multi_leg_build.001",
+      "name": "Two independent modules plus a dependent report",
+      "description": "A multi-step build with two genuinely independent legs (alpha.py, beta.py) and one dependent final leg (report.txt). The single-agent program does the legs sequentially; the team decomposition gives each leg to its own specialist and the report runs after both.",
+      "category": "parallel",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Build a small package: write alpha.py that prints ALPHA_OK, write beta.py that prints BETA_OK, run both, then write report.txt containing the two results."
+      },
+      "environment": {
+        "type": "filesystem"
+      },
+      "initial_state": {
+        "files": {}
+      },
+      "expected_state": {
+        "files": {
+          "alpha.py": {
+            "contains": "ALPHA_OK"
+          },
+          "beta.py": {
+            "contains": "BETA_OK"
+          },
+          "report.txt": {
+            "contains": "ALPHA_OK"
+          }
+        }
+      },
+      "required_tools": [
+        "eval_fs_write",
+        "eval_run"
+      ],
+      "graders": [
+        {
+          "name": "state"
+        },
+        {
+          "name": "tool"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "parallel"
+        ],
+        "scenario": "verified_fix",
+        "measures": [
+          "completion",
+          "correctness",
+          "recovery",
+          "independent_verification",
+          "orchestration_overhead"
+        ],
+        "expected_tool_calls": [
+          {
+            "name": "eval_fs_write",
+            "args": {
+              "path": "calc.py",
+              "content": "def mean(values):\n    return sum(values) / len(values)\n\n\nprint(mean([2, 4, 6]))\n"
+            }
+          },
+          {
+            "name": "eval_run",
+            "args": {
+              "command": [
+                "{python}",
+                "calc.py"
+              ]
+            }
+          },
+          {
+            "name": "eval_fs_write",
+            "args": {
+              "path": "VERIFIED.txt",
+              "content": "OK\n"
+            }
+          }
+        ],
+        "agent_script": [
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_run",
+                "args": {
+                  "command": [
+                    "{python}",
+                    "calc.py"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_fs_write",
+                "args": {
+                  "path": "calc.py",
+                  "content": "def mean(values):\n    return sum(values) / len(values)\n\n\nprint(mean([2, 4, 6]))\n"
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_run",
+                "args": {
+                  "command": [
+                    "{python}",
+                    "calc.py"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "eval_fs_write",
+                "args": {
+                  "path": "VERIFIED.txt",
+                  "content": "OK\n"
+                }
+              }
+            ]
+          },
+          {
+            "type": "final",
+            "content": "calc.py had a syntax error; I fixed it, it now runs and prints 4.0, and I recorded VERIFIED.txt."
+          }
+        ],
+        "team": {
+          "id": "bench-verified-fix",
+          "name": "Fix with independent verification",
+          "agentId": "eclipse-orchestrator",
+          "objective": "Repair calc.py, run it, and independently verify the repaired file.",
+          "members": [
+            {
+              "agentId": "bench-fixer",
+              "role": "specialist",
+              "capabilities": [
+                "repair"
+              ]
+            },
+            {
+              "agentId": "bench-verifier",
+              "role": "specialist",
+              "capabilities": [
+                "verification"
+              ]
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "fix",
+              "objective": "Run calc.py, repair the syntax error, and run it again.",
+              "assignedAgentId": "bench-fixer"
+            },
+            {
+              "id": "verify",
+              "objective": "Independently rerun the repaired calc.py and record VERIFIED.txt.",
+              "assignedAgentId": "bench-verifier",
+              "dependsOn": [
+                "fix"
+              ]
+            }
+          ],
+          "scripts": {
+            "fix": [
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_run",
+                    "args": {
+                      "command": [
+                        "{python}",
+                        "calc.py"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_fs_write",
+                    "args": {
+                      "path": "calc.py",
+                      "content": "def mean(values):\n    return sum(values) / len(values)\n\n\nprint(mean([2, 4, 6]))\n"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_run",
+                    "args": {
+                      "command": [
+                        "{python}",
+                        "calc.py"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "final",
+                "content": "calc.py had a syntax error; repaired and rerun, it prints 4.0."
+              }
+            ],
+            "verify": [
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_run",
+                    "args": {
+                      "command": [
+                        "{python}",
+                        "calc.py"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "tool",
+                "calls": [
+                  {
+                    "name": "eval_fs_write",
+                    "args": {
+                      "path": "VERIFIED.txt",
+                      "content": "OK\n"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "final",
+                "content": "Independent rerun of calc.py succeeded; VERIFIED.txt recorded."
+              }
+            ]
+          },
+          "policy": {
+            "requireReview": true,
+            "maxConcurrency": 4
+          }
+        }
+      },
+      "id": "team.verified_fix.001",
+      "name": "A repair with an independent verification leg",
+      "description": "calc.py starts with a syntax error. The single-agent program runs it, repairs it, reruns it and records VERIFIED.txt in one run; the team decomposition separates the repair from an independent verification subtask that depends on it.",
+      "category": "parallel",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Run calc.py, repair whatever is wrong, verify the repaired file by running it again, and record VERIFIED.txt."
+      },
+      "environment": {
+        "type": "filesystem"
+      },
+      "initial_state": {
+        "files": {
+          "calc.py": "def mean(values):\n    return sum(values) / len(values)\n\n\nprint(mean([2 4 6]))\n"
+        }
+      },
+      "expected_state": {
+        "files": {
+          "calc.py": {
+            "contains": "2, 4, 6"
+          },
+          "VERIFIED.txt": {
+            "contains": "OK"
+          }
+        }
+      },
+      "required_tools": [
+        "eval_fs_write",
+        "eval_run"
+      ],
+      "graders": [
+        {
+          "name": "state"
+        },
+        {
+          "name": "tool"
+        }
+      ]
+    }
+  ]
+}

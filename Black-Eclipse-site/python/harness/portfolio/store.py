@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS Portfolio (
   costBasisMethod  TEXT NOT NULL DEFAULT 'FIFO',
   currency         TEXT NOT NULL DEFAULT 'USD',
   status           TEXT NOT NULL DEFAULT 'ACTIVE',
+  -- 'portfolio' (default) or 'fund'. A fund is an accounting portfolio with
+  -- user-facing metadata (goal/icon/accent), never a second ledger.
+  kind             TEXT NOT NULL DEFAULT 'portfolio',
+  metadata         TEXT NOT NULL DEFAULT '{}',
   createdAt        TEXT NOT NULL,
   updatedAt        TEXT NOT NULL
 );
@@ -325,6 +329,7 @@ class PortfolioStore:
         """
         wanted = {
             "PortfolioTransaction": {"basisAdjustment": "TEXT", "lotSelection": "TEXT"},
+            "Portfolio": {"kind": "TEXT NOT NULL DEFAULT 'portfolio'", "metadata": "TEXT NOT NULL DEFAULT '{}'"},
         }
         for table, columns in wanted.items():
             existing = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -342,17 +347,25 @@ class PortfolioStore:
         owner_id: Optional[str] = None,
         description: Optional[str] = None,
         cost_basis_method: str = "FIFO",
+        kind: str = "portfolio",
+        metadata: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         now = now_iso()
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False, default=str)
         self._db.execute(
             """INSERT INTO Portfolio
-               (id, name, baseCurrency, ownerId, description, costBasisMethod, currency, status, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+               (id, name, baseCurrency, ownerId, description, costBasisMethod, currency, status,
+                kind, metadata, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  name=excluded.name, baseCurrency=excluded.baseCurrency, ownerId=excluded.ownerId,
                  description=excluded.description, costBasisMethod=excluded.costBasisMethod,
-                 currency=excluded.currency, updatedAt=excluded.updatedAt""",
-            (portfolio_id, name, base_currency, owner_id, description, cost_basis_method, base_currency, now, now),
+                 currency=excluded.currency, kind=excluded.kind, metadata=excluded.metadata,
+                 updatedAt=excluded.updatedAt""",
+            (
+                portfolio_id, name, base_currency, owner_id, description, cost_basis_method,
+                base_currency, kind, metadata_json, now, now,
+            ),
         )
         self._db.commit()
         return self.get_portfolio(portfolio_id)  # type: ignore[return-value]
@@ -372,11 +385,13 @@ class PortfolioStore:
         return [dict(r) for r in rows]
 
     def update_portfolio(self, portfolio_id: str, **fields: Any) -> Optional[dict[str, Any]]:
-        allowed = {"name", "baseCurrency", "description", "costBasisMethod", "status", "ownerId"}
+        allowed = {"name", "baseCurrency", "description", "costBasisMethod", "status", "ownerId", "kind", "metadata"}
         sets = []
         values: list[Any] = []
         for key, value in fields.items():
             if key in allowed and value is not None:
+                if key == "metadata" and isinstance(value, dict):
+                    value = json.dumps(value, ensure_ascii=False, default=str)
                 sets.append(f"{key} = ?")
                 values.append(value)
         if sets:

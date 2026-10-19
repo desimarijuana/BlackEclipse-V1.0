@@ -293,17 +293,33 @@ def _evidence_shape(manifest: SkillManifest) -> tuple[bool, str]:
 def _regression_dimension(
     store: SkillStore, skill_id: str, version: str, current: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Compare the current dimensions against the most recent prior evaluation.
+    """Compare the current dimensions against the most meaningful prior record.
 
-    Prefers an earlier evaluation of the SAME version; when none exists, it falls
-    back to the most recent evaluation of ANY prior version of the skill, so a NEW
-    version cannot silently regress a mandatory behavior that an earlier version
-    passed. A newly-failed mandatory dimension is a regression. Never raises.
+    Priority: the version's DECLARED base (when that base has an evaluation) →
+    an earlier evaluation of the SAME version → the most recent evaluation of any
+    prior version. The declared base is what lineage is for; a same-version record
+    is only the fallback (or the only record for a root version). Re-evaluating a
+    version whose base was evaluated therefore compares against the base, not
+    against itself. A newly-failed mandatory dimension is a regression. Never
+    raises.
     """
     prior_all = store.list_evaluations(skill_id, limit=50)
-    same_version = [e for e in prior_all if e["version"] == version]
-    comparison = same_version[0] if same_version else None
     compared_against = version
+    comparison = None
+    base_version = None
+    try:
+        stored = store.get_version(skill_id, version)
+        base_version = (stored or {}).get("baseVersion")
+    except Exception:  # noqa: BLE001 - lineage lookup must not break evaluation
+        base_version = None
+    if base_version:
+        base_evals = [e for e in prior_all if e["version"] == base_version]
+        if base_evals:
+            comparison = base_evals[0]
+            compared_against = base_version
+    if comparison is None:
+        same_version = [e for e in prior_all if e["version"] == version]
+        comparison = same_version[0] if same_version else None
     if comparison is None:
         prior_versions = [e for e in prior_all if e["version"] != version]
         if prior_versions:

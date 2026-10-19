@@ -186,6 +186,14 @@ def _dump(result: Any) -> dict[str, Any]:
     return result.model_dump() if hasattr(result, "model_dump") else dict(result)
 
 
+#: Run-result blobs the task-type verifier (W8.4) may read as EVIDENCE. Each is
+#: already bounded by its producer (ledger caps, claim caps); only present blobs
+#: travel, so an ordinary run carries no invented evidence.
+_EVIDENCE_KEYS: tuple[str, ...] = (
+    "codeVerification", "research", "documents", "images", "vision", "capability",
+)
+
+
 def _outcome_from_dump(
     dumped: dict[str, Any], base_run_id: str, service: Any
 ) -> TaskRunOutcome:
@@ -205,6 +213,7 @@ def _outcome_from_dump(
             "toolErrors": dumped.get("toolErrors", 0),
             "totalTokens": dumped.get("totalTokens", 0),
         },
+        evidence={key: dumped[key] for key in _EVIDENCE_KEYS if dumped.get(key)},
     )
 
 
@@ -223,6 +232,46 @@ def _recovery_metrics(recovery: Any) -> dict[str, Any]:
     if isinstance(decision, dict):
         out["recoveryStrategy"] = decision.get("strategy")
     return out
+
+
+def _acquire_capability(
+    service: Any, manager: TaskManager, task: Task, recovery: Any, run_id: str,
+) -> Any:
+    """Attempt the stopped acquisition plan; return a WAITING outcome or None.
+
+    `None` means the acquisition could not be routed (the caller falls back to
+    the honest failure). A routed acquisition parks THIS task (BLOCKED on the
+    capability task, or ASKING_USER for an operator decision) and reports a
+    `waiting` outcome the scheduler records without failing or retrying it.
+    """
+    try:
+        from ..recovery.acquire_handlers import acquire_for_task  # noqa: PLC0415
+
+        acquired = acquire_for_task(
+            service, manager, task,
+            stop_payload=getattr(recovery, "value", None), run_id=run_id,
+        )
+    except Exception:  # noqa: BLE001 - an acquisition failure falls back to the honest failure
+        log.warning("capability acquisition failed for task %s", task.id, exc_info=True)
+        return None
+    status = acquired.get("status")
+    metrics = _recovery_metrics(recovery)
+    if status == "executed":
+        return TaskRunOutcome(
+            status="waiting", run_id=run_id,
+            error=(
+                f"capability acquisition routed via {acquired.get('result', {}).get('surface', 'build')}: "
+                f"task {acquired.get('capabilityTaskId')} must complete first"
+            ),
+            error_class="ACQUISITION_PENDING", metrics=metrics,
+        )
+    if status == "approval_required":
+        return TaskRunOutcome(
+            status="waiting", run_id=run_id,
+            error=f"capability acquisition needs an operator decision: {acquired.get('reason') or ''}",
+            error_class="ACQUISITION_APPROVAL_REQUIRED", metrics=metrics,
+        )
+    return None
 
 
 def build_task_executor(service: Any, manager: TaskManager):
@@ -293,7 +342,12 @@ def build_task_executor(service: Any, manager: TaskManager):
                 run_once,
                 base_run_id=run_id,
                 task_id=task.id,
-                details={"taskId": task.id, "planId": task.plan_id, "agentId": agent_id},
+                details={
+                    "taskId": task.id, "planId": task.plan_id, "agentId": agent_id,
+                    # The acquisition planner needs the original objective; the
+                    # task title is the honest fallback when it is empty.
+                    "objective": task.objective or task.description or task.title,
+                },
             )
         except TaskRunFailed as exc:
             dumped = exc.result if isinstance(exc.result, dict) else {}
@@ -305,6 +359,15 @@ def build_task_executor(service: Any, manager: TaskManager):
             return outcome
 
         if not recovery.ok:
+            # Round 4 (W5/W9): a stopped acquisition is not a dead end. The
+            # caller attempts the plan's actionable step through the EXISTING
+            # surfaces; a wired capability task parks this one BLOCKED
+            # (DEPENDENCY) so the DAG resumes it when the capability lands.
+            if recovery.stopped_reason == "acquisition_required":
+                parked = _acquire_capability(service, manager, task, recovery, run_id)
+                if parked is not None:
+                    _record_budget_usage(budget_ctx, parked)
+                    return parked
             outcome = _outcome_from_dump(last["dumped"], run_id, service)
             outcome.status = "failed"
             if last["code"]:
@@ -407,6 +470,15 @@ def install_task_layer(service: Any) -> bool:
         service.tasks_store = store
         service.tasks = manager
         service.task_scheduler = scheduler
+        # Round 4 (W8.2): the chat path becomes durable-by-default — a durable
+        # request creates a goal task and this run is its first attempt; the
+        # run itself is unchanged (the wrapper decides before and settles after).
+        try:
+            from ..goal_runtime import wrap_service_for_goals  # noqa: PLC0415
+
+            wrap_service_for_goals(service)
+        except Exception:  # noqa: BLE001 - goal wiring must never block boot
+            log.warning("goal runtime wiring unavailable", exc_info=True)
         from .tools import register_task_tools  # noqa: PLC0415
 
         register_task_tools(service.registry)

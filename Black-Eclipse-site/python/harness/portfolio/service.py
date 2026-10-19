@@ -51,10 +51,32 @@ from .money import D, D_or_none, ZERO, money_str, q_qty, qty_str
 CALCULATION_VERSION = "portfolio-engine/1.0.0"
 
 
+def _portfolio_metadata(raw: Any) -> dict[str, Any]:
+    import json
+
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
 class PortfolioService:
-    def __init__(self, store: Any, *, gateway: Any = None) -> None:
+    def __init__(self, store: Any, *, gateway: Any = None, locks: Any = None) -> None:
         self.store = store
         self.gateway = gateway
+        # Attached by the SDK boot layer. A directly constructed service has no
+        # lock registry and therefore no locks — never consult another runtime's
+        # registry (it may belong to a different, closed database).
+        self._locks = locks
+
+    def _assert_unlocked(self, portfolio_id: str, action: str = "write") -> None:
+        if self._locks is not None:
+            self._locks.assert_allowed("portfolio", portfolio_id, action)
 
     # ── Portfolios ───────────────────────────────────────────────────────────
     def create_portfolio(self, name: str, **fields: Any) -> dict[str, Any]:
@@ -66,6 +88,8 @@ class PortfolioService:
             owner_id=fields.get("owner_id") or fields.get("actor_id"),
             description=fields.get("description"),
             cost_basis_method=fields.get("cost_basis_method", "FIFO"),
+            kind=fields.get("kind", "portfolio"),
+            metadata=fields.get("metadata"),
         )
         self.store.append_audit(
             new_id("audit"), portfolio_id, "PORTFOLIO_CREATED",
@@ -85,6 +109,7 @@ class PortfolioService:
 
     def delete_portfolio(self, portfolio_id: str, *, actor_id: Optional[str] = None) -> bool:
         self._require_portfolio(portfolio_id, actor_id)
+        self._assert_unlocked(portfolio_id, "delete")
         return self.store.delete_portfolio(portfolio_id)
 
     def _require_portfolio(self, portfolio_id: str, actor_id: Optional[str] = None) -> dict[str, Any]:
@@ -127,6 +152,9 @@ class PortfolioService:
             portfolio = self._require_portfolio(portfolio_id, actor_id)
         except PortfolioError as exc:
             return _failed(exc)
+        # Checked after existence/ownership so a missing/foreign portfolio keeps
+        # its 404/403 semantics instead of leaking a lock state.
+        self._assert_unlocked(portfolio_id, "write")
         if actor_id and not payload.get("created_by"):
             payload = {**payload, "created_by": actor_id}
         built = self._build_transaction(portfolio_id, payload)
@@ -485,6 +513,8 @@ class PortfolioService:
                 "baseCurrency": base,
                 "costBasisMethod": method.value,
                 "status": portfolio.get("status"),
+                "kind": portfolio.get("kind") or "portfolio",
+                "metadata": _portfolio_metadata(portfolio.get("metadata")),
             },
             "positions": [_serialize_position(p) for p in open_positions],
             "cash": {

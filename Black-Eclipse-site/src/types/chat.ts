@@ -85,6 +85,13 @@ export interface Message {
    */
   analysis?: unknown;
   /**
+   * A dataset collection this turn completed (`acquire.completed`): the pull
+   * manifest (source, window, rows, completeness, licence, attribution). Absent
+   * on user turns, collection-free runs and legacy rows. Narrowed by the chat
+   * surface via `coerceAcquisitionManifest`.
+   */
+  acquisition?: unknown;
+  /**
    * The action the agent is blocked on pending an operator decision. Present
    * only while a run is paused on an approval card; set from the
    * `approval.requested` event and cleared when it resolves.

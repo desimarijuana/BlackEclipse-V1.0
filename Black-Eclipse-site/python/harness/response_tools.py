@@ -148,6 +148,18 @@ async def response_block_schema(args: dict[str, Any], ctx: ToolContext) -> str:
     )
     if payload.get("status") != "OK":
         return f"UNAVAILABLE — schema lookup failed: {payload.get('error', 'unknown error')}"
+    if block_type and not payload.get("blocks"):
+        # A misspelled/retired type must not read as "the contract is unreachable".
+        # Re-read the unfiltered contract so the reply names the registered types.
+        everything = await ctx.data_bridge.fetch("response_contract", {"op": "schema"})
+        known = ", ".join(
+            str(block.get("type")) for block in everything.get("blocks") or []
+            if block.get("type")
+        )
+        return (
+            f"Unknown block type {block_type!r} — it is not registered in the renderer. "
+            f"Registered types: {known}. Retry with one of these exact names."
+        )
     return _fmt_schema(payload)
 
 

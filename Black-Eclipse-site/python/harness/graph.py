@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from typing import Annotated, Any, Optional
 
@@ -146,6 +147,32 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
     if request.agent is not None:
         return request.agent
     return get_agent(request.agentId or DEFAULT_AGENT_ID)
+
+
+DEFAULT_CHAT_MAX_STEPS = 12
+CHAT_MAX_STEPS_CEILING = 32
+
+
+def chat_step_budget(agent: AgentConfig, request: Any) -> int:
+    """The model-step budget for one run (QA Round 1, Q5).
+
+    The ordinary chat agent defaults to 12 steps: 8 was too tight for a
+    multi-tool navigation turn (the QA run hit the cap mid-navigation). An
+    operator can override with `ECLIPSE_CHAT_MAX_STEPS` (clamped 1..32). An
+    EXPLICIT per-run `agent` config wins over both — the caller asked for it.
+    """
+    base = int(agent.maxSteps or 8)
+    explicit = getattr(request, "agent", None) is not None
+    if agent.id == "eclipse-agent" and not explicit:
+        raw = (os.environ.get("ECLIPSE_CHAT_MAX_STEPS") or "").strip()
+        parsed: Optional[int] = None
+        if raw:
+            try:
+                parsed = int(raw)
+            except ValueError:
+                parsed = None
+        base = parsed if parsed is not None else max(base, DEFAULT_CHAT_MAX_STEPS)
+    return max(1, min(CHAT_MAX_STEPS_CEILING, base))
 
 
 def _task_profile_of(request: RunRequest, agent: AgentConfig) -> str:
@@ -444,7 +471,7 @@ def build_graph(
     _resume_payload = (resume_from or {}).get("payload") or {}
     if resume_from and isinstance(_resume_payload.get("allowlist"), list):
         allowed = set(_resume_payload["allowlist"])
-    max_steps: int = agent.maxSteps or 8
+    max_steps: int = chat_step_budget(agent, request)
     tool_timeout_ms = agent.toolTimeoutMs or 20_000
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
     if request.autonomy in ("edit_verify", "approve_external"):
@@ -1159,7 +1186,7 @@ async def execute_run(
         lineage.set_run_parent(request.runId, request.parentRunId, request.workflowId)
         await emitter.emit("run.created", {"agentId": agent.id})
         store.update_run(request.runId, status="running", startedAt=started)
-        await emitter.emit("run.started", {"maxSteps": agent.maxSteps, "provider": request.modelSettings.provider})
+        await emitter.emit("run.started", {"maxSteps": chat_step_budget(agent, request), "provider": request.modelSettings.provider})
 
     # Phase 4: an unambiguous supported financial comparison is routed through the
     # deterministic evidence gate BEFORE the ordinary agent graph, so it does not

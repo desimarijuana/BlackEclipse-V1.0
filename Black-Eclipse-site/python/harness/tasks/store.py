@@ -36,6 +36,7 @@ from .model import (
     DependencyKind,
     ExecutionStatus,
     FailurePolicy,
+    GoalContract,
     Plan,
     PlanStatus,
     Task,
@@ -47,6 +48,7 @@ from .model import (
     TaskExecution,
     TaskPriority,
     TaskStatus,
+    TaskType,
     WaitingReason,
 )
 
@@ -120,6 +122,8 @@ def _task_row(row: Any) -> Task:
         error=row["error"],
         error_class=row["errorClass"],
         metadata=_loads(row["metadata"], {}),
+        task_type=TaskType(row["taskType"]) if row["taskType"] else None,
+        goal_contract=GoalContract(**_loads(row["goalContract"], {})) if row["goalContract"] else None,
         created_at=row["createdAt"],
         updated_at=row["updatedAt"],
         started_at=row["startedAt"],
@@ -134,7 +138,7 @@ class TaskStore:
     #: Every allowed update key is also the real column name; these sets pick the
     #: value encoding. A plain "absent" None is skipped; a NULLABLE column may be
     #: cleared on purpose.
-    _JSON_COLUMNS = frozenset({"metadata", "blockedBy"})
+    _JSON_COLUMNS = frozenset({"metadata", "blockedBy", "goalContract"})
     _BOOL_COLUMNS = frozenset({"required"})
     _NULLABLE = frozenset({
         "planId", "parentTaskId", "assignedAgentId", "assignedRunId", "delegatedBy",
@@ -207,6 +211,8 @@ class TaskStore:
               error          TEXT,
               errorClass     TEXT,
               metadata       TEXT NOT NULL DEFAULT '{}',
+              taskType       TEXT,
+              goalContract   TEXT,
               createdAt      TEXT NOT NULL,
               updatedAt      TEXT NOT NULL,
               startedAt      TEXT,
@@ -217,6 +223,13 @@ class TaskStore:
             )
             """
         )
+        # Round 4 (W8): the goal contract + task-type key are additive columns;
+        # `CREATE TABLE IF NOT EXISTS` never alters an existing table, so they
+        # are added explicitly when absent (old rows simply have NULL).
+        existing = {row["name"] for row in self._db.execute("PRAGMA table_info(HarnessTask)").fetchall()}
+        for column in ("taskType", "goalContract"):
+            if column not in existing:
+                self._db.execute(f"ALTER TABLE HarnessTask ADD COLUMN {column} TEXT")
         for idx, cols in (
             ("idx_task_plan", "planId"),
             ("idx_task_parent", "parentTaskId"),
@@ -401,9 +414,11 @@ class TaskStore:
                 retryCount, maxRetries, backoffMs, availableAt, claimedBy, claimToken,
                 claimedAt, leaseExpiresAt, required, failurePolicy, weight, waitingReason,
                 blockedReason, blockedBy, outputReference, error, errorClass, metadata,
+                taskType, goalContract,
                 createdAt, updatedAt, startedAt, completedAt, deadline)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?, ?)""",
             (
                 task.id, task.plan_id, task.parent_task_id, task.title, task.description,
                 task.objective, task.status.value, task.priority.value, int(task.progress),
@@ -415,7 +430,11 @@ class TaskStore:
                 task.waiting_reason.value if task.waiting_reason else None,
                 task.blocked_reason.value if task.blocked_reason else None,
                 _json(task.blocked_by), task.output_reference, task.error, task.error_class,
-                _json(task.metadata), task.created_at, task.updated_at, task.started_at,
+                _json(task.metadata),
+                task.task_type.value if task.task_type else None,
+                _json(task.goal_contract.model_dump(by_alias=True))
+                if task.goal_contract else None,
+                task.created_at, task.updated_at, task.started_at,
                 task.completed_at, task.deadline,
             ),
         )
@@ -474,7 +493,7 @@ class TaskStore:
             "claimedBy", "claimToken", "claimedAt", "leaseExpiresAt", "required",
             "failurePolicy", "weight", "waitingReason", "blockedReason", "blockedBy",
             "outputReference", "error", "errorClass", "metadata", "startedAt",
-            "completedAt", "deadline",
+            "completedAt", "deadline", "taskType", "goalContract",
         }
         sets, params = self._update_clause(fields, allowed)
         if not sets:

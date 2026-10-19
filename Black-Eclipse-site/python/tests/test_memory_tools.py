@@ -113,6 +113,21 @@ async def test_memory_tool_write_without_user_intent_is_not_saved(env):
     assert env["memory"].store.list_memories() == []
 
 
+async def test_memory_inventory_reports_whole_store_counts(env):
+    ctx = _ctx(env, user_message="Remember that I prefer tables over charts")
+    _, saved = await env["registry"].get("memory").handler(
+        {"action": "save", "content": "User prefers tables over charts", "type": "preference", "scope": "user"},
+        ctx,
+    )
+    assert saved["saved"] is True
+
+    text, data = await env["registry"].get("memory").handler({"action": "inventory"}, ctx)
+    assert data["total"] >= 1
+    assert data["counts"]["active"] >= 1
+    assert "Reads differ by design" in text
+    assert "whole store" in text
+
+
 async def test_memory_tool_rejects_bad_write(env):
     ctx = _ctx(env)
     _, data = await env["registry"].get("memory").handler(
@@ -363,10 +378,20 @@ def test_prompt_char_ceiling():
     real, measured size so the ratchet bites again from here; the `anatomy`
     isometric block adds NOTHING to this static prompt (the model discovers it from
     the live `eclipse-response block schema` digest, generated in the run head).
+
+    Raised to 30420 by the app-surface guidance: the Q1 QA run showed the agent
+    answering "where is X in the app" from repository greps (and once failing to
+    produce a deep link) instead of calling `ui_get_application_map`; the prompt
+    now names that tool as the FIRST stop and forbids inferring screens from
+    saved pages. One guidance bullet; re-pinned to the measured size.
+
+    Raised to 30897 by the learning-loop guidance: the agent can read the
+    automatic reviews and captured candidates and must not guess about them.
+    One guidance paragraph; re-pinned to the measured size.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 29994, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 30897, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

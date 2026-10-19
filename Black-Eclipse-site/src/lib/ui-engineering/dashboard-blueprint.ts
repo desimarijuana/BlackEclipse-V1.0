@@ -1,18 +1,25 @@
 'use client';
 
-// ── Command Center → blueprint mirror (Phase E) ──────────────────────────────
+// ── Command Center ↔ blueprint bridge (Phase E) ──────────────────────────────
 // The Command Center keeps its arrangement in localStorage; the agent's `ui_*`
-// tools read and write blueprints. This bridges them ONE WAY (dashboard →
-// blueprint) so the agent can see and edit the board the user actually has,
-// and so a dashboard appears as a page. It is best-effort: a publish failure
-// never affects the dashboard. The reverse (agent edit → dashboard) is a
-// deliberate follow-up (see docs/harness/capability-extension-plan.md).
+// tools read and write blueprints. This bridges them BOTH ways:
+//   * dashboard → blueprint (`publishDashboardLayout`), so the agent can see and
+//     edit the board the user actually has, and so a dashboard appears as a page;
+//   * blueprint → dashboard (`fetchDashboardLayout` + `isOwnPublish`), so an
+//     agent edit lands on the live board — the Command Center persists the
+//     fetched layout and remounts the workspace when a revision it did NOT
+//     publish arrives. The client's own publishes are tracked, so the sync never
+//     fights the user's own editing.
+// It is best-effort: a publish or sync failure never affects the dashboard.
 
 import type { WorkspaceLayout as KernelLayout } from '@/lib/workspace/types';
-import { kernelLayoutToWire } from '@/lib/ui-engineering/live-page';
+import { blueprintLayoutToKernel, kernelLayoutToWire } from '@/lib/ui-engineering/live-page';
 import { createPage, getBlueprint, saveLayout } from '@/lib/harness/ui-client';
 
 const BP_KEY_PREFIX = 'be_dash_bp:';
+
+/** The last blueprint revision THIS client published, per dashboard. */
+const publishedRevisions = new Map<string, number>();
 
 function bpKey(dashboardId: string): string {
   return `${BP_KEY_PREFIX}${dashboardId}`;
@@ -64,7 +71,8 @@ export async function publishDashboardLayout(opts: {
     const id = await resolveBlueprintId(opts.dashboardId, opts.title);
     try {
       const { blueprint } = await getBlueprint(id);
-      await saveLayout(id, wire, blueprint.revision);
+      const { blueprint: saved } = await saveLayout(id, wire, blueprint.revision);
+      publishedRevisions.set(opts.dashboardId, saved.revision);
     } catch {
       // A cached id whose blueprint was deleted — drop it and recreate once.
       try {
@@ -74,10 +82,56 @@ export async function publishDashboardLayout(opts: {
       }
       const freshId = await resolveBlueprintId(opts.dashboardId, opts.title);
       const { blueprint } = await getBlueprint(freshId);
-      await saveLayout(freshId, wire, blueprint.revision);
+      const { blueprint: saved } = await saveLayout(freshId, wire, blueprint.revision);
+      publishedRevisions.set(opts.dashboardId, saved.revision);
     }
     return true;
   } catch {
     return false;
   }
 }
+
+/**
+ * Fetch a dashboard's mirrored blueprint layout (the reverse direction). Returns
+ * null when there is no mirrored blueprint yet, or the fetch failed. Never throws.
+ */
+export async function fetchDashboardLayout(
+  dashboardId: string,
+): Promise<{ revision: number; layout: KernelLayout } | null> {
+  if (typeof window === 'undefined') return null;
+  const id = readBpId(dashboardId);
+  if (!id) return null;
+  try {
+    const { blueprint } = await getBlueprint(id);
+    return { revision: blueprint.revision, layout: blueprintLayoutToKernel(blueprint.layout) };
+  } catch {
+    return null;
+  }
+}
+
+/** Whether this client published the given revision (so the sync must skip it). */
+export function isOwnPublish(dashboardId: string, revision: number): boolean {
+  return publishedRevisions.get(dashboardId) === revision;
+}
+
+/**
+ * A key-order-insensitive structural key for a kernel layout — the sync's
+ * equality test. Two layouts persisted/round-tripped through different code
+ * paths must compare equal, or the board would remount on every load.
+ */
+export function stableLayoutKey(layout: KernelLayout): string {
+  const stabilize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stabilize);
+    if (value && typeof value === 'object') {
+      return Object.keys(value as Record<string, unknown>)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          acc[key] = stabilize((value as Record<string, unknown>)[key]);
+          return acc;
+        }, {});
+    }
+    return value;
+  };
+  return JSON.stringify(stabilize(layout));
+}
+

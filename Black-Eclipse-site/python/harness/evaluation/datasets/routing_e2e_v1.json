@@ -1,0 +1,253 @@
+{
+  "datasetName": "eclipse-routing-e2e",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-18",
+  "notes": "Round 4 W3.2: the end-to-end routing tier. The W3.1 benchmark gates the Compose/Engineer classifier directly; these tasks run the SAME recorded scenarios through the REAL execute_run graph with the REAL ui_* tools, the real component catalog and the real durable task runtime, and grade the REAL resulting state (the engineering task the escalation created, or the absence of one a Compose verdict must not create). Deterministic scripts, no model, no network.",
+  "metadata": {
+    "split": "optimization",
+    "tiers": {
+      "0": "deterministic",
+      "1": "integration",
+      "2": "live"
+    }
+  },
+  "tasks": [
+    {
+      "version": 1,
+      "id": "routing_e2e.clock_escalates.001",
+      "category": "recovery",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+      },
+      "environment": { "type": "ui" },
+      "initial_state": {},
+      "expected_state": {
+        "ui": {
+          "engineeringTaskCount": 1,
+          "engineeringTasks": [
+            {
+              "kind": "ui-engineering",
+              "capabilityGap": true,
+              "status": "TODO",
+              "acceptanceCount": 4
+            }
+          ]
+        }
+      },
+      "expected_tools": ["ui_classify_request", "ui_start_engineering"],
+      "required_tools": ["ui_classify_request", "ui_start_engineering"],
+      "forbidden_tools": ["ui_add_widget"],
+      "graders": [{ "name": "tool" }, { "name": "state" }],
+      "constraints": {},
+      "limits": { "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 120 },
+      "metadata": {
+        "tier": 0,
+        "suites": ["routing_e2e"],
+        "scenario": "clock",
+        "measures": ["routing", "escalation", "capability_gap", "state"],
+        "expected_tool_calls": [
+          {
+            "name": "ui_classify_request",
+            "args": {
+              "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+            }
+          },
+          {
+            "name": "ui_start_engineering",
+            "args": {
+              "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+            }
+          }
+        ],
+        "agent_script": [
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "ui_classify_request",
+                "args": {
+                  "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+                }
+              },
+              {
+                "name": "ui_start_engineering",
+                "args": {
+                  "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+                }
+              }
+            ]
+          },
+          {
+            "type": "final",
+            "content": "The requested component is missing from the catalog; an engineering task was created to build and register it."
+          }
+        ]
+      }
+    },
+    {
+      "version": 1,
+      "id": "routing_e2e.layout_composes.001",
+      "category": "tools",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "move the latency chart below the activity timeline and make it smaller"
+      },
+      "environment": { "type": "ui" },
+      "initial_state": {},
+      "expected_state": {
+        "ui": { "engineeringTaskCount": 0 }
+      },
+      "expected_tools": ["ui_classify_request", "ui_start_engineering"],
+      "required_tools": ["ui_classify_request", "ui_start_engineering"],
+      "forbidden_tools": [],
+      "graders": [{ "name": "tool" }, { "name": "state" }],
+      "constraints": {},
+      "limits": { "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 120 },
+      "metadata": {
+        "tier": 0,
+        "suites": ["routing_e2e"],
+        "scenario": "layout",
+        "measures": ["routing", "no_false_escalation", "state"],
+        "expected_tool_calls": [
+          {
+            "name": "ui_start_engineering",
+            "args": {
+              "text": "move the latency chart below the activity timeline and make it smaller"
+            }
+          }
+        ],
+        "agent_script": [
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "ui_classify_request",
+                "args": {
+                  "text": "move the latency chart below the activity timeline and make it smaller"
+                }
+              },
+              {
+                "name": "ui_start_engineering",
+                "args": {
+                  "text": "move the latency chart below the activity timeline and make it smaller"
+                }
+              }
+            ]
+          },
+          {
+            "type": "final",
+            "content": "This is a layout change over registered components; no engineering task is needed."
+          }
+        ]
+      }
+    },
+    {
+      "version": 1,
+      "id": "routing_e2e.generic_widget_composes.001",
+      "category": "tools",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "add a widget to my dashboard"
+      },
+      "environment": { "type": "ui" },
+      "initial_state": {},
+      "expected_state": {
+        "ui": { "engineeringTaskCount": 0 }
+      },
+      "expected_tools": ["ui_start_engineering"],
+      "required_tools": ["ui_start_engineering"],
+      "forbidden_tools": [],
+      "graders": [{ "name": "tool" }, { "name": "state" }],
+      "constraints": {},
+      "limits": { "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 120 },
+      "metadata": {
+        "tier": 0,
+        "suites": ["routing_e2e"],
+        "scenario": "generic_widget",
+        "measures": ["routing", "no_false_escalation", "state"],
+        "expected_tool_calls": [
+          {
+            "name": "ui_start_engineering",
+            "args": { "text": "add a widget to my dashboard" }
+          }
+        ],
+        "agent_script": [
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "ui_start_engineering",
+                "args": { "text": "add a widget to my dashboard" }
+              }
+            ]
+          },
+          {
+            "type": "final",
+            "content": "A generic widget request composes from registered components."
+          }
+        ]
+      }
+    },
+    {
+      "version": 1,
+      "id": "routing_e2e.new_widget_engineers.001",
+      "category": "recovery",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "create a new widget that shows live swap spreads"
+      },
+      "environment": { "type": "ui" },
+      "initial_state": {},
+      "expected_state": {
+        "ui": {
+          "engineeringTaskCount": 1,
+          "engineeringTasks": [
+            {
+              "kind": "ui-engineering",
+              "capabilityGap": false,
+              "status": "TODO",
+              "acceptanceCount": 4
+            }
+          ]
+        }
+      },
+      "expected_tools": ["ui_start_engineering"],
+      "required_tools": ["ui_start_engineering"],
+      "forbidden_tools": [],
+      "graders": [{ "name": "tool" }, { "name": "state" }],
+      "constraints": {},
+      "limits": { "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 120 },
+      "metadata": {
+        "tier": 0,
+        "suites": ["routing_e2e"],
+        "scenario": "new_widget",
+        "measures": ["routing", "escalation", "state"],
+        "expected_tool_calls": [
+          {
+            "name": "ui_start_engineering",
+            "args": { "text": "create a new widget that shows live swap spreads" }
+          }
+        ],
+        "agent_script": [
+          {
+            "type": "tool",
+            "calls": [
+              {
+                "name": "ui_start_engineering",
+                "args": { "text": "create a new widget that shows live swap spreads" }
+              }
+            ]
+          },
+          {
+            "type": "final",
+            "content": "A genuinely new capability: an engineering task was created."
+          }
+        ]
+      }
+    }
+  ]
+}

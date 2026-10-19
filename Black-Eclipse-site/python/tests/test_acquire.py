@@ -27,7 +27,7 @@ class _Bridge:
 
     async def fetch(self, capability, params):
         self.calls.append({"capability": capability, "params": params})
-        key = params.get("symbol") or params.get("seriesId")
+        key = params.get("symbol") or params.get("seriesId") or params.get("dataset")
         return self.payloads.get(key, {"status": "UNAVAILABLE", "error": "no data returned"})
 
 
@@ -70,6 +70,26 @@ def test_registry_rows_are_complete_and_declared():
     from harness.acquire.registry import registry_issues
 
     assert registry_issues() == []
+
+
+def test_the_phase16_remainder_sources_are_declared():
+    """The SEC filing index and the operator's declared datasets are ROWS."""
+    from harness.acquire.registry import get_source
+
+    filings = get_source("filings_list")
+    assert filings is not None
+    assert filings.capability == "sec_filing_list"
+    assert filings.accepts_symbols
+    assert "form" in filings.query_params
+    assert "date_from" in filings.query_params
+    assert "document" in filings.columns
+
+    datasets = get_source("operator_datasets")
+    assert datasets is not None
+    assert datasets.capability == "custom_dataset_records"
+    assert not datasets.accepts_symbols
+    assert "dataset" in datasets.query_params
+    assert datasets.columns == ("dataset", "record", "field", "value")
 
 
 def test_budget_bounds_are_enforced_and_recorded():
@@ -209,6 +229,48 @@ def test_acquire_refusals_name_the_reason(env):
     assert no_bridge["code"] == "BRIDGE_UNAVAILABLE"
 
 
+def test_acquisition_is_bounded_across_calls_in_one_turn(env):
+    """The per-call budget bounds one pull; the run ledger bounds the turn."""
+    from harness.acquire.budget import RunUsage
+
+    acquire_tools, memory, ctx, _ = env
+    _enable(memory, True)
+    ctx.data_bridge = _prices_bridge("AAPL", "MSFT")
+    ctx._acquire_run_usage = RunUsage(max_calls=1, max_rows=50_000)  # test seam
+
+    first_text, first = run(acquire_tools._acquire(
+        {"source": "prices_daily", "purpose": "first pull", "params": {}, "symbols": ["AAPL"]},
+        ctx,
+    ))
+    assert first["status"] == "ok", first
+    # The manifest carries BOTH budgets: this pull's and the turn's.
+    assert first["manifest"]["limits"]["run"]["callsUsed"] == 1
+    assert first["manifest"]["limits"]["run"]["exhausted"]
+
+    _, second = run(acquire_tools._acquire(
+        {"source": "prices_daily", "purpose": "second pull", "params": {}, "symbols": ["MSFT"]},
+        ctx,
+    ))
+    assert second["status"] == "refused"
+    assert second["code"] == "RUN_LIMIT_REACHED"
+    assert second["runUsage"]["exhausted"]
+    # Nothing was fetched for the refused pull.
+    assert [c["params"]["symbol"] for c in ctx.data_bridge.calls] == ["AAPL"]
+
+
+def test_run_usage_accumulates_rows_and_bytes(env):
+    from harness.acquire.budget import AcquisitionBudget, RunUsage
+
+    usage = RunUsage(max_calls=10, max_rows=4)
+    usage.absorb(AcquisitionBudget(calls=2, rows=3, bytes_written=100))
+    assert usage.calls == 2 and usage.rows == 3
+    assert usage.exhausted is None
+    usage.absorb(AcquisitionBudget(calls=1, rows=2, bytes_written=50))
+    assert usage.rows == 5
+    assert usage.exhausted and "4 rows" in usage.exhausted
+    assert usage.snapshot()["rowsUsed"] == 5
+
+
 def test_acquire_macro_series_writes_long_rows(env):
     acquire_tools, memory, ctx, artifacts = env
     _enable(memory, True)
@@ -229,3 +291,209 @@ def test_acquire_macro_series_writes_long_rows(env):
         rows = list(csv.DictReader(handle))
     assert [r["series"] for r in rows] == ["CPIAUCSL", "CPIAUCSL"]
     assert [r["value"] for r in rows] == ["308.4", "309.1"]
+
+
+def test_acquire_collects_sec_filing_list(env):
+    acquire_tools, memory, ctx, artifacts = env
+    _enable(memory, True)
+    ctx.data_bridge = _Bridge({
+        "AAPL": {"status": "OK", "filings": [
+            {"form": "10-K", "filed": "2024-11-01", "period": "2024-09-28",
+             "accession": "0000320193-24-000123",
+             "document": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl.htm",
+             "description": "Annual report"},
+            {"form": "8-K", "filed": "2024-08-01", "period": None,
+             "accession": "0000320193-24-000100", "document": None,
+             "description": "Current report"},
+        ], "count": 2, "truncated": False},
+    })
+    _, data = run(acquire_tools._acquire(
+        {"source": "filings_list", "purpose": "annual reports for the watchlist",
+         "params": {"form": "10-K", "date_from": "2024-01-01"}, "symbols": ["AAPL"]},
+        ctx,
+    ))
+    assert data["status"] == "ok", data
+    source = data["manifest"]["sources"][0]
+    assert source["complete"] is True
+    assert source["rows"] == 2
+    assert source["licence"] and source["attribution"]
+
+    # One call per instrument, through the declared capability, with the
+    # filters riding the call (the closed set only).
+    assert ctx.data_bridge.calls == [{
+        "capability": "sec_filing_list",
+        "params": {"symbol": "AAPL", "form": "10-K", "date_from": "2024-01-01"},
+    }]
+
+    with (artifacts / source["file"]).open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [r["form"] for r in rows] == ["10-K", "8-K"]
+    assert rows[0]["document"].startswith("https://www.sec.gov/Archives/")
+    # An omitted field is an empty cell — never an invented value.
+    assert rows[1]["period"] == ""
+
+
+def test_acquire_filings_partial_and_ceiling_are_stated(env):
+    acquire_tools, memory, ctx, _ = env
+    _enable(memory, True)
+    ctx.data_bridge = _Bridge({
+        "AAPL": {"status": "OK", "truncated": True,
+                 "filings": [{"form": "8-K", "filed": "2024-01-01", "accession": "a1"}]},
+        # MSFT missing → UNAVAILABLE from the stub
+    })
+    _, data = run(acquire_tools._acquire(
+        {"source": "filings_list", "purpose": "watchlist filings",
+         "params": {}, "symbols": ["AAPL", "MSFT"]},
+        ctx,
+    ))
+    assert data["status"] == "partial"
+    source = data["manifest"]["sources"][0]
+    assert source["complete"] is False
+    assert source["rows"] == 1
+    # Both causes are stated: the missing symbol and the per-call ceiling.
+    assert any("MSFT" in p for p in data["problems"])
+    assert any("ceiling" in p for p in data["problems"])
+    assert source["stoppedReason"]
+
+
+def test_acquire_operator_dataset_writes_long_rows(env):
+    acquire_tools, memory, ctx, artifacts = env
+    _enable(memory, True)
+    ctx.data_bridge = _Bridge({
+        "orders": {"status": "OK",
+                   "dataset": {"id": "ds1", "name": "orders"},
+                   "connector": {"id": "custom:c1", "name": "Test API"},
+                   "records": [
+                       {"recordKey": "BTC", "values": {"symbol": "BTC", "qty": 2.5,
+                                                       "meta": {"venue": "spot"}}},
+                   ], "count": 1, "truncated": False},
+    })
+    _, data = run(acquire_tools._acquire(
+        {"source": "operator_datasets", "purpose": "the desk's order feed",
+         "params": {"dataset": "orders", "values": {"symbol": "BTC"}}},
+        ctx,
+    ))
+    assert data["status"] == "ok", data
+    assert ctx.data_bridge.calls[0]["capability"] == "custom_dataset_records"
+    assert ctx.data_bridge.calls[0]["params"] == {"dataset": "orders", "values": {"symbol": "BTC"}}
+
+    source = data["manifest"]["sources"][0]
+    with (artifacts / source["file"]).open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [(r["dataset"], r["record"], r["field"]) for r in rows] == [
+        ("orders", "BTC", "symbol"), ("orders", "BTC", "qty"), ("orders", "BTC", "meta"),
+    ]
+    # A nested mapped value survives as JSON text — not silently dropped.
+    assert rows[2]["value"] == '{"venue": "spot"}'
+
+
+def test_acquire_operator_dataset_accepts_a_values_json_string(env):
+    acquire_tools, memory, ctx, _ = env
+    _enable(memory, True)
+    ctx.data_bridge = _Bridge({
+        "orders": {"status": "OK", "dataset": "orders",
+                   "records": [{"recordKey": "ETH", "values": {"symbol": "ETH"}}],
+                   "count": 1, "truncated": False},
+    })
+    _, data = run(acquire_tools._acquire(
+        {"source": "operator_datasets", "purpose": "desk feed",
+         "params": {"dataset": "orders", "values": '{"symbol": "ETH"}'}},
+        ctx,
+    ))
+    assert data["status"] == "ok", data
+    assert ctx.data_bridge.calls[0]["params"]["values"] == '{"symbol": "ETH"}'
+
+
+def test_acquire_operator_dataset_failure_is_honest(env):
+    acquire_tools, memory, ctx, artifacts = env
+    _enable(memory, True)
+    ctx.data_bridge = _Bridge({})  # every dataset key → UNAVAILABLE
+    text, data = run(acquire_tools._acquire(
+        {"source": "operator_datasets", "purpose": "desk feed",
+         "params": {"dataset": "orders"}},
+        ctx,
+    ))
+    assert data["status"] != "ok"
+    assert data["file"] is None
+    assert data["manifest"]["sources"][0]["complete"] is False
+    assert data["manifest"]["sources"][0]["rows"] == 0
+    assert text.startswith("I couldn't collect")
+    # Whatever reached disk carries no fabricateable row: header only.
+    for path in artifacts.glob("*.csv"):
+        assert len(path.read_text(encoding="utf-8").strip().splitlines()) <= 1
+
+
+class _Emitter:
+    """A stub of the run's event emitter. Records every event."""
+
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    async def emit(self, event_type, data):
+        self.events.append((event_type, data))
+
+
+def test_acquire_emits_its_manifest_for_the_chat_panel(env):
+    """`acquire.completed` carries the SAME manifest written beside the CSV."""
+    acquire_tools, memory, ctx, _ = env
+    _enable(memory, True)
+    ctx.data_bridge = _prices_bridge("AAPL")
+    ctx.emitter = _Emitter()
+
+    _, data = run(acquire_tools._acquire(
+        {"source": "prices_daily", "purpose": "watchlist", "params": {}, "symbols": ["AAPL"]},
+        ctx,
+    ))
+    assert data["status"] == "ok"
+    assert [e[0] for e in ctx.emitter.events] == ["acquire.completed"]
+    event = ctx.emitter.events[0][1]
+    assert event["status"] == "ok"
+    assert event["file"] == data["file"]
+    assert event["manifest"] == data["manifest"]
+    source = event["manifest"]["sources"][0]
+    assert source["complete"] is True
+    assert source["rows"] == 2
+    assert source["licence"] and source["attribution"]
+
+
+def test_acquire_refusals_emit_no_manifest_event(env):
+    acquire_tools, memory, ctx, _ = env
+    _enable(memory, False)
+    ctx.emitter = _Emitter()
+    _, data = run(acquire_tools._acquire(
+        {"source": "prices_daily", "purpose": "watchlist", "params": {}, "symbols": ["AAPL"]},
+        ctx,
+    ))
+    assert data["status"] == "refused"
+    assert ctx.emitter.events == []
+
+
+_LIVE = os.environ.get("HARNESS_ACQUIRE_IT") == "1"
+
+
+@pytest.mark.skipif(
+    not _LIVE,
+    reason="opt-in live smoke: set HARNESS_ACQUIRE_IT=1 (needs the running front door)",
+)
+def test_live_macro_collection_through_the_real_bridge(env):
+    """The opt-in live smoke: the REAL read-only bridge, one tiny macro pull.
+
+    Deliberately never in CI (`npm test`); run it from `Black-Eclipse-site/` with
+    the dev server up and `HARNESS_ACQUIRE_IT=1` (plus
+    `HARNESS_LIVE_BRIDGE_URL`/`HARNESS_LIVE_BRIDGE_TOKEN` when they differ from
+    the defaults / `CRON_SECRET`).
+    """
+    from harness.bridge import HttpDataBridge
+
+    acquire_tools, memory, ctx, artifacts = env
+    _enable(memory, True)
+    base = os.environ.get("HARNESS_LIVE_BRIDGE_URL", "http://127.0.0.1:3000")
+    token = os.environ.get("HARNESS_LIVE_BRIDGE_TOKEN") or os.environ.get("CRON_SECRET") or None
+    ctx.data_bridge = HttpDataBridge(base, token)
+    _, data = run(acquire_tools._acquire(
+        {"source": "macro_series", "purpose": "live smoke (opt-in)",
+         "params": {"series": "CPIAUCSL", "quantity": 12}},
+        ctx,
+    ))
+    assert data["status"] in ("ok", "partial"), data
+    assert data["manifest"]["sources"][0]["rows"] >= 1

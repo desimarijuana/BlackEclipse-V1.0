@@ -26,6 +26,7 @@ from typing import Any
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
 from . import config as config_mod
 from . import execution as exec_mod
+from .app_origin import is_app_url, resolve_app_origin, retarget
 from .errors import BrowserError
 from .evidence import is_page_evidence_url, record_browser_source
 from .policy import wrap_untrusted
@@ -118,13 +119,53 @@ async def _navigate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     try:
         result = await session.navigate(url, wait_until=args.get("wait_until") or "domcontentloaded", timeout=opt_timeout(args))
     except BrowserError as exc:
-        await emit(ctx, "browser.navigate.failed", {"sessionId": session.id, **exc.to_dict()})
-        return refusal(exc, "browser_navigate")
+        # The app is reachable through more than one origin (loopback, the
+        # canonical host, the proxy). Resolve and retry ONCE rather than
+        # reporting a transport error the reader would misread as a policy block.
+        if not is_app_url(url):
+            await emit(ctx, "browser.navigate.failed", {"sessionId": session.id, **exc.to_dict()})
+            return refusal(exc, "browser_navigate")
+        origin, tried = resolve_app_origin()
+        if origin is None:
+            probe = ", ".join(
+                f"{item['origin']} ({'reachable' if item['reachable'] else 'unreachable'})"
+                for item in tried
+            )
+            failed = exc if isinstance(exc, BrowserError) else exc
+            failed.metadata = {**getattr(failed, "metadata", {}), "originProbe": tried}
+            failed.reason = (
+                f"{getattr(failed, 'reason', str(failed))} "
+                f"No known app origin answered ({probe}). Start the app with `npm run dev` "
+                "so the canonical host and its proxy are up."
+            )
+            await emit(ctx, "browser.navigate.failed", {"sessionId": session.id, **failed.to_dict()})
+            return refusal(failed, "browser_navigate")
+        try:
+            result = await session.navigate(
+                retarget(url, origin),
+                wait_until=args.get("wait_until") or "domcontentloaded",
+                timeout=opt_timeout(args),
+            )
+            result["resolvedOrigin"] = origin
+            result["originProbe"] = tried
+        except BrowserError as retry_exc:
+            retry_exc.metadata = {**getattr(retry_exc, "metadata", {}), "originProbe": tried}
+            await emit(ctx, "browser.navigate.failed", {"sessionId": session.id, **retry_exc.to_dict()})
+            return refusal(retry_exc, "browser_navigate")
     await emit(ctx, "browser.navigated", {"sessionId": session.id, "url": result["url"]})
     get_telemetry().record_navigation(session.provider.id)
     record_browser_source(ctx, url=result["url"], title=result.get("title"))
-    text = f"Opened {result['url']} — {result.get('title') or '(no title)'}. Call browser_snapshot to see it."
-    return ok("navigate", text, result)
+    boot = await session.boot_state()
+    prefix = ""
+    if result.get("resolvedOrigin"):
+        prefix = f"The requested origin was unreachable; opened the app at {result['resolvedOrigin']} instead. "
+    text = f"{prefix}Opened {result['url']} — {result.get('title') or '(no title)'}. Call browser_snapshot to see it."
+    if boot.get("starting"):
+        text += (
+            f" The app is still starting (boot overlay at {boot.get('percent')}%) — "
+            "wait for it to clear, then snapshot again."
+        )
+    return ok("navigate", text, {**result, "boot": boot})
 
 
 def _make_simple_nav(method: str, tool: str, verb: str):
@@ -159,12 +200,18 @@ async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         snapshot = await session.snapshot(persist=bool(args.get("persist", True)), frame=args.get("frame"))
     except BrowserError as exc:
         return refusal(exc, "browser_snapshot")
+    boot = await session.boot_state()
     note = injection_note(snapshot.full_text)
     header = (
         f"Page: {snapshot.title or '(no title)'} — {snapshot.url}\n"
         f"{len(snapshot.elements)} element(s), {len(snapshot.interactive)} interactive. "
         "Reference elements as @eN.\n"
     )
+    if boot.get("starting"):
+        header += (
+            f"[App boot overlay is visible ({boot.get('percent')}%); the page is still "
+            "starting — wait for it to clear, then snapshot again.]\n"
+        )
     if snapshot.truncated and snapshot.full_path:
         header += f"[full snapshot saved to {snapshot.full_path}]\n"
     if note:
@@ -179,7 +226,7 @@ async def _snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "sessionId": session.id, "url": snapshot.url, "title": snapshot.title,
         "interactive": snapshot.interactive, "elementCount": len(snapshot.elements),
         "truncated": snapshot.truncated, "fullPath": snapshot.full_path,
-        "injectionDetected": bool(note), "frame": snapshot.frame,
+        "injectionDetected": bool(note), "frame": snapshot.frame, "boot": boot,
     }
     return ok("snapshot", header + "\n" + body, data)
 

@@ -23,6 +23,17 @@ last-verified: 2026-10-13
 > computed-result panel + Artifact Center. `matplotlib` is present in the
 > vendored interpreter (3.11.2); a machine without it fails the recipe
 > HONESTLY (import error), never silently.
+> **Slice completed (2026-10-18):** the figure payload is a first-class
+> `FigurePayload` on `AnalysisResult` (kind, drawn series + point counts, seed,
+> `isEvidence: false`) and rides `to_blob()` → the run blob and the tool result;
+> `distribution_profile` (interpolated p05/median/p95 + histogram) and
+> `monte_carlo_paths` (bounded, seeded bootstrap OF the supplied returns,
+> labelled a what-if) join the recipes (10 total); the inline renderer is the
+> Phase-15 `ArtifactView` figure branch (image inline via the Artifact Center
+> route, with the drawn-from and seed lines beside it under the computed label).
+> Tests: `test_analysis_recipes.py` (+5), `analysis-types.test.ts`,
+> `artifact-view.test.tsx`. The sandbox's `IMPORT_ALLOWLIST` is untouched — the
+> widening stays the recipe table's named `extra_imports`.
 
 | | |
 |---|---|

@@ -172,7 +172,7 @@ TOOL_META: dict[str, dict[str, Any]] = {
     "computer_finance_read": {"risk": "low", "timeout": 30_000, "desc":
         "Read financial state from the screen (ticker, bid, ask, position, P&L, …). The result is SCREEN-DERIVED, "
         "carries an explicit source, and is never treated as authoritative market data."},
-    "computer_finance_prepare": {"risk": "critical", "timeout": 30_000, "desc":
+    "computer_finance_prepare": {"risk": "high", "timeout": 30_000, "desc":
         "Classify a financial intent and run it through the finance firewall BEFORE touching the UI. Returns "
         "allowed / approval_required / blocked. Eclipse never performs an unrestricted financial mutation."},
 }

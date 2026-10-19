@@ -89,6 +89,7 @@ from .routers.video import router as video_router
 from .routers.workspace import router as workspace_router
 from .routers.recovery import router as recovery_router
 from .schemas import ModelSettings, RunRequest, RunResult
+from .sdk.middleware import install_sdk
 from .skills.draft import propose_draft
 from .skills.evaluation import evaluate_skill
 from .skills.learning import capture_from_run
@@ -97,6 +98,8 @@ from .skills.permissions import Actor
 from .skills.runtime import SkillExecutionRequest
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=lifespan)
+install_sdk(app)
+
 # Route groups extracted into `harness/routers/` (public surface: `harness.main:app`).
 app.include_router(a2a_router)
 app.include_router(team_router)
@@ -259,7 +262,6 @@ def research_mandate(payload: dict[str, Any]) -> dict[str, Any]:
     )
     return {"success": True, "mandate": mandate.model_dump()}
 
-
 @app.post("/research/run")
 async def research_run(request: ResearchRunRequest) -> JSONResponse:
     """Execute the evidence-grounded research flow for one objective.
@@ -315,7 +317,6 @@ async def research_run(request: ResearchRunRequest) -> JSONResponse:
 @app.get("/research/receipts")
 def list_receipts(limit: int = 50) -> dict[str, Any]:
     return {"success": True, "receipts": service.store.list_receipts(limit)}
-
 
 @app.get("/research/receipts/{run_id}")
 def get_receipt(run_id: str) -> dict[str, Any]:
@@ -388,7 +389,6 @@ async def model_runtime_discover(
         "served": [s for s in served if s],
     }
 
-
 @app.get("/model-runtime/routing")
 def model_runtime_routing(_: bool = Depends(require_operator)) -> dict[str, Any]:
     runtime = get_runtime()
@@ -439,7 +439,6 @@ def model_runtime_usage(_: bool = Depends(require_operator)) -> dict[str, Any]:
         }
     return {"success": True, **summary}
 
-
 @app.get("/agents")
 def agents() -> dict[str, Any]:
     return {
@@ -447,7 +446,6 @@ def agents() -> dict[str, Any]:
         "defaultAgentId": DEFAULT_AGENT_ID,
         "agents": [a.model_dump() for a in AGENT_PRESETS.values()],
     }
-
 
 @app.post("/runs")
 async def start_run(http_request: Request, request: RunRequest, background: bool = False) -> JSONResponse:
@@ -467,11 +465,9 @@ async def start_run(http_request: Request, request: RunRequest, background: bool
         logging.exception("run failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-
 @app.get("/runs")
 def list_runs(limit: int = 50) -> dict[str, Any]:
     return {"success": True, "runs": service.list_runs(limit)}
-
 
 @app.get("/runs/{run_id}")
 def get_run(run_id: str) -> dict[str, Any]:

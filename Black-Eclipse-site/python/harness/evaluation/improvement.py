@@ -42,6 +42,10 @@ class ImprovementDecision:
     target_after: Optional[float] = None
     regressions: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[dict[str, Any]] = field(default_factory=list)
+    #: How many independent trials actually produced a measurement.
+    measured: int = 0
+    #: The persisted EvaluationRun this decision is about (when persisted).
+    run_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +56,8 @@ class ImprovementDecision:
             "targetAfter": self.target_after,
             "regressions": self.regressions,
             "warnings": self.warnings,
+            "measured": self.measured,
+            "runId": self.run_id,
         }
 
 
@@ -107,55 +113,82 @@ async def evaluate_candidate(
     min_improvement: float = 0.0,
     gates: Optional[tuple] = None,
     trials: Optional[int] = None,
+    persist: bool = False,
+    run_id: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    split: str = "validation",
+    seed: Optional[int] = None,
+    temperature: Optional[float] = None,
+    agent_version: Optional[str] = None,
+    git_commit: Optional[str] = None,
+    extra_config: Optional[dict[str, Any]] = None,
 ) -> ImprovementDecision:
     """Apply a proposal, evaluate it, and accept only if verified.
 
-    Rejection reverts the change. The baseline is never overwritten here.
+    Rejection reverts the change. The baseline is never overwritten here. A
+    suite with no measured trial, or a target dimension that was never measured,
+    is rejected — an unmeasured improvement is not an improvement.
     """
     proposal.run()
     suite = await runner.run_suite(
-        tasks, dataset_name="improvement", trials=trials, tier=0, persist=False,
+        tasks, dataset_name="improvement", trials=trials, tier=0,
+        persist=persist, run_id=run_id, metadata=metadata, split=split,
+        seed=seed, temperature=temperature, agent_version=agent_version,
+        git_commit=git_commit, extra_config=extra_config,
     )
+    measured_value = getattr(suite, "measured_trials", None)
+    measured = int(measured_value) if measured_value is not None else 0
+    suite_run_id = getattr(suite, "run_id", run_id)
     baseline_agg = baseline_metrics.get("aggregates", baseline_metrics)
     current_agg = suite.aggregates
     target_before = baseline_agg.get(proposal.target_dimension)
     target_after = current_agg.get(proposal.target_dimension)
     regression_outcome = detect_regressions(baseline_metrics, suite_metrics(suite), gates or DEFAULT_GATES)
 
-    improved = (
-        target_before is not None and target_after is not None
-        and (target_after - target_before) > min_improvement
-    )
+    def _rejected(reason: str) -> ImprovementDecision:
+        if proposal.revert:
+            proposal.revert()
+        return ImprovementDecision(
+            proposal_id=proposal.id, accepted=False, reason=reason,
+            target_before=target_before, target_after=target_after,
+            regressions=regression_outcome["regressions"],
+            warnings=regression_outcome["warnings"],
+            measured=measured, run_id=suite_run_id,
+        )
+
+    if measured_value is not None and measured == 0:
+        return _rejected(
+            "no measured trial produced a value; an unmeasured suite is never accepted"
+        )
+    if target_before is None or target_after is None:
+        return _rejected(
+            f"target {proposal.target_dimension} is UNMEASURED "
+            f"({target_before} → {target_after})"
+        )
+
+    improved = (target_after - target_before) > min_improvement
     critical_regression = any(
-        r["dimension"] in ("safety_score", "hallucination_rate", "task_success")
+        r["dimension"] in (
+            "safety_score", "hallucination_rate", "task_success",
+            "misroute_rate", "escalation_correct",
+        )
         for r in regression_outcome["regressions"]
     )
 
     if not improved:
-        if proposal.revert:
-            proposal.revert()
-        return ImprovementDecision(
-            proposal_id=proposal.id, accepted=False,
-            reason=f"target {proposal.target_dimension} did not improve "
-                   f"({target_before} → {target_after})",
-            target_before=target_before, target_after=target_after,
-            regressions=regression_outcome["regressions"], warnings=regression_outcome["warnings"],
+        return _rejected(
+            f"target {proposal.target_dimension} did not improve "
+            f"({target_before} → {target_after})"
         )
     if critical_regression:
-        if proposal.revert:
-            proposal.revert()
-        return ImprovementDecision(
-            proposal_id=proposal.id, accepted=False,
-            reason="target improved but a critical capability regressed",
-            target_before=target_before, target_after=target_after,
-            regressions=regression_outcome["regressions"], warnings=regression_outcome["warnings"],
-        )
+        return _rejected("target improved but a critical capability regressed")
     return ImprovementDecision(
         proposal_id=proposal.id, accepted=True,
         reason=f"target {proposal.target_dimension} improved "
                f"({target_before} → {target_after}) with no critical regression",
         target_before=target_before, target_after=target_after,
         regressions=regression_outcome["regressions"], warnings=regression_outcome["warnings"],
+        measured=measured, run_id=suite_run_id,
     )
 
 
@@ -170,6 +203,7 @@ async def run_loop(
     baseline_metrics: dict[str, Any],
     *,
     min_improvement: float = 0.0,
+    trials: Optional[int] = None,
 ) -> dict[str, Any]:
     """Evaluate every proposal against the SAME baseline; accept the verified ones.
 
@@ -179,7 +213,8 @@ async def run_loop(
     decisions = []
     for proposal in proposals:
         decision = await evaluate_candidate(
-            runner, tasks, proposal, baseline_metrics, min_improvement=min_improvement,
+            runner, tasks, proposal, baseline_metrics,
+            min_improvement=min_improvement, trials=trials,
         )
         decisions.append(decision.to_dict())
     return {

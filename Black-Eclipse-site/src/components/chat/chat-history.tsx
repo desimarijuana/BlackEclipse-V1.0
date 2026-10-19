@@ -23,6 +23,7 @@ import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
 import { ComputedResultPanel } from './computed-result-panel';
+import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
@@ -440,7 +441,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     <div className="mt-3 flex w-full flex-col gap-3 md:flex-row md:items-start">
                       {msg.analysis ? (
                         <div className="w-full md:w-1/2 md:min-w-0 [&>div]:mt-0">
-                          <ComputedResultPanel result={msg.analysis} compact={compact} />
+                          <ComputedResultPanel result={msg.analysis} compact={compact} runId={msg.runId} />
                         </div>
                       ) : null}
                       {msg.research ? (
@@ -452,6 +453,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   )}
                   {msg.vision ? (
                     <VisionPanel vision={msg.vision} compact={compact} />
+                  ) : null}
+                  {msg.acquisition ? (
+                    <AcquisitionPanel manifest={msg.acquisition} compact={compact} />
                   ) : null}
                   {msg.images ? (
                     <ImageGalleryPanel images={msg.images} compact={compact} />

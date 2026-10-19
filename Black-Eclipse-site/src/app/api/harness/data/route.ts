@@ -51,6 +51,10 @@ const CAPABILITIES: DataCapability[] = [
   // `data-bridge.ts` since the read-back shipped; the allowlist entry was
   // missing, so every schema lookup 400'd. Route tests pin it.
   "response_contract",
+  // Phase-16 collection routes (dispatched via `data-bridge-extensions.ts`):
+  // the SEC filing index, and the operator's declared dataset records.
+  "sec_filing_list",
+  "custom_dataset_records",
 ];
 
 export async function POST(request: Request) {
