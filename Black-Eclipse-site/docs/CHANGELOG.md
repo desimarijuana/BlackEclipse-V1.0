@@ -8,6 +8,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-19
 
+- **style(sidebar): remove the filled backgrounds from the chat-history icon toggle and sort select.**
+  The date/folders toggle now shows bare icons (active state is text color only)
+  and the sort control is transparent, so both read flat 2D like the search row.
+  `no doc change — style-only tweak; no contract or architecture impact`.
+
+- **style(sidebar): flatten and compact the chat-history search field.**
+  Removed the raised bevel/drop shadow so the frosted search surface reads as
+  flat 2D, and reduced its padding, radius, icon and text size.
+  `no doc change — style-only tweak; no contract or architecture impact`.
+
 - **feat(sdk): Eclipse SDK — one user-facing composition and control surface.**
   Added `python/harness/sdk/` (`model.py` contracts + closed widget primitives;
   `store.py` = `SdkWidget`/`SdkLock`/`SdkMeta` on `agent-memory.db`; `locks.py` =

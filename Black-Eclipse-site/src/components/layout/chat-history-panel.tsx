@@ -318,21 +318,25 @@ export function ChatHistoryPanel({
         </div>
       </div>
 
-      {/* Search */}
-      <div className="mx-1 flex items-center gap-2 rounded-xl glass-card-subtle border border-border/20 px-3 py-2">
-        <Search size={14} className="shrink-0 text-muted-foreground" />
+      {/* Search — flat (2D) glass: frost without the raised bevel/drop shadow. */}
+      <div
+        className="mx-1 flex items-center gap-1.5 rounded-lg glass-card-subtle border border-border/20 px-2.5 py-1"
+        style={{ boxShadow: 'none' }}
+      >
+        <Search size={13} className="shrink-0 text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('sidebar.searchChats')}
-          className="w-full min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none"
+          className="w-full min-w-0 bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground/70 outline-none"
         />
-        {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={14} /></button>}
+        {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"><X size={12} /></button>}
       </div>
 
-      {/* Controls: group-by (icon toggle) + optional tag filter + sort */}
+      {/* Controls: group-by (icon toggle) + optional tag filter + sort.
+          Both controls are background-free so the row reads flat/2D. */}
       <div className="flex items-center gap-1 px-1">
-        <div className="flex items-center gap-0.5 rounded-lg glass-card-subtle border border-border/20 p-0.5" role="group" aria-label={t('sidebar.groupBy')}>
+        <div className="flex items-center gap-0.5" role="group" aria-label={t('sidebar.groupBy')}>
           <SegmentBtn active={groupBy === 'date'} title={t('sidebar.groupDate')} onClick={() => setGroupBy('date')}>
             <Clock size={12} />
           </SegmentBtn>
@@ -458,7 +462,7 @@ function SegmentBtn({ active, title, onClick, children }: { active: boolean; tit
       aria-pressed={active}
       className={cn(
         'flex h-6 w-6 items-center justify-center rounded-md cursor-pointer transition-colors',
-        active ? 'bg-white/[0.1] text-foreground' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+        active ? 'text-foreground' : 'text-muted-foreground/60 hover:text-foreground',
       )}
     >
       {children}
@@ -489,7 +493,7 @@ function HistorySelect<T extends string>({
         size="sm"
         title={title}
         className={cn(
-          'glass-card-subtle border-border/20 text-[11px] text-muted-foreground hover:text-foreground outline-none focus-visible:border-border/40 focus-visible:ring-0',
+          'border-border/20 bg-transparent text-[11px] text-muted-foreground hover:bg-transparent hover:text-foreground dark:bg-transparent dark:hover:bg-transparent outline-none focus-visible:border-border/40 focus-visible:ring-0',
           className,
         )}
       >
