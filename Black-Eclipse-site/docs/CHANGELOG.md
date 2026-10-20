@@ -8,6 +8,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-19
 
+- **feat(harness): RSL controlled smoke test + real worktree verifier fixes.**
+  Added `npm run rsl:smoke` (`python/harness/self_improvement/smoke.py` +
+  `scripts/rsl-smoke.js`): a disposable git repo with a failing owning test is
+  verified by the real conductor in a real worktree, then a scripted surface
+  baseline/candidate benchmark is recorded; both use a temp `agent-memory.db`,
+  and the checkout/dev databases are untouched. The smoke exposed and fixed two
+  production bugs in the code verifier: `evolution_service._resolved_for` built
+  no `WorkspaceBinding` (every worktree write was refused as `NO_BINDING`) and
+  `_make_check_runner` returned an un-awaited coroutine instead of a sync
+  callable. Added `test_code_verifier_runs_the_owning_test_in_a_real_worktree`.
+  Docs: `docs/self-improvement/rsl-implementation-plan.md`,
+  `docs/NAVIGATION.md`, `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+
 - **feat(harness,ui): RSL post-R8 closure — reachable surface experiments and the event wake.**
   Added additive `subjectType`/`surfaceConfig` columns on `EvolutionCandidate`
   (idempotent `ALTER`; old rows default to `code`), operator-gated

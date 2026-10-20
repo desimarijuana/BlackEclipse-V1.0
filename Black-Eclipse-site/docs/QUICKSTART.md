@@ -127,6 +127,7 @@ in [`../README.md`](../README.md) is authoritative; in short:
   default. Set `observe`, `propose` or `verify` and restart to enable it; follow
   the rollout and operator runbook in
   [`self-improvement/rsl-implementation-plan.md`](self-improvement/rsl-implementation-plan.md) §5.1.
+  Test it without touching your data with `npm run rsl:smoke`.
 
 ## Where your data lives
 

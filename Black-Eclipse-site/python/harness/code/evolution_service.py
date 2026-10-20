@@ -29,7 +29,7 @@ def _make_check_runner(ctx: Any, workspace_root: Path):
 
     Mirrors `scaffold_tools._run_check`, but scoped to a single owning test path.
     """
-    async def _run(path: str) -> dict[str, Any]:
+    def _run(path: str) -> dict[str, Any]:
         from .commands import CommandUnavailable, build_argv, resolve_class  # noqa: PLC0415
         from .sandbox import RunSpec, SandboxUnavailable, build_env, run as sandbox_run  # noqa: PLC0415
         from .sandbox import select_backend  # noqa: PLC0415
@@ -172,9 +172,18 @@ def evaluate(
 
 
 def _resolved_for(ws: Any) -> Any:
+    from . import policy  # noqa: PLC0415
     from .workspace import ResolvedWorkspace  # noqa: PLC0415
 
-    binding = ws.binding if hasattr(ws, "binding") else None
+    # `worktree.allocate` returns a `CodeWorkspace` without a binding; the patch
+    # policy requires an explicit `WorkspaceBinding` or every write is refused as
+    # NO_BINDING. Build the same binding the landing path uses.
+    binding = getattr(ws, "binding", None)
+    if binding is None:
+        binding = policy.WorkspaceBinding(
+            id=ws.id, root=ws.root,
+            base_revision=ws.base_revision, strategy=ws.strategy,
+        )
     return ResolvedWorkspace(
         id=ws.id, root=ws.root, base_revision=ws.base_revision, strategy=ws.strategy,
         binding=binding,

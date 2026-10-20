@@ -56,7 +56,14 @@ it) plus `self_improvement.experiment_completed`. `evaluation.started` now wakes
 surface form. Production operator controls are `GET /evolution/rsl` (mode,
 running/busy, daily budget), `POST /evolution/rsl/tick` (one bounded tick),
 `POST /evolution/candidates/{id}/propose` (stage validated ops without applying)
-and `rsl-control-panel.tsx`; §5.1 is the operator runbook. v1b skill-draft
+and `rsl-control-panel.tsx`; §5.1 is the operator runbook. `npm run rsl:smoke`
+runs a controlled end-to-end test in a disposable repo + temp `agent-memory.db`:
+a failing owning test is fixed in a real worktree, then a scripted surface
+baseline/candidate benchmark is recorded. The smoke exposed and fixed two real
+code-verifier bugs: `_resolved_for` built no `WorkspaceBinding` (every write was
+refused as `NO_BINDING`) and `_make_check_runner` returned an un-awaited
+coroutine instead of a sync callable. Regression test:
+`test_code_verifier_runs_the_owning_test_in_a_real_worktree`. v1b skill-draft
 proposals and the v1c model proposer remain deferred; no surface snapshot can be
 activated. ADR-H233 records the subject-type decision.
 
@@ -838,6 +845,13 @@ Preconditions: the Python runtime is healthy, the operator token/loopback path
 is available, and the evaluation stack is installed. RSL stays dark until the
 operator sets a mode; a mode change requires a runtime restart.
 
+**0. Run the controlled smoke test.**
+
+`npm run rsl:smoke` uses a disposable git repo and a temp `agent-memory.db`:
+it fixes a failing owning test through the real worktree verifier, then records
+a scripted surface baseline/candidate experiment. It never touches the checkout
+or the developer's databases. Run it before enabling a mode.
+
 **1. Inspect the conductor.**
 
 - UI: the learning journey → RSL conductor card shows mode, running/busy,
@@ -907,7 +921,7 @@ proposer, the live surface bridge, and surface landing.
 | Security | `test_rsl_security.py` | forbidden path, test edit, evaluator edit, secret/verdict leak, approval not consumed, surface subject never landable |
 | Learning | `test_rsl_lessons.py` | cue/evidence gate, retrieval, scope, verdict guard |
 | Statistical | existing `stats.py` tests + RSL trials | Wilson CI, flaky tasks, unmeasured |
-| Release | `scripts/test-evals.js` | the offline RSL e2e is a deterministic gate |
+| Release | `scripts/test-evals.js` + `npm run rsl:smoke` | the offline RSL e2e is a deterministic gate; the smoke test runs the real worktree verifier and a scripted surface benchmark in a disposable repo/DB |
 
 All tests run offline. A live experiment is operator-run, recorded, and never a
 CI dependency.
@@ -983,6 +997,7 @@ python/harness/self_improvement/selection.py
 python/harness/self_improvement/composition.py
 python/harness/self_improvement/recursion.py
 python/harness/self_improvement/gate.py
+python/harness/self_improvement/smoke.py
 python/harness/self_improvement/loop.py
 python/harness/self_improvement/recorder.py
 python/harness/evaluation/candidate_invoker.py
@@ -1014,6 +1029,7 @@ src/app/api/evolution/rsl/route.ts
 src/app/api/evolution/rsl/tick/route.ts
 src/app/api/evolution/candidates/[id]/propose/route.ts
 src/lib/harness/evolution-browser.ts
+scripts/rsl-smoke.js
 src/components/screens/skills/rsl-experiments-panel.tsx
 src/components/screens/skills/rsl-experiments-panel.test.tsx
 src/components/screens/skills/rsl-control-panel.tsx
@@ -1057,6 +1073,8 @@ src/components/screens/skills/rsl-experiments-panel.tsx  mounts the control pane
 src/components/screens/skills/learning-journey.tsx  experiment panel
 src/lib/i18n/dictionaries/evolution.ts    evolution.* (lesson/recursive/surface/conductor)
 scripts/test-evals.js                     offline RSL gate
+package.json                              rsl:smoke command
+python/tests/test_rsl_verifier.py         real worktree verifier regression
 python/tests/test_events_service.py        evaluation.started wake test
 python/tests/test_evolution_rsl_routes.py   surface/status/tick/propose operator gates
 python/tests/test_evolution_rsl_operator.py status/tick/propose + surface creation
