@@ -8761,6 +8761,22 @@ size budget), the typed client/browser/proxy, the surface form's model fields, a
 `test_evolution_rsl_routes.py` (queued snapshot identity). No new verification or
 activation path.
 
+## ADR-H271 — Cross-scope lesson transfer is opt-in and still measured
+
+**Decision.** `select_lessons(..., allow_transfer=True)` may return an adopted
+lesson from another recorded scope when the cue matches; the default remains
+exact scoped matching. The conductor enables it only with
+`HARNESS_RSL_LESSON_TRANSFER=on`. A transferred lesson is still recorded in the
+same injected/control cohorts, so its lift is measured against the actual task.
+
+**Why.** A cue that describes a real failure is not always bound to one market
+or capability. Cross-scope reuse is useful only if it is explicit and measured;
+silently widening scope would make the retrieval contract unpredictable.
+
+**Consequences.** `select_lessons(allow_transfer=...)`, `RSLConfig.lesson_transfer`
+and the graph-context pass-through, plus `test_rsl_lessons.py` (default excludes
+another scope; opt-in includes it). No new activation path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

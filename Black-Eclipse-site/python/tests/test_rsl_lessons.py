@@ -290,6 +290,21 @@ def test_scoped_lesson_does_not_apply_outside_its_scope(stores):
     ) == []
 
 
+def test_transfer_opt_in_allows_a_cue_match_across_scopes(stores):
+    lessons, _, eval_store = stores
+    run_id = _completed_run(eval_store)
+    stored = _distill(lessons, _candidate(), run_id=run_id)
+
+    transferred = select_lessons(
+        lessons,
+        cue="market data request timed out",
+        scope={"capability": "fundamentals"},
+        eval_store=eval_store,
+        allow_transfer=True,
+    )
+    assert [row["id"] for row in transferred] == [stored["lessonId"]]
+
+
 def test_migration_31_is_idempotent_when_columns_already_exist(tmp_path):
     import sqlite3
 

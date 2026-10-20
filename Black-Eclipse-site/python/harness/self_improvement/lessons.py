@@ -333,13 +333,16 @@ def select_lessons(
     scope: Any = None,
     eval_store: Any = None,
     limit: int = 50,
+    allow_transfer: bool = False,
 ) -> list[dict[str, Any]]:
     """The deterministic, scoped, verified lesson set for a later task.
 
     Eligible = adopted + matching cue + matching scope + a COMPLETED validation
-    run + clean of verdict markers. An unknown/unverifiable validation run is
-    not eligible (fail closed). Order is match score desc, then createdAt, then
-    id, so the same inputs always produce the same order.
+    run + clean of verdict markers. With `allow_transfer` (v2, opt-in) a lesson
+    from another recorded scope may match on the cue alone; its lift is still
+    measured against the actual task cohorts. An unknown/unverifiable validation
+    run is not eligible (fail closed). Order is match score desc, then createdAt,
+    then id, so the same inputs always produce the same order.
     """
     if not _has_text(cue):
         return []
@@ -359,7 +362,7 @@ def select_lessons(
         score = cue_match_score(row.get("cue"), cue)
         if score <= 0:
             continue
-        if not _scope_matches(row.get("scope"), scope, cue):
+        if not allow_transfer and not _scope_matches(row.get("scope"), scope, cue):
             continue
         if not _validation_completed(row, eval_store):
             continue

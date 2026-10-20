@@ -214,6 +214,7 @@ async def _lesson_manifest_context(
 
     from .evaluation.store import EvaluationStore  # noqa: PLC0415
     from .prompt_segments import build_lesson_manifest  # noqa: PLC0415
+    from .self_improvement.config import RSLConfig  # noqa: PLC0415
     from .self_improvement.lessons import select_lessons  # noqa: PLC0415
 
     context = request.input.context if isinstance(request.input.context, dict) else {}
@@ -233,6 +234,7 @@ async def _lesson_manifest_context(
             cue=cue,
             scope=scope,
             eval_store=EvaluationStore(run_store),
+            allow_transfer=RSLConfig.from_env().lesson_transfer,
         )
         if lessons and run_id:
             try:

@@ -8,6 +8,41 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **feat(charts): the Python chart engine - Eclipse's one chart renderer, and the
+  plan that retires ECharts.** A chart is now described by a validated chart
+  **SPEC** (data only: a kind, some series, a title - never a callback, a URL
+  or a path) and drawn by the Python runtime with matplotlib into a
+  **transparent** PNG in the app's own palette, so the picture sits on the
+  frosted glass card without hiding the frost. The picture is recorded in the
+  Artifact Center, so a chart is downloadable, versioned and shareable like any
+  produced file. Three doors onto that one engine: the **python_chart agent
+  tool** (a malformed spec is a refusal that names the missing part), the
+  **operator-gated route** POST /charts/render (proxied by
+  /api/harness/charts), and the **browser client** + <PythonChart> surface.
+  A figure is always computed and never evidence (isEvidence: false is part
+  of the contract); the renderer draws what the spec says and nothing else; a
+  missing matplotlib is a named CHART_RENDER_UNAVAILABLE, never an empty
+  picture; and the picture's identity is the digest of its spec. matplotlib/
+  
+umpy/pandas are **already installed** in the runtime and the analysis
+  sandbox - no new dependency, no new agent loop, no new store. The ECharts
+  retirement is deliberately **not** a dual engine: the staged plan, the full
+  surface inventory and the honest costs (no hover/crosshair/zoom; the 3D globe
+  and the force graph have no counterpart in the current Python stack) are in
+  docs/chart-engine.md section 4. Files: python/harness/charts/ (spec,
+  theme, render, service, tools), python/harness/routers/charts.py,
+  src/lib/harness/charts.ts, src/app/api/harness/charts/route.ts,
+  src/components/charts/python-chart.tsx. Tests: python/tests/test_charts.py
+  (26), src/lib/harness/charts.test.ts, src/app/api/harness/charts/route.test.ts.
+  docs updated: docs/chart-engine.md, docs/DECISIONS.md (ADR-050),
+  skills/ARCHITECT.md (ADR-050), docs/ARCHITECTURE.md, docs/NAVIGATION.md.
+- **feat(harness): opt-in cross-scope lesson transfer.**
+  `HARNESS_RSL_LESSON_TRANSFER=on` lets a cue-matched adopted lesson from
+  another recorded scope be retrieved; the default remains exact-scoped, and
+  transferred lessons still enter the injected/control cohorts so lift is
+  measured. Docs: ADR-H271, `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
 - **test(rsl): automated v1 acceptance passed.**
   `npm run rsl:smoke` passed (code candidate `evaluated_ok`, measured surface
   `benchmark_rejected`, budget 2/3) and the focused acceptance suite passed

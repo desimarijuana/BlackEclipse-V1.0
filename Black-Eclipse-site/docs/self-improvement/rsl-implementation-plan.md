@@ -441,6 +441,7 @@ Tasks:
   | `HARNESS_RSL_MAX_WALL_SECONDS` | `1800` | one experiment |
   | `HARNESS_RSL_MAX_COST_USD` | `5` | hard budget; unknown cost stops verification |
   | `HARNESS_DRIFT_WATCH_SECONDS` | `300` | read-only drift cadence; `0` disables |
+  | `HARNESS_RSL_LESSON_TRANSFER` | `off` | allow cue-matched lessons across scopes (still measured) |
 
 - `config.py` tests: defaults, clamps, mode off is a no-op.
 
@@ -1258,7 +1259,12 @@ provider/model/temperature differ from the agent's base. The surface form expose
 the fields. It is trial-only: live activation still refuses model identity
 (ADR-H270).
 
-Next v2 slices: cross-scope lesson transfer; canary landing for code.
+**Cross-scope lesson transfer (2026-10-20).** `HARNESS_RSL_LESSON_TRANSFER=on`
+lets a cue-matched adopted lesson from another recorded scope be retrieved. The
+default stays exact-scoped; transferred lessons still enter the injected/control
+cohorts, so lift is measured on the actual task (ADR-H271).
+
+Next v2 slices: canary landing for code.
 
 ---
 

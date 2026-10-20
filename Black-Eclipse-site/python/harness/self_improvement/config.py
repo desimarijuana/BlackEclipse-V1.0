@@ -84,6 +84,7 @@ class RSLConfig:
     max_wall_seconds: int = 1800
     max_cost_usd: float = 5.0
     lesson_retire: bool = False
+    lesson_transfer: bool = False
     model_proposer: bool = False
     code_benchmark: bool = False
 
@@ -120,6 +121,7 @@ class RSLConfig:
             ),
             max_cost_usd=_env_float(env, "HARNESS_RSL_MAX_COST_USD", 5.0, 0.0, 1000.0),
             lesson_retire=_env_bool(env, "HARNESS_RSL_LESSON_RETIRE", False),
+            lesson_transfer=_env_bool(env, "HARNESS_RSL_LESSON_TRANSFER", False),
             model_proposer=_env_bool(env, "HARNESS_RSL_MODEL_PROPOSER", False),
             code_benchmark=_env_bool(env, "HARNESS_RSL_CODE_BENCHMARK", False),
         )
@@ -139,6 +141,7 @@ class RSLConfig:
             "maxWallSeconds": self.max_wall_seconds,
             "maxCostUsd": self.max_cost_usd,
             "lessonRetire": self.lesson_retire,
+            "lessonTransfer": self.lesson_transfer,
             "modelProposer": self.model_proposer,
             "codeBenchmark": self.code_benchmark,
         }
