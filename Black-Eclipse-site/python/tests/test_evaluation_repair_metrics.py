@@ -78,8 +78,85 @@ def test_the_block_reports_every_dimension_with_missing_sources_unmeasured():
     assert set(metrics) == {
         "time_to_repair_ms", "self_repair_precision", "requirement_completeness",
         "cost_per_success", "unauthorized_action_rate",
+        "rsl_experiments", "rsl_accepted", "rsl_rejected", "rsl_unmeasured",
+        "regression_rate",
     }
     assert all(value is None for value in metrics.values())
+
+
+def test_rsl_metrics_split_measured_unmeasured_and_count_regressions():
+    from harness.evaluation.repair_metrics import metrics_from_rsl_runs
+
+    runs = [
+        {
+            "status": "completed",
+            "suite": "rsl-recursion",
+            "config": {"kind": "rsl-recursion", "benchmark": "MEASURED"},
+            "metadata": {"composition": {"decision": "composed"}},
+        },
+        {
+            "status": "completed",
+            "suite": "rsl-code",
+            "config": {"kind": "rsl", "benchmark": "UNMEASURED"},
+            "metadata": {"decision": "tests_passed"},
+        },
+        {
+            "status": "completed",
+            "suite": "rsl-recursion",
+            "config": {"kind": "rsl-recursion", "benchmark": "MEASURED"},
+            "metadata": {
+                "accepted": False,
+                "composition": {"decision": "no_gain"},
+                "regressions": [{"dimension": "task_success"}],
+            },
+        },
+        {
+            "status": "running",
+            "suite": "rsl-code",
+            "config": {"kind": "rsl"},
+            "metadata": {},
+        },
+    ]
+    metrics = metrics_from_rsl_runs(runs)
+    assert metrics["rsl_experiments"] == 3
+    assert metrics["rsl_accepted"] == 1
+    assert metrics["rsl_rejected"] == 1
+    assert metrics["rsl_unmeasured"] == 1
+    assert metrics["regression_rate"] == 0.5
+
+    assert metrics_from_rsl_runs([]) == {
+        "rsl_experiments": 0,
+        "rsl_accepted": 0,
+        "rsl_rejected": 0,
+        "rsl_unmeasured": 0,
+        "regression_rate": None,
+    }
+    assert all(value is None for value in metrics_from_rsl_runs(None).values())
+
+
+def test_rsl_run_metrics_read_real_evaluation_rows(tmp_path):
+    from harness.evaluation.repair_metrics import rsl_runs_from_store
+    from harness.evaluation.store import EvaluationStore
+    from harness.persistence import AgentMemoryStore
+
+    store = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    try:
+        eval_store = EvaluationStore(store)
+        eval_store.create_run(
+            id="rsl-run", suite="rsl-code", datasetName="owning-tests",
+            datasetVersion="1", datasetChecksum="x",
+            config={"kind": "rsl", "benchmark": "UNMEASURED"},
+            metadata={"decision": "tests_passed", "benchmark": "UNMEASURED"},
+            status="completed",
+        )
+        runs = rsl_runs_from_store(store)
+        assert [run["id"] for run in runs] == ["rsl-run"]
+        metrics = collect_self_evolution_metrics(store=store)
+        assert metrics["rsl_experiments"] == 1
+        assert metrics["rsl_unmeasured"] == 1
+        assert metrics["rsl_accepted"] == 0
+    finally:
+        store.close()
 
 
 def test_the_gate_report_prints_the_block():

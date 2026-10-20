@@ -66,6 +66,11 @@ def prepare(
     candidate = EvolutionStore(service.store).get_candidate(candidate_id)
     if candidate is None:
         raise RSLLandingError("RSL_CANDIDATE_NOT_FOUND", "the candidate does not exist")
+    if candidate.get("subjectType") == "surface":
+        raise RSLLandingError(
+            "RSL_SURFACE_NOT_LANDABLE",
+            "a surface snapshot is benchmarked but has no code change to promote in v1",
+        )
     if candidate.get("status") != "evaluated_ok":
         raise RSLLandingError(
             "RSL_NOT_EVALUATED",

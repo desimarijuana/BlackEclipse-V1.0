@@ -1,12 +1,12 @@
 ---
 title: Recursive Self-Improvement Loop (RSL) — Implementation Plan
-status: In progress (R0–R4 implemented; R5–R8 not started)
-last-verified: 2026-10-18
+status: Implemented (R0–R8)
+last-verified: 2026-10-19
 ---
 
 # Recursive Self-Improvement Loop (RSL) — Implementation Plan
 
-**Implementation status (2026-10-18):** R0–R4 are implemented. R0–R1 added the
+**Implementation status (2026-10-19):** R0–R8 are implemented. R0–R1 added the
 `python/harness/self_improvement/` scaffold (`RSLConfig`, `HarnessSnapshot`,
 `Observation`), the deterministic observer, `record_mistake_recurrence` in
 `code/evolution.py`, the `capture_mistakes` and `learning_review` hooks, and the
@@ -19,13 +19,46 @@ isolated `CandidateAgentInvoker` over a validated `HarnessSnapshot`, plus the
 frozen `RSL_DENY_GLOBS`/`assert_landable_target` target guard. R4 added the
 bounded `RSLLoop` conductor, v1a code proposer, tests-only code verifier,
 surface benchmark verifier, promotion-preview landing preparation, the
-experiment recorder and lifespan wiring. Code patches record
-`benchmark="UNMEASURED"`; only surface candidates can claim a measured delta.
-R5–R8 are not started. The ADR numbers below are **H217–H219 + H222**
-(implemented) and
-**H223–H224** (future) because ADR-H216 is the Capability Studio and H220–H221
-are reserved by the QA Round 1 plan
-(`docs/harness/roadmap/qa-round-1-fixes.md`).
+experiment recorder and lifespan wiring. R5 added the operator evidence routes
+(`/evolution/experiments`, candidate evidence, `prepare-landing`), the typed
+front door and the learning-journey experiment panel. R6 added migration 31
+(`cue`, `adoptedArtifactType`, `adoptedArtifactId`, `validationRunId` on
+`LearningCandidate`), the `self_improvement/lessons.py` cue/evidence/verdict
+gate with cue+lesson dedupe, and the bounded `lesson_manifest` prompt segment
+that retrieves only adopted lessons whose validation run completed and emits
+`prompt.lesson_injected`. R7 added `propose_many` (typed `invariant`/`domain`
+variants over operator/agent-supplied ops), the seeded anonymous
+`selection.py`, the conservative `composition.py`, the bounded
+`budgeted_k`/`run_recursive` conductor and the loop's `run_recursive` entry
+point; contrast bundles are now wired and verdict-guarded. R8 added the
+`rsl_experiments`/`rsl_accepted`/`rsl_rejected`/`rsl_unmeasured` +
+`regression_rate` metric block in `evaluation/repair_metrics.py` (merged into
+`code/evolution.archive_metrics` and the recovery route), the
+`self_improvement/gate.py` offline end-to-end gate wired into
+`scripts/test-evals.js`, and the rollout/flip documentation below. Code patches
+record `benchmark="UNMEASURED"`; only surface candidates can claim a measured
+delta. The ADR numbers below are **H217–H219 + H222–H224 + H233** (implemented)
+because ADR-H216 is the Capability Studio and H220–H221 are reserved by the QA
+Round 1 plan (`docs/harness/roadmap/qa-round-1-fixes.md`).
+
+**Post-R8 closure (2026-10-19):** the measured surface path is now reachable and
+the loop has its event wake. `EvolutionCandidate` gained additive
+`subjectType`/`surfaceConfig` columns (idempotent `ALTER`, old rows default to
+`code`); `POST /evolution/surface-experiments` validates a base/candidate
+snapshot pair and a dataset/split, creates one `proposed` surface candidate, and
+wakes the conductor. The verify tick dispatches `verify_surface_candidate`,
+which runs the SAME base snapshot as a recorded `rsl-baseline`, benchmarks the
+candidate on the selected tasks, persists the evaluator's decision on the
+`EvaluationRun`, and records one `EvolutionAttempt` (so the daily budget counts
+it) plus `self_improvement.experiment_completed`. `evaluation.started` now wakes
+`RSLLoop`; `landing.prepare` explicitly refuses a surface subject
+(`RSL_SURFACE_NOT_LANDABLE`). The learning-journey operator panel gained the
+surface form. Production operator controls are `GET /evolution/rsl` (mode,
+running/busy, daily budget), `POST /evolution/rsl/tick` (one bounded tick),
+`POST /evolution/candidates/{id}/propose` (stage validated ops without applying)
+and `rsl-control-panel.tsx`; §5.1 is the operator runbook. v1b skill-draft
+proposals and the v1c model proposer remain deferred; no surface snapshot can be
+activated. ADR-H233 records the subject-type decision.
 
 **Who this is for:** anyone implementing the loop that turns Eclipse's own
 observed failures into verified, operator-approved improvements to its harness.
@@ -156,8 +189,9 @@ recorded benchmark delta.
    edits its test could game the gate. RSL must freeze tests and evaluation
    assets. **Resolved by R3** (`self_improvement/security.py`
    `RSL_DENY_GLOBS`/`assert_landable_target`).
-7. **Lessons lack a cue gate.** `LearningCandidate` has no `cue`; retrieval is
-   not wired to a later run. **Open (R6).**
+7. **Lessons lack a cue gate.** `LearningCandidate` had no `cue`; retrieval was
+   not wired to a later run. **Resolved by R6**
+   (`self_improvement/lessons.py` + the `lesson_manifest` prompt segment).
 8. **No split policy.** `select_tasks` exists (`tasks.py:294`) but there is no
    optimization/validation/held-out split, so optimization can overfit the
    acceptance set. **Resolved by R2** (`select_tasks(split=...)`).
@@ -337,6 +371,31 @@ exist, the migration is a no-op. No new table.
 The operator then uses the existing `/code/tasks/{runId}/promote/preview` and
 `/promote` routes with the existing single-use, digest-bound approval. No
 second approval system.
+
+### 3.7 Surface candidate row (post-R8)
+
+A surface subject reuses the ONE `EvolutionCandidate` row and adds two
+idempotent columns:
+
+```sql
+ALTER TABLE EvolutionCandidate ADD COLUMN subjectType TEXT NOT NULL DEFAULT 'code';
+ALTER TABLE EvolutionCandidate ADD COLUMN surfaceConfigJson TEXT;
+```
+
+`surfaceConfigJson` carries the validated base + candidate `HarnessSnapshot`,
+the dataset file/split/task ids, target dimension, trials, seed and an optional
+baseline run id. The route creates the row as `proposed`; the verify tick
+dispatches `verifier.verify_surface_candidate`. That function runs the base
+snapshot as a `rsl-baseline` run (or reuses a recorded baseline only when its
+`baseDigest` and task fingerprint still match), then calls the existing
+`verify_surface` path. The evaluator's decision is persisted on the
+`EvaluationRun`; the loop records one `EvolutionAttempt` and the completion
+event. `HarnessEvent.runId` has a foreign key to `HarnessRun`, so the recorder
+creates one bounded record container for the experiment id when (and only when)
+no real run with that id exists. `landing.prepare` refuses a surface subject with
+`RSL_SURFACE_NOT_LANDABLE` — a snapshot has no code change to promote in v1.
+`test_rsl_surface_e2e.py` drives route → conductor → real baseline/candidate
+runs on one scripted task.
 
 ---
 
@@ -578,34 +637,42 @@ records a measured benchmark delta.
 
 **Goal:** make the evidence reviewable and landable without a database shell.
 
+**Status (2026-10-18): implemented.** The operator can list/inspect RSL
+experiments, read a candidate's attempts + experiments, and prepare a landing
+preview from the learning journey. The existing `/activate` route remains the
+skill-version route (not overloaded); code landing is `prepare-landing` followed
+by the existing `/code/tasks/{runId}/promote` approval. Code rollback stays on
+the existing promotion rollback route. Baseline-vs-candidate regression display
+is the R4/R7 experiment metadata, not a second approval surface.
+
 Tasks:
 
 - Extend `routers/evolution.py` (not a new route group):
-  - `GET /evolution/experiments` and `GET /evolution/experiments/{runId}`;
-  - `GET /evolution/candidates/{id}/evidence` (contrast bundle + metrics);
+  - `GET /evolution/experiments` and `GET /evolution/experiments/{runId}`
+    (run identity, metrics, bounded trial scores);
+  - `GET /evolution/candidates/{id}/evidence` (candidate + attempts + linked
+    RSL experiments);
   - `POST /evolution/candidates/{id}/prepare-landing` → `landing.prepare`;
-  - `POST /evolution/candidates/{id}/activate` → for code, return the
-    promotion preview + approval reference; for skills, delegate to
-    `skills/versioning`; never write the checkout here;
-  - `POST /evolution/candidates/{id}/rollback` → existing promotion rollback
-    for code, skill rollback for skills.
+    returns the preview + the existing promotion route, never applies;
+  - the existing `/activate` and `/rollback` routes stay the skill-version
+    lifecycle; code landing/rollback use the existing promotion routes.
   - Every route keeps `require_operator`, reads included.
 - Front door: `src/lib/harness/evolution-client.ts` gains experiment/evidence
-  types and calls; `src/app/api/evolution/experiments/route.ts` and
-  `[id]/route.ts` proxy.
-- UI: extend the existing learning journey / evolution detail
-  (`src/components/screens/skills/learning-journey.tsx`) with an experiment
-  panel: baseline vs candidate metrics, regressions, trials, cost, decision,
-  evidence bundle, "Prepare landing" and "Roll back". No new self-improvement
-  screen.
+  types and calls; `evolution-browser.ts` serves the client panel;
+  `src/app/api/evolution/experiments/route.ts` + `[id]/route.ts`,
+  candidate `evidence` and `prepare-landing` proxy.
+- UI: extend `src/components/screens/skills/learning-journey.tsx` with
+  `rsl-experiments-panel.tsx`: experiment list, honest benchmark badge
+  (MEASURED vs UNMEASURED), tests result, decision, target, and "Prepare
+  landing" (only for a tests-passed code experiment). No new screen.
 - i18n keys under `evolution.experiment.*`.
 
 Tests:
 
 - every new route is operator-gated (403 without the token);
 - the client types match the runtime JSON;
-- a component test renders accepted/rejected/unmeasured states;
-- `prepare-landing` never writes the checkout.
+- a component test renders measured/unmeasured and tests passed/failed states;
+- `prepare-landing` never writes the checkout (landing test).
 
 **Acceptance:** an operator can inspect evidence and prepare a landing from the
 UI; the actual write still requires the existing promotion approval.
@@ -613,6 +680,23 @@ UI; the actual write still requires the existing promotion approval.
 ### R6 — Lessons and retrieval (3 days)
 
 **Goal:** make verified changes reusable by later tasks.
+
+**Status (2026-10-19): implemented.** Migration 31 adds the four additive
+`LearningCandidate` columns (idempotent `ALTER` guarded by a column check in
+`eclipse_memory/db.py`). `self_improvement/lessons.py` refuses a missing
+cue/lesson/evidence, discards a non-adopted decision, runs the verdict tripwire
+on the cue+lesson+evidence text, dedupes by cue+lesson signature, and records
+the adopted artifact + validation run. `prompt_segments.build_lesson_manifest`
+is a hard 3-lesson / 800-character formatter; `_lesson_manifest_context`
+retrieves only adopted lessons with a completed validation run whose cue and
+scope match the current turn, emits `prompt.lesson_injected` with the lesson ids
+and their origin/validation/artifact references, and injects a labelled,
+non-authoritative block. The operator surface is
+`GET /evolution/lessons` + `POST /evolution/candidates/{id}/lessons` (the route
+derives the accepted decision from the persisted experiment, never from the
+request) plus the typed front door and the learning-journey operator panel.
+Tests live in `python/tests/test_rsl_lessons.py` +
+`test_evolution_rsl_operator.py`.
 
 Tasks:
 
@@ -640,6 +724,26 @@ task with origin, scope, validation run and version traceable.
 **Goal:** the "recursive" step: more than one candidate from the same evidence,
 compared and composed.
 
+**Status (2026-10-19): implemented for the deterministic, operator-supplied
+scope.** `proposer.propose_many` builds up to `k` typed `invariant`/`domain`
+proposals from the same observation and validates each independently against the
+frozen denylist + `propose_ops`; it never invents a patch or calls a model.
+`selection.py` assigns seeded anonymous labels, drops non-answers with a cause,
+falls back neutrally to the base and makes `k=1` trivial. `composition.py` only
+merges verified, non-conflicting ops and claims a gain only when a measured
+validation score beats the best single candidate; otherwise it records
+`no_gain`. `recursion.run_recursive` verifies each proposal through the caller's
+existing verifier, builds and verdict-guards contrast bundles when trajectories
+are supplied, records ONE `EvaluationRun` with the selection/composition, and
+enforces `budgeted_k` (the daily budget caps `k`). `RSLLoop.run_recursive` uses
+the loop's configured `k`, stores, actor, budget and lease-free single
+experiment. The operator surface is `POST /evolution/candidates/{id}/recursive`
+(typed variants; the route persists child candidates, verifies each through the
+existing worktree verifier, and records the R7 selection/composition) plus the
+typed front door and the learning-journey operator panel. `k=1` remains the
+default; no model proposer and no autonomous activation. Tests live in
+`python/tests/test_rsl_recursion.py` + `test_evolution_rsl_operator.py`.
+
 Tasks:
 
 - `proposer.py`: `propose_many(observation, k)` with typed candidates
@@ -659,6 +763,17 @@ Tasks:
 either a verified composition or an honest "no improvement".
 
 ### R8 — Measurement, rollout and docs (2 days)
+
+**Status (2026-10-19): implemented.** `evaluation/repair_metrics.py` now computes
+`rsl_experiments`, `rsl_accepted`, `rsl_rejected`, `rsl_unmeasured` and
+`regression_rate` from completed RSL `EvaluationRun` rows; missing sources stay
+`None`. `archive_metrics` and `GET /recovery/metrics` merge the block from the
+real stores, and the surface verifier persists the evaluator's decision so no
+metric has to infer it from a score. The deterministic offline gate
+(`self_improvement/gate.py`, wired into `scripts/test-evals.js`) runs one
+scripted `k=2` experiment through selection/composition plus the metric block.
+No default changed: `HARNESS_RSL_MODE` remains `off`; the rollout sequence and
+flip criteria below are the operator checklist, not automatic behavior.
 
 Tasks:
 
@@ -717,6 +832,69 @@ measured values or `UNMEASURED`, never a guess.
 
 ---
 
+## 5.1 Production operator runbook
+
+Preconditions: the Python runtime is healthy, the operator token/loopback path
+is available, and the evaluation stack is installed. RSL stays dark until the
+operator sets a mode; a mode change requires a runtime restart.
+
+**1. Inspect the conductor.**
+
+- UI: the learning journey → RSL conductor card shows mode, running/busy,
+  today's budget, `k`, and the periodic tick.
+- API: `GET /evolution/rsl` (operator-gated) returns the same bounded view.
+- `POST /evolution/rsl/tick` runs one bounded tick immediately. It respects
+  mode, budget, lease and single-flight; a `propose` mode tick validates
+  candidates, a `verify` mode tick claims one proposed candidate.
+
+**2. Roll out in order.**
+
+1. `HARNESS_RSL_MODE=off` (default; no task runs).
+2. `observe` for one week: deterministic observation only, no candidate
+   execution. Review candidate volume and noise.
+3. `propose`: stage operator-supplied operations, no automatic evaluation.
+4. `verify` with `HARNESS_RSL_MAX_EXPERIMENTS_PER_DAY=1`, then `3` if the
+   acceptance precision holds.
+5. `HARNESS_RSL_K>1` only after v1 has at least one verified landed change.
+
+**3. Stage a code proposal.**
+
+`POST /evolution/candidates/{id}/propose` with
+`{targetPath?, ops:[...]}`. The frozen target/op-path guard and `propose_ops`
+run before the candidate becomes `proposed`; nothing is applied. Use the
+conductor tick (or wait for the periodic tick) to verify it. The same route
+refuses frozen tests/evaluator/policy targets, and surface candidates must use
+`POST /evolution/surface-experiments` instead.
+
+**4. Run a measured surface experiment.**
+
+`POST /evolution/surface-experiments` with a base snapshot, candidate snapshot,
+dataset/split/task ids and target dimension. The conductor records a baseline
+run of the SAME base snapshot, then the measured candidate run. Surface
+experiments require `verify` mode. Measurement is scripted-tier today: live-only
+tasks are `UNMEASURED`, and a surface snapshot is never landable in v1.
+
+**5. Complete the first live experiment.**
+
+Pick one real failure with at least three occurrences. Inspect the inert
+candidate and evidence, stage or author the operations, verify them, then review
+the experiment. For a code candidate that passed, `prepare-landing` returns the
+existing promotion preview; the single-use approval route remains the only
+write. Record the candidate id, experiment run id, decision and, after landing,
+the promotion/rollback verdict.
+
+**6. Flip/rollback criteria.**
+
+Keep the daily budget at 1 until acceptance precision is acceptable, cost stays
+within `HARNESS_RSL_MAX_COST_USD`, and a critical regression has not occurred.
+A rejected candidate is reverted/never activated; a bad landed change uses the
+existing promotion rollback. `k>1` is a cost decision, not an autonomy grant.
+
+**Still deferred after this runbook:** v1b skill-draft proposals, the v1c model
+proposer, the live surface bridge, and surface landing.
+
+---
+
 ## 6. Testing strategy
 
 | Layer | Tests | What must be proven |
@@ -724,9 +902,9 @@ measured values or `UNMEASURED`, never a guess.
 | Unit | `test_rsl_config.py`, `test_rsl_observation.py` | clamps, recurrence, dedupe, no-op mode |
 | Contract | `test_rsl_snapshot.py`, `test_rsl_provenance.py` | snapshot validation, experiment identity, split selection |
 | Isolation | `test_rsl_candidate_invoker.py` | private store/registry, no production writes |
-| Orchestration | `test_rsl_loop.py` | claim/lease, budget, resume, accept/reject |
-| End to end | `test_rsl_loop.py` + `test_rsl_landing.py` + `test_rsl_verifier.py` | claim/lease/budget → owning tests (UNMEASURED) → decision → promotion preview; the surface path records MEASURED |
-| Security | `test_rsl_security.py` | forbidden path, test edit, evaluator edit, secret/verdict leak, approval not consumed |
+| Orchestration | `test_rsl_loop.py`, `test_evolution_rsl_operator.py` | claim/lease, budget, resume, status/tick, propose staging, accept/reject |
+| End to end | `test_rsl_loop.py` + `test_rsl_landing.py` + `test_rsl_verifier.py` + `test_rsl_surface.py` + `test_rsl_surface_e2e.py` | claim/lease/budget → owning tests (UNMEASURED) → decision → promotion preview; a stored surface candidate runs the base baseline and records a MEASURED candidate run |
+| Security | `test_rsl_security.py` | forbidden path, test edit, evaluator edit, secret/verdict leak, approval not consumed, surface subject never landable |
 | Learning | `test_rsl_lessons.py` | cue/evidence gate, retrieval, scope, verdict guard |
 | Statistical | existing `stats.py` tests + RSL trials | Wilson CI, flaky tasks, unmeasured |
 | Release | `scripts/test-evals.js` | the offline RSL e2e is a deterministic gate |
@@ -769,7 +947,7 @@ CI dependency.
 
 ---
 
-## 9. ADR list (H217–H219 + H222 implemented; H223–H224 future)
+## 9. ADR list (H217–H219 + H222–H224 + H233 implemented)
 
 | ADR | Subject |
 |---|---|
@@ -779,10 +957,11 @@ CI dependency.
 | ADR-H222 | Experiment identity and provenance live on `EvaluationRun`; a comparison without them is refused |
 | ADR-H223 | A lesson requires cue + evidence + validation and passes the verdict tripwire before storage |
 | ADR-H224 | Recursion is bounded (`k`, budget, generation) and never activates a change |
+| ADR-H233 | Surface candidates carry a typed snapshot on the ONE `EvolutionCandidate` row; the conductor dispatches by subject type, and a surface snapshot is measured but never landable |
 
 H220–H221 are reserved by the QA Round 1 plan (browser policy and chat step
-budget), so RSL's remaining decisions start again at H222 (implemented); H223–H224
-remain for R6/R7.
+budget), so RSL's remaining decisions start again at H222; H223 (R6), H224
+(R7) and H233 (post-R8 surface subjects) are implemented.
 
 ---
 
@@ -800,6 +979,10 @@ python/harness/self_improvement/proposer.py
 python/harness/self_improvement/verifier.py
 python/harness/self_improvement/landing.py
 python/harness/self_improvement/lessons.py
+python/harness/self_improvement/selection.py
+python/harness/self_improvement/composition.py
+python/harness/self_improvement/recursion.py
+python/harness/self_improvement/gate.py
 python/harness/self_improvement/loop.py
 python/harness/self_improvement/recorder.py
 python/harness/evaluation/candidate_invoker.py
@@ -813,21 +996,42 @@ python/tests/test_rsl_loop.py
 python/tests/test_rsl_landing.py
 python/tests/test_rsl_verifier.py
 python/tests/test_rsl_security.py
+python/tests/test_rsl_surface.py
+python/tests/test_rsl_surface_e2e.py
 python/tests/test_rsl_lessons.py
+python/tests/test_rsl_recursion.py
+python/tests/test_rsl_gate.py
+python/tests/test_evolution_rsl_routes.py
 src/app/api/evolution/experiments/route.ts
 src/app/api/evolution/experiments/[id]/route.ts
+src/app/api/evolution/lessons/route.ts
+src/app/api/evolution/candidates/[id]/evidence/route.ts
+src/app/api/evolution/candidates/[id]/lessons/route.ts
+src/app/api/evolution/candidates/[id]/recursive/route.ts
+src/app/api/evolution/candidates/[id]/prepare-landing/route.ts
+src/app/api/evolution/surface-experiments/route.ts
+src/app/api/evolution/rsl/route.ts
+src/app/api/evolution/rsl/tick/route.ts
+src/app/api/evolution/candidates/[id]/propose/route.ts
+src/lib/harness/evolution-browser.ts
+src/components/screens/skills/rsl-experiments-panel.tsx
+src/components/screens/skills/rsl-experiments-panel.test.tsx
+src/components/screens/skills/rsl-control-panel.tsx
+src/components/screens/skills/rsl-operator-panel.tsx
+python/tests/test_evolution_rsl_operator.py
 ```
 
 ### Modified files
 
 ```
 python/harness/code/evolution.py          recurrence writer, denylist wrapper
-python/harness/code/evolution_store.py    claim/lease helpers, experiment link
+python/harness/code/evolution_store.py    claim/lease helpers, subjectType/surfaceConfig
 python/harness/code/evolution_service.py  clarify ledger-only activation
 python/harness/eclipse_memory/mistakes.py  write mistake recurrence
 python/harness/eclipse_memory/schema.py   migration 31 (lesson columns)
-python/harness/learning_review.py         call observer after analysis
-python/harness/event_system/registry.py   candidate-created event spec
+python/harness/learning_review.py         call observer after analysis; wake the loop
+python/harness/event_system/registry.py   candidate/experiment specs; evaluation.started consumer
+python/harness/event_system/service.py    evaluation.started wakes the RSL conductor
 python/harness/evaluation/tasks.py        split selection
 python/harness/evaluation/runner.py       provenance, candidate invoker hook
 python/harness/evaluation/store.py        experiment/provenance helpers
@@ -840,13 +1044,22 @@ python/harness/evaluation/__init__.py     provenance/split exports
 python/harness/evaluation/datasets/routing_e2e_v1.json  optimization split
 python/harness/evaluation/datasets/team_v1.json         held-out split
 python/harness/prompt_segments.py         bounded lesson manifest
-python/harness/service.py                 start/stop the loop
-python/harness/boot.py                    lifespan wiring
-python/harness/routers/evolution.py       experiments, evidence, prepare-landing
-src/lib/harness/evolution-client.ts       experiment/evidence types
+python/harness/boot.py                    start/stop the loop in the lifespan
+python/harness/self_improvement/loop.py   surface dispatch + status/budget view
+python/harness/self_improvement/verifier.py  verify_surface_candidate (baseline + candidate)
+python/harness/self_improvement/recorder.py  surface attempt + completion event
+python/harness/self_improvement/landing.py   refuse surface subjects
+python/harness/routers/evolution.py       experiments, evidence, surface, rsl status/tick, propose
+src/lib/harness/evolution-client.ts       experiment/evidence/surface/status/propose contracts
+src/lib/harness/evolution-browser.ts      browser status/tick/propose calls
+src/components/screens/skills/rsl-operator-panel.tsx  surface experiment form
+src/components/screens/skills/rsl-experiments-panel.tsx  mounts the control panel
 src/components/screens/skills/learning-journey.tsx  experiment panel
-src/lib/i18n/dictionaries/en.ts           evolution.experiment.*
+src/lib/i18n/dictionaries/evolution.ts    evolution.* (lesson/recursive/surface/conductor)
 scripts/test-evals.js                     offline RSL gate
+python/tests/test_events_service.py        evaluation.started wake test
+python/tests/test_evolution_rsl_routes.py   surface/status/tick/propose operator gates
+python/tests/test_evolution_rsl_operator.py status/tick/propose + surface creation
 docs/NAVIGATION.md                        trigger row
 docs/harness/architecture.md              module map
 docs/self-improvement/architecture-audit.md  cross-link

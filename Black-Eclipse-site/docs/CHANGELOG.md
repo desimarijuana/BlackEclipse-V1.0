@@ -8,6 +8,50 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-19
 
+- **feat(harness,ui): RSL post-R8 closure — reachable surface experiments and the event wake.**
+  Added additive `subjectType`/`surfaceConfig` columns on `EvolutionCandidate`
+  (idempotent `ALTER`; old rows default to `code`), operator-gated
+  `POST /evolution/surface-experiments` (validated base/candidate snapshot,
+  dataset/split/task ids, one proposed candidate), and
+  `verifier.verify_surface_candidate` (record the same base snapshot as an
+  `rsl-baseline`, reuse it only when the base digest and task fingerprint match,
+  then run the measured candidate benchmark). The verify tick dispatches by
+  subject type, records one budget-counted `EvolutionAttempt` plus the
+  completion event (creating the `HarnessRun` container the event FK requires
+  when absent), and `landing.prepare` refuses surface subjects
+  (`RSL_SURFACE_NOT_LANDABLE`). `evaluation.started` now wakes the conductor;
+  the learning-journey operator panel gained the surface form. Production
+  controls: `GET /evolution/rsl` (mode/running/busy/daily budget),
+  `POST /evolution/rsl/tick` (one bounded tick), and
+  `POST /evolution/candidates/{id}/propose` (stage validated ops without
+  applying), surfaced by `rsl-control-panel.tsx`; the plan gained the operator
+  runbook. Tests:
+  `python/tests/test_rsl_surface.py`, `test_rsl_surface_e2e.py`,
+  `test_rsl_security.py`, `test_rsl_loop.py`,
+  `test_evolution_rsl_operator.py`, `test_evolution_rsl_routes.py`, the
+  `test_events_service.py` wake test, and the panel test. Docs:
+  `docs/self-improvement/rsl-implementation-plan.md`, `docs/NAVIGATION.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H233),
+  `docs/QUICKSTART.md`, `.env.example`, `docs/CHANGELOG.md`.
+
+- **feat(harness,ui): RSL operator surfaces — lesson adoption and recursive experiments.**
+  Added operator-gated `GET /evolution/lessons`,
+  `POST /evolution/candidates/{id}/lessons` (the accepted decision is derived from
+  the persisted `EvaluationRun`, never the request; the R6 cue/lesson/evidence
+  gate + verdict tripwire still apply) and `POST
+  /evolution/candidates/{id}/recursive` (typed variants become real child
+  `EvolutionCandidate` rows, each verified by the existing worktree/tests
+  verifier; the R7 conductor records the anonymous selection/composition and
+  child attempts count against the daily budget without double-counting).
+  Recursive experiments remain `HARNESS_RSL_MODE=verify` only and never activate.
+  Added typed `evolution-client.ts`/`evolution-browser.ts` calls, Next.js
+  `/api/evolution/lessons` + candidate `lessons`/`recursive` proxies, and the
+  learning-journey `rsl-operator-panel.tsx` (adopted-lesson list + adoption form +
+  recursive-variant form). Tests `test_evolution_rsl_operator.py` (5) and the
+  existing operator-gating suite. Docs: `docs/NAVIGATION.md`,
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`, `docs/CHANGELOG.md`.
+
 - **feat(sdk): the Command Center becomes a typed SDK surface, starting with a live clock.**
   Added `src/lib/workspace/widget-registry.ts` + `use-widgets.ts`
   (order-preserving, surface-aware) and a real `clock` widget/primitive (host

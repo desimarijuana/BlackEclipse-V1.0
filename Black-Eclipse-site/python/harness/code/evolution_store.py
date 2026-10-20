@@ -44,6 +44,10 @@ def _candidate_row(row: Any) -> dict[str, Any]:
         "problemStatement": row["problemStatement"],
         "targetPath": row["targetPath"],
         "proposedOps": json.loads(row["proposedOpsJson"]) if row["proposedOpsJson"] else None,
+        "subjectType": row["subjectType"] if "subjectType" in row.keys() else "code",
+        "surfaceConfig": (
+            json.loads(row["surfaceConfigJson"]) if row["surfaceConfigJson"] else None
+        ),
         "status": row["status"],
         "refusalCode": row["refusalCode"],
         "activatedVersion": row["activatedVersion"],
@@ -95,6 +99,8 @@ class EvolutionStore:
               problemStatement  TEXT NOT NULL,
               targetPath        TEXT,
               proposedOpsJson   TEXT,
+              subjectType       TEXT NOT NULL DEFAULT 'code',
+              surfaceConfigJson TEXT,
               status            TEXT NOT NULL DEFAULT 'inert',
               refusalCode       TEXT,
               activatedVersion  TEXT,
@@ -108,6 +114,16 @@ class EvolutionStore:
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_evolution_candidate_status "
             "ON EvolutionCandidate(status, observedCount)"
+        )
+        # Additive, idempotent columns: an existing store keeps its rows and the
+        # old `code` subject semantics. A surface candidate carries its validated
+        # snapshot + benchmark config in `surfaceConfigJson`; no second table.
+        self._ensure_column(
+            "EvolutionCandidate", "subjectType",
+            "subjectType TEXT NOT NULL DEFAULT 'code'",
+        )
+        self._ensure_column(
+            "EvolutionCandidate", "surfaceConfigJson", "surfaceConfigJson TEXT",
         )
         self._db.execute(
             """
@@ -135,6 +151,15 @@ class EvolutionStore:
         )
         self._db.commit()
 
+    def _ensure_column(self, table: str, column: str, ddl: str) -> None:
+        """Add a column once; old stores keep working without a table rebuild."""
+        columns = {
+            str(row["name"])
+            for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            self._db.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
     # ── Candidates ────────────────────────────────────────────────────────────
     def save_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         record = {
@@ -146,13 +171,15 @@ class EvolutionStore:
         self._db.execute(
             """INSERT OR REPLACE INTO EvolutionCandidate
                (id, signature, sourceCategory, observedCount, problemStatement, targetPath,
-                proposedOpsJson, status, refusalCode, activatedVersion, previousVersion,
-                createdByRunId, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                proposedOpsJson, subjectType, surfaceConfigJson, status, refusalCode,
+                activatedVersion, previousVersion, createdByRunId, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["id"], record["signature"], record["sourceCategory"],
                 int(record["observedCount"]), record["problemStatement"], record.get("targetPath"),
                 json.dumps(record["proposedOps"]) if record.get("proposedOps") is not None else None,
+                record.get("subjectType", "code"),
+                json.dumps(record["surfaceConfig"]) if record.get("surfaceConfig") is not None else None,
                 record.get("status", "inert"), record.get("refusalCode"),
                 record.get("activatedVersion"), record.get("previousVersion"),
                 record.get("createdByRunId"), record["createdAt"], record["updatedAt"],
@@ -195,7 +222,8 @@ class EvolutionStore:
             "status": "status", "refusalCode": "refusalCode", "targetPath": "targetPath",
             "proposedOps": "proposedOpsJson", "activatedVersion": "activatedVersion",
             "previousVersion": "previousVersion", "observedCount": "observedCount",
-            "problemStatement": "problemStatement",
+            "problemStatement": "problemStatement", "subjectType": "subjectType",
+            "surfaceConfig": "surfaceConfigJson",
         }
         sets: list[str] = []
         params: list[Any] = []
@@ -204,7 +232,11 @@ class EvolutionStore:
             if column is None:
                 continue
             sets.append(f"{column}=?")
-            params.append(json.dumps(value) if key == "proposedOps" and value is not None else value)
+            params.append(
+                json.dumps(value)
+                if key in {"proposedOps", "surfaceConfig"} and value is not None
+                else value
+            )
         if not sets:
             return self.get_candidate(candidate_id)
         sets.append("updatedAt=?")

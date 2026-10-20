@@ -94,6 +94,11 @@ class RSLLoop:
             await self.resume()
         except Exception:  # noqa: BLE001 - resume is best-effort
             pass
+        try:
+            # Process anything already proposed before the first periodic tick.
+            await self.tick()
+        except Exception:  # noqa: BLE001 - one boot tick never kills the loop
+            pass
         while not self._stopping:
             self._wake.clear()
             try:
@@ -117,7 +122,81 @@ class RSLLoop:
             "busy": self._busy,
             "maxCandidates": self.config.max_candidates,
             "maxExperimentsPerDay": self.config.max_experiments_per_day,
+            "k": self.config.k,
         }
+
+    def status(self) -> dict[str, Any]:
+        """The operator's bounded view of mode, lifecycle and daily budget."""
+        started = self.evolution.experiments_started_since(_utc_day_start())
+        maximum = max(0, int(self.config.max_experiments_per_day))
+        return {
+            **self.health(),
+            "startedToday": started,
+            "remainingToday": max(0, maximum - started),
+            "budgetExhausted": started >= maximum,
+            "tickSeconds": self.config.tick_seconds,
+            "leaseSeconds": self.config.lease_seconds,
+            "trials": self.config.trials,
+            "maxCostUsd": self.config.max_cost_usd,
+        }
+
+    async def run_recursive(
+        self,
+        candidate: dict[str, Any],
+        *,
+        verify_fn: Any,
+        variants: Any = None,
+        seed: int = 0,
+        measure: Any = None,
+        trajectories: Any = None,
+        evidence_dir: Any = None,
+        record_attempts: bool = True,
+    ) -> dict[str, Any]:
+        """Run ONE bounded k-candidate experiment through the R7 conductor.
+
+        The existing loop still owns single-candidate ticks. This entry point
+        uses the same configured `k`, actor, stores and daily budget, records
+        the selection/composition as an `EvaluationRun`, and never activates.
+        """
+        if self.config.mode != "verify":
+            return {
+                "refused": True,
+                "reason": "mode",
+                "mode": self.config.mode,
+                "k": 0,
+                "selection": None,
+                "composition": None,
+            }
+        if self._busy:
+            return {
+                "refused": True,
+                "reason": "busy",
+                "k": 0,
+                "selection": None,
+                "composition": None,
+            }
+        from .recursion import run_recursive  # noqa: PLC0415 - one-way dependency
+
+        self._busy = True
+        try:
+            return await run_recursive(
+                candidate,
+                verify_fn=verify_fn,
+                k=self.config.k,
+                variants=variants,
+                seed=seed,
+                actor=self._actor(),
+                measure=measure,
+                trajectories=trajectories,
+                evidence_dir=evidence_dir,
+                started_today=self.evolution.experiments_started_since(_utc_day_start()),
+                max_per_day=self.config.max_experiments_per_day,
+                eval_store=self.eval_store,
+                run_store=self.run_store,
+                record_attempts=record_attempts,
+            )
+        finally:
+            self._busy = False
 
     # -- recovery / budget -------------------------------------------------
     def resume(self) -> list[str]:
@@ -204,9 +283,17 @@ class RSLLoop:
                 ctx = self.service.evolution_context(run_id=run_id)
             except Exception:  # noqa: BLE001 - the verifier will report the reason
                 ctx = None
+        subject_type = str(candidate.get("subjectType") or "code")
         try:
             if self.verify_fn is not None:
                 verification = await asyncio.to_thread(self.verify_fn, candidate)
+            elif subject_type == "surface":
+                # The ONLY measured path: a validated snapshot runs on the real
+                # evaluator against a baseline of the same base snapshot.
+                verification = await verifier.verify_surface_candidate(
+                    self.run_store, candidate,
+                    config=self.config, eval_store=self.eval_store,
+                )
             else:
                 verification = await asyncio.to_thread(
                     verifier.verify_code, self.run_store, candidate_id,
@@ -230,20 +317,38 @@ class RSLLoop:
                 candidate_id,
                 status="evaluated_ok" if verification.get("passed") else "evaluated_bad",
             )
-            decision = "tests_passed" if verification.get("passed") else "tests_failed"
-        if self.eval_store is not None and self.run_store is not None:
-            try:
-                self.recorder_fn(
-                    self.eval_store, self.run_store,
-                    run_id=run_id, candidate=candidate,
-                    verification=verification, decision=decision,
+            if subject_type == "surface":
+                record = verification.get("decisionRecord") or {}
+                decision = (
+                    "benchmark_accepted" if record.get("accepted")
+                    else "benchmark_rejected" if record
+                    else str(verification.get("decision") or "verification_error")
                 )
-            except Exception:  # noqa: BLE001 - recording is best-effort
-                pass
+            else:
+                decision = "tests_passed" if verification.get("passed") else "tests_failed"
+        if self.eval_store is not None and self.run_store is not None:
+            if subject_type == "surface":
+                try:
+                    recorder.record_surface_experiment(
+                        self.run_store, self.evolution,
+                        candidate=candidate, verification=verification,
+                        decision=decision,
+                    )
+                except Exception:  # noqa: BLE001 - recording is best-effort
+                    pass
+            else:
+                try:
+                    self.recorder_fn(
+                        self.eval_store, self.run_store,
+                        run_id=run_id, candidate=candidate,
+                        verification=verification, decision=decision,
+                    )
+                except Exception:  # noqa: BLE001 - recording is best-effort
+                    pass
         return {
             "mode": "verify",
             "candidateId": candidate_id,
-            "runId": run_id,
+            "runId": verification.get("runId") or run_id,
             "decision": decision,
             "benchmark": verification.get("benchmark", "UNMEASURED"),
             "processed": [candidate_id],

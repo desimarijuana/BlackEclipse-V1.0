@@ -123,6 +123,10 @@ in [`../README.md`](../README.md) is authoritative; in short:
   is optional: a gitignored `.connector-key` is generated on first use.
 - `NEXT_PUBLIC_LLM_CONFIGURED` — set by `instrumentation.ts`; tells the client
   whether a real LLM exists so it can pick the right provider.
+- `HARNESS_RSL_MODE` — the Recursive Self-Improvement Loop is **off** by
+  default. Set `observe`, `propose` or `verify` and restart to enable it; follow
+  the rollout and operator runbook in
+  [`self-improvement/rsl-implementation-plan.md`](self-improvement/rsl-implementation-plan.md) §5.1.
 
 ## Where your data lives
 

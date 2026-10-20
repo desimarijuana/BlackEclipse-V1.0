@@ -11,6 +11,9 @@ never authorizes.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,13 +31,210 @@ def _store() -> EvolutionStore:
     return service.evolution_store()
 
 
+def _eval_store() -> Any:
+    from ..evaluation.store import EvaluationStore  # noqa: PLC0415
+
+    return EvaluationStore(service.store)
+
+
+def _loads(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": run.get("id"),
+        "suite": run.get("suite"),
+        "datasetName": run.get("datasetName"),
+        "datasetVersion": run.get("datasetVersion"),
+        "status": run.get("status"),
+        "trialCount": run.get("trialCount"),
+        "agentVersion": run.get("agentVersion"),
+        "gitCommit": run.get("gitCommit"),
+        "model": run.get("model"),
+        "provider": run.get("provider"),
+        "startedAt": run.get("startedAt"),
+        "finishedAt": run.get("finishedAt"),
+        "config": _loads(run.get("config")),
+        "metadata": _loads(run.get("metadata")),
+    }
+
+
+def _experiments(limit: int = 50, *, proposal_id: Optional[str] = None) -> list[dict[str, Any]]:
+    cap = max(1, min(int(limit), 200))
+    out: list[dict[str, Any]] = []
+    for run in _eval_store().list_runs(limit=max(cap * 4, 200)):
+        metadata = _loads(run.get("metadata"))
+        if metadata.get("kind") not in {"rsl", "rsl-recursion"}:
+            continue
+        if proposal_id and metadata.get("proposalId") != proposal_id:
+            continue
+        out.append(_run_summary(run))
+        if len(out) >= cap:
+            break
+    return out
+
+
 class EvaluateRequest(BaseModel):
     runId: Optional[str] = None  # noqa: N815
+
+
+class ProposeRequest(BaseModel):
+    targetPath: Optional[str] = None  # noqa: N815
+    ops: list[dict[str, Any]] = []
 
 
 class DecisionRequest(BaseModel):
     reason: str = ""
     canary: bool = False
+
+
+class LessonAdoptionRequest(BaseModel):
+    cue: str = ""
+    lesson: str = ""
+    evidence: Any = None
+    scope: Optional[dict[str, Any]] = None
+    validationRunId: Optional[str] = None  # noqa: N815
+    adoptedArtifactType: Optional[str] = None  # noqa: N815
+    adoptedArtifactId: Optional[str] = None  # noqa: N815
+
+
+class RecursiveVariant(BaseModel):
+    kind: str
+    targetPath: Optional[str] = None  # noqa: N815
+    ops: list[dict[str, Any]]
+    description: str = ""
+
+
+class RecursiveExperimentRequest(BaseModel):
+    variants: list[RecursiveVariant]
+    seed: int = 0
+
+
+class SurfaceSnapshotInput(BaseModel):
+    systemPrompt: str  # noqa: N815
+    toolNames: Optional[list[str]] = None  # noqa: N815
+    maxSteps: Optional[int] = None  # noqa: N815
+    maxToolCalls: Optional[int] = None  # noqa: N815
+    modelProvider: Optional[str] = None  # noqa: N815
+    modelName: Optional[str] = None  # noqa: N815
+    temperature: Optional[float] = None
+    skillDraftIds: Optional[list[str]] = None  # noqa: N815
+
+
+class SurfaceExperimentRequest(BaseModel):
+    candidate: SurfaceSnapshotInput
+    base: Optional[SurfaceSnapshotInput] = None
+    dataset: str = "benchmark_v1"
+    taskIds: Optional[list[str]] = None  # noqa: N815
+    split: str = "validation"
+    targetDimension: str = "task_success"  # noqa: N815
+    trials: Optional[int] = None
+    seed: Optional[int] = None
+    baselineRunId: Optional[str] = None  # noqa: N815
+    problemStatement: str = ""  # noqa: N815
+    sourceCategory: str = "operator"  # noqa: N815
+
+
+def _lesson_store() -> Any:
+    store = getattr(service, "skill_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="learning store unavailable")
+    return store
+
+
+def _variant_signature(parent_signature: str, proposal: Any) -> str:
+    """Content-addressed child identity: changed ops are a new candidate."""
+    raw = json.dumps(
+        {
+            "id": proposal.id,
+            "kind": proposal.kind,
+            "targetPath": proposal.targetPath,
+            "ops": list(proposal.ops),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+    return f"{parent_signature}:rsl-{proposal.id}-{proposal.kind}-{digest}"
+
+
+def _surface_snapshot(value: SurfaceSnapshotInput, base: Any = None) -> Any:
+    """Build one validated snapshot, inheriting unspecified fields from `base`."""
+    from ..self_improvement.models import HarnessSnapshot  # noqa: PLC0415
+
+    def pick(name: str, default: Any) -> Any:
+        current = getattr(value, name, None)
+        if current is not None:
+            return current
+        if base is not None:
+            return getattr(base, name, default)
+        return default
+
+    return HarnessSnapshot(
+        systemPrompt=value.systemPrompt,
+        toolNames=tuple(pick("toolNames", ()) or ()),
+        maxSteps=int(pick("maxSteps", 8)),
+        maxToolCalls=int(pick("maxToolCalls", 8)),
+        modelProvider=pick("modelProvider", None),
+        modelName=pick("modelName", None),
+        temperature=pick("temperature", None),
+        skillDraftIds=tuple(pick("skillDraftIds", ()) or ()),
+    )
+
+
+def _surface_signature(
+    *,
+    base_digest: str,
+    snapshot_digest: str,
+    dataset: str,
+    split: str,
+    task_ids: list[str],
+    target_dimension: str,
+    trials: int,
+    seed: Optional[int],
+    baseline_run_id: Optional[str],
+) -> str:
+    """Deterministic identity: a changed snapshot/config is a new experiment."""
+    raw = json.dumps({
+        "baseDigest": base_digest,
+        "snapshotDigest": snapshot_digest,
+        "dataset": dataset,
+        "split": split,
+        "taskIds": sorted(task_ids),
+        "targetDimension": target_dimension,
+        "trials": int(trials),
+        "seed": seed,
+        "baselineRunId": baseline_run_id,
+    }, sort_keys=True, separators=(",", ":"))
+    return "rsl-surface:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _accepted_decision(run: dict[str, Any]) -> Optional[str]:
+    """The verified decision an experiment actually recorded, or None.
+
+    A lesson may never be adopted from an unverified experiment: the route
+    derives the decision from the persisted `EvaluationRun`, not from the body.
+    """
+    metadata = _loads(run.get("metadata"))
+    if metadata.get("accepted") is True:
+        return "accepted"
+    composition = metadata.get("composition") or {}
+    if isinstance(composition, dict) and composition.get("decision") == "composed":
+        return "composed"
+    decision = str(metadata.get("decision") or "").strip().lower()
+    if decision in {"accepted", "tests_passed", "composed"}:
+        return decision
+    return None
 
 
 @router.get("/evolution/candidates")
@@ -100,6 +300,426 @@ def dismiss_candidate_route(candidate_id: str, _: bool = Depends(require_operato
         raise HTTPException(status_code=404, detail="Candidate not found")
     candidate = _store().update_candidate(candidate_id, status="dismissed")
     return {"success": True, "candidate": candidate}
+
+
+@router.post("/evolution/candidates/{candidate_id}/propose")
+def propose_candidate_route(
+    candidate_id: str, body: ProposeRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Stage operator-supplied ops on a code candidate for the conductor.
+
+    The frozen target/op-path guard and `propose_ops` run exactly as in the
+    recursive and landing paths. This route only marks the candidate `proposed`;
+    a `verify` loop or an explicit tick runs it.
+    """
+    candidate = _store().get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.get("subjectType") == "surface":
+        raise HTTPException(
+            status_code=400,
+            detail="surface candidates use POST /evolution/surface-experiments",
+        )
+    if candidate.get("status") in {
+        "evaluating", "evaluated_ok", "canaried", "activated",
+        "rolled_back", "dismissed",
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=f"a candidate in status {candidate.get('status')!r} cannot be re-proposed",
+        )
+    if body.targetPath:
+        _store().update_candidate(candidate_id, targetPath=body.targetPath)
+
+    from ..self_improvement.proposer import ProposalRefused, propose_from_ops  # noqa: PLC0415
+
+    try:
+        updated = propose_from_ops(
+            service.store, candidate_id,
+            actor=service.operator_actor(), ops=body.ops,
+        )
+    except ProposalRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    return {"success": True, "candidate": updated}
+
+
+@router.get("/evolution/experiments")
+def list_experiments(
+    limit: int = 50, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """List RSL experiments (code tests-only and surface benchmark runs)."""
+    return {"success": True, "experiments": _experiments(limit=limit)}
+
+
+@router.get("/evolution/experiments/{run_id}")
+def get_experiment(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """One experiment with its metrics and bounded trial scores."""
+    store = _eval_store()
+    run = store.get_run(run_id)
+    if run is None or _loads(run.get("metadata")).get("kind") not in {"rsl", "rsl-recursion"}:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    trials = [
+        {key: value for key, value in trial.items() if key != "trajectory"}
+        for trial in store.list_trials(run_id)[:200]
+    ]
+    return {
+        "success": True,
+        "experiment": _run_summary(run),
+        "metrics": store.list_metrics(run_id),
+        "trials": trials,
+    }
+
+
+@router.get("/evolution/candidates/{candidate_id}/evidence")
+def candidate_evidence(
+    candidate_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """The candidate, its attempts, and every RSL experiment that names it."""
+    candidate = _store().get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {
+        "success": True,
+        "candidate": candidate,
+        "attempts": _store().list_attempts(candidate_id, limit=100),
+        "experiments": _experiments(limit=100, proposal_id=candidate_id),
+    }
+
+
+@router.get("/evolution/lessons")
+def list_lessons(
+    limit: int = 50, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Adopted lessons (the R6/R7 retrieval source), newest first."""
+    cap = max(1, min(int(limit), 200))
+    return {"success": True, "lessons": _lesson_store().list_candidates(status="adopted", limit=cap)}
+
+
+@router.post("/evolution/candidates/{candidate_id}/lessons")
+def adopt_lesson(
+    candidate_id: str, body: LessonAdoptionRequest,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Adopt a verified experiment's lesson through the R6 gate.
+
+    The decision is read from the persisted experiment, never from the request:
+    an unaccepted/unmeasured experiment cannot become a lesson. The lesson text
+    still passes the verdict tripwire inside `distill_lesson`.
+    """
+    candidate = _store().get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    run_id = str(body.validationRunId or "").strip()
+    if not run_id:
+        raise HTTPException(status_code=400, detail="validationRunId is required")
+    run = _eval_store().get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Validation run not found")
+    metadata = _loads(run.get("metadata"))
+    if metadata.get("kind") not in {"rsl", "rsl-code", "rsl-recursion"}:
+        raise HTTPException(status_code=400, detail="Validation run is not an RSL experiment")
+    decision = _accepted_decision(run)
+    if decision is None:
+        raise HTTPException(
+            status_code=409,
+            detail="the experiment is not accepted; a lesson requires a verified decision",
+        )
+
+    from ..evaluation.verdict_guard import VerdictLeakError  # noqa: PLC0415
+    from ..self_improvement.lessons import distill_lesson  # noqa: PLC0415
+
+    evidence = body.evidence
+    if not evidence:
+        evidence = [{
+            "kind": "experiment",
+            "runId": run_id,
+            "benchmark": metadata.get("benchmark") or "UNMEASURED",
+        }]
+    try:
+        result = distill_lesson(
+            _lesson_store(),
+            candidate,
+            decision,
+            evidence,
+            cue=body.cue,
+            lesson=body.lesson,
+            scope=body.scope,
+            validation_run_id=run_id,
+            adopted_artifact_type=body.adoptedArtifactType or "evolution_candidate",
+            adopted_artifact_id=body.adoptedArtifactId or candidate_id,
+        )
+    except VerdictLeakError as exc:
+        # A leak is a hard error: refuse the lesson, never store the answer key.
+        raise HTTPException(status_code=400, detail="VERDICT_LEAK") from exc
+    if result.get("discarded"):
+        raise HTTPException(
+            status_code=400, detail=str(result.get("reason") or "lesson discarded"),
+        )
+    lesson = _lesson_store().get_candidate(str(result.get("lessonId")))
+    return {"success": True, **result, "lesson": lesson}
+
+
+@router.post("/evolution/candidates/{candidate_id}/recursive")
+async def run_recursive_experiment(
+    candidate_id: str, body: RecursiveExperimentRequest,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run ONE operator-started k-candidate code experiment.
+
+    The variants are typed operator/agent ops. Each becomes a real child
+    `EvolutionCandidate` verified by the existing worktree/tests verifier; the
+    R7 conductor records the anonymous selection/composition. The live checkout
+    is never written and no change activates.
+    """
+    parent = _store().get_candidate(candidate_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    if getattr(getattr(loop, "config", None), "mode", "off") != "verify":
+        raise HTTPException(
+            status_code=409,
+            detail="HARNESS_RSL_MODE must be verify for a recursive experiment",
+        )
+    variants = [variant.model_dump() for variant in body.variants]
+    if not variants:
+        raise HTTPException(status_code=400, detail="at least one variant is required")
+
+    from ..self_improvement import verifier  # noqa: PLC0415
+    from ..self_improvement.proposer import ProposalRefused, propose_many  # noqa: PLC0415
+
+    try:
+        proposals = propose_many(
+            parent, min(len(variants), int(loop.config.k)),
+            variants=variants, actor=service.operator_actor(),
+        )
+    except ProposalRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+
+    evolution = _store()
+    children: list[dict[str, Any]] = []
+    for proposal in proposals:
+        signature = _variant_signature(parent["signature"], proposal)
+        child = evolution.get_by_signature(signature)
+        if child is None:
+            child = evolution.save_candidate({
+                "signature": signature,
+                "sourceCategory": parent.get("sourceCategory") or "rsl",
+                "observedCount": parent.get("observedCount") or 1,
+                "problemStatement": parent.get("problemStatement") or "",
+                "targetPath": proposal.targetPath,
+                "proposedOps": list(proposal.ops),
+                "status": "inert",
+                "createdByRunId": parent.get("createdByRunId"),
+            })
+        children.append(child)
+    child_ids = {proposal.id: child["id"] for proposal, child in zip(proposals, children)}
+
+    async def verify_fn(proposal: Any) -> dict[str, Any]:
+        child_id = child_ids[proposal.id]
+        ctx = service.evolution_context(
+            run_id=f"rsl-recursive-{candidate_id}-{proposal.id}",
+        )
+        return await asyncio.to_thread(
+            verifier.verify_code, service.store, child_id,
+            ctx=ctx, actor=service.operator_actor(),
+        )
+
+    result = await loop.run_recursive(
+        parent, verify_fn=verify_fn, variants=variants, seed=body.seed,
+        # Each child verifier already records its own attempt; do not double-count
+        # k against the daily budget.
+        record_attempts=False,
+    )
+    if result.get("refused"):
+        reason = str(result.get("reason") or "recursive experiment refused")
+        status = 429 if reason == "daily_budget" else 409 if reason in {"mode", "busy"} else 400
+        raise HTTPException(status_code=status, detail=reason)
+    return {"success": True, **result, "children": children}
+
+
+@router.post("/evolution/surface-experiments")
+def create_surface_experiment(
+    body: SurfaceExperimentRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Queue ONE measured surface experiment as a typed candidate.
+
+    The snapshot must be a bounded variation of the base. The route creates the
+    candidate as `proposed` and wakes the existing conductor; the loop owns the
+    claim/lease, runs the same base snapshot as a recorded baseline, benchmarks
+    the candidate on the selected split, and records the evaluator's decision.
+    Nothing is applied and a surface snapshot is never landable in v1.
+    """
+    from ..evaluation.candidate_invoker import SnapshotError, validate_snapshot  # noqa: PLC0415
+    from ..evaluation.tasks import (  # noqa: PLC0415
+        SPLITS,
+        TaskValidationError,
+        load_builtin_dataset,
+        select_tasks,
+    )
+    from ..self_improvement.models import HarnessSnapshot  # noqa: PLC0415
+
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    config = getattr(loop, "config", None)
+    if getattr(config, "mode", "off") != "verify":
+        raise HTTPException(
+            status_code=409,
+            detail="HARNESS_RSL_MODE must be verify for a surface experiment",
+        )
+    budget_ok = getattr(loop, "budget_ok", None)
+    if callable(budget_ok) and not budget_ok():
+        raise HTTPException(status_code=429, detail="daily experiment budget exhausted")
+
+    try:
+        base = (
+            _surface_snapshot(body.base) if body.base is not None
+            else HarnessSnapshot(
+                systemPrompt="You are Eclipse.", toolNames=(),
+                maxSteps=8, maxToolCalls=8,
+            )
+        )
+        candidate = _surface_snapshot(body.candidate, base)
+        validate_snapshot(base, candidate)
+    except SnapshotError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    split = str(body.split or "validation").strip().lower()
+    if split not in SPLITS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown split (expected one of {', '.join(SPLITS)})",
+        )
+    try:
+        dataset = load_builtin_dataset(body.dataset or "benchmark_v1")
+    except TaskValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    tasks = select_tasks(dataset, split=split)
+    wanted = [str(task_id) for task_id in (body.taskIds or []) if str(task_id)]
+    if wanted:
+        wanted_set = set(wanted)
+        tasks = [task for task in tasks if task.id in wanted_set]
+        missing = sorted(wanted_set - {task.id for task in tasks})
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail="tasks are not in the selected split: " + ", ".join(missing),
+            )
+    if not tasks:
+        raise HTTPException(status_code=400, detail="the experiment selected no tasks")
+
+    try:
+        trials = max(1, min(int(body.trials or getattr(config, "trials", 3)), 10))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="trials must be an integer") from exc
+    target_dimension = str(body.targetDimension or "task_success").strip() or "task_success"
+    baseline_run_id = str(body.baselineRunId or "").strip() or None
+    surface_config = {
+        "snapshot": candidate.to_dict(),
+        "base": base.to_dict(),
+        "dataset": body.dataset or "benchmark_v1",
+        "datasetName": dataset.name,
+        "datasetVersion": dataset.version,
+        "taskIds": [task.id for task in tasks],
+        "split": split,
+        "targetDimension": target_dimension,
+        "trials": trials,
+        "seed": body.seed,
+        "baselineRunId": baseline_run_id,
+    }
+    signature = _surface_signature(
+        base_digest=base.sourceDigest,
+        snapshot_digest=candidate.sourceDigest,
+        dataset=body.dataset or "benchmark_v1",
+        split=split,
+        task_ids=[task.id for task in tasks],
+        target_dimension=target_dimension,
+        trials=trials,
+        seed=body.seed,
+        baseline_run_id=baseline_run_id,
+    )
+
+    evolution = _store()
+    existing = evolution.get_by_signature(signature)
+    if existing is not None:
+        if existing.get("status") == "inert":
+            existing = evolution.update_candidate(existing["id"], status="proposed") or existing
+        queued = existing.get("status") in {"inert", "proposed"}
+        if queued:
+            loop.wake()
+        return {
+            "success": True, "candidate": existing,
+            "created": False, "queued": queued,
+        }
+
+    candidate_row = evolution.save_candidate({
+        "signature": signature,
+        "sourceCategory": body.sourceCategory or "operator",
+        "observedCount": 1,
+        "problemStatement": body.problemStatement or (
+            f"Surface harness experiment on {dataset.name} ({split})"
+        ),
+        "targetPath": None,
+        "proposedOps": None,
+        "subjectType": "surface",
+        "surfaceConfig": surface_config,
+        "status": "proposed",
+    })
+    loop.wake()
+    return {
+        "success": True, "candidate": candidate_row,
+        "created": True, "queued": True,
+    }
+
+
+@router.post("/evolution/candidates/{candidate_id}/prepare-landing")
+def prepare_candidate_landing(
+    candidate_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Prepare a worktree + the existing promotion preview. NEVER applies."""
+    from ..self_improvement.landing import RSLLandingError, prepare  # noqa: PLC0415
+
+    try:
+        result = prepare(service, candidate_id)
+    except RSLLandingError as exc:
+        status = 403 if exc.code in (
+            "RSL_FROZEN_TARGET", "SELFHOST_AUTHORITY_REFUSED",
+        ) else 400
+        raise HTTPException(status_code=status, detail=exc.code) from exc
+    except Exception as exc:  # noqa: BLE001 - promotion refusal is a 400
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "success": True,
+        **result,
+        "approvalRequired": True,
+        # The existing single-use promotion approval is the only write path.
+        "promotionRoute": f"/api/code/tasks/{result['runId']}/promote/preview",
+    }
+
+
+@router.get("/evolution/rsl")
+def rsl_status(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The loop's mode, lifecycle and remaining daily budget."""
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    status = getattr(loop, "status", None)
+    if callable(status):
+        return {"success": True, **status()}
+    return {"success": True, **loop.health()}
+
+
+@router.post("/evolution/rsl/tick")
+async def rsl_tick(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Run one bounded conductor tick now (operator-triggered)."""
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    return {"success": True, **await loop.tick()}
 
 
 @router.get("/evolution/metrics")

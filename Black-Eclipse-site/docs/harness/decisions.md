@@ -7519,6 +7519,70 @@ tests `test_rsl_provenance.py`. Built-in splits: `benchmark_v1` +
 `construction_v1` = validation (47), `routing_e2e_v1` = optimization (4),
 `team_v1` = held_out (2).
 
+## ADR-H223 - A lesson requires cue + evidence + a completed validation, and passes the verdict tripwire before storage
+
+**Decision.** A reusable lesson is an adopted `LearningCandidate` with four
+additive fields (migration 31): `cue` (when it applies), `adoptedArtifactType` /
+`adoptedArtifactId` (what proved it) and `validationRunId`.
+`self_improvement.lessons.distill_lesson` requires non-empty cue, lesson and
+evidence; discards a non-adopted decision; runs the evaluation verdict tripwire
+over the cue, lesson and evidence text before writing; and dedupes by a
+normalized cue+lesson signature. Retrieval (`select_lessons`) is deterministic,
+cue-token matched and scope-matched, and rejects any lesson whose recorded
+validation run is absent or not `completed`.
+`prompt_segments.build_lesson_manifest` is hard-bounded to 3 lessons / 800
+characters, and the run emits `prompt.lesson_injected` with the lesson ids plus
+origin/validation/artifact refs.
+
+**Why.** A lesson is a transfer of a verified change, not a second copy of an
+evaluation. Without the cue gate it cannot be retrieved deterministically;
+without the evidence/validation gate it is an unverified claim; without the
+tripwire it can become an answer key; and without the scope check one
+observation can leak across domains. Bounds keep the loop from turning into
+prompt bloat.
+
+**Consequences.** Migration 31 on `eclipse-memory.db`
+(`eclipse_memory/schema.py`; the runner skips an already-present ADD COLUMN).
+New `python/harness/self_improvement/lessons.py`; `prompt_segments.py` gains the
+run-frozen `lesson_manifest` segment and `build_lesson_manifest`;
+`graph_context._lesson_manifest_context` wires retrieval/injection and emits the
+event (spec in `event_system/registry.py`). Tests `test_rsl_lessons.py`. A lesson
+remains inert context: it grants no tool, permission or activation.
+
+## ADR-H224 - Recursion is bounded (k, budget, generation) and never activates a change
+
+**Decision.** R7 adds ONE bounded recursive experiment path.
+`self_improvement.proposer.propose_many` builds up to `HARNESS_RSL_K` typed
+(`invariant`/`domain`) candidates from the same observation using
+operator/agent-supplied operations only; it never invents a patch or calls a
+model. `selection.py` assigns seeded anonymous labels (a stable permutation),
+drops non-answers with a recorded cause, falls back neutrally to the base, and
+makes `k=1` trivial. `composition.py` merges only candidates that passed their
+own verification and only when their op paths do not overlap; it claims a
+MEASURED gain only when a composed candidate beats the best single verified
+candidate on validation, otherwise it records `no_gain`. `recursion.py` verifies
+each candidate through the caller's existing verifier, verdict-guards contrast
+bundles before they can reach a model, records ONE `EvaluationRun` with the
+selection/composition, and caps `k` by the remaining daily budget. `k=1` remains
+the default. Recursion is one generation only: `run_recursive` never feeds its
+own result back into another recursive experiment. No recursive candidate
+activates: the existing single-use promotion approval is still the only write
+path.
+
+**Why.** Multiple candidates from one observation can find a better composition
+than a single proposal, but only if the comparison is anonymous and the
+composition is verified. Without the anonymous seeded selection, position/brand
+bias would decide; without the verified-only merge, composition would launder an
+unverified claim; without the measured-beats-best rule, "composition" would be
+a story rather than a measured gain. The budget cap keeps `k` a cost bound, not
+a license to multiply experiments.
+
+**Consequences.** New `python/harness/self_improvement/{selection,composition,recursion}.py`
+and `proposer.propose_many`; `RSLLoop.run_recursive` uses the loop's configured
+`k`, stores, actor and daily budget. The contrast/verdict utilities are now
+wired on this path. Tests `test_rsl_recursion.py`. No new runtime, database,
+queue or approval surface; no model proposer (v1c remains deferred).
+
 ## ADR-H220 - Local app reads are a bounded GET surface, and browser failures name their cause
 
 **Decision.** The agent gets one sanctioned read path into the app it is
@@ -7563,3 +7627,41 @@ multi-tool turns completable while preserving a hard ceiling.
 (`build_graph` and the `run.started` event both use it); tests
 `test_chat_step_budget.py`. Operators can lower the cap without a code change
 when cost matters more than depth.
+
+## ADR-H233 - Surface candidates are typed snapshots on the ONE candidate row, and are never landable
+
+**Decision.** A surface experiment is an `EvolutionCandidate` with
+`subjectType = 'surface'` and a `surfaceConfig` object holding the validated
+base and candidate `HarnessSnapshot`s, the dataset/split/task ids, target
+dimension, trials, seed and an optional baseline run id. The additive columns
+are `subjectType` (default `code`) and `surfaceConfigJson`; old rows and code
+candidates are unchanged. `POST /evolution/surface-experiments` validates the
+snapshot pair (`validate_snapshot`), creates ONE `proposed` row, and wakes the
+existing conductor. The verify tick dispatches by subject type:
+`verifier.verify_surface_candidate` runs the SAME base snapshot as a recorded
+`rsl-baseline` (reused only when its base digest and task fingerprint still
+match), benchmarks the candidate on the selected validation tasks, and
+persists the evaluator's decision on the `EvaluationRun`. The loop records one
+`EvolutionAttempt` (so the daily budget counts the experiment) and the
+`self_improvement.experiment_completed` event. `landing.prepare` refuses a
+surface subject with `RSL_SURFACE_NOT_LANDABLE`: a snapshot has no code change
+to promote in v1.
+
+**Why.** The surface verifier existed but had no production source, so no live
+experiment could ever be MEASURED. Reusing the candidate row keeps one ledger,
+one claim/lease/budget path and one evaluator; a second table or a parallel
+runner would duplicate the state machine. A measured surface result is
+evidence, not an activation.
+
+**Consequences.** `code/evolution_store.py` gains the two idempotent columns;
+`self_improvement/verifier.py` gains `verify_surface_candidate`;
+`self_improvement/loop.py` dispatches code vs surface;
+`self_improvement/recorder.py` records the surface attempt/event;
+`self_improvement/landing.py` refuses surface subjects;
+`routers/evolution.py` adds the operator-gated route; the typed front door and
+`rsl-operator-panel.tsx` add the form. `evaluation.started` now has a
+`self_improvement` consumer in `event_system/service.py` that only wakes the
+loop. v1b skill-draft proposals and the v1c model proposer remain deferred.
+Tests: `test_rsl_surface.py`, `test_rsl_security.py`, `test_rsl_loop.py`,
+`test_evolution_rsl_operator.py`, `test_evolution_rsl_routes.py`, and the
+event-wake test in `test_events_service.py`.

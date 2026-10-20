@@ -13,12 +13,18 @@ driver.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import time
 from typing import Any, Optional
 
 from .config import db_identity, legacy_candidate_paths, resolve_path
 from .schema import MIGRATIONS, SCHEMA_VERSION
+
+_ADD_COLUMN = re.compile(
+    r"^\s*ALTER\s+TABLE\s+([A-Za-z_]\w*)\s+ADD\s+COLUMN\s+([A-Za-z_]\w*)",
+    re.IGNORECASE,
+)
 
 
 def now_iso() -> str:
@@ -81,12 +87,33 @@ class EclipseMemoryDb:
             if version in applied:
                 continue
             for statement in statements:
+                if self._add_column_already_present(statement):
+                    continue
                 self._db.executescript(statement)
             self._db.execute(
                 "INSERT OR REPLACE INTO SchemaMigration (version, appliedAt) VALUES (?, ?)",
                 (version, now_iso()),
             )
             self._db.commit()
+
+    def _add_column_already_present(self, statement: str) -> bool:
+        """Whether an `ALTER TABLE ... ADD COLUMN` statement is a no-op.
+
+        Migrations are append-only and normally run exactly once, but a database
+        can already carry an additive column without the migration being recorded
+        (a partially applied upgrade, or a copied store). SQLite has no
+        `ADD COLUMN IF NOT EXISTS`, so the migration runner performs the check
+        here instead of failing the whole boot on a duplicate column.
+        """
+        match = _ADD_COLUMN.match(statement or "")
+        if match is None:
+            return False
+        table, column = match.group(1), match.group(2)
+        try:
+            rows = self._db.execute(f"PRAGMA table_info({table})").fetchall()
+        except sqlite3.Error:
+            return False
+        return any(str(row["name"]).lower() == column.lower() for row in rows)
 
     def migration_status(self) -> dict[str, Any]:
         applied = [

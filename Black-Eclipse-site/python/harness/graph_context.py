@@ -188,6 +188,76 @@ async def _skill_manifest_context(
     return build_skill_manifest(skill_registry, query)
 
 
+async def _lesson_manifest_context(
+    request: RunRequest,
+    memory_service: Optional[Any],
+    run_store: Optional[AgentMemoryStore],
+    emitter: Optional[RunEmitter] = None,
+) -> tuple[str, tuple[str, ...]]:
+    """A bounded manifest of adopted lessons whose cue matches this turn.
+
+    Retrieval is deterministic and scoped: adopted-only, cue token overlap,
+    scope compatibility, and a COMPLETED validation run (checked against the
+    evaluation store bound to the same agent-memory database). An absent or
+    unverifiable run is not eligible. The block is a labelled hint, never an
+    instruction, and cannot grant a tool or permission. A retrieval failure
+    injects nothing and never breaks the run.
+    """
+    if memory_service is None or run_store is None:
+        return "", ()
+    try:
+        settings = memory_service.policy.get_all()
+    except Exception:  # noqa: BLE001 - a policy read failure injects nothing
+        settings = {}
+    if settings.get("memory_enabled") is False:
+        return "", ()
+
+    from .evaluation.store import EvaluationStore  # noqa: PLC0415
+    from .prompt_segments import build_lesson_manifest  # noqa: PLC0415
+    from .self_improvement.lessons import select_lessons  # noqa: PLC0415
+
+    context = request.input.context if isinstance(request.input.context, dict) else {}
+    explicit_scope = context.get("scope") if isinstance(context.get("scope"), dict) else None
+    if explicit_scope is not None:
+        scope = explicit_scope
+    elif getattr(request.input, "market", None):
+        scope = {"markets": [request.input.market]}
+    else:
+        scope = None
+    cue = request.input.query or request.input.ticker or ""
+    try:
+        lessons = select_lessons(
+            memory_service.store,
+            cue=cue,
+            scope=scope,
+            eval_store=EvaluationStore(run_store),
+        )
+        content, lesson_ids = build_lesson_manifest(lessons)
+    except Exception:  # noqa: BLE001 - retrieval must never break a run
+        return "", ()
+    if not content:
+        return "", ()
+    if emitter is not None:
+        selected = {str(row.get("id")): row for row in lessons}
+        await emitter.emit("prompt.lesson_injected", {
+            "lessonIds": list(lesson_ids),
+            "count": len(lesson_ids),
+            "chars": len(content),
+            "lessons": [
+                {
+                    "id": lesson_id,
+                    "cue": selected.get(lesson_id, {}).get("cue"),
+                    "scope": selected.get(lesson_id, {}).get("scope"),
+                    "validationRunId": selected.get(lesson_id, {}).get("validationRunId"),
+                    "adoptedArtifactType": selected.get(lesson_id, {}).get("adoptedArtifactType"),
+                    "adoptedArtifactId": selected.get(lesson_id, {}).get("adoptedArtifactId"),
+                }
+                for lesson_id in lesson_ids
+            ],
+        })
+    return content, lesson_ids
+
+
 async def _apply_memory_intent(
     request: RunRequest,
     memory_service: Optional[Any],
@@ -511,6 +581,7 @@ __all__ = [
     "_create_explicit_skill_draft",
     "_is_recurring_statement",
     "_learning_eligibility",
+    "_lesson_manifest_context",
     "_memory_blob",
     "_memory_context",
     "_outcome_blob",

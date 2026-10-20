@@ -20,6 +20,10 @@ export interface EvolutionCandidate {
   observedCount: number;
   problemStatement: string;
   targetPath: string | null;
+  proposedOps?: Array<Record<string, unknown>> | null;
+  subjectType?: "code" | "surface";
+  surfaceConfig?: Record<string, unknown> | null;
+  createdByRunId?: string | null;
   status: EvolutionStatus;
   refusalCode: string | null;
   activatedVersion: string | null;
@@ -43,14 +47,199 @@ export interface EvolutionAttempt {
   finishedAt: string | null;
 }
 
+export interface EvolutionExperiment {
+  id: string;
+  suite: string;
+  datasetName: string;
+  datasetVersion: string;
+  status: string;
+  trialCount: number;
+  agentVersion: string | null;
+  gitCommit: string | null;
+  model: string | null;
+  provider: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  config: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
+export interface EvolutionExperimentMetric {
+  id: string;
+  runId: string;
+  scope: string;
+  category: string;
+  dimension: string;
+  value: number | null;
+  sampleSize: number;
+  createdAt: string;
+}
+
+export interface EvolutionExperimentTrial {
+  id: string;
+  runId: string;
+  taskId: string;
+  taskVersion: number;
+  trialIndex: number;
+  passed: number | boolean;
+  unmeasured: number | boolean;
+  status: string;
+  score: Record<string, unknown> | null;
+  cost: number;
+  latencyMs: number | null;
+  totalTokens: number;
+  createdAt: string;
+}
+
+export interface EvolutionExperimentDetail {
+  experiment: EvolutionExperiment;
+  metrics: EvolutionExperimentMetric[];
+  trials: EvolutionExperimentTrial[];
+}
+
+export interface EvolutionCandidateEvidence {
+  candidate: EvolutionCandidate;
+  attempts: EvolutionAttempt[];
+  experiments: EvolutionExperiment[];
+}
+
+export interface EvolutionLandingResult {
+  success: boolean;
+  candidateId: string;
+  runId: string;
+  preview: Record<string, unknown>;
+  landing: Record<string, unknown>;
+  approvalRequired: boolean;
+  promotionRoute: string;
+}
+
+export interface EvolutionRslStatus {
+  mode: "off" | "observe" | "propose" | "verify" | string;
+  running: boolean;
+  busy: boolean;
+  maxCandidates: number;
+  maxExperimentsPerDay: number;
+  k: number;
+  startedToday: number;
+  remainingToday: number;
+  budgetExhausted: boolean;
+  tickSeconds?: number;
+  leaseSeconds?: number;
+  trials?: number;
+  maxCostUsd?: number;
+}
+
+export interface EvolutionRslTickResult {
+  success: boolean;
+  mode: string;
+  processed: string[];
+  skipped?: string;
+  candidateId?: string;
+  runId?: string;
+  decision?: string;
+  benchmark?: string;
+}
+
+export interface EvolutionProposeInput {
+  targetPath?: string | null;
+  ops: Array<Record<string, unknown>>;
+}
+
+export interface EvolutionProposeResult {
+  success: boolean;
+  candidate: EvolutionCandidate;
+}
+
 export interface EvolutionMetrics {
   attempts: number;
   successRate: number | "UNKNOWN";
   regressionRate: number | "UNKNOWN";
   rollbackCount: number;
   costPerSuccess: number | "UNKNOWN";
+  cost_per_success: number | "UNKNOWN";
+  regression_rate: number | null;
+  rsl_experiments: number | null;
+  rsl_accepted: number | null;
+  rsl_rejected: number | null;
+  rsl_unmeasured: number | null;
   perCategory: Record<string, { attempts: number; successes: number; rollbacks: number }>;
   unmeasured: string[];
+}
+
+export interface EvolutionLesson {
+  id: string;
+  cue: string | null;
+  proposedLesson: string | null;
+  evidenceReferences: unknown;
+  scope: Record<string, unknown> | string | null;
+  adoptedArtifactType: string | null;
+  adoptedArtifactId: string | null;
+  validationRunId: string | null;
+  status: string;
+  sourceRunId: string | null;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface EvolutionLessonInput {
+  cue: string;
+  lesson: string;
+  evidence?: unknown;
+  scope?: Record<string, unknown> | null;
+  validationRunId: string;
+  adoptedArtifactType?: string | null;
+  adoptedArtifactId?: string | null;
+}
+
+export interface EvolutionRecursiveVariant {
+  kind: "invariant" | "domain";
+  targetPath?: string | null;
+  ops: Array<Record<string, unknown>>;
+  description?: string;
+}
+
+export interface EvolutionRecursiveResult {
+  success: boolean;
+  runId: string;
+  k: number;
+  requestedK: number;
+  benchmark: string;
+  selection: Record<string, unknown> | null;
+  composition: Record<string, unknown> | null;
+  variants: Array<Record<string, unknown>>;
+  children: EvolutionCandidate[];
+}
+
+export interface EvolutionSurfaceSnapshot {
+  systemPrompt: string;
+  toolNames?: string[];
+  maxSteps?: number;
+  maxToolCalls?: number;
+  modelProvider?: string | null;
+  modelName?: string | null;
+  temperature?: number | null;
+  skillDraftIds?: string[];
+}
+
+export interface EvolutionSurfaceExperimentInput {
+  candidate: EvolutionSurfaceSnapshot;
+  base?: EvolutionSurfaceSnapshot;
+  dataset?: string;
+  taskIds?: string[];
+  split?: "optimization" | "validation" | "held_out" | "release";
+  targetDimension?: string;
+  trials?: number;
+  seed?: number;
+  baselineRunId?: string | null;
+  problemStatement?: string;
+  sourceCategory?: string;
+}
+
+export interface EvolutionSurfaceExperimentResult {
+  success: boolean;
+  candidate: EvolutionCandidate;
+  created: boolean;
+  queued: boolean;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -115,6 +304,83 @@ export async function rollbackEvolutionCandidate(id: string, reason = ""): Promi
 
 export async function dismissEvolutionCandidate(id: string): Promise<unknown> {
   return request(`/evolution/candidates/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+}
+
+export async function listEvolutionExperiments(limit = 50): Promise<EvolutionExperiment[]> {
+  const body = await request<{ experiments: EvolutionExperiment[] }>(
+    `/evolution/experiments?limit=${encodeURIComponent(String(limit))}`, { method: "GET" },
+  );
+  return body.experiments ?? [];
+}
+
+export async function getEvolutionExperiment(id: string): Promise<EvolutionExperimentDetail> {
+  const body = await request<EvolutionExperimentDetail>(
+    `/evolution/experiments/${encodeURIComponent(id)}`, { method: "GET" },
+  );
+  return body;
+}
+
+export async function evolutionCandidateEvidence(id: string): Promise<EvolutionCandidateEvidence> {
+  return request<EvolutionCandidateEvidence>(
+    `/evolution/candidates/${encodeURIComponent(id)}/evidence`, { method: "GET" },
+  );
+}
+
+export async function prepareEvolutionLanding(id: string): Promise<EvolutionLandingResult> {
+  return request<EvolutionLandingResult>(
+    `/evolution/candidates/${encodeURIComponent(id)}/prepare-landing`, { method: "POST" },
+  );
+}
+
+export async function listEvolutionLessons(limit = 50): Promise<EvolutionLesson[]> {
+  const body = await request<{ lessons: EvolutionLesson[] }>(
+    `/evolution/lessons?limit=${encodeURIComponent(String(limit))}`, { method: "GET" },
+  );
+  return body.lessons ?? [];
+}
+
+export async function adoptEvolutionLesson(
+  candidateId: string, input: EvolutionLessonInput,
+): Promise<{ stored: boolean; duplicate?: boolean; lesson: EvolutionLesson }> {
+  return request(
+    `/evolution/candidates/${encodeURIComponent(candidateId)}/lessons`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function runEvolutionRecursive(
+  candidateId: string, input: { variants: EvolutionRecursiveVariant[]; seed?: number },
+): Promise<EvolutionRecursiveResult> {
+  return request<EvolutionRecursiveResult>(
+    `/evolution/candidates/${encodeURIComponent(candidateId)}/recursive`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function proposeEvolutionCandidate(
+  candidateId: string, input: EvolutionProposeInput,
+): Promise<EvolutionProposeResult> {
+  return request<EvolutionProposeResult>(
+    `/evolution/candidates/${encodeURIComponent(candidateId)}/propose`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function getEvolutionRslStatus(): Promise<EvolutionRslStatus> {
+  return request<EvolutionRslStatus>("/evolution/rsl", { method: "GET" });
+}
+
+export async function tickEvolutionRsl(): Promise<EvolutionRslTickResult> {
+  return request<EvolutionRslTickResult>("/evolution/rsl/tick", { method: "POST" });
+}
+
+export async function createEvolutionSurfaceExperiment(
+  input: EvolutionSurfaceExperimentInput,
+): Promise<EvolutionSurfaceExperimentResult> {
+  return request<EvolutionSurfaceExperimentResult>(
+    "/evolution/surface-experiments",
+    { method: "POST", body: JSON.stringify(input) },
+  );
 }
 
 export async function evolutionMetrics(): Promise<EvolutionMetrics> {

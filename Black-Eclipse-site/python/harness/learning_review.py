@@ -240,6 +240,12 @@ def review_run(
                 "category": "no_learning", "created": False,
                 "reason": f"self-improvement observation error: {exc}",
             })
+        try:
+            rsl_loop = getattr(service, "_rsl_loop", None)
+            if rsl_loop is not None:
+                rsl_loop.wake()
+        except Exception:  # noqa: BLE001 - waking the conductor is best-effort
+            pass
 
     model_used = False
     if model and model_settings is not None:

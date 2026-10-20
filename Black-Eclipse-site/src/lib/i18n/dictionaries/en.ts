@@ -14,6 +14,7 @@ import { analysis } from './analysis';
 import { acquire } from './acquire';
 import { navigation } from './navigation';
 import { capabilityStudio } from './capability-studio';
+import { evolution } from './evolution';
 
 export const en = {
   // Bots (autonomous, scheduled agents)
@@ -1034,6 +1035,21 @@ export const en = {
   'evolution.refusal.outside': 'I could not prepare this change — it is outside the project.',
   'evolution.refusal.notPatchable': 'I could not prepare a change for that yet.',
 
+  'evolution.experiment.title': 'Experiments Eclipse ran',
+  'evolution.experiment.subtitle': 'What was checked, which decision was recorded, and what is ready for your review.',
+  'evolution.experiment.empty': 'No experiments yet.',
+  'evolution.experiment.loading': 'Loading experiments…',
+  'evolution.experiment.refresh': 'Refresh experiments',
+  'evolution.experiment.benchmark.measured': 'Measured benchmark',
+  'evolution.experiment.benchmark.unmeasured': 'Tests only — benchmark not measured',
+  'evolution.experiment.testsPassed': 'Owning tests passed',
+  'evolution.experiment.testsFailed': 'Owning tests failed',
+  'evolution.experiment.measuredTrials': '{count} measured trial(s)',
+  'evolution.experiment.prepareLanding': 'Prepare landing',
+  'evolution.experiment.preparing': 'Preparing…',
+  'evolution.experiment.prepared': 'Prepared {runId}',
+  'evolution.experiment.promotionHint': 'Review {count} file(s) and approve in the existing promotion card; nothing is applied from here.',
+
   // ── Capability statement (Phase 12) ──────────────────────────────────────
   // A plain "can Eclipse build X today?" answer per shape. The eval reports the
   // evidence; these are the words a finance professional reads. A gap is a gap.
@@ -1231,4 +1247,5 @@ export const en = {
   ...acquire,
   ...navigation,
   ...capabilityStudio,
+  ...evolution,
 } as const;

@@ -70,6 +70,28 @@ async def test_failure_guard_limits_recovery_per_correlation(tmp_workspace):
     await system.stop()
 
 
+async def test_evaluation_started_wakes_the_rsl_conductor(tmp_workspace):
+    class _Loop:
+        def __init__(self) -> None:
+            self.wakes = 0
+
+        def wake(self) -> None:
+            self.wakes += 1
+
+    memory = AgentMemoryStore(str(Path(tmp_workspace) / "agent-memory-rsl.db"))
+    fake = FakeCommandService(memory)
+    fake._rsl_loop = _Loop()
+    system = EventSystem(fake)
+    await system.start()
+    await system.publish(
+        "evaluation.started", {"reason": "test"}, source="eval", correlation_id="rsl-wake",
+    )
+    await _drain()
+    assert fake._rsl_loop.wakes >= 1
+    await system.stop()
+    memory.close()
+
+
 async def test_failure_guard_respects_depth(tmp_workspace):
     system, _ = _system(tmp_workspace)
     await system.start()

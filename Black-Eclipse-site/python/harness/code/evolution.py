@@ -43,6 +43,7 @@ CATEGORY_TARGETS: dict[str, str] = {
     "unresolved_contradiction": "the comparison rule that missed a conflict",
     "currency_mismatch": "the unit/currency normalisation step",
     "unit_mismatch": "the unit/currency normalisation step",
+    "capability_failure": "the generated capability whose contract or execution failed",
 }
 
 # The four non-patchable authorities — a subject cannot edit its own judge. A
@@ -421,13 +422,21 @@ def candidate_skill_manifest(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 def archive_metrics(store: Any, window_days: int = 90) -> dict[str, Any]:
-    """Every metric is derived from EvolutionAttempt rows.
+    """Every metric is derived from EvolutionAttempt + RSL EvaluationRun rows.
 
     A metric whose inputs do not exist (no completed attempts, no cost rows)
-    renders the string "UNKNOWN" — NEVER 0, and never a blended score.
+    renders the string "UNKNOWN" — NEVER 0, and never a blended score. The
+    `rsl_*` block is measured from persisted RSL experiment runs; its missing
+    inputs are `None` (UNMEASURED).
     """
     evolution = EvolutionStore(store)
     db = store._db  # noqa: SLF001
+    from ..evaluation.repair_metrics import (  # noqa: PLC0415 - avoid an import cycle
+        metrics_from_rsl_runs,
+        rsl_runs_from_store,
+    )
+
+    rsl_metrics = metrics_from_rsl_runs(rsl_runs_from_store(store, limit=500))
 
     cutoff = _days_ago(window_days)
     rows = db.execute(
@@ -443,6 +452,8 @@ def archive_metrics(store: Any, window_days: int = 90) -> dict[str, Any]:
         return {
             "attempts": 0, "successRate": "UNKNOWN", "regressionRate": "UNKNOWN",
             "rollbackCount": 0, "costPerSuccess": "UNKNOWN",
+            "cost_per_success": "UNKNOWN",
+            **rsl_metrics,
             "perCategory": {}, "unmeasured": ["successRate", "regressionRate", "costPerSuccess"],
         }
 
@@ -480,6 +491,8 @@ def archive_metrics(store: Any, window_days: int = 90) -> dict[str, Any]:
         "rollbackCount": rollbacks,
         "failureCount": failures,
         "costPerSuccess": cost_per_success,
+        "cost_per_success": cost_per_success,
+        **rsl_metrics,
         "perCategory": per_category,
         "unmeasured": unmeasured,
     }

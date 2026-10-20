@@ -64,4 +64,6 @@ async def test_surface_benchmark_is_measured_and_persisted(store):
     assert run["metadata"]["kind"] == "rsl"
     assert run["metadata"]["proposalId"] == "evo_surface"
     assert run["metadata"]["benchmark"] == "MEASURED"
+    assert run["metadata"]["accepted"] is True
+    assert run["metadata"]["measured"] == 1
     assert run["config"]["snapshotDigest"] == candidate.sourceDigest

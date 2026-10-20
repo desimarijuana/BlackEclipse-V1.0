@@ -178,26 +178,21 @@ summary; `render_evidence_bundle(directory, …)` — `task.md`, full
 proposal inputs; `learning_review` model review; future harness-candidate
 proposals. *Gate:* unit tests.
 
-### T3 — Anonymized behavioral selection
+### T3 — Anonymized behavioral selection — **implemented by R7**
 
-Extend `evaluation/experiments.py` (or a small `selection.py` beside it):
-`assign_ids` (seeded, stable), drop non-answers with recorded causes, a
-selection record (`chosen`, `why`, `dropped`, `nCandidates`, `evidence`),
-neutral delivered-base fallback, `k=1` trivial path. Reuse for: A/B on tasks
-with no per-task ground truth (research/citations), model matrices, and future
-harness candidates. *Gate:* deterministic id tests + a scripted selection
-protocol test. *Blocked by:* nothing.
+Landed as `python/harness/self_improvement/selection.py` (not in
+`evaluation/experiments.py`): `anonymous_labels` (seeded, stable, order-
+independent), drop non-answers with recorded causes, a selection record
+(`chosen`, `why`, `dropped`, `nCandidates`, `evidence`), neutral base fallback,
+`k=1` trivial path. It is wired by `recursion.run_recursive` for RSL recursive
+experiments. *Gate:* deterministic id tests + a scripted selection test.
 
-### T4 — Lesson upgrade: cue + evidence gate + adopted artifact
+### T4 — Lesson upgrade: cue + evidence gate + adopted artifact — **implemented by R6**
 
-`LearningCandidate` gains `cue` (when this lesson applies) and the mandatory
-triple gate (`cue` ∧ `lesson`/proposal ∧ `evidence`) — a candidate missing any
-field is dropped, mirroring upstream's discard rule; store a reference to the
-adopted artifact (skill version / run) on the lesson. Land in
-`eclipse_memory/schema.py` (next migration) + `skills/learning.py` +
-`learning_review.py`; stream-order retention already holds by construction
-(lessons derive from completed runs only). *Gate:* migration + learning tests;
-operator promotion unchanged.
+`LearningCandidate` gained `cue` and the adoption columns (migration 31); the
+mandatory triple gate and verdict tripwire live in
+`python/harness/self_improvement/lessons.py`, with scoped retrieval wired into
+the prompt (`prompt.lesson_injected`). Operator promotion is unchanged.
 
 ### T5 — Harness-surface validator (Phase-4 enabler)
 
@@ -223,12 +218,12 @@ Pairwise line-Jaccard + distinct-count across candidate artifacts in an
 experiment run; warn (metric, not gate) when candidates collapse. Land:
 `experiments.py`. *Gate:* unit test.
 
-### T8 — Typed candidates + budget discipline
+### T8 — Typed candidates + budget discipline — **implemented by R7**
 
-Tag candidates `invariant|domain` (INV/DOM) and formalize the budget policy:
-`k=1` default, trivial selection without a selector session, explicit budget in
-the experiment record. Land: experiment config + `EvaluationRun.config`
-identity (Phase 2 provenance work). *Gate:* config/identity tests.
+`proposer.propose_many` tags candidates `invariant`/`domain`; `selection.py`
+has the `k=1` trivial path; `recursion.budgeted_k` caps `k` by the remaining
+daily budget and the recursive experiment records `k`/`requestedK` in
+`EvaluationRun.config`. *Gate:* config/identity tests (`test_rsl_recursion.py`).
 
 ---
 
@@ -254,14 +249,15 @@ identity (Phase 2 provenance work). *Gate:* config/identity tests.
 
 | File | What | Wired? |
 |---|---|---|
-| `python/harness/evaluation/verdict_guard.py` | T1 tripwire (names + content, `VerdictLeakError`) | No — utility |
-| `python/harness/evaluation/contrast.py` | T2 `contrast_trajectories` + `render_evidence_bundle` (runs the T1 tripwire) | No — utility |
+| `python/harness/evaluation/verdict_guard.py` | T1 tripwire (names + content, `VerdictLeakError`) | Wired — R6 lesson gate + R7 selection/composition/bundles |
+| `python/harness/evaluation/contrast.py` | T2 `contrast_trajectories` + `render_evidence_bundle` (runs the T1 tripwire) | Wired — R7 `recursion.run_recursive` |
 | `python/tests/test_evaluation_verdict_guard.py` | tripwire tests | — |
 | `python/tests/test_evaluation_contrast.py` | contrast + bundle tests | — |
 
-Un-wired by design: zero behavior change; the wiring tickets (T1b/T2b) touch
-`improvement.py` / `learning_review.py` / `skills/learning.py`, which are
-under active concurrent work — sequence them after that work lands.
+The wiring landed in R6/R7: `self_improvement/lessons.py` guards adoption text;
+`selection.py`/`composition.py` guard their records; `recursion.run_recursive`
+guards every contrast bundle before it is recorded. No model proposer consumes
+these bundles yet (v1c remains deferred).
 
 ## Related
 

@@ -261,7 +261,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
         _spec("memory.created", description="A memory was created", producer=("memory",), retention_days=365),
         _spec("memory.updated", description="A memory was updated", producer=("memory",), retention_days=365),
         _spec("memory.candidate.created", description="An event was proposed as a memory candidate", producer=("events",), consumers=("memory",), priority="low", retention_days=30),
-        _spec("evaluation.started", description="An evaluation started", producer=("eval", "self_improvement"), retention_days=180),
+        _spec("evaluation.started", description="An evaluation started", producer=("eval", "self_improvement"), consumers=("self_improvement",), retention_days=180),
         _spec("evaluation.completed", description="An evaluation completed", producer=("eval", "self_improvement"), consumers=("self_improvement",), retention_days=365),
         _spec("self_improvement.candidate_created", description="An inert self-improvement candidate was created", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=90),
         _spec("self_improvement.experiment_completed", description="An RSL experiment completed with a recorded decision", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=180),
@@ -275,6 +275,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
         _spec("session.indexed", description="A session was indexed for search", producer=("search",), priority="low", retention_days=30),
         _spec("finance.analysis", description="A financial analysis completed", producer=("research",), retention_days=180),
         _spec("prompt.plan", description="A prompt plan was produced", producer=("harness",), priority="low", retention_days=7),
+        _spec("prompt.lesson_injected", description="Verified adopted lessons were injected into a prompt", producer=("harness", "self_improvement"), priority="low", retention_days=30),
         _spec("context.retry", description="Context was rebuilt and retried", producer=("harness",), priority="low", retention_days=7),
         _spec("notification.sent", description="A notification was delivered", producer=("harness",), priority="low", retention_days=30),
     ]

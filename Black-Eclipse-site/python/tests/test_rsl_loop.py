@@ -168,7 +168,7 @@ async def test_start_reclaims_a_stale_lease_and_claims_it_once(store):
     )
     store._db.commit()
 
-    loop = _loop(store, evolution, tick_seconds=10)
+    loop = _loop(store, evolution, mode="propose", tick_seconds=10)
     await loop.start()
     await asyncio.sleep(0.05)
     await loop.stop()
@@ -194,6 +194,50 @@ async def test_only_one_experiment_runs_at_a_time(store):
     first, second = await asyncio.gather(loop.tick(), loop.tick())
     assert len(calls) == 1
     assert any(result.get("skipped") == "busy" for result in (first, second))
+
+
+@pytest.mark.asyncio
+async def test_surface_candidate_uses_the_measured_path_and_counts_an_attempt(store, monkeypatch):
+    evolution = _evolution(store)
+    candidate = evolution.save_candidate({
+        "signature": f"sig-surface-{uuid.uuid4().hex}",
+        "sourceCategory": "operator",
+        "observedCount": 1,
+        "problemStatement": "surface fixture",
+        "subjectType": "surface",
+        "surfaceConfig": {
+            "base": {"systemPrompt": "You are Eclipse.", "toolNames": []},
+            "snapshot": {"systemPrompt": "You are Eclipse, candidate.", "toolNames": []},
+            "dataset": "benchmark_v1",
+        },
+        "status": "proposed",
+    })
+    calls = []
+
+    async def fake_surface(store_arg, row, *, config, eval_store=None):
+        calls.append((row["id"], config.mode))
+        return {
+            "ok": True, "passed": True, "benchmark": "MEASURED",
+            "decision": "benchmark", "runId": "rsl-surface-run", "measured": 1,
+            "decisionRecord": {"accepted": True, "measured": 1},
+            "targetDimension": "task_success",
+        }
+
+    monkeypatch.setattr(
+        "harness.self_improvement.verifier.verify_surface_candidate", fake_surface,
+    )
+    loop = _loop(store, evolution, mode="verify")
+    result = await loop.tick()
+
+    assert calls == [(candidate["id"], "verify")]
+    assert result["candidateId"] == candidate["id"]
+    assert result["decision"] == "benchmark_accepted"
+    assert result["benchmark"] == "MEASURED"
+    assert evolution.get_candidate(candidate["id"])["status"] == "evaluated_ok"
+    attempts = evolution.list_attempts(candidate["id"])
+    assert len(attempts) == 1
+    assert attempts[0]["targetPath"] == "surface:benchmark_v1"
+    assert attempts[0]["outcome"] == "success"
 
 
 @pytest.mark.asyncio

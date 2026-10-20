@@ -378,13 +378,18 @@ the Python stack is absent it skips honestly (exit 0).
 `evaluation/repair_metrics.py` adds the §1 metric block to the gate report:
 `time_to_repair_ms` + `self_repair_precision` (recovery incidents),
 `requirement_completeness` (goal-contract task criteria), `cost_per_success` +
-`unauthorized_action_rate` (evaluation trials). The offline gate measures the
-suite-backed dimensions and prints `UNMEASURED` for the store-backed ones (no
-incidents/tasks exist on the temp DB) — an unmeasured dimension is never
-fabricated. A production run can pass real incidents/tasks via
-`collect_self_evolution_metrics(...)`; the runtime exposes the same block
-read-only at `GET /recovery/metrics` (incident outcomes read from the
-`action="outcome"` attempts, goal tasks from the task store).
+`unauthorized_action_rate` (evaluation trials), plus the R8 RSL block:
+`rsl_experiments`, `rsl_accepted`, `rsl_rejected`, `rsl_unmeasured` (a partition
+of completed RSL experiment runs; UNMEASURED is its own bucket) and
+`regression_rate` (measured runs with a recorded regression). The offline gate
+measures the suite-backed dimensions and prints `UNMEASURED` for store-backed
+ones with no samples — an unmeasured dimension is never fabricated. A
+production run passes real incidents/tasks/runs via
+`collect_self_evolution_metrics(...)` or `store=...`; the runtime exposes the
+same block read-only at `GET /recovery/metrics` (incident outcomes read from the
+`action="outcome"` attempts, goal tasks from the task store, RSL runs from the
+`EvaluationRun` rows). The RSL-specific deterministic end-to-end gate is
+`self_improvement/gate.py`, wired into `scripts/test-evals.js`.
 
 ## 13. Model benchmarking
 

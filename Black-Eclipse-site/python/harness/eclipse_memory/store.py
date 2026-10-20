@@ -1007,9 +1007,9 @@ class EclipseMemoryStore:
             """INSERT INTO LearningCandidate
                (id, sourceRunId, candidateType, title, problem, observedBehavior, proposedLesson,
                 proposedProcedure, evidenceReferences, confidence, generalizationNotes, knownLimitations,
-                signature, duplicateGroup, status, createdAt, reviewedAt, resultingSkillId,
-                resultingSkillVersion, draftManifest, diagnostics, scope)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                signature, duplicateGroup, status, createdAt, reviewedAt, resultingSkillId, resultingSkillVersion,
+                draftManifest, diagnostics, scope, cue, adoptedArtifactType, adoptedArtifactId, validationRunId)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (candidate_id, candidate.get("sourceRunId"), candidate["candidateType"], candidate["title"],
              candidate.get("problem"), candidate.get("observedBehavior"), candidate.get("proposedLesson"),
              json.dumps(candidate.get("proposedProcedure")) if candidate.get("proposedProcedure") is not None else None,
@@ -1018,26 +1018,26 @@ class EclipseMemoryStore:
              candidate.get("generalizationNotes"), candidate.get("knownLimitations"),
              candidate["signature"], candidate.get("duplicateGroup"),
              candidate.get("status", "detected"), candidate.get("createdAt") or now_iso(),
-             candidate.get("reviewedAt"), candidate.get("resultingSkillId"),
-             candidate.get("resultingSkillVersion"),
+             candidate.get("reviewedAt"), candidate.get("resultingSkillId"), candidate.get("resultingSkillVersion"),
              json.dumps(candidate.get("draftManifest")) if candidate.get("draftManifest") is not None else None,
              json.dumps(candidate.get("diagnostics")) if candidate.get("diagnostics") is not None else None,
-             json.dumps(candidate.get("scope")) if candidate.get("scope") is not None else None),
+             json.dumps(candidate.get("scope")) if candidate.get("scope") is not None else None,
+             candidate.get("cue"), candidate.get("adoptedArtifactType"), candidate.get("adoptedArtifactId"), candidate.get("validationRunId")),
         )
         self._db.commit()
         return candidate_id
 
     def update_candidate(self, candidate_id: str, **patch: Any) -> None:
         allowed = {
-            "status", "reviewedAt", "resultingSkillId", "resultingSkillVersion",
-            "draftManifest", "confidence", "knownLimitations",
+            "status", "reviewedAt", "resultingSkillId", "resultingSkillVersion", "draftManifest", "confidence",
+            "knownLimitations", "scope", "cue", "adoptedArtifactType", "adoptedArtifactId", "validationRunId",
         }
         sets, params = [], []
         for key, value in patch.items():
             if key not in allowed:
                 continue
             sets.append(f"{key} = ?")
-            params.append(json.dumps(value) if key == "draftManifest" and value is not None else value)
+            params.append(json.dumps(value) if key in ("draftManifest", "scope") and value is not None else value)
         if not sets:
             return
         params.append(candidate_id)

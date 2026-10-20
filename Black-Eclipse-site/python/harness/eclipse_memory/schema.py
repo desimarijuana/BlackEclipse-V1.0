@@ -1119,6 +1119,25 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 31 — RSL adopted lessons. A `LearningCandidate` can now be a
+# verified lesson with a retrieval cue and an immutable adoption record. The
+# cue/lesson/evidence gate and the verdict tripwire live in
+# `self_improvement/lessons.py`; retrieval requires the recorded validation run
+# to have completed before the lesson can enter a later prompt. Additive only:
+# existing rows read NULL ("not an adopted lesson").
+MIGRATIONS.append(
+    (
+        31,
+        [
+            "ALTER TABLE LearningCandidate ADD COLUMN cue TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN adoptedArtifactType TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN adoptedArtifactId TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN validationRunId TEXT;",
+            "CREATE INDEX IF NOT EXISTS idx_learning_cue ON LearningCandidate(cue);",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

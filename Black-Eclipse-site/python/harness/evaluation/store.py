@@ -376,6 +376,23 @@ class EvaluationStore:
         )
         self._db.commit()
 
+    def list_metrics(
+        self, run_id: str, *, scope: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        if scope:
+            rows = self._db.execute(
+                "SELECT * FROM EvaluationMetric WHERE runId=? AND scope=? "
+                "ORDER BY category, dimension",
+                (run_id, scope),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM EvaluationMetric WHERE runId=? "
+                "ORDER BY scope, category, dimension",
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def add_event(self, run_id: str, event_type: str, *, trial_id: str = "", data: Optional[dict] = None, at: Optional[str] = None) -> None:
         self._db.execute(
             "INSERT INTO EvaluationEvent (id, runId, trialId, type, at, data) VALUES (?,?,?,?,?,?)",

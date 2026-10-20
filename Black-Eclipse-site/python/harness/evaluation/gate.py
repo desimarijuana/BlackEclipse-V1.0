@@ -58,7 +58,9 @@ def run_offline_gate(
         # being fabricated (a real run supplies incidents/tasks explicitly).
         from .repair_metrics import collect_self_evolution_metrics  # noqa: PLC0415
 
-        suite_result.self_evolution = collect_self_evolution_metrics(suite=suite_result)
+        suite_result.self_evolution = collect_self_evolution_metrics(
+            suite=suite_result, store=store,
+        )
         suite_result.thresholds = check_thresholds(
             suite_result.aggregates,
             sample_size=sum(len(t.trials) for t in suite_result.tasks),

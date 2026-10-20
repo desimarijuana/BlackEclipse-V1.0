@@ -41,6 +41,7 @@ STATIC_SEGMENTS = (
 RUN_FROZEN_SEGMENTS = (
     "profile_snapshot",
     "skill_manifest",
+    "lesson_manifest",
     "runtime_context",
     "user_message",
 )
@@ -48,6 +49,8 @@ RUN_FROZEN_SEGMENTS = (
 # Bounds.
 MAX_SKILL_MANIFEST_CHARS = 1200
 MAX_SKILLS_IN_MANIFEST = 8
+MAX_LESSON_MANIFEST_CHARS = 800
+MAX_LESSONS_IN_MANIFEST = 3
 
 
 def _token_estimate(text: str) -> int:
@@ -185,6 +188,56 @@ def build_skill_manifest(
     return content, version
 
 
+def build_lesson_manifest(
+    lessons: Any,
+    *,
+    limit: int = MAX_LESSONS_IN_MANIFEST,
+    max_chars: int = MAX_LESSON_MANIFEST_CHARS,
+) -> tuple[str, tuple[str, ...]]:
+    """A bounded manifest of verified, cue-matched lessons.
+
+    Returns `(content, lesson_ids)`. Only lessons already selected by
+    `self_improvement.lessons.select_lessons` should be passed: this function is
+    a deterministic formatter, not the eligibility gate. The manifest is a hint,
+    never an instruction and never authority. The character and count budgets
+    are hard: an oversized lesson is truncated, not allowed to grow the prompt.
+    """
+    max_chars = max(0, int(max_chars))
+    limit = max(0, int(limit))
+    selected = list(lessons or [])[:limit]
+    if not selected or max_chars <= 0:
+        return "", ()
+
+    content = (
+        "Adopted lessons (verified on completed validation runs; apply only to "
+        "the matching cue and scope; non-authoritative hints):"
+    )
+    if len(content) > max_chars:
+        return "", ()
+    ids: list[str] = []
+    for lesson in selected:
+        lesson_id = str(lesson.get("id") or "").strip()
+        text = " ".join(str(
+            lesson.get("proposedLesson") or lesson.get("lesson") or ""
+        ).split())
+        cue = " ".join(str(lesson.get("cue") or "").split())
+        if not lesson_id or not text:
+            continue
+        line = f"- [{lesson_id}] When {cue or 'the same cue'}: {text}"
+        remaining = max_chars - len(content) - 1
+        if remaining <= 0:
+            break
+        if len(line) > remaining:
+            if remaining < 80:
+                break
+            line = line[: remaining - 1].rstrip() + "…"
+        content += "\n" + line
+        ids.append(lesson_id)
+    if not ids:
+        return "", ()
+    return content, tuple(ids)
+
+
 def build_prompt_plan(
     *,
     system_prompt: str,
@@ -194,6 +247,7 @@ def build_prompt_plan(
     profile_snapshot_id: Optional[str] = None,
     skill_manifest: str = "",
     skill_manifest_version: Optional[str] = None,
+    lesson_manifest: str = "",
     runtime_context: str = "",
     user_message: str = "",
 ) -> PromptPlan:
@@ -215,6 +269,8 @@ def build_prompt_plan(
                       version=profile_snapshot_id or _hash(profile_block)),
         PromptSegment(id="skill_manifest", content=skill_manifest, source="skills/registry.py",
                       version=skill_manifest_version or (_hash(skill_manifest) if skill_manifest else "empty")),
+        PromptSegment(id="lesson_manifest", content=lesson_manifest, source="self_improvement/lessons.py",
+                      version=_hash(lesson_manifest) if lesson_manifest else "empty"),
         PromptSegment(id="runtime_context", content=runtime_context, source="prompt_segments.py",
                       version=_hash(runtime_context) if runtime_context else "empty"),
         PromptSegment(id="user_message", content=user_message, source="request", version="1"),
@@ -281,6 +337,8 @@ __all__ = [
     "AGENT_VERSION",
     "MAX_SKILLS_IN_MANIFEST",
     "MAX_SKILL_MANIFEST_CHARS",
+    "MAX_LESSON_MANIFEST_CHARS",
+    "MAX_LESSONS_IN_MANIFEST",
     "PromptPlan",
     "PromptSegment",
     "RUN_FROZEN_SEGMENTS",
@@ -288,6 +346,7 @@ __all__ = [
     "SYSTEM_POLICY_VERSION",
     "TOOL_SCHEMA_VERSION",
     "build_prompt_plan",
+    "build_lesson_manifest",
     "build_skill_manifest",
     "compare_plans",
     "prompt_cache_key",

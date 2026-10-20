@@ -122,6 +122,14 @@ const launcher = [
   "_capv = check_capability_floors(_cap)",
   "print('  capability-class gate:', 'PASS' if _capv['passed'] else 'FAIL', 'measured=' + str(_capv['measured']), 'unmeasured=' + str(_capv['unmeasured']), _capv['failures'] if not _capv['passed'] else '')",
   "failed += [] if _capv['passed'] else ['capability_classes']",
+  // R8: the RSL conductor's deterministic offline end-to-end. It exercises
+  // propose_many -> per-candidate verification -> anonymous selection ->
+  // composition -> one recorded EvaluationRun + the measured metric block. It
+  // never applies a change and never touches the developer's databases.
+  "from harness.self_improvement.gate import run_offline_rsl_gate, format_rsl_gate_report",
+  "_rsl = run_offline_rsl_gate()",
+  "print('  ' + format_rsl_gate_report(_rsl))",
+  "failed += [] if _rsl['passed'] else ['rsl']",
   "print('eval gates:', 'ALL PASS' if not failed else 'FAILED: ' + ','.join(failed))",
   "sys.exit(0 if not failed else 1)",
 ].join("\n");

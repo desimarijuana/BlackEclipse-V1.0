@@ -195,6 +195,13 @@ class EventSystem:
             _FAILURE_TYPES, self._on_failure,
             consumer_id="events.self_improvement", idempotent=True,
         ))
+        # The RSL conductor is a periodic task; `evaluation.started` is its
+        # event wake. This consumer only wakes the loop — it never runs an
+        # evaluation itself (the loop owns claim/lease/budget).
+        self._subscriptions.append(self.bus.subscribe(
+            "evaluation.started", self._on_evaluation_started,
+            consumer_id="events.rsl_wake", idempotent=True,
+        ))
 
     async def _on_memory_candidate(self, event: EclipseEvent) -> None:
         if event.replay:
@@ -243,6 +250,17 @@ class EventSystem:
         ))
 
     # ── subscriptions ────────────────────────────────────────────────────────
+    async def _on_evaluation_started(self, event: EclipseEvent) -> None:
+        """Wake the RSL conductor; the loop decides whether there is work."""
+        if event.replay:
+            return
+        try:
+            rsl_loop = getattr(self._service, "_rsl_loop", None)
+            if rsl_loop is not None:
+                rsl_loop.wake()
+        except Exception:  # noqa: BLE001 - waking the loop is best-effort
+            pass
+
     def subscribe(self, filter_like: Any, handler: Any, **kwargs: Any) -> Subscription:
         return self.bus.subscribe(filter_like, handler, **kwargs)
 
