@@ -220,11 +220,38 @@ async def _list_blueprints(args: dict[str, Any], ctx: ToolContext) -> Any:
     return _ok(f"{result['total']} blueprint(s).{suffix}", result)
 
 
+def _record_intent(ctx: ToolContext, decision: dict[str, Any]) -> None:
+    """Record the run's intent verdict (W1.3).
+
+    The verdict used to die with this tool's result, so a run that was routed
+    to the Engineer (or refused for a capability gap) left no durable trace of
+    WHY. It now has one home: the run's outcome envelope. Best-effort — the
+    record never breaks the tool.
+    """
+    try:
+        from ..run_outcome import record_intent  # noqa: PLC0415
+
+        reasons = [str(r) for r in (decision.get("reasons") or [])]
+        record_intent(
+            getattr(ctx, "memory_store", None),
+            str(getattr(ctx, "run_id", "") or ""),
+            {
+                "verdict": str(decision.get("mode") or ""),
+                "reason": reasons[0] if reasons else "",
+                "witness": [str(c) for c in (decision.get("matchedComponents") or [])],
+                "capabilityGap": bool(decision.get("capabilityGap")),
+            },
+        )
+    except Exception:  # noqa: BLE001 - the record is additive; never break the tool
+        return
+
+
 async def _classify_request(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
         result = _service(ctx).classify_request(str(args.get("text") or ""), blueprint_id=args.get("blueprintId"))
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
+    _record_intent(ctx, result)
     mode = result["mode"]
     reason = result["reasons"][0] if result["reasons"] else ""
     hint = "" if mode == "compose" else " This needs the Engineer (code) path."

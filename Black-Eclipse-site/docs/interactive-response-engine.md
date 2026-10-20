@@ -706,8 +706,26 @@ deliberately (Settings › Charts, or a preset that carries its own
 The frosted **tooltip** recipe (translucent tint, `appendTo: 'body'`, 18px blur,
 rounded shadow) lives once in `baseChartOption()`; `mergeChartOption()` combines
 it with the block's own `trigger`/`valueFormatter`. A plain spread would let the
-bare block tooltip clobber the glass chrome — that regression is why the merge is
+bare block tooltip clobber the glass chrome �?" that regression is why the merge is
 a named, tested helper.
+
+**Visual director, weights, bands and focus (2026-10-19).** `chartType: "auto"`
+(the new default; explicit types always win) resolves in `chart-option.ts`: a
+temporal category axis or multiple series renders a line; a single series of at
+most 12 labels renders bars; `[x, y, size]` triples render `bubble`; a fully
+monotonic pair renders a line; any other pair renders `scatter`. A series may
+carry `weight` (0..1): it scales stroke width
+(`Math.round((1.2 + 2.4*w)*100)/100`) and opacity (`0.45 + 0.55*w`) so the
+important series reads first without inventing values. A series may also carry
+`band: {lower, upper, weight?}`: on a category axis the renderer adds two hidden
+stacked series per band (transparent lower + translucent delta area, alpha
+`0.08 + 0.22*(weight ?? 0.5)`, `silent`, excluded from the tooltip) and the
+legend lists only the real series. `data_table` alignment is derived in
+`table-presentation.ts` (an explicit `align` wins; a column whose values are
+≥80% numeric right-aligns; raw numbers get locale formatting with at most 4
+fraction digits, numeric strings are left untouched). `response-chart.tsx` adds
+a **focus overlay** (Maximize control, Escape/backdrop/Close to dismiss,
+`role="dialog"`, same `useEChart` instance); the chart remounts on focus toggle.
 
 ### Integration point
 

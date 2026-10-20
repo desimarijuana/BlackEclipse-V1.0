@@ -1,4 +1,4 @@
-"""Agent definitions — authored in Python.
+﻿"""Agent definitions â€” authored in Python.
 
 Adding an agent is adding an `AgentConfig` here. Agents declare their tool
 allowlist; the registry enforces it. The authoritative system prompt content
@@ -29,7 +29,7 @@ from .team.tools import TEAM_TOOLS
 # registry; imported here as the ONE canonical list so the allowlist cannot drift.
 from .ui.tools import UI_TOOLS
 from .sdk.tools import SDK_TOOLS
-# The Quant Engine tools (`run_backtest`, `optimize_parameters`, …). Registered by
+# The Quant Engine tools (`run_backtest`, `optimize_parameters`, â€¦). Registered by
 # `quant/bootstrap.py`; imported as the ONE canonical list so the allowlist cannot
 # drift from what is registered.
 from .quant.tools import QUANT_TOOLS
@@ -65,7 +65,7 @@ from .video.tools import VIDEO_TOOLS
 # allowlist cannot drift.
 from .automation.tools import TOOL_NAMES as AUTOMATION_TOOLS
 # The scheduling tools (`job_*`, Phase 17): the chat agent may create recurring
-# finance jobs from the FIXED catalogue — always saved switched off — and run an
+# finance jobs from the FIXED catalogue â€” always saved switched off â€” and run an
 # already-switched-on job once. The operator's master switch
 # (`agent_scheduling_enabled`) removes the whole surface when off, enforced in
 # `graph.surface_disabled_tools`. Registered by `service.py` on the SAME registry.
@@ -137,7 +137,7 @@ COMPUTER_TOOLS = [
 # read-only: a vision tool observes existing content (including the screen) and
 # never mutates state. Native-first: the run's own model is used when it can see
 # images, else the orchestrator falls back to an auxiliary vision model. Used for
-# computer-use targeting (`visual_ground` → coordinates) and browser screenshot
+# computer-use targeting (`visual_ground` â†’ coordinates) and browser screenshot
 # analysis (pass the screenshot path as the source).
 VISION_TOOLS = [
     "vision_analyze", "image_understand", "vision_answer",
@@ -151,7 +151,7 @@ VISION_TOOLS = [
     "vision_remember", "image_generate",
 ]
 
-#: The Document Intelligence toolset (spec §27): open/inspect/search/extract/
+#: The Document Intelligence toolset (spec Â§27): open/inspect/search/extract/
 #: analyze/query/compare/render documents. All READ-ONLY; they reuse the vision
 #: subsystem for OCR/rendering and the EvidenceStore for provenance.
 #: `document_create` is the WRITE side (Document Authoring): it builds real
@@ -341,7 +341,7 @@ ECLIPSE_AGENT = AgentConfig(
         # routed through the Market Data Gateway + shared services.
         *RESEARCH_DATA_TOOLS,
         # Quant Engine: versioned strategies, deterministic backtests, optimization,
-        # walk-forward, Monte-Carlo, sensitivity and robustness — over the same
+        # walk-forward, Monte-Carlo, sensitivity and robustness â€” over the same
         # verified datasets.
         *QUANT_TOOLS,
         # Statistical Analysis & Feature Engineering Engine: fourteen
@@ -377,8 +377,8 @@ ECLIPSE_AGENT = AgentConfig(
         "get_news",
         "get_source_health",
         "get_coverage",
-        # Truthful per-capability diagnostics (read-only). Recognised ≠ working,
-        # configured ≠ healthy, and zero attempts ≠ failure.
+        # Truthful per-capability diagnostics (read-only). Recognised â‰  working,
+        # configured â‰  healthy, and zero attempts â‰  failure.
         "get_capability_matrix",
         "get_research_health",
         # Eclipse-Memory: persistent memory + progressive skill discovery and
@@ -410,7 +410,7 @@ ECLIPSE_AGENT = AgentConfig(
         "mcp_integrations",
         "mcp_install",
         "mcp_probe",
-        # The trading Journal — the SAME Prisma store the Journal screen reads.
+        # The trading Journal â€” the SAME Prisma store the Journal screen reads.
         # `journal_trades` lists; `journal_add_trade` is approval-gated.
         "journal_trades",
         "journal_add_trade",
@@ -424,7 +424,7 @@ ECLIPSE_AGENT = AgentConfig(
         "memory_search_external",
         "memory_provider_status",
         # The learning loop (read-only): the same review records and captured
-        # candidates the Memory → Reviews / Skills → Learning Queue screens read.
+        # candidates the Memory â†’ Reviews / Skills â†’ Learning Queue screens read.
         "learning_review_list",
         "learning_candidate_list",
         # Bounded read-only GET over the app's OWN loopback API (QA Round 1):
@@ -474,7 +474,8 @@ ECLIPSE_AGENT = AgentConfig(
         "scaffold_kit",
         # Generated capabilities: detect a missing capability, build a tested
         # recipe, and keep activation separate from the build.
-        "capability_request", "capability_build", "capability_status",
+        "capability_request", "capability_build", "capability_status", "capability_external",
+        "capability_adapter",
         "capability_activate", "capability_rollback", "capability_remove",
         # The isolated analysis package environment (install/remove are
         # single-use approval-gated; list/status are read-only).
@@ -517,7 +518,7 @@ ECLIPSE_AGENT = AgentConfig(
         # UI Engineering: inspect the live UI (application map, current page,
         # component catalog, layout, capabilities) and compose/modify the user's
         # saved UI blueprints (create page, add/move/resize/configure widgets,
-        # save/restore layout). UI-configuration state only — no filesystem,
+        # save/restore layout). UI-configuration state only â€” no filesystem,
         # network, shell or secret access.
         *UI_TOOLS,
         *SDK_TOOLS,
@@ -573,15 +574,15 @@ CODE_NAVIGATOR = AgentConfig(
 # finance tool. Its tool allowlist IS the autonomy boundary: `effective_allowlist`
 # narrows it through `code.policy.allowed_tools(autonomy, ...)` before the model
 # sees any schema, so at `plan_only` the write/execute tools are simply absent.
-# It does NOT set `allowMcpTools` — a coding agent must not inherit the operator's
+# It does NOT set `allowMcpTools` â€” a coding agent must not inherit the operator's
 # MCP reach. The tools listed are the REAL names Phases 1-3 registered.
 CODE_AGENT_TOOLS = [
     # Read / navigate (Phase 1)
     "workspace_status", "workspace_list", "workspace_search",
     "workspace_read", "workspace_docs",
-    # Change (Phase 2) — effectful; removed at plan_only
+    # Change (Phase 2) â€” effectful; removed at plan_only
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
-    # File-system subsystem (Phase FS) — read/inspect first, then minimal edits.
+    # File-system subsystem (Phase FS) â€” read/inspect first, then minimal edits.
     "list_directory", "read_file", "search_text", "search_files", "find_files",
     "search_symbols", "find_references", "file_metadata", "file_hash",
     "file_permissions", "index_workspace", "watch_file", "watch_directory",
@@ -590,9 +591,9 @@ CODE_AGENT_TOOLS = [
     "rename_file", "create_directory", "delete_directory",
     "patch_file", "replace_text", "insert_text", "delete_text",
     "apply_diff", "multi_file_patch", "edit_file",
-    # Command broker (Phase 3) — effectful; removed at plan_only
+    # Command broker (Phase 3) â€” effectful; removed at plan_only
     "command_run",
-    # Generic terminal (Phase D) — effectful; removed at plan_only. Safe
+    # Generic terminal (Phase D) â€” effectful; removed at plan_only. Safe
     # commands run directly, others need a per-command approval.
     "terminal_run",
     # Real shell (PowerShell/CMD/bash) with background processes.
@@ -653,7 +654,7 @@ CODE_AGENT_TOOLS = [
     "helm_install", "helm_uninstall",
     "terraform_apply", "terraform_destroy",
     "deploy_run", "deploy_rollback", "deploy_delete",
-    # Verification (Phase 4) — the final answer is checked against the ledger.
+    # Verification (Phase 4) â€” the final answer is checked against the ledger.
     # Memory/session recall stays available: read-only context, NOT the finance family.
     "memory", "skill_list", "skill_view", "session_search", "session_open",
     # Code Intelligence & Understanding Engine (CIUE): semantic/structural
@@ -667,7 +668,7 @@ CODE_AGENT_TOOLS = [
     "code_parse_file", "code_analyze_file", "code_organize_imports",
     "code_get_relevant_context", "code_index_workspace", "code_intel_status",
     "code_find_related_tests", "code_rename_symbol",
-    # External actions (Phase 5) — approve_external only, each single-use approved.
+    # External actions (Phase 5) â€” approve_external only, each single-use approved.
     "code_commit", "code_push", "code_open_pr", "code_deploy",
     # Git / Version-Control subsystem (the Git engine). Read + LOCAL mutation +
     # REMOTE. The autonomy boundary is applied by `code.policy.allowed_tools`, and
@@ -705,39 +706,40 @@ CODE_AGENT_TOOLS = [
     "vcs_create_branch", "vcs_create_pull_request", "vcs_update_pull_request",
     "vcs_close_pull_request", "vcs_merge_pull_request", "vcs_request_review",
     "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
-    # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
+    # Bounded fan-out (Phase 7) â€” independent sub-tasks in parallel.
     "delegate",
     # Durable Task / Plan runtime: track a multi-step build as a hierarchical plan
     # whose tasks are dispatched through the normal run path. Create/steer only.
     *TASK_TOOLS,
-    # Evidence-Driven Web Research Engine — research a technical question,
+    # Evidence-Driven Web Research Engine â€” research a technical question,
     # compare sources, verify a claim. Read-only; untrusted content is data.
     *WEB_RESEARCH_TOOLS,
-    # Unified Retrieval / Search Intelligence — find evidence across documents,
+    # Unified Retrieval / Search Intelligence â€” find evidence across documents,
     # research, memory, experiences and skills.
     *SEARCH_TOOLS,
-    # Analysis sandbox (Phase 8) — compute a derived metric in isolation.
+    # Analysis sandbox (Phase 8) â€” compute a derived metric in isolation.
     "analysis_run",
-    # Scaffold kits (Phase 9) — build a finance tool from a ready-made shape.
+    # Scaffold kits (Phase 9) â€” build a finance tool from a ready-made shape.
     "scaffold_kit",
     # Generated capabilities: detect, build, test and (only when safe) activate.
-    "capability_request", "capability_build", "capability_status",
+    "capability_request", "capability_build", "capability_status", "capability_external",
+    "capability_adapter",
     "capability_activate", "capability_rollback", "capability_remove",
     # Analysis package environment (install/remove approval-gated).
     "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
-    # Browser Automation Runtime — inspect/debug a local or public web app,
+    # Browser Automation Runtime â€” inspect/debug a local or public web app,
     # extract content and capture evidence. Local/private addresses always run
     # locally; the effectful half is narrowed by the autonomy profile.
     *BROWSER_TOOLS,
-    # Computer Use Engine — drive a native desktop app (Excel, VS Code, a terminal
+    # Computer Use Engine â€” drive a native desktop app (Excel, VS Code, a terminal
     # emulator, a PDF reader) when the UI is genuinely required. Prefer the
     # filesystem/code/terminal tools for their native work; CUA is the UI fallback.
     *COMPUTER_TOOLS,
-    # Vision/Multimodal — analyze screenshots, UI mockups, charts, diagrams and
+    # Vision/Multimodal â€” analyze screenshots, UI mockups, charts, diagrams and
     # documents; OCR text; ground a UI element to coordinates before an action.
     *VISION_TOOLS,
     *DOCUMENT_TOOLS,
-    # Change review (Phase 19) — report the repo's own rules over this task's
+    # Change review (Phase 19) â€” report the repo's own rules over this task's
     # diff; read-only, and it records the review so a claim about it can be
     # checked against the ledger.
     "review_change",
@@ -756,13 +758,13 @@ CODE_AGENT = AgentConfig(
     # Deliberately ABSENT: allowMcpTools.
 )
 
-# The CHAT code profile (Phase 14 §6.2). ADDITIVE: `ECLIPSE_AGENT`'s declared
+# The CHAT code profile (Phase 14 Â§6.2). ADDITIVE: `ECLIPSE_AGENT`'s declared
 # tools are NOT touched. When the front door recognizes a coding request it sends
 # an `autonomy`; the resolver then NARROWS the finance agent's run to this set for
 # that turn only, exactly as the code-agent narrows through `code.policy`.
 #
 # It is still narrow: the read/navigate tools plus the write/execute/verify tools,
-# and deliberately NO external action — `code_commit`/`code_push`/`code_open_pr`/
+# and deliberately NO external action â€” `code_commit`/`code_push`/`code_open_pr`/
 # `code_deploy` stay on the Code Tasks surface where the approval panel lives.
 CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list", "workspace_search",
@@ -790,7 +792,8 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "write_process_input", "send_signal", "process_tree", "process_health",
     "list_ports", "terminal_capabilities", "system_info", "resource_report",
     "scaffold_kit", "analysis_run", "eclipse_report",
-    "capability_request", "capability_build", "capability_status",
+    "capability_request", "capability_build", "capability_status", "capability_external",
+    "capability_adapter",
     "capability_activate", "capability_rollback", "capability_remove",
     "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
     # Code Execution & Verification Layer: run/build/test/discover + services +
@@ -895,7 +898,7 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     # composition. A turn that mentions "repository", "tabs" or "list" is often
     # routed to this code profile, and without these the agent loses
     # `ui_get_application_map` exactly when it is asked where something lives in
-    # the app (QA Round 1). UI configuration only — no filesystem/network/shell.
+    # the app (QA Round 1). UI configuration only â€” no filesystem/network/shell.
     *UI_TOOLS,
 )
 # Deliberately ABSENT: code_commit, code_push, code_open_pr, code_deploy.

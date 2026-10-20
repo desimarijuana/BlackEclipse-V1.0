@@ -1,10 +1,16 @@
 ---
 title: Local Hostname — blackeclipse (http/https)
-status: Current
+status: Stale
 last-verified: 2026-10-15
 ---
 
 # Local Hostname — `blackeclipse`
+
+> **Stale (2026-10-20):** the proxy now fronts the **production** profile on
+> `127.0.0.1:3100`, not `:3000`. `npm run dev` no longer starts the proxy; it
+> serves the development server directly on `http://localhost:3000`. Where this
+> doc says `:3000` for the proxy target, read `:3100`. See
+> [`environments.md`](./environments.md).
 
 **Who this is for:** an operator who wants to reach the app at
 `blackeclipse` instead of `http://localhost:3000`, on this machine only, without

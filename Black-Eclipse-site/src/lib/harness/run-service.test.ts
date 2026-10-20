@@ -256,7 +256,7 @@ describe("chatWithAgent code profile (Phase 14)", () => {
     expect(payload.analysisEnabled).toBe(true);
   });
 
-  it("sends plan_only without the analysis sandbox for a code question", async () => {
+  it("keeps the analysis sandbox on for a code question", async () => {
     resolveChatCodeProfile.mockResolvedValue({
       autonomy: "plan_only",
       analysisEnabled: false,
@@ -266,16 +266,16 @@ describe("chatWithAgent code profile (Phase 14)", () => {
     await chatWithAgent("what does the workspace tool do");
     const [payload] = runViaRuntime.mock.calls[0];
     expect(payload.autonomy).toBe("plan_only");
-    expect("analysisEnabled" in payload).toBe(false);
+    expect(payload.analysisEnabled).toBe(true);
   });
 
-  it("sends no code profile for an ordinary finance turn", async () => {
+  it("enables the analysis sandbox for an ordinary finance turn without a profile", async () => {
     resolveChatCodeProfile.mockResolvedValue(null);
     runViaRuntime.mockResolvedValue({ runId: "run_f", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await chatWithAgent("what is AAPL trading at");
     const [payload] = runViaRuntime.mock.calls[0];
     expect("autonomy" in payload).toBe(false);
-    expect("analysisEnabled" in payload).toBe(false);
+    expect(payload.analysisEnabled).toBe(true);
   });
 
   it("sends analysis without an autonomy for a data task", async () => {
@@ -292,6 +292,27 @@ describe("chatWithAgent code profile (Phase 14)", () => {
     expect(payload.analysisEnabled).toBe(true);
   });
 
+  it("forces the app-control surface for /app without a code profile", async () => {
+    await startChatRun("/app add a clock to my Command Center", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
+    expect(payload.command).toBe("app");
+    expect(payload.input.context?.appControl).toBe(true);
+    expect(resolveChatCodeProfile).not.toHaveBeenCalled();
+  });
+
+  it("marks a classifier app-control turn without narrowing autonomy", async () => {
+    resolveChatCodeProfile.mockResolvedValue({
+      autonomy: null,
+      analysisEnabled: false,
+      verdict: "app_control",
+    });
+    await startChatRun("add a clock to my Command Center", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
+    expect(payload.input.context?.appControl).toBe(true);
+  });
+
   it("forwards the data-task analysis flag through the streaming path too", async () => {
     resolveChatCodeProfile.mockResolvedValue({
       autonomy: null,
@@ -304,12 +325,21 @@ describe("chatWithAgent code profile (Phase 14)", () => {
     expect(payload.analysisEnabled).toBe(true);
   });
 
+  it("enables the analysis sandbox on an ordinary streaming turn", async () => {
+    resolveChatCodeProfile.mockResolvedValue(null);
+    await startChatRun("what is AAPL trading at", [], [], undefined, "session-1", undefined);
+    const [payload] = startRunBackground.mock.calls[0];
+    expect("autonomy" in payload).toBe(false);
+    expect(payload.analysisEnabled).toBe(true);
+  });
+
   it("treats a classifier failure as an ordinary turn", async () => {
     resolveChatCodeProfile.mockRejectedValue(new Error("runtime unavailable"));
     runViaRuntime.mockResolvedValue({ runId: "run_e", status: "completed", output: "x", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await chatWithAgent("build me a python module");
     const [payload] = runViaRuntime.mock.calls[0];
     expect("autonomy" in payload).toBe(false);
+    expect(payload.analysisEnabled).toBe(true);
   });
 });
 

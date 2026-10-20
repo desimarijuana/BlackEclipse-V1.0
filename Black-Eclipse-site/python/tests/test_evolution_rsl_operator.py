@@ -256,6 +256,7 @@ def test_surface_route_creates_one_typed_candidate_and_wakes_the_loop(env):
         taskIds=["core.echo.001"],
         trials=1,
         seed=7,
+        scope="eclipse-agent",
     )
 
     result = evolution_router.create_surface_experiment(body)
@@ -265,6 +266,7 @@ def test_surface_route_creates_one_typed_candidate_and_wakes_the_loop(env):
     assert candidate["subjectType"] == "surface"
     assert candidate["status"] == "proposed"
     assert candidate["surfaceConfig"]["dataset"] == "benchmark_v1"
+    assert candidate["surfaceConfig"]["scope"] == "eclipse-agent"
     assert candidate["surfaceConfig"]["taskIds"] == ["core.echo.001"]
     assert candidate["surfaceConfig"]["snapshot"]["systemPrompt"].endswith("candidate.")
     assert candidate["surfaceConfig"]["base"]["sourceDigest"]

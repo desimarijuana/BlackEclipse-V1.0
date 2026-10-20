@@ -11,22 +11,52 @@ from harness.self_improvement.models import HarnessSnapshot
 def test_defaults_are_dark_and_bounded():
     config = RSLConfig.from_env(environ={})
     assert config.mode == "off"
+    assert config.strategy == "rsl"
     assert config.is_off is True
     assert config.observes is False
     assert config.max_candidates == 5
     assert config.max_experiments_per_day == 3
     assert config.trials == 3
     assert config.k == 1
+    assert config.generations == 1
     assert config.tick_seconds == 300
     assert config.lease_seconds == 1800
     assert config.max_wall_seconds == 1800
     assert config.max_cost_usd == 5.0
+    assert config.code_benchmark is False
+
+
+def test_lesson_retirement_is_off_by_default_and_opt_in():
+    assert RSLConfig.from_env(environ={}).lesson_retire is False
+    assert RSLConfig.from_env(
+        environ={"HARNESS_RSL_LESSON_RETIRE": "on"}
+    ).lesson_retire is True
+    assert RSLConfig.from_env(
+        environ={"HARNESS_RSL_LESSON_RETIRE": "0"}
+    ).lesson_retire is False
+
+
+def test_code_benchmark_is_off_by_default_and_opt_in():
+    assert RSLConfig.from_env(environ={}).code_benchmark is False
+    assert RSLConfig.from_env(
+        environ={"HARNESS_RSL_CODE_BENCHMARK": "on"}
+    ).code_benchmark is True
 
 
 def test_mode_is_case_insensitive_and_invalid_modes_fail_closed():
     assert RSLConfig.from_env(environ={"HARNESS_RSL_MODE": "OBSERVE"}).mode == "observe"
     assert RSLConfig.from_env(environ={"HARNESS_RSL_MODE": " verify "}).mode == "verify"
+    assert RSLConfig.from_env(environ={"HARNESS_RSL_MODE": "AUTO"}).mode == "auto"
     assert RSLConfig.from_env(environ={"HARNESS_RSL_MODE": "autonomous"}).mode == "off"
+
+
+def test_strategy_is_explicit_and_invalid_values_fail_closed():
+    assert RSLConfig.from_env(
+        environ={"HARNESS_RSL_STRATEGY": "HILLCLIMB"}
+    ).strategy == "hillclimb"
+    assert RSLConfig.from_env(
+        environ={"HARNESS_RSL_STRATEGY": "autonomous"}
+    ).strategy == "rsl"
 
 
 def test_every_numeric_setting_is_clamped():
@@ -35,6 +65,7 @@ def test_every_numeric_setting_is_clamped():
         "HARNESS_RSL_MAX_EXPERIMENTS_PER_DAY": "-4",
         "HARNESS_RSL_TRIALS": "0",
         "HARNESS_RSL_K": "99",
+        "HARNESS_RSL_GENERATIONS": "99",
         "HARNESS_RSL_TICK_SECONDS": "1",
         "HARNESS_RSL_LEASE_SECONDS": "1",
         "HARNESS_RSL_MAX_WALL_SECONDS": "999999",
@@ -44,6 +75,7 @@ def test_every_numeric_setting_is_clamped():
     assert config.max_experiments_per_day == 0
     assert config.trials == 1
     assert config.k == 8
+    assert config.generations == 3
     assert config.tick_seconds == 10
     assert config.lease_seconds == 60
     assert config.max_wall_seconds == 7200

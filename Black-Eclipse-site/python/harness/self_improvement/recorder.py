@@ -64,30 +64,42 @@ def record_code_experiment(
     verification: dict[str, Any],
     decision: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Persist a tests-only code experiment and emit its completion event."""
+    """Persist a code experiment and emit its completion event.
+
+    A tests-only run is `UNMEASURED`; the opt-in patched-worktree benchmark
+    upgrades it to `MEASURED` and carries the evaluator's decision record.
+    """
     candidate_id = str(candidate.get("id") or "")
+    benchmark = str(verification.get("benchmark") or "UNMEASURED").upper()
+    measured = benchmark == "MEASURED"
+    metrics = verification.get("benchmarkMetrics") or {}
+    decision_record = verification.get("decisionRecord")
     config = {
         "kind": "rsl",
         "proposalId": candidate_id,
         "split": "validation",
-        "trials": 0,
+        "trials": 1 if measured else 0,
         "tier": 0,
         "graderVersion": GRADER_API_VERSION,
-        "benchmark": "UNMEASURED",
-        "mode": "tests_only",
+        "benchmark": benchmark,
+        "mode": "tests_benchmark" if measured else "tests_only",
     }
     metadata = {
         "kind": "rsl",
         "proposalId": candidate_id,
         "split": "validation",
         "graderVersion": GRADER_API_VERSION,
-        "benchmark": "UNMEASURED",
+        "benchmark": benchmark,
         "decision": decision or ("tests_passed" if verification.get("passed") else "tests_failed"),
         "targetPath": candidate.get("targetPath"),
         "sourceCategory": candidate.get("sourceCategory"),
         "testsPassed": bool(verification.get("passed")),
         "checks": (verification.get("report") or {}).get("checks") or [],
-        "measuredTrials": 0,
+        "measuredTrials": int(
+            (metrics.get("candidate") or {}).get("measuredTrials") or 0
+        ) if measured else 0,
+        "decisionRecord": decision_record,
+        "benchmarkMetrics": metrics if measured else None,
     }
     try:
         existing = eval_store.get_run(run_id)
@@ -113,10 +125,11 @@ def record_code_experiment(
         run_store.append_event(
             run_id, "self_improvement.experiment_completed", seq, {
                 "candidateId": candidate_id,
-                "benchmark": "UNMEASURED",
+                "benchmark": benchmark,
                 "decision": metadata["decision"],
                 "proposalId": candidate_id,
                 "testsPassed": metadata["testsPassed"],
+                "measuredTrials": metadata["measuredTrials"],
             },
         )
     except Exception:  # noqa: BLE001 - the event store is best-effort

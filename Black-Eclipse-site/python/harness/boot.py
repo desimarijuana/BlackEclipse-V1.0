@@ -256,6 +256,15 @@ async def _shutdown() -> None:
     await service.stop_mcp()
     service.stop_application_runtime()
     service.stop_execution()
+    # Stop the warm analysis kernels: close each worker's process tree and
+    # remove its staging directory before the interpreter exits. Off-loop because
+    # close waits for a killed process to be reaped. Best-effort.
+    try:
+        from .code.kernel import reset_kernel_pool  # noqa: PLC0415
+
+        await asyncio.to_thread(reset_kernel_pool)
+    except Exception:  # noqa: BLE001 - shutdown must never raise
+        log.warning("analysis kernel shutdown failed", exc_info=True)
     await service.stop_terminal()
     # Release SQLite connections LAST, once every subsystem is idle. The pool
     # reconnects lazily, so a later lifespan entry still works.

@@ -28,9 +28,11 @@ from .model import (
     SOURCE_PRIMITIVES,
     WIDGET_PRIMITIVES,
     SdkAddStockInput,
+    SdkAuditInput,
     SdkCreateFundInput,
     SdkCreateLockInput,
     SdkCreatePageInput,
+    SdkPageWidget,
     SdkWidgetInput,
 )
 from .store import SdkStore
@@ -125,7 +127,52 @@ class EclipseSdk:
                 "header": "X-Eclipse-Unlock",
                 "count": len(self._store.list_locks()),
             },
+            "audit": {"count": self._store.audit_count()},
         }
+
+    # ── audit ─────────────────────────────────────────────────────────────────
+
+    def record_audit(self, input_model: SdkAuditInput, *, actor: Optional[str] = None) -> dict[str, Any]:
+        return self._store.record_audit(
+            actor=actor or input_model.actor or "operator",
+            action=input_model.action,
+            summary=input_model.summary,
+            resource_type=input_model.resource_type,
+            resource_id=input_model.resource_id,
+            detail=input_model.detail,
+        )
+
+    def list_audit(
+        self,
+        *,
+        limit: int = 100,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        entries = self._store.list_audit(limit=limit, action=action, resource_type=resource_type)
+        return {"entries": entries, "total": self._store.audit_count()}
+
+    def _audit(
+        self,
+        action: str,
+        summary: str,
+        *,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        detail: Optional[dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> None:
+        try:
+            self._store.record_audit(
+                action=action,
+                actor=actor or "operator",
+                resource_type=resource_type,
+                resource_id=resource_id,
+                summary=summary,
+                detail=detail,
+            )
+        except Exception:  # noqa: BLE001 - audit never breaks a successful mutation
+            pass
 
     def _safe_portfolios(self) -> list[dict[str, Any]]:
         if self._portfolio is None:
@@ -162,6 +209,14 @@ class EclipseSdk:
             self._ui.register_component(self._component_spec(record), actor=actor)
         except UiError as exc:
             raise SdkError(exc.code, exc.message) from exc
+        self._audit(
+            "widget.create",
+            f"Created {record['componentId']}",
+            resource_type="widget",
+            resource_id=record["componentId"],
+            detail={"primitive": record["primitive"], "surface": record["surface"]},
+            actor=actor,
+        )
         return record
 
     def list_widgets(self) -> list[dict[str, Any]]:
@@ -182,7 +237,16 @@ class EclipseSdk:
                 )
             except UiError:
                 pass
-        return self._store.delete_widget(component_id)
+        removed = self._store.delete_widget(component_id)
+        if removed:
+            self._audit(
+                "widget.delete",
+                f"Deleted {component_id}",
+                resource_type="widget",
+                resource_id=component_id,
+                actor=actor,
+            )
+        return removed
 
     #: The per-primitive config surface an SDK widget instance may override.
     #: Mirrors the generic host widgets; a key outside this list is rejected by
@@ -322,9 +386,61 @@ class EclipseSdk:
                 owner_id=owner_id,
                 actor=actor,
             )
+        self._audit(
+            "page.create",
+            f'Created the page "{blueprint.title}"',
+            resource_type="page",
+            resource_id=blueprint.id,
+            detail={"path": blueprint.path, "widgetCount": len(input_model.widgets)},
+            actor=actor,
+        )
         return {
             "blueprint": blueprint.model_dump(by_alias=True),
             "verification": self._ui.verify_page(blueprint.id, owner_id=owner_id),
+        }
+
+    def add_page_widget(
+        self,
+        blueprint_id: str,
+        widget: SdkPageWidget,
+        *,
+        owner_id: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if self._ui is None:
+            raise SdkError("SDK_UI_UNAVAILABLE", "the UI runtime is unavailable", status_code=503)
+        try:
+            self._ui.inspect_component(widget.component_id)
+            issues = self._ui.validate_config(widget.component_id, widget.config)
+        except UiError as exc:
+            raise SdkError(exc.code, exc.message) from exc
+        errors = [issue for issue in issues if issue.get("severity") == "error"]
+        if errors:
+            raise SdkError("SDK_PAGE_INVALID", str(errors[0].get("message") or "invalid widget configuration"))
+        try:
+            blueprint = self._ui.add_widget(
+                AddWidgetInput(
+                    blueprint_id=blueprint_id,
+                    component_id=widget.component_id,
+                    config=widget.config,
+                    height=widget.height,
+                ),
+                owner_id=owner_id,
+                actor=actor,
+            )
+        except UiError as exc:
+            raise SdkError(exc.code, exc.message) from exc
+        self._audit(
+            "page.add_widget",
+            f'Added {widget.component_id} to "{blueprint.title}"',
+            resource_type="page",
+            resource_id=blueprint_id,
+            detail={"componentId": widget.component_id},
+            actor=actor,
+        )
+        return {
+            "blueprint": blueprint.model_dump(by_alias=True),
+            "verification": self._ui.verify_page(blueprint_id, owner_id=owner_id),
         }
 
     def list_pages(self, *, owner_id: Optional[str] = None) -> dict[str, Any]:
@@ -357,15 +473,32 @@ class EclipseSdk:
             )
         except UiError as exc:
             raise SdkError(exc.code, exc.message) from exc
+        self._audit(
+            "page.update",
+            f'Updated the page "{blueprint.title}"',
+            resource_type="page",
+            resource_id=blueprint_id,
+            detail={"fields": sorted(patch.keys())},
+            actor=actor,
+        )
         return {"blueprint": blueprint.model_dump(by_alias=True)}
 
     def delete_page(self, blueprint_id: str, *, owner_id: Optional[str] = None, actor: Optional[str] = None) -> bool:
         if self._ui is None:
             raise SdkError("SDK_UI_UNAVAILABLE", "the UI runtime is unavailable", status_code=503)
         try:
-            return self._ui.delete_page(blueprint_id, owner_id=owner_id, actor=actor)
+            removed = self._ui.delete_page(blueprint_id, owner_id=owner_id, actor=actor)
         except UiError as exc:
             raise SdkError(exc.code, exc.message) from exc
+        if removed:
+            self._audit(
+                "page.delete",
+                f"Deleted page {blueprint_id}",
+                resource_type="page",
+                resource_id=blueprint_id,
+                actor=actor,
+            )
+        return removed
 
     # ── portfolio ────────────────────────────────────────────────────────────
 
@@ -395,7 +528,16 @@ class EclipseSdk:
             metadata=metadata,
             actor=actor,
         )
-        return self._portfolio_view(record)
+        fund = self._portfolio_view(record)
+        self._audit(
+            "portfolio.create_fund",
+            f'Created the fund "{fund.get("name") or input_model.name}"',
+            resource_type="portfolio",
+            resource_id=str(fund.get("id") or ""),
+            detail={"baseCurrency": input_model.base_currency, "goal": input_model.goal},
+            actor=actor,
+        )
+        return fund
 
     def add_stock(self, portfolio_id: str, input_model: SdkAddStockInput, *, actor: Optional[str] = None) -> dict[str, Any]:
         if self._portfolio is None:
@@ -410,6 +552,14 @@ class EclipseSdk:
             if value is not None:
                 payload[key] = value
         result = self._portfolio.add_position(portfolio_id, payload, actor_id=actor)
+        self._audit(
+            "portfolio.add_stock",
+            f"Added {input_model.symbol} to the portfolio",
+            resource_type="portfolio",
+            resource_id=portfolio_id,
+            detail={"symbol": input_model.symbol, "type": input_model.type},
+            actor=actor,
+        )
         return result
 
     def _portfolio_view(self, record: dict[str, Any]) -> dict[str, Any]:
@@ -428,8 +578,8 @@ class EclipseSdk:
     def list_locks(self, *, resource_type: Optional[str] = None, resource_id: Optional[str] = None):
         return self.locks.list(resource_type=resource_type, resource_id=resource_id)
 
-    def unlock(self, lock_id: str, passphrase: str) -> dict[str, Any]:
-        return self.locks.unlock(lock_id, passphrase)
+    def unlock(self, lock_id: str, passphrase: str, *, actor: Optional[str] = None) -> dict[str, Any]:
+        return self.locks.unlock(lock_id, passphrase, actor=actor)
 
     def remove_lock(self, lock_id: str, *, passphrase: Optional[str] = None, actor: Optional[str] = None) -> bool:
         return self.locks.remove(lock_id, passphrase=passphrase, actor=actor)

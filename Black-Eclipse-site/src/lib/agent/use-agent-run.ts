@@ -17,6 +17,7 @@ import type { ChatMessage } from './types';
 import type { HarnessUiEvent } from './events';
 import type { AssistantTurn, PendingApproval } from './response-model';
 import { emptyTurn } from './response-model';
+import { mergeCapabilityBuild, type CapabilityBuildView } from '@/lib/harness/capability-types';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
 import { useNotificationsStore } from '@/lib/notifications/store';
@@ -263,9 +264,20 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
         }
         case 'acquisition': {
           // A dataset collection finished: keep the manifest so the transcript
-          // can show source/window/rows/completeness/licence — a partial pull
+          // can show source/window/rows/completeness/licence �?" a partial pull
           // is shown partial, never as the dataset.
           t.acquisition = event.manifest;
+          publish(true);
+          break;
+        }
+        case 'capability': {
+          // The generated-capability lifecycle. Merge by identity so a later
+          // activation/test event updates the same card instead of replacing it.
+          t.capabilityBuild = mergeCapabilityBuild(
+            t.capabilityBuild as CapabilityBuildView | undefined,
+            event.view,
+            event.phase,
+          );
           publish(true);
           break;
         }

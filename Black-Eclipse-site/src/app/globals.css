@@ -2022,3 +2022,20 @@ html:not(.dark) .via-\[\#0f0f0f\]\/60 { --tw-gradient-via: color-mix(in srgb, va
  * Regime signal still shows. */
 html:not(.dark) [data-aurora-glow] { opacity: 0.42; }
 
+
+/* ── Boot overlay auto-dismiss ────────────────────────────────────────────────
+ * `GlobalLoader` normally unmounts itself from a JS timer. That timer shares the
+ * main thread with hydration and dev-chunk compilation, so on a loaded machine
+ * it can be delayed while the overlay sits at its last percentage (the
+ * "stuck at 95%" report). This compositor-driven animation dismisses the
+ * cosmetic overlay regardless of main-thread work; the JS timer remains the
+ * primary path and simply unmounts it earlier when it can. The accessibility
+ * kill switches collapse the duration to ~0ms, which is still a dismissal
+ * (the app underneath is already painted), never a stuck overlay. */
+@keyframes beBootOverlayDismiss {
+  0%, 72% { opacity: 1; visibility: visible; }
+  100% { opacity: 0; visibility: hidden; }
+}
+.be-boot-overlay {
+  animation: beBootOverlayDismiss 2.4s ease forwards;
+}

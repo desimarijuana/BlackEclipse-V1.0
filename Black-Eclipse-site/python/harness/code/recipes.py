@@ -27,6 +27,7 @@ from .execution import (
     INPUT_INVALID,
     run_analysis,
 )
+from .sandbox_tools import ToolResolver
 
 
 @dataclass(frozen=True)
@@ -412,20 +413,41 @@ RECIPES: tuple[Recipe, ...] = (
 )
 
 
+_DYNAMIC: dict[str, Recipe] = {}
+
+
 def get_recipe(name: str) -> Optional[Recipe]:
-    return next((r for r in RECIPES if r.name == name), None)
+    return next((r for r in RECIPES if r.name == name), None) or _DYNAMIC.get(name)
+
+
+def register_dynamic_recipe(recipe: Recipe) -> None:
+    _DYNAMIC[recipe.name] = recipe
+
+
+def unregister_dynamic_recipe(name: str) -> bool:
+    return _DYNAMIC.pop(name, None) is not None
+
+
+def clear_dynamic_recipes() -> None:
+    _DYNAMIC.clear()
+
+
+def dynamic_recipe_names() -> list[str]:
+    return sorted(_DYNAMIC)
 
 
 def list_recipes() -> list[dict[str, Any]]:
     return [
         {"name": r.name, "answers": r.answers,
          "inputs": [{"name": i.name, "kind": i.kind, "description": i.description} for i in r.inputs]}
-        for r in RECIPES
+        for r in (*RECIPES, *_DYNAMIC.values())
     ]
 
 
 def run_recipe(
-    name: str, inputs: dict[str, Any], *, output_dir: Optional[Path] = None, timeout_s: int = 120,
+    name: str, inputs: dict[str, Any], *, output_dir: Optional[Path] = None,
+    timeout_s: int = 120, tool_resolver: Optional[ToolResolver] = None,
+    kernel: Optional[Any] = None,
 ) -> AnalysisResult:
     """Run a named recipe, or REFUSE honestly when a required input is missing.
 
@@ -467,10 +489,13 @@ def run_recipe(
             purpose=recipe.answers,
             timeout_s=timeout_s,
             extra_imports=recipe.extra_imports,
+            allow_tools=tool_resolver is not None,
         )
     except Exception as exc:  # noqa: BLE001 - a malformed recipe call is a refusal
         raise AnalysisError(INPUT_INVALID, str(exc)) from exc
-    result = run_analysis(request, output_dir=output_dir)
+    result = run_analysis(
+        request, output_dir=output_dir, tool_resolver=tool_resolver, kernel=kernel,
+    )
     if result.status == "ok" and recipe.figure_kind:
         # The figure payload (§6.1): what was drawn, from which recorded inputs,
         # with the seed when the computation was stochastic. A figure is never
@@ -493,4 +518,15 @@ def run_recipe(
     return result
 
 
-__all__ = ["RECIPES", "Recipe", "RecipeInput", "get_recipe", "list_recipes", "run_recipe"]
+__all__ = [
+    "RECIPES",
+    "Recipe",
+    "RecipeInput",
+    "clear_dynamic_recipes",
+    "dynamic_recipe_names",
+    "get_recipe",
+    "list_recipes",
+    "register_dynamic_recipe",
+    "run_recipe",
+    "unregister_dynamic_recipe",
+]

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildChartOption, chartHasData, mergeChartOption } from './chart-option';
+import {
+  buildChartOption,
+  chartHasData,
+  directChartType,
+  mergeChartOption,
+  resolveChartType,
+} from './chart-option';
 import { validateBlock, type ChartBlock } from './contract';
 
 const palette = { primary: '#7aff78', series: ['#60a5fa', '#fbbf24'] };
@@ -186,5 +192,127 @@ describe('buildChartOption — extended chart types', () => {
     expect(option.series[0].type).toBe('scatter');
     expect(option.series[0].data[0].value).toEqual([1, 2, 3]);
     expect(option.series[0].data[1].symbolSize).toBeGreaterThan(option.series[0].data[0].symbolSize);
+  });
+});
+
+describe('visual director', () => {
+  it('chooses a line for temporal categories', () => {
+    const block = chart({
+      type: 'chart', chartType: 'auto',
+      categories: ['2026-01-01', '2026-02-01', '2026-03-01'],
+      series: [{ name: 's', data: [1, 2, 3] }],
+    });
+    expect(directChartType(block)).toBe('line');
+    const option = buildChartOption(block, palette) as any;
+    expect(option.series[0].type).toBe('line');
+  });
+
+  it('chooses a bar for a short, non-temporal single series', () => {
+    const block = chart({
+      type: 'chart', chartType: 'auto', categories: ['Alpha', 'Beta', 'Gamma'],
+      series: [{ name: 's', data: [1, 2, 3] }],
+    });
+    expect(directChartType(block)).toBe('bar');
+    expect((buildChartOption(block, palette) as any).series[0].type).toBe('bar');
+  });
+
+  it('chooses a line for a long single series without temporal labels', () => {
+    const block = chart({
+      type: 'chart', chartType: 'auto',
+      categories: Array.from({ length: 20 }, (_, i) => `Item ${i}`),
+      series: [{ name: 's', data: Array.from({ length: 20 }, (_, i) => i) }],
+    });
+    expect(directChartType(block)).toBe('line');
+  });
+
+  it('chooses scatter for non-monotonic pairs and bubble for triples', () => {
+    const scatter = chart({
+      type: 'chart', chartType: 'auto',
+      series: [{ name: 'p', data: [[3, 2], [1, 4], [2, 1]] }],
+    });
+    const bubble = chart({
+      type: 'chart', chartType: 'auto',
+      series: [{ name: 'p', data: [[1, 2, 3], [2, 3, 4]] }],
+    });
+    expect(directChartType(scatter)).toBe('scatter');
+    expect(directChartType(bubble)).toBe('bubble');
+  });
+
+  it('never overrides an explicit type', () => {
+    const block = chart({
+      type: 'chart', chartType: 'bar', categories: ['2026-01-01', '2026-02-01'],
+      series: [{ name: 's', data: [1, 2] }],
+    });
+    expect(resolveChartType(block)).toBe('bar');
+  });
+});
+
+describe('series weight and bands', () => {
+  it('maps weight to line width and opacity, leaving absent weight unchanged', () => {
+    const plain = buildChartOption(
+      chart({ type: 'chart', chartType: 'line', categories: ['a'], series: [{ name: 's', data: [1] }] }),
+      palette,
+    ) as any;
+    const light = buildChartOption(
+      chart({ type: 'chart', chartType: 'line', categories: ['a'], series: [{ name: 's', data: [1], weight: 0 }] }),
+      palette,
+    ) as any;
+    const heavy = buildChartOption(
+      chart({ type: 'chart', chartType: 'line', categories: ['a'], series: [{ name: 's', data: [1], weight: 1 }] }),
+      palette,
+    ) as any;
+    expect(plain.series[0].lineStyle.width).toBe(2.4);
+    expect(plain.series[0].lineStyle.opacity).toBe(1);
+    expect(light.series[0].lineStyle.width).toBe(1.2);
+    expect(light.series[0].lineStyle.opacity).toBeCloseTo(0.45);
+    expect(heavy.series[0].lineStyle.width).toBe(3.6);
+    expect(heavy.series[0].lineStyle.opacity).toBeCloseTo(1);
+  });
+
+  it('draws a band as a hidden lower/delta stack and keeps it out of the legend', () => {
+    const option = buildChartOption(
+      chart({
+        type: 'chart', chartType: 'line', categories: ['a', 'b'],
+        series: [
+          {
+            name: 'Forecast', data: [10, 20], weight: 1,
+            band: { lower: [8, 15], upper: [12, 25], weight: 1 },
+          },
+          { name: 'Actual', data: [9, 18] },
+        ],
+      }),
+      palette,
+    ) as any;
+    expect(option.series).toHaveLength(4);
+    expect(option.series[2].name).toBe('__band_lower_0');
+    expect(option.series[3].name).toBe('__band_0');
+    expect(option.series[2].data).toEqual([8, 15]);
+    expect(option.series[3].data).toEqual([4, 10]);
+    expect(option.series[2].stack).toBe(option.series[3].stack);
+    expect(option.series[3].areaStyle.color).toContain('rgba(');
+    expect(option.legend.data).toEqual(['Forecast', 'Actual']);
+  });
+
+  it('truncates a band to the shortest supplied array', () => {
+    const option = buildChartOption(
+      chart({
+        type: 'chart', chartType: 'line', categories: ['a', 'b'],
+        series: [{ name: 's', data: [1, 2], band: { lower: [0.5], upper: [2, 3] } }],
+      }),
+      palette,
+    ) as any;
+    expect(option.series[1].data).toEqual([0.5]);
+    expect(option.series[2].data).toEqual([1.5]);
+  });
+
+  it('does not draw a band on a value axis (pairs)', () => {
+    const option = buildChartOption(
+      chart({
+        type: 'chart', chartType: 'line',
+        series: [{ name: 's', data: [[1, 2], [2, 3]], band: { lower: [1, 2], upper: [3, 4] } }],
+      }),
+      palette,
+    ) as any;
+    expect(option.series).toHaveLength(1);
   });
 });

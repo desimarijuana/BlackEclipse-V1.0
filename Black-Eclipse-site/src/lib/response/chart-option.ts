@@ -137,6 +137,76 @@ const ITEM_TRIGGER_TYPES: ReadonlySet<ChartBlock['chartType']> = new Set([
   'pie', 'scatter', 'bubble', 'heatmap', 'treemap', 'sunburst', 'funnel', 'gauge', 'radar',
 ]);
 
+const TEMPORAL_LABEL = new RegExp(
+  '^(?:' +
+    '\\d{4}(?:[-/]\\d{1,2}){0,2}' +          // 2026, 2026-03, 2026-03-14
+    '|Q[1-4][\\s-]?\\d{4}' +                  // Q3 2026
+    '|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?[\\s-]\\d{1,4}' +
+    '|\\d{1,2}:\\d{2}(?::\\d{2})?' +          // 09:30, 09:30:15
+  ')$',
+  'i',
+);
+
+function looksTemporal(values: ReadonlyArray<string | number>): boolean {
+  let considered = 0;
+  let matches = 0;
+  for (const value of values) {
+    const text = String(value).trim();
+    if (!text) continue;
+    considered += 1;
+    if (typeof value === 'number') {
+      // Epoch seconds/milliseconds and bare years both read as time on a chart.
+      if (value >= 1_000 || Number.isInteger(value)) matches += 1;
+    } else if (TEMPORAL_LABEL.test(text)) {
+      matches += 1;
+    }
+  }
+  return considered >= 2 && matches / considered >= 0.8;
+}
+
+function pairsIn(series: ChartBlock['series'][number]): Array<[number, number]> {
+  return series.data.filter(isPair);
+}
+
+function monotonic(points: ReadonlyArray<[number, number]>): boolean {
+  let direction = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const delta = points[i][0] - points[i - 1][0];
+    if (delta === 0) continue;
+    const next = delta > 0 ? 1 : -1;
+    if (direction !== 0 && next !== direction) return false;
+    direction = next;
+  }
+  return true;
+}
+
+/**
+ * The visual director: choose a chart type when the planner says `auto`.
+ *
+ * It reads only the SHAPE of what was supplied (labels, pairs, triples), never
+ * the subject matter, and never invents a series. An explicit type always wins,
+ * so a caller that knows better is never overridden.
+ */
+export function directChartType(block: ChartBlock): Exclude<ChartBlock['chartType'], 'auto'> {
+  const categories = block.categories ?? [];
+  if (categories.length > 0) {
+    if (looksTemporal(categories)) return 'line';
+    if (block.series.length > 1) return 'line';
+    return (block.series[0]?.data.length ?? 0) <= 12 ? 'bar' : 'line';
+  }
+  if (block.series.some((s) => s.data.some(isTriple))) return 'bubble';
+  if (block.series.every((s) => pairsIn(s).length > 0 && monotonic(pairsIn(s)))) {
+    return 'line';
+  }
+  if (block.series.some((s) => s.data.some(isPair))) return 'scatter';
+  return 'line';
+}
+
+/** The type to draw: an explicit choice, or the director's decision for `auto`. */
+export function resolveChartType(block: ChartBlock): Exclude<ChartBlock['chartType'], 'auto'> {
+  return block.chartType === 'auto' ? directChartType(block) : block.chartType;
+}
+
 /**
  * Build the ECharts option for a chart block. `isDark` only affects grid/axis
  * ink; colours come from the caller so the terminal palette is the single source
@@ -148,6 +218,7 @@ export function buildChartOption(
   isDark = true,
 ): EChartsOption {
   const ink = chartInk(isDark);
+  const chartType = resolveChartType(block);
 
   const axisPointer = {
     type: 'line' as const,
@@ -162,7 +233,7 @@ export function buildChartOption(
     animationDuration: 620,
     animationEasing: 'cubicOut',
     tooltip: {
-      trigger: ITEM_TRIGGER_TYPES.has(block.chartType) ? 'item' : 'axis',
+      trigger: ITEM_TRIGGER_TYPES.has(chartType) ? 'item' : 'axis',
       valueFormatter: valueFormatter(block),
       axisPointer,
     },
@@ -186,7 +257,7 @@ export function buildChartOption(
     },
   };
 
-  if (block.chartType === 'pie') {
+  if (chartType === 'pie') {
     const first = block.series[0];
     const categories = block.categories ?? first.data.map((_, i) => String(i + 1));
     return {
@@ -211,7 +282,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'scatter') {
+  if (chartType === 'scatter') {
     return {
       ...base,
       xAxis: {
@@ -245,7 +316,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'heatmap') {
+  if (chartType === 'heatmap') {
     const xCats = (block.categories ?? []).map(String);
     const yCats = block.series.map((s) => s.name);
     const data = block.series.flatMap((s, y) =>
@@ -285,7 +356,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'bubble') {
+  if (chartType === 'bubble') {
     const magnitudes = block.series.flatMap((s) => s.data.filter(isTriple).map((p) => Math.abs(p[2])));
     const peak = Math.max(1, ...magnitudes);
     return {
@@ -324,7 +395,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'treemap' || block.chartType === 'sunburst') {
+  if (chartType === 'treemap' || chartType === 'sunburst') {
     const leaves = (s: ChartBlock['series'][number]) =>
       s.data.map((p, i) => ({ name: categoryName(block, i), value: pointValue(p) ?? 0 }));
     const treeData =
@@ -332,7 +403,7 @@ export function buildChartOption(
         ? leaves(block.series[0])
         : block.series.map((s, i) => ({ name: seriesName(block, i), children: leaves(s) }));
     const common = { tooltip: { ...base.tooltip, trigger: 'item' as const, axisPointer: undefined } };
-    if (block.chartType === 'treemap') {
+    if (chartType === 'treemap') {
       return {
         ...base,
         ...common,
@@ -369,7 +440,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'funnel') {
+  if (chartType === 'funnel') {
     const first = block.series[0];
     return {
       ...base,
@@ -396,7 +467,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'gauge') {
+  if (chartType === 'gauge') {
     const first = block.series[0];
     const values = block.series.flatMap((s) => s.data.map(pointValue)).filter((v): v is number => v != null);
     const value = first?.data.map(pointValue).find((v) => v != null) ?? 0;
@@ -437,7 +508,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'radar') {
+  if (chartType === 'radar') {
     const categories = block.categories ?? [];
     const width = Math.max(...block.series.map((s) => s.data.length), categories.length, 1);
     const names = Array.from({ length: width }, (_, i) => categories[i] != null ? String(categories[i]) : `#${i + 1}`);
@@ -476,7 +547,7 @@ export function buildChartOption(
     } as EChartsOption;
   }
 
-  if (block.chartType === 'waterfall') {
+  if (chartType === 'waterfall') {
     const first = block.series[0];
     const rise = palette.primary;
     const fall = palette.series[0] ?? '#ef4444';
@@ -537,17 +608,20 @@ export function buildChartOption(
   }
 
   // line / area / bar / stacked_bar / grouped_bar / histogram
-  const isBar = block.chartType === 'bar' || block.chartType === 'stacked_bar' || block.chartType === 'grouped_bar' || block.chartType === 'histogram';
-  const stacked = block.chartType === 'stacked_bar' || block.stacked;
+  const isBar = chartType === 'bar' || chartType === 'stacked_bar' || chartType === 'grouped_bar' || chartType === 'histogram';
+  const stacked = chartType === 'stacked_bar' || block.stacked;
   const categories = block.categories ?? undefined;
   const hasCategoryAxis = !!categories;
   const xType = hasCategoryAxis ? 'category' : block.series.some((s) => s.data.some(isPair)) ? 'value' : 'category';
 
-  const series = block.series.map((s, i) => {
+  const series: Array<Record<string, unknown>> = block.series.map((s, i) => {
     const color = s.color ?? colorAt(palette, i);
     const data = hasCategoryAxis || xType === 'category'
       ? s.data.map((p) => (typeof p === 'number' ? p : isPair(p) ? p[1] : p != null && isTriple(p) ? p[2] : null))
       : s.data;
+    // Weight is presentation emphasis, not data: absent preserves the original
+    // 2.4px line and full opacity.
+    const opacity = s.weight == null ? 1 : 0.45 + 0.55 * s.weight;
     return {
       name: seriesName(block, i),
       type: isBar ? 'bar' : 'line',
@@ -561,10 +635,16 @@ export function buildChartOption(
       itemStyle: {
         color,
         borderRadius: isBar ? [5, 5, 0, 0] : undefined,
+        opacity: s.weight == null ? undefined : opacity,
       },
-      lineStyle: { width: 2.4, cap: 'round' as const, join: 'round' as const },
+      lineStyle: {
+        width: s.weight == null ? 2.4 : Math.round((1.2 + 2.4 * s.weight) * 100) / 100,
+        cap: 'round' as const,
+        join: 'round' as const,
+        opacity,
+      },
       areaStyle:
-        block.chartType === 'area'
+        chartType === 'area'
           ? {
               color: {
                 type: 'linear' as const,
@@ -573,8 +653,8 @@ export function buildChartOption(
                 x2: 0,
                 y2: 1,
                 colorStops: [
-                  { offset: 0, color: withAlpha(color, 0.34) },
-                  { offset: 1, color: withAlpha(color, 0.02) },
+                  { offset: 0, color: withAlpha(color, 0.34 * opacity) },
+                  { offset: 1, color: withAlpha(color, 0.02 * opacity) },
                 ],
               },
             }
@@ -582,6 +662,52 @@ export function buildChartOption(
       barMaxWidth: 34,
     };
   });
+
+  // Weighted bands are drawn as a hidden stacked pair: `lower` (transparent)
+  // plus `upper - lower` (tinted). Only category axes use the stack trick, so a
+  // chart with [x, y] pairs simply omits the band rather than drawing it wrong.
+  if (xType === 'category') {
+    block.series.forEach((s, i) => {
+      const band = s.band;
+      if (!band) return;
+      const color = s.color ?? colorAt(palette, i);
+      const alpha = 0.08 + 0.22 * (band.weight ?? 0.5);
+      const count = Math.min(band.lower.length, band.upper.length, s.data.length);
+      const lower: Array<number | null> = [];
+      const delta: Array<number | null> = [];
+      for (let j = 0; j < count; j += 1) {
+        const lo = band.lower[j];
+        const hi = band.upper[j];
+        if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) {
+          lower.push(null);
+          delta.push(null);
+        } else {
+          lower.push(lo);
+          delta.push(hi - lo);
+        }
+      }
+      const stack = `eclipse-band-${i}`;
+      const hidden = {
+        type: 'line' as const,
+        stack,
+        silent: true,
+        symbol: 'none',
+        showSymbol: false,
+        lineStyle: { opacity: 0 },
+        emphasis: { disabled: true },
+        tooltip: { show: false },
+      };
+      series.push(
+        { ...hidden, name: `__band_lower_${i}`, data: lower, areaStyle: { opacity: 0 } },
+        { ...hidden, name: `__band_${i}`, data: delta, areaStyle: { color: withAlpha(color, alpha) } },
+      );
+    });
+  }
+
+  const legendNames = block.series.map((_, i) => seriesName(block, i));
+  const legend = base.legend
+    ? { ...(base.legend as Record<string, unknown>), data: legendNames }
+    : undefined;
 
   const zoom = block.zoom
     ? [
@@ -614,6 +740,7 @@ export function buildChartOption(
       splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
     },
     dataZoom: zoom,
+    legend,
     series,
   } as EChartsOption;
 }

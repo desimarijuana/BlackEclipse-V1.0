@@ -135,7 +135,8 @@ Backed by real handlers/endpoints:
 - Skills: `/skills` (list/search/category/show/**run**/test/validate),
   `/skill` (**author a new skill** — agent turn), `/skill-explain`, `/skill-test`,
   `/skill-enable`, `/skill-disable`, `/skill-create` (learning-engine draft).
-- Profile: `/eclipsesdk` (alias `/esdk`).
+- Profile: `/app` (control the Eclipse app through the typed SDK; alias
+  `/eclipse`) and `/eclipsesdk` (edit Eclipse's own source code; alias `/esdk`).
 - Agent-turn: `/skill` (authors a skill for Eclipse; see Skill integration).
 
 Every registered command has a real handler (the palette `soon` badge is gone).

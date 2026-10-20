@@ -9,35 +9,40 @@ import { HARNESS_PY_URL, pythonRuntimeReachable } from "@/lib/harness/python-run
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 
+async function lockedFor(request: Request, resourceType: "theme" | "design"): Promise<NextResponse | null> {
+  const token = runtimeCallbackToken();
+  const unlock = request.headers.get("x-eclipse-unlock");
+  const user = request.headers.get("x-eclipse-user");
+  let identity: Record<string, string> = {};
+  try {
+    identity = await runtimeIdentityHeaders(request);
+  } catch {
+    identity = {};
+  }
+  const res = await fetch(`${HARNESS_PY_URL}/sdk/locks/assert`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "X-Harness-Operator": token } : {}),
+      ...(unlock ? { "X-Eclipse-Unlock": unlock } : {}),
+      ...(user ? { "X-Harness-User": user } : {}),
+      ...identity,
+    },
+    body: JSON.stringify({ resourceType, resourceId: "global", action: "write" }),
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (res.status === 423) {
+    const data = await res.json().catch(() => ({}));
+    return NextResponse.json(data, { status: 423 });
+  }
+  return null;
+}
+
 export async function designLockBlocked(request: Request): Promise<NextResponse | null> {
   try {
     // Probe only — never spawn the runtime just to look for a lock.
     if (!(await pythonRuntimeReachable())) return null;
-    const token = runtimeCallbackToken();
-    const unlock = request.headers.get("x-eclipse-unlock");
-    const user = request.headers.get("x-eclipse-user");
-    let identity: Record<string, string> = {};
-    try {
-      identity = await runtimeIdentityHeaders(request);
-    } catch {
-      identity = {};
-    }
-    const res = await fetch(`${HARNESS_PY_URL}/sdk/locks/assert`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { "X-Harness-Operator": token } : {}),
-        ...(unlock ? { "X-Eclipse-Unlock": unlock } : {}),
-        ...(user ? { "X-Harness-User": user } : {}),
-        ...identity,
-      },
-      body: JSON.stringify({ resourceType: "design", resourceId: "global", action: "write" }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (res.status === 423) {
-      const data = await res.json().catch(() => ({}));
-      return NextResponse.json(data, { status: 423 });
-    }
+    return (await lockedFor(request, "theme")) ?? (await lockedFor(request, "design"));
   } catch {
     /* lock service unavailable — do not block the local design edit */
   }

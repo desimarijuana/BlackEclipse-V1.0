@@ -90,6 +90,12 @@ describe("command registry", () => {
     expect(spec.profile).toEqual({ autonomy: "edit_verify", analysisEnabled: true });
   });
 
+  it("exposes /app as the no-autonomy SDK control surface", () => {
+    const spec = allCommands().find((c) => c.name === "app")!;
+    expect(spec.handler.type).toBe("profile");
+    expect(spec.profile).toEqual({ autonomy: null, analysisEnabled: true, appControl: true });
+  });
+
   it("marks /skill as an agent-turn command that authors a skill", () => {
     const spec = resolveCommand("skill")!;
     expect(spec.handler.type).toBe("agent");

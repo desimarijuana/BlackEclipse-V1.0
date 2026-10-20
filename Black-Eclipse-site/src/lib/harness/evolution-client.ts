@@ -136,6 +136,7 @@ export interface EvolutionRslTickResult {
   skipped?: string;
   candidateId?: string;
   runId?: string;
+  stateId?: string | null;
   decision?: string;
   benchmark?: string;
 }
@@ -191,6 +192,109 @@ export interface EvolutionLessonInput {
   adoptedArtifactId?: string | null;
 }
 
+export interface EvolutionHarnessState {
+  id: string;
+  parentStateId: string | null;
+  scope: string;
+  snapshotDigest: string;
+  candidateId: string | null;
+  acceptedRunId: string | null;
+  utility: number | null;
+  metrics: Record<string, unknown>;
+  status: "candidate" | "current" | "superseded" | "retired" | string;
+  createdAt: string;
+  promotedAt: string | null;
+}
+
+export interface EvolutionHarnessStates {
+  scope: string;
+  current: EvolutionHarnessState | null;
+  currents: EvolutionHarnessState[];
+  states: EvolutionHarnessState[];
+}
+
+export interface EvolutionLessonStats {
+  lessonId: string;
+  injected: number;
+  injectedSuccesses: number;
+  injectedRate: number | null;
+  injectedCiLow: number | null;
+  injectedCiHigh: number | null;
+  control: number;
+  controlSuccesses: number;
+  controlRate: number | null;
+  controlCiLow: number | null;
+  controlCiHigh: number | null;
+  lift: number | null;
+  status: "measured" | "insufficient" | "unmeasured" | string;
+  reason: string;
+}
+
+export interface EvolutionLessonOutcome {
+  id: string;
+  lessonId: string;
+  runId: string;
+  injected: number;
+  outcome: "success" | "failure" | "unmeasured" | string;
+  taskSignature: string;
+  cue: string;
+  scopeJson: string;
+  createdAt: string;
+}
+
+export interface EvolutionLessonOutcomes {
+  lessonId: string;
+  stats: EvolutionLessonStats;
+  outcomes: EvolutionLessonOutcome[];
+}
+
+export interface EvolutionSurfaceActivation {
+  id: string;
+  stateId: string;
+  scope: string;
+  snapshot: Record<string, unknown>;
+  base: Record<string, unknown>;
+  previousStateId: string | null;
+  activatedAt: string;
+  rolledBackAt: string | null;
+  active?: boolean;
+}
+
+export interface EvolutionSurfaceActivationResult {
+  activation: EvolutionSurfaceActivation;
+}
+
+export interface EvolutionSurfaceDiff {
+  systemPromptChanged: boolean;
+  systemPromptBefore: string;
+  systemPromptAfter: string;
+  systemPromptBeforeChars: number;
+  systemPromptAfterChars: number;
+  toolsAdded: string[];
+  toolsRemoved: string[];
+  maxStepsBefore: number;
+  maxStepsAfter: number;
+  maxToolCallsBefore: number;
+  maxToolCallsAfter: number;
+  modelIdentityChanged: boolean;
+  skillDraftIds: string[];
+}
+
+export interface EvolutionSurfacePreview {
+  stateId: string;
+  candidateId: string | null;
+  scope: string;
+  availableScopes: string[];
+  referenceAgent: string;
+  baseDigestMatches: boolean | null;
+  accepted: boolean;
+  acceptedDecision: string | null;
+  canActivate: boolean;
+  reasons: string[];
+  diff: EvolutionSurfaceDiff | null;
+  previousState: EvolutionHarnessState | null;
+}
+
 export interface EvolutionRecursiveVariant {
   kind: "invariant" | "domain";
   targetPath?: string | null;
@@ -224,6 +328,7 @@ export interface EvolutionSurfaceSnapshot {
 export interface EvolutionSurfaceExperimentInput {
   candidate: EvolutionSurfaceSnapshot;
   base?: EvolutionSurfaceSnapshot;
+  scope?: string;
   dataset?: string;
   taskIds?: string[];
   split?: "optimization" | "validation" | "held_out" | "release";
@@ -337,6 +442,75 @@ export async function listEvolutionLessons(limit = 50): Promise<EvolutionLesson[
     `/evolution/lessons?limit=${encodeURIComponent(String(limit))}`, { method: "GET" },
   );
   return body.lessons ?? [];
+}
+
+export async function getEvolutionLessonOutcomes(
+  lessonId: string, limit = 50,
+): Promise<EvolutionLessonOutcomes> {
+  return request<EvolutionLessonOutcomes>(
+    `/evolution/lessons/${encodeURIComponent(lessonId)}/outcomes?limit=${encodeURIComponent(String(limit))}`,
+    { method: "GET" },
+  );
+}
+
+export async function listEvolutionStates(
+  input: { scope?: string; status?: string; limit?: number } = {},
+): Promise<EvolutionHarnessStates> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.status) params.set("status", input.status);
+  params.set("limit", String(input.limit ?? 50));
+  return request<EvolutionHarnessStates>(`/evolution/states?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function promoteEvolutionState(
+  stateId: string,
+): Promise<{ state: EvolutionHarnessState }> {
+  return request<{ state: EvolutionHarnessState }>(
+    `/evolution/states/${encodeURIComponent(stateId)}/promote`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export async function getEvolutionSurfacePreview(
+  stateId: string,
+  scope?: string,
+): Promise<EvolutionSurfacePreview> {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return request<EvolutionSurfacePreview>(
+    `/evolution/states/${encodeURIComponent(stateId)}/surface-preview${query}`,
+    { method: "GET" },
+  );
+}
+
+export async function activateEvolutionSurfaceState(
+  stateId: string,
+  scope?: string,
+): Promise<EvolutionSurfaceActivationResult> {
+  return request<EvolutionSurfaceActivationResult>(
+    `/evolution/states/${encodeURIComponent(stateId)}/activate-surface`,
+    { method: "POST", body: JSON.stringify({ scope: scope ?? null }) },
+  );
+}
+
+export async function listEvolutionSurfaceActivations(
+  limit = 50,
+): Promise<{ activations: EvolutionSurfaceActivation[] }> {
+  return request<{ activations: EvolutionSurfaceActivation[] }>(
+    `/evolution/surface-activations?limit=${encodeURIComponent(String(limit))}`,
+    { method: "GET" },
+  );
+}
+
+export async function rollbackEvolutionSurfaceActivation(
+  activationId: string,
+): Promise<EvolutionSurfaceActivationResult> {
+  return request<EvolutionSurfaceActivationResult>(
+    `/evolution/surface-activations/${encodeURIComponent(activationId)}/rollback`,
+    { method: "POST", body: "{}" },
+  );
 }
 
 export async function adoptEvolutionLesson(

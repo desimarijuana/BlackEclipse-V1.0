@@ -1,24 +1,21 @@
 #!/usr/bin/env node
-// Local hostname launcher — the DEFAULT way to run BlackEclipse.
+// Profile launcher — the DEFAULT way to run BlackEclipse.
 //
-// Starts BOTH processes together so `blackeclipse` is the only URL you need,
-// with no `:3000`:
+// Two independent profiles, so development and production can run at the same
+// time without one killing the other (see `scripts/lib/profiles.js`):
 //
-//   1. the Next.js server, bound to 127.0.0.1 (never exposed to the LAN), and
-//   2. the local reverse proxy (scripts/local-proxy.js) on 127.0.0.1.
+//   node scripts/local-host.js dev     development: Next dev on 3000, no proxy,
+//                                      harness 8765, isolated dev databases.
+//   node scripts/local-host.js start   production: built Next on 3100 behind the
+//                                      local proxy at http://blackeclipse,
+//                                      harness 8766, the real databases.
 //
-// When a certificate is provisioned (`npm run setup:tls`) the proxy serves
-// HTTPS (127.0.0.1:443) and the URL is `https://blackeclipse` — a SECURE
-// CONTEXT, which the browser's desktop-notification API requires. Without one it
-// serves `http://blackeclipse` (127.0.0.1:80) exactly as before.
+// The proxy (scripts/local-proxy.js) is only part of production: it serves
+// https://blackeclipse when a certificate exists (`npm run setup:tls`), making
+// the origin a secure context so desktop notifications work.
 //
-// Next's own "Local: http://127.0.0.1:3000" banner is rewritten on the fly to
-// the hostname, so only `https://blackeclipse` (or `http://…`) is shown. Ctrl+C
-// stops both.
-//
-//   npm run dev                     -> dev mode (hot reload)
-//   node scripts/local-host.js dev
-//   node scripts/local-host.js start -> production serve (needs a build first)
+// Next's own "Local: http://127.0.0.1:port" banner is rewritten to the advertised
+// URL, so only that URL is shown. Ctrl+C stops the server (and the proxy).
 //
 // The raw server is still available when you want it: `npm run dev:next`
 // (all interfaces) or `npm run dev:local` (loopback, no proxy).
@@ -28,6 +25,7 @@ const path = require("path");
 const dns = require("dns");
 const { nextBin } = require("./lib/server");
 const { tlsAvailable } = require("./lib/tls");
+const { profileFor, childEnv } = require("./lib/profiles");
 
 const ROOT = path.join(__dirname, "..");
 const APP_HOST = "127.0.0.1";
@@ -59,10 +57,10 @@ function checkHostname(name) {
 }
 
 // Rewrite the internal 127.0.0.1:port URLs in the child's output so the only
-// address shown is the hostname.
-function makeRewriter(port, name, proto) {
+// address shown is the advertised one.
+function makeRewriter(port, shown) {
   const re = new RegExp(`https?://(?:127\\.0\\.0\\.1|localhost|\\[::1\\]):${port}`, "g");
-  return (chunk) => chunk.toString().replace(re, `${proto}://${name}`);
+  return (chunk) => chunk.toString().replace(re, shown);
 }
 
 function startProxy(appPort, { useTls, proxyPort }) {
@@ -91,45 +89,76 @@ function startProxy(appPort, { useTls, proxyPort }) {
   return child;
 }
 
-function runLocalHost({ mode = "dev", port = process.env.PORT || "3000" } = {}) {
+function runProfile({ mode = "start", port } = {}) {
+  const profile = profileFor(mode);
+  const appPort = port || profile.appPort;
+  const env = childEnv(profile);
   const name = localName();
-  const useTls = !TLS_DISABLED && tlsAvailable(name);
-  const proto = useTls ? "https" : "http";
-  const proxyPort = parseInt(process.env.BE_PROXY_PORT || (useTls ? "443" : "80"), 10);
-  const proxy = startProxy(port, { useTls, proxyPort });
 
-  console.log("");
-  console.log("  ──────────────────────────────────────────────");
-  console.log(`    BlackEclipse  →   ${proto}://${name}`);
-  console.log("  ──────────────────────────────────────────────");
-  console.log("");
-  checkHostname(name);
-  if (!useTls && process.platform === "win32") {
-    log("tip: run `npm run setup:tls` once to serve https and enable desktop notifications.");
+  let proxy = null;
+  let shown;
+  let proto = "http";
+
+  if (profile.proxy) {
+    const useTls = !TLS_DISABLED && tlsAvailable(name);
+    proto = useTls ? "https" : "http";
+    shown = `${proto}://${name}`;
+    const proxyPort = parseInt(process.env.BE_PROXY_PORT || (useTls ? "443" : "80"), 10);
+    proxy = startProxy(appPort, { useTls, proxyPort });
+    // One canonical origin for production, so every alias shares storage.
+    if (env.BE_CANONICAL_HOST === undefined) env.BE_CANONICAL_HOST = name;
+    process.on("exit", () => {
+      try {
+        proxy?.kill();
+      } catch {}
+    });
+    process.on("SIGINT", () => {
+      try {
+        proxy?.kill();
+      } catch {}
+      process.exit(0);
+    });
+  } else {
+    shown = `http://${APP_HOST}:${appPort}`;
   }
 
-  const args = [nextBin(), mode === "start" ? "start" : "dev", ...(mode === "start" ? [] : ["--turbopack"]), "-p", String(port), "-H", APP_HOST];
-  // Collapse every alias onto ONE origin: the app sets BE_CANONICAL_HOST so a
-  // request on localhost:3000 / 127.0.0.1:3000 redirects to the hostname. This
-  // keeps the same origin-scoped storage (theme, sidebar, chat cache) no matter
-  // which URL was typed. Overridable with BE_CANONICAL_HOST="".
-  const childEnv = { ...process.env };
-  if (childEnv.BE_CANONICAL_HOST === undefined) childEnv.BE_CANONICAL_HOST = name;
+  const bar = "  " + "─".repeat(47);
+  console.log("");
+  console.log(bar);
+  console.log(`    BlackEclipse  ${profile.label.padEnd(11)} ${shown}`);
+  console.log(bar);
+  console.log("");
+
+  if (profile.proxy) {
+    checkHostname(name);
+    if (!TLS_DISABLED && !tlsAvailable(name) && process.platform === "win32") {
+      log("tip: run `npm run setup:tls` once to serve https and enable desktop notifications.");
+    }
+  }
+
+  const args = [
+    nextBin(),
+    profile.command,
+    ...(profile.command === "dev" ? ["--turbopack"] : []),
+    "-p",
+    String(appPort),
+    "-H",
+    APP_HOST,
+  ];
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
     stdio: ["inherit", "pipe", "pipe"],
-    env: childEnv,
+    env,
   });
-  const rewrite = makeRewriter(port, name, proto);
+  const rewrite = makeRewriter(appPort, shown);
   child.stdout.on("data", (d) => process.stdout.write(rewrite(d)));
   child.stderr.on("data", (d) => process.stderr.write(rewrite(d)));
 
   const cleanup = () => {
     try {
-      proxy.kill();
+      proxy?.kill();
     } catch {}
   };
-  process.on("exit", cleanup);
   process.on("SIGINT", () => {
     try {
       child.kill();
@@ -144,14 +173,22 @@ function runLocalHost({ mode = "dev", port = process.env.PORT || "3000" } = {}) 
     cleanup();
     process.exit(0);
   });
-  child.on("exit", (code) => process.exit(code ?? 0));
+  child.on("exit", (code) => {
+    cleanup();
+    process.exit(code ?? 0);
+  });
+}
+
+// Backwards-compatible name for callers that imported `runLocalHost`.
+function runLocalHost(options = {}) {
+  runProfile(options);
 }
 
 if (require.main === module) {
-  const mode = (process.argv[2] || "dev").toLowerCase() === "start" ? "start" : "dev";
+  const mode = (process.argv[2] || "start").toLowerCase() === "dev" ? "dev" : "start";
   const i = process.argv.indexOf("-p");
-  const port = i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : process.env.PORT || "3000";
-  runLocalHost({ mode, port });
+  const port = i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : undefined;
+  runProfile({ mode, port });
 }
 
-module.exports = { runLocalHost };
+module.exports = { runProfile, runLocalHost };

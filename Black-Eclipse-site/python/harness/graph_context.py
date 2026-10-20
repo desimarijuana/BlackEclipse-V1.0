@@ -225,6 +225,8 @@ async def _lesson_manifest_context(
     else:
         scope = None
     cue = request.input.query or request.input.ticker or ""
+    run_id = str(getattr(request, "runId", "") or "")
+    outcome_store = None
     try:
         lessons = select_lessons(
             memory_service.store,
@@ -232,7 +234,28 @@ async def _lesson_manifest_context(
             scope=scope,
             eval_store=EvaluationStore(run_store),
         )
+        if lessons and run_id:
+            try:
+                from .self_improvement.lesson_feedback import (  # noqa: PLC0415
+                    LessonOutcomeStore,
+                    rank_lessons,
+                )
+
+                outcome_store = LessonOutcomeStore(run_store)
+                stats = outcome_store.stats_for(
+                    [str(row.get("id")) for row in lessons]
+                )
+                lessons = rank_lessons(lessons, stats)
+            except Exception:  # noqa: BLE001 - feedback never breaks retrieval
+                outcome_store = None
         content, lesson_ids = build_lesson_manifest(lessons)
+        if outcome_store is not None:
+            try:
+                outcome_store.record_injections(
+                    run_id, lessons, lesson_ids, cue=cue, scope=scope,
+                )
+            except Exception:  # noqa: BLE001 - recording is best-effort
+                pass
     except Exception:  # noqa: BLE001 - retrieval must never break a run
         return "", ()
     if not content:
@@ -425,6 +448,17 @@ def _agent_tool_names(request: RunRequest) -> list[str]:
         return list(agent.tools or [])
     except Exception:  # noqa: BLE001
         return []
+
+
+def surface_summary(agent_id: str, allowed: Optional[set[str]]) -> dict[str, Any]:
+    """The run's resolved surface + allowlist, bounded for the run record (W1.3).
+
+    The graph re-exports it so the run graph keeps one place that names what
+    the run could actually do.
+    """
+    from .run_outcome import surface_summary as _summary  # noqa: PLC0415
+
+    return _summary(agent_id, allowed)
 
 
 def _outcome_blob(outcome: dict[str, Any], decision: Any) -> dict[str, Any]:

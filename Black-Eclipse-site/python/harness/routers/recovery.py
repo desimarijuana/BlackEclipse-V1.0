@@ -80,7 +80,8 @@ def recovery_metrics() -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             tasks = []
     return collect_self_evolution_metrics(
-        incidents=incidents, attempts_by_incident=attempts_by_incident, tasks=tasks,
+        incidents=incidents, attempts_by_incident=attempts_by_incident,
+        tasks=tasks, store=getattr(service, "store", None),
     )
 
 

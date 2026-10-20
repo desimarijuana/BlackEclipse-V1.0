@@ -21,12 +21,17 @@ know what you are looking at.
 
 ```bash
 npm install     # also runs prisma generate + python/global-link setup
-npm run dev     # boots Next.js on http://localhost:3000
+npm run dev     # boots the DEVELOPMENT server on http://localhost:3000
 ```
 
 Open <http://localhost:3000>. That is genuinely all — `instrumentation.ts` starts
 the schedulers, seeds the US universe on first boot, and (in production) warms
 market prices in the background.
+
+Development and production are separate servers on separate ports and can run at
+the same time: `npm run dev` is `3000` with isolated runtime state, while
+`npm run up` builds and serves production on `3100` at `http://blackeclipse`.
+See [`environments.md`](./environments.md).
 
 > `npm install` is not a plain install here. Its `postinstall` runs
 > `prisma generate`, `scripts/setup-python.js`, and `scripts/link-global.js`.
@@ -64,13 +69,13 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 
 | Script | What it does |
 |---|---|
-| `npm run dev` | App + local proxy together, shown as `http://blackeclipse` (`predev` runs the doctor + frees the port); Next runs on **Turbopack** |
-| `npm run dev:next` | `next dev --turbopack` on all interfaces (no proxy) |
-| `npm run dev:local` | Dev server on **Turbopack**, bound to `127.0.0.1` only (keeps it off the LAN, no proxy) |
-| `npm run proxy` / `npm run proxy:stop` | Loopback reverse proxy on `:80` so `http://blackeclipse` reaches `:3000` — see [`local-hostname.md`](./local-hostname.md) |
+| `npm run dev` | **Development** server on `3000` (`predev` runs the doctor + frees the dev ports); Turbopack, no proxy, runtime state in `.black-eclipse/dev/` — see [`environments.md`](./environments.md) |
+| `npm run dev:next` | `next dev --turbopack` on all interfaces (raw; no profile env) |
+| `npm run dev:local` | Dev server on **Turbopack**, bound to `127.0.0.1` only (raw; no profile env) |
+| `npm run proxy` / `npm run proxy:stop` | Loopback reverse proxy on `:80` so `http://blackeclipse` reaches production on `:3100` — see [`local-hostname.md`](./local-hostname.md) |
 | `npm run setup:hostname` | Adds `127.0.0.1 blackeclipse` to the Windows hosts file (self-elevating) |
-| `npm run up` | Doctor + `scripts/up.js` (the "just make it work" path) |
-| `npm run build` / `npm start` | Production build / serve |
+| `npm run up` | **Production** server on `3100` behind the proxy (doctor + build-if-changed + start) |
+| `npm run build` / `npm start` | Production build / production serve |
 | `npm test` | Vitest unit tests |
 | `npm run lint` | ESLint |
 
@@ -131,8 +136,9 @@ in [`../README.md`](../README.md) is authoritative; in short:
 - `NEXT_PUBLIC_LLM_CONFIGURED` — set by `instrumentation.ts`; tells the client
   whether a real LLM exists so it can pick the right provider.
 - `HARNESS_RSL_MODE` — the Recursive Self-Improvement Loop is **off** by
-  default. Set `observe`, `propose` or `verify` and restart to enable it; follow
-  the rollout and operator runbook in
+  default. Set `observe`, `propose`, `verify` or `auto` and restart to enable
+  it. `auto` proposes and verifies; it still never lands a change. Follow the
+  rollout and operator runbook in
   [`self-improvement/rsl-implementation-plan.md`](self-improvement/rsl-implementation-plan.md) §5.1.
   Test it without touching your data with `npm run rsl:smoke`.
 

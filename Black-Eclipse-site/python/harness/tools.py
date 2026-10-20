@@ -112,6 +112,10 @@ class ToolContext:
     # The verified tenant for this run. Set by the graph from the API-verified
     # identity; the security gateway scopes every effect to it. None = single-tenant.
     tenant_id: Optional[str] = None
+    # The durable task this run is executing, when the run came from the task
+    # scheduler (`input.context.taskId`). A capability activated later can resume
+    # that task from its checkpoint. None = an ordinary chat run.
+    task_id: Optional[str] = None
     # The conversation this run belongs to, when the caller opted in (a bot chat
     # or a group-room member turn). Durable memory captured in such a run is
     # stored in that conversation's PRIVATE bucket, isolated from every other
@@ -166,6 +170,9 @@ class ToolContext:
     # The active ToolRegistry, so a controlled skill child-run can execute through
     # the SAME registry (no second registry).
     tool_registry: Any = None
+    # The durable TaskManager, when the runtime has one. Used by capability
+    # activation to resume a parked original task from its checkpoint.
+    task_manager: Any = None
     # An optional async effect authorizer for NON-read tools. The registry is
     # authoritative and calls this with (tool, clean_args, ctx) whenever a tool's
     # permission is not `read`; it must return True only for an explicit, valid

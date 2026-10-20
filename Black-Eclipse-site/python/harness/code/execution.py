@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from . import sandbox as sandbox_mod
+from . import sandbox_tools as st
 from .commands import VENDORED_RELPATH, _resolve_executable
 
 _CAMEL = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
@@ -160,7 +161,7 @@ class AnalysisInput(BaseModel):
 
     model_config = _CAMEL
 
-    name: str = Field(..., pattern=r"[a-z_][a-z0-9_]{0,40}")
+    name: str = Field(..., pattern=r"[A-Za-z_][A-Za-z0-9_]{0,40}")
     kind: Literal["series", "table", "scalar", "text"] = "series"
     value: Any
     provenance: Optional[str] = None
@@ -178,6 +179,11 @@ class AnalysisRequest(BaseModel):
     # it comes from the recipe table, never from the model. The AST allowlist
     # stays the boundary; this only widens it by a NAMED, reviewed set.
     extra_imports: tuple[str, ...] = ()
+    # Phase 3 (additive): permit the read-only `eclipse_tools` bindings. A caller
+    # cannot set this freely either — `run_analysis` only honours it when a host
+    # resolver is attached (the analysis_run path). With no resolver the import
+    # is refused, so discovery is never activation.
+    allow_tools: bool = False
 
 
 class ArtifactRef(BaseModel):
@@ -229,6 +235,9 @@ class AnalysisResult(BaseModel):
     # Phase 18 (additive): the figure payload when a recipe drew one — the
     # plotted-series metadata that rides the run blob beside the numbers.
     figure: Optional[FigurePayload] = None
+    # Read-only `eclipse_tools` calls this run resolved. Metadata only: names,
+    # argument/result digests and status — NEVER a fetched payload (Phase 3 RPC).
+    tool_calls: list[st.ToolCallRef] = Field(default_factory=list)
     stderr: str = ""
     source_digest: str = ""
     input_digests: dict[str, str] = Field(default_factory=dict)
@@ -247,6 +256,7 @@ class AnalysisResult(BaseModel):
             "figure": self.figure.to_dict() if self.figure else None,
             "sourceDigest": self.source_digest,
             "inputDigests": self.input_digests,
+            "toolCalls": [call.model_dump(by_alias=True) for call in self.tool_calls],
             "interpreter": self.interpreter,
             "packageLockDigest": self.package_lock_digest,
             "durationMs": self.duration_ms,
@@ -283,7 +293,12 @@ _FORBIDDEN_CALL_NAMES = frozenset((
 ))
 
 
-def check_imports(source: str, extra_allowlist: tuple[str, ...] = ()) -> list[str]:
+def check_imports(
+    source: str,
+    extra_allowlist: tuple[str, ...] = (),
+    *,
+    tool_names: tuple[str, ...] = (),
+) -> list[str]:
     """Walk the source's imports with ``ast``; return what is NOT allowed.
 
     A syntax error raises ``AnalysisError(SOURCE_INVALID)``. Beyond the module
@@ -296,17 +311,29 @@ def check_imports(source: str, extra_allowlist: tuple[str, ...] = ()) -> list[st
     `extra_allowlist` widens the module set by a NAMED, reviewed tuple (the
     declared recipe's needs, e.g. the figure recipe's `io` + `matplotlib`).
     Every other rule — reflection, dunders, URL literals — still applies.
+
+    `tool_names` is the read-only `eclipse_tools` binding set. When it is empty,
+    `eclipse_tools` is not allowed at all; when non-empty the plain
+    `import eclipse_tools` form is allowed and only those attributes may be
+    called (no alias / from-import, so the static check is unambiguous).
     """
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise AnalysisError(SOURCE_INVALID, f"the analysis could not be read: {exc}") from exc
     allowed = frozenset(IMPORT_ALLOWLIST) | frozenset(extra_allowlist or ())
+    tools_allowed = frozenset(tool_names or ())
     offenders: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top = alias.name.split(".")[0]
+                if top == "eclipse_tools":
+                    if alias.name != "eclipse_tools" or alias.asname:
+                        offenders.append("eclipse_tools (unsupported import form)")
+                    elif top not in allowed:
+                        offenders.append(top)
+                    continue
                 if top not in allowed:
                     offenders.append(top)
         elif isinstance(node, ast.ImportFrom):
@@ -314,6 +341,9 @@ def check_imports(source: str, extra_allowlist: tuple[str, ...] = ()) -> list[st
                 offenders.append("<relative>")
             elif node.module:
                 top = node.module.split(".")[0]
+                if top == "eclipse_tools":
+                    offenders.append("eclipse_tools (unsupported import form)")
+                    continue
                 if top not in allowed:
                     offenders.append(top)
         elif isinstance(node, ast.Call):
@@ -324,6 +354,9 @@ def check_imports(source: str, extra_allowlist: tuple[str, ...] = ()) -> list[st
         elif isinstance(node, ast.Attribute):
             if node.attr.startswith("__") and node.attr.endswith("__"):
                 offenders.append(f"{node.attr} (attribute)")
+            elif isinstance(node.value, ast.Name) and node.value.id == "eclipse_tools":
+                if node.attr not in tools_allowed:
+                    offenders.append(f"eclipse_tools.{node.attr}")
         elif isinstance(node, ast.Name):
             if node.id == "__builtins__":
                 offenders.append("__builtins__")
@@ -378,7 +411,7 @@ def interpreter_path() -> str:
 
 # ── The runner ───────────────────────────────────────────────────────────────
 
-_RUNNER_SOURCE = """\
+ANALYSIS_PRELUDE = """\
 import builtins, json, os, sys
 
 # The analysis program runs with a RESTRICTED builtin set: no open/eval/exec/
@@ -429,20 +462,73 @@ def _write_artifact(name, data):
         handle.write(text)
     return safe
 
+_TOOL_SENTINEL = 75
+
+def _tool_module(names, memo, pending_path):
+    # The host resolves a read; this module only RECORDS the request and stops.
+    # The same program is replayed with the value in `memo`, so no live channel
+    # exists between generated code and the host.
+    import types
+    module = types.ModuleType("eclipse_tools")
+    module.__doc__ = "Read-only Eclipse data. Calls are resolved by the host."
+
+    def _make(name):
+        def _call(**kwargs):
+            args = dict(kwargs)
+            try:
+                key = name + ":" + json.dumps(
+                    args, sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                )
+            except (TypeError, ValueError) as exc:
+                raise TypeError("eclipse_tools arguments must be JSON values") from exc
+            if key in memo:
+                # A fresh copy: one call cannot mutate what a later call sees.
+                return json.loads(json.dumps(memo[key]))
+            with open(pending_path, "w", encoding="utf-8") as handle:
+                json.dump({"name": name, "args": args}, handle,
+                          ensure_ascii=False, allow_nan=False)
+            sys.exit(_TOOL_SENTINEL)
+        _call.__name__ = name
+        _call.__qualname__ = "eclipse_tools." + name
+        return _call
+
+    for item in names:
+        setattr(module, item, _make(str(item)))
+    return module
+
+"""
+
+_RUNNER_SOURCE = ANALYSIS_PRELUDE + """
+
 def main():
     payload = _load_inputs(sys.argv[1])
+    for path in payload.get("extra_paths") or []:
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
     g = {
         "__name__": "__analysis__",
         "__builtins__": _safe_builtins(),
         "inputs": payload["inputs"],
         "write_artifact": _write_artifact,
     }
+    if payload.get("tool_bindings"):
+        pending_path = payload.get("tool_pending_path")
+        memo = payload.get("tool_memo") or {}
+        if not isinstance(memo, dict) or not pending_path:
+            raise ValueError("the analysis tool channel is incomplete")
+        module = _tool_module(payload["tool_bindings"], memo, pending_path)
+        sys.modules["eclipse_tools"] = module
+        g["eclipse_tools"] = module
     src = payload["source"]
     code = compile(src, "<analysis>", "exec")
     exec(code, g)
     out = g.get("result")
     if out is None:
-        out = {k: v for k, v in g.items() if not k.startswith("_") and k != "inputs" and k != "write_artifact"}
+        out = {
+            k: v for k, v in g.items()
+            if not k.startswith("_") and k not in ("inputs", "write_artifact", "eclipse_tools")
+        }
     with open(sys.argv[2], "w", encoding="utf-8") as handle:
         json.dump({"ok": True, "outputs": out}, handle, default=str)
 
@@ -450,28 +536,77 @@ main()
 """
 
 
-def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None) -> AnalysisResult:
-    """Run one analysis in the Phase 3 sandbox. Records enough to re-derive it.
+@dataclass(frozen=True)
+class PreparedAnalysis:
+    """A request that passed the AST, input and isolation gates.
 
-    The program runs in an ISOLATED staging directory (never the repo): its inputs
-    arrive as DATA on file, its relative writes land in staging, and only files it
-    declares as artefacts are collected. It has no path into the user's files, and
-    no network by construction (module allowlist + restricted builtins + no URL
-    literals), enforced on top of the OS process bounds.
+    Shared by the one-shot runner and the persistent kernel so a request is
+    validated identically regardless of which process model executes it.
+    """
+
+    source_digest: str
+    allow_tools: bool
+    tool_names: tuple[str, ...]
+    inputs: dict[str, Any]
+    input_digests: dict[str, str]
+    interpreter: str
+    managed_path: Optional[Path]
+    extra_allowlist: tuple[str, ...]
+    package_lock_digest: str
+
+
+def prepare_analysis(
+    request: AnalysisRequest,
+    *,
+    tool_resolver: Optional[st.ToolResolver] = None,
+) -> PreparedAnalysis | AnalysisResult:
+    """Validate a request and resolve the isolation primitive, or refuse it.
+
+    This is the single pre-execution gate. A refusal is returned as a finished
+    ``AnalysisResult``; a success carries everything both runners need.
     """
     t0 = time.monotonic()
     source_digest = _digest_text(request.source)
-
-    # 1. Import allowlist (AST).
-    offenders = check_imports(request.source, tuple(request.extra_imports))
-    if offenders:
+    allow_tools = bool(request.allow_tools) and tool_resolver is not None
+    if request.allow_tools and tool_resolver is None:
         return AnalysisResult(
-            status="refused", code=IMPORT_NOT_ALLOWED, source_digest=source_digest,
+            status="refused", code=st.TOOL_NOT_ALLOWED, source_digest=source_digest,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+            stderr="read-only data tools aren't available in this analysis",
+        )
+
+    managed_path: Optional[Path] = None
+    managed_modules: list[str] = []
+    try:
+        from ..python_env.paths import installed_modules as _installed_modules  # noqa: PLC0415
+        from ..python_env.paths import site_packages as _site_packages  # noqa: PLC0415
+
+        managed_path = _site_packages()
+        managed_modules = _installed_modules()
+    except Exception:  # noqa: BLE001 - the managed environment is additive
+        managed_path, managed_modules = None, []
+
+    extra_allowlist = tuple(request.extra_imports) + tuple(managed_modules)
+    tool_names = st.tool_names() if allow_tools else ()
+    if allow_tools:
+        extra_allowlist = extra_allowlist + ("eclipse_tools",)
+    offenders = check_imports(request.source, extra_allowlist, tool_names=tool_names)
+    if offenders:
+        tool_offenders = [
+            item for item in offenders
+            if item == "eclipse_tools" or item.startswith("eclipse_tools")
+        ]
+        code = (
+            st.TOOL_NOT_ALLOWED
+            if tool_offenders and len(tool_offenders) == len(offenders)
+            else IMPORT_NOT_ALLOWED
+        )
+        return AnalysisResult(
+            status="refused", code=code, source_digest=source_digest,
             duration_ms=int((time.monotonic() - t0) * 1000),
             stderr=f"disallowed source element(s): {', '.join(offenders)}",
         )
 
-    # 2. Inputs validated against their declared kind (DATA, never source).
     try:
         inputs, digests = _prepare_inputs(request.inputs)
     except AnalysisError as exc:
@@ -480,7 +615,6 @@ def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None)
             duration_ms=int((time.monotonic() - t0) * 1000), stderr=exc.reason,
         )
 
-    # 3. The isolation primitive must exist (Phase 3 honesty rule).
     try:
         sandbox_mod.select_backend()
     except sandbox_mod.SandboxUnavailable:
@@ -498,65 +632,268 @@ def run_analysis(request: AnalysisRequest, *, output_dir: Optional[Path] = None)
             stderr="the analysis interpreter is not installed",
         )
 
+    return PreparedAnalysis(
+        source_digest=source_digest,
+        allow_tools=allow_tools,
+        tool_names=tuple(tool_names),
+        inputs=inputs,
+        input_digests=digests,
+        interpreter=interpreter,
+        managed_path=managed_path,
+        extra_allowlist=extra_allowlist,
+        package_lock_digest=package_lock_digest(),
+    )
+
+
+def resolve_tool_request(
+    pending: Any,
+    *,
+    memo: dict[str, Any],
+    tool_calls: list[st.ToolCallRef],
+    tool_resolver: st.ToolResolver,
+    source_digest: str,
+    input_digests: dict[str, str],
+    interpreter: str,
+    package_lock: str,
+    started: float,
+) -> Optional[AnalysisResult]:
+    """Validate and resolve one pending read; returns a terminal result on error.
+
+    On success it mutates ``memo`` and ``tool_calls`` and returns ``None`` so the
+    caller replays the program. Shared by the one-shot and kernel runners.
+    """
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    def failed(status: str, code: Optional[str], stderr: str, *, refused: bool = False) -> AnalysisResult:
+        return AnalysisResult(
+            status=status, code=code, source_digest=source_digest,
+            input_digests=input_digests, interpreter=interpreter,
+            package_lock_digest=package_lock, duration_ms=duration_ms,
+            tool_calls=tool_calls, stderr=stderr[:2_000],
+        )
+
+    request_name = pending.get("name") if isinstance(pending, dict) else None
+    request_args = pending.get("args") if isinstance(pending, dict) else None
+    try:
+        capability, params = st.validate_tool_request(request_name, request_args)
+    except st.ToolRequestError as exc:
+        return failed("refused", exc.code, exc.reason)
+    if len(tool_calls) >= st.MAX_TOOL_CALLS:
+        return failed(
+            "refused", st.TOOL_LIMIT,
+            f"the analysis asked for more than {st.MAX_TOOL_CALLS} data reads",
+        )
+
+    key = st.cache_key(str(request_name), request_args)
+    if key in memo:
+        return failed(
+            "failed", st.TOOL_PROTOCOL_INVALID,
+            "the analysis asked again for a value it already holds",
+        )
+
+    try:
+        value = tool_resolver(capability, params)
+    except TimeoutError as exc:
+        return failed("timed_out", TIMED_OUT, str(exc))
+    except Exception as exc:  # noqa: BLE001 - a host failure is reported
+        return failed("failed", st.TOOL_RESOLVE_FAILED, f"{request_name}: {exc}")
+
+    try:
+        bounded = st.bound_tool_result(value)
+    except st.ToolResultError as exc:
+        return failed("refused", st.TOOL_RESULT_TOO_LARGE, str(exc))
+
+    memo[key] = bounded
+    if st.memo_size(memo) > st.MAX_TOOL_MEMO_BYTES:
+        return failed(
+            "refused", st.TOOL_RESULT_TOO_LARGE,
+            "the data read exceeded the analysis memory budget",
+        )
+    tool_calls.append(st.ToolCallRef(
+        name=str(request_name),
+        args_digest=st.digest_args(params),
+        result_digest=st.digest_result(bounded),
+        status=str(bounded.get("status") or "OK")[:32],
+        round=len(tool_calls) + 1,
+    ))
+    return None
+
+
+def run_analysis(
+    request: AnalysisRequest,
+    *,
+    output_dir: Optional[Path] = None,
+    tool_resolver: Optional[st.ToolResolver] = None,
+    kernel: Optional[Any] = None,
+) -> AnalysisResult:
+    """Run one analysis in the Phase 3 sandbox. Records enough to re-derive it.
+
+    The program runs in an ISOLATED staging directory (never the repo): its inputs
+    arrive as DATA on file, its relative writes land in staging, and only files it
+    declares as artefacts are collected. It has no path into the user's files, and
+    no network by construction (module allowlist + restricted builtins + no URL
+    literals), enforced on top of the OS process bounds.
+
+    When a `tool_resolver` is attached, a program may also call the read-only
+    `eclipse_tools` bindings. That channel is DETERMINISTIC REPLAY, not a live
+    pipe: the runner writes one pending request and exits; the host validates,
+    resolves through the existing DataBridge, memoizes the reply and re-runs the
+    same program. Only final outputs cross to the model context.
+    """
+    if kernel is not None:
+        return kernel.execute(
+            request, output_dir=output_dir, tool_resolver=tool_resolver,
+        )
+
+    t0 = time.monotonic()
+    prepared = prepare_analysis(request, tool_resolver=tool_resolver)
+    if isinstance(prepared, AnalysisResult):
+        return prepared
+
+    source_digest = prepared.source_digest
+    allow_tools = prepared.allow_tools
+    tool_names = prepared.tool_names
+    inputs = prepared.inputs
+    digests = prepared.input_digests
+    interpreter = prepared.interpreter
+    managed_path = prepared.managed_path
+    package_lock = prepared.package_lock_digest
+
     # 4. Write the payload + runner to a temp dir OUTSIDE the workspace, then run.
     with tempfile.TemporaryDirectory(prefix="be-analysis-") as tmp:
         stage = Path(tmp)
         payload_path = stage / "payload.json"
         out_path = stage / "out.json"
+        pending_path = stage / "pending.json"
         runner_path = stage / "runner.py"
-        payload_path.write_text(
-            json.dumps({"source": request.source, "inputs": inputs}), encoding="utf-8"
-        )
+        extra_paths = [str(managed_path)] if managed_path is not None and managed_path.is_dir() else []
+        payload: dict[str, Any] = {
+            "source": request.source, "inputs": inputs, "extra_paths": extra_paths,
+        }
+        if allow_tools:
+            payload.update({
+                "tool_bindings": list(tool_names),
+                "tool_pending_path": str(pending_path),
+                "tool_memo": {},
+            })
         runner_path.write_text(_RUNNER_SOURCE, encoding="utf-8")
         # Relative writes land in the staging dir only (cwd), never the repo. The
         # program writes a deliverable into `output/`; only those files are
         # collected.
         (stage / "output").mkdir(exist_ok=True)
 
-        spec = sandbox_mod.RunSpec(
-            argv=[interpreter, str(runner_path), str(payload_path), str(out_path)],
-            cwd=stage, env=sandbox_mod.build_env(),
-            timeout_s=request.timeout_s, output_cap_bytes=MAX_OUTPUT_BYTES, network=False,
-            # R3-02: the declared limits are now ENFORCED, not just declared.
-            # CPU is a TOTAL-burn guard across the process tree, deliberately
-            # above the wall-clock timeout so the wall clock stays the primary
-            # bound for a single process.
-            cpu_seconds=MAX_CPU_SECONDS,
-            memory_mb=DEFAULT_MEMORY_MB,
-            process_limit=MAX_PROCESSES,
-        )
-        raw = sandbox_mod.run(spec)
+        deadline = time.monotonic() + max(1, int(request.timeout_s))
+        memo: dict[str, Any] = {}
+        tool_calls: list[st.ToolCallRef] = []
 
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        if raw.timed_out:
-            return AnalysisResult(
-                status="timed_out", code=TIMED_OUT, source_digest=source_digest,
-                input_digests=digests, interpreter=interpreter,
-                package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
-                stderr=raw.output[:4_000],
-            )
-        outputs: dict[str, Any] = {}
-        ok = False
-        if out_path.is_file():
-            try:
-                parsed = json.loads(out_path.read_text(encoding="utf-8"))
-                ok = bool(parsed.get("ok"))
-                outputs = _bounded_outputs(parsed.get("outputs") or {})
-            except (OSError, ValueError):
-                ok = False
-        if raw.exit_code != 0 or not ok:
-            return AnalysisResult(
-                status="failed", source_digest=source_digest, input_digests=digests,
-                interpreter=interpreter, package_lock_digest=package_lock_digest(),
-                duration_ms=duration_ms, stderr=raw.output[:4_000],
-            )
+        while True:
+            # A previous round's files must never masquerade as this round's.
+            for stale in (out_path, pending_path):
+                try:
+                    stale.unlink()
+                except FileNotFoundError:
+                    pass
 
-        artifacts = _collect_artifacts(output_dir, stage) if output_dir else []
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return AnalysisResult(
+                    status="timed_out", code=TIMED_OUT, source_digest=source_digest,
+                    input_digests=digests, interpreter=interpreter,
+                    package_lock_digest=package_lock_digest(),
+                    duration_ms=int((time.monotonic() - t0) * 1000),
+                    tool_calls=tool_calls, stderr="the analysis ran out of time",
+                )
+
+            payload["tool_memo"] = memo
+            payload_path.write_text(json.dumps(payload), encoding="utf-8")
+            spec = sandbox_mod.RunSpec(
+                argv=[interpreter, str(runner_path), str(payload_path), str(out_path)],
+                cwd=stage, env=sandbox_mod.build_env(),
+                timeout_s=max(1, int(remaining)), output_cap_bytes=MAX_OUTPUT_BYTES,
+                network=False,
+                # R3-02: the declared limits are now ENFORCED, not just declared.
+                # CPU is a TOTAL-burn guard across the process tree, deliberately
+                # above the wall-clock timeout so the wall clock stays the primary
+                # bound for a single process.
+                cpu_seconds=MAX_CPU_SECONDS,
+                memory_mb=DEFAULT_MEMORY_MB,
+                process_limit=MAX_PROCESSES,
+            )
+            raw = sandbox_mod.run(spec)
+            duration_ms = int((time.monotonic() - t0) * 1000)
+
+            if raw.timed_out:
+                return AnalysisResult(
+                    status="timed_out", code=TIMED_OUT, source_digest=source_digest,
+                    input_digests=digests, interpreter=interpreter,
+                    package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
+                    tool_calls=tool_calls, stderr=raw.output[:4_000],
+                )
+
+            if raw.exit_code == st.TOOL_SENTINEL:
+                if not pending_path.is_file():
+                    return AnalysisResult(
+                        status="failed", code=st.TOOL_PROTOCOL_INVALID,
+                        source_digest=source_digest, input_digests=digests,
+                        interpreter=interpreter, package_lock_digest=package_lock_digest(),
+                        duration_ms=duration_ms, tool_calls=tool_calls,
+                        stderr="the analysis stopped without a valid data request",
+                    )
+                try:
+                    if pending_path.stat().st_size > st.MAX_TOOL_REQUEST_BYTES:
+                        return AnalysisResult(
+                            status="refused", code=st.TOOL_ARGS_INVALID,
+                            source_digest=source_digest, input_digests=digests,
+                            interpreter=interpreter, package_lock_digest=package_lock_digest(),
+                            duration_ms=duration_ms, tool_calls=tool_calls,
+                            stderr="the analysis sent an oversized data request",
+                        )
+                    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    return AnalysisResult(
+                        status="failed", code=st.TOOL_PROTOCOL_INVALID,
+                        source_digest=source_digest, input_digests=digests,
+                        interpreter=interpreter, package_lock_digest=package_lock_digest(),
+                        duration_ms=duration_ms, tool_calls=tool_calls,
+                        stderr="the analysis sent an unreadable data request",
+                    )
+
+                failure = resolve_tool_request(
+                    pending, memo=memo, tool_calls=tool_calls,
+                    tool_resolver=tool_resolver, source_digest=source_digest,
+                    input_digests=digests, interpreter=interpreter,
+                    package_lock=package_lock_digest(), started=t0,
+                )
+                if failure is not None:
+                    return failure
+                continue
+
+            outputs: dict[str, Any] = {}
+            ok = False
+            if out_path.is_file():
+                try:
+                    parsed = json.loads(out_path.read_text(encoding="utf-8"))
+                    ok = bool(parsed.get("ok"))
+                    outputs = _bounded_outputs(parsed.get("outputs") or {})
+                except (OSError, ValueError):
+                    ok = False
+            if raw.exit_code != 0 or not ok:
+                code = st.TOOL_PROTOCOL_INVALID if raw.exit_code == st.TOOL_SENTINEL else None
+                return AnalysisResult(
+                    status="failed", code=code, source_digest=source_digest,
+                    input_digests=digests, interpreter=interpreter,
+                    package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
+                    tool_calls=tool_calls, stderr=raw.output[:4_000],
+                )
+
+            artifacts = _collect_artifacts(output_dir, stage) if output_dir else []
+            break
 
     return AnalysisResult(
         status="ok", outputs=outputs, artifacts=artifacts, source_digest=source_digest,
         input_digests=digests, interpreter=interpreter,
         package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
+        tool_calls=tool_calls,
         provenance=computed_provenance(request.purpose, source_digest=source_digest),
     )
 

@@ -29,8 +29,8 @@ def test_a_wrong_recorded_verdict_is_measured(tmp_path):
         "version": 1,
         "cases": [
             {
-                "id": "clock-must-escalate",
-                "text": "add a multi-zone world clock to my dashboard",
+                    "id": "ribbon-must-escalate",
+                    "text": "add a multi-zone latency ribbon to my dashboard",
                 "expectedMode": "compose",
                 "expectedGap": False,
             },
@@ -49,7 +49,7 @@ def test_a_wrong_recorded_verdict_is_measured(tmp_path):
     assert result["misroute_rate"] == 0.5
     assert result["escalation_correct"] is None  # no escalation cases recorded
     assert result["passed"] is False
-    assert result["failures"][0]["id"] == "clock-must-escalate"
+    assert result["failures"][0]["id"] == "ribbon-must-escalate"
     assert result["failures"][0]["actualMode"] == "engineer"
 
 

@@ -14,6 +14,7 @@ import { analysis } from './analysis';
 import { acquire } from './acquire';
 import { navigation } from './navigation';
 import { capabilityStudio } from './capability-studio';
+import { capabilityCard } from './capability-card';
 import { evolution } from './evolution';
 
 export const en = {
@@ -826,6 +827,7 @@ export const en = {
   // mechanism word.
   'code.command.paletteLabel': 'Commands',
   'code.command.eclipsesdk': 'Build or change something inside Eclipse.',
+  'code.command.app': 'Control your Eclipse app through the typed SDK.',
 
   // Promotion (Phase 15) — the user's own decision to put a made change into
   // their real project. The user sees the job ("put this change in"), never a
@@ -1034,7 +1036,6 @@ export const en = {
   'evolution.refusal.forbidden': 'I could not prepare this change — it would widen what Eclipse is allowed to do.',
   'evolution.refusal.outside': 'I could not prepare this change — it is outside the project.',
   'evolution.refusal.notPatchable': 'I could not prepare a change for that yet.',
-
   'evolution.experiment.title': 'Experiments Eclipse ran',
   'evolution.experiment.subtitle': 'What was checked, which decision was recorded, and what is ready for your review.',
   'evolution.experiment.empty': 'No experiments yet.',
@@ -1247,5 +1248,6 @@ export const en = {
   ...acquire,
   ...navigation,
   ...capabilityStudio,
+  ...capabilityCard,
   ...evolution,
 } as const;

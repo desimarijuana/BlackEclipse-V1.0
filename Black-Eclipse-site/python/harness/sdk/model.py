@@ -288,6 +288,19 @@ class SdkActiveDashboardInput(BaseModel):
     dashboard_id: str = Field(..., min_length=1, max_length=240)
 
 
+class SdkAuditInput(BaseModel):
+    """One append-only SDK activity entry. Never carries secrets."""
+
+    model_config = _CAMEL
+
+    action: str = Field(..., min_length=1, max_length=120)
+    summary: str = Field("", max_length=500)
+    resource_type: Optional[str] = Field(None, max_length=40)
+    resource_id: Optional[str] = Field(None, max_length=240)
+    detail: dict[str, Any] = Field(default_factory=dict)
+    actor: Optional[str] = Field(None, max_length=120)
+
+
 class SdkWidgetView(BaseModel):
     model_config = _CAMEL
 
@@ -313,6 +326,7 @@ __all__ = [
     "ResourceType",
     "SdkActiveDashboardInput",
     "SdkAddStockInput",
+    "SdkAuditInput",
     "SdkAssertLockInput",
     "SdkCreateFundInput",
     "SdkCreateLockInput",

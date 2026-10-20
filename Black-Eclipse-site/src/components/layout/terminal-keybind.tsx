@@ -50,12 +50,16 @@ export function isTerminalShortcut(
 export function TerminalKeybind() {
   const toggle = useTerminalStore((s) => s.toggle);
 
-  // Prewarm once per page load, then again whenever the terminal is opened (so a
-  // runtime that died is ready by the time the dock asks for a shell).
+  // Prewarm once per page load, well after the shell is interactive. This
+  // import pulls xterm AND asks the front door to wake the Python runtime, so
+  // doing it during boot competed with hydration and with the first screen's
+  // chunk compile (the dev bundler serializes that work). Ten seconds leaves
+  // the initial page alone; the shortcut still works immediately, and a cold
+  // open is handled by the dock's own loading state.
   useEffect(() => {
     if (prewarmed) return;
     prewarmed = true;
-    const timer = setTimeout(prewarmTerminal, 1200);
+    const timer = setTimeout(prewarmTerminal, 10_000);
     return () => clearTimeout(timer);
   }, []);
 

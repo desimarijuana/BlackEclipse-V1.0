@@ -14,7 +14,7 @@
 // keep working); `?tab=ui-builder&sub=studio.<section>` opens a section.
 
 import { useCallback, useState } from 'react';
-import { Blocks, Globe, LayoutGrid, Plug } from '@/lib/icons';
+import { Blocks, Globe, LayoutGrid, Plug, Sparkles } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import { useSubroute } from '@/hooks/use-subroute';
@@ -23,15 +23,17 @@ import { UiBuilderScreen } from '@/components/screens/ui-builder/ui-builder-scre
 import { PluginsScreen } from '@/components/screens/plugins/plugins-screen';
 import { SkillsSection } from './skills-section';
 import { IntegrationsSection } from './integrations-section';
+import { GeneratedCapabilitiesSection } from './generated-section';
 
-export type StudioSection = 'pages' | 'plugins' | 'skills' | 'integrations';
+export type StudioSection = 'pages' | 'plugins' | 'skills' | 'generated' | 'integrations';
 
-const SECTIONS: readonly StudioSection[] = ['pages', 'plugins', 'skills', 'integrations'];
+const SECTIONS: readonly StudioSection[] = ['pages', 'plugins', 'skills', 'generated', 'integrations'];
 
 const SECTION_LABEL = {
   pages: 'studio.section.pages',
   plugins: 'studio.section.plugins',
   skills: 'studio.section.skills',
+  generated: 'studio.section.generated',
   integrations: 'studio.section.integrations',
 } as const satisfies Record<StudioSection, string>;
 
@@ -39,6 +41,7 @@ const SECTION_ICON = {
   pages: LayoutGrid,
   plugins: Plug,
   skills: Blocks,
+  generated: Sparkles,
   integrations: Globe,
 } as const;
 
@@ -118,6 +121,11 @@ export function CapabilityStudioScreen({
             <SkillsSection
               onOpenSkills={() => useCommandStore.getState().dispatch({ tab: 'skills' })}
             />
+          </div>
+        )}
+        {visited.has('generated') && (
+          <div className={cn('h-full w-full overflow-auto', section === 'generated' ? '' : 'hidden')}>
+            <GeneratedCapabilitiesSection />
           </div>
         )}
         {visited.has('integrations') && (

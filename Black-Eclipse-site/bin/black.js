@@ -23,8 +23,12 @@ const {
   isUp,
 } = require("../scripts/lib/server");
 const { runLocalHost } = require("../scripts/local-host");
+const { DEV, PROD } = require("../scripts/lib/profiles");
 
-const PORT = process.env.PORT || "3000";
+// `black` (no subcommand) controls the production server. `black dev` controls
+// the development server, which runs on its own port and data directory.
+const PORT = String(PROD.appPort);
+const DEV_PORT = String(DEV.appPort);
 
 function log(msg) {
   console.log(`[black] ${msg}`);
@@ -42,24 +46,24 @@ function projectRoot() {
 
 // ─── black status ──────────────────────────────────────────────────────────
 async function status() {
-  const code = await isUp(PORT);
-  if (code) {
-    log(`site is UP → http://blackeclipse (HTTP ${code})`);
-  } else {
-    log(`site is DOWN — run "black eclipse" to start it`);
-  }
+  const prod = await isUp(PORT);
+  const dev = await isUp(DEV_PORT);
+  log(`production: ${prod ? `UP (HTTP ${prod}) -> http://blackeclipse` : "DOWN"} [port ${PORT}]`);
+  log(`development: ${dev ? `UP (HTTP ${dev}) -> http://127.0.0.1:${DEV_PORT}` : "DOWN"} [port ${DEV_PORT}]`);
 }
 
 // ─── black stop ────────────────────────────────────────────────────────────
-async function stop() {
-  const wasUp = await isUp(PORT);
+async function stop({ all = false } = {}) {
+  let stopped = false;
   if (killPort(PORT)) {
-    log(`stopped (port ${PORT} freed)`);
-  } else if (wasUp) {
-    log(`could not stop — something still holds port ${PORT}`);
-  } else {
-    log(`nothing was running on port ${PORT}`);
+    log(`production stopped (port ${PORT} freed)`);
+    stopped = true;
   }
+  if (all && killPort(DEV_PORT)) {
+    log(`development stopped (port ${DEV_PORT} freed)`);
+    stopped = true;
+  }
+  if (!stopped) log(`nothing was running on port ${all ? `${PORT}/${DEV_PORT}` : PORT}`);
 }
 
 // ─── black eclipse ─────────────────────────────────────────────────────────
@@ -210,10 +214,10 @@ async function main() {
       await eclipse({ restart: rest.includes("--restart") });
       break;
     case "dev":
-      runLocalHost({ mode: "dev", port: argValue("-p", PORT) });
+      runLocalHost({ mode: "dev", port: argValue("-p", DEV_PORT) });
       break;
     case "stop":
-      await stop();
+      await stop({ all: rest.includes("--all") });
       break;
     case "status":
       await status();
@@ -236,15 +240,15 @@ async function main() {
       console.log(`Usage: black [command]
 
 Commands:
-  eclipse      start the site (production, fast) [default]
-  dev          start in dev mode (hot reload)
-  stop         stop the running site
-  status       check if the site is up
+  eclipse      start the production site (fast) [default]
+  dev          start the development server (hot reload)
+  stop         stop production (--all also stops development)
+  status       check both servers
   build        force a production rebuild
   doctor       check the environment (--fix to auto-repair)
 
 Options:
-  -p <port>    use a custom port (default 3000)`);
+  -p <port>    use a custom port (production ${PORT}, development ${DEV_PORT})`);
       break;
     default:
       log(`unknown command "${sub}${rest.length ? " " + rest.join(" ") : ""}" — try "black help"`);

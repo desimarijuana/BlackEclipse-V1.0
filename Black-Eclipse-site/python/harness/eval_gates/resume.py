@@ -78,7 +78,7 @@ def run_gate() -> None:
         return RunRequest(
             runId=run_id, input=RunInput(query="go"), agent=agent,
             modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
-            callbackBaseUrl="http://localhost:3000", **kw,
+            callbackBaseUrl="http://localhost:3000", liveSurface=False, **kw,
         )
 
     try:

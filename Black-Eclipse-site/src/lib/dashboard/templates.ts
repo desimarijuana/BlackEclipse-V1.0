@@ -33,7 +33,7 @@ export interface DashboardTemplate {
   name: string;
   desc: string;
   /** Build the centre layout from a set of known widget ids. */
-  build: (widgetIds: string[]) => WorkspaceLayout;
+  build: (widgetIds: ReadonlySet<string> | readonly string[]) => WorkspaceLayout;
 }
 
 /** One full-width band. */
@@ -45,8 +45,14 @@ const split = (left: BoardCell, right: BoardCell): BoardSpec => ({ zone: 'main',
 /** A multi-track band balanced by the packer. */
 const grid = (tracks: number, ...cells: BoardCell[]): BoardSpec => ({ zone: 'main', tracks, cells });
 
-function buildFromSpecs(specs: BoardSpec[], widgetIds: string[]): WorkspaceLayout {
-  const sections = composeBoard(specs, new Set(widgetIds));
+function buildFromSpecs(
+  specs: BoardSpec[],
+  widgetIds: ReadonlySet<string> | readonly string[],
+): WorkspaceLayout {
+  const known = typeof (widgetIds as ReadonlySet<string>).has === 'function'
+    ? (widgetIds as ReadonlySet<string>)
+    : new Set(widgetIds as readonly string[]);
+  const sections = composeBoard(specs, known);
   return normalizeLayout({ version: 2, sections })
     ?? cloneLayout({ version: 2, sections: [] });
 }
@@ -316,4 +322,21 @@ export function getDashboardTemplate(id: string): DashboardTemplate | undefined 
   const resolved = resolveTemplateId(id);
   return DASHBOARD_TEMPLATES.find(t => t.id === resolved);
 }
+
+// The server route cannot import the React widget registry (`registry.tsx` is
+// a client module), so derive the union of ids the TEMPLATES themselves place.
+// Building against a permissive set keeps this list from drifting from the
+// specs above.
+const ALL_WIDGET_IDS = { has: () => true } as unknown as ReadonlySet<string>;
+
+function layoutWidgetIds(layout: WorkspaceLayout): string[] {
+  return layout.sections.flatMap(section =>
+    section.columns.flatMap(column => column.widgets.map(widget => widget.widgetId)),
+  );
+}
+
+/** Every widget id referenced by any persona template (deduped). */
+export const TEMPLATE_WIDGET_IDS: string[] = [...new Set(
+  DASHBOARD_TEMPLATES.flatMap(template => layoutWidgetIds(template.build(ALL_WIDGET_IDS))),
+)];
 

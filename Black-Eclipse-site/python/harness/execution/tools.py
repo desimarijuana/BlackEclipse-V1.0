@@ -707,6 +707,9 @@ def register_execution_tools(registry: Any) -> list[str]:
             effect=(None if is_read else "external_action"),
         ))
         added.append(name)
+    from ..python_env.tools import register_python_env_tools  # noqa: PLC0415
+
+    added.extend(register_python_env_tools(registry))
     return added
 
 

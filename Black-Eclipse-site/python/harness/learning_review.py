@@ -246,6 +246,23 @@ def review_run(
                 rsl_loop.wake()
         except Exception:  # noqa: BLE001 - waking the conductor is best-effort
             pass
+        # R9 lesson feedback: the post-run review is where a run's terminal
+        # outcome becomes measurable evidence for the lessons it received.
+        try:
+            from .self_improvement.config import RSLConfig  # noqa: PLC0415
+            from .self_improvement.lesson_feedback import (  # noqa: PLC0415
+                LessonOutcomeStore,
+                retire_unhelpful,
+            )
+
+            outcome_store = LessonOutcomeStore(run_store)
+            outcome_store.record_run_outcome(run_id, run.get("status"))
+            if RSLConfig.from_env().lesson_retire:
+                lesson_store = getattr(service, "store", None)
+                if lesson_store is not None:
+                    retire_unhelpful(lesson_store, outcome_store)
+        except Exception:  # noqa: BLE001 - feedback must never break a review
+            pass
 
     model_used = False
     if model and model_settings is not None:

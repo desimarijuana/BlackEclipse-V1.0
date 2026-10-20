@@ -8,14 +8,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
-  ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Maximize2, Minimize2, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
+  ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, History, LayoutDashboard, List, Lock, Maximize2, Minimize2, Plus, RefreshCw, RotateCcw, Settings2, Star, Trash2, Undo2, Upload,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
 import { DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';
 import { useWidgets } from '@/lib/workspace/use-widgets';
-import { eclipseSdk } from '@/lib/sdk';
+import { eclipseSdk, type SdkDashboardRevision } from '@/lib/sdk';
+import { PENDING_DASHBOARD_KEY } from '@/lib/sdk/navigate';
+import { undoRevision } from '@/lib/sdk/dashboard-history';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
 import { getDefaultBoard } from '@/lib/dashboard/default-board';
 import { useMarketViews } from '@/lib/dashboard/market-views';
@@ -32,6 +34,12 @@ import { TopBar } from '@/components/layout/top-bar';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 import { MarketTabs } from './market-tabs';
+
+function formatWhen(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
 
 export function DashboardScreen() {
   const dashboards = useDashboards();
@@ -138,6 +146,36 @@ export function DashboardScreen() {
   const [remoteRevision, setRemoteRevision] = useState(0);
   const syncSeen = useRef<Map<string, number>>(new Map());
   const activeDashboardId = dashboards.active?.id;
+
+  // A lock is enforced by the runtime; show it here so the user knows why edits
+  // are refused without opening the SDK tab.
+  const [dashboardLocked, setDashboardLocked] = useState(false);
+  const refreshDashboardLock = useCallback(async () => {
+    if (!activeDashboardId) {
+      setDashboardLocked(false);
+      return;
+    }
+    try {
+      const { locks } = await eclipseSdk.locks.list({
+        resourceType: 'dashboard',
+        resourceId: activeDashboardId,
+      });
+      setDashboardLocked(locks.length > 0);
+    } catch {
+      setDashboardLocked(false);
+    }
+  }, [activeDashboardId]);
+  useEffect(() => {
+    void refreshDashboardLock();
+    const onChanged = () => void refreshDashboardLock();
+    window.addEventListener('eclipse:locks-changed', onChanged);
+    const timer = window.setInterval(() => void refreshDashboardLock(), 30_000);
+    return () => {
+      window.removeEventListener('eclipse:locks-changed', onChanged);
+      window.clearInterval(timer);
+    };
+  }, [refreshDashboardLock]);
+
   useEffect(() => {
     if (!activeDashboardId || typeof window === 'undefined') return;
     let cancelled = false;
@@ -188,9 +226,114 @@ export function DashboardScreen() {
     void eclipseSdk.dashboards.setActive(dashboards.activeId).catch(() => {});
   }, [dashboards.loaded, dashboards.activeId]);
 
+  // The SDK/chat can ask the shell to open a specific board (`eclipse:open-dashboard`).
+  // A ref keeps the listener stable while still reading the latest dashboard list.
+  const dashboardStateRef = useRef(dashboards);
+  dashboardStateRef.current = dashboards;
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const dashboardId = (event as CustomEvent<{ dashboardId?: string }>).detail?.dashboardId;
+      if (!dashboardId) return;
+      const current = dashboardStateRef.current;
+      if (current.loaded && current.list.some((entry) => entry.id === dashboardId)) {
+        try { window.localStorage.removeItem(PENDING_DASHBOARD_KEY); } catch { /* ignore */ }
+        current.switchTo(dashboardId);
+      }
+      // Not loaded yet: the pending key is consumed by the effect below.
+    };
+    window.addEventListener('eclipse:open-dashboard', onOpen);
+    return () => window.removeEventListener('eclipse:open-dashboard', onOpen);
+  }, []);
+
+  // The SDK can open a board before this screen mounts; consume the pending id
+  // once the dashboard index is available.
+  useEffect(() => {
+    if (!dashboards.loaded) return;
+    let pending: string | null = null;
+    try { pending = window.localStorage.getItem(PENDING_DASHBOARD_KEY); } catch { /* ignore */ }
+    if (!pending) return;
+    try { window.localStorage.removeItem(PENDING_DASHBOARD_KEY); } catch { /* ignore */ }
+    if (dashboards.list.some((entry) => entry.id === pending)) dashboards.switchTo(pending);
+    // The list/switchTo change identity every render; `loaded` is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboards.loaded]);
+
+  // Revision history / undo. The mirror blueprint retains bounded revisions;
+  // restoring records a NEW revision, so an undo is itself undoable.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [revisions, setRevisions] = useState<SdkDashboardRevision[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyRequestRef = useRef(0);
+
+  const loadHistory = useCallback(async () => {
+    const id = dashboards.active?.id;
+    if (!id) return;
+    const requestId = ++historyRequestRef.current;
+    setHistoryBusy(true);
+    try {
+      const { revisions: fetched } = await eclipseSdk.dashboards.history(id);
+      if (requestId !== historyRequestRef.current) return;
+      setRevisions(fetched);
+      setHistoryError(null);
+    } catch (err) {
+      if (requestId === historyRequestRef.current) {
+        setHistoryError(err instanceof Error ? err.message : 'history unavailable');
+      }
+    } finally {
+      if (requestId === historyRequestRef.current) setHistoryBusy(false);
+    }
+  }, [dashboards.active?.id]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  const restoreDashboardRevision = useCallback(async (revision: number) => {
+    const id = dashboards.active?.id;
+    if (!id || historyBusy) return;
+    setHistoryBusy(true);
+    setHistoryError(null);
+    try {
+      await eclipseSdk.dashboards.restore(id, revision);
+      const snapshot = await fetchDashboardLayout(id);
+      if (snapshot) {
+        saveWorkspace(storageKey, snapshot.layout);
+        syncSeen.current.set(id, snapshot.revision);
+        setRemoteRevision((value) => value + 1);
+      }
+      setHistoryOpen(false);
+      await loadHistory();
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : 'restore failed');
+    } finally {
+      setHistoryBusy(false);
+    }
+  }, [dashboards.active?.id, historyBusy, loadHistory, storageKey]);
+
+  const handleUndo = useCallback(async () => {
+    if (historyBusy) return;
+    let entries = revisions;
+    if (entries.length < 2) {
+      const id = dashboards.active?.id;
+      if (!id) return;
+      try {
+        const { revisions: fetched } = await eclipseSdk.dashboards.history(id);
+        entries = fetched;
+        setRevisions(fetched);
+      } catch (err) {
+        setHistoryError(err instanceof Error ? err.message : 'history unavailable');
+        return;
+      }
+    }
+    const target = undoRevision(entries);
+    if (target) await restoreDashboardRevision(target.revision);
+  }, [dashboards.active?.id, historyBusy, restoreDashboardRevision, revisions]);
+
   usePageShortcuts(rootRef, [
     { id: 'dashboard-new', label: 'New dashboard', keys: 'shift+d', run: createDashboard, enabled: dashboards.loaded && !showOnboarding },
     { id: 'dashboard-fullscreen', label: 'Toggle fullscreen', keys: 'shift+f', run: toggleFullscreen, enabled: dashboards.loaded && !showOnboarding },
+    { id: 'dashboard-undo', label: 'Undo dashboard change', keys: 'mod+z', run: () => void handleUndo(), enabled: dashboards.loaded && !showOnboarding && !historyBusy },
   ]);
 
   // Lock page scroll while fullscreen so the reclaimed space is usable and the
@@ -324,6 +467,11 @@ export function DashboardScreen() {
         <div className="min-w-0">
           <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Command Center</h1>
           <p className="text-muted-foreground text-[11px] mt-0.5 hidden sm:block">Arrange widgets, sections and columns to suit how you trade.</p>
+          {dashboardLocked && (
+            <span className="mt-1 inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-amber-300">
+              <Lock size={9} /> Locked
+            </span>
+          )}
         </div>
 
         {/* Dashboard switcher */}
@@ -392,17 +540,78 @@ export function DashboardScreen() {
             <Maximize2 size={13} /> <span className="hidden sm:inline">Fullscreen</span>
           </button>
           <button
+            onClick={() => void handleUndo()}
+            disabled={historyBusy}
+            className="glass-button hidden items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer disabled:opacity-40 sm:inline-flex"
+            title="Undo the last board change (Ctrl/Cmd+Z)"
+          >
+            <Undo2 size={13} /> <span className="hidden sm:inline">Undo</span>
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => {
+                setHistoryOpen((open) => !open);
+                if (!historyOpen) void loadHistory();
+              }}
+              aria-expanded={historyOpen}
+              className="glass-button hidden items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer sm:inline-flex"
+              title="Revision history"
+            >
+              <History size={13} /> <span className="hidden sm:inline">History</span>
+            </button>
+            {historyOpen && (
+              <div className="absolute right-0 top-full z-40 mt-2 w-80 max-w-[90vw] rounded-2xl border border-white/15 p-2 shadow-2xl shadow-black/40 glass-card-strong animate-fade-in dark:border-white/10">
+                <div className="mb-1 flex items-center justify-between px-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Revision history</span>
+                  <button
+                    onClick={() => void loadHistory()}
+                    disabled={historyBusy}
+                    className="rounded p-1 text-muted-foreground hover:text-primary disabled:opacity-40"
+                    title="Refresh history"
+                  >
+                    <RefreshCw size={11} />
+                  </button>
+                </div>
+                {historyError && <p className="px-1 py-1 text-[10px] text-rose-300">{historyError}</p>}
+                <div className="max-h-72 space-y-1 overflow-y-auto">
+                  {revisions.length === 0 && !historyBusy && (
+                    <p className="px-1 py-2 text-[11px] italic text-muted-foreground/70">No retained revisions yet.</p>
+                  )}
+                  {revisions.map((entry, index) => (
+                    <div key={entry.revision} className="flex items-start justify-between gap-2 rounded-lg border border-border/20 px-2 py-1.5">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-foreground">
+                          r{entry.revision}{index === 0 ? ' · current' : ''}
+                        </p>
+                        <p className="truncate text-[10px] text-muted-foreground">{entry.summary || 'Board change'}</p>
+                        <p className="text-[9px] text-muted-foreground/60">{formatWhen(entry.createdAt)}</p>
+                      </div>
+                      {index > 0 && (
+                        <button
+                          onClick={() => void restoreDashboardRevision(entry.revision)}
+                          disabled={historyBusy}
+                          className="glass-button shrink-0 rounded px-2 py-1 text-[10px] disabled:opacity-40"
+                        >
+                          Restore
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <button
             onClick={() => {
               const json = dashboards.exportLayout(dashboards.activeId!);
-              if (json) {
-                const blob = new Blob([json], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${dashboards.active?.name ?? 'dashboard'}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-              }
+              if (!json) return;
+              const blob = new Blob([json], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${dashboards.active?.name ?? 'dashboard'}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
             }}
             className="glass-button hidden items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer sm:inline-flex"
             title="Export this dashboard layout"

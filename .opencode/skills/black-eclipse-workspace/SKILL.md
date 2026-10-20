@@ -116,7 +116,7 @@ only). `main` is not resizable. The handle is always available (not edit-only).
 - **`MarketSidePanel`** was REMOVED. The Command Center's Market column is now
   the workspace's **right zone** — not a separate page/panel. Its widgets live in
   `src/lib/dashboard/market-rail-widgets.tsx` (`MARKET_RAIL_WIDGETS`,
-  `marketPanelIcon`) and are merged into the single `DASHBOARD_WIDGETS` catalog.
+  `marketPanelIcon`) and are registered into the shared widget registry.
   The default right-zone sections come from `buildRailSections()` (asset-class
   aware via `ASSET_RAIL`) and the left column from `buildLeftSections()` in
   `src/lib/dashboard/layout.ts`; `buildMarketViewLayout` frames the persona
@@ -177,8 +177,10 @@ Geopolitics, Intelligence. Real data widgets live in `src/lib/dashboard/widgets.
 and consume DataHub topics (indices, forex, crypto, commodities, movers, news,
 economic calendar, quotes). Widgets needing external/broker integrations
 (Quick Trade, Open Positions, Live TV, Geopolitics, etc.) render a clear
-`UNAVAILABLE` state — never fabricate data. Add a widget by registering a
-`WidgetDefinition` in the registry and (optionally) a renderer in `widgets.tsx`.
+`UNAVAILABLE` state — never fabricate data. Add a widget by defining a
+`WidgetDefinition` (with its `surface`) and calling `registerWidget` from
+`src/lib/workspace/widget-registry.ts`; add its renderer in `widgets.tsx` when
+it is a new visual kind.
 
 The **Investor Eye** widget (`src/lib/dashboard/investor-eye-widget.tsx`) is a
 thin view over the same Investor Eye DataHub state topics the full screen uses
@@ -189,9 +191,10 @@ companion, the **Investor Eye Map** widget
 topics + `buildAllLayers()`, and writes selection to the shared
 `useInvestorEyeStore` — no second fetch path and no fabricated data. Its map
 chunk is `next/dynamic`-split so dashboards without it never load
-ECharts/`echarts-gl`. Register new widgets anywhere in `DASHBOARD_WIDGETS` — the
-persona templates (`src/lib/dashboard/templates.ts`) address widgets by **id**,
-not array index.
+ECharts/`echarts-gl`. Register new widgets with `registerWidget`; the persona
+templates (`src/lib/dashboard/templates.ts`) address widgets by **id**, not array
+index. `DASHBOARD_WIDGETS` remains the core registration list for compatibility,
+but screens read the live registry through `useWidgets({ surface })`.
 
 ## Dashboard default layouts (personas + track board)
 

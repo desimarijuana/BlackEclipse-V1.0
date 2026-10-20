@@ -2,14 +2,14 @@
   "datasetId": "ui-routing-v1",
   "version": 1,
   "reviewed": true,
-  "reviewedAt": "2026-10-18",
+  "reviewedAt": "2026-10-19",
   "notes": "Round 4 W3.1: deterministic routing cases for the Compose/Engineer classifier. The catalog is the builtin spec set; no model is consulted. A case may expect a capability gap only when the request names a capability the catalog cannot satisfy.",
   "cases": [
     {
-      "id": "clock-escalates",
+      "id": "clock-composes",
       "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London",
-      "expectedMode": "engineer",
-      "expectedGap": true
+      "expectedMode": "compose",
+      "expectedGap": false
     },
     {
       "id": "layout-composes",

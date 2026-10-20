@@ -130,6 +130,10 @@ class SurfaceSnapshotInput(BaseModel):
     skillDraftIds: Optional[list[str]] = None  # noqa: N815
 
 
+class SurfaceActivationRequest(BaseModel):
+    scope: Optional[str] = None
+
+
 class SurfaceExperimentRequest(BaseModel):
     candidate: SurfaceSnapshotInput
     base: Optional[SurfaceSnapshotInput] = None
@@ -142,6 +146,7 @@ class SurfaceExperimentRequest(BaseModel):
     baselineRunId: Optional[str] = None  # noqa: N815
     problemStatement: str = ""  # noqa: N815
     sourceCategory: str = "operator"  # noqa: N815
+    scope: str = "global"
 
 
 def _lesson_store() -> Any:
@@ -203,11 +208,13 @@ def _surface_signature(
     trials: int,
     seed: Optional[int],
     baseline_run_id: Optional[str],
+    scope: str = "global",
 ) -> str:
-    """Deterministic identity: a changed snapshot/config is a new experiment."""
+    """Deterministic identity: a changed snapshot/config/scope is a new experiment."""
     raw = json.dumps({
         "baseDigest": base_digest,
         "snapshotDigest": snapshot_digest,
+        "scope": scope,
         "dataset": dataset,
         "split": split,
         "taskIds": sorted(task_ids),
@@ -395,6 +402,297 @@ def list_lessons(
     return {"success": True, "lessons": _lesson_store().list_candidates(status="adopted", limit=cap)}
 
 
+@router.get("/evolution/lessons/{lesson_id}/outcomes")
+def lesson_outcomes(
+    lesson_id: str, limit: int = 50, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Measured lift and recent cohort rows for one adopted lesson."""
+    from ..self_improvement.lesson_feedback import LessonOutcomeStore  # noqa: PLC0415
+
+    cap = max(1, min(int(limit), 200))
+    store = LessonOutcomeStore(service.store)
+    return {
+        "success": True,
+        "lessonId": lesson_id,
+        "stats": store.stats(lesson_id).to_dict(),
+        "outcomes": store.recent(lesson_id, limit=cap),
+    }
+
+
+@router.get("/evolution/states")
+def list_harness_states(
+    scope: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """The immutable hill-climb states: current pointers plus recent rows."""
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    cap = max(1, min(int(limit), 200))
+    store = HarnessStateStore(service.store)
+    return {
+        "success": True,
+        "scope": scope or "global",
+        "current": store.current(scope or "global"),
+        "currents": store.current_states(limit=cap) if scope is None else [],
+        "states": store.list_states(scope=scope, status=status, limit=cap),
+    }
+
+
+@router.post("/evolution/states/{state_id}/promote")
+def promote_harness_state(
+    state_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Make one candidate harness state current. This is a state pointer, not a code write."""
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    store = HarnessStateStore(service.store)
+    try:
+        state = store.promote(state_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "state": state}
+
+
+def _surface_scopes() -> list[str]:
+    from ..agents import AGENT_PRESETS  # noqa: PLC0415
+
+    return ["global", *sorted(AGENT_PRESETS.keys())]
+
+
+def _surface_diff(base: Any, snapshot: Any) -> dict[str, Any]:
+    before_tools = set(base.toolNames)
+    after_tools = set(snapshot.toolNames)
+    model_changed = (
+        base.modelProvider != snapshot.modelProvider
+        or base.modelName != snapshot.modelName
+        or base.temperature != snapshot.temperature
+    )
+    return {
+        "systemPromptChanged": base.systemPrompt != snapshot.systemPrompt,
+        "systemPromptBefore": base.systemPrompt[:4000],
+        "systemPromptAfter": snapshot.systemPrompt[:4000],
+        "systemPromptBeforeChars": len(base.systemPrompt),
+        "systemPromptAfterChars": len(snapshot.systemPrompt),
+        "toolsAdded": sorted(after_tools - before_tools),
+        "toolsRemoved": sorted(before_tools - after_tools),
+        "maxStepsBefore": base.maxSteps,
+        "maxStepsAfter": snapshot.maxSteps,
+        "maxToolCallsBefore": base.maxToolCalls,
+        "maxToolCallsAfter": snapshot.maxToolCalls,
+        "modelIdentityChanged": model_changed,
+        "skillDraftIds": list(snapshot.skillDraftIds),
+    }
+
+
+def _surface_context(state_id: str, scope: Optional[str] = None) -> dict[str, Any]:
+    """Build the shared preview/activation decision for one harness state."""
+    from ..agents import DEFAULT_AGENT_ID, get_agent  # noqa: PLC0415
+    from ..evaluation.candidate_invoker import (  # noqa: PLC0415
+        SnapshotError,
+        base_snapshot_from_agent,
+        validate_snapshot,
+    )
+    from ..self_improvement.models import HarnessSnapshot  # noqa: PLC0415
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    store = HarnessStateStore(service.store)
+    state = store.get_state(state_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Harness state not found")
+    available = _surface_scopes()
+    chosen = str(scope or state.get("scope") or "global").strip()
+    if chosen not in available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown surface scope {chosen!r} (expected {', '.join(available)})",
+        )
+
+    reasons: list[str] = []
+    if state["status"] not in ("candidate", "current"):
+        reasons.append("state is not activatable")
+    if state.get("utility") is None:
+        reasons.append("state is UNMEASURED")
+
+    candidate = _store().get_candidate(str(state.get("candidateId") or ""))
+    if candidate is None or candidate.get("subjectType") != "surface":
+        reasons.append("state is not a surface candidate")
+
+    decision = None
+    accepted_run = _eval_store().get_run(str(state.get("acceptedRunId") or ""))
+    if accepted_run is not None:
+        decision = _accepted_decision(accepted_run)
+    if decision is None:
+        reasons.append("surface experiment was not accepted")
+
+    base = snapshot = None
+    payload = (candidate or {}).get("surfaceConfig") or {}
+    try:
+        base = HarnessSnapshot(**dict(payload.get("base") or {}))
+        snapshot = HarnessSnapshot(**dict(payload.get("snapshot") or {}))
+        validate_snapshot(base, snapshot)
+    except (TypeError, ValueError, SnapshotError) as exc:
+        reasons.append(f"SURFACE_INVALID: {exc}")
+
+    if snapshot is not None:
+        if snapshot.skillDraftIds:
+            reasons.append("SURFACE_LIVE_UNSUPPORTED: skill drafts are not applied live")
+        if (
+            snapshot.modelProvider is not None
+            or snapshot.modelName is not None
+            or snapshot.temperature is not None
+        ):
+            reasons.append(
+                "SURFACE_LIVE_UNSUPPORTED: model identity is resolved by the front door"
+            )
+
+    reference_agent = chosen if chosen != "global" else DEFAULT_AGENT_ID
+    base_digest_matches = None
+    if base is not None:
+        try:
+            current_base = base_snapshot_from_agent(get_agent(reference_agent))
+            base_digest_matches = current_base.sourceDigest == base.sourceDigest
+            if not base_digest_matches:
+                reasons.append("base snapshot changed; the activation would be skipped")
+        except Exception as exc:  # noqa: BLE001 - unavailable base is a refusal
+            base_digest_matches = False
+            reasons.append(f"base snapshot unavailable: {exc}")
+
+    previous = store.current(chosen)
+    return {
+        "store": store,
+        "state": state,
+        "candidate": candidate,
+        "scope": chosen,
+        "availableScopes": available,
+        "referenceAgent": reference_agent,
+        "base": base,
+        "snapshot": snapshot,
+        "baseDigestMatches": base_digest_matches,
+        "accepted": decision is not None,
+        "acceptedDecision": decision,
+        "previousState": previous,
+        "canActivate": not reasons,
+        "reasons": reasons,
+        "diff": _surface_diff(base, snapshot) if base is not None and snapshot is not None else None,
+    }
+
+
+@router.get("/evolution/states/{state_id}/surface-preview")
+def preview_surface_state(
+    state_id: str,
+    scope: Optional[str] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Read-only preview of the exact live surface change and any refusal reason."""
+    context = _surface_context(state_id, scope)
+    return {
+        "success": True,
+        "stateId": state_id,
+        "candidateId": (context.get("state") or {}).get("candidateId"),
+        "scope": context["scope"],
+        "availableScopes": context["availableScopes"],
+        "referenceAgent": context["referenceAgent"],
+        "baseDigestMatches": context["baseDigestMatches"],
+        "accepted": context["accepted"],
+        "acceptedDecision": context["acceptedDecision"],
+        "canActivate": context["canActivate"],
+        "reasons": context["reasons"],
+        "diff": context["diff"],
+        "previousState": context["previousState"],
+    }
+
+
+@router.post("/evolution/states/{state_id}/activate-surface")
+def activate_surface_state(
+    state_id: str,
+    body: Optional[SurfaceActivationRequest] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Activate a measured surface snapshot, optionally for a chosen agent scope.
+
+    A scope different from the state's own scope creates a new immutable state
+    row for that scope and activates it; the original state is untouched. Model
+    identity and skill drafts are refused. Rollback restores the previous
+    current state for the chosen scope.
+    """
+    context = _surface_context(state_id, body.scope if body else None)
+    if not context["canActivate"]:
+        hard = any(
+            "SURFACE_LIVE_UNSUPPORTED" in reason
+            or "SURFACE_INVALID" in reason
+            or "not a surface candidate" in reason
+            or "not activatable" in reason
+            for reason in context["reasons"]
+        )
+        status = 400 if hard else 409
+        raise HTTPException(status_code=status, detail={"reasons": context["reasons"]})
+
+    store = context["store"]
+    state = context["state"]
+    target_id = state["id"]
+    if context["scope"] != state["scope"]:
+        target = store.save_state({
+            "scope": context["scope"],
+            "parentStateId": state.get("parentStateId"),
+            "snapshotDigest": state["snapshotDigest"],
+            "candidateId": state.get("candidateId"),
+            "acceptedRunId": state.get("acceptedRunId"),
+            "utility": state.get("utility"),
+            "metrics": state.get("metrics") or {},
+            "status": "candidate",
+        })
+        target_id = target["id"]
+    activation = store.activate_surface(
+        target_id,
+        snapshot=context["snapshot"].to_dict(),
+        base=context["base"].to_dict(),
+    )
+    return {
+        "success": True,
+        "activation": activation,
+        "state": store.get_state(target_id),
+        "preview": {
+            "scope": context["scope"],
+            "referenceAgent": context["referenceAgent"],
+            "baseDigestMatches": context["baseDigestMatches"],
+            "diff": context["diff"],
+        },
+    }
+
+
+@router.get("/evolution/surface-activations")
+def list_surface_activations(
+    scope: Optional[str] = None,
+    limit: int = 50,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    store = HarnessStateStore(service.store)
+    return {
+        "success": True,
+        "activations": store.list_activations(
+            scope=scope, limit=max(1, min(int(limit), 200)),
+        ),
+    }
+
+
+@router.post("/evolution/surface-activations/{activation_id}/rollback")
+def rollback_surface_activation(
+    activation_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    store = HarnessStateStore(service.store)
+    try:
+        activation = store.rollback_activation(activation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "activation": activation}
+
+
 @router.post("/evolution/candidates/{candidate_id}/lessons")
 def adopt_lesson(
     candidate_id: str, body: LessonAdoptionRequest,
@@ -477,10 +775,10 @@ async def run_recursive_experiment(
     loop = getattr(service, "_rsl_loop", None)
     if loop is None:
         raise HTTPException(status_code=503, detail="RSL loop unavailable")
-    if getattr(getattr(loop, "config", None), "mode", "off") != "verify":
+    if getattr(getattr(loop, "config", None), "mode", "off") not in ("verify", "auto"):
         raise HTTPException(
             status_code=409,
-            detail="HARNESS_RSL_MODE must be verify for a recursive experiment",
+            detail="HARNESS_RSL_MODE must be verify or auto for a recursive experiment",
         )
     variants = [variant.model_dump() for variant in body.variants]
     if not variants:
@@ -564,14 +862,21 @@ def create_surface_experiment(
     if loop is None:
         raise HTTPException(status_code=503, detail="RSL loop unavailable")
     config = getattr(loop, "config", None)
-    if getattr(config, "mode", "off") != "verify":
+    if getattr(config, "mode", "off") not in ("verify", "auto"):
         raise HTTPException(
             status_code=409,
-            detail="HARNESS_RSL_MODE must be verify for a surface experiment",
+            detail="HARNESS_RSL_MODE must be verify or auto for a surface experiment",
         )
     budget_ok = getattr(loop, "budget_ok", None)
     if callable(budget_ok) and not budget_ok():
         raise HTTPException(status_code=429, detail="daily experiment budget exhausted")
+    scope = str(body.scope or "global").strip()
+    available_scopes = _surface_scopes()
+    if scope not in available_scopes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown surface scope {scope!r} (expected {', '.join(available_scopes)})",
+        )
 
     try:
         base = (
@@ -621,6 +926,7 @@ def create_surface_experiment(
     surface_config = {
         "snapshot": candidate.to_dict(),
         "base": base.to_dict(),
+        "scope": scope,
         "dataset": body.dataset or "benchmark_v1",
         "datasetName": dataset.name,
         "datasetVersion": dataset.version,
@@ -641,6 +947,7 @@ def create_surface_experiment(
         trials=trials,
         seed=body.seed,
         baseline_run_id=baseline_run_id,
+        scope=scope,
     )
 
     evolution = _store()

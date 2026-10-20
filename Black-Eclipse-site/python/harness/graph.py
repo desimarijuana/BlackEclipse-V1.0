@@ -227,6 +227,21 @@ def _ui_focus_block(context: Any) -> str:
     return "\n".join(lines)
 
 
+def _app_control_block(context: Any) -> str:
+    """A per-run note for an explicit app-control turn (grants nothing)."""
+    if not isinstance(context, dict) or context.get("appControl") is not True:
+        return ""
+    return (
+        "# App control\n"
+        "The user is controlling their Eclipse app surface. Prefer the sdk_* tools: "
+        "sdk_dashboard_* for the Command Center, sdk_widget_* for declarative widgets, sdk_app_* for navigation, "
+        "sdk_page_* for saved pages, sdk_theme_* for themes/presets, and sdk_lock_* for locks. "
+        "Use ui_* only when the SDK has no verb for the operation. Do not edit source code "
+        "or add a new renderer unless the user asks for a new visual kind; that is the "
+        "/eclipsesdk code path."
+    )
+
+
 def _resolve_direct(request: Any) -> bool:
     """Whether a run edits the real folder or a disposable copy.
 
@@ -456,6 +471,7 @@ def build_graph(
     # The UI Engineering service, so `ui_*` tools inspect the live UI and mutate
     # the user's saved UI blueprints through the ONE catalog + blueprint store.
     ui_service: Optional[Any] = None,
+    task_manager: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
@@ -526,6 +542,8 @@ def build_graph(
         log=lambda m, d=None: None,
         user_id=request.userId,
         tenant_id=request.tenantId,
+        # The durable task this run executes, when the scheduler supplied it.
+        task_id=str((request.input.context or {}).get("taskId") or "") or None,
         # Private per-conversation memory (bot chats / group members). Absent for
         # ordinary chat, where memory scoping is unchanged.
         conversation_id=getattr(request, "conversationId", None),
@@ -548,6 +566,7 @@ def build_graph(
         model_settings=request.modelSettings,
         bus=bus,
         tool_registry=registry,
+        task_manager=task_manager,
         authorize_effect=effect_authorizer,
         mcp_manager=mcp_manager,
         # The read-only workspace binding for this run (Phase 1). Absent ⇒ no
@@ -1115,11 +1134,19 @@ async def execute_run(
     search: Optional[Any] = None,
     artifact_service: Optional[Any] = None,
     ui_service: Optional[Any] = None,
+    task_manager: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     from .run_lineage import RunLineage  # noqa: PLC0415
 
     agent = resolve_agent(request)
+    if getattr(request, "liveSurface", True):
+        try:
+            from .self_improvement.live_surface import apply_active_surface  # noqa: PLC0415
+
+            agent, _surface_activation = apply_active_surface(store, agent)
+        except Exception:  # noqa: BLE001 - a bad activation must never break a run
+            pass
     emitter = RunEmitter(request.runId, store, bus)
     lineage = RunLineage(store)
     if code_store is None:
@@ -1218,11 +1245,11 @@ async def execute_run(
     # instructions. A profile failure must never block the run.
     profile_block, profile_snapshot_id = await _profile_context(request, agent, memory_service, emitter)
 
-    # A bounded, relevant-only skill manifest (never all skills). Discovery is a
-    # hint; it cannot enable, grant or run anything.
+    # A bounded, relevant-only skill manifest (never all skills); a hint only.
     skill_manifest, skill_manifest_version = await _skill_manifest_context(
         request, skill_registry, memory_service, emitter,
     )
+    lesson_manifest, _lesson_ids = await _lesson_manifest_context(request, memory_service, store, emitter)
 
     # Deterministic explicit-intent handling. A clear "remember this" / "forget
     # this" / "correct this" must not depend on the model voluntarily calling the
@@ -1237,9 +1264,7 @@ async def execute_run(
         else await _apply_memory_intent(request, memory_service, emitter)
     )
 
-    # Prompt-cache plan: stable segments + a cache key computed from identity
-    # (versions + snapshot/manifest ids), never the user message. Recorded for
-    # observability; it changes nothing the model is allowed to do.
+    # Prompt-cache plan: stable segments + an identity-derived cache key.
     from .prompt_segments import build_prompt_plan, runtime_context_block  # noqa: PLC0415
 
     # Surface honesty (Milestone 4): resolve the tool surface AND the system
@@ -1309,11 +1334,13 @@ async def execute_run(
     # model the as-of period it needs without a shell call and is excluded from
     # the cache key so a new run date never invalidates the reusable prefix.
     runtime_context = runtime_context_block(request.runId)
-    # The page the user is working on (when the front door supplied it). Per-run
-    # and cache-key-excluded, exactly like the date/time block.
+    # The page the user is working on, per-run and cache-key-excluded.
     ui_focus = _ui_focus_block(request.input.context)
     if ui_focus:
         runtime_context = f"{runtime_context}\n\n{ui_focus}"
+    app_control = _app_control_block(request.input.context)
+    if app_control:
+        runtime_context = f"{runtime_context}\n\n{app_control}"
 
     prompt_plan = build_prompt_plan(
         system_prompt=system_prompt,
@@ -1322,11 +1349,11 @@ async def execute_run(
         profile_block=profile_block,
         profile_snapshot_id=profile_snapshot_id,
         skill_manifest=skill_manifest,
-        skill_manifest_version=skill_manifest_version,
+        skill_manifest_version=skill_manifest_version, lesson_manifest=lesson_manifest,
         runtime_context=runtime_context,
         user_message=request.input.query,
     )
-    await emitter.emit("prompt.plan", prompt_plan.to_dict())
+    await emitter.emit("prompt.plan", {**prompt_plan.to_dict(), "surface": surface_summary(agent.id, allowed)})
 
     # Measure the request and derive the history budget from the RESOLVED model's
     # declared context window. When the window is unknown the budget is inert and
@@ -1429,7 +1456,7 @@ async def execute_run(
             run_messages = _assemble_run_messages(
                 request, system_prompt=system_prompt, history_messages=history_msgs,
                 profile_block=profile_block, skill_manifest=skill_manifest,
-                memory_block=memory_block,
+                lesson_manifest=lesson_manifest, memory_block=memory_block,
                 dropped_block=dropped if dropped is not None else dropped_block,
                 runtime_context=runtime_context,
             )
@@ -1470,6 +1497,7 @@ async def execute_run(
             search=search,
             artifact_service=artifact_service,
             ui_service=ui_service,
+            task_manager=task_manager,
         )
         return await app.ainvoke(initial_state)
 
@@ -1963,6 +1991,7 @@ def _assemble_run_messages(
     history_messages: list[BaseMessage],
     profile_block: str,
     skill_manifest: str,
+    lesson_manifest: str,
     memory_block: str,
     dropped_block: str,
     runtime_context: str = "",
@@ -1980,6 +2009,7 @@ def _assemble_run_messages(
         *history_messages,
         *([SystemMessage(content=profile_block)] if profile_block else []),
         *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
+        *([SystemMessage(content=lesson_manifest)] if lesson_manifest else []),
         *([SystemMessage(content=memory_block)] if memory_block else []),
         *([SystemMessage(content=dropped_block)] if dropped_block else []),
         HumanMessage(content=_user_message(request)),
@@ -2117,12 +2147,13 @@ from .graph_context import (  # noqa: E402,F401
     _create_explicit_skill_draft,
     _is_recurring_statement,
     _learning_eligibility,
+    _lesson_manifest_context,
     _memory_blob,
     _memory_context,
     _outcome_blob,
     _profile_context,
     _skill_manifest_context,
-    learning_eligibility_for_run,
+    learning_eligibility_for_run, surface_summary,
 )
 
 

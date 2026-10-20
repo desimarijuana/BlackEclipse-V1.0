@@ -21,8 +21,10 @@ from .authoring import (
     FORMAT_EXTENSION,
     FORMAT_MIME,
     DocumentError,
+    block_headings,
     build,
     canonical_format,
+    report_authored_document,
     slug_filename,
 )
 
@@ -99,6 +101,12 @@ async def _create(args: dict[str, Any], ctx: ToolContext) -> Any:
         )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
+
+    # The writer knows the headings it wrote: record them so a contract's
+    # required sections can be checked against the document (W14).
+    report_authored_document(
+        ctx, title=title, filename=filename, headings=block_headings(args.get("blocks")),
+    )
 
     return _ok(
         f"Created {canonical} document {artifact.name!r} "
@@ -189,7 +197,9 @@ def register_document_authoring_tools(registry: ToolRegistry) -> list[str]:
         risk="low",
         timeout_ms=30_000,
     ))
-    return ["document_create"]
+    from .report_tools import register_report_tools  # noqa: PLC0415
+
+    return ["document_create", *register_report_tools(registry)]
 
 
 __all__ = ["register_document_authoring_tools"]

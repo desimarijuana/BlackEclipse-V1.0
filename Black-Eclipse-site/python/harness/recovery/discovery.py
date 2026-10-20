@@ -306,6 +306,23 @@ def _default_list_providers() -> list[dict[str, Any]]:
     return list_providers()
 
 
+def capabilities_source(service: Any) -> CapabilitySource:
+    """Active generated capabilities, read from the one agent-memory store."""
+
+    def _source() -> Iterable[CapabilityDescriptor]:
+        store = getattr(service, "store", None)
+        if store is None:
+            return []
+        try:
+            from ..capabilities.registry import generated_descriptors  # noqa: PLC0415
+
+            return generated_descriptors(store)
+        except Exception:  # noqa: BLE001 - generated capabilities are additive
+            return []
+
+    return _source
+
+
 def build_default_index(service: Any) -> CapabilityIndex:
     """Build the index over the live service registries (best-effort)."""
     index = CapabilityIndex()
@@ -316,6 +333,7 @@ def build_default_index(service: Any) -> CapabilityIndex:
     if skill_registry is not None:
         index.add_source(skills_source(skill_registry))
     index.add_source(providers_source())
+    index.add_source(capabilities_source(service))
     return index
 
 
@@ -327,6 +345,7 @@ __all__ = [
     "CapabilityMatch",
     "acquisition_plan",
     "build_default_index",
+    "capabilities_source",
     "providers_source",
     "skills_source",
     "tools_source",

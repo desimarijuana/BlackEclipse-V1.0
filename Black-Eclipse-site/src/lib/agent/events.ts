@@ -1,5 +1,6 @@
 import type { ActivityItem, PendingApproval, ResponsePlan, ResponseStatus, TurnChange } from './response-model';
 import { coerceResponsePlan, sourceLabel, toolLabel } from './response-model';
+import type { CapabilityEventPhase } from '@/lib/harness/capability-types';
 import { refusalKey } from '@/lib/i18n/refusal-copy';
 
 /**
@@ -79,8 +80,14 @@ export type HarnessUiEvent =
    */
   | { kind: 'acquisition'; manifest: unknown }
   /**
+   * Generated-capability lifecycle (runtime `capability.*`): the request, build,
+   * test result and activation decision the chat renders as one card. The view
+   * is coerced by `capability-types.ts`; this event never invents a state.
+   */
+  | { kind: 'capability'; phase: CapabilityEventPhase; view: unknown }
+  /**
    * The Intelligent Response Orchestrator chose this turn's presentation mode
-   * (runtime `response.plan`). Display-only — it never changes the answer.
+   * (runtime `response.plan`). Display-only �?" it never changes the answer.
    */
   | { kind: 'response_plan'; plan: ResponsePlan };
 
@@ -359,6 +366,20 @@ export function normalizeHarnessEvent(
     const manifest = payload.manifest;
     if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return null;
     return { kind: 'acquisition', manifest };
+  }
+
+  const capabilityPhase: CapabilityEventPhase | undefined =
+    event === 'capability.requested' ? 'requested'
+    : event === 'capability.built' ? 'built'
+    : event === 'capability.activated' ? 'activated'
+    : event === 'capability.verification_failed' ? 'verification_failed'
+    : event === 'capability.disabled' ? 'disabled'
+    : event === 'capability.retired' ? 'retired'
+    : undefined;
+  if (capabilityPhase) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    if (!str(payload.capabilityId) && !str(payload.need)) return null;
+    return { kind: 'capability', phase: capabilityPhase, view: payload };
   }
 
   // The Intelligent Response Orchestrator's chosen presentation mode

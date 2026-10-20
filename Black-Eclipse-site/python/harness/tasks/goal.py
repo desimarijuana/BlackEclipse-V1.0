@@ -83,6 +83,14 @@ _TASK_TYPE_RULES: tuple[tuple[TaskType, tuple[str, ...]], ...] = (
         "cite", "citations", "evidence", "survey", "latest news",
         "look up", "search for", "deep dive",
     )),
+    # Data analysis is checked LAST (W14): a request that names a document, a
+    # workflow, code, finance or research signal keeps that class. Only a
+    # request whose own signal is quantitative keeps the data class.
+    (TaskType.DATA, (
+        "dataset", "datasets", "csv", "spreadsheet", "statistics",
+        "statistical", "correlation", "data analysis", "analyze the data",
+        "regression analysis",
+    )),
 )
 
 # Explicit task-type names a caller may pass (never guessed from prose alone).
@@ -92,6 +100,8 @@ _TASK_TYPE_ALIASES: dict[str, TaskType] = {
     "document": TaskType.DOCUMENT, "doc": TaskType.DOCUMENT, "writing": TaskType.DOCUMENT,
     "workflow": TaskType.WORKFLOW, "automation": TaskType.WORKFLOW,
     "finance": TaskType.FINANCE, "financial": TaskType.FINANCE,
+    "data": TaskType.DATA, "dataset": TaskType.DATA, "analytics": TaskType.DATA,
+    "quantitative": TaskType.DATA,
     "general": TaskType.GENERAL, "other": TaskType.GENERAL,
 }
 
@@ -127,6 +137,62 @@ _ACCEPTANCE_SIGNALS: dict[str, tuple[str, ...]] = {
     "the program runs and produces its output": ("run it", "runs", "execute",
                                                  "launch", "start it"),
 }
+
+
+#: How many required document sections a contract may name (bounded).
+MAX_REQUIRED_SECTIONS = 8
+
+#: An explicit section LIST: "sections: risks, methodology" or "with sections
+#: risks and methodology". A bare mention ("the document has sections") names
+#: nothing, so nothing is required — the rule never invents a requirement.
+_SECTION_LIST_RE = re.compile(
+    r"(?:\b(?:with|including|named|titled|containing|covering)\s+sections?\b\s*(?::\s*)?"
+    r"|\bsections?\b\s*:\s*)([a-z0-9][^.;\n]{2,160})",
+    re.IGNORECASE,
+)
+
+#: A captured list that opens with one of these is a CLAUSE, not a list of
+#: section names ("sections that must be reviewed").
+_SECTION_CLAUSE_WORDS = frozenset({
+    "that", "which", "who", "must", "should", "shall", "need", "needs",
+    "required", "are", "is", "was", "were", "will", "would", "can", "could",
+    "may", "might", "to", "for", "in", "on", "of", "without", "but", "if",
+    "when", "where", "while", "plus", "cover", "covers", "covering", "list",
+    "listed", "follow", "following", "below", "above", "each", "every", "all",
+    "both", "such", "same", "more", "most", "other", "another", "we", "you",
+})
+
+#: A trailing purpose clause inside a captured list ("methodology in the
+#: report") is not part of the section name.
+_SECTION_TAIL_RE = re.compile(
+    r"\s+(?:in|for|with|on|of)\s+(?:the|this|a|an|that)\s+", re.IGNORECASE
+)
+
+
+def parse_required_sections(text: str) -> list[str]:
+    """The section names a request/contract names explicitly (deterministic).
+
+    Only an explicit LIST counts. Names are lowercased, de-duplicated and
+    capped; the verifier compares them against the sections a delivered
+    document actually RECORDED (never against prose).
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for match in _SECTION_LIST_RE.finditer(text or ""):
+        chunk = match.group(1)
+        first = re.split(r"[,;]|\s", chunk.strip(), maxsplit=1)[0].lower()
+        if first in _SECTION_CLAUSE_WORDS:
+            continue
+        for part in re.split(r",|;|\band\b|\bor\b", chunk):
+            name = _SECTION_TAIL_RE.split(part)[0]
+            name = re.sub(r"\s+", " ", name).strip(" .:-–—\"'()").lower()
+            if len(name) < 3 or len(name) > 60 or name in seen:
+                continue
+            seen.add(name)
+            out.append(name)
+            if len(out) >= MAX_REQUIRED_SECTIONS:
+                return out
+    return out
 
 
 def classify_task_type(request: str) -> TaskType:
@@ -196,11 +262,17 @@ def infer_acceptance(request: str, task_type: TaskType) -> list[str]:
     if task_type is TaskType.RESEARCH:
         return ["claims trace to named sources"]
     if task_type is TaskType.DOCUMENT:
-        return ["the document artifact is delivered"]
+        lines = ["the document artifact is delivered"]
+        sections = parse_required_sections(text)
+        if sections:
+            lines.append("the document contains the sections: " + ", ".join(sections))
+        return lines
     if task_type is TaskType.WORKFLOW:
         return ["the workflow completed with an observable result"]
     if task_type is TaskType.FINANCE:
         return ["financial claims carry provenance"]
+    if task_type is TaskType.DATA:
+        return ["the calculation is reproducible from its recorded inputs"]
     return ["the requested result is delivered"]
 
 
@@ -369,10 +441,12 @@ def budget_violations(
 
 __all__ = [
     "GoalIntake",
+    "MAX_REQUIRED_SECTIONS",
     "budget_violations",
     "classify_task_type",
     "durable_decision",
     "infer_acceptance",
     "infer_deliverables",
     "intake_goal",
+    "parse_required_sections",
 ]

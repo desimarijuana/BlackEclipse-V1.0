@@ -1108,6 +1108,107 @@ docs/CHANGELOG.md                         entries
 
 ---
 
+## R9 — Hill climbing and continual learning (first slice, 2026-10-19)
+
+**Status: state/utility/replay/hill-climb foundation implemented; conductor wiring
+is the next slice.**
+
+The R8 loop could verify one candidate against one baseline. R9 adds the search
+and memory model needed for a real climb:
+
+- **`self_improvement/state.py`** — append-only `HarnessState` rows (scope,
+  snapshot digest, metrics, utility, lineage, status). Exactly one `current` per
+  scope; promotion supersedes the prior row and never rewrites it. Operator-only
+  promotion; the climb stages candidates.
+- **`self_improvement/utility.py`** — a transparent utility score (success,
+  target dimension, cost, latency, coverage) and strict acceptance: measured
+  validation, no critical `DEFAULT_GATES` regression, and a positive utility
+  delta. `UNMEASURED` never passes.
+- **`self_improvement/replay.py`** — `replay_v1` from the existing frozen
+  validation/held-out/release tasks; per-task measured rates; mean and critical
+  forgetting; retained best-per-task. A missing task counts as a full drop, so a
+  candidate cannot silently omit what it used to solve.
+- **`self_improvement/hillclimb.py`** — a pure bounded ascent: caller-supplied
+  `propose`/`evaluate`, tabu on rejected neighbor digests, steepest-ascent
+  selection, plateau stop, and an `on_accept` persistence hook. It never invents
+  a patch, calls a model or activates a change.
+- **`self_improvement/lesson_feedback.py`** — `LessonOutcome` records the
+  injected cohort and the eligible-but-not-injected control cohort for every run;
+  the post-run review writes the terminal outcome. `stats()` reports injected and
+  control rates with Wilson intervals and a lift only at sufficient evidence
+  (3 injected + 3 control); `rank_lessons` promotes measured positive lift and
+  leaves thin evidence in place. `retire_unhelpful` is an inert lifecycle action
+  behind `HARNESS_RSL_LESSON_RETIRE` (off by default). This closes the lesson
+  loop: injection is measured, not merely observed.
+- **Conductor entry** — `RSLLoop.run_hillclimb` is reachable only in `verify`
+  mode with `HARNESS_RSL_STRATEGY=hillclimb`. It loads the current
+  `HarnessState`, uses the configured `k`/`HARNESS_RSL_GENERATIONS`, caps
+  evaluations at the remaining daily budget, persists accepted states as
+  `candidate` (never `current`), and records each evaluated neighbor as an
+  `EvolutionAttempt` so the daily budget counts the climb. It refuses honestly
+  when there is no current state, when the strategy is `rsl`, or when the budget
+  is exhausted.
+- **`self_improvement/proposer_model.py`** — the model-assisted proposal path
+  (`HARNESS_RSL_MODEL_PROPOSER=off` by default). Strict JSON is parsed by the
+  existing `StructuredOutputManager`, then every variant goes through
+  `propose_many`/`propose_ops`, the frozen target guard and workspace
+  confinement. A malformed payload, missing variant, frozen target or provider
+  failure is a structured refusal. When enabled, the `propose` tick persists
+  validated variants as child `EvolutionCandidate` rows in `proposed` state; it
+  never verifies, lands or activates them. Background settings follow the
+  existing `HARNESS_JOB_*` convention with `HARNESS_RSL_*` overrides.
+- **`auto` mode** — one tick runs the bounded propose phase (deterministic ops,
+  or the model proposer when enabled) and then ONE verify claim. It never lands
+  a change: operator promotion remains the only write path. `verify` remains the
+  manual operator mode; `auto` is the autonomous propose+verify tier.
+- **Measured code candidates** — `evaluation/worktree_invoker.py` runs the
+  unpatched baseline, applies the candidate ops through `propose_ops` +
+  `patch.apply`, then runs the SAME deterministic suite in a child process whose
+  `PYTHONPATH` points at the patched worktree. The child gets a temp DB, a
+  curated non-secret environment, no live bridge and a timeout; the patched code
+  is never imported into the host. `benchmark_decision` accepts only a measured
+  target improvement with no critical regression. The result is recorded on an
+  `EvaluationRun` and returned to `verify_code`; the candidate never lands.
+  Opt-in: `HARNESS_RSL_CODE_BENCHMARK=off` by default.
+- **Operator surfaces** — `GET /evolution/states` (current pointers + recent
+  immutable rows), `POST /evolution/states/{id}/promote` (state pointer only;
+  supersedes the prior current row, never writes code or consumes an approval),
+  and `GET /evolution/lessons/{id}/outcomes` (matched injected/control stats and
+  recent rows). `rsl-control-panel.tsx` shows the current state, utility (or
+  `UNMEASURED`) and a Promote action, and is mounted in the learning journey with
+  `rsl-operator-panel.tsx`.
+- **Live surface activation** — `POST /evolution/states/{id}/activate-surface`
+  requires a measured, accepted surface candidate and re-validates the snapshot
+  against its recorded base. `HarnessActivation` stores the snapshot/base and
+  previous state; rollback restores it. `graph.execute_run` applies only prompt,
+  tool subset and lowered step/tool-call ceilings when the current base digest
+  still matches. Model identity and skill drafts are refused live. Evaluation,
+  candidate-trial and gate runs set `RunRequest.liveSurface=False`, so a live
+  surface cannot contaminate a measurement. `GET
+  /evolution/states/{id}/surface-preview` returns the same decision the
+  activation uses: prompt/tools/ceiling diff, base-digest match, accepted
+  decision, available scopes and every refusal reason. Scoped activation creates
+  a new immutable state for that agent scope; the source state is untouched. A
+  surface experiment now carries its target `scope` in `surfaceConfig` (part of
+  the experiment signature), and a measured surface materializes exactly one
+  inert `candidate` state for the operator list, so the preview/activation flow
+  starts from the experiment itself rather than a guessed scope.
+
+Config: `HARNESS_RSL_MODE=off|observe|propose|verify|auto`,
+`HARNESS_RSL_STRATEGY=rsl|hillclimb`, `HARNESS_RSL_GENERATIONS=1..3`,
+`HARNESS_RSL_MODEL_PROPOSER=off|on`, `HARNESS_RSL_CODE_BENCHMARK=off|on`.
+Tests: `python/tests/test_rsl_{state,utility,replay,hillclimb}.py` (28),
+`python/tests/test_lesson_feedback.py` (9),
+`python/tests/test_rsl_model_proposer.py`,
+`python/tests/test_worktree_invoker.py`, and
+`python/tests/test_rsl_loop.py` (auto mode + conductor entry + measured code
+decision). ADR-H239, H242–H248. The live-surface activation path is implemented
+behind an explicit operator preview, a base-digest check, per-agent scope
+selection and a rollback route; code candidates still land only through the
+existing promotion approval.
+
+---
+
 ## Related
 
 - `docs/harness/self-evolution-roadmap.md` — the meta loop and invariants §5.

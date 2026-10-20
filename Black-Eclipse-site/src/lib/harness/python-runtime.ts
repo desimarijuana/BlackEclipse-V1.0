@@ -10,7 +10,15 @@
 //     silently degraded into a fake agent.
 
 import { spawn, execSync, type ChildProcess } from "child_process";
-import { existsSync, readdirSync, statSync } from "fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from "fs";
 import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
 import { PYTHON_RUNTIME_DEPS } from "./runtime-config";
@@ -52,6 +60,97 @@ const g = globalThis as unknown as RuntimeGlobal;
 // call. A short TTL is safe: staleness is still detected within the window, and
 // an actually-down runtime re-probes immediately after the TTL.
 const HEALTH_TTL_MS = 5_000;
+
+/**
+ * Cross-context cold-start lock. Next can evaluate this module in more than one
+ * server context, so the in-memory `__harnessPyStart` promise is NOT enough to
+ * serialize a spawn. Two cold starts mean two uvicorns importing the whole
+ * agent stack, both touching SQLite, and both competing for the CPU — the
+ * second one usually cannot bind the already-held port but still burns minutes
+ * booting. The lock is a plain file: creating it with `wx` is atomic across
+ * processes/threads, and its mtime bounds how long a crashed owner can block a
+ * retry.
+ */
+const RUNTIME_SPAWN_LOCK = path.join(
+  process.cwd(),
+  ".black-eclipse",
+  // One lock PER RUNTIME PORT: dev (8765) and production (8766) cold-start
+  // independently, so a shared lock would make one environment wait for the
+  // other's boot and then give up.
+  `harness-runtime-${HARNESS_PY_PORT}.spawn.lock`
+);
+
+/**
+ * Take the cold-start lock.
+ * @returns a file descriptor (>= 0) when this caller owns the start, `null`
+ *          when another context is already starting the runtime, or `-1` when
+ *          locking is unavailable (the caller may still spawn; the in-memory
+ *          guards remain in force).
+ */
+function acquireSpawnLock(): number | null {
+  try {
+    mkdirSync(path.dirname(RUNTIME_SPAWN_LOCK), { recursive: true });
+  } catch {
+    return -1;
+  }
+  try {
+    return openSync(RUNTIME_SPAWN_LOCK, "wx");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") return -1;
+    // A crashed starter leaves the file behind. Only take it over once the
+    // full cold-start budget (plus a margin) has elapsed.
+    try {
+      const staleAfterMs = resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS) + 15_000;
+      if (Date.now() - statSync(RUNTIME_SPAWN_LOCK).mtimeMs < staleAfterMs) return null;
+      unlinkSync(RUNTIME_SPAWN_LOCK);
+    } catch {
+      return null;
+    }
+    try {
+      return openSync(RUNTIME_SPAWN_LOCK, "wx");
+    } catch {
+      return null;
+    }
+  }
+}
+
+function releaseSpawnLock(fd: number): void {
+  try {
+    closeSync(fd);
+  } catch {
+    /* already closed */
+  }
+  try {
+    unlinkSync(RUNTIME_SPAWN_LOCK);
+  } catch {
+    /* already removed */
+  }
+}
+
+/** True while a child THIS (or a sibling context's) ensure call is alive. */
+function trackedRuntimeAlive(): boolean {
+  return Boolean(g.__harnessPyProc && g.__harnessPyProc.exitCode === null);
+}
+
+/** Kill the child we track, including any descendants (Windows: /T). */
+function killTrackedRuntime(): void {
+  const proc = g.__harnessPyProc;
+  g.__harnessPyProc = undefined;
+  if (!proc || proc.exitCode !== null) return;
+  try {
+    if (process.platform === "win32" && proc.pid) {
+      execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: "ignore" });
+    } else {
+      proc.kill("SIGKILL");
+    }
+  } catch {
+    try {
+      proc.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
+}
 
 interface HealthInfo {
   ok?: boolean;
@@ -170,7 +269,11 @@ function killListenerOnPort(): void {
 async function waitForHealth(deadlineMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < deadlineMs) {
-    if (await isHealthy()) return true;
+    // A 1.5s probe is right for the fast readiness path, but during a cold
+    // start the process can be importing/initializing for minutes and may be
+    // slow to answer /health. Aborting that answer counted a perfectly healthy
+    // boot as "never came up" and triggered another spawn.
+    if (await isHealthy(5_000)) return true;
     await new Promise((r) => setTimeout(r, 400));
   }
   return false;
@@ -221,6 +324,17 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   }
   if (g.__harnessPyStart) return g.__harnessPyStart;
 
+  // A child we already spawned may still be importing/booting. uvicorn runs the
+  // whole FastAPI lifespan BEFORE binding its socket, so "no listener and no
+  // /health answer" is also the NORMAL cold-start signature. Spawning a second
+  // uvicorn in that window boots a rival stack that fights for SQLite and CPU.
+  if (trackedRuntimeAlive()) {
+    if (await waitForHealth(resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS))) {
+      return true;
+    }
+    killTrackedRuntime();
+  }
+
   // Not healthy, and we are not mid-start. A process may be holding the runtime
   // port without answering /health — a hung/zombie runtime from a previous
   // `npm run dev` (spawned as a child, it survives the Next restart on Windows).
@@ -251,6 +365,13 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
         await new Promise((r) => setTimeout(r, 300));
       }
     }
+  }
+
+  // Cross-context lock: if another server context is already cold-starting the
+  // runtime, wait for it instead of booting a second uvicorn.
+  const spawnLock = acquireSpawnLock();
+  if (spawnLock === null) {
+    return waitForHealth(resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS));
   }
 
   g.__harnessPyStart = (async () => {
@@ -311,7 +432,7 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       console.error(
         `[harness] Python runtime did not become healthy within ${resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS)}ms`
       );
-      proc.kill();
+      killTrackedRuntime();
       return false;
     }
     return true;
@@ -324,13 +445,13 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
     // truth from here on: keeping the resolved promise around would let a later
     // /health miss return a stale `true` and mask a runtime that has since hung.
     g.__harnessPyStart = undefined;
+    if (spawnLock >= 0) releaseSpawnLock(spawnLock);
   }
 }
 
 /** Stop a spawned runtime (test/teardown helper). */
 export function stopPythonRuntime(): void {
-  g.__harnessPyProc?.kill();
-  g.__harnessPyProc = undefined;
+  killTrackedRuntime();
   g.__harnessPyStart = undefined;
   g.__harnessPyHealthyAt = undefined;
   g.__harnessPyEnsure = undefined;

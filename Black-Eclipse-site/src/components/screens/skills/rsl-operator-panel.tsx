@@ -102,6 +102,7 @@ export function RslOperatorPanel() {
 
   const [surfaceBase, setSurfaceBase] = useState(SAMPLE_BASE_SNAPSHOT);
   const [surfaceCandidate, setSurfaceCandidate] = useState(SAMPLE_CANDIDATE_SNAPSHOT);
+  const [surfaceScope, setSurfaceScope] = useState("global");
   const [surfaceDataset, setSurfaceDataset] = useState("benchmark_v1");
   const [surfaceSplit, setSurfaceSplit] = useState("validation");
   const [surfaceTarget, setSurfaceTarget] = useState("task_success");
@@ -200,6 +201,7 @@ export function RslOperatorPanel() {
       }
       const input: EvolutionSurfaceExperimentInput = {
         candidate: parsedCandidate as EvolutionSurfaceSnapshot,
+        scope: surfaceScope.trim() || "global",
         dataset: surfaceDataset.trim() || "benchmark_v1",
         split: surfaceSplit as EvolutionSurfaceExperimentInput["split"],
         targetDimension: surfaceTarget.trim() || "task_success",
@@ -218,7 +220,7 @@ export function RslOperatorPanel() {
     }
   }, [
     surfaceBase, surfaceCandidate, surfaceDataset, surfaceProblem, surfaceSeed,
-    surfaceSplit, surfaceTarget, surfaceTrials, t,
+    surfaceScope, surfaceSplit, surfaceTarget, surfaceTrials, t,
   ]);
 
   const inputClass =
@@ -382,6 +384,12 @@ export function RslOperatorPanel() {
             aria-label={t("evolution.surface.candidate")}
             value={surfaceCandidate}
             onChange={(event) => setSurfaceCandidate(event.target.value)}
+          />
+          <input
+            className={inputClass}
+            placeholder={t("evolution.surface.scope")}
+            value={surfaceScope}
+            onChange={(event) => setSurfaceScope(event.target.value)}
           />
           <input
             className={inputClass}

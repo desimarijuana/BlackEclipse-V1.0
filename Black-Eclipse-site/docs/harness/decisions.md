@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-10-18
+last-verified: 2026-10-19
 ---
 
 # Harness Decisions
@@ -7439,10 +7439,12 @@ second-registry/second-counter defect the self-evolution invariants forbid.
 `loop`, `proposer`, `verifier`, `landing`, `recorder` for R4),
 `code/evolution.py::record_mistake_recurrence`,
 `eclipse_memory/mistakes.py::capture_mistakes`, `learning_review.py`, the
-evaluator provenance/split work in R2, and the
-`self_improvement.{candidate_created,experiment_completed}` event specs. Tests
-`python/tests/test_rsl_{config,observation,provenance,snapshot,candidate_invoker,loop,landing,verifier}.py`.
-Code candidates record `benchmark=UNMEASURED`; only the surface path can claim a
+evaluator provenance/split work in R2, the
+`self_improvement.{candidate_created,experiment_completed}` event specs, and R5's
+operator evidence/`prepare-landing` routes + learning-journey experiment panel.
+Tests `python/tests/test_rsl_{config,observation,provenance,snapshot,candidate_invoker,loop,landing,verifier}.py`
++ `test_evolution_rsl_routes.py` + `rsl-experiments-panel.test.tsx`. Code
+candidates record `benchmark=UNMEASURED`; only the surface path can claim a
 measured delta.
 
 ## ADR-H218 - There is one landing path: promotion + selfhost; evolution_service.activate is not a code write
@@ -7628,6 +7630,183 @@ multi-tool turns completable while preserving a hard ceiling.
 `test_chat_step_budget.py`. Operators can lower the cap without a code change
 when cost matters more than depth.
 
+## ADR-H225 - Generated capabilities are manifests plus sandbox-tested contracts, never code-written-is-available
+
+**Decision.** A reusable capability is created through
+`python/harness/capabilities/`: a validated `CapabilityManifest`, an
+implementation, a contract test and a README written under
+`.black-eclipse/capabilities/<slug>/<version>/`. The contract test runs through
+the existing analysis sandbox. A pure workspace recipe auto-activates only after
+a pass; effectful or global capabilities stop at `approval_required`. Active
+recipes join the existing `code/recipes.py` registry. The builder never writes
+core harness files and never executes generated code in-process.
+
+**Why.** "The model wrote code" is not "the capability exists". A manifest,
+source/test digests, a real sandbox run and an activation decision are the
+minimum proof that a generated capability is safe and reproducible. Reusing the
+analysis sandbox and recipe registry keeps one execution path, one data path and
+one tool registry.
+
+**Consequences.** New package `python/harness/capabilities/`; dynamic recipe
+hooks in `code/recipes.py`; `capability_*` tools on `ECLIPSE_AGENT`,
+`CODE_AGENT` and `CHAT_CODE_TOOLS`; generated capabilities appear in
+`recovery/discovery.py`; usage is recorded in `CapabilityUsage` and repeated
+failures auto-disable. Tests:
+`python/tests/test_capabilities_{manifest,request,builder,tools}.py`. Deferred:
+effectful builders, the chat card/Settings UI, `eclipse_tools` RPC and automatic
+durable-task retry (the existing acquisition/task path owns resume).
+
+## ADR-H226 - The capability card and Generated list read the same records; activation stays an operator route
+
+**Decision.** The chat card consumes the runtime's `capability.*` lifecycle
+events (`src/lib/agent/events.ts` -> `capability-types.ts` -> `CapabilityCard`),
+and Capability Studio � Generated reads the same durable records through
+`GET /capabilities`. Activation, deactivation, rollback and retire are
+`POST /capabilities/{id}/*` routes gated by `require_operator`. The agent's
+`capability_*` tools remain separate: they can build/test and auto-activate only
+a pure workspace recipe; they cannot call the operator routes.
+
+**Why.** The user-visible promise is "I built it, checked it, and used it", but a
+card is not proof. Rendering the runtime's own manifest, test checks, failed
+checks, stderr and activation state keeps the UI honest. Reusing the durable
+`CapabilityRecord` avoids a second store or a UI-only status model; gating the
+operator actions by transport preserves the no-self-granting rule.
+
+**Consequences.** New `src/components/chat/capability-card.tsx`,
+`src/lib/harness/capability-types.ts`, `src/lib/harness/capabilities-client.ts`,
+`src/components/screens/capability-studio/generated-section.tsx`,
+`src/app/api/capabilities/[[...path]]/route.ts`; Python
+`routers/capabilities.py`, `CapabilityStore.usage`, `builder.deactivate`.
+Events carry a bounded view (no source text, no secrets); the card shows source
+and test digests, never the implementation body. Tests:
+`src/components/chat/capability-card.test.tsx`,
+`src/lib/harness/capability-types.test.ts`,
+`src/components/screens/capability-studio/capability-studio.test.tsx`,
+`python/tests/test_capabilities_api.py`.
+
+## ADR-H227 - PDF reports use the vendored Matplotlib backend, not a new PDF stack
+
+**Decision.** `eclipse_report` renders PDF through
+`documents/reporting.py::build_pdf`, using the existing vendored Matplotlib PDF
+backend. Word/Excel/PowerPoint continue to use the existing authoring builders.
+No new PDF library, browser-print service or Office runtime is added.
+
+**Why.** A PDF report must be a real, downloadable artifact, but adding
+ReportLab/WeasyPrint/a headless browser would add a heavy dependency and a second
+document layout engine. Matplotlib is already vendored for the analysis figures,
+supports paginated text and tables, and runs locally with no network.
+
+**Consequences.** The PDF layout is intentionally simple (headings, paragraphs,
+bullets, tables, page breaks); embedded report figures, HTML templates and PDF/A
+remain future work. A missing Matplotlib reports `REPORT_RENDER_UNAVAILABLE`
+honestly. The bytes are registered through the ONE `ArtifactService`. Tests:
+`python/tests/test_reports.py`; docs `docs/harness/reports.md`.
+
+## ADR-H228 - Chat turns enable the analysis sandbox by default
+
+**Decision.** `startChatRun` and `chatWithAgent` send `analysisEnabled: true` on
+every chat turn. A code profile may still narrow the tool surface (for example
+`plan_only`), but it no longer turns computation off. Headless callers of
+`startRun` keep the runtime's opt-in default (`RunRequest.analysisEnabled =
+False`), so automation and non-chat callers are unchanged.
+
+**Why.** Computation requests such as "compute the Ulcer Index" were classified
+as `not_code`; the analysis sandbox stayed off and the agent refused a task it
+could safely compute. The sandbox is read-only, additive, gated by
+`analysis.execute`, and computed values cannot enter research claims. Enabling
+it per chat turn removes a routing failure without widening write authority.
+
+**Consequences.** The ordinary chat surface now carries `analysis_run`; the code
+profile tests assert the sandbox stays on. `run-service.ts` is the ONE front-door
+decision. Tests: `src/lib/harness/run-service.test.ts`.
+
+## ADR-H229 - Analysis packages live in a managed target, installed through a separate approval-gated lane
+
+**Decision.** Third-party packages for `analysis_run` are installed into
+`.black-eclipse/python-env/site-packages` with a JSON lock, and are made
+importable by adding that target to the runner's `sys.path` and the lock's
+top-level modules to the import allowlist. The install is a separate, network-
+capable, single-use approval-gated mutation (`python_env_install` /
+`python_env_remove`), run as a bounded pip argv with no shell. Generated code
+keeps the sandbox's no-network import/builtin rules.
+
+**Why.** The analysis sandbox needs a curated stack (`quantstats`, etc.) without
+modifying the vendored interpreter or turning generated code into a package
+installer. A managed target keeps removals and rollback local, and the lock is
+the exact import allowlist. Separating install from execution preserves the
+"package installs are separate and approval-gated" rule.
+
+**Consequences.** New `python/harness/python_env/` (`paths.py`, `provisioner.py`,
+`authorizers.py`, `tools.py`); `code/execution.py` adds the managed path and
+modules to the analysis runner; `code/policy.py` marks install/remove as write
+tools; `code/authorizers.py` composes the approval layer. On the local tier an
+approved package is trusted code and is not OS-network-isolated; hard isolation
+requires the container tier. Tests: `python/tests/test_python_env.py`; docs
+`docs/harness/python-env.md`.
+
+## ADR-H230 - External capabilities are proposals through the existing MCP/plugin gates, never agent installs or enables
+
+**Decision.** A broker, API or MCP need is handled by `capability_external`, a
+read-only proposal in `python/harness/capabilities/external.py`. It resolves to
+one existing surface: an MCP preset (`integrationId`), an operator-supplied
+plugin folder, or a custom MCP server (`serverUrl`/`serverCommand`). Credentials
+are named (vault secret names) and their presence is checked through
+`MCPManager.secret_presence`; values never enter the tool, the proposal, a
+record or a log. An MCP install requires the SAME single-use `mcp_install`
+approval as the agent tool and writes a DISABLED config with no tools selected;
+a plugin install keeps `operator=true, enable=false`; a custom server is added by
+the operator in Settings. The proposal carries the existing recovery
+`AcquisitionProposal` (`install` then operator `enable`) and the recover handler
+accepts an `integrationId` fact. Nothing self-enables and the original task
+resumes from its checkpoint only after the operator activates the adapter.
+
+**Why.** An external system is not local generated code: it has a network
+endpoint, a credential only the operator holds, and an activation decision that
+must remain human. Reusing the MCP preset catalog, the approval store, the
+plugin platform and the recovery acquisition lifecycle keeps one registry, one
+store and one install path. A proposal that names credentials is useful; a
+proposal that accepts values would turn chat into a secret channel.
+
+**Consequences.** New `capabilities/external.py`; `capability_external` on the
+finance, code and chat-code tools; `_KIND_SURFACE["plugin"]` -> `external_adapter`
+and `nextTool` -> `capability_external`; `MCPManager.secret_presence` (VerifyMixin);
+`approval_digest` shared by the MCP authorizer and the recovery handler;
+`recovery/acquisition.py` gains the `mcp` surface and the `integrationId` fact;
+`recovery/acquire_handlers.py` installs through the MCP approval store and refuses
+MCP enablement from this path. Tests:
+`python/tests/test_capabilities_external.py`. Deferred: generic from-scratch
+adapter authoring and automatic durable-task retry.
+
+## ADR-H231 - Effectful capabilities are handed to their existing owner, never built by the capability builder
+
+**Decision.** `capability_build` returns one typed `EffectfulHandoff` for a
+`tool`, `skill`, `ui_widget`, `ui_page`, `harness_change` or `plugin` request.
+The hand-off names the existing surface and exact next tool (`scaffold_kit`,
+`skill_create`, `ui_start_engineering`, `create_goal`, or
+`capability_external`), the arguments it needs, the acceptance lines, the
+evidence the owner must record, and the activation owner (always an operator or
+the existing lifecycle). It is stored on the same durable `CapabilityRequest`
+(`status: handoff_required`) and executes nothing. A pure recipe alone needs the
+analysis sandbox; an effectful hand-off does not.
+
+**Why.** A skill, tool, UI component/page or harness change already has an owner
+with a stronger gate and a real verification path. Re-implementing any of them
+inside the builder would create a second build surface and a weaker proof.
+Handing off preserves one registry, one approval chain and one source of
+evidence, and it removes the dead-end `approval_required` result that told the
+agent nothing about what to do next.
+
+**Consequences.** New `capabilities/handoff.py`; `builder.build` routes effectful
+kinds to it and persists the hand-off; `capability_request` names the exact next
+tool; `capability_build` skips the analysis gate for effectful kinds and reports
+`handoff_required`; the chat card and TS view carry `handoff_required` and
+`nextTool`. The target surface remains the sole writer and verifier, and the
+original task still resumes from its checkpoint after activation. Tests:
+`python/tests/test_capabilities_handoff.py`,
+`test_capabilities_builder.py`, `test_capabilities_tools.py`; TS
+`capability-types.test.ts`. Deferred: generic from-scratch adapter authoring,
+`eclipse_tools` RPC and automatic durable-task retry.
+
 ## ADR-H233 - Surface candidates are typed snapshots on the ONE candidate row, and are never landable
 
 **Decision.** A surface experiment is an `EvolutionCandidate` with
@@ -7665,3 +7844,526 @@ loop. v1b skill-draft proposals and the v1c model proposer remain deferred.
 Tests: `test_rsl_surface.py`, `test_rsl_security.py`, `test_rsl_loop.py`,
 `test_evolution_rsl_operator.py`, `test_evolution_rsl_routes.py`, and the
 event-wake test in `test_events_service.py`.
+
+## ADR-H234 - Global promotion is an explicit operator copy, not a builder side effect
+
+**Decision.** A verified workspace recipe is promoted by an explicit operator
+action: `builder.promote` (routed at `POST /capabilities/{id}/promote`, gated by
+`require_operator`) copies `manifest.json` (with `scope` rewritten to `global`),
+`capability.py`, `test_capability.py` and `README.md` into
+`python/harness/generated/capabilities/<slug>/<version>/`, then points the
+durable record at the copy. Guards: the promotion call itself requires
+`operator=True`; the source must be an unmodified, contract-verified read-only
+recipe inside the workspace draft root; an existing different global version at
+the same path is refused (`GLOBAL_EXISTS`); re-promoting the same digests is
+idempotent. The workspace copy is left in place, and global activation still
+requires the operator (ADR-H226/H232).
+
+**Why.** A global capability ships inside the package, so it is a distribution
+artifact, not a runtime side effect. Making promotion a separate, explicit copy
+keeps the agent's "tested -> active" rule untouched, keeps the one registry and
+one store authoritative (the record's `dir`/`scope` are the single truth), and
+gives the operator a reviewable artifact with a reversible step. Writing global
+files automatically from `build` would let model-authored source enter the
+package unnoticed.
+
+**Consequences.** `builder.promote` + route + `promoteCapability` client; the
+Studio **Promote to global** button (only for verified workspace records). Tests:
+`python/tests/test_capabilities_builder.py` (promotion, guards),
+`python/tests/test_capabilities_api.py` (route 404). Studio additionally offers
+**Rebuild with RSL** (a chat prompt, no new route) and the chat card gained
+Build / Show plan / Continue / Rebuild / Not now actions (prompt-only). The
+computed-result payload now carries `recipe` for display. Deferred: built-in
+listing in Studio and generic adapter authoring.
+
+## ADR-H232 - Capability activation resumes the original parked task; capability failures feed the learning ledger
+
+**Decision.** A capability requested during a scheduled task records that task id
+on the request and the versioned `CapabilityRecord` (`taskId`). When the
+capability is activated (operator route, agent tool, or rollback), the runtime
+resumes the original task through `TaskManager.restore_checkpoint(resume=True)`
+only when the task is parked (`WAITING`/`ASKING_USER`). A running or `TODO` task
+is never rewound. A failed generated-recipe invocation records a
+`capability_failure` recurrence in the ONE learning ledger so the existing
+self-improvement pass can propose from repeated failures; repeated runtime
+failures still auto-disable the version and emit `capability.disabled`.
+
+**Why.** A capability that lands after the original task was parked is only
+useful if the task continues. Reusing the durable checkpoint is the existing
+resume path and keeps one task/scheduler owner. The guard matters: activation of
+a recipe mid-run must never rewind the run that is executing. Recording failure
+recurrence closes the observation half of the loop without inventing a second
+learning pipeline or enabling anything.
+
+**Consequences.** `ToolContext.task_id`/`task_manager` and the graph wiring;
+`CapabilityRequest.resume_task_id`; `CapabilityRecord.taskId` with an additive
+column migration; `capabilities/resume.py`; activation/rollback routes and tools
+report a `resume` outcome. `analysis_tools` records the recurrence and
+`code/evolution.py` accepts the `capability_failure` category. Tests:
+`python/tests/test_capabilities_resume.py`. Global promotion and the RSL rebuild
+action followed in ADR-H234; automatic procedure-candidate creation and
+`eclipse_tools` RPC remain deferred.
+
+## ADR-H235 - Read-only eclipse_tools are validated replay, not a live data pipe
+
+**Decision.** The Phase 3 analysis sandbox may expose exactly three read-only
+bindings through `eclipse_tools`: `market_snapshot`, `live_quote` and
+`price_history`. A program can use them only when a host resolver is attached
+(the `analysis_run` path with a DataBridge); otherwise the AST gate refuses the
+import. The runner has no live channel: a call writes one `pending.json`, exits
+with sentinel `75`, and the host validates the request against the allowlist,
+resolves it through the existing read-only DataBridge, memoizes the reply under
+the RAW argument key, and replays the same program from the start. Alias and
+`from eclipse_tools import ...` forms are refused so the static check stays
+unambiguous. Unknown tools, unknown arguments, nested values, invalid
+symbols/markets/dates and oversized requests are refused before resolution.
+
+Bounds: 8 distinct calls, 4 KiB of arguments, a 16 KiB pending request read cap,
+1 MB per result, 4 MB total memo, and the analysis wall clock. Only final program
+outputs cross to the model context; the run record carries audit metadata only
+(name, argument/result digests, status, round), never a fetched payload. The
+generic terminal `execute_code` service is not changed, and this is not a
+persistent kernel.
+
+**Why.** Generated analysis code needs current market data without gaining
+network, file writes, an arbitrary registry, or a second data stack. Resolving
+through the existing bridge keeps one source of truth and one capability gate.
+One-shot deterministic replay preserves the sandbox's existing isolation model:
+the generated process never receives a request it did not already hold, and a
+replay produces the same values. Keeping payloads out of the result prevents a
+read from silently becoming conversation evidence; only the model's own final
+outputs can carry a value forward, and those stay labelled as computed.
+
+**Consequences.** New `python/harness/code/sandbox_tools.py` (allowlist, wire
+models, validation, digests, bounds). `code/execution.py` adds
+`AnalysisRequest.allow_tools`, `AnalysisResult.tool_calls`, the
+`eclipse_tools` AST branch, the replay loop and runner injection.
+`code/recipes.py` passes the resolver through. `analysis_tools.py` builds the
+resolver from `ctx.data_bridge`, runs the sandbox off the event loop with
+`asyncio.to_thread`, and posts each bridge coroutine back to the run loop with
+`run_coroutine_threadsafe`; returned data includes `toolCalls`. Tests:
+`python/tests/test_analysis_sandbox_tools.py` plus the existing analysis suites.
+Docs: `docs/harness/capability-builder.md`,
+`docs/harness/capability-extension-plan.md`,
+`docs/harness/self-evolution-roadmap.md`, `docs/NAVIGATION.md`. This supersedes
+the `eclipse_tools` deferred clauses in ADR-H225/H230/H231/H232; web/MCP/write
+tools and the persistent-kernel phase remain out of scope.
+
+## ADR-H236 — The analysis kernel is a session-scoped process pool, not a live execution service
+
+**Decision.** A chat conversation reuses ONE analysis kernel per (session,
+agent); a delegated or session-less run keys on (run, agent). `code/kernel.py`
+owns a `KernelPool` (default max 4, idle 300 s, LRU eviction of non-busy
+kernels) and each `Kernel` is the existing Phase 3 sandbox process started in
+interactive mode (`sandbox.spawn` → `SpawnedProcess`), running the SAME
+`ANALYSIS_PRELUDE` as one-shot. Commands, responses and pending tool requests
+flow as JSON lines; a tool request exits the worker with sentinel `75`, the host
+resolves it with the same `resolve_tool_request` path one-shot uses, and the
+program replays against a stage directory that already holds the memo. Memory,
+process and network rules do not change: `RunSpec(memory_mb=..., process_limit=
+..., network=False)`, no cumulative CPU cap (it would kill a long session), and
+per-command response/output caps. A timeout or a dead process kills the whole
+tree, marks the kernel dead and returns `KERNEL_CRASHED`; the pool respawns on
+the next turn. Spawn failure or `ECLIPSE_ANALYSIS_KERNEL=0` falls back to the
+existing one-shot path — never to a fake success.
+
+**Why.** Repeated one-shot runs pay interpreter startup and lose cheap,
+in-conversation state (e.g. a series already parsed), but the sandbox contract
+must not widen. Reusing the same prelude/protocol keeps one sandbox
+implementation, one tool-resolution path and one provenance model, and keying
+on the conversation preserves isolation between conversations (and between
+delegated subagents). A soft pool maximum plus LRU eviction bounds memory on a
+machine where memory is the top constraint; idle sweep keeps a forgotten
+conversation from holding four processes forever. CPU time is deliberately not
+limited per process because it is cumulative — the wall-clock deadline is the
+real bound.
+
+**Consequences.** New `python/harness/code/kernel.py`; `code/sandbox.py` gains
+`SpawnedProcess`/`spawn` and a per-process job map (a singleton Windows job would
+otherwise kill the wrong tree); `code/execution.py` extracts `ANALYSIS_PRELUDE`,
+`PreparedAnalysis`/`prepare_analysis` and `resolve_tool_request` so both paths
+share the pre-execution gate, and `run_analysis`/`run_recipe` accept `kernel=`.
+`analysis_tools.py` selects `kernel_for_context(ctx)` lazily. Env:
+`ECLIPSE_ANALYSIS_KERNEL` (default on), `ECLIPSE_ANALYSIS_KERNEL_MAX`,
+`ECLIPSE_ANALYSIS_KERNEL_IDLE_S`; `reset_kernel_pool` for tests and `atexit`
+close. Tests: `python/tests/test_analysis_kernel.py` (pid reuse, isolation, tool
+replay across rounds, crash/respawn, eviction, idle sweep, fallback, network
+refusal, key semantics, disable flag) plus the existing analysis suites. Docs:
+`docs/harness/python-runtime.md`, `docs/harness/capability-extension-plan.md`,
+`docs/NAVIGATION.md`.
+
+## ADR-H237 — Response presentation intelligence is deterministic and additive
+
+**Decision.** The chart director, series weights/bands and table presentation
+are resolved in the existing pure helpers, never by a model. `chart` gains
+`chartType: "auto"` (now first in `CHART_TYPES`, so it is the default): temporal
+categories or multiple series render a line; a single series of ≤12 labels
+renders bars; `[x, y, size]` triples render `bubble`; a fully monotonic pair
+renders a line; other pairs render `scatter`; an explicit type always wins. A
+series may carry `weight` (0..1) scaling width and opacity, and
+`band: {lower, upper, weight?}`, rendered on category axes as two hidden
+stacked series per band with the legend restricted to the real series.
+`data_table` derives right alignment (explicit `align` wins; ≥80 % numeric
+values right-align) and locale-formats raw numbers (≤4 fraction digits) while
+leaving numeric strings untouched. `response-chart.tsx` adds a focus overlay
+(Escape/backdrop/Close, `role="dialog"`).
+
+**Why.** "Show me the important line first" and "how uncertain is this" are
+presentation intents the contract should express without another model call, and
+without inventing or altering any value. Deriving alignment from the data
+removes a class of readability bugs (parenthesised negatives, per-column
+mixed alignment) while formatting stays at the display boundary.
+
+**Consequences.** `src/lib/response/contract.ts` (auto, weight, band),
+`chart-option.ts` (`directChartType`/`resolveChartType`, weight/band series),
+new `table-presentation.ts`, `data-table-block.tsx` (uses the helper; fixes the
+`(2,500)` parse), `response-chart.tsx` (focus). Tests:
+`chart-option.test.ts`, `table-presentation.test.ts`, `render.test.tsx`;
+`npx tsc --noEmit` clean. Docs: `docs/interactive-response-engine.md`,
+`docs/harness/capability-extension-plan.md`.
+
+## ADR-H238 — Adapter authoring writes a disabled draft; installation stays with the operator
+
+**Decision.** A broker/API need that no preset covers may be authored by
+`capability_adapter` (`capabilities/adapter.py`): the operator supplies an HTTPS
+base URL, a tool list and credential NAMES; the tool writes
+`.black-eclipse/adapters/<slug>/` (`plugin.yaml`, `plugin.py`, `README.md`) and
+stops. The manifest is validated with the SAME `PluginManifest` the loader uses.
+`GET` → `read`, `POST` → `external_action`; permissions are exactly `[network]`;
+`authentication` is `none` and the generated code reads the first credential
+and sends it as a bearer token with an explicit review note. The draft is never
+installed and never enabled; the operator reviews the auth scheme, installs it
+through the plugin platform (disabled), sets the secrets and enables it.
+MCP remains the MCP surface. The Studio also gains the read-only built-in
+recipe catalogue (`GET /capabilities/builtins`).
+
+**Why.** Users need a path from "my broker has a REST API" to a real tool, but
+model-authored code must not acquire network reach or an enabled tool by itself.
+Writing a reviewable draft into the gitignored workspace, with the real manifest
+validator and the existing plugin install/enable gate, keeps ONE install path
+and ONE enable decision. Refusing credential values at the shared normalizer
+keeps secrets out of generated files and chat.
+
+**Consequences.** New `capabilities/adapter.py` (`AdapterDraft`,
+`author_adapter`) and public `external.normalize_credential_names`;
+`capability_adapter` added to `capabilities/tools.py`, both agent allowlists and
+the activity labels; route `GET /capabilities/builtins` (declared before
+`/{capability_id}`) + `listBuiltins`/`BuiltinCapability` in the Studio client +
+read-only built-in rendering in `generated-section.tsx` with new
+`studio.generated.builtin*` keys. Tests:
+`python/tests/test_capabilities_adapter.py`, `test_capabilities_api.py`
+(builtins), `test_code_agent.py`/`test_chat_code_profile.py` allowlist updates.
+Docs: `docs/harness/capability-builder.md`,
+`docs/harness/capability-extension-plan.md`,
+`docs/harness/self-evolution-roadmap.md`, `docs/NAVIGATION.md`,
+`docs/interactive-response-engine.md`.
+
+## ADR-H239 — Hill climbing operates on immutable `HarnessState` rows, and replay gates every accepted move
+
+**Decision.** RSL gains a hill-climb engine over **immutable harness states**
+(`self_improvement/state.py`): `HarnessState` is an append-only row holding a
+snapshot digest, metrics, utility, lineage and status (`candidate`, `current`,
+`superseded`, `retired`). Exactly one row is `current` per scope; promotion
+supersedes the prior row and never rewrites it. The engine
+(`self_improvement/hillclimb.py`) is pure I/O-free orchestration: callers supply
+neighbor proposals and evaluation, and only a measured validation improvement
+with no critical regression is accepted. Every accepted move is also replayed
+against retained tasks (`self_improvement/replay.py`); critical or mean
+forgetting rejects the move. Utility and vetoes are deterministic
+(`self_improvement/utility.py`, `DEFAULT_GATES`, Wilson intervals). Operator
+promotion remains the only way a candidate becomes `current` in production; the
+climb can stage candidates but never self-promote or land.
+
+**Why.** A single candidate compared to one baseline is not a search. A hill
+climb can find the best verified neighbor, but only if the state is explicit,
+immutable and measured. Replay is the continual-learning guard: a change that
+improves its target by breaking previously solved work is not progress. Keeping
+promotion operator-only preserves the existing authority boundary while still
+allowing autonomous proposal and verification later.
+
+**Consequences.** New `self_improvement/{state,utility,replay,hillclimb}.py`;
+`HarnessState` on the ONE `agent-memory.db` connection; no new runtime, queue,
+evaluator or approval surface. Tests `python/tests/test_rsl_{state,utility,
+replay,hillclimb}.py`. The next slices wire the engine into the RSL conductor,
+add lesson-outcome feedback and a model proposer behind flags. A climb is
+`UNMEASURED` until a real evaluation run supplies metrics; no state row is
+created from a claim.
+
+## ADR-H244 — Lesson lift is measured with a matched injected/control cohort, and retirement is a non-authority lifecycle action
+
+**Decision.** `LessonOutcomeStore` (`self_improvement/lesson_feedback.py`)
+records one row per eligible lesson per run: `injected=1` for the lessons placed
+in the manifest, `injected=0` for eligible lessons that did not fit. The
+post-run review writes the run's terminal outcome (`success`/`failure`), never a
+fabricated one. `stats()` reports injected and control rates plus a Wilson
+interval, and `lift` is available only when there are at least 3 observations in
+each cohort; otherwise the status is `INSUFFICIENT` or `UNMEASURED`. Retrieval
+ranks a measured positive lift ahead of unmeasured lessons but never drops a
+lesson solely for missing evidence. `retire_unhelpful` marks a tested,
+non-positive lesson `retired`; it deletes nothing, changes no authority and
+enables no skill. `HARNESS_RSL_LESSON_RETIRE` is off by default.
+
+**Why.** `prompt.lesson_injected` proved a lesson was shown, not that it helped.
+Without a control cohort, any success rate would be confounded by task mix. The
+eligible-but-not-injected rows are the matched control the manifest already
+makes available. Retirement must be reversible and inert: a lesson is a hint,
+not a permission, so retiring it can never widen authority.
+
+**Consequences.** New `LessonOutcome` table on `agent-memory.db` (run-scoped;
+lesson rows remain in `eclipse-memory.db`), `lesson_feedback.py`, wiring in
+`graph_context._lesson_manifest_context` and
+`learning_review.review_run`, `lesson_retire` in `RSLConfig`, and
+`HARNESS_RSL_LESSON_RETIRE`. Tests `python/tests/test_lesson_feedback.py` plus
+the existing `test_rsl_lessons.py`. A run with no recorded run id records
+nothing; a review that never runs leaves the observation `UNMEASURED`.
+
+## ADR-H245 — Model-authored proposals are strict JSON, validated by the existing op guards, and off by default
+
+**Decision.** `self_improvement/proposer_model.py` is the only model-assisted
+proposal path. It uses the existing `model_runtime` and `build_chat_model`
+factory, asks for strict JSON (`variants` with typed `invariant`/`domain`
+entries), parses it with the existing `StructuredOutputManager`, and then hands
+every variant to `proposer.propose_many`. That means the frozen target denylist,
+`propose_ops`, workspace confinement and forbidden-field checks still decide
+legality; the model never does. A malformed payload, missing variant, frozen
+target, unknown op or provider failure is a structured `ProposalRefused`, never a
+fallback or a fabricated patch. The feature is off by default
+(`HARNESS_RSL_MODEL_PROPOSER=off`). When enabled, the `propose` tick persists
+validated variants as child `EvolutionCandidate` rows in `proposed` state; it
+never verifies, lands or activates them. Background settings follow the existing
+job convention (`HARNESS_JOB_*`) with `HARNESS_RSL_*` overrides; no key is logged.
+
+**Why.** The deterministic proposer cannot generate a candidate from a bare
+failure. A model can, but a model must not acquire write authority. Keeping the
+model on the *proposal* side and the existing deterministic validators on the
+*legality* side preserves the RSL safety floor while making autonomous proposal
+possible. A strict schema plus whole-set refusal prevents a partially valid set
+from becoming a fabricated comparison.
+
+**Consequences.** New `proposer_model.py`; `RSLConfig.model_proposer`
+(`HARNESS_RSL_MODEL_PROPOSER`); `RSLLoop` gains `model_propose_fn` (the test
+seam) and the model branch in `_propose_tick`. Tests
+`python/tests/test_rsl_model_proposer.py`. The model is only reachable in
+`propose` mode; `off`/`observe` remain strict no-ops, and verification/landing
+remain the existing deterministic operator path.
+
+## ADR-H242 — Code candidates are measured in an isolated patched worktree, opt-in
+
+**Decision.** `evaluation/worktree_invoker.py` is the measured code path. It
+allocates a disposable worktree, runs the deterministic suite on the unpatched
+tree as the baseline, applies the candidate ops through the existing
+`propose_ops` + `patch.apply` guard, and runs the SAME suite in a subprocess
+whose `PYTHONPATH` points at the patched worktree. The child gets a temp
+`agent-memory.db`, a curated non-secret environment (no provider keys), a bounded
+wall clock and no live bridge; the patched code is never imported into the host
+process. `benchmark_decision` accepts only a measured target improvement with no
+critical `DEFAULT_GATES` regression. The result is recorded on an
+`EvaluationRun` (kind `rsl-code-benchmark`) and returned to `verify_code`; the
+candidate never lands. The path is opt-in (`HARNESS_RSL_CODE_BENCHMARK=off` by
+default) because it executes patched harness code.
+
+**Why.** A tests-only code candidate is not comparable to another candidate: a
+passing owning test says the change did not break its own check, not that it
+improved the harness. A measured comparison needs the patched harness to run, and
+the only safe way to do that without contaminating the live process is a child
+process over a disposable tree. The curated environment and timeout bound the
+blast radius; the existing operator promotion remains the write boundary.
+
+**Consequences.** New `evaluation/worktree_invoker.py`; `RSLConfig.code_benchmark`
+(`HARNESS_RSL_CODE_BENCHMARK`); `verifier.verify_code_benchmark`; the conductor
+runs it only after owning tests pass and uses its decision for
+`benchmark_accepted`/`benchmark_rejected`; `recorder.record_code_experiment`
+carries `MEASURED` plus the decision record and measured trials. Tests
+`python/tests/test_worktree_invoker.py` plus the loop/config additions. Surface
+candidates keep their existing measured path; `UNMEASURED` remains the honest
+default when the flag is off.
+
+## ADR-H243 — Harness-state promotion is an operator-only state pointer, and lesson lift is readable through the same operator surface
+
+**Decision.** `GET /evolution/states` lists the immutable `HarnessState` rows
+(current pointers plus recent candidates); `POST /evolution/states/{id}/promote`
+makes one candidate current. Promotion is a state pointer: it supersedes the
+prior current row, creates no code change, consumes no approval and never writes
+the checkout. The same operator surface exposes `GET
+/evolution/lessons/{id}/outcomes` (matched injected/control stats plus recent
+rows). Every route is `require_operator`, including reads. The learning-journey
+UI mounts the conductor/operator panels and shows the current state with a
+Promote action; it never hides an `UNMEASURED` utility behind a number.
+
+**Why.** The hill climb and lesson feedback are useless if the operator cannot
+see the state they produced. Promotion needs an explicit control because it
+changes which state a later climb starts from, but it is still not a code write:
+the promotion/approval path remains the only way a change reaches the checkout.
+Lesson lift is likewise evidence for a human decision, not an automatic
+authority.
+
+**Consequences.** New state/outcome routes in `routers/evolution.py`; typed
+`EvolutionHarnessState`/`EvolutionLessonStats` contracts and browser calls;
+Next.js proxies; a harness-state section in `rsl-control-panel.tsx` mounted in
+the learning journey. Tests `test_evolution_rsl_routes.py` (state list/promote,
+lesson outcomes, remote refusal) plus `evolution-client.test.ts`. No new store,
+worker or approval surface.
+
+## ADR-H246 — A measured surface may become the live harness, but only through an explicit activation and with a base-digest check
+
+**Decision.** `POST /evolution/states/{id}/activate-surface` may make a measured
+surface state live. The route requires an operator, a surface candidate, a
+non-null measured utility, and an accepted RSL experiment. It re-validates the
+snapshot against the recorded base (`validate_snapshot`) and refuses model
+identity or skill drafts; those fields are resolved by the front door and cannot
+be changed by a stored surface. The activation row (`HarnessActivation`) stores
+the snapshot, base, previous state and timestamps; `POST
+/evolution/surface-activations/{id}/rollback` restores the previous current
+state (or retires the active state when there was none). At run start,
+`self_improvement/live_surface.py` re-derives the agent's current base snapshot
+and applies only prompt, tool subset and lowered step/tool-call ceilings when the
+base digest still matches. A stale base, missing activation or validation
+failure leaves the original agent untouched. The live surface never grants a
+tool, raises a ceiling, changes permissions, or writes code.
+
+**Why.** A measured surface is only useful if it can eventually affect a real
+run, but the base it was measured against is not guaranteed to still be current.
+The digest check prevents a stale experiment from silently mutating a different
+harness. Applying only the narrowing fields preserves the authority boundary:
+the snapshot can remove tools or tighten budgets, never add either. Operator
+activation plus rollback keeps the decision reversible and auditable.
+
+**Consequences.** New `HarnessActivation` table and `activate_surface`/
+`active_activation`/`rollback_activation` in `self_improvement/state.py`; new
+`self_improvement/live_surface.py`; `graph.execute_run` applies an active surface
+after agent resolution and before the model/prompt plan; activation/list/rollback
+routes in `routers/evolution.py`; typed front door and browser calls; a live
+activation/rollback section in `rsl-control-panel.tsx`. Tests
+`test_live_surface.py` plus the route tests. Code candidates still land only
+through the existing promotion approval; surface activation is a separate,
+reversible state pointer.
+
+## ADR-H247 — Surface activation is previewed as a deterministic diff and may target one agent scope
+
+**Decision.** `GET /evolution/states/{id}/surface-preview` returns the exact
+live change before activation: prompt character counts (and bounded before/after
+text), tools added/removed, step and tool-call ceilings, model-identity/skill
+flags, the recorded accepted decision, the current base-digest match for the
+chosen reference agent, the available scopes (`global` plus the known agent
+presets), the existing current state, and every refusal reason. The same helper
+drives the activation route, so preview and activation cannot drift.
+`POST /evolution/states/{id}/activate-surface` accepts an optional `scope`; a
+scope different from the state's own scope creates a NEW immutable state row for
+that scope and activates it, leaving the original state untouched. A live
+surface is only applied while its state is the current state for that scope,
+so a later promotion silently disables it without a second rollback call.
+
+**Why.** The operator should see the narrowing change before it affects real
+runs, and should be able to choose which agent preset gets it. Deriving the
+preview and activation from one context prevents a "preview said safe" versus
+"activation did something else" split. A scope-specific immutable copy keeps the
+source experiment intact and makes the decision auditable per agent.
+
+**Consequences.** `surface-preview` and scoped activation in
+`routers/evolution.py`; `active_activation` checks the current state; typed
+preview/diff contracts and browser calls; a scope selector, diff and refusal
+reasons in `rsl-control-panel.tsx`. Tests `test_evolution_rsl_routes.py`
+(preview, scope override, remote refusal) and `test_live_surface.py`
+(stale-activation behaviour). No new runtime, store or approval surface; the
+activation row remains the audit record.
+
+## ADR-H248 — A surface experiment carries its target scope and a measured surface materializes an inert candidate state
+
+**Decision.** `SurfaceExperimentRequest` gains a `scope` (default `global`,
+validated against `global` plus the known agent presets). The scope is stored in
+`surfaceConfig`, included in the deterministic experiment signature (so the same
+snapshot for a different agent is a different experiment), and carried into the
+measured surface. After a measured surface verification, the conductor
+materializes exactly one inert `HarnessState` (`status="candidate"`) with the
+candidate id, accepted run id, scope, measured aggregates/measured-trial count
+and utility; duplicate candidates are deduplicated by `(candidateId,
+snapshotDigest)` within the scope. This state is what the operator state list,
+preview and activation surfaces use; it is never current and never activates by
+itself. A rejected surface also gets a state (so its evidence is visible) but
+the activation route requires an accepted run.
+
+**Why.** A surface experiment without a scope cannot be activated for a real
+agent without guessing, and an experiment with no state row is invisible to the
+preview/activation UI. Carrying the scope from creation to the state removes that
+gap. Materializing only a candidate state preserves the existing boundary: the
+operator still previews, activates and can roll back.
+
+**Consequences.** `scope` on the surface request/model, `surfaceConfig.scope`,
+`_surface_signature(scope=...)`, and `_record_surface_state` in the conductor;
+the operator surface-experiment form gains a scope input. Tests
+`test_evolution_rsl_operator.py` (scope persisted) and
+`test_rsl_loop.py` (measured surface creates one inert state). No new store,
+authority or activation path.
+
+## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
+
+**Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and
+every rule is pinned to the evidence the runtime really writes. `research` ⇒
+traceable sources (the ordinary run's `metadata.citations`/`collectedSources` or
+the gated run's `receipt.evidenceRefs`), a claim that is both supported and tied
+to evidence, and the uncertainty RECORDED — a partial answer that names no open
+gap is refused, and a rejected engine verdict is refused. `document` ⇒ the
+artifact AND every section the contract required; the sections are named
+deterministically (`goal.parse_required_sections`: only an explicit list counts)
+and the delivered document records the headings it wrote, so a document that
+recorded no structure cannot prove its contents. `workflow` ⇒ observed steps AND
+an observable state change (an artifact, a document, an analysis, a code record,
+a capability or collected sources); the run id the scheduler stores is NOT a
+result. `finance` ⇒ provenance, freshness and claim-to-evidence, deferring to
+the Evidence Engine's own verdict instead of re-deriving a value. `data` is a
+new task type ⇒ a reproducible calculation: a recorded formula with its inputs,
+or an analysis that pinned the program it ran and the inputs it read. A number
+in prose is not a computation. The verifier never runs a tool or a model; it
+reads records.
+
+**Why.** The first draft read an idealized evidence shape (`research.sources`,
+`research.claims`, `evidence.output`) that the runtime never wrote, so a
+research or finance task could only fail and a workflow task could only fail
+too (the "result reference" was the run id the scheduler always stores). A
+verifier that cannot read the real records is not an authority; it is noise. And
+a task type without a rule is a class where "done" means "the model said so".
+
+**Consequences.** `TaskType.DATA` and its intake rules (checked LAST, so no
+other class is re-routed); `goal.parse_required_sections` plus the document
+acceptance line `the document contains the sections: …`;
+`documents/authoring.py::block_headings`/`report_authored_document` recording an
+authored document's headings (the processed-document list the sidebar shows is
+unchanged); `document_intelligence/collector.py` recording section titles;
+`analysis_tools.load_run_analyses` reading the sandbox's `AnalysisRecord` rows
+as bounded evidence and `tasks/bootstrap.py` attaching them to the task
+outcome. The Evidence Engine stays the financial authority. Tests:
+`python/tests/test_tasks_verification.py` (37),
+`python/tests/test_w14_verification_evidence.py` (9). Docs:
+`docs/harness/task-plan-system.md`, `docs/harness/self-evolution-roadmap.md`.
+## ADR-H241 — A run's routing is one derived record, and a fact that was never recorded is null
+
+**Decision.** `python/harness/run_outcome.py` owns the per-run outcome envelope:
+the **intent verdict** (what the router decided), the **resolved surface and
+allowlist** (what the run could actually do), the **refusal code** (why it
+stopped) and the **capability gap** (what was missing). It is a DERIVED,
+read-only record — `GET /runs/{id}/outcome` — assembled from the run's
+canonical records: the run row (agent + terminal error code), the `prompt.plan`
+event (the resolved surface and a bounded allowlist summary: count, first 40
+names, a digest of the whole list), the `ui.capability_gap` event and the
+`recovery.decided` event (the incident ids). The intent verdict had no home —
+it died with the `ui_classify_request` tool result — so that tool now records
+it once per run in the module's own `RunOutcome` table (the `run_lineage.py`
+pattern, so the ratcheted `persistence.py` does not grow). The FIRST verdict
+wins, because it is the routing decision. Every field is bounded; a fact that
+was never recorded is `null` — never guessed, never inferred from prose.
+
+**Why.** The round-4 meta loop needs to diagnose a run that did not get done
+(intent, surface, refusal, gap) without replaying events, and the facts were
+scattered across a tool result, a policy decision, a run row and an event. A
+verdict that lives only in a tool result cannot be diagnosed after the fact,
+and a record that guesses a missing fact is worse than one that admits the gap.
+
+**Consequences.** `run_outcome.py` (the table owner, `record_intent` /
+`read_intent`, `surface_summary`, `build_outcome_envelope`); the
+`ui_classify_request` tool records the verdict; the `prompt.plan` event gains
+the resolved surface + allowlist summary; `GET /runs/{id}/outcome` in
+`main.py`; `graph_context.surface_summary` re-exported by `graph.py` (the run
+graph stays under its size ratchet). Tests:
+`python/tests/test_run_outcome.py` (12). Docs:
+`docs/harness/architecture.md` (the execution graph),
+`docs/harness/self-evolution-roadmap.md` (W1.3).

@@ -100,20 +100,30 @@ export async function chatWithAgent(
       ? parsedCommand.query
       : query;
   let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
-  if (!agentCommand) {
+  if (!agentCommand && !parsedCommand) {
     try {
       capability = await resolveChatCodeProfile(effectiveQuery, history);
     } catch {
       capability = null;
     }
   }
-  const forced = parsedCommand?.command.profile;
+  const forcedAutonomy = parsedCommand?.command.profile?.autonomy
+    ? assertChatAutonomy(parsedCommand.command.profile.autonomy)
+    : capability?.autonomy
+      ? assertChatAutonomy(capability.autonomy)
+      : undefined;
+  const appControl = parsedCommand?.command.profile?.appControl === true
+    || capability?.verdict === "app_control";
+  const context = {
+    ...(uiContext && typeof uiContext === "object" ? { ui: uiContext } : {}),
+    ...(appControl ? { appControl: true } : {}),
+  };
   const result = await startRun({
     input: {
       query: effectiveQuery,
       history,
       documents: documents.length ? documents : undefined,
-      ...(uiContext && typeof uiContext === "object" ? { context: { ui: uiContext } } : {}),
+      ...(Object.keys(context).length ? { context } : {}),
     },
     agentId: "eclipse-agent",
     runId,
@@ -121,10 +131,8 @@ export async function chatWithAgent(
     reasoningEffort,
     sessionId,
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
-    ...(forced || capability?.autonomy
-      ? { autonomy: forced?.autonomy ?? capability!.autonomy! }
-      : {}),
-    ...(forced?.analysisEnabled || capability?.analysisEnabled ? { analysisEnabled: true } : {}),
+    ...(forcedAutonomy ? { autonomy: forcedAutonomy } : {}),
+    analysisEnabled: true,
     ...(parsedCommand ? { command: parsedCommand.command.name } : agentCommand ? { command: agentCommand.command } : {}),
     ...(identityHeaders ? { identityHeaders } : {}),
   });
@@ -289,12 +297,16 @@ export async function startChatRun(
   // failure is an ordinary turn (null), never a guess — an unavailable classifier
   // must not hand out a code profile.
   let autonomy: "plan_only" | "edit_verify" | undefined;
-  let analysisEnabled = false;
+  let appControl = parsedCommand?.command.profile?.appControl === true;
+  // Phase 2: the analysis sandbox is ON for every chat turn. It is read-only,
+  // additive, and still gated by `analysis.execute`; a code profile only narrows
+  // the tool surface, never turns computation back off.
+  const analysisEnabled = true;
   if (agentCommand) {
     // An agent-turn command runs under the default profile; do not classify it.
   } else if (parsedCommand) {
-    autonomy = assertChatAutonomy(parsedCommand.command.profile.autonomy);
-    analysisEnabled = parsedCommand.command.profile.analysisEnabled;
+    const forced = parsedCommand.command.profile.autonomy;
+    autonomy = forced ? assertChatAutonomy(forced) : undefined;
   } else {
     let capability: Awaited<ReturnType<typeof resolveChatCodeProfile>> = null;
     try {
@@ -304,7 +316,10 @@ export async function startChatRun(
     }
     // `null` autonomy = a data task: no profile switch, analysis sandbox only.
     autonomy = capability?.autonomy ? assertChatAutonomy(capability.autonomy) : undefined;
-    analysisEnabled = Boolean(capability?.analysisEnabled);
+    appControl = appControl || capability?.verdict === "app_control";
+  }
+  if (appControl) {
+    input.context = { ...(input.context ?? {}), appControl: true };
   }
   const payload: RunRequestPayload = {
     runId: id,

@@ -97,6 +97,10 @@ def test_code_agent_has_no_finance_tool():
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
+        "capability_request", "capability_build", "capability_status",
+        "capability_external", "capability_adapter",
+        "capability_activate", "capability_rollback", "capability_remove",
+        "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
     } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(VISION_TOOLS)
         - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS) - set(SEARCH_TOOLS)
         - set(TASK_TOOLS))

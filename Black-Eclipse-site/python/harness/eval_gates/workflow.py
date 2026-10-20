@@ -64,7 +64,7 @@ def _request(run_id: str) -> RunRequest:
         input=RunInput(query="wf"),
         agent=AgentConfig(id="wf", name="wf", systemPrompt="s", tools=["tool_a", "tool_b"], maxSteps=3),
         modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
-        callbackBaseUrl="http://localhost:3000",
+        callbackBaseUrl="http://localhost:3000", liveSurface=False,
     )
 
 

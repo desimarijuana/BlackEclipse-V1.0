@@ -60,7 +60,7 @@ def test_compose_request_creates_no_task(ui):
 def test_catalog_gap_escalates_instead_of_refusing(ui):
     # The recorded defect: Compose with no witness must create an engineering
     # task, never return the false "nothing to engineer" refusal.
-    result = ui.engineering.start("add a multi-zone world clock to the dashboard")
+    result = ui.engineering.start("add a multi-zone latency ribbon to the dashboard")
     assert result["created"] is True
     assert result["mode"] == "engineer"
     assert result["capabilityGap"] is True
@@ -73,7 +73,7 @@ def test_capability_gap_emits_the_canonical_event(ui, monkeypatch):
     seen = []
     monkeypatch.setattr(engineering, "publish_event", lambda *a, **k: seen.append((a, k)))
     result = ui.engineering.start(
-        "add a multi-zone world clock to the dashboard", run_id="run_clock",
+        "add a multi-zone latency ribbon to the dashboard", run_id="run_clock",
     )
     assert result["capabilityGap"] is True
     assert seen, "the gap must emit a canonical event"
@@ -82,7 +82,7 @@ def test_capability_gap_emits_the_canonical_event(ui, monkeypatch):
     payload = args[1]
     assert payload["code"] == "UI_CAPABILITY_GAP"
     assert payload["runId"] == "run_clock"
-    assert "clock" in payload["capability"]
+    assert "latency ribbon" in payload["capability"]
     assert kwargs.get("source") == "ui"
 
 
@@ -106,7 +106,7 @@ def test_engineering_rechecks_the_catalog_even_when_the_label_says_compose(ui, m
         "matchedComponents": [],
         "capabilityGap": False,
     })
-    result = ui.engineering.start("add a multi-zone world clock to the dashboard")
+    result = ui.engineering.start("add a multi-zone latency ribbon to the dashboard")
     assert result["created"] is True
     assert result["mode"] == "engineer"
     assert result["capabilityGap"] is True

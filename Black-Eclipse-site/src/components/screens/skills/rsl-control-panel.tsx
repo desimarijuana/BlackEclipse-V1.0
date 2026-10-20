@@ -7,14 +7,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
 import {
+  activateEvolutionSurfaceStateBrowser,
   getEvolutionRslStatusBrowser,
+  getEvolutionSurfacePreviewBrowser,
+  listEvolutionStatesBrowser,
+  listEvolutionSurfaceActivationsBrowser,
+  promoteEvolutionStateBrowser,
   proposeEvolutionCandidateBrowser,
+  rollbackEvolutionSurfaceActivationBrowser,
   tickEvolutionRslBrowser,
 } from "@/lib/harness/evolution-browser";
 import type {
   EvolutionCandidate,
+  EvolutionHarnessState,
+  EvolutionHarnessStates,
   EvolutionRslStatus,
   EvolutionRslTickResult,
+  EvolutionSurfaceActivation,
+  EvolutionSurfacePreview,
 } from "@/lib/harness/evolution-client";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +48,18 @@ export function RslControlPanel() {
   const [ticking, setTicking] = useState(false);
   const [tickResult, setTickResult] = useState<EvolutionRslTickResult | null>(null);
   const [tickError, setTickError] = useState<string | null>(null);
+  const [states, setStates] = useState<EvolutionHarnessStates | null>(null);
+  const [statesError, setStatesError] = useState<string | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [activations, setActivations] = useState<EvolutionSurfaceActivation[]>([]);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    state: EvolutionHarnessState;
+    data: EvolutionSurfacePreview;
+  } | null>(null);
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const [activationScope, setActivationScope] = useState("eclipse-agent");
 
   const [candidateId, setCandidateId] = useState("");
   const [targetPath, setTargetPath] = useState("");
@@ -55,6 +77,75 @@ export function RslControlPanel() {
     }
   }, []);
   useEffect(() => { void loadStatus(); }, [loadStatus]);
+
+  const loadStates = useCallback(async () => {
+    setStatesError(null);
+    try {
+      const [nextStates, nextActivations] = await Promise.all([
+        listEvolutionStatesBrowser({ limit: 50 }),
+        listEvolutionSurfaceActivationsBrowser(20),
+      ]);
+      setStates(nextStates);
+      setActivations(nextActivations);
+    } catch (err) {
+      setStatesError(err instanceof Error ? err.message : t("evolution.states.error"));
+    }
+  }, [t]);
+  useEffect(() => { void loadStates(); }, [loadStates]);
+
+  const promoteState = useCallback(async (state: EvolutionHarnessState) => {
+    setPromotingId(state.id);
+    setStatesError(null);
+    try {
+      await promoteEvolutionStateBrowser(state.id);
+      await loadStates();
+    } catch (err) {
+      setStatesError(err instanceof Error ? err.message : t("evolution.states.error"));
+    } finally {
+      setPromotingId(null);
+    }
+  }, [loadStates, t]);
+
+  const previewState = useCallback(async (state: EvolutionHarnessState, scope: string) => {
+    setPreviewingId(state.id);
+    setStatesError(null);
+    try {
+      const data = await getEvolutionSurfacePreviewBrowser(state.id, scope);
+      setPreview({ state, data });
+      setActivationScope(data.scope);
+    } catch (err) {
+      setStatesError(err instanceof Error ? err.message : t("evolution.states.error"));
+    } finally {
+      setPreviewingId(null);
+    }
+  }, [t]);
+
+  const activateState = useCallback(async (state: EvolutionHarnessState, scope?: string) => {
+    setActivatingId(state.id);
+    setStatesError(null);
+    try {
+      await activateEvolutionSurfaceStateBrowser(state.id, scope);
+      setPreview(null);
+      await loadStates();
+    } catch (err) {
+      setStatesError(err instanceof Error ? err.message : t("evolution.states.error"));
+    } finally {
+      setActivatingId(null);
+    }
+  }, [loadStates, t]);
+
+  const rollbackActivation = useCallback(async (activation: EvolutionSurfaceActivation) => {
+    setRollingBackId(activation.id);
+    setStatesError(null);
+    try {
+      await rollbackEvolutionSurfaceActivationBrowser(activation.id);
+      await loadStates();
+    } catch (err) {
+      setStatesError(err instanceof Error ? err.message : t("evolution.states.error"));
+    } finally {
+      setRollingBackId(null);
+    }
+  }, [loadStates, t]);
 
   const tick = useCallback(async () => {
     setTicking(true);
@@ -174,6 +265,217 @@ export function RslControlPanel() {
           })}
         </p>
       )}
+
+      <div className="mt-4 border-t border-border/40 pt-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h5 className="text-xs font-semibold text-foreground">{t("evolution.states.title")}</h5>
+            <p className="mt-1 text-[10px] text-muted-foreground">{t("evolution.states.subtitle")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadStates()}
+            className="rounded-lg border border-border/50 px-2 py-1 text-[10px] text-muted-foreground transition hover:text-foreground"
+          >
+            {t("evolution.states.refresh")}
+          </button>
+        </div>
+        {statesError && (
+          <p className="mt-2 rounded-lg border border-rose-400/30 bg-rose-400/5 px-2 py-1 text-[10px] text-rose-300">
+            {statesError}
+          </p>
+        )}
+        {!states && !statesError && (
+          <p className="mt-2 text-[10px] text-muted-foreground">{t("evolution.states.loading")}</p>
+        )}
+        {states && (
+          <div className="mt-2 space-y-1.5">
+            {states.currents.length > 0 ? (
+              states.currents.map((state) => (
+                <div key={state.id} className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-2 py-1.5 text-[10px]">
+                  <span className="font-medium text-emerald-300">
+                    {t("evolution.states.current", { scope: state.scope })}
+                  </span>
+                  <span className="ml-2 text-muted-foreground">
+                    {t("evolution.states.utility", {
+                      value: state.utility == null ? "UNMEASURED" : state.utility.toFixed(3),
+                    })}
+                  </span>
+                  {state.candidateId && (
+                    <span className="ml-2 text-muted-foreground">
+                      {t("evolution.states.candidate", { id: state.candidateId })}
+                    </span>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p className="text-[10px] text-muted-foreground">{t("evolution.states.none")}</p>
+            )}
+            {states.states.length === 0 && (
+              <p className="text-[10px] text-muted-foreground">{t("evolution.states.empty")}</p>
+            )}
+            {states.states
+              .filter((state) => state.status === "candidate")
+              .slice(0, 8)
+              .map((state) => (
+                <div key={state.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/30 px-2 py-1.5 text-[10px]">
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    {state.scope} · {t("evolution.states.utility", {
+                      value: state.utility == null ? "UNMEASURED" : state.utility.toFixed(3),
+                    })}
+                    {state.candidateId ? ` · ${state.candidateId}` : ""}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void previewState(state, state.scope || "eclipse-agent")}
+                      disabled={previewingId === state.id}
+                      className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-[10px] text-sky-300 transition hover:bg-sky-400/15 disabled:opacity-50"
+                    >
+                      {previewingId === state.id
+                        ? t("evolution.states.previewing")
+                        : t("evolution.states.preview")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void activateState(state)}
+                      disabled={activatingId === state.id}
+                      className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300 transition hover:bg-emerald-400/15 disabled:opacity-50"
+                    >
+                      {activatingId === state.id
+                        ? t("evolution.states.activating")
+                        : t("evolution.states.activate")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void promoteState(state)}
+                      disabled={promotingId === state.id}
+                      className="rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] text-primary transition hover:bg-primary/15 disabled:opacity-50"
+                    >
+                      {promotingId === state.id
+                        ? t("evolution.states.promoting")
+                        : t("evolution.states.promote")}
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+        <div className="mt-3 border-t border-border/30 pt-2">
+          <p className="text-[10px] font-medium text-muted-foreground">
+            {t("evolution.states.activations")}
+          </p>
+          {activations.length === 0 ? (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {t("evolution.states.noActivations")}
+            </p>
+          ) : (
+            activations.map((activation) => (
+              <div key={activation.id} className="mt-1 flex items-center justify-between gap-2 rounded-lg border border-border/30 px-2 py-1.5 text-[10px]">
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {activation.scope} · {activation.stateId}
+                  {activation.rolledBackAt
+                    ? " · rolled back"
+                    : activation.active === false
+                      ? " · inactive"
+                      : ""}
+                </span>
+                {!activation.rolledBackAt && activation.active !== false && (
+                  <button
+                    type="button"
+                    onClick={() => void rollbackActivation(activation)}
+                    disabled={rollingBackId === activation.id}
+                    className="shrink-0 rounded-lg border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[10px] text-rose-300 transition hover:bg-rose-400/15 disabled:opacity-50"
+                  >
+                    {rollingBackId === activation.id
+                      ? t("evolution.states.activating")
+                      : t("evolution.states.rollback")}
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        {preview && (
+          <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-400/5 p-2 text-[10px]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-sky-300">{t("evolution.states.previewTitle")}</p>
+              <span className={preview.data.canActivate ? "text-emerald-300" : "text-rose-300"}>
+                {preview.data.canActivate
+                  ? t("evolution.states.canActivate")
+                  : t("evolution.states.cannotActivate")}
+              </span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <label className="text-muted-foreground">{t("evolution.states.scope")}</label>
+              <select
+                value={activationScope}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setActivationScope(next);
+                  void previewState(preview.state, next);
+                }}
+                className="rounded-lg border border-border/50 bg-background/40 px-2 py-1 text-[10px] text-foreground"
+              >
+                {preview.data.availableScopes.map((scope) => (
+                  <option key={scope} value={scope}>{scope}</option>
+                ))}
+              </select>
+              <span className={preview.data.baseDigestMatches ? "text-emerald-300" : "text-rose-300"}>
+                {preview.data.baseDigestMatches
+                  ? t("evolution.states.baseMatch")
+                  : t("evolution.states.baseMismatch")}
+              </span>
+            </div>
+            {preview.data.reasons.length > 0 && (
+              <ul className="mt-1 list-disc pl-4 text-rose-300">
+                {preview.data.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+            {preview.data.diff && (
+              <div className="mt-1 space-y-0.5 text-muted-foreground">
+                <p>{t("evolution.states.promptChange", {
+                  before: preview.data.diff.systemPromptBeforeChars,
+                  after: preview.data.diff.systemPromptAfterChars,
+                })}</p>
+                <p>{t("evolution.states.toolsRemoved", {
+                  tools: preview.data.diff.toolsRemoved.join(", ") || "none",
+                })}</p>
+                <p>{t("evolution.states.toolsAdded", {
+                  tools: preview.data.diff.toolsAdded.join(", ") || "none",
+                })}</p>
+                <p>{t("evolution.states.ceilings", {
+                  stepsBefore: preview.data.diff.maxStepsBefore,
+                  stepsAfter: preview.data.diff.maxStepsAfter,
+                  callsBefore: preview.data.diff.maxToolCallsBefore,
+                  callsAfter: preview.data.diff.maxToolCallsAfter,
+                })}</p>
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void activateState(preview.state, activationScope)}
+                disabled={!preview.data.canActivate || activatingId === preview.state.id}
+                className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[10px] text-emerald-300 transition hover:bg-emerald-400/15 disabled:opacity-50"
+              >
+                {activatingId === preview.state.id
+                  ? t("evolution.states.activating")
+                  : t("evolution.states.activateScope", { scope: activationScope })}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-lg border border-border/50 px-2 py-1 text-[10px] text-muted-foreground transition hover:text-foreground"
+              >
+                {t("evolution.states.close")}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="mt-4 border-t border-border/40 pt-3">
         <h5 className="text-xs font-semibold text-foreground">{t("evolution.propose.title")}</h5>

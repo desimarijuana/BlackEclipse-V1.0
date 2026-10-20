@@ -155,6 +155,39 @@ class DashboardService:
         dashboard_id = _dashboard_id_from_path(blueprint.path) or blueprint.id
         self._locks.assert_allowed("dashboard", dashboard_id, "write")
 
+    def _record(
+        self,
+        action: str,
+        summary: str,
+        dashboard_id: str,
+        *,
+        actor: Optional[str] = None,
+        detail: Optional[dict[str, Any]] = None,
+    ) -> None:
+        try:
+            self._store.record_audit(
+                action=action,
+                actor=actor or "operator",
+                resource_type="dashboard",
+                resource_id=dashboard_id,
+                summary=summary,
+                detail=detail,
+            )
+        except Exception:  # noqa: BLE001 - audit never breaks a successful mutation
+            pass
+
+    def _audit(
+        self,
+        action: str,
+        summary: str,
+        blueprint: UiBlueprint,
+        *,
+        actor: Optional[str] = None,
+        detail: Optional[dict[str, Any]] = None,
+    ) -> None:
+        dashboard_id = _dashboard_id_from_path(blueprint.path) or blueprint.id
+        self._record(action, summary, dashboard_id, actor=actor, detail=detail)
+
     @staticmethod
     def _default_target(blueprint: UiBlueprint, zone: Optional[str]) -> Optional[DropTarget]:
         wanted = zone or "main"
@@ -199,6 +232,7 @@ class DashboardService:
             raise UiError("SDK_DASHBOARD_INVALID", "a dashboard id is required")
         dashboard_id = _dashboard_id_from_path(value) or value
         self._store.set_meta(ACTIVE_META_KEY, dashboard_id)
+        self._record("dashboard.set_active", f"Activated dashboard {dashboard_id}", dashboard_id)
         return {"activeDashboardId": dashboard_id}
 
     def add_widget(
@@ -233,6 +267,13 @@ class DashboardService:
             ),
             actor=actor,
         )
+        self._audit(
+            "dashboard.add_widget",
+            f"Added {input_model.component_id}",
+            saved,
+            actor=actor,
+            detail={"componentId": input_model.component_id, "instanceId": input_model.instance_id},
+        )
         return self._snapshot(saved)
 
     def remove_widget(
@@ -251,6 +292,13 @@ class DashboardService:
                 expected_revision=input_model.expected_revision or blueprint.revision,
             ),
             actor=actor,
+        )
+        self._audit(
+            "dashboard.remove_widget",
+            f"Removed {input_model.instance_id}",
+            saved,
+            actor=actor,
+            detail={"instanceId": input_model.instance_id},
         )
         return self._snapshot(saved)
 
@@ -277,6 +325,13 @@ class DashboardService:
             ),
             actor=actor,
         )
+        self._audit(
+            "dashboard.move_widget",
+            f"Moved {input_model.instance_id}",
+            saved,
+            actor=actor,
+            detail={"instanceId": input_model.instance_id, "target": input_model.target.model_dump(by_alias=True)},
+        )
         return self._snapshot(saved)
 
     def resize_widget(
@@ -297,6 +352,13 @@ class DashboardService:
             ),
             actor=actor,
         )
+        self._audit(
+            "dashboard.resize_widget",
+            f"Resized {input_model.instance_id}",
+            saved,
+            actor=actor,
+            detail={"instanceId": input_model.instance_id, "height": input_model.height},
+        )
         return self._snapshot(saved)
 
     def set_columns(
@@ -316,6 +378,13 @@ class DashboardService:
                 expected_revision=input_model.expected_revision or blueprint.revision,
             ),
             actor=actor,
+        )
+        self._audit(
+            "dashboard.set_columns",
+            f"Set {input_model.count} column(s)",
+            saved,
+            actor=actor,
+            detail={"sectionId": input_model.section_id, "count": input_model.count},
         )
         return self._snapshot(saved)
 
@@ -341,6 +410,13 @@ class DashboardService:
             ),
             actor=actor,
         )
+        self._audit(
+            "dashboard.set_zones",
+            "Updated the dashboard zones",
+            saved,
+            actor=actor,
+            detail={"hiddenZones": input_model.hidden_zones, "zoneWidths": input_model.zone_widths},
+        )
         return self._snapshot(saved)
 
     def set_layout(
@@ -359,6 +435,12 @@ class DashboardService:
                 layout=layout,
                 expected_revision=input_model.expected_revision or blueprint.revision,
             ),
+            actor=actor,
+        )
+        self._audit(
+            "dashboard.set_layout",
+            "Saved the dashboard layout",
+            saved,
             actor=actor,
         )
         return self._snapshot(saved)
@@ -381,6 +463,13 @@ class DashboardService:
         saved = self._require_ui().restore_revision(
             RestoreRevisionInput(blueprint_id=blueprint.id, revision=revision),
             actor=actor,
+        )
+        self._audit(
+            "dashboard.restore",
+            f"Restored revision {revision}",
+            saved,
+            actor=actor,
+            detail={"revision": revision},
         )
         return self._snapshot(saved)
 

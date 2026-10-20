@@ -100,6 +100,13 @@ class LockService:
             hint=input_model.hint,
             created_by=actor,
         )
+        self._audit(
+            "lock.create",
+            f"Locked {input_model.resource_type} {input_model.resource_id}",
+            row,
+            actor=actor,
+            detail={"label": input_model.label},
+        )
         return self._view(row)
 
     def list(self, *, resource_type: Optional[str] = None, resource_id: Optional[str] = None) -> list[SdkLockView]:
@@ -114,7 +121,7 @@ class LockService:
 
     # ── unlock / remove ──────────────────────────────────────────────────────
 
-    def unlock(self, lock_id: str, passphrase: str) -> dict[str, Any]:
+    def unlock(self, lock_id: str, passphrase: str, *, actor: Optional[str] = None) -> dict[str, Any]:
         row = self._store.get_lock(lock_id)
         if row is None:
             raise LockError("lock not found", code="SDK_LOCK_NOT_FOUND", status_code=404)
@@ -129,6 +136,12 @@ class LockService:
                 status_code=403,
             )
         token, expires_at = self._issue(row["id"])
+        self._audit(
+            "lock.unlock",
+            f"Unlocked {row['resourceType']} {row['resourceId']}",
+            row,
+            actor=actor,
+        )
         return {"success": True, "token": token, "expiresAt": expires_at, "lock": self._view(row).model_dump(by_alias=True)}
 
     def remove(self, lock_id: str, *, passphrase: Optional[str] = None, actor: Optional[str] = None) -> bool:
@@ -147,7 +160,15 @@ class LockService:
                 resource_id=row["resourceId"],
                 hint=row.get("hint"),
             )
-        return self._store.delete_lock(lock_id)
+        removed = self._store.delete_lock(lock_id)
+        if removed:
+            self._audit(
+                "lock.remove",
+                f"Removed the lock on {row['resourceType']} {row['resourceId']}",
+                row,
+                actor=actor,
+            )
+        return removed
 
     # ── enforcement ──────────────────────────────────────────────────────────
 
@@ -220,6 +241,27 @@ class LockService:
             return False
         digest = hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), salt, iterations)
         return hmac.compare_digest(digest, expected)
+
+    def _audit(
+        self,
+        action: str,
+        summary: str,
+        row: dict[str, Any],
+        *,
+        actor: Optional[str] = None,
+        detail: Optional[dict[str, Any]] = None,
+    ) -> None:
+        try:
+            self._store.record_audit(
+                action=action,
+                actor=actor or "operator",
+                resource_type=row.get("resourceType"),
+                resource_id=row.get("resourceId"),
+                summary=summary,
+                detail=detail,
+            )
+        except Exception:  # noqa: BLE001 - audit never breaks a successful mutation
+            pass
 
     @staticmethod
     def _view(row: dict[str, Any]) -> SdkLockView:

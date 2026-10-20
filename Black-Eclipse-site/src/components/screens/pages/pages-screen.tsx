@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Plus, RefreshCw, RotateCcw, Save } from '@/lib/icons';
+import { Lock, Plus, RefreshCw, RotateCcw, Save } from '@/lib/icons';
 import { DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
 import { useWidgets } from '@/lib/workspace/use-widgets';
 import { CustomizableWorkspace } from '@/components/workspace';
@@ -34,6 +34,7 @@ import {
   pageStorageKey,
 } from '@/lib/ui-engineering/live-page';
 import { setUiFocus } from '@/lib/ui-engineering/ui-focus';
+import { eclipseSdk } from '@/lib/sdk';
 
 /** The page requested by `?tab=pages&page=<id|path>` (SDK/sidebar deep link). */
 function requestedPage(): string | null {
@@ -60,7 +61,32 @@ export function PagesScreen() {
   const [note, setNote] = useState<string | null>(null);
   // Bumped to force the workspace to remount (re-seed from the blueprint).
   const [remount, setRemount] = useState(0);
+  const [pageLocked, setPageLocked] = useState(false);
   const allWidgets = useWidgets({ surface: 'page' });
+
+  // Surface a page lock outside the SDK tab.
+  const refreshPageLock = useCallback(async () => {
+    if (!selectedId) {
+      setPageLocked(false);
+      return;
+    }
+    try {
+      const { locks } = await eclipseSdk.locks.list({ resourceType: 'page', resourceId: selectedId });
+      setPageLocked(locks.length > 0);
+    } catch {
+      setPageLocked(false);
+    }
+  }, [selectedId]);
+  useEffect(() => {
+    void refreshPageLock();
+    const onChanged = () => void refreshPageLock();
+    window.addEventListener('eclipse:locks-changed', onChanged);
+    const timer = window.setInterval(() => void refreshPageLock(), 30_000);
+    return () => {
+      window.removeEventListener('eclipse:locks-changed', onChanged);
+      window.clearInterval(timer);
+    };
+  }, [refreshPageLock]);
 
   const refreshList = useCallback(async () => {
     try {
@@ -246,6 +272,11 @@ export function PagesScreen() {
           <p className="text-xs text-muted-foreground">
             Custom pages you and Eclipse compose. Add or rearrange widgets like the Command Center, then save the arrangement to the page.
           </p>
+          {pageLocked && (
+            <span className="mt-1 inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-amber-300">
+              <Lock size={9} /> Locked
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => void handleRefresh()} className="glass-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-foreground">

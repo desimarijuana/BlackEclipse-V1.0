@@ -29,6 +29,13 @@ const WARMUP_ENDPOINTS = [
 // window renders on top of it instead of being hidden behind it. maxDelay is
 // short because warm-ups are fire-and-forget: the screens fetch again on
 // their own and their routes cache, so lingering adds no value.
+//
+// The overlay ALSO carries a CSS auto-dismiss (`be-boot-overlay`). The JS
+// timer above runs on the main thread: while a large route hydrates or a dev
+// chunk compiles, that timer can be delayed and the overlay freezes at its
+// last percentage (the "stuck at 95%" report). The CSS animation runs on the
+// compositor and hides the overlay even if React never gets a turn, so a
+// cosmetic loader can never trap the user.
 export function GlobalLoader({ maxDelay = 2500 }: { maxDelay?: number }) {
   const [visible, setVisible] = useState(true);
   const [pct, setPct] = useState(1);
@@ -105,7 +112,7 @@ export function GlobalLoader({ maxDelay = 2500 }: { maxDelay?: number }) {
   const shown = Math.min(100, Math.max(1, pct));
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-5 bg-background/98 backdrop-blur-md" data-global-loader data-pct={Math.floor(shown)}>
+    <div className="be-boot-overlay pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-5 bg-background/98 backdrop-blur-md" data-global-loader data-pct={Math.floor(shown)}>
        <AsciiProgress pct={shown} label="" size={32} />
     </div>
   );

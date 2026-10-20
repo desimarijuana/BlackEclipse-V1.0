@@ -225,6 +225,12 @@ export interface AssistantTurn {
   /** Phase 14 §6.4: the runtime-derived chat capability view. */
   capability?: unknown;
   /**
+   * The generated-capability lifecycle this turn requested/built (`capability.*`
+   * events): request, surface, tests, verification and activation state.
+   * Typed loosely; the card narrows it via `coerceCapabilityBuild`.
+   */
+  capabilityBuild?: unknown;
+  /**
    * Vision/Multimodal: the run's collected vision results (asset ids, regions,
    * OCR, confidence, provenance) for the right sidebar. `undefined` when the
    * turn used no vision tool. Typed loosely to avoid a harness-runtime
@@ -334,6 +340,12 @@ const TOOL_LABELS: Record<string, string> = {
   terminal_run: 'Running',
   scaffold_kit: 'Building a tool',
   analysis_run: 'Working it out',
+  capability_external: 'Planning the external connection',
+  capability_adapter: 'Drafting the adapter',
+  python_env_install: 'Installing Python packages',
+  python_env_remove: 'Removing Python packages',
+  python_env_list: 'Checking installed packages',
+  python_env_status: 'Checking the analysis environment',
   // Code Intelligence & Understanding Engine (CIUE) — plain job names for the
   // semantic/structural navigation surface. The mechanism (LSP/AST/index) never
   // reaches the user; only the job does.
@@ -395,6 +407,7 @@ const TOOL_LABELS: Record<string, string> = {
   document_capabilities: 'Checking document support',
   // Document Authoring — the write side (Word / Excel / PowerPoint / text).
   document_create: 'Creating the document',
+  eclipse_report: 'Creating the report',
   // Native video — the render pipeline's plain job names.
   video_capabilities: 'Checking video support',
   video_create_project: 'Creating the video project',

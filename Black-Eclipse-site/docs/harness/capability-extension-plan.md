@@ -1,7 +1,7 @@
 ---
 title: Capability Extension Plan (author pages, widgets, tools, skills)
 status: Draft
-last-verified: 2026-10-18
+last-verified: 2026-10-19
 ---
 
 # Capability Extension Plan
@@ -107,6 +107,76 @@ background (tracked) → register → compose again.**
   localStorage layouts) so agent edits to *existing* dashboards are visible too.
   This is the deepest change and is deliberately last; Phase A already proves
   the render path.
+
+### Phase F — Python Capability Builder (started 2026-10-19)
+- Detect a missing capability with `capability_request`; search static recipes,
+  active generated capabilities and the live tool registry before building.
+- Classify one-off vs reusable and route effectful surfaces to their existing
+  approval-gated owner.
+- Build a pure reusable recipe: versioned manifest, implementation, contract
+  test and README under `.black-eclipse/capabilities/`.
+- Verify through the existing analysis sandbox; auto-activate a passing pure
+  workspace recipe and keep everything else `approval_required`/`unverified`.
+- Load active generated recipes into the existing `code/recipes.py` registry so
+  `analysis_run` uses them immediately; record usage and auto-disable after
+  repeated failures.
+- Rollback/retire are versioned; no generated code can write core harness files.
+- The chat `CapabilityCard` and Settings › Capability Studio › Generated list
+  consume the same records; activation/rollback/retire are operator routes, not
+  agent routes (`src/components/chat/capability-card.tsx`,
+  `src/components/screens/capability-studio/generated-section.tsx`,
+  `src/lib/harness/capabilities-client.ts`).
+- Owning doc: `docs/harness/capability-builder.md`; ADR-H225/H226.
+- **Sprint 3 external lane (started 2026-10-19).** `capability_external` proposes
+  a broker/API/MCP adapter through the existing MCP preset or plugin platform.
+  Credentials are operator-supplied names only; the install consumes the existing
+  single-use `mcp_install` approval (or the plugin platform's operator gate) and
+  writes a DISABLED config. The proposal carries the recovery acquisition
+  `install`/`enable` steps, and the recover handler accepts `integrationId`;
+  nothing self-enables and the original task resumes from its checkpoint after
+  the operator activates the adapter (ADR-H230).
+- **Effectful hand-offs (2026-10-19).** `capability_build` no longer dead-ends an
+  effectful kind at `approval_required`: `capabilities/handoff.py` returns one
+  typed hand-off to the existing owner (`skill_create`, `scaffold_kit`,
+  `ui_start_engineering`, `create_goal` for code/harness, or
+  `capability_external` for plugin/MCP), carrying the arguments, acceptance,
+  evidence and activation owner. The hand-off is stored on the same durable
+  request; it executes nothing and needs no analysis sandbox (ADR-H231).
+- **Retry + learning signal (2026-10-19).** Activation resumes the original
+  parked task from its checkpoint (`capabilities/resume.py`, ADR-H232); a failed
+  generated recipe records a `capability_failure` recurrence for the learning
+  loop.
+- **Close-out UI (2026-10-19).** The chat card offers Build / Show plan / Not now,
+  the hand-off Continue, and Rebuild with RSL (prompt-only); the Studio row adds
+  **Promote to global** (operator copy, ADR-H234) and **Rebuild with RSL**; the
+  computed-result payload carries the recipe name. **Built-in + generated
+  listing landed 2026-10-19:** `GET /capabilities/builtins` returns the static
+  recipe catalogue (read-only, declared before `/{id}`) and the Studio Generated
+  section renders it with a built-in badge next to the generated records.
+- **Adapter authoring (2026-10-19).** `capability_adapter` +
+  `capabilities/adapter.py` author a reviewable, DISABLED broker/API plugin
+  draft (validated `PluginManifest`, `plugin.py`, README) under
+  `.black-eclipse/adapters/`; HTTPS-only, credential names only, GET->read /
+  POST->external_action, `network` permission, no install and no enable. The
+  operator reviews the auth scheme, installs and enables (ADR-H238).
+- **Sandbox tool RPC (2026-10-19).** The `analysis_run` sandbox can call three
+  read-only `eclipse_tools` bindings (`market_snapshot`, `live_quote`,
+  `price_history`) through deterministic replay: strict allowlist, no
+  writes/network, no intermediate payloads in the model context, and only final
+  outputs plus audit digests returned. The host resolves through the existing
+  DataBridge; the generic terminal `execute_code` service is not changed
+  (ADR-H235).
+- Remaining phases:
+  1. **Persistent kernel — landed 2026-10-19.** Session-scoped kernel reuse
+     (`code/kernel.py`), eviction/idle sweep, crash/respawn and subagent
+     isolation around the existing PTC sandbox; one-shot remains the fallback
+     (ADR-H236, `docs/harness/python-runtime.md`).
+  2. **UI intelligence — landed 2026-10-19.** Chart focus mode, series weights,
+     weighted bands, the `auto` visual director, and loss-table
+     alignment/formatting (ADR-H237).
+  3. **Adapter + hardening — landed 2026-10-19.** Generic from-scratch
+     broker/API adapter authoring, built-in + generated Studio listing,
+     `docs/harness/python-runtime.md`, roadmap/bookkeeping (ADR-H238).
 
 ## Implementation status (2026-10-10; updated 2026-10-18)
 

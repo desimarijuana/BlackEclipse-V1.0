@@ -125,6 +125,8 @@ def test_the_one_kwargs_builder_carries_every_subsystem_bundle() -> None:
             "search", "artifact_service", "ui_service",
             # The Fiduciary Gate / Advisory Ledger bundle (ADR-H196).
             "advisory",
+            # The durable task manager, for activation-time checkpoint resume.
+            "task_manager",
         }
     assert set(kwargs) == expected
     assert kwargs["portfolio"] == "portfolio-sentinel"

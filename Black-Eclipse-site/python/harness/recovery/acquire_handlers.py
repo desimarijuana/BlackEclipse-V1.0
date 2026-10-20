@@ -13,7 +13,9 @@ Rules (nothing self-grants):
   * `build` otherwise → a durable code-agent task carrying the objective as its
     acceptance criterion (the existing code capability owns the work);
   * `install` / `enable` → handed back as an operator decision with the exact
-    missing facts; this module never installs or enables anything;
+    missing facts; this module never installs or enables anything. An MCP preset
+    install consumes the SAME single-use `mcp_install` approval and writes a
+    disabled config; MCP activation stays in Settings → MCP;
   * the original task gains a REQUIRES dependency on the capability task and is
     parked BLOCKED(DEPENDENCY): when the capability task COMPLETES (its own
     verification passed), `_notify_dependents` unblocks and the scheduler
@@ -217,17 +219,143 @@ def _install_kit(manager: Any, task: Any, kit_id: str) -> dict[str, Any]:
             "kitId": kit_id, **created}
 
 
+def _mcp_credentials(service: Any, integration_id: str, supplied: dict[str, Any]) -> dict[str, Any]:
+    """Presence-only credential status for an MCP preset (never a value).
+
+    The external lane requires the operator to supply the named credentials
+    BEFORE an install is attempted. An unavailable resolver is `unverified`, not
+    "present"; a missing value is named by its vault key only.
+    """
+    from ..mcp.presets import integration as find_preset
+
+    spec = find_preset(integration_id)
+    names: list[str] = []
+    if spec is not None and spec.secret_ref:
+        names.append(spec.secret_ref)
+    try:
+        from ..eclipse_memory.decision import looks_like_credential_value
+    except Exception:  # noqa: BLE001 - the shape guard is best-effort
+        looks_like_credential_value = lambda _text: False  # noqa: E731
+    for raw in supplied.get("credentialNames") or supplied.get("credential_names") or ():
+        name = str(raw or "").strip()
+        if looks_like_credential_value(name):
+            raise ValueError(
+                "credential values are not accepted; supply vault secret NAMES only"
+            )
+        if name and name not in names:
+            names.append(name)
+    manager = getattr(service, "mcp", None)
+    reader = getattr(manager, "secret_presence", None)
+    if not names:
+        return {"status": "not_required", "required": [], "present": {}}
+    if reader is None:
+        return {"status": "unverified", "required": names, "present": {}}
+    try:
+        present = _run_async(reader(names))
+    except Exception:  # noqa: BLE001 - unverifiable is not present
+        present = {}
+    if not present:
+        status = "unverified"
+    elif all(present.get(name) is True for name in names):
+        status = "present"
+    else:
+        status = "missing"
+    return {"status": status, "required": names, "present": dict(present)}
+
+
+def _install_mcp(service: Any, integration_id: str, supplied: dict[str, Any]) -> dict[str, Any]:
+    """Install an MCP preset as a DISABLED config through the MCP approval store.
+
+    Reuses the SAME single-use `mcp_install` approval the agent tool consumes.
+    Credentials must already be present by NAME; the handler never receives,
+    reads or returns a value. It NEVER enables the server: activation remains the
+    operator's Settings → MCP decision.
+    """
+    from ..mcp.config import load_mcp_configs
+    from ..mcp.install_ops import find_integration, install_integration
+    from ..mcp.install_tools import APPROVAL_KIND, approval_digest
+
+    spec = find_integration(integration_id)
+    if spec is None:
+        return {"surface": "mcp", "status": "failed",
+                "reason": f"unknown MCP integration {integration_id!r}"}
+    credentials = _mcp_credentials(service, integration_id, supplied)
+    if credentials["status"] != "present" and credentials["status"] != "not_required":
+        missing = [
+            f"vault secret {name!r} is not set"
+            for name in credentials["required"]
+            if credentials["present"].get(name) is not True
+        ] or ["credential presence could not be verified by the runtime"]
+        return {
+            "surface": "mcp", "status": "approval_required",
+            "reason": "credentials_required", "integrationId": spec.id,
+            "credentials": credentials, "missing": missing,
+            "installed": False, "enabled": False,
+            "next": (
+                "set the named vault secret(s) in Settings, then run this step again; "
+                "nothing was installed"
+            ),
+        }
+    approvals = getattr(service, "approvals", None)
+    if approvals is None:
+        return {"surface": "mcp", "status": "approval_required",
+                "reason": "the approval store is unavailable", "installed": False,
+                "enabled": False}
+    digest = approval_digest(APPROVAL_KIND, spec.id)
+    claimed = approvals.consume_kind(
+        kind=APPROVAL_KIND, request_key="mcp", digest=digest,
+    )
+    if claimed is None:
+        pending = None
+        try:
+            pending = approvals.request_kind(
+                kind=APPROVAL_KIND, request_key="mcp", digest=digest,
+                effect="external_action", run_id="recovery-acquisition",
+                action_summary=f"Install MCP integration {spec.id} (disabled; nothing selected)",
+                affected_data={"integrationId": spec.id}, risk="medium",
+            )
+        except Exception:  # noqa: BLE001 - a store failure must never authorize
+            pending = None
+        return {
+            "surface": "mcp", "status": "approval_required",
+            "integrationId": spec.id, "digest": digest,
+            "approvalId": (pending or {}).get("id"),
+            "credentials": credentials, "installed": False, "enabled": False,
+            "next": (
+                "grant the single-use mcp_install approval for this exact preset, "
+                "then run the step again with approved: true — nothing was installed"
+            ),
+        }
+    result = install_integration(spec.id)
+    if not result.get("success"):
+        return {"surface": "mcp", "status": "failed",
+                "reason": result.get("reason") or "the MCP install failed"}
+    configs, _ = load_mcp_configs()
+    entry = next((item for item in configs if item.id == spec.id), None)
+    enabled = bool(getattr(entry, "enabled", False)) if entry is not None else False
+    return {
+        "surface": "mcp", "status": "installed", "integrationId": spec.id,
+        "alreadyInstalled": bool(result.get("alreadyInstalled")),
+        "enabled": enabled, "credentials": credentials,
+        "next": (
+            "the config is disabled; the operator enables it and selects tools in "
+            "Settings → MCP (nothing self-enables)"
+        ),
+    }
+
+
 def build_acquisition_handlers(
     service: Any, manager: Any, task: Any, *, run_id: Optional[str] = None,
     facts: Optional[dict[str, Any]] = None,
 ) -> dict[str, Callable[[AcquisitionStep], Any]]:
     """Handlers for `execute_step`, each routed through its existing gate.
 
-    `facts` are operator-supplied install inputs (a GitHub source, a plugin
-    folder, a kit id). They never authorize anything themselves: a skill install
-    still consumes its own single-use, digest-bound approval, a plugin install
-    still runs through the plugin platform's operator gate, and a kit becomes a
-    durable code task whose verified completion is the validation.
+    `facts` are operator-supplied install inputs (a GitHub source, an MCP preset
+    id, a plugin folder, a kit id). They never authorize anything themselves: a
+    skill install still consumes its own single-use, digest-bound approval, an MCP
+    install consumes the SAME `mcp_install` approval and writes a disabled config,
+    a plugin install still runs through the plugin platform's operator gate, and a
+    kit becomes a durable code task whose verified completion is the validation.
     """
     supplied = dict(facts or {})
 
@@ -259,6 +387,11 @@ def build_acquisition_handlers(
         source = str(supplied.get("source") or "").strip()
         if source:
             return _install_skill(service, source, supplied)
+        integration_id = str(
+            supplied.get("integrationId") or supplied.get("integration_id") or ""
+        ).strip()
+        if integration_id:
+            return _install_mcp(service, integration_id, supplied)
         plugin_path = str(supplied.get("pluginPath") or "").strip()
         if plugin_path:
             return _install_plugin(service, plugin_path)
@@ -271,14 +404,26 @@ def build_acquisition_handlers(
                 "unknown: no source, credential or dependency was supplied",
             ],
             "next": (
-                "provide the source (GitHub), the plugin folder or the kit id and run "
-                "the approved install path (skill_install / the plugin platform / a "
-                "code task); nothing was installed"
+                "provide the source (GitHub), the MCP preset id, the plugin folder or "
+                "the kit id and run the approved install path (skill_install / "
+                "mcp_install / the plugin platform / a code task); nothing was installed"
             ),
         }
 
     def _enable(step: AcquisitionStep) -> dict[str, Any]:
+        integration_id = str(
+            supplied.get("integrationId") or supplied.get("integration_id") or ""
+        ).strip()
         plugin_id = str(supplied.get("pluginId") or "").strip()
+        if integration_id and not plugin_id:
+            return {
+                "surface": "mcp", "status": "approval_required",
+                "integrationId": integration_id,
+                "next": (
+                    "the operator enables the installed MCP server and selects tools in "
+                    "Settings → MCP; this runtime never enables an MCP server itself"
+                ),
+            }
         plugins = getattr(service, "plugins", None)
         if plugin_id and plugins is not None:
             try:

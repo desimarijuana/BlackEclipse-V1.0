@@ -100,6 +100,12 @@ export function ComputedResultPanel({
             </div>
           ) : null}
 
+          {data.recipe ? (
+            <p className="text-[9px] text-muted-foreground/80">
+              {t('analysis.recipe')}: <span className="font-mono text-foreground/80">{data.recipe}</span>
+            </p>
+          ) : null}
+
           {rows.length > 0 ? (
             <ul className="space-y-0.5">
               {rows.map(([key, value]) => (

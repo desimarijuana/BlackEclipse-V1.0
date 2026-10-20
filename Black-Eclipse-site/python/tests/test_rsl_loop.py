@@ -14,6 +14,7 @@ from harness.persistence import AgentMemoryStore
 from harness.self_improvement.config import RSLConfig
 from harness.self_improvement.loop import RSLLoop
 from harness.self_improvement.recorder import record_code_experiment
+from harness.self_improvement.state import HarnessStateStore
 
 
 @pytest.fixture()
@@ -48,12 +49,14 @@ def _candidate(
 
 
 def _loop(store, evolution, *, mode: str = "verify", verify_fn=None,
-          propose_fn=None, recorder_fn=None, **overrides) -> RSLLoop:
+          propose_fn=None, code_benchmark_fn=None, recorder_fn=None,
+          **overrides) -> RSLLoop:
     config = RSLConfig(mode=mode, **overrides)
     return RSLLoop(
         service=None, config=config, run_store=store, evolution=evolution,
         eval_store=EvaluationStore(store), verify_fn=verify_fn,
-        propose_fn=propose_fn, recorder_fn=recorder_fn,
+        propose_fn=propose_fn, code_benchmark_fn=code_benchmark_fn,
+        recorder_fn=recorder_fn,
     )
 
 
@@ -274,6 +277,39 @@ def test_recorder_persists_experiment_identity_and_event(store):
     assert events[0]["data"]["benchmark"] == "UNMEASURED"
 
 
+def test_recorder_records_a_measured_benchmark(store):
+    evolution = EvolutionStore(store)
+    eval_store = EvaluationStore(store)
+    candidate = _candidate(evolution)
+    run_id = f"rsl-{candidate['id']}-measured"
+    store.create_run(run_id, "rsl", {"query": "measured experiment"})
+
+    record_code_experiment(
+        eval_store, store, run_id=run_id, candidate=candidate,
+        verification={
+            "passed": True, "benchmark": "MEASURED",
+            "decisionRecord": {"accepted": True, "targetAfter": 0.9},
+            "benchmarkMetrics": {
+                "baseline": {"aggregates": {"task_success": 0.7}, "measuredTrials": 3},
+                "candidate": {"aggregates": {"task_success": 0.9}, "measuredTrials": 3},
+            },
+            "report": {"checks": []},
+        },
+        decision="benchmark_accepted",
+    )
+    run = eval_store.get_run(run_id)
+    assert run["config"]["benchmark"] == "MEASURED"
+    assert run["config"]["mode"] == "tests_benchmark"
+    assert run["metadata"]["decisionRecord"]["accepted"] is True
+    assert run["metadata"]["measuredTrials"] == 3
+    events = [
+        event for event in store.list_events(run_id)
+        if event["type"] == "self_improvement.experiment_completed"
+    ]
+    assert events[0]["data"]["benchmark"] == "MEASURED"
+    assert events[0]["data"]["measuredTrials"] == 3
+
+
 @pytest.mark.asyncio
 async def test_propose_mode_validates_ops_without_running_them(store):
     evolution = _evolution(store)
@@ -290,3 +326,199 @@ async def test_propose_mode_validates_ops_without_running_them(store):
     proposed = evolution.get_candidate(candidate["id"])
     assert proposed["status"] == "proposed"
     assert proposed["targetPath"] == "python/harness/rsl_fixture.py"
+
+
+@pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_auto_mode_proposes_then_verifies_one_candidate(store):
+    evolution = _evolution(store)
+    candidate = _candidate(evolution, status="inert")
+    calls = []
+
+    def verify(item):
+        calls.append(item["id"])
+        return {"passed": True, "benchmark": "UNMEASURED"}
+
+    loop = _loop(store, evolution, mode="auto", verify_fn=verify)
+    result = await loop.tick()
+
+    assert result["mode"] == "auto"
+    assert candidate["id"] in result["proposed"]
+    assert result["verified"]["candidateId"] == candidate["id"]
+    assert calls == [candidate["id"]]
+    assert evolution.get_candidate(candidate["id"])["status"] == "evaluated_ok"
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_does_not_verify_when_nothing_is_proposed(store):
+    evolution = _evolution(store)
+    called = []
+    loop = _loop(
+        store, evolution, mode="auto",
+        verify_fn=lambda item: called.append(item["id"]) or {"passed": True},
+    )
+    result = await loop.tick()
+
+    assert result["proposed"] == []
+    assert result["verified"]["skipped"] == "none"
+    assert called == []
+
+
+@pytest.mark.asyncio
+async def test_measured_code_benchmark_can_reject_a_candidate(store):
+    evolution = _evolution(store)
+    candidate = _candidate(evolution)
+    records = []
+
+    def bench(*args, **kwargs):
+        return {
+            "ok": True, "passed": False, "benchmark": "MEASURED",
+            "decisionRecord": {"accepted": False, "reasons": ["no improvement"]},
+            "baseline": {"aggregates": {"task_success": 0.8}, "measuredTrials": 5},
+            "candidate": {"aggregates": {"task_success": 0.8}, "measuredTrials": 5},
+        }
+
+    loop = _loop(
+        store, evolution,
+        verify_fn=lambda item: {"passed": True, "benchmark": "UNMEASURED"},
+        code_benchmark_fn=bench,
+        recorder_fn=lambda *a, **kw: records.append(kw),
+        code_benchmark=True,
+    )
+    result = await loop.tick()
+
+    assert result["decision"] == "benchmark_rejected"
+    assert result["benchmark"] == "MEASURED"
+    assert evolution.get_candidate(candidate["id"])["status"] == "evaluated_bad"
+    assert records[0]["verification"]["benchmark"] == "MEASURED"
+    assert records[0]["verification"]["decisionRecord"]["accepted"] is False
+
+
+@pytest.mark.asyncio
+async def test_measured_code_benchmark_can_accept_a_candidate(store):
+    evolution = _evolution(store)
+    candidate = _candidate(evolution)
+
+    def bench(*args, **kwargs):
+        return {
+            "ok": True, "passed": True, "benchmark": "MEASURED",
+            "decisionRecord": {"accepted": True},
+            "baseline": {"aggregates": {"task_success": 0.7}, "measuredTrials": 5},
+            "candidate": {"aggregates": {"task_success": 0.85}, "measuredTrials": 5},
+        }
+
+    loop = _loop(
+        store, evolution,
+        verify_fn=lambda item: {"passed": True, "benchmark": "UNMEASURED"},
+        code_benchmark_fn=bench,
+        code_benchmark=True,
+    )
+    result = await loop.tick()
+
+    assert result["decision"] == "benchmark_accepted"
+    assert result["benchmark"] == "MEASURED"
+    assert evolution.get_candidate(candidate["id"])["status"] == "evaluated_ok"
+
+
+@pytest.mark.asyncio
+async def test_measured_surface_creates_an_inert_candidate_state(store):
+    evolution = _evolution(store)
+    candidate = evolution.save_candidate({
+        "signature": f"surface-{uuid.uuid4().hex}",
+        "sourceCategory": "operator",
+        "observedCount": 1,
+        "problemStatement": "surface state test",
+        "subjectType": "surface",
+        "surfaceConfig": {
+            "scope": "eclipse-agent",
+            "snapshot": {"sourceDigest": "snap-1", "systemPrompt": "candidate"},
+            "base": {"sourceDigest": "base-1", "systemPrompt": "base"},
+        },
+        "status": "proposed",
+    })
+
+    def verify(item):
+        return {
+            "passed": True, "benchmark": "MEASURED", "runId": "evalrun-surface-state",
+            "decisionRecord": {"accepted": True, "targetAfter": 0.9, "measured": 2},
+        }
+
+    loop = _loop(store, evolution, verify_fn=verify)
+    result = await loop.tick()
+
+    assert result["decision"] == "benchmark_accepted"
+    assert result["stateId"]
+    state = loop.state_store.get_state(result["stateId"])
+    assert state["scope"] == "eclipse-agent"
+    assert state["status"] == "candidate"
+    assert state["candidateId"] == candidate["id"]
+    assert state["acceptedRunId"] == "evalrun-surface-state"
+    assert state["metrics"]["aggregates"]["task_success"] == 0.9
+    assert state["utility"] == 0.9
+
+
+@pytest.mark.asyncio
+async def test_run_hillclimb_refuses_outside_verify_and_strategy(store):
+    evolution = _evolution(store)
+    off = _loop(store, evolution, mode="off", strategy="hillclimb")
+    refused = await off.run_hillclimb(propose=lambda *args: [], evaluate=lambda *args: {})
+    assert refused["refused"] is True and refused["reason"] == "mode"
+
+    manual = _loop(store, evolution, mode="verify", strategy="rsl")
+    refused = await manual.run_hillclimb(propose=lambda *args: [], evaluate=lambda *args: {})
+    assert refused["refused"] is True and refused["reason"] == "strategy"
+
+
+@pytest.mark.asyncio
+async def test_run_hillclimb_needs_a_current_state(store):
+    evolution = _evolution(store)
+    loop = _loop(store, evolution, mode="verify", strategy="hillclimb")
+    refused = await loop.run_hillclimb(
+        propose=lambda *args: [], evaluate=lambda *args: {},
+    )
+    assert refused["refused"] is True
+    assert refused["reason"] == "no_current_state"
+
+
+@pytest.mark.asyncio
+async def test_run_hillclimb_saves_a_candidate_and_never_promotes(store):
+    evolution = _evolution(store)
+    loop = _loop(store, evolution, mode="verify", strategy="hillclimb")
+    root = loop.state_store.save_state({
+        "scope": "global",
+        "snapshotDigest": "base",
+        "metrics": {"aggregates": {"task_success": 0.7}, "measuredTrials": 10},
+        "utility": 0.7,
+        "status": "current",
+    })
+
+    candidate = {
+        "id": "climb-1",
+        "snapshotDigest": "candidate-1",
+        "candidateId": "evo-climb",
+        "acceptedRunId": "run-climb",
+        "validation": {
+            "aggregates": {"task_success": 0.85}, "measuredTrials": 10,
+        },
+        "replay": {"taskRates": {"a": 1.0}},
+    }
+
+    async def propose(state, k, generation, rejected):
+        return [candidate] if generation == 0 else []
+
+    async def evaluate(item, split):
+        return item["validation"] if split == "validation" else item["replay"]
+
+    result = await loop.run_hillclimb(
+        propose=propose,
+        evaluate=evaluate,
+        replay_baseline={"a": 1.0},
+    )
+
+    assert result["refused"] is False
+    assert result["accepted"]
+    accepted = result["accepted"][0]
+    assert accepted["parentStateId"] == root["id"]
+    assert accepted["status"] == "candidate"
+    assert loop.state_store.current("global")["id"] == root["id"]
+    assert evolution.experiments_started_since("1970-01-01T00:00:00.000Z") >= 1

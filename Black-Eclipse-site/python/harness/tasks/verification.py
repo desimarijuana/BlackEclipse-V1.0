@@ -1,4 +1,4 @@
-"""Completion verification by task type — completion is evidence, not prose (W8.4).
+"""Completion verification by task type — completion is evidence, not prose (W8.4/W14).
 
 The pre-W8 completion contract (`TaskManager.verify_completion`) checks durable
 STATE: dependencies, required children, criteria a caller marked passed. Round
@@ -12,10 +12,31 @@ sources, observed metrics — never the model's sentence.
 pre-W8 completion contract. A verifier NEVER runs a tool or a model; it reads
 records the runtime already wrote.
 
+Round 4 W14 unified the evidence contract. The verifiers now read the shapes
+the runtime REALLY writes, and each task type's rule is the one the roadmap
+states (`docs/harness/self-evolution-roadmap.md`, W14):
+
+| task type | the evidence that must exist |
+|---|---|
+| `code`     | the run completed, its declared checks passed, the deliverables landed |
+| `research` | traceable sources, a claim backed by evidence, the uncertainty recorded |
+| `document` | the artifact AND the sections the contract required |
+| `workflow` | observed steps AND an observable state change |
+| `finance`  | provenance, freshness and claim-to-evidence (the Evidence Engine rules) |
+| `data`     | a reproducible calculation: a pinned program and its inputs |
+| `general`  | a recorded result reference or artifact |
+
+Two research evidence shapes exist and both are read: the ordinary run's
+collected blob (`source_collector.to_research_blob()` → `metadata.citations`,
+`collectedSources`, `failedRoutes`, `financeAnalysis`) and the gated run's
+blob (`status`, `validation.claims`, `coverage`, `budget`, `stopReasonText` and
+a `receipt` with `evidenceRefs`). The flat `sources`/`claims` shape the first
+draft read was never produced by the runtime, so it is not read here.
+
 Evidence shape (from `bootstrap._outcome_from_dump`): a bounded dict of the run
 result's own blobs — `codeVerification` (records/artifacts/reviews), `research`
-(sources/claims), `documents`, `images` — plus the run's metrics. Attached task
-artifacts (references, never bytes) ride beside it.
+(sources/claims), `documents`, `images`, `analyses` — plus the run's metrics.
+Attached task artifacts (references, never bytes) ride beside it.
 """
 
 from __future__ import annotations
@@ -25,6 +46,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
+from .goal import parse_required_sections
 from .model import GoalContract, Task, TaskType
 
 log = logging.getLogger("harness.tasks.verification")
@@ -202,6 +224,211 @@ def _deliverable_covered(deliverable: str, tokens: set[str]) -> bool:
     return bool(wanted & tokens)
 
 
+# ── Real evidence readers (W14) ───────────────────────────────────────────────
+
+
+def _research_blob(ctx: VerificationContext) -> dict[str, Any]:
+    blob = ctx.evidence.get("research")
+    return blob if isinstance(blob, dict) else {}
+
+
+def _evidence_refs(blob: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every evidence reference the run recorded (both research shapes)."""
+    refs: list[dict[str, Any]] = []
+    receipt = blob.get("receipt")
+    if isinstance(receipt, dict):
+        refs += [r for r in receipt.get("evidenceRefs") or [] if isinstance(r, dict)]
+    metadata = blob.get("metadata")
+    if isinstance(metadata, dict):
+        refs += [c for c in metadata.get("citations") or [] if isinstance(c, dict)]
+    refs += [s for s in blob.get("collectedSources") or [] if isinstance(s, dict)]
+    return refs
+
+
+def _is_traceable(ref: dict[str, Any]) -> bool:
+    """A reference a reader could follow: an evidence id, a URL or a source."""
+    return any(
+        str(ref.get(key) or "").strip()
+        for key in ("evidenceId", "id", "url", "source", "canonicalUrl", "hash", "name")
+    )
+
+
+def _recorded_claims(blob: dict[str, Any]) -> list[dict[str, Any]]:
+    """The claims the run recorded (gated validation + the receipt's copy)."""
+    claims: list[dict[str, Any]] = []
+    validation = blob.get("validation")
+    if isinstance(validation, dict):
+        claims += [c for c in validation.get("claims") or [] if isinstance(c, dict)]
+    receipt = blob.get("receipt")
+    if isinstance(receipt, dict):
+        claims += [c for c in receipt.get("claims") or [] if isinstance(c, dict)]
+    return claims
+
+
+def _supported_claims(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Claims that are BOTH supported and tied to recorded evidence."""
+    return [
+        c for c in claims
+        if str(c.get("supportStatus") or "") == "supported" and c.get("evidenceIds")
+    ]
+
+
+def _recorded_gaps(blob: dict[str, Any]) -> list[str]:
+    """The uncertainty the run RECORDED (unresolved facts, failed routes, limits)."""
+    gaps: list[str] = []
+    validation = blob.get("validation")
+    if isinstance(validation, dict):
+        gaps += [str(g) for g in validation.get("unresolved") or [] if str(g).strip()]
+    receipt = blob.get("receipt")
+    if isinstance(receipt, dict):
+        gaps += [str(g) for g in receipt.get("validationIssues") or [] if str(g).strip()]
+    gaps += [str(g) for g in blob.get("failedRoutes") or [] if str(g).strip()]
+    if str(blob.get("stopReasonText") or "").strip():
+        gaps.append(str(blob.get("stopReasonText")).strip())
+    metadata = blob.get("metadata")
+    if isinstance(metadata, dict):
+        gaps += [str(g) for g in metadata.get("missingEvidence") or [] if str(g).strip()]
+        gaps += [str(g) for g in metadata.get("limitations") or [] if str(g).strip()]
+    return gaps
+
+
+def _temporal_stamps(blob: dict[str, Any]) -> list[str]:
+    """When the recorded evidence is from — the freshness coordinates."""
+    stamps: list[str] = []
+    receipt = blob.get("receipt")
+    if isinstance(receipt, dict):
+        temporal = receipt.get("temporalStatus")
+        if isinstance(temporal, dict) and str(temporal.get("asOf") or "").strip():
+            stamps.append(str(temporal["asOf"]))
+    for ref in _evidence_refs(blob):
+        for key in ("publishedAt", "retrievedAt", "fiscalPeriod"):
+            if str(ref.get(key) or "").strip():
+                stamps.append(str(ref[key]))
+    metadata = blob.get("metadata")
+    if isinstance(metadata, dict) and str(metadata.get("asOf") or "").strip():
+        stamps.append(str(metadata["asOf"]))
+    return stamps
+
+
+def _finance_facts(blob: dict[str, Any]) -> list[dict[str, Any]]:
+    """The ordinary run's retrieved financial facts (with their own provenance)."""
+    analysis = blob.get("financeAnalysis")
+    if not isinstance(analysis, dict):
+        return []
+    return [f for f in analysis.get("facts") or [] if isinstance(f, dict)]
+
+
+def _document_records(documents: Any) -> list[dict[str, Any]]:
+    """Every document the run recorded (processed + authored); failures aside."""
+    if not isinstance(documents, dict):
+        return []
+    rows = [d for d in documents.get("documents") or [] if isinstance(d, dict)]
+    rows += [d for d in documents.get("authored") or [] if isinstance(d, dict)]
+    return [
+        d for d in rows
+        if str(d.get("state") or "").upper() not in ("FAILED", "ERROR")
+    ]
+
+
+def _recorded_section_titles(records: list[dict[str, Any]]) -> list[str]:
+    """The section titles a delivered document RECORDED (never its prose)."""
+    titles: list[str] = []
+    for record in records:
+        for title in record.get("sectionTitles") or []:
+            if str(title or "").strip():
+                titles.append(str(title).strip())
+        context = record.get("currentContext")
+        if isinstance(context, dict) and str(context.get("section") or "").strip():
+            titles.append(str(context["section"]).strip())
+    return titles
+
+
+def _section_present(name: str, titles: list[str]) -> bool:
+    wanted = name.strip().lower()
+    if not wanted:
+        return True
+    for title in titles:
+        lowered = title.strip().lower()
+        if lowered == wanted or wanted in lowered or lowered in wanted:
+            return True
+    return False
+
+
+def _required_sections(ctx: VerificationContext) -> list[str]:
+    """The sections the CONTRACT required (its acceptance/deliverable text)."""
+    contract = ctx.contract
+    if contract is None:
+        return []
+    text = " ".join(list(contract.acceptance) + list(contract.deliverables))
+    return parse_required_sections(text)
+
+
+def _research_calculations(ctx: VerificationContext) -> list[dict[str, Any]]:
+    """The research engine's calculation records (formula + inputs + verdict)."""
+    metadata = _research_blob(ctx).get("metadata")
+    if not isinstance(metadata, dict):
+        return []
+    return [c for c in metadata.get("calculations") or [] if isinstance(c, dict)]
+
+
+def _analysis_records(ctx: VerificationContext) -> list[dict[str, Any]]:
+    """The sandbox analyses this run recorded (program digest + input digests)."""
+    analyses = ctx.evidence.get("analyses")
+    if not isinstance(analyses, dict):
+        return []
+    return [a for a in analyses.get("records") or [] if isinstance(a, dict)]
+
+
+def _reproducible_records(ctx: VerificationContext) -> list[dict[str, Any]]:
+    """Records that pin a computation AND its inputs (W14: data ⇒ reproducible).
+
+    A calculation counts when it completed (`OK`), names its formula, and
+    carries its inputs (values or evidence ids). An analysis counts when it
+    completed, pins the program it ran (`sourceDigest`), pinned the inputs it
+    read (`inputDigests`) and produced outputs.
+    """
+    out: list[dict[str, Any]] = []
+    for calc in _research_calculations(ctx):
+        if str(calc.get("status") or "").upper() != "OK":
+            continue
+        if not str(calc.get("formula") or "").strip():
+            continue
+        if not (calc.get("inputs") or calc.get("inputEvidenceIds")):
+            continue
+        out.append(calc)
+    for record in _analysis_records(ctx):
+        if str(record.get("status") or "") != "ok":
+            continue
+        if not str(record.get("sourceDigest") or "").strip():
+            continue
+        if not record.get("inputDigests"):
+            continue
+        if not record.get("outputs"):
+            continue
+        out.append(record)
+    return out
+
+
+def _observed_state(ctx: VerificationContext) -> list[str]:
+    """The observable state a run left behind (never the model's sentence)."""
+    seen: list[str] = []
+    if ctx.artifacts:
+        seen.append("artifacts")
+    if _document_records(ctx.evidence.get("documents")):
+        seen.append("documents")
+    analyses = ctx.evidence.get("analyses")
+    if isinstance(analyses, dict) and analyses.get("records"):
+        seen.append("analyses")
+    capability = ctx.evidence.get("capability")
+    if isinstance(capability, dict) and capability:
+        seen.append("capability")
+    if _code_records(ctx):
+        seen.append("code records")
+    if _evidence_refs(_research_blob(ctx)):
+        seen.append("sources")
+    return seen
+
+
 # ── Verifiers ─────────────────────────────────────────────────────────────────
 
 
@@ -257,7 +484,12 @@ class CodeVerifier:
 
 
 class ResearchVerifier:
-    """research ⇒ recorded sources back the result."""
+    """research ⇒ traceable sources, a claim backed by evidence, honest gaps.
+
+    A confident sentence with no source, a claim nobody can follow, or a
+    partial answer that hides its open gap all fail here: the uncertainty must
+    be RECORDED, not merely implied.
+    """
 
     task_type = TaskType.RESEARCH.value
 
@@ -267,28 +499,72 @@ class ResearchVerifier:
 
         completed = ctx.status == "completed"
         checks.append(VerificationCheck("run_completed", completed,
-                                         f"the run ended {ctx.status}"))
+                                         "the run finished" if completed else f"the run ended {ctx.status}"))
         if not completed:
             missing.append("the run did not complete")
 
-        blob = ctx.evidence.get("research")
-        sources = blob.get("sources") if isinstance(blob, dict) else None
-        claims = blob.get("claims") if isinstance(blob, dict) else None
-        source_count = len(sources) if isinstance(sources, list) else 0
-        claim_count = len(claims) if isinstance(claims, list) else 0
-        ok = source_count > 0
+        blob = _research_blob(ctx)
+        refs = [r for r in _evidence_refs(blob) if _is_traceable(r)]
         checks.append(VerificationCheck(
-            "sources", ok,
-            f"{source_count} source(s) recorded" if ok else "no sources were recorded",
-            evidence={"sources": source_count, "claims": claim_count},
+            "sources", bool(refs),
+            f"{len(refs)} traceable source(s) recorded" if refs
+            else "no traceable source was recorded",
+            evidence={"sources": len(refs)},
         ))
-        if not ok:
-            missing.append("no sources were recorded for the research")
+        if not refs:
+            missing.append("no traceable source was recorded")
+
+        status = str(blob.get("status") or "")
+        if status == "rejected":
+            checks.append(VerificationCheck(
+                "engine_verdict", False, "the research flow rejected the answer",
+            ))
+            missing.append("the research flow rejected the answer")
+        else:
+            checks.append(VerificationCheck(
+                "engine_verdict", True, f"the research flow returned {status or 'no verdict'}",
+            ))
+
+        claims = _recorded_claims(blob)
+        if isinstance(blob.get("validation"), dict):
+            supported = _supported_claims(claims)
+            checks.append(VerificationCheck(
+                "claim_to_evidence", bool(supported),
+                f"{len(supported)} claim(s) supported by recorded evidence" if supported
+                else "no claim is supported by recorded evidence",
+                evidence={"claims": len(claims), "supported": len(supported)},
+            ))
+            if not supported:
+                missing.append("no claim is supported by recorded evidence")
+
+        gaps = _recorded_gaps(blob)
+        if status == "partial":
+            checks.append(VerificationCheck(
+                "uncertainty", bool(gaps),
+                f"{len(gaps)} open gap(s) recorded" if gaps
+                else "a partial answer recorded no open gap",
+                evidence={"gaps": len(gaps)},
+            ))
+            if not gaps:
+                missing.append("a partial research answer recorded no open gap")
+        else:
+            checks.append(VerificationCheck(
+                "uncertainty", True,
+                f"{len(gaps)} gap(s) recorded" if gaps else "no open gap was recorded",
+                evidence={"gaps": len(gaps)},
+            ))
+
         return TaskVerification(self.task_type, checks, missing)
 
 
 class DocumentVerifier:
-    """document ⇒ the artifact (or the produced document record) exists."""
+    """document ⇒ the artifact AND the sections the contract required (W14).
+
+    The artifact alone is not proof of contents: when the contract names the
+    sections, each named section must appear in the structure the delivered
+    document RECORDED. A document that recorded no structure cannot prove its
+    sections either — that is a refusal, not a pass.
+    """
 
     task_type = TaskType.DOCUMENT.value
 
@@ -298,26 +574,60 @@ class DocumentVerifier:
 
         completed = ctx.status == "completed"
         checks.append(VerificationCheck("run_completed", completed,
-                                         f"the run ended {ctx.status}"))
+                                         "the run finished" if completed else f"the run ended {ctx.status}"))
         if not completed:
             missing.append("the run did not complete")
 
-        documents = ctx.evidence.get("documents")
-        has_documents = isinstance(documents, dict) and bool(documents)
-        ok = bool(ctx.artifacts) or has_documents
+        records = _document_records(ctx.evidence.get("documents"))
+        delivered = bool(ctx.artifacts) or bool(records)
         checks.append(VerificationCheck(
-            "document_delivered", ok,
-            "a document artifact was delivered" if ok
+            "document_delivered", delivered,
+            "a document artifact was delivered" if delivered
             else "no document artifact was delivered",
-            evidence={"artifacts": len(ctx.artifacts), "documents": has_documents},
+            evidence={"artifacts": len(ctx.artifacts), "documents": len(records)},
         ))
-        if not ok:
+        if not delivered:
             missing.append("no document artifact was delivered")
+
+        required = _required_sections(ctx)
+        if not required:
+            checks.append(VerificationCheck(
+                "required_sections", True, "the contract named no required section",
+            ))
+        else:
+            titles = _recorded_section_titles(records)
+            if not titles:
+                checks.append(VerificationCheck(
+                    "required_sections", False,
+                    "the delivered document recorded no sections, so its required "
+                    "sections could not be verified",
+                    evidence={"required": list(required), "recorded": 0},
+                ))
+                missing.append(
+                    "the delivered document recorded no sections, so its required "
+                    "sections could not be verified"
+                )
+            else:
+                absent = [name for name in required if not _section_present(name, titles)]
+                checks.append(VerificationCheck(
+                    "required_sections", not absent,
+                    "every required section was recorded" if not absent
+                    else f"missing section(s): {', '.join(absent)}",
+                    evidence={"required": list(required), "recorded": len(titles)},
+                ))
+                for name in absent:
+                    missing.append(f"the document is missing the required section {name!r}")
+
         return TaskVerification(self.task_type, checks, missing)
 
 
 class WorkflowVerifier:
-    """workflow ⇒ the run did observable work and produced a result reference."""
+    """workflow ⇒ the run OBSERVED work and left an observable state (W14).
+
+    The first draft accepted the run id as a "result reference" — the scheduler
+    always records the run id, so a workflow that started, called one tool and
+    produced nothing passed. The state must now be an OBSERVED record.
+    """
 
     task_type = TaskType.WORKFLOW.value
 
@@ -327,7 +637,7 @@ class WorkflowVerifier:
 
         completed = ctx.status == "completed"
         checks.append(VerificationCheck("run_completed", completed,
-                                         f"the run ended {ctx.status}"))
+                                         "the run finished" if completed else f"the run ended {ctx.status}"))
         if not completed:
             missing.append("the run did not complete")
 
@@ -342,19 +652,26 @@ class WorkflowVerifier:
         if not acted:
             missing.append("the workflow executed no steps")
 
-        has_result = bool(ctx.output_reference) or bool(str(ctx.evidence.get("output") or ""))
+        state = _observed_state(ctx)
         checks.append(VerificationCheck(
-            "result_reference", has_result,
-            "a result reference was recorded" if has_result
-            else "no result reference was recorded",
+            "resulting_state", bool(state),
+            f"observed: {', '.join(state)}" if state
+            else "the workflow produced no observable state change",
+            evidence={"observed": list(state)},
         ))
-        if not has_result:
-            missing.append("no result reference was recorded")
+        if not state:
+            missing.append("the workflow produced no observable state change")
+
         return TaskVerification(self.task_type, checks, missing)
 
 
 class FinanceVerifier:
-    """finance ⇒ provenance evidence was recorded (sources/claims or advisory)."""
+    """finance ⇒ provenance, freshness and claim-to-evidence (W14).
+
+    The Evidence Engine stays the financial authority: this verifier reads the
+    engine's own records (receipt refs, validation claims, its verdict) and
+    NEVER re-derives a value. A rejected engine verdict is a refusal here too.
+    """
 
     task_type = TaskType.FINANCE.value
 
@@ -364,22 +681,105 @@ class FinanceVerifier:
 
         completed = ctx.status == "completed"
         checks.append(VerificationCheck("run_completed", completed,
-                                         f"the run ended {ctx.status}"))
+                                         "the run finished" if completed else f"the run ended {ctx.status}"))
         if not completed:
             missing.append("the run did not complete")
 
-        blob = ctx.evidence.get("research")
-        sources = blob.get("sources") if isinstance(blob, dict) else None
-        source_count = len(sources) if isinstance(sources, list) else 0
-        ok = source_count > 0
+        blob = _research_blob(ctx)
+        refs = [r for r in _evidence_refs(blob) if _is_traceable(r)]
         checks.append(VerificationCheck(
-            "provenance", ok,
-            f"{source_count} source(s) recorded" if ok
+            "provenance", bool(refs),
+            f"{len(refs)} source(s) recorded" if refs
             else "no provenance evidence (sources) was recorded",
-            evidence={"sources": source_count},
+            evidence={"sources": len(refs)},
         ))
-        if not ok:
+        if not refs:
             missing.append("no provenance evidence (sources) was recorded")
+
+        stamps = _temporal_stamps(blob)
+        facts = _finance_facts(blob)
+        period_facts = [f for f in facts if str(f.get("period") or "").strip()]
+        fresh = bool(stamps) or bool(period_facts)
+        checks.append(VerificationCheck(
+            "freshness", fresh,
+            f"{len(stamps)} freshness stamp(s) recorded" if stamps
+            else (f"{len(period_facts)} fact period(s) recorded" if period_facts
+                  else "no freshness evidence (when the data is from) was recorded"),
+            evidence={"stamps": len(stamps), "periods": len(period_facts)},
+        ))
+        if not fresh:
+            missing.append("no freshness evidence (when the data is from) was recorded")
+
+        if facts:
+            sourced = [f for f in facts if str(f.get("source") or "").strip()]
+            checks.append(VerificationCheck(
+                "fact_sources", bool(sourced),
+                f"{len(sourced)}/{len(facts)} fact(s) carry a source" if sourced
+                else "a financial fact carries no source",
+                evidence={"facts": len(facts), "sourced": len(sourced)},
+            ))
+            if not sourced:
+                missing.append("a financial fact carries no source")
+
+        claims = _recorded_claims(blob)
+        if isinstance(blob.get("validation"), dict):
+            supported = _supported_claims(claims)
+            checks.append(VerificationCheck(
+                "claim_to_evidence", bool(supported),
+                f"{len(supported)} claim(s) supported by recorded evidence" if supported
+                else "no financial claim is supported by recorded evidence",
+                evidence={"claims": len(claims), "supported": len(supported)},
+            ))
+            if not supported:
+                missing.append("no financial claim is supported by recorded evidence")
+
+        status = str(blob.get("status") or "")
+        if status == "rejected":
+            checks.append(VerificationCheck(
+                "engine_verdict", False, "the evidence engine rejected the answer",
+            ))
+            missing.append("the evidence engine rejected the answer")
+        else:
+            checks.append(VerificationCheck(
+                "engine_verdict", True, f"the evidence engine returned {status or 'no verdict'}",
+            ))
+
+        return TaskVerification(self.task_type, checks, missing)
+
+
+class DataVerifier:
+    """data ⇒ a reproducible calculation (W14).
+
+    A number in prose is not a computation. The run must have RECORDED one: a
+    calculation with its formula and inputs, or an analysis that pinned the
+    program it ran and the inputs it read.
+    """
+
+    task_type = TaskType.DATA.value
+
+    def verify(self, ctx: VerificationContext) -> TaskVerification:
+        checks: list[VerificationCheck] = []
+        missing: list[str] = []
+
+        completed = ctx.status == "completed"
+        checks.append(VerificationCheck("run_completed", completed,
+                                         "the run finished" if completed else f"the run ended {ctx.status}"))
+        if not completed:
+            missing.append("the run did not complete")
+
+        records = _reproducible_records(ctx)
+        checks.append(VerificationCheck(
+            "reproducible_calculation", bool(records),
+            f"{len(records)} reproducible calculation(s) recorded" if records
+            else "no reproducible calculation was recorded",
+            evidence={
+                "calculations": len(_research_calculations(ctx)),
+                "analyses": len(_analysis_records(ctx)),
+            },
+        ))
+        if not records:
+            missing.append("no reproducible calculation was recorded")
+
         return TaskVerification(self.task_type, checks, missing)
 
 
@@ -394,18 +794,20 @@ class GeneralVerifier:
 
         completed = ctx.status == "completed"
         checks.append(VerificationCheck("run_completed", completed,
-                                         f"the run ended {ctx.status}"))
+                                         "the run finished" if completed else f"the run ended {ctx.status}"))
         if not completed:
             missing.append("the run did not complete")
 
-        has_result = bool(ctx.output_reference) or bool(ctx.artifacts)
+        state = _observed_state(ctx)
+        has_result = bool(ctx.output_reference) or bool(state)
         checks.append(VerificationCheck(
             "result_recorded", has_result,
-            "a result reference or artifact was recorded" if has_result
-            else "no result reference or artifact was recorded",
+            "a result reference or an observed record was recorded" if has_result
+            else "no result reference or observed record was recorded",
+            evidence={"observed": list(state)},
         ))
         if not has_result:
-            missing.append("no result reference or artifact was recorded")
+            missing.append("no result reference or observed record was recorded")
         return TaskVerification(self.task_type, checks, missing)
 
 
@@ -465,7 +867,7 @@ def verify_task(
 
 for _verifier in (
     CodeVerifier(), ResearchVerifier(), DocumentVerifier(),
-    WorkflowVerifier(), FinanceVerifier(), GeneralVerifier(),
+    WorkflowVerifier(), FinanceVerifier(), DataVerifier(), GeneralVerifier(),
 ):
     register_verifier(_verifier)
 
@@ -473,6 +875,7 @@ for _verifier in (
 __all__ = [
     "CHECK_CLASSES",
     "CodeVerifier",
+    "DataVerifier",
     "DocumentVerifier",
     "FinanceVerifier",
     "GeneralVerifier",

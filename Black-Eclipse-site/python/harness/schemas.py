@@ -232,6 +232,10 @@ class RunRequest(BaseModel):
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).
     callbackToken: Optional[str] = None  # noqa: N815
+    # Whether an operator-activated live surface may override this run. Normal
+    # chat/automation runs keep the default; evaluation, gates and candidate
+    # trials set False so a live surface can never contaminate a measurement.
+    liveSurface: bool = True  # noqa: N815
 
 
 class RunResult(BaseModel):

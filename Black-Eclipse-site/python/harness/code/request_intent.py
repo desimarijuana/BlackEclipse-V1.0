@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-IntentVerdict = Literal["code_change", "code_question", "data_task", "not_code"]
+IntentVerdict = Literal["code_change", "code_question", "data_task", "app_control", "not_code"]
 Confidence = Literal["certain", "likely"]
 
 # A directive verb. It must sit in the SAME clause as a software object.
@@ -172,6 +172,30 @@ _STACK_TRACE_RE = re.compile(
 _DOC_OBJECTS = ("readme", "changelog", "docs", "documentation", "docstring")
 _CLAUSE_SPLIT_RE = re.compile(r"[.!?;\n]+|\bthen\b|\band\b|\bbut\b", re.IGNORECASE)
 
+_APP_CONTROL_ACTIONS = _DIRECTIVE_VERBS + (
+    "apply", "restyle", "style", "lock", "unlock", "save", "reset", "set", "switch",
+    "hide", "reorder", "rearrange", "organize", "organise", "customize", "customise",
+    "pin", "unpin", "enable", "disable",
+)
+_APP_CONTROL_STRONG_SURFACES = (
+    "command center", "dashboard layout", "layout", "layouts", "board", "boards",
+    "theme", "themes", "color scheme", "colour scheme", "dark mode", "light mode",
+    "sidebar", "navigation", "nav", "watchlist", "columns", "column", "zones", "zone",
+    "preset", "presets",
+)
+_APP_CONTROL_CODE_ONLY = (
+    "react", "tsx", "typescript", "source code", "the source", "edit the source",
+    "new widget kind", "new kind of widget", "new widget type", "new kind",
+    "renderer", "dependency", "codebase", "implementation", "bug", "compile",
+    "refactor", "backend", "frontend", "unit test", "unit tests",
+)
+_APP_CONTROL_DASHBOARD_RE = re.compile(
+    r"\b(my|the|this|active|current)\s+(command center|dashboard)\b", re.IGNORECASE,
+)
+_APP_CONTROL_FOLLOW_UP_RE = re.compile(
+    r"^(save|keep|store|name|call)\s+(this|it|that)(\s+as\s+.+)?[.!]?$", re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class CodeIntent:
@@ -253,6 +277,17 @@ def _last_user_turn(history: Optional[list[dict]]) -> Optional[str]:
     return None
 
 
+def _looks_like_app_control(text: str) -> bool:
+    lowered = text.casefold()
+    if _has_word(text, _APP_CONTROL_CODE_ONLY):
+        return False
+    has_dashboard = bool(_APP_CONTROL_DASHBOARD_RE.search(lowered))
+    has_surface = has_dashboard or _has_word(text, _APP_CONTROL_STRONG_SURFACES)
+    if not has_surface and "page" in lowered:
+        has_surface = _has_word(text, ("nav", "navigation", "sidebar", "called"))
+    return has_surface and _has_word(text, _APP_CONTROL_ACTIONS)
+
+
 def _is_question(text: str) -> bool:
     lowered = text.casefold().strip()
     if lowered.endswith("?"):
@@ -321,6 +356,24 @@ def classify_code_request(
             "The turn names a project path, so a change is likely wanted.",
             ("pasted_path",),
         )
+
+    if _looks_like_app_control(text):
+        return _verdict(
+            "app_control", "certain",
+            "The turn controls an Eclipse app surface, so the SDK tools serve it.",
+            ("app_control", "app_surface"),
+        )
+
+    if _APP_CONTROL_FOLLOW_UP_RE.match(text.strip()):
+        previous = _last_user_turn(history)
+        if previous:
+            prior = classify_code_request(previous, history=_history_before(history))
+            if prior.verdict == "app_control":
+                return _verdict(
+                    "app_control", "likely",
+                    "This continues an earlier request to control an Eclipse app surface.",
+                    ("follow_up", "app_control"),
+                )
 
     # A directive + software object in the SAME clause.
     clauses = [c for c in _CLAUSE_SPLIT_RE.split(text) if c.strip()]
@@ -394,6 +447,12 @@ def classify_code_request(
                     "data_task", "likely",
                     "This continues an earlier request to work on data.",
                     ("follow_up",),
+                )
+            if prior.verdict == "app_control":
+                return _verdict(
+                    "app_control", "likely",
+                    "This continues an earlier request to control an Eclipse app surface.",
+                    ("follow_up", "app_control"),
                 )
         return _verdict("not_code", "certain", "The turn alone does not ask to change software.", ("follow_up",))
 

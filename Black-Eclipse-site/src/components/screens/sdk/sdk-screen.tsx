@@ -8,10 +8,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Lock, Palette, Plus, RefreshCw, Trash2, WandSparkles } from '@/lib/icons';
+import { Activity, Lock, Palette, Plus, RefreshCw, Search, Trash2, WandSparkles } from '@/lib/icons';
 import {
   eclipseSdk,
   SdkError,
+  type SdkAuditEntry,
   type SdkCapabilities,
   type SdkFund,
   type SdkLock,
@@ -31,7 +32,13 @@ const SOURCE_PRIMITIVES = new Set<SdkWidgetPrimitive>([
   'data-table', 'metric-card', 'line-chart', 'area-chart', 'bar-chart', 'pie-chart', 'list',
 ]);
 
-const LOCK_RESOURCES: SdkLock['resourceType'][] = ['page', 'widget', 'portfolio', 'design'];
+const LOCK_RESOURCES: SdkLock['resourceType'][] = ['page', 'widget', 'portfolio', 'design', 'dashboard', 'theme'];
+
+function formatWhen(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
 
 function slugify(value: string): string {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'widget';
@@ -58,14 +65,15 @@ function Field({ label, children, hint }: { label: string; children: React.React
 
 const inputClass = 'w-full rounded-lg border border-border/40 bg-black/20 px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary/50';
 
-function Section({ title, icon: Icon, children, action }: {
+function Section({ title, icon: Icon, children, action, className }: {
   title: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   children: React.ReactNode;
   action?: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="glass-card flex min-h-0 flex-col rounded-xl p-4">
+    <section className={cn('glass-card flex min-h-0 flex-col rounded-xl p-4', className)}>
       <header className="mb-3 flex items-center justify-between gap-2 border-b border-border/10 pb-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Icon size={14} className="text-primary" /> {title}
@@ -290,7 +298,7 @@ function PortfolioSection({ onChanged }: { onChanged: () => void }) {
 
 // ── design ───────────────────────────────────────────────────────────────────
 
-function DesignSection({ caps }: { caps: SdkCapabilities | null }) {
+function DesignSection({ caps, onChanged }: { caps: SdkCapabilities | null; onChanged?: () => void }) {
   const [primary, setPrimary] = useState('#7aff78');
   const [presetId, setPresetId] = useState('');
   const [note, setNote] = useState<string | null>(null);
@@ -313,12 +321,14 @@ function DesignSection({ caps }: { caps: SdkCapabilities | null }) {
     setPrimary(color);
     await useThemeStore.getState().hydrateFromServer();
     setNote(`Applied ${preset?.label ?? color}`);
+    onChanged?.();
   };
 
   const reset = async () => {
     await eclipseSdk.design.reset();
     await useThemeStore.getState().hydrateFromServer();
     setNote('Design reset to the shipped default');
+    onChanged?.();
   };
 
   return (
@@ -354,6 +364,20 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
   const [passphrase, setPassphrase] = useState('');
   const [hint, setHint] = useState('');
   const [note, setNote] = useState<string | null>(null);
+  const [filterType, setFilterType] = useState<'all' | SdkLock['resourceType']>('all');
+  const [search, setSearch] = useState('');
+  const [unlocked, setUnlocked] = useState<Set<string>>(() => new Set());
+
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return locks.filter((lock) => {
+      if (filterType !== 'all' && lock.resourceType !== filterType) return false;
+      if (!term) return true;
+      return [lock.label, lock.resourceId, lock.resourceType]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [filterType, locks, search]);
 
   const refresh = useCallback(async () => {
     try {
@@ -372,6 +396,7 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
     });
     setNote(`Locked ${resourceType} "${resourceId.trim()}"`);
     setPassphrase('');
+    setUnlocked(new Set());
     await refresh();
     onChanged();
   };
@@ -381,7 +406,9 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
     if (!secret) return;
     try {
       await eclipseSdk.locks.unlock(lock.id, secret);
-      setNote(`Unlocked ${lock.resourceId} — mutations now carry the token`);
+      setUnlocked((prev) => new Set(prev).add(lock.id));
+      setNote(`Unlocked ${lock.resourceId} for this tab (15 min).`);
+      onChanged();
     } catch (err) {
       setNote(errorMessage(err));
     }
@@ -390,6 +417,11 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
   const remove = async (lock: SdkLock) => {
     try {
       await eclipseSdk.locks.remove(lock.id);
+      setUnlocked((prev) => {
+        const next = new Set(prev);
+        next.delete(lock.id);
+        return next;
+      });
       setNote(`Removed lock on ${lock.resourceId}`);
       await refresh();
       onChanged();
@@ -406,7 +438,7 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
             {LOCK_RESOURCES.map((type) => <option key={type} value={type}>{type}</option>)}
           </select>
         </Field>
-        <Field label="Resource id" hint="widget = <pageId>:<instanceId>; design = global">
+        <Field label="Resource id" hint="widget = <pageId>:<instanceId>; dashboard = dashboard id; design/theme = global">
           <input className={inputClass} value={resourceId} onChange={(e) => setResourceId(e.target.value)} />
         </Field>
         <Field label="Passphrase"><input type="password" className={inputClass} value={passphrase} onChange={(e) => setPassphrase(e.target.value)} /></Field>
@@ -418,15 +450,52 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
         </div>
       </div>
       {note && <p className="mt-2 text-[10px] text-amber-300">{note}</p>}
+      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-border/10 pt-2">
+        <Field label="Filter type">
+          <select
+            className={inputClass}
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as 'all' | SdkLock['resourceType'])}
+          >
+            <option value="all">All resources</option>
+            {LOCK_RESOURCES.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </Field>
+        <Field label="Search">
+          <div className="relative">
+            <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+            <input
+              className={cn(inputClass, 'pl-7')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="resource id or label"
+            />
+          </div>
+        </Field>
+      </div>
       <div className="mt-3 max-h-40 space-y-1 overflow-y-auto">
-        {locks.length === 0 && <p className="text-[11px] italic text-muted-foreground/70">No locks. Add one to protect a page, widget, portfolio or the app design.</p>}
-        {locks.map((lock) => (
+        {visible.length === 0 && (
+          <p className="text-[11px] italic text-muted-foreground/70">
+            {locks.length === 0
+              ? 'No locks. Add one to protect a page, widget, portfolio, dashboard, theme or the app design.'
+              : 'No locks match this filter.'}
+          </p>
+        )}
+        {visible.map((lock) => (
           <div key={lock.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/20 px-2 py-1.5">
             <div className="min-w-0">
               <p className="truncate text-xs text-foreground">{lock.label || lock.resourceId}</p>
               <p className="truncate font-mono text-[9px] text-muted-foreground/60">{lock.resourceType} · {lock.resourceId}</p>
+              <p className="truncate text-[9px] text-muted-foreground/60">
+                {lock.hint ? `Hint: ${lock.hint}` : 'No hint'} · updated {formatWhen(lock.updatedAt)}
+              </p>
             </div>
-            <div className="flex shrink-0 gap-1">
+            <div className="flex shrink-0 items-center gap-1">
+              {unlocked.has(lock.id) && (
+                <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1 py-0.5 font-mono text-[8px] uppercase text-emerald-300">
+                  unlocked
+                </span>
+              )}
               <button type="button" onClick={() => void unlock(lock)} className="glass-button rounded px-2 py-1 text-[10px]">Unlock</button>
               <button type="button" onClick={() => void remove(lock)} title="Remove lock" className="rounded p-1 text-muted-foreground hover:text-rose-300"><Trash2 size={12} /></button>
             </div>
@@ -439,10 +508,124 @@ function LockSection({ onChanged }: { onChanged: () => void }) {
 
 // ── screen ───────────────────────────────────────────────────────────────────
 
+const AUDIT_RESOURCES = ['all', 'widget', 'page', 'dashboard', 'portfolio', 'theme', 'app', 'design'] as const;
+
+function AuditSection({ refreshKey }: { refreshKey: number }) {
+  const [entries, setEntries] = useState<SdkAuditEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [filterType, setFilterType] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const [limit, setLimit] = useState(100);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { entries: list } = await eclipseSdk.audit.list({
+        limit,
+        ...(filterType !== 'all' ? { resourceType: filterType } : {}),
+      });
+      setEntries(list);
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [filterType, limit]);
+
+  useEffect(() => { void refresh(); }, [refresh, refreshKey]);
+
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return entries;
+    return entries.filter((entry) =>
+      [entry.action, entry.summary, entry.resourceType, entry.resourceId, entry.actor]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
+  }, [entries, search]);
+
+  return (
+    <Section
+      title="Activity"
+      icon={Activity}
+      className="xl:col-span-2"
+      action={(
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={loading}
+          className="glass-button inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] disabled:opacity-40"
+        >
+          <RefreshCw size={11} /> {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      )}
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Resource">
+          <select
+            className={inputClass}
+            value={filterType}
+            onChange={(e) => { setFilterType(e.target.value); setLimit(100); }}
+          >
+            {AUDIT_RESOURCES.map((type) => (
+              <option key={type} value={type}>{type === 'all' ? 'All resources' : type}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Search">
+          <div className="relative">
+            <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+            <input
+              className={cn(inputClass, 'pl-7')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="action, summary, actor"
+            />
+          </div>
+        </Field>
+      </div>
+      {error && <p className="mt-2 text-[10px] text-rose-300">{error}</p>}
+      <div className="mt-2 max-h-60 space-y-1 overflow-y-auto">
+        {visible.length === 0 && !loading && (
+          <p className="text-[11px] italic text-muted-foreground/70">No SDK activity yet.</p>
+        )}
+        {visible.map((entry) => (
+          <div key={entry.id} className="flex items-start justify-between gap-2 rounded-lg border border-border/20 px-2 py-1.5">
+            <div className="min-w-0">
+              <p className="truncate text-xs text-foreground">{entry.summary || entry.action}</p>
+              <p className="truncate font-mono text-[9px] text-muted-foreground/60">
+                {entry.action} · {entry.resourceType || 'sdk'}
+                {entry.resourceId ? ` · ${entry.resourceId}` : ''} · {entry.actor || 'operator'}
+              </p>
+            </div>
+            <span className="shrink-0 text-[9px] text-muted-foreground/60">{formatWhen(entry.createdAt)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <span>Showing {visible.length}{search.trim() ? ` of ${entries.length}` : ''}</span>
+        {entries.length >= limit && limit < 500 && (
+          <button
+            type="button"
+            onClick={() => setLimit((value) => Math.min(500, value + 100))}
+            disabled={loading}
+            className="glass-button rounded px-2 py-1 text-[10px] disabled:opacity-40"
+          >
+            Load older
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 export function SdkScreen() {
   const [caps, setCaps] = useState<SdkCapabilities | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activityKey, setActivityKey] = useState(0);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -458,6 +641,11 @@ export function SdkScreen() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const handleChanged = useCallback(() => {
+    setActivityKey((key) => key + 1);
+    void refresh();
+  }, [refresh]);
 
   const runtimeOk = caps?.runtime === 'available';
   const summary = useMemo(() => {
@@ -485,11 +673,12 @@ export function SdkScreen() {
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto xl:grid-cols-2">
-        <WidgetSection onChanged={() => void refresh()} />
-        <PageSection onChanged={() => void refresh()} />
-        <PortfolioSection onChanged={() => void refresh()} />
-        <DesignSection caps={caps} />
-        <LockSection onChanged={() => void refresh()} />
+        <WidgetSection onChanged={handleChanged} />
+        <PageSection onChanged={handleChanged} />
+        <PortfolioSection onChanged={handleChanged} />
+        <DesignSection caps={caps} onChanged={handleChanged} />
+        <LockSection onChanged={handleChanged} />
+        <AuditSection refreshKey={activityKey} />
       </div>
     </div>
   );

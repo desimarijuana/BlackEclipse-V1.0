@@ -1196,6 +1196,7 @@ class AgenticService:
             "search": getattr(self, "search", None),
             "artifact_service": getattr(self, "artifacts", None),
             "ui_service": getattr(self, "ui", None),
+            "task_manager": getattr(self, "tasks", None),
         }
 
     def _quant_bundle(self) -> Any:

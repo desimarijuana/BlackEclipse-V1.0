@@ -19,4 +19,5 @@ export const analysis = {
   'analysis.notEnabled': 'Eclipse isn’t set up to work numbers out in this session.',
   'analysis.figureDrawnFrom': 'Drawn from {what}',
   'analysis.figureSeed': 'Seed {seed} — the same seed reproduces this figure.',
+  'analysis.recipe': 'Analysis recipe',
 } as const;

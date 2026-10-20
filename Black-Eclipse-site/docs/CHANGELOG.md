@@ -6,7 +6,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-20
+
+- **feat(server): split development and production into two independent
+  servers.** `scripts/lib/profiles.js` is the ONE profile table: dev = app 3000 +
+  harness 8765 + `.next-dev` + `.black-eclipse/dev/` runtime DBs, no proxy;
+  prod = app 3100 + harness 8766 + `.next`, behind the `blackeclipse` proxy with
+  the canonical-host redirect. `scripts/local-host.js` applies the profile env,
+  `scripts/kill-port.js dev|prod` frees only its own ports (previously a dev
+  start killed the production server and its harness), and the harness spawn
+  lock is now per runtime port. Commands unchanged (`npm run dev`, `npm run up`,
+  `black dev/eclipse`). Docs updated: `docs/environments.md` (new),
+  `docs/QUICKSTART.md`, `docs/NAVIGATION.md`, `docs/local-hostname.md` (marked
+  stale for the new proxy port), `.env.example`.
+
 ## 2026-10-19
+
+- **fix(shell): the sidebar mode is now per browser tab/window.** Switching to
+  Bots in one tab no longer drags another open tab out of its mode. The mode
+  lives in `sessionStorage` per shell; remote `/api/sdk/app` updates still sync
+  section order/visibility but never override an open shell's mode, and the
+  shared mode is only the seed for a newly opened tab. Tests:
+  `src/lib/sidebar/store.test.ts`. Docs updated: `docs/ARCHITECTURE.md`,
+  `docs/eclipse-sdk.md`, `docs/NAVIGATION.md`.
 
 - **fix(perf): second browser tab no longer re-downloads the whole dev bundle.** Dev
   Turbopack chunks/CSS were served `Cache-Control: no-store`, so every new tab
@@ -18,6 +40,145 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`--restart` keeps the old behavior); `isUp` probes without following the
   canonical-host redirect so a healthy TLS-fronted server is not read as down.
   Docs updated: `docs/QUICKSTART.md`.
+
+- **feat(harness): persistent analysis kernel for chat conversations.** Added
+  `python/harness/code/kernel.py` (Kernel/KernelPool/worker protocol) and
+  interactive spawn in `code/sandbox.py` (`spawn`/`SpawnedProcess`, per-process
+  job map); extracted `ANALYSIS_PRELUDE`/`PreparedAnalysis`/`prepare_analysis`/
+  `resolve_tool_request` in `code/execution.py` so one-shot and kernel share the
+  same gate and tool replay; `run_analysis`/`run_recipe` accept `kernel=`;
+  `analysis_tools.py` selects `kernel_for_context`. Session-scoped keys, default
+  max 4, 300 s idle sweep, LRU eviction, crash → `KERNEL_CRASHED` + respawn,
+  one-shot fallback on spawn failure or `ECLIPSE_ANALYSIS_KERNEL=0`. Bounds and
+  provenance unchanged. Tests: `python/tests/test_analysis_kernel.py` (10) plus
+  the existing analysis suites. Docs updated: `docs/harness/python-runtime.md`
+  (new), `docs/harness/decisions.md` (ADR-H236), `docs/NAVIGATION.md`,
+  `docs/harness/capability-extension-plan.md`.
+
+- **feat(ui): response presentation intelligence — auto charts, weights, bands, alignment, focus.** `chart` gains
+  `chartType: "auto"` (default; explicit wins): temporal/multi-series → line,
+  single series ≤12 labels → bar, triples → bubble, monotonic pairs → line,
+  other pairs → scatter. Series `weight` scales width/opacity; `band`
+  `{lower, upper, weight?}` renders as hidden stacked band series on category
+  axes (legend lists only real series). `data_table` derives right alignment
+  (≥80 % numeric; explicit `align` wins) and locale-formats raw numbers (≤4
+  fraction digits; numeric strings untouched; fixes `(2,500)` parsing).
+  `response-chart.tsx` adds a focus overlay (Escape/backdrop/Close,
+  `role="dialog"`). Tests: `chart-option.test.ts`, `table-presentation.test.ts`,
+  `render.test.tsx` (91 passed across 4 files); `npx tsc --noEmit` clean. Docs
+  updated: `docs/interactive-response-engine.md`, `docs/harness/decisions.md`
+  (ADR-H237), `docs/harness/capability-extension-plan.md`.
+
+- **feat(harness,ui): disabled broker/API adapter authoring + read-only built-in catalogue.** Added
+  `python/harness/capabilities/adapter.py` (`author_adapter`/`AdapterDraft`) and
+  the `capability_adapter` tool: writes a reviewable, DISABLED plugin draft
+  (`plugin.yaml` validated with the real `PluginManifest`, generated `plugin.py`,
+  README) under `.black-eclipse/adapters/<slug>/`; HTTPS-only, credential NAMES
+  only (shared `normalize_credential_names`), GET → `read` / POST →
+  `external_action`, permissions `[network]`, never installed or enabled. Studio
+  gains the read-only static recipe catalogue (`GET /capabilities/builtins`,
+  declared before `/{id}`) with `listBuiltins` + built-in badge (`studio.generated.builtin*`
+  keys). Tests: `test_capabilities_adapter.py` (9),
+  `test_capabilities_api.py` (builtins), allowlist tests updated. Docs updated:
+  `docs/harness/capability-builder.md`,
+  `docs/harness/capability-extension-plan.md`,
+  `docs/harness/self-evolution-roadmap.md`, `docs/harness/decisions.md`
+  (ADR-H238), `docs/NAVIGATION.md`.
+
+- **chore(docs): normalize `docs/harness/decisions.md` line endings.** The
+  ADR-H236–H238 append left the file mixing CRLF and bare LF, which tripped the
+  mixed-line-ending guard; converted to LF-only, no content change. Full
+  verification after all three landings: `npm run test` green (Vitest 361 files /
+  3,652 tests; Python 7,373 passed, 27 skipped; eval gates ALL PASS),
+  `npx tsc --noEmit` clean.
+  no doc change — line-ending hygiene only.
+
+- **feat(harness): W14 — completion is verified per task type against the evidence the runtime recorded.** `TaskType` gains `data`; every task-type verifier now reads the evidence the runtime really writes. `research` ⇒ traceable sources + a supported, evidence-linked claim + the uncertainty RECORDED (a partial answer naming no open gap is refused; a rejected engine verdict is refused). `document` ⇒ the artifact AND every section the contract required (named deterministically by `goal.parse_required_sections`; the delivered document records the headings it wrote). `workflow` ⇒ observed steps AND an observable state change — the stored run id is no longer accepted as a "result", so a workflow that started, called one tool and produced nothing is refused (the old check could never fail). `finance` ⇒ provenance + freshness + claim-to-evidence, deferring to the Evidence Engine's verdict. `data` ⇒ a reproducible calculation: a recorded formula with its inputs, or an analysis that pinned the program and the inputs it read (`analysis_tools.load_run_analyses` → the task outcome's `analyses` evidence). Three recordings were added so these rules can be checked at all: required document sections, the sandbox's `AnalysisRecord` rows, and an authored document's headings. Tests: `python/tests/test_tasks_verification.py` (37), `python/tests/test_w14_verification_evidence.py` (9).   Docs updated: `docs/harness/task-plan-system.md`, `docs/harness/self-evolution-roadmap.md`, `docs/harness/decisions.md` (ADR-H240).
+
+- **feat(harness): W1.3 — the per-run outcome envelope.** One derived, read-only
+  record names how a run was routed: the intent verdict, the resolved surface +
+  allowlist, the refusal code and the capability gap (`GET /runs/{id}/outcome`).
+  Three of the four facts were already persisted (the run row's agent and
+  terminal error code, the `prompt.plan` event, the `ui.capability_gap` and
+  `recovery.decided` events); the intent verdict had no home — it died with the
+  `ui_classify_request` tool result — so that tool now records it once per run
+  (the FIRST verdict wins, because it is the routing). The module owns its own
+  `RunOutcome` table (the `run_lineage.py` pattern) so the ratcheted
+  `persistence.py` does not grow. A fact that was never recorded is `null` — the
+  envelope never guesses and never infers from prose. Tests:
+  `python/tests/test_run_outcome.py` (12). Docs updated:
+  `docs/harness/architecture.md`, `docs/harness/self-evolution-roadmap.md`,
+  `docs/harness/decisions.md` (ADR-H241).
+
+- **chore(repo): normalize `src/app/globals.css` line endings.** Removed the lone
+  CRLF left by an unrelated 17-line addition so the mixed-line-ending guard
+  passes; no CSS content changed. Full verification: `npm run test` green
+  (Vitest 360 files / 3,633 tests; Python 7,352 passed, 27 skipped; eval gates
+  ALL PASS), `npx tsc --noEmit` clean.
+  no doc change — line-ending hygiene only.
+
+- **fix(ui,harness): stop the boot overlay freezing at 95% and page loads stalling for minutes.**
+  Two independent causes. (1) The cosmetic `GlobalLoader` dismissed itself from a
+  main-thread timer, so while a route hydrated/dev chunks compiled the overlay
+  froze at its last percentage; it now also carries a compositor-driven CSS
+  auto-dismiss (`be-boot-overlay`) that works even if React never gets a turn.
+  `TopLoader` no longer fabricates a 0→95% count-up (the number sat at 95% while
+  a dynamic import/request was still pending) and is now honestly
+  indeterminate. The root-layout command-palette chunk, the SDK/dashboard
+  catalog sync, and the terminal prewarm are deferred to idle instead of
+  competing with hydration. (2) The Python runtime could be cold-started by more
+  than one Next server context at once; the extras booted the whole agent stack,
+  fought over SQLite and pegged CPU, and every Python-proxy route (tasks,
+  automations, SDK app, etc.) took 15–30s behind the resulting `/health` misses.
+  `python-runtime.ts` now takes an atomic cross-context spawn lock, waits for a
+  tracked booting child instead of spawning a rival, uses a 5s probe for a
+  late `/health`, kills tracked children as a tree, and defaults the cold-start
+  budget to 240s. Docs updated: `docs/harness/architecture.md`.
+
+- **feat(harness): read-only `eclipse_tools` RPC in the analysis sandbox (Phase 3).**
+  Added `python/harness/code/sandbox_tools.py` and a deterministic replay path in
+  `code/execution.py`: an `analysis_run` program may call exactly
+  `market_snapshot`, `live_quote` and `price_history`; the runner writes one
+  pending request and exits, the host validates it against the allowlist,
+  resolves through the existing DataBridge, memoizes it and replays. No live
+  channel, no writes/network, and no fetched payload in the model context — only
+  final outputs and audit digests. `analysis_tools.py` runs the sync sandbox with
+  `asyncio.to_thread` and bridges the async DataBridge via
+  `run_coroutine_threadsafe`; `code/recipes.py` passes the resolver through.
+  Bounds: 8 calls, 4 KiB args, 16 KiB request read cap, 1 MB result, 4 MB memo.
+  Tests: `python/tests/test_analysis_sandbox_tools.py` plus the analysis suites.
+  Docs updated: `docs/harness/capability-builder.md`,
+  `docs/harness/capability-extension-plan.md`,
+  `docs/harness/self-evolution-roadmap.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H235).
+
+- **feat(harness,ui): capability close-out — operator global promotion, card/Studio actions, recipe label.**
+  Added `builder.promote` and the operator-gated `POST /capabilities/{id}/promote`
+  route (ADR-H234): a verified read-only workspace recipe is copied to
+  `python/harness/generated/capabilities/<slug>/<version>/`, its manifest `scope`
+  is rewritten to `global`, and the record points at the copy (workspace files
+  kept). Guards: operator required, contract test verified, source digest
+  unchanged, `GLOBAL_EXISTS` refused, idempotent re-promote. The chat card now
+  offers Build it / Show plan / Not now, hand-off Continue, and Rebuild with RSL
+  (prompt-only); Studio › Generated adds **Promote to global** and **Rebuild with
+  RSL**. The computed-result payload carries `recipe` and the panel renders it.
+  Tests: `test_capabilities_builder.py`, `test_capabilities_api.py`,
+  `capability-card.test.tsx`, `analysis-types.test.ts`. Docs updated:
+  `docs/harness/capability-builder.md`, `docs/harness/capability-extension-plan.md`,
+  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H234).
+
+- **feat(harness): capability activation resumes the original parked task; failures feed learning.**
+  Added `ToolContext.task_id`/`task_manager` wiring, `CapabilityRequest.resume_task_id`
+  and a versioned `CapabilityRecord.taskId` (additive column migration), plus
+  `capabilities/resume.py`. Operator and agent activation/rollback resume a
+  `WAITING`/`ASKING_USER` task from its durable checkpoint; running/TODO tasks
+  are never rewound. Failed generated-recipe calls record a `capability_failure`
+  recurrence in the ONE learning ledger. Re-pinned `graph.py` 2215→2221 and
+  `service.py` 1532→1533 for the task-link seams. Tests:
+  `python/tests/test_capabilities_resume.py`. Docs updated:
+  `docs/harness/capability-builder.md`,
+  `docs/harness/capability-extension-plan.md`, `docs/harness/self-evolution-roadmap.md`,
+  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H232).
 
 - **feat(harness): RSL controlled smoke test + real worktree verifier fixes.**
   Added `npm run rsl:smoke` (`python/harness/self_improvement/smoke.py` +
@@ -58,23 +219,132 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H233),
   `docs/QUICKSTART.md`, `.env.example`, `docs/CHANGELOG.md`.
 
-- **feat(harness,ui): RSL operator surfaces — lesson adoption and recursive experiments.**
-  Added operator-gated `GET /evolution/lessons`,
-  `POST /evolution/candidates/{id}/lessons` (the accepted decision is derived from
-  the persisted `EvaluationRun`, never the request; the R6 cue/lesson/evidence
-  gate + verdict tripwire still apply) and `POST
-  /evolution/candidates/{id}/recursive` (typed variants become real child
-  `EvolutionCandidate` rows, each verified by the existing worktree/tests
-  verifier; the R7 conductor records the anonymous selection/composition and
-  child attempts count against the daily budget without double-counting).
-  Recursive experiments remain `HARNESS_RSL_MODE=verify` only and never activate.
-  Added typed `evolution-client.ts`/`evolution-browser.ts` calls, Next.js
-  `/api/evolution/lessons` + candidate `lessons`/`recursive` proxies, and the
-  learning-journey `rsl-operator-panel.tsx` (adopted-lesson list + adoption form +
-  recursive-variant form). Tests `test_evolution_rsl_operator.py` (5) and the
-  existing operator-gating suite. Docs: `docs/NAVIGATION.md`,
-  `docs/harness/architecture.md`,
-  `docs/self-improvement/rsl-implementation-plan.md`, `docs/CHANGELOG.md`.
+- **chore(sdk,ui): polish the app-shell/theme surfaces.** Automatic sidebar
+  mode-following now uses `setModeFromNavigation` and is excluded from the
+  app-wide nav audit, so ordinary tab navigation no longer creates
+  `app.nav_update` entries; explicit switcher/hotkey/SDK mode changes still
+  sync and audit. App-wide preset notes now distinguish success (emerald) from
+  failure (rose). `no doc change - internal polish`.
+
+- **chore(ui): normalize one bare LF in the concurrent `customization-settings.tsx`.**
+  The file's existing CRLF convention is preserved; the line-ending guard stays
+  green. `no doc change — whitespace-only normalization in concurrent work`.
+
+- **feat(sdk): page edit/delete tools, Settings app-wide presets and lock badges.**
+  Added `sdk_page_update`/`sdk_page_delete` over the existing
+  `EclipseSdk.update_page`/`delete_page`. Settings → Customization → Theme now
+  lists, applies, saves and deletes the app-wide named presets from
+  `SystemConfig` (via a new `themeToSpec` projection; browser-local chart/
+  backdrop presets remain separate). `/api/theme` writes are now audited, the
+  Activity panel loads older pages (100→500), and the Command Center/Pages
+  headers show a Locked badge fed by `eclipse:locks-changed` (30 s fallback).
+  Tests: `test_sdk_dashboards.py`, `theme-spec.test.ts`,
+  `src/app/api/theme/route.test.ts`. Docs updated: `docs/eclipse-sdk.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **feat(sdk): Phase 6 - SDK audit, dashboard undo/history and the lock manager.**
+  Added the append-only `SdkAudit` table on `agent-memory.db` (bounded to 2,000
+  rows, no passphrases/hashes/hints) with `GET/POST /sdk/audit`, the
+  `sdk_audit_list` read tool and `eclipseSdk.audit.list`. Widget, page, fund,
+  dashboard and lock mutations audit from Python; front-door theme, app-shell
+  and dashboard-template writes record through `src/lib/sdk/audit-server.ts`
+  over the loopback callback (best-effort). The SDK screen gained a filtered
+  Activity panel and a fuller lock manager (all resource types, type/search
+  filters, hint/updated time, per-tab unlocked badges). The Command Center
+  toolbar gained Undo (Ctrl/Cmd+Z) and a revision History popover that restore
+  retained mirror revisions; a restore is a new revision, and the restored
+  layout is applied locally before the SSE sync. Tests:
+  `python/tests/test_sdk_audit.py`, `test_sdk_api.py`,
+  `src/lib/sdk/{audit-server,dashboard-history}.test.ts` and the existing SDK
+  route tests. Docs updated: `docs/eclipse-sdk.md`, `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **feat(harness): effectful capabilities are handed to their existing owner.**
+  Added `capabilities/handoff.py` (`EffectfulHandoff`) and routed `tool`,
+  `skill`, `ui_widget`, `ui_page`, `harness_change` and `plugin` builds to
+  `scaffold_kit` / `skill_create` / `ui_start_engineering` / `create_goal` /
+  `capability_external` with arguments, acceptance, evidence and an operator
+  activation owner. `builder.build` stores the hand-off on the same durable
+  request (`handoff_required`) and executes nothing; `capability_build` no longer
+  requires the analysis sandbox for an effectful kind. The chat card and TS view
+  carry `handoff_required` + `nextTool`. Tests:
+  `python/tests/test_capabilities_handoff.py` + builder/tools tests; TS
+  `capability-types.test.ts`. Docs updated:
+  `docs/harness/capability-builder.md`,
+  `docs/harness/capability-extension-plan.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H231).
+
+- **fix(sdk): make the concurrent `/app` navigation audit detail assignable.**
+  `app-server.ts` now spreads the parsed `AppNavigateTarget` into a plain record
+  so `tsc` stays clean. `no doc change — type-only fix in concurrent work`.
+
+- **feat(sdk): Phase 5 — app-shell/nav control and Command Center templates/reset.**
+  Added an app-wide sidebar nav config (order, visibility, mode) in JDDS
+  `SystemConfig` (`eclipse_app_shell_nav`) with `/api/sdk/app*` routes, an SSE
+  stream (`/api/sdk/app/stream`) and `eclipseSdk.app`
+  (`get/update/reset/open/navigate`). The sidebar store mirrors local edits up
+  (one-time local→server migration, no echo loop) and applies remote `nav`
+  events; navigation commands drive the existing popstate deep-link path, with a
+  pending-dashboard key so the Command Center switches boards before/after it
+  mounts. Added `sdk_app_{get,nav_update,nav_reset,open}` tools and widened the
+  deterministic app-control classifier (hide/reorder/enable/disable).
+  Added `dashboards.templates/applyTemplate/reset` built from the ONE TypeScript
+  persona registry (centre bands + left/right rails, revision-guarded, one
+  conflict retry) plus `sdk_dashboard_{templates,apply_template,reset}` loopback
+  tools; no template copy lives in Python. Tests:
+  `python/tests/test_sdk_app_shell.py`, `test_code_request_intent.py`,
+  `src/lib/sdk/{app-shell-types,app-server,dashboard-templates,dashboard-server}.test.ts`.
+  Docs updated: `docs/eclipse-sdk.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`,
+  `docs/CHANGELOG.md`.
+
+- **test(harness): re-pin the `graph.py` size ratchet to the measured shared tree
+  (2215).** In-flight app-control / lesson-manifest wiring grew the file; the
+  external capability lane touches no part of `graph.py`.
+  `no doc change — test-only ratchet re-pin`.
+
+- **feat(harness): external capability lane — broker/API/MCP proposals through
+  the existing MCP/plugin gates.** Added `capabilities/external.py` (read-only
+  `ExternalProposal`, credential NAMES only) and the `capability_external` tool;
+  `capability_request` now routes external needs there and names the exact
+  credential/approval requirements. The recovery acquisition handler accepts an
+  `integrationId` fact, consumes the SAME single-use `mcp_install` approval, and
+  writes a DISABLED config; `pluginPath` keeps the plugin platform's
+  `operator=true, enable=false` install. Added presence-only
+  `MCPManager.secret_presence` and a shared `approval_digest`; MCP enablement is
+  refused from the recovery path. Nothing self-enables; the original task still
+  resumes from its checkpoint after operator activation. The chat card maps the
+  new `external_adapter` surface and the activity label reads "Planning the
+  external connection". Tests:
+  `python/tests/test_capabilities_external.py`. Docs updated:
+  `docs/harness/capability-builder.md`,
+  `docs/harness/capability-extension-plan.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H230).
+
+- **feat(chat,sdk): `/app` app-control surface and `sdk_page_*` tools (Phase 4).**
+  Added the `app_control` chat intent, an explicit `/app` profile command
+  (no autonomy, no classifier), and an `appControl` runtime note that tells the
+  agent to prefer `sdk_*` over the lower-level `ui_*` engine. `/eclipsesdk` is
+  now documented as the source-code path. Added `sdk_page_list`,
+  `sdk_page_create` and `sdk_page_add_widget` over `EclipseSdk.create_page` /
+  `add_page_widget`; saved pages remain main-nav entries. Follow-ups after an
+  app-control turn (e.g. “save this as Neon”) stay app-control. Tests:
+  `run-service.test.ts`, `commands.test.ts`, `command-registry.test.ts`,
+  `test_code_request_intent.py`, `test_sdk_dashboards.py`. Docs updated:
+  `docs/eclipse-sdk.md`, `docs/harness/slash-commands.md`, `docs/CHANGELOG.md`.
+
+- **feat(sdk): typed theme creation, app-wide named presets, and `sdk_theme_*` chat tools (Phase 3).**
+  Added the closed `ThemeSpec` (`src/lib/sdk/theme-spec.ts`) builder over
+  `themeFromBrandColor` + `normalizeTheme`, a `SystemConfig` named-preset store
+  (`eclipse_theme_presets`), `/api/sdk/theme*` routes, and `eclipseSdk.theme`
+  (`get/create/apply/replace/applyPreset/listPresets/savePreset/deletePreset/reset`).
+  Theme writes check both `theme:global` and `design:global` locks; the client
+  emits `eclipse:theme-changed` and the theme store refreshes on that event,
+  window focus, or a 15s fallback (so Python-originated changes land too).
+  Python `sdk_theme_*` tools call the routes over the same loopback callback the
+  Journal write uses; `SDK_TOOLS` now includes them. Tests:
+  `src/lib/sdk/theme-spec.test.ts`, `theme-presets.test.ts`,
+  `theme-server.test.ts`, `python/tests/test_sdk_dashboards.py`. Docs updated:
+  `docs/eclipse-sdk.md`, `docs/NAVIGATION.md`.
 
 - **feat(sdk): the Command Center becomes a typed SDK surface, starting with a live clock.**
   Added `src/lib/workspace/widget-registry.ts` + `use-widgets.ts`
@@ -288,10 +558,173 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   infer acceptance. Added the deterministic offline `self_improvement/gate.py`
   (scripted `k=2` propose→verify→select→compose→record) and wired it into
   `scripts/test-evals.js` as the `rsl` gate. Added `test_rsl_gate.py` and RSL
-  metric tests; updated `test_evaluation_repair_metrics.py`/`test_rsl_verifier.py`.
-  Docs: `docs/self-improvement/rsl-implementation-plan.md` (R0–R8 implemented;
+    metric tests; updated `test_evaluation_repair_metrics.py`/`test_rsl_verifier.py`.
+  Aligned the `clock-composes` routing benchmark case with the catalog's new
+  Clock capability so the routing floor measures the current catalog. Docs:
+ `docs/self-improvement/rsl-implementation-plan.md` (R0–R8 implemented;
   rollout/flip checklist), `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
   `docs/CHANGELOG.md`.
+
+- **feat(harness,ui): RSL operator surfaces — lesson adoption and recursive experiments.**
+  Added operator-gated `GET /evolution/lessons`,
+  `POST /evolution/candidates/{id}/lessons` (the accepted decision is derived from
+  the persisted `EvaluationRun`, never the request; the R6 cue/lesson/evidence
+  gate + verdict tripwire still apply) and `POST
+  /evolution/candidates/{id}/recursive` (typed variants become real child
+  `EvolutionCandidate` rows, each verified by the existing worktree/tests
+  verifier; the R7 conductor records the anonymous selection/composition and
+  child attempts count against the daily budget without double-counting).
+  Recursive experiments remain `HARNESS_RSL_MODE=verify` only and never activate.
+  Added typed `evolution-client.ts`/`evolution-browser.ts` calls, Next.js
+  `/api/evolution/lessons` + candidate `lessons`/`recursive` proxies, and the
+  learning-journey `rsl-operator-panel.tsx` (adopted-lesson list + adoption form +
+  recursive-variant form). Tests `test_evolution_rsl_operator.py` (5) and the
+  existing operator-gating suite. Docs: `docs/NAVIGATION.md`,
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(harness): RSL R9 — hill-climb foundation (immutable states, utility, replay).**
+  Added `python/harness/self_improvement/state.py` (`HarnessStateStore`,
+  append-only `HarnessState` rows on the ONE `agent-memory.db`; one `current` per
+  scope; operator-only promotion that supersedes without rewriting), `utility.py`
+  (deterministic utility + Wilson lower bound + critical `DEFAULT_GATES` veto +
+  honest `UNMEASURED` rejection), `replay.py` (`replay_v1` from the existing
+  validation/held-out/release tasks, per-task measured rates, mean/critical
+  forgetting, retained best-per-task) and `hillclimb.py` (pure bounded ascent with
+  injected proposal/evaluation, tabu, plateau stop and an `on_accept` persistence
+  hook). No runner, scheduler, model call, approval or activation was added.
+  Tests: `python/tests/test_rsl_{state,utility,replay,hillclimb}.py` (27). Docs
+  updated: `docs/harness/decisions.md` (ADR-H239),
+  `docs/harness/architecture.md`, `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness): RSL R9 — lesson-outcome feedback and measured lift.**
+  Added `python/harness/self_improvement/lesson_feedback.py` (`LessonOutcomeStore`
+  on the ONE `agent-memory.db`): every eligible lesson is recorded per run as
+  injected or eligible-control; `graph_context._lesson_manifest_context` records
+  the cohort and ranks measured positive lift ahead of unmeasured lessons;
+  `learning_review.review_run` writes the run's terminal outcome and optionally
+  retires measured non-positive lessons behind `HARNESS_RSL_LESSON_RETIRE`
+  (off by default). Lift is only claimed with at least 3 injected and 3 control
+  observations; thin data stays `INSUFFICIENT`/`UNMEASURED`. Retirement is inert
+  and deletes nothing. Tests: `python/tests/test_lesson_feedback.py` (9). Docs
+  updated: `docs/harness/decisions.md` (ADR-H244),
+  `docs/harness/architecture.md`, `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness): RSL R9 — hill-climb conductor entry and bounded generations.**
+  Added `RSLLoop.run_hillclimb` (`verify` mode + `HARNESS_RSL_STRATEGY=hillclimb`):
+  loads the current `HarnessState`, uses the configured `k` and
+  `HARNESS_RSL_GENERATIONS` (1..3), persists accepted states as `candidate`
+  (never `current`), and records each evaluated neighbor as an
+  `EvolutionAttempt` so the daily budget counts the climb. Refuses honestly on
+  mode/strategy/busy/no-current-state/daily-budget. New `strategy`/`generations`
+  config fields with fail-closed parsing. Tests: `test_rsl_loop.py` additions,
+  `test_rsl_config.py` (strategy/generations). Docs updated:
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`, `.env.example`.
+
+- **feat(harness): RSL R9 — model-assisted proposals behind a flag.**
+  Added `python/harness/self_improvement/proposer_model.py`: a strict-JSON
+  `variants` contract parsed by the existing `StructuredOutputManager`, then
+  validated by the SAME `propose_many`/`propose_ops`, frozen-target denylist and
+  workspace confinement. Provider/malformed/frozen failures are structured
+  refusals, never fallbacks. Off by default
+  (`HARNESS_RSL_MODEL_PROPOSER=off`), with `HARNESS_RSL_{PROVIDER,MODEL,BASE_URL,
+  API_KEY}` fallbacks to the existing `HARNESS_JOB_*` background convention. The
+  `propose` tick persists validated variants as child `EvolutionCandidate` rows
+  in `proposed` state; it never verifies, lands or activates them. Tests:
+  `test_rsl_model_proposer.py` (9) plus loop/config additions. Docs updated:
+  `docs/harness/decisions.md` (ADR-H245), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`, `.env.example`.
+
+- **feat(harness): RSL R9 — auto propose+verify mode.** Added `auto` to
+  `HARNESS_RSL_MODE`: one bounded tick runs the propose phase (deterministic ops,
+  or the model proposer when enabled) and then ONE verify claim. It never lands:
+  operator promotion remains the only write path. `verify` stays the manual
+  operator tier; `auto` is the autonomous propose+verify tier. `run_hillclimb`
+  and `run_recursive` accept `auto` as a verify-equivalent mode; the operator
+  surface-experiment routes do too. Tests: `test_rsl_loop.py` (propose→verify,
+  no-op without proposals) and `test_rsl_config.py` (mode parsing). Docs:
+  `docs/harness/architecture.md`, `docs/QUICKSTART.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`, `.env.example`.
+
+- **feat(harness): RSL R9 — measured code candidates in a patched worktree.**
+  Added `evaluation/worktree_invoker.py`: baseline suite on the unpatched tree,
+  candidate ops applied via `propose_ops` + `patch.apply`, then the SAME
+  deterministic suite in a child process whose `PYTHONPATH` points at the patched
+  worktree. The child gets a temp `agent-memory.db`, curated non-secret
+  environment, no live bridge and a bounded timeout; patched code is never
+  imported into the host. `benchmark_decision` accepts only a measured target
+  improvement with no critical `DEFAULT_GATES` regression. `verify_code_benchmark`
+  is opt-in (`HARNESS_RSL_CODE_BENCHMARK=off`); the conductor records
+  `benchmark_accepted`/`benchmark_rejected` and `record_code_experiment` now
+  persists `MEASURED` plus the decision record and measured trials. Tests:
+  `test_worktree_invoker.py` (9) plus loop/config/recorder additions. Docs:
+  `docs/harness/decisions.md` (ADR-H242), `docs/harness/architecture.md`,
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`, `.env.example`.
+
+- **feat(harness,ui): RSL R9 — operator surfaces for harness states and lesson lift.**
+  Added operator-gated `GET /evolution/states` (current pointers + immutable
+  rows), `POST /evolution/states/{id}/promote` (state pointer only: supersedes
+  the prior current row, never writes code or consumes an approval) and
+  `GET /evolution/lessons/{id}/outcomes` (matched injected/control stats + recent
+  rows). Typed `EvolutionHarnessState`/`EvolutionLessonStats` contracts and
+  browser calls; Next.js `/api/evolution/states*` and lesson-outcomes proxies.
+  `rsl-control-panel.tsx` gains a states section with current scope, utility
+  (or `UNMEASURED`) and a Promote action; the learning journey now mounts
+  `rsl-control-panel.tsx` and `rsl-operator-panel.tsx`. Tests:
+  `test_evolution_rsl_routes.py` (state list/promote, lesson outcomes, remote
+  refusal) + `evolution-client.test.ts`. Docs:
+  `docs/harness/decisions.md` (ADR-H243), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — live surface activation with base-digest guard and rollback.**
+  Added `POST /evolution/states/{id}/activate-surface`: an operator may activate a
+  measured surface candidate only when it is a surface subject, its utility is
+  measured, and its RSL experiment was accepted. The snapshot is re-validated
+  against its recorded base; model identity and skill drafts are refused.
+  `HarnessActivation` stores the snapshot/base/previous state;
+  `POST /evolution/surface-activations/{id}/rollback` restores the previous
+  current state. `graph.execute_run` applies the active surface after agent
+  resolution, re-deriving the current base snapshot and applying only prompt,
+  tool subset and lowered step/tool-call ceilings; a stale base or invalid
+  snapshot leaves the original agent untouched. Evaluation, candidate-trial and
+  gate runs set `RunRequest.liveSurface=False`, so a live surface cannot
+  contaminate a measurement. UI: activation and rollback controls in
+  `rsl-control-panel.tsx`. Tests: `test_live_surface.py` plus route tests. Docs:
+  `docs/harness/decisions.md` (ADR-H246),
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — surface activation preview and per-agent scope.**
+  Added `GET /evolution/states/{id}/surface-preview`: the same context the
+  activation uses, returned as a deterministic diff (prompt character counts and
+  bounded before/after text, tools added/removed, step/tool-call ceilings,
+  model/skill flags), base-digest match for the chosen reference agent,
+  accepted decision, previous state, available scopes (`global` + known agent
+  presets) and every refusal reason. `POST .../activate-surface` now accepts an
+  optional `scope`; a different scope creates a NEW immutable state row for that
+  agent and activates it, leaving the source state untouched. A live surface is
+  only applied while its state is current, so a later promotion silently
+  disables it. UI: Preview + scope selector + diff/refusal card in
+  `rsl-control-panel.tsx`. Tests: `test_evolution_rsl_routes.py` (preview, scope
+  override) and `test_live_surface.py` (stale activation). Docs:
+  `docs/harness/decisions.md` (ADR-H247), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — surface experiments carry a scope and materialize an inert state.**
+  `SurfaceExperimentRequest` gains a validated `scope` (default `global`); it is
+  stored in `surfaceConfig`, included in the deterministic experiment signature,
+  and carried into the measurement. After a measured surface verification the
+  conductor materializes exactly one inert `HarnessState` (`candidate`) with the
+  candidate id, accepted run id, scope, aggregates and utility, deduplicated by
+  `(candidateId, snapshotDigest)`. Rejected surfaces also get a state for
+  evidence, but activation still requires an accepted run. The operator
+  surface-experiment form gains a scope input. Tests:
+  `test_evolution_rsl_operator.py` (scope persisted) and `test_rsl_loop.py`
+  (measured surface creates one state). Docs: `docs/harness/decisions.md`
+  (ADR-H248), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
 
 - **feat(ui): delete a bot from the Bots sidebar list.** Each bot row in the
   Bots navigation panel now has a three-dot menu with **Delete**, opening the
@@ -4636,711 +5069,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   UI-only; no contract change. Verified: `npx tsc --noEmit` clean; vitest
   270 files / 2861 passed.
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
-
-## 2026-10-13
-
-- **Production blocker fixed: the sign-in page now exists — enabling auth used
-  to lock the operator out at a 404.** `HARNESS_AUTH=required` (or a
-  public/production bind) redirects every page to `/login`, and
-  `docs/harness/authentication.md` names `src/app/login/page.tsx` as the UI, but
-  the page had never shipped. Shipped `src/app/login/`: a standalone
-  frosted-glass page — server shell (`page.tsx`) + `login-form.tsx` (session
-  resolution, submit, post-setup sign-in) + presentational `auth-panel.tsx`
-  (setup / login / checking / secret-missing states) + pure `safeNext` for the
-  middleware's `?next=` return path (rejects absolute, protocol-relative and
-  `/login` loops). It shows first-run SETUP when no account exists, LOGIN
-  otherwise, auto-redirects when auth is off or already signed in, and fails
-  closed with operator guidance when `HARNESS_AUTH_SECRET` is missing. Verified
-  end-to-end against a production `next start` with a throwaway auth DB:
-  `setupRequired` → `POST /api/auth/setup` 200 → `POST /api/auth/login` 200
-  (cookie) → authed `/api/stocks` 200, unauthed 401, `/login` 200. Tests:
-  `src/app/login/next-path.test.ts` + `src/app/login/auth-panel.test.tsx`.
-  no doc change — authentication.md and NAVIGATION.md already documented the
-  page; the code now matches them.
-
-- **Register closeout — market-data windows, series freshness, the stale vault,
-  and a live P/E route (MKT-2/3/4, VAULT-1, DATA-1).** History windows are honored
-  end-to-end: the Yahoo adapter sends `period1`/`period2` (bare dates padded to
-  end-of-day) and picks the smallest covering `range` for the batched bridge,
-  whose rows are filtered to the window, at BOTH the market gateway adapter
-  (`market/providers/yahoo.ts`) and the `price_history` capability
-  (`data-bridge.ts`); the retrieval path no longer lets the default `period`
-  overwrite an explicit start (`retrieval_tools.py` gains `end`,
-  `structured._params_for` passes the window through). Series freshness is
-  judged by COVERAGE of an explicit window (7-day cadence otherwise; the 6h
-  bar-timestamp ceiling rejected every daily series after the last close), and
-  the misleading "WEB is not eligible" rejection is reported only when a WEB
-  outcome actually ran (`authority.py`). `get_market_data` text now shows the
-  latest bars inline and says how many `rows` carries (was a bare "11,551 bars,
-  no rows"). The statements cache is refreshed when older than 7 days and a
-  failed refresh serves the persisted payload with `stale: true` +
-  `cacheAgeDays` (never a disguised fresh timestamp); AAPL was reseeded live
-  (8 periods, P/E 39.09 — was FY2018/19). `fundamentals` now reports a
-  `valuation` block (P/E, forward P/E) with LIVE/JDDS provenance, and
-  `get_fundamentals(refresh=true)` is the live-ratio route. Tests:
-  `market/providers/yahoo.test.ts` (new), `data-bridge-phase2.test.ts`,
-  `phase4-routes.test.ts`, `data-bridge-history.test.ts`,
-  `test_research_data_tools.py`, `test_source_authority.py`,
-  `test_retrieval_scenarios.py`. The statement-cache shaping + live profile
-  helpers were extracted to `data-bridge-statements.ts` (size ratchet;
-  `data-bridge.ts` re-pinned 1379→1400 for the valuation block + imports).
-
-- **Crypto identifiers and volumes are honest (CRYPTO-1/2).** A bare base
-  (`BTC`, `SOL`) now classifies as the USD-quoted spot pair in BOTH classifiers —
-  TS `instrument-identity.classifyIdentifier` (bare bases fell through to equity
-  and the live path fetched the WRONG instrument: bare `BTC`/`ETH` are the
-  Grayscale mini-trust ETFs on NYSE Arca, observed live at 36.77/23.91) and
-  Python `retrieval/structured.is_crypto` (so routing sends bare bases to the
-  crypto source and never to the vault). Binance's two 24h volumes are carried
-  explicitly labelled — `volume` = quote notional, `volumeBase` = base-asset
-  units — instead of one unlabelled "shares" number. Tests:
-  `instrument-identity.test.ts`, `connectors.test.ts`,
-  `data-bridge-gateway.test.ts`, `test_provider_gateway.py`.
-
-- **Finance computation asks enable the analysis sandbox; search tools got more
-  usable (CALC-1, TOOL-2/3).** The data-task vocabulary now covers computation
-  asks — verbs `analyze/analyse/backtest/optimize/…`, metric objects `ytd`,
-  `return`, `performance`, `cagr`, `exposure`, `holdings`, and the phrases `an
-  analysis`, `analysis of`, `a report on|of` — so `analysis_run` is no longer
-  refused with `ANALYSIS_NOT_ENABLED` for a YTD/report request (the fixtures that
-  pinned "not_code" now assert "never code_change"; `run a report…` is a
-  `data_task`). `search_text`/`workspace_search` accept a single FILE path
-  (searching it directly instead of raising `NOT_A_DIRECTORY`), and
-  `contextLines` accepts 0-20. Tests: `test_code_request_intent.py`,
-  `test_fs_search_index_watch.py`, `test_code_tools.py`.
-  docs updated: harness/market-data.md, harness/architecture.md,
-  harness/code-filesystem.md.
-
-- **The response-format read-back is reachable end-to-end again (BR-1), and it can
-  no longer crash the route.** `response_contract` was dispatched
-  (`data-bridge.ts`) and type-declared but missing from the HTTP capability
-  allowlist (`src/app/api/harness/data/route.ts`), so every
-  `response_block_schema` / `response_validate` call returned 400 → Python
-  reported `bridge HTTP 400` / UNAVAILABLE and the agent could not verify the
-  icon vocabulary. Two fixes: the allowlist entry, and a server/client split of
-  the icon vocabulary — the schema read-back now imports
-  `lib/response/icon-vocabulary.ts` (pure keys + `canonicalIconKey`), because
-  importing `lib/response/icons.ts` pulls the Phosphor React set into the
-  react-server bundle and crashes the route with `react.createContext is not a
-  function` (found by probing the real dev server after allowlisting).
-  `icons.ts` keeps the client component map, type-pinned to the vocabulary by
-  `satisfies Record<ResponseIconKey, LucideIcon>`. The route also returns the
-  caught error detail in development only. Verified against the running dev
-  server: schema → 200 with exact fields + 42 `iconKeys`; validate → per-block
-  verdicts (`TrendUp` + numeric-icon payload is ok; a bad gauge reports
-  `gauges.0.value`). Tests: new `src/app/api/harness/data/route.test.ts`
-  (allowlist + cross-origin + unknown-capability), `data-bridge.test.ts`
-  dispatch case. Also TOOL-1: `search_text` summaries now name the match mode
-  (literal/regex) and a literal zero-match says it is not proof of absence
-  (`test_fs_search_index_watch.py`).
-  docs updated: interactive-response-engine.md, NAVIGATION.md.
-
-- **Agent `icon` fields now render: the vocabulary is taught, spellings are
-  canonicalized, and a bad icon can no longer drop a block.** Three gaps closed.
-  (1) The producer is told the vocabulary: the "Structured answers" prompt lists
-  the 42 semantic keys, and `response_block_schema` now returns the LIVE
-  `iconKeys` (derived from `lib/response/icons.ts`, cannot drift) which the
-  Python formatter prints with each schema lookup. (2) `canonicalIconKey` in
-  `icons.ts` resolves case/separator spellings (`TrendUp`, `trend_up`, `TREND
-  UP`), common synonyms (`graph`, `money`, `alert`) and the emoji producers emit
-  (`📈`, `⚠️`) to the canonical key; `normalize.ts` applies it to all six
-  icon-bearing item arrays (infographic cards, workflow stages, action_group
-  actions, stat_hero stats, ranked_list items, badge_row badges), including
-  nested blocks. (3) A NON-STRING icon (number/object/array) now has the field
-  dropped before validation instead of failing the whole block — a misspelled
-  icon costs at most the glyph, never the card. Tests: `contract-blocks.test.ts`
-  (+5), `response-bridge.test.ts` (+1), `test_response_tools.py` (+1).
-  docs updated: interactive-response-engine.md, NAVIGATION.md.
-
-- **Market Discover no longer surfaces a `Console TypeError: Failed to fetch`
-  when the dev server is recycled mid-request.** Root cause: the Next dev-server
-  child process was killed under memory pressure (6.6 GB RSS, ~0.8 GB free) while
-  `/api/stocks` was in flight, so the request never got a response. New
-  `src/lib/fetch-retry.ts` (`fetchWithRetry` + `logHandledFetchFailure`) retries
-  transport-level failures twice with backoff (HTTP error statuses are returned
-  as-is, aborts are never retried) and logs a handled outage as a warning instead
-  of `console.error`, so the dev error overlay only fires for real bugs. Wired
-  into the screener/dashboard fetches of `market-overview.tsx`,
-  `use-market-tabs.ts` and `use-global-markets.ts`; tests
-  `fetch-retry.test.ts` (+7). `python/harness/service.py` re-pinned 1469→1471 to
-  the measured tree (pre-existing in-flight growth on the shared working tree;
-  this change touches no Python file).
-  no doc change — client-side resilience fix; no contract or architecture change.
-
-- **The probe was answered from the real run record: the response FORMAT was
-  never broken — one block shape was.** Validating every block of the labelled
-  8-block probe run (`run_e24e0109…`) and the 22:00 Sazgar answer against the real
-  contract: 7/8 probe blocks pass (markdown `body`, mermaid `code`, callout
-  `variant`+`body`, key_value `items`, data_table string-columns were all already
-  accepted), and the Sazgar answer's 9 blocks all pass. The single failure was
-  `badge_row` with BARE STRINGS (`badges: ["PROBE-6 — badge_row"]`). A badge's only
-  content is its label, so `normalize.ts` now coerces a bare-string badge to
-  `{label}` (test in `contract-blocks.test.ts`). With this, all 152 blocks in the
-  25 most recent fenced runs validate.
-  docs updated: interactive-response-engine.md.
-
-- **The model can now VERIFY the response format it writes: schema lookup +
-  pre-send validation (read-back).** The agent's own diagnosis ("I am not given
-  each block's field names… I can write into a format I cannot verify") is now
-  closed by two read-only tools bound to Eclipse:
-  `response_block_schema` (exact field names per type, derived LIVE from the zod
-  contract — it cannot drift) and `response_validate` (runs the renderer's own
-  parser over a drafted fence or bare JSON; returns per-block errors so a drifted
-  block is fixed in-turn). Backed by a new `response_contract` bridge capability
-  in `src/lib/harness/response-bridge.ts` (also exempted from the health ledger);
-  Python side `python/harness/response_tools.py` + allowlist in `agents.py`;
-  a missing bridge reports UNAVAILABLE. Tests `response-bridge.test.ts` +
-  `test_response_tools.py`. `data-bridge.ts` re-pinned 1377→1379 for the two-line
-  dispatch; `graph.py` re-pinned 2043→2049 for unrelated in-flight shared-tree
-  growth (this change touches no part of graph.py).
-  docs updated: interactive-response-engine.md, NAVIGATION.md.
-
-- **Code changes are now visible as they happen (inline change cards).** The run
-  stream is content-free except for one addition: `code.patch.applied` and every
-  fs write event (`fs.*`, `previews[]`) now carry a bounded, redacted unified
-  diff (`code/events.py::diff_event_payload`, 12k cap, secret-shaped spans
-  scrubbed; `code/patch.py` computes per-op previews from before/after text).
-  The chat maps them to per-file change cards with `+N/−M` and the colored diff
-  (`src/components/chat/change-cards.tsx`, rendered from `chat-history.tsx`,
-  carried on `AssistantTurn.changes` / `Message.changes`); the Agent Workspace
-  Changes panel expands the same preview inline. A capped preview is flagged,
-  never silent. Tests: `python/tests/test_change_event_previews.py` +
-  `test_code_patch.py` + `events.test.ts` + `agent-workspace.test.ts`.
-  docs updated: harness/architecture.md, agent-workspace.md.
-
-- **A run can no longer hang forever at a model call or a tool call.** Live
-  evidence: `run_23de73de…` emitted `model.requested` and then nothing for 10+
-  minutes — `asyncio.wait_for` waits for cancellation to COMPLETE before
-  raising, so a provider adapter that swallows `CancelledError` defeats the
-  timeout entirely. New `python/harness/async_timeout.py` (`await_bounded`)
-  races the work against a plain timer and raises at the deadline without
-  waiting for cancellation; outer cancellation still cancels the inner task and
-  abandoned work is drained. Wired into `model_stream.py` (the run now fails
-  with `PROVIDER_TIMEOUT` at the declared budget; the abandoned stream is
-  flagged so it stops emitting deltas) and `ToolRegistry.execute` (a
-  cancellation-swallowing handler now returns `TOOL_TIMEOUT`). Tests
-  `test_async_timeout.py` + a `test_tools.py` case — both hang with the old
-  implementation.
-  docs updated: harness/architecture.md.
-
-- **A stalled run now always reaches a terminal state (watchdog).** Belt and
-  suspenders beside the hard deadlines: `python/harness/run_watchdog.py` sweeps
-  every 30s; any run in `created`/`running` silent past its own agent model
-  budget (`runTimeoutMs` + 60s grace — 180s for Eclipse Agent, 660s for Code
-  Agent) is marked failed (`RUN_STALLED`) with a durable `run.failed` event, its
-  SSE stream is closed and its task cancelled, so the chat cannot spin forever
-  even if a future subsystem strand misbehaves. Runs waiting on a user approval
-  (`approval.requested`) are exempt. Wired in `boot.py` (start/stop). Test
-  `test_run_watchdog.py`.
-  docs updated: harness/architecture.md.
-
-- **Bridge timeouts refined to per-class budgets (supersedes the earlier
-  blanket-8s bridge entry in today's section).** 8s applies to structured/vault
-  reads only; capabilities that
-  fetch the public web (search/extract/education/image) keep a 20s class under
-  the 30s research budget, so research quality is not cut to fix the fast path.
-  Retry narrowed to `ConnectError` only (instant dev-server-restart refusal) — a
-  timeout is never retried, so the worst-case wait is one per-class timeout and
-  always fits the caller's tool budget. `test_bridge.py` pins both invariants.
-  docs updated: harness/architecture.md (bridge.py row).
-
-- **Eclipse answers no longer turn into parse errors: contract leniency for
-  observed producer drift.** Live runs showed 18/233 recently produced
-  `eclipse-response` blocks failing validation — every markdown/callout block
-  whose prose field was named `body` (3rd observed spelling after
-  `content`/`text`), `gauge`/`ranked_list` blocks that correctly said
-  `"unavailable": true` with no data points, `key_value` values over the
-  120-char numeric bound when a source/citation was attached, and one
-  `chart_type` spelling. `src/lib/response/normalize.ts` (extracted from
-  `contract.ts`, which was at its size ratchet; re-exported for callers) now
-  accepts `body`→`markdown` (also the `mermaid` body), `chart_type`→`chartType`,
-  and 500-char `key_value` values; the figure family (`stat_hero`, `gauge`,
-  `comparison_grid`, `ranked_list`, `badge_row`) accepts a block-level
-  `unavailable` with an absent/empty data array and
-  `src/components/response/visual-blocks.tsx` renders an explicit UNAVAILABLE
-  state with the producer's explanation instead of an empty figure. A settled
-  malformed fence now also offers a "Show the raw content" disclosure
-  (`response-fence.tsx`) so an unparseable body is never lost. Re-validated
-  against the real 233-block sample from `agent-memory.db`: 0 failures (was 18).
-  Tests `contract-blocks.test.ts` (+5). `npm run test` + `npx tsc --noEmit`
-  pass. docs updated: interactive-response-engine.md.
-
-- **Data-bridge failures fail fast instead of timing out tools.** `_HttpDataBridge`
-  (now `python/harness/bridge.py`, extracted from `service.py` for its size
-  ratchet and re-exported as `_HttpDataBridge`) drops the read timeout 20s→8s
-  (below the market tools' own budgets) and retries ONCE on transient connection
-  errors (dev-server restart → `All connection attempts failed` was the top
-  recorded retrieval failure), so a tool returns a structured UNAVAILABLE
-  instead of being killed as `TOOL_TIMEOUT`. docs updated:
-  harness/architecture.md.
-
-- **Orphaned runs no longer spin forever after a restart.** The runtime executes
-  runs in-process, so runs left `created`/`running` by a dead process could never
-  finish (11 such rows were live in `agent-memory.db`). `run_startup_maintenance`
-  now calls `fail_orphaned_runs` (`python/harness/run_recovery.py`, a new module so
-  `persistence.py` stays within its size ratchet): each orphan becomes `failed`
-  with code `RUN_ORPHANED` plus a durable `run.failed` event, so every streaming
-  client sees a terminal state. Test `python/tests/test_run_recovery.py`.
-  docs updated: harness/architecture.md.
-
-- **Bot-mode UI fixes (six issues).** `src/components/bots/bot-chat.tsx`:
-  "Run now" now gives visible feedback (a run-status note that says the run was
-  queued, auto-clearing) instead of silently enqueuing, and shows a reason in the
-  tooltip when the bot is not active; the pencil edit button got a proper 24px
-  hit target with cursor + press feedback; the composer no longer draws a
-  focus-visible highlight ring; message date/time now appears only on hover or
-  keyboard focus instead of always. `src/components/bots/bot-detail.tsx`: the
-  Overview tab is regrouped into Identity and Activity & health cards, the header
-  actions collapse behind a "More" menu (duplicate/disable/delete) leaving one
-  primary Run now path, and Memory renders as a card.
-  `src/components/screens/stock-chat.tsx`: the floating Assistant dock is now
-  hidden on the bots tab (it already has its own composer) in addition to the
-  chat tab. Added i18n keys (`bots.runQueued`, `bots.runNowBlocked`,
-  `bots.detail.identity`, `bots.detail.activity`, `bots.successRate`).
-  `npm run test` (vitest) and `npx tsc --noEmit` pass.
-  no doc change — UI behavior/style fix with contracts intact.
-
-- **Bot detail: purpose text no longer collapses into one blob.** A bot whose
-  purpose/objective is a long multi-line brief rendered as a single run-on
-  paragraph under the name (HTML whitespace collapsing). `bot-detail.tsx` now
-  clamps the header description to two lines, and the Overview tab's Purpose is
-  a full-width block with `whitespace-pre-wrap` so its line breaks survive.
-  no doc change — UI formatting only.
-
-- **Bot detail: tabs replaced by one scrollable column.** The drawer's seven
-  tabs felt cramped, so `bot-detail.tsx` now stacks every section (Overview,
-  Instructions, Schedule, Capabilities, Memory, Run history, Settings) in a
-  single scrolling column with a titled divider between sections. Removed the
-  `TabBar` usage and the tab state. no doc change — UI layout only.
-
-- **Bot detail: sections are now collapsible; run-history text wraps.** Each
-  `SectionBlock` in `bot-detail.tsx` is a dropdown (chevron header, Overview open
-  by default). `run-history.tsx` gained `min-w-0` / `break-words` / `flex-wrap`
-  on run labels, outcome reasons, timeline events and deliveries so long text no
-  longer overflows or breaks mid-layout. `npx tsc --noEmit` clean.
-  no doc change — UI layout only.
-
-- **Run history reworked to a stacked layout.** The two-column run
-  list + detail grid could crush text inside the narrow drawer. `run-history.tsx`
-  now stacks the list above the detail, rows are full-width with plain borders
-  (no nested glass blur), and every value wraps. `npx tsc --noEmit` clean.
-  no doc change — UI layout only.
-
-- **Bot chat bubble slimmer; timestamp moved below.** The user/error bubble had
-  the timestamp inside it, reserving a second line and making the bubble tall.
-  `bot-chat.tsx` `ChatBubble` now wraps the bubble in a column and puts the time
-  below the bubble (aligned to its edge), revealed on hover/focus. The bubble
-  hugs its text. `npx tsc --noEmit` clean. no doc change — UI layout only.
-
-- **Editing a bot opens a proper dialog.** The bot-chat pencil used to swap the
-  header into an inline name/purpose form; it now opens a modal `Dialog` (name +
-  purpose fields, Save/Cancel) in `bot-chat.tsx`, and the header stays as the
-  static identity banner. `npx tsc --noEmit` clean.
-  no doc change — UI layout only.
-
-- **Bot composer upgrade: stop / edit / regenerate / copy / auto-grow.**
-  `bot-chat.tsx`'s bare textarea is now a real composer. While a reply streams,
-  send becomes **Stop** (aborts via the run's AbortController, keeping the partial
-  text). Hovering any message reveals actions: **Copy** everywhere, **Edit** on
-  user messages (truncates the thread there and loads the text back into the
-  composer), and **Regenerate** on the last bot reply. The textarea auto-grows to
-  200px, sends on Enter (Shift+Enter for newline, IME-safe), and the footer shows
-  a keyboard hint. Added i18n keys `bots.chat.{stop,hint,copy,copied,regenerate}`.
-  `npx tsc --noEmit` clean; i18n + bots vitest pass.
-  no doc change — UI behavior only.
-
-- **Finance starter pack: six bots + a "Markets Desk" group room.** New
-  `src/lib/bots/finance-bots.ts` defines six scheduled finance bots (Market
-  Brief, Watchlist Sentinel, Portfolio Risk Review, Earnings Radar, Macro Pulse,
-  Data Quality Auditor) with real instructions (cite sources / UNAVAILABLE, never
-  fabricate). `seedFinancePack()` creates any missing bots through the real
-  `/api/automations` API (idempotent by name) and writes a client-side group of
-  all six; `useSeedFinancePack()` powers an "Add finance starter pack" button in
-  the Bots empty workspace (`bots-screen.tsx`) and the Bots sidebar header.
-  Added i18n keys `bots.finance.*` and a unit test (`finance-bots.test.ts`).
-  `npx tsc --noEmit` clean; vitest pass. no doc change — new feature module, no
-  contract/architecture change.
-
-- **Finance starter pack: discoverability fix.** The labeled seed button only
-  lived in the empty workspace, so once a user had any bot it never appeared and
-  the pack looked broken. `bots-sidebar-panel.tsx` now shows a labeled "Add
-  finance starter pack" button (both expanded and collapsed) that hides only once
-  the group room exists. Also seeded the six finance bots into the local runtime
-  so they appear on refresh. `npx tsc --noEmit` clean.
-  no doc change — UI discoverability fix.
-
-- **Group chat: each bot answers separately; composer gains stop + targeting.**
-  `group-chat-room.tsx` no longer produces one merged "room" reply — a send now
-  runs one agent turn PER targeted member with that bot's own persona/instructions
-  (parallel, each streaming into its own message tagged with `authorId`/
-  `authorName` and the member's own avatar), so replies are never combined.
-  Composer: **Stop** aborts every in-flight member run, textarea auto-grows,
-  Enter sends (Shift+Enter newline, IME-safe), and a **"Who answers"** dropdown
-  targets Everyone or a single bot. Per-message Copy added; timestamps now
-  hover-only. New i18n keys `bots.groups.{answering,stop,audience,audienceHint,everyone}`.
-  `npx tsc --noEmit` clean; i18n + bots vitest pass.
-  no doc change — UI behavior only.
-
-- **Group chat header gains Run / Pause-All / Scheduler / Settings.** The group
-  room only had Delete; the per-bot controls had no group equivalent. The header
-  now mirrors BotChat: **Run now** runs every member's automation, a
-  Pause-All/Resume-All toggle pauses or resumes all members (state-aware), a
-  **Scheduler** button opens the right-docked scheduled-jobs rail (shared
-  `useWorkspaceStore`), and **Settings** opens a new
-  `group-settings-dialog.tsx` (rename, photo, add/remove members 2–6, each member
-  showing its real state + schedule). Added `setMembers` to the groups store and
-  i18n keys `bots.groups.{settings,settingsTitle,settingsHint,removeImage,pauseAll,resumeAll,ranAll,pausedAll,resumedAll}`.
-  `npx tsc --noEmit` clean; i18n + bots vitest pass.
-  no doc change — UI feature, no contract change.
-
-- **Composer feature pass (frontend), benchmarked against Grok/Hermes-style
-  chats.** Bot composer (`bot-chat.tsx`): added inline **model selector**
-  (reuses `ModelSelector` + `useChatModel`, passes `model` to the run), thumbs
-  **feedback**, and **retry** on error turns (alongside the existing stop/edit/
-  regenerate/copy). Group room (`group-chat-room.tsx`): **@mention autocomplete**
-  (typing `@` lists members; a mention routes the turn to exactly those bots over
-  the audience selector), **edit/resend**, **regenerate** per reply, **retry**,
-  thumbs **feedback**, and per-member avatars on replies. Stores gained
-  `feedback` on messages and `setMessages` for group truncation; exported
-  `ModelSelector`. New i18n keys `bots.chat.{retry,good,bad}`.
-  `npx tsc --noEmit` clean; i18n + bots vitest pass.
-  Deferred (next): attachments-as-context (needs provider file threading),
-  context meter (no per-run usage surfaced to the bot path), voice (needs STT).
-  no doc change — UI behavior only.
-
-- **Construction benchmark R3-08 — the 16 master scenarios, with completion and
-  recovery now gated (ADR-H183).** New
-  `python/harness/evaluation/datasets/construction_v1.json` runs all 16
-  construction scenarios (working API, alternative route, missing fields,
-  alternative acquisition route, confirmed zero, fixable script error, missing
-  dependency, dirty records, wrong calculation caught, stale conflict, invalid
-  chart payload, delivery failure, unauthorized attempt, budget kill, partial
-  completion, end-to-end chat) through the REAL `execute_run` graph as
-  deterministic scripted traces. Five new graders — `recovery`, `honesty`,
-  `provenance`, `artifact`, `response` — measure recovery success + redundant
-  retries, false-success/unsupported claims + named gaps, source use+citation
-  with `collected ≠ verified`, artifact delivered-or-honestly-failed, and a
-  surviving answer with a decodable chart fence. `scoring.py` now gates
-  `task_success >= 0.9` and `recovery_success >= 0.85` (safety/hallucination
-  unchanged; measured offline: full gate tasks=47, `task_success=1.0`,
-  `recovery_success=1.0`, `safety_score=1.0`, `hallucination_rate=0.0`; the
-  construction suite alone 16/16). Eval tools now record an environment error as
-  a FAILED tool call and add bounded `eval_run` (killed on timeout) +
-  `eval_response_check`; `scripts/test-evals.js` runs the construction suite as
-  a named gate. docs updated: `docs/harness/decisions.md` (ADR-H183),
-  `docs/harness/agent-evaluation.md`, `docs/harness/construction-first-audit.md`
-  (R3-08 ✅ with measured numbers), `docs/NAVIGATION.md`.
-
-- **Registry-visibility scan — every registered tool is reachable or deliberately
-  operator-only (ADR-H184).** New `python/tests/test_registry_visibility.py`
-  builds the production registry (service constructor + boot-only
-  recovery/orchestration/a2a/fabric registrations into a throwaway registry),
-  mirrors the resolver's dynamic MCP/plugin expansion, and asserts the invisible
-  set equals a pinned 36-name `DELIBERATE_INVISIBLE` set (recovery/artifact/fabric
-  admin, parallel-execution primitives, operator context, cluster/infra
-  mutations) with **zero ghosts** (no allowlisted-but-unregistered tool). The
-  scan found 5 accidentally-invisible tools, now allowlisted beside their
-  siblings: `git_tag_show` (`CODE_AGENT_TOOLS` + chat profile),
-  `runtime_metrics_history` (`ECLIPSE_AGENT` + `CODE_AGENT_TOOLS` + chat),
-  `workspace_graph`/`workspace_start`/`workspace_stop` (`CODE_AGENT_TOOLS` +
-  chat, the writes narrowed at `plan_only` like `runtime_start/stop`). The exact
-  `CHAT_CODE_TOOLS` pin in `test_chat_code_profile.py` was updated.
-  docs updated: `docs/harness/decisions.md` (ADR-H184),
-  `docs/harness/construction-first-audit.md` (R3-07/R3-08 statuses),
-  `docs/CHANGELOG.md`.
-
-- **Price history: direct-chart fallback + `data-bridge.ts` split (ADR-H185).**
-  The bridge's deferred second transport landed: when the batched Python
-  yfinance bridge is off or returns no series, `price_history` now falls back to
-  the DIRECT Yahoo v8 chart request already used by `/api/price-history`
-  (new `src/lib/harness/data-bridge-history.ts`, walking the per-market
-  `yahooChartCandidates` chain, ≥2 real bars required — never a single point).
-  Provider stays `yfinance`; a new `transport` field (`yfinance-bridge` |
-  `yahoo-chart`) names the code path and `providerSymbol` echoes the ticker the
-  direct transport answered for. To land it without growing the ratcheted
-  dispatcher, `data-bridge.ts` was split: health/diagnostics →
-  `data-bridge-health.ts`, education/media → `data-bridge-education.ts`, shared
-  unavailable helpers → `data-bridge-result.ts`; ratchet re-pinned 1710 → 1377
-  (may only shrink). Tests: `data-bridge-history.test.ts` (+3), extended
-  `data-bridge-phase2.test.ts` (bridge-first / fallback / both-down); full
-  vitest 262 files / 2773 tests, tsc clean.
-  docs updated: `docs/harness/decisions.md` (ADR-H185),
-  `docs/harness/construction-first-audit.md` (R3-04 status),
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Production readiness closed: end-to-end boot guard + preflight in the
-  release gate (ADR-H186).** `deps.deployment_guard()` composes the Python
-  bind with the front door's auth mode for the startup log; the harness now
-  warns when a public bind is reachable without a login (`HARNESS_AUTH=off` with
-  `CRON_SECRET` set — the one combination that used to be silent), when a public
-  bind has no operator secret, or when required auth cannot work
-  (`HARNESS_AUTH_SECRET` missing → every request 503s); a public bind behind
-  front-door auth is an informational notice. The stale "this app has NO
-  authentication" boot comment and the contradicting exposure warning text are
-  corrected. `scripts/security-preflight.js` joined `check-all.js` and CI
-  (advisory on loopback, failing on an exposed misconfiguration; verified:
-  local WARN/exit 0, production-without-secrets FAIL/exit 1, production-with-
-  secrets OK/exit 0). Verified on this tree: `npm run build` passes (Next.js
-  production compile + type check). Tests:
-  `test_identity_tenancy_boundary.py` (+4). Explicitly not included: cluster/infra
-  deploy mutations stay refused by design, roadmap phases 16–20 remain features,
-  container build unverified here (no Docker), live-model eval stays opt-in.
-  docs updated: `docs/harness/decisions.md` (ADR-H186),
-  `docs/harness/authentication.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
-
-- **Phase 20 — every capability class is measured or NAMED as not measured
-  (W7 slice, ADR-H193).** New `python/harness/code/eval/capabilities.py`: the
-  capability-class registry (17 classes — the seven code shapes, the classes
-  this round added, and the four it did NOT grade, each unmeasured row stating
-  its reason), a runner that grades only through NAMED evidence (in-module
-  fixtures driving the REAL modules — acquire budget/writer, automation
-  delivery, verify ledger, review rules; `pytest:`/`vitest:` test selectors the
-  runner verifies exist; code-eval fixture ids checked against the labelled
-  dataset), `MEASURED_BASELINE` + `check_capability_floors` (a measured class
-  may not regress to unmeasured). The generated statement gained the "Every
-  capability class" section with the published unmeasured count ("4 of 17
-  classes are not measured yet") — and the generator's repo-root constant was
-  fixed (it pointed one level short, at `python/docs/…`). `scripts/test-evals.js`
-  gained the named `capability-class gate` step (`PASS measured=13
-  unmeasured=4`; evals re-verified ALL PASS). en.ts gained the 17
-  `capability.class.*` labels. Tests: `test_capability_classes.py` (7);
-  `test_code_eval.py` statement tests still green. Recorded remaining:
-  labelled fixtures for `price_authority`/`promotion`, the bootstrap/Monte-Carlo
-  rule fixture, the adversarial safety cases for the new power, and per-class
-  threshold tables.
-  docs updated: `docs/harness/decisions.md` (ADR-H193),
-  `docs/harness/roadmap/phase-20-measuring-all-of-it.md`,
-  `docs/harness/roadmap/README.md`, `docs/harness/capability-statement.md`
-  (regenerated), `docs/CHANGELOG.md`.
-
-- **Phase 18 — the first FIGURE recipe (W5 slice, ADR-H192).** `drawdown_figure`
-  renders a real PNG in the analysis sandbox (Agg backend, no display, no
-  network) and writes it through the existing `write_artifact` seam, which now
-  accepts BYTES; the Phase-19 ledger then verifies it (exists, digest, size,
-  opens as an image) end to end in a real-sandbox test. The allowlist widening
-  is NAMED and narrow: `AnalysisRequest.extra_imports` is set only by the
-  recipe table (`io`, `matplotlib` — present in the vendored interpreter,
-  3.11.2); `check_imports` still refuses reflection, dunders and URL literals,
-  and an undeclared source importing matplotlib is refused. A machine without
-  matplotlib fails the recipe honestly. Tests:
-  `test_analysis_recipes.py` (+1 real render + allowlist assertions; recipe
-  count 7→8). Recorded remaining: the figure payload on the run blob, more
-  figure recipes, the inline chat renderer. Verified: analysis suites 51 passed.
-  docs updated: `docs/harness/decisions.md` (ADR-H192),
-  `docs/harness/roadmap/phase-18-visual-output.md`,
-  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Phase 19 — a produced artifact is verified, and the repo's rules are reported
-  (W6/ADR-H191).** `code/verify.py` gains `ArtifactCheck`/`ArtifactRecord`/
-  `verify_artifacts` (exists, digest, size, readable, figure-inputs match — a
-  check that cannot run is a FAILED record, never an omission), the ledger gains
-  bounded artifact + review records (old-row-safe in `to_blob`/`from_blob`), and
-  the two new claim classes `artifacts_verified`/`change_reviewed` join the
-  existing narrow, negation-guarded patterns — an unbacked "the figure is
-  intact" or "I reviewed the change" is marked `[UNVERIFIED …]` by the ONE
-  enforcement path. `analysis_tools.py` records the artifact checks after an
-  analysis. New `code/review.py` (the six-rule table: new-module-reachable,
-  size-ratchet with pins read from BOTH ratchet files, string-is-key,
-  protected-path BLOCKING and proven to agree with `policy.is_protected`,
-  doc-obligation, test-touched; unevaluable rules land in `unevaluated`, never
-  clean) + the read-only `review_change` tool (`code/review_tools.py`, wired
-  from `service.py`, allowlisted on the code agent + chat profile, records the
-  review on the ledger). `mistakes.py` gains the four categories the checks
-  emit; the CODE-agent prompt states that artifact/review sentences are checked;
-  the chat panel renders artifact rollups + review findings (`code.proof.*`
-  keys). Tests: `test_claim_classes.py`, `test_artifact_verification.py`,
-  `test_change_review.py` (24), updated `test_chat_code_profile.py`. Verified:
-  targeted suites 468 + 24 passed; `npx tsc --noEmit` clean; panel/vitest green.
-  Recorded: the figure payload itself is phase 18 (still open).
-  docs updated: `docs/harness/decisions.md` (ADR-H191),
-  `docs/harness/roadmap/phase-19-self-verification.md`,
-  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Bulk acquisition — first slice (W3/ADR-H190): declared sources, a Python
-  budget, files with a manifest.** New `python/harness/acquire/`: a declared
-  source registry (daily price history → `price_history`, economic series →
-  `macro_series`, annual company statements → `sec_filings`; each row names its
-  capability, CLOSED parameter set, CSV columns, licence and attribution — and
-  `registry_issues()` fails an incomplete row), an `AcquisitionBudget` beside
-  `ResearchBudget` (calls/rows/bytes/seconds, enforced in Python), a
-  ceiling-enforcing CSV writer whose row count equals the real file, and the
-  `acquire` tool over the ONE read-only bridge (no new egress; `research/`
-  untouched). It writes `<source>_<stamp>.csv` + a manifest under the run's
-  artifact directory; a partial pull is always marked partial with a plain
-  reason. `data.collect` is a real noun (`skills/permissions.py`
-  `DATA_PERMISSIONS`, `code/policy.acquisition_grants`) granted only by the
-  operator switch `acquisition_enabled` (eclipse-memory policy, default OFF;
-  surface-dropped when off; handler re-checks fail-closed; admitted by a new
-  `_admit_collect_tools` seam). Policies tab gained "Let Eclipse collect
-  datasets for you". Tests: `python/tests/test_acquire.py` (9, hermetic stub
-  bridge). Verified: targeted Python suites 71 passed; vitest size ratchet held.
-  Recorded as remaining (phase-16): more sources, cross-call budget, the chat
-  manifest panel, the opt-in live smoke.
-  docs updated: `docs/harness/decisions.md` (ADR-H190),
-  `docs/harness/roadmap/phase-16-bulk-acquisition.md`,
-  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Execution tiers are enforced (W4/ADR-H189): the local runner refuses
-  network; the container tier is real.** `RunSpec.network` was declarative with
-  no consumer. Now `code/sandbox.py::run` refuses any spec that declares network
-  (the local primitive cannot contain it), `code/backends.py::ContainerBackend`
-  is implemented on the hardened `security/sandbox.py::docker_argv` flags
-  (`--network none|bridge`, read-only rootfs, `no-new-privileges`, cap-drop ALL,
-  tmpfs, non-root, memory/pids limits; only the task's folder mounted; scrubbed
-  env only; container killed by name on timeout; image via
-  `HARNESS_SANDBOX_IMAGE`, default `python:3.12-slim`), a new
-  `select_for_spec` is the ONE tier rule (network ⇒ container, else local, no
-  fallback), and `command_run` routes through it — `dependency_install` stays
-  operator-gated OFF and now genuinely requires a container runtime when
-  enabled. The `local` guarantees text was updated in the same change so the
-  declaration cannot drift from the behavior. Tests:
-  `python/tests/test_sandbox_backends.py` (+4: refusal-before-launch, tier
-  routing, hardened argv for network, `--network none` when unasked). Verified:
-  targeted Python suites 66 passed.
-  docs updated: `docs/harness/decisions.md` (ADR-H189), `docs/CHANGELOG.md`.
-
-- **Headless one-shot: `eclipse chat -z "…"` (scripting / CI surface).** New
-  `python/harness/chat_cli.py` runs ONE question through the SAME runtime the web
-  chat uses (in-process, like `eclipse eval` — no front door, no second agent
-  loop): `eclipse chat -z "…"` prints the answer, `--json` prints
-  `{success, runId, status, output, error}`, exit 0/1/2 for completed/failed/
-  missing-question. Model settings resolve from the `HARNESS_JOB_*` environment
-  (the same source a scheduled job uses) plus the callback bridge vars; the
-  dispatch is wired in `harness/cli.py` before the shared parser. Tests:
-  `python/tests/test_chat_cli.py` (4, hermetic). Documented in
-  `docs/QUICKSTART.md` (Headless one-shot) with the CI note (`eclipse eval .`
-  already runs the offline gate). Verified: pytest 4 passed.
-  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
-
-- **Phase 15 tail — document truncation is now visible in the run (honesty fix).**
-  A shortened attachment was only noted at the front door; the run could not know
-  it was reading the first part, so a question about page 30 could be answered
-  confidently from page 1. Now `extract.ts` reports `originalChars`,
-  `loadContextDocuments` and the TS validator carry `truncated`/`originalChars`
-  through the run payload (`schemas.RunDocument` gained the fields with camel
-  aliases), and `graph._user_message` marks the document
-  (`<document … shortened="true">` plus a plain sentence) so the answer can state
-  the limit. The phase-15 file's stale "extractors Not started" note is corrected
-  (the docx/xlsx/pptx/odt/ods/odp/epub extractors already existed; the code wins).
-  Caps stay deliberately bounded (20k/doc, 60k total) — raising them is a
-  context-budget decision, recorded in the phase file. Tests:
-  `src/lib/chat/session-store.test.ts` (+1), `src/lib/harness/validation.test.ts`
-  (+2), `python/tests/test_graph.py` (+1). Verified: vitest 25 passed (2 files),
-  pytest 3 passed, `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/roadmap/phase-15-attachments-and-artifacts.md`,
-  `docs/CHANGELOG.md`.
-
-- **Phase 17 — the agent can schedule its own work, from a fixed catalogue and
-  behind an operator switch (repo-mapped onto the Automation engine; ADR-H187).**
-  New `python/harness/automation/catalogue.py` (nine research/analysis shapes
-  referencing the EXISTING `jobs.templates` — no code or deploy shape; a
-  consistency check fails on drift) and `python/harness/automation/scheduling_tools.py`
-  (`job_list`, `job_describe_template`, `job_create`, `job_run_now` on the ONE
-  registry). `job_create` ALWAYS writes a DISABLED automation tagged `job`+shape
-  and accepts only the shape's closed parameter set — the operator enables it
-  under Scheduled Jobs; `job_run_now` refuses a switched-off job (mirrors
-  `bot_run`). New policy key `agent_scheduling_enabled` (eclipse-memory policy,
-  default OFF): `graph.surface_disabled_tools` drops the whole scheduling surface
-  when off and every handler re-checks it fail-closed; a Policies-tab toggle
-  ("Let Eclipse schedule work for you") surfaces it. The unattended answer
-  contract now exists: `automation/delivery.py::render_run_report` puts the
-  plain outcome on the FIRST line of every delivered report and names every
-  limit a run hit. `job_create` is admitted via the new
-  `SCHEDULING_EFFECT_TOOLS` class; the chat code profile carries the four tools.
-  Tests: `python/tests/test_scheduling_tools.py` (9) + updated
-  `test_chat_code_profile.py`. Verified: targeted Python suites 47 passed.
-  docs updated: `docs/harness/decisions.md` (ADR-H187),
-  `docs/harness/automation-engine.md`, `docs/harness/roadmap/phase-17-working-on-a-cadence.md`,
-  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **The acquire loop: Eclipse can now install skills from GitHub and install
-  software, Hermes-style (ADR-H188).** New `python/harness/skills/install.py`
-  (parse a https GitHub URL/`owner/repo`, fetch the codeload zipball with
-  size/timeout caps, zip-slip/symlink-safe extraction, accept both `skill.json`
-  and `SKILL.md`-frontmatter formats, staged pydantic validation + content scan,
-  commit + `trust_root`, `uninstall_skill`, `list_installed_sources`,
-  `discover_installed_skills`) and `python/harness/skills/install_tools.py`
-  (`skill_install`/`skill_uninstall`/`skill_sources` + `make_skill_authorizer`:
-  single-use digest-bound approval `skill_install`, pause-in-card-mode). The
-  registry loads installs as the new **`external` tier**
-  (`project > profile > external > bundled`) via `load_all(installed_home=)` /
-  new `reload()`; boot records `<repo>/installed-skills`
-  (`BLACK_ECLIPSE_SKILLS_DIR` override). `mcp/install_ops.py` extracts the
-  preset-integration install so the operator route and the new approval-gated
-  `mcp_install` tool (`mcp/install_tools.py`, plus read-only `mcp_integrations`)
-  share ONE implementation — still DISABLED/nothing-selected. The chat
-  classifier now treats acquisition as software work (`install`/`uninstall` are
-  strong verbs; `download`/`set up` need a software object), so "install
-  blender" reaches the code profile where `package_install`/`terminal_run` run;
-  `ACQUISITION_WRITE_TOOLS` (`code/policy.py`) strips the five tools at
-  `plan_only`. Prompt, `ECLIPSE_AGENT` and `CHAT_CODE_TOOLS` carry the new tools;
-  `GET /skills/installed` + installed fields on `GET /skills`. Tests:
-  `python/tests/test_skill_install.py` (28) + `test_mcp_install_tools.py` (8) +
-  classifier cases; prompt ceiling re-pinned 27769→29162 (three guidance
-  paragraphs); `python/conftest.py` anchors `HARNESS_MCP_CONFIG` to a temp file
-  so a developer's real `mcp-servers.json` can never leak into the suite; the
-  graph.py size pin re-pinned 2034→2043 for unrelated in-flight wiring. Verified:
-  `npm run test` green — vitest 262 files passed, pytest 5973 passed / 16 skipped,
-  eval gates ALL PASS; `npx tsc --noEmit` clean.
-  docs updated: `docs/harness/decisions.md` (ADR-H188),
-  `docs/harness/phase-3-architecture.md`,
-  `docs/harness/memory-skills-evolution-plan.md`,
-  `docs/harness/architecture.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Notification center: red unread badges on sidebar tabs + a loud task-done
-  alarm.** New `src/lib/notifications/` — `store.ts` (zustand ledger at
-  `be_notifications_v1`, newest-first cap 100, per-`AppTab` unread counts, an
-  item raised for the visible tab is read on arrival; `setActiveTab` clears a
-  tab's badge), `task-diff.ts` (pure first-poll seeds, then announce exactly
-  one transition per `task:<id>:<completedAt|updatedAt>`; completed → loud,
-  failed → alert cue), `task-watcher.tsx` (mounted in `src/app/layout.tsx`,
-  15s poll of `GET /api/tasks`, honest no-op on 503/offline). The
-  `be:alert-notify` channel is now the single raise path for price alerts,
-  agent approvals and task completions: `alert-notification-provider.tsx`
-  parses `{ id, title, body, tab, kind, sound, alertId, test }` and always
-  toasts + feeds the ledger (+ OS notification when opted in). The sidebar
-  renders red per-tab badges (count, `9+` cap, dot when collapsed) and an
-  aggregate badge on the Terminal/Agentic/Bots switcher for tabs the active
-  menu hides; the sidebar's `activeTab` is the shell's visible-tab signal.
-  New `taskdone` sound cue (8th cue) — genuinely loud by design: synthesized
-  per-pack WAV assets in `public/sounds/<pack>/taskdone.wav`, `essential: true`,
-  and a new optional `gainFloor` (0.75) in `SoundDefinition` so the deliberately
-  subtle default master volume cannot render it inaudible (per-cue mute/volume
-  and the master switch still apply). A chat reply that finishes while the
-  operator is on another tab raises the same loud cue from `use-agent-run.ts`
-  (watching the ChatBot keeps the soft `message` cue). Tests:
-  `src/lib/notifications/store.test.ts` (8) + `task-diff.test.ts` (8).
-  Verified: vitest 266 files / 2823 passed; `npx tsc --noEmit` clean; eval
-  gates ALL PASS (one pre-existing, machine-specific
-  `test_vision_tools.py` failure — `PRIVACY_REFUSED` on a desktop with a
-  display — unrelated to this change; no Python file touched).
-  docs updated: `docs/ARCHITECTURE.md` (notification center + `taskdone`/
-  `gainFloor`/`be_sounds_v3` drift fix), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-- **Notification center completed: bell panel, bot-run notifications, and a
-  critical alarm that plays even with UI sounds off.** Follow-up to the entry
-  above. (1) `taskdone` is now a declared critical cue: `SoundDefinition` gains
-  `alwaysAudible`; `canPlay` lets such cues through while the master switch is
-  off (per-cue mute remains the explicit opt-out), so a finished background task
-  is heard without the operator hunting for the opt-in toggle. Settings › Sound
-  states this honestly; the cue hint says it too. (2) Bot runs now notify:
-  pure `src/lib/notifications/bots-run-diff.ts` diffs each bot's `lastExecution`
-  (first sweep seeds; new-or-finished terminal runs announce once keyed
-  `bot-run:<automationId>:<executionId>`; cancelled/skipped stay quiet) and
-  `bots-run-watcher.tsx` (mounted in `src/app/layout.tsx`) sweeps
-  `GET /api/automations` + one status call per active bot (cap 20, 30s) —
-  failures keep their previous tracking entry so a transient status error cannot
-  swallow a completion. Completed → `taskdone` cue, failed/timed out/blocked →
-  the alert cue, all on the `bots` tab. (3) The top bar gains a notification
-  bell + glass ledger panel (`src/components/layout/notification-center.tsx`):
-  aggregate unread count, entry click → mark tab read + `be:navigate`, per-entry
-  dismiss, "Mark all read" (store `markAllRead`/`remove` actions). New
-  `NotificationKind` = `bot`. Tests: `bots-run-diff.test.ts` (9) + two store
-  cases for `markAllRead`/`remove` — 27 total in `src/lib/notifications`.
-  Verified: vitest 268
-  files / 2838 passed; `npx tsc --noEmit` clean; `npm run dev` boot smoke check —
-  `/` 200 (56 KB), `/api/alerts/live` 200, and the new watchers' first polls
-  (`GET /api/automations`) reached the Python runtime with no compile or runtime
-  errors. No Python file touched (the pre-existing machine-specific
-  `test_vision_tools.py` failure is unchanged).
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.

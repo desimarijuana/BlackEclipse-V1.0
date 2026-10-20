@@ -22,13 +22,14 @@ the 503 "runtime unavailable" contract in AGENTS.md.
 from __future__ import annotations
 
 import os
+import queue
 import signal
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from . import policy
 
@@ -36,6 +37,7 @@ from . import policy
 MAX_OUTPUT_CAP_BYTES = 4_000_000
 _READ_CHUNK = 65_536
 _POLL_S = 0.05
+_LINE_CAP_BYTES = 1_000_000
 
 
 class SandboxUnavailable(RuntimeError):
@@ -46,6 +48,10 @@ class SandboxUnavailable(RuntimeError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class SandboxStreamError(RuntimeError):
+    """An interactive child broke the line protocol (overflow, closed pipe)."""
 
 
 @dataclass(frozen=True)
@@ -210,12 +216,180 @@ def _read_stream(stream: Any, cap: int, sink: dict[str, Any], done: threading.Ev
         done.set()
 
 
+_OVERFLOW = object()
+_EOF = object()
+
+
+class SpawnedProcess:
+    """A long-lived child with a bounded newline-delimited stdout protocol.
+
+    The persistent analysis kernel is the only caller. It starts through the
+    SAME backend as `run()` (Job Object / process group, scrubbed env, resource
+    limits), but keeps stdin open and returns one line per request. stdout is
+    protocol traffic only: the child redirects generated-code stdout/stderr into
+    a bounded buffer. A line over the cap, a resource breach, or a dead child kills
+    the whole tree and surfaces a named error — never an unbounded read.
+    """
+
+    def __init__(
+        self,
+        proc: subprocess.Popen,
+        *,
+        kill: Callable[[], None],
+        on_close: Callable[[], None],
+        spec: RunSpec,
+        line_cap_bytes: int = _LINE_CAP_BYTES,
+    ) -> None:
+        self.proc = proc
+        self._kill_tree = kill
+        self._on_close = on_close
+        self._line_cap = max(1, int(line_cap_bytes))
+        self._lines: queue.Queue[Any] = queue.Queue()
+        self._lock = threading.Lock()
+        self._closed = False
+        self._killed = False
+        self.resource_limit: Optional[str] = None
+        self._stderr_sink: dict[str, Any] = {"data": b"", "total": 0}
+        self._stderr_done = threading.Event()
+        self._reader = threading.Thread(target=self._read_stdout, daemon=True)
+        self._stderr_reader = threading.Thread(
+            target=_read_stream,
+            args=(proc.stderr, 16_384, self._stderr_sink, self._stderr_done),
+            daemon=True,
+        )
+        self._monitor = threading.Thread(target=self._watch, args=(spec,), daemon=True)
+        self._reader.start()
+        self._stderr_reader.start()
+        self._monitor.start()
+
+    def _read_stdout(self) -> None:
+        try:
+            while True:
+                line = self.proc.stdout.readline(self._line_cap + 1) if self.proc.stdout else b""
+                if not line:
+                    break
+                if len(line) > self._line_cap or not line.endswith(b"\n"):
+                    self.resource_limit = "protocol"
+                    self._kill()
+                    self._lines.put(_OVERFLOW)
+                    return
+                self._lines.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._lines.put(_EOF)
+
+    def _watch(self, spec: RunSpec) -> None:
+        max_memory_mb = int(spec.memory_mb or 0)
+        max_processes = int(spec.process_limit or 0)
+        peak_memory_mb: Optional[float] = None
+        last_sample = 0.0
+        while not self._closed and self.proc.poll() is None:
+            now = time.monotonic()
+            if now - last_sample >= 0.25:
+                last_sample = now
+                sample = _sample_tree(self.proc.pid)
+                if sample is not None:
+                    if sample.memory_mb is not None:
+                        peak_memory_mb = max(peak_memory_mb or 0.0, sample.memory_mb)
+                    breach = _limit_breach(
+                        sample, peak_memory_mb, sample.cpu_ms,
+                        max_memory_mb, int(spec.cpu_seconds or 0), max_processes,
+                    )
+                    if breach:
+                        self.resource_limit = breach
+                        self._kill()
+                        return
+            time.sleep(_POLL_S)
+
+    def _kill(self) -> None:
+        with self._lock:
+            if self._killed:
+                return
+            self._killed = True
+        try:
+            self._kill_tree()
+        except Exception:  # noqa: BLE001 - kill is best-effort; close() still waits
+            try:
+                self.proc.kill()
+            except OSError:
+                pass
+
+    def write_line(self, text: str) -> None:
+        if self._closed or self.proc.stdin is None:
+            raise SandboxStreamError("the kernel channel is closed")
+        try:
+            self.proc.stdin.write((text + "\n").encode("utf-8"))
+            self.proc.stdin.flush()
+        except (OSError, ValueError) as exc:
+            raise SandboxStreamError(f"the kernel channel is closed: {exc}") from exc
+
+    def read_line(self, timeout: float) -> str:
+        try:
+            item = self._lines.get(timeout=max(0.01, timeout))
+        except queue.Empty as exc:
+            raise TimeoutError("the kernel did not answer in time") from exc
+        if item is _OVERFLOW:
+            raise SandboxStreamError("the kernel sent an oversized protocol line")
+        if item is _EOF:
+            raise EOFError("the kernel process exited")
+        return bytes(item).decode("utf-8", "replace").rstrip("\r\n")
+
+    def alive(self) -> bool:
+        return not self._closed and self.proc.poll() is None
+
+    def stderr_text(self) -> str:
+        return bytes(self._stderr_sink.get("data", b"")).decode("utf-8", "replace")
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        self._kill()
+        try:
+            if self.proc.stdin is not None:
+                self.proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:  # pragma: no cover - kill should be prompt
+            try:
+                self.proc.kill()
+            except OSError:
+                pass
+        try:
+            self._on_close()
+        except Exception:  # noqa: BLE001 - cleanup must not raise
+            pass
+        self._stderr_done.wait(timeout=2)
+
+
 class _BaseBackend:
     name = "unknown"
     guarantees: tuple[str, ...] = ()
 
     def run(self, spec: RunSpec, *, cancel_event: Optional[threading.Event] = None) -> RawResult:
         return self._spawn_and_wait(spec, cancel_event=cancel_event)
+
+    def spawn(self, spec: RunSpec, *, line_cap_bytes: int = _LINE_CAP_BYTES) -> SpawnedProcess:
+        if spec.network:
+            raise SandboxUnavailable(
+                "the local runner cannot keep a network-capable kernel contained"
+            )
+        try:
+            proc = self._popen_interactive(spec)
+        except (OSError, ValueError) as exc:
+            raise SandboxUnavailable(f"the kernel process could not start: {exc}") from exc
+        self._on_spawn(proc, spec)
+        return SpawnedProcess(
+            proc,
+            kill=lambda: self._kill_tree(proc),
+            on_close=lambda: self._on_close(proc),
+            spec=spec,
+            line_cap_bytes=line_cap_bytes,
+        )
 
     def _spawn_and_wait(
         self, spec: RunSpec, *, cancel_event: Optional[threading.Event]
@@ -341,6 +515,9 @@ class _BaseBackend:
     def _popen(self, spec: RunSpec) -> subprocess.Popen:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    def _popen_interactive(self, spec: RunSpec) -> subprocess.Popen:  # pragma: no cover
+        raise NotImplementedError
+
     def _on_spawn(self, proc: subprocess.Popen, spec: RunSpec) -> None:
         pass
 
@@ -392,7 +569,7 @@ class WindowsJobBackend(_BaseBackend):
     guarantees = ("process_tree_kill", "env_scrub", "output_cap", "parent_death_kill")
 
     def __init__(self) -> None:
-        self._job = None
+        self._jobs: dict[int, Any] = {}
         try:  # pragma: no cover - platform-specific
             import ctypes
 
@@ -401,14 +578,25 @@ class WindowsJobBackend(_BaseBackend):
         except Exception as exc:  # noqa: BLE001 - no Win32 = no isolation primitive
             raise SandboxUnavailable(f"the Windows job primitive is unavailable: {exc}") from exc
 
+    @staticmethod
+    def _creation_flags() -> int:
+        return (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+
     def _popen(self, spec: RunSpec) -> subprocess.Popen:
-        flags = 0
-        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
         return subprocess.Popen(
             list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            creationflags=flags,
+            creationflags=self._creation_flags(),
+        )
+
+    def _popen_interactive(self, spec: RunSpec) -> subprocess.Popen:
+        return subprocess.Popen(
+            list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=self._creation_flags(),
         )
 
     def _on_spawn(self, proc: subprocess.Popen, spec: RunSpec) -> None:
@@ -476,13 +664,12 @@ class WindowsJobBackend(_BaseBackend):
             if handle:
                 kernel32.AssignProcessToJobObject(job, handle)
                 kernel32.CloseHandle(handle)
-            self._job = job
+            self._jobs[proc.pid] = job
         except Exception:  # noqa: BLE001 - best-effort; taskkill kills the tree
-            self._job = None
+            self._jobs.pop(proc.pid, None)
 
     def _on_close(self, proc: subprocess.Popen) -> None:  # pragma: no cover - Windows
-        job = self._job
-        self._job = None
+        job = self._jobs.pop(proc.pid, None)
         if job:
             try:
                 self._kernel32.CloseHandle(job)
@@ -513,6 +700,13 @@ class PosixBackend(_BaseBackend):
         return subprocess.Popen(
             list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            start_new_session=True, preexec_fn=_posix_rlimit_hook(spec),
+        )
+
+    def _popen_interactive(self, spec: RunSpec) -> subprocess.Popen:
+        return subprocess.Popen(
+            list(spec.argv), cwd=str(spec.cwd), env=dict(spec.env), shell=False,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True, preexec_fn=_posix_rlimit_hook(spec),
         )
 
@@ -575,6 +769,20 @@ def run(spec: RunSpec, *, cancel_event: Optional[threading.Event] = None) -> Raw
     return select_backend().run(spec, cancel_event=cancel_event)
 
 
+def spawn(spec: RunSpec, *, line_cap_bytes: int = _LINE_CAP_BYTES) -> SpawnedProcess:
+    """Start a long-lived child through the selected isolation primitive.
+
+    Only the persistent analysis kernel uses this. It has the same env scrub,
+    process-tree kill and resource limits as `run()`; `network=True` is refused.
+    """
+    if spec.network:
+        raise SandboxUnavailable(
+            "this kernel needs a runner that can keep its network use contained; "
+            "the local runner cannot, so it was not started"
+        )
+    return select_backend().spawn(spec, line_cap_bytes=line_cap_bytes)
+
+
 def backend_name() -> str:
     """The current backend's name, or 'unavailable' — honest, never guessed."""
     try:
@@ -588,11 +796,14 @@ __all__ = [
     "PosixBackend",
     "RawResult",
     "RunSpec",
+    "SandboxStreamError",
     "SandboxUnavailable",
+    "SpawnedProcess",
     "WindowsJobBackend",
     "backend_name",
     "build_env",
     "run",
     "select_backend",
     "set_backend",
+    "spawn",
 ]

@@ -32,5 +32,9 @@ export function GlobalSearchMount() {
   // `/` reaches the composer on every route, including the standalone pages.
   useChatFocusKeybind();
 
-  return <GlobalSearchOverlay />;
+  // Render the overlay ONLY when open. Rendering it unconditionally downloaded
+  // the palette library on every route (the root layout mounts this), and
+  // prewarming it at idle still put that compile on the boot path. The keybinds
+  // are local, so the first Ctrl+K loads the chunk on demand.
+  return open ? <GlobalSearchOverlay /> : null;
 }

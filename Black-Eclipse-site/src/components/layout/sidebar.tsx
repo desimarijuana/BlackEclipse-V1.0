@@ -120,6 +120,7 @@ export function Sidebar({
   const sidebarConfig = useSidebarConfigStore((s) => s.config);
   const navMode = useSidebarConfigStore((s) => s.mode);
   const setNavMode = useSidebarConfigStore((s) => s.setMode);
+  const setNavModeFromNavigation = useSidebarConfigStore((s) => s.setModeFromNavigation);
   const activeMode = NAV_MODES.find((m) => m.id === navMode) ?? NAV_MODES[0];
   const ActiveModeIcon = activeMode.icon;
   const cfgMap = configMap(sidebarConfig);
@@ -168,8 +169,8 @@ export function Sidebar({
     if (lastSyncedTabRef.current === activeTab) return;
     lastSyncedTabRef.current = activeTab;
     const mode = modeForTab(activeTab);
-    if (mode) setNavMode(mode);
-  }, [activeTab, setNavMode]);
+    if (mode) setNavModeFromNavigation(mode);
+  }, [activeTab, setNavModeFromNavigation]);
 
   // Track the visible tab in the notification center: opening a tab clears its
   // red badge, and a notification raised for the visible tab never badges (it

@@ -18,6 +18,7 @@ from ..sdk.model import (
     SdkActiveDashboardInput,
     SdkAddStockInput,
     SdkAssertLockInput,
+    SdkAuditInput,
     SdkCreateFundInput,
     SdkCreateLockInput,
     SdkCreatePageInput,
@@ -91,6 +92,37 @@ def sdk_capabilities(request: Request, _: bool = Depends(require_operator)) -> d
         return {"success": True, **(_sdk().capabilities())}
     except Exception as exc:  # noqa: BLE001
         _wrap(exc)
+
+
+# ── audit ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/sdk/audit")
+def sdk_list_audit(
+    request: Request,
+    limit: int = Query(100, ge=1, le=500),
+    action: Optional[str] = None,
+    resourceType: Optional[str] = None,  # noqa: N803
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    try:
+        result = _sdk().list_audit(limit=limit, action=action, resource_type=resourceType)
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, **result}
+
+
+@router.post("/sdk/audit")
+def sdk_record_audit(
+    request: Request,
+    body: SdkAuditInput,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    try:
+        entry = _sdk().record_audit(body, actor=_owner(request))
+    except Exception as exc:  # noqa: BLE001
+        _wrap(exc)
+    return {"success": True, "entry": entry}
 
 
 # ── declarative widgets ───────────────────────────────────────────────────────
@@ -369,7 +401,7 @@ def sdk_assert_lock(request: Request, body: SdkAssertLockInput, _: bool = Depend
 @router.post("/sdk/locks/{lock_id}/unlock")
 def sdk_unlock(lock_id: str, request: Request, body: SdkUnlockInput, _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
-        result = _sdk().unlock(lock_id, body.passphrase)
+        result = _sdk().unlock(lock_id, body.passphrase, actor=_owner(request))
     except Exception as exc:  # noqa: BLE001
         _wrap(exc)
     return result

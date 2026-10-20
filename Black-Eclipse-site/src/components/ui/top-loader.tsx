@@ -6,12 +6,16 @@ import { DotGrid } from '@/components/ui/ascii-loader';
 
 // Full-page loading state for the CONTENT AREA only: during page
 // transitions the sidebar stays visible while the data region goes blank
-// with the grey dot-grid loader centered on top, plus a live progress
-// number. The overlay's left edge tracks the sidebar's right edge (the
-// desktop rail; on mobile it is display:none so the overlay is full-width).
+// with the grey dot-grid loader centered on top.
+//
+// It is deliberately INDETERMINATE. The loader cannot know how far along a
+// dynamic import / data fetch is, and the old fake count-up capped at 95% and
+// then sat there while a screen compiled or a request waited — reading as a
+// hang ("stuck at 95%"). A plain "Loading" state is honest and never appears
+// frozen at an arbitrary number. The 300ms show delay still prevents a flash on
+// fast/cached loads.
 export function TopLoader() {
   const [mounted, setMounted] = useState(false);
-  const [pct, setPct] = useState(4);
   const [left, setLeft] = useState(0);
 
   useEffect(() => {
@@ -38,16 +42,6 @@ export function TopLoader() {
     };
   }, [mounted]);
 
-  // Count-up: creeps toward 95% while work runs; the parent unmounts this
-  // component when loading finishes, so 100% is never faked here.
-  useEffect(() => {
-    if (!mounted) return;
-    const id = setInterval(() => {
-      setPct(prev => Math.min(95, prev + Math.max(0.8, (95 - prev) * 0.06)));
-    }, 250);
-    return () => clearInterval(id);
-  }, [mounted]);
-
   // Show-delay: fast fetches (<300ms) never flash the full-screen loader —
   // kills the loader flicker on quick tab switches / cached loads.
   const [visible, setVisible] = useState(false);
@@ -64,11 +58,11 @@ export function TopLoader() {
       className="fixed top-0 bottom-0 right-0 z-[45] flex flex-col items-center justify-center gap-5 bg-background animate-fade-in"
       style={{ left }}
       role="status"
-      aria-label={`Loading ${Math.floor(pct)}%`}
+      aria-label="Loading"
     >
       <DotGrid size={40} />
-      <span className="font-mono text-[11px] font-bold text-muted-foreground tabular-nums">
-        {Math.floor(pct)}%
+      <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+        Loading
       </span>
     </div>,
     document.body

@@ -121,10 +121,13 @@ class BlockedReason(str, Enum):
 
 
 class TaskType(str, Enum):
-    """The task-type key a completion verifier is registered under (W8.4).
+    """The task-type key a completion verifier is registered under (W8.4/W14).
 
     An explicit, closed vocabulary — never inferred from prose at verification
     time. `general` is the honest fallback for work that fits no other class.
+    `data` (W14) is the quantitative class: its verifier demands a reproducible
+    calculation (a recorded formula/analysis with its inputs), never a number
+    in prose.
     """
 
     CODE = "code"
@@ -132,6 +135,7 @@ class TaskType(str, Enum):
     DOCUMENT = "document"
     WORKFLOW = "workflow"
     FINANCE = "finance"
+    DATA = "data"
     GENERAL = "general"
 
 

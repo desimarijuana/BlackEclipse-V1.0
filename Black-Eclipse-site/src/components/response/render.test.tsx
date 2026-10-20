@@ -77,6 +77,25 @@ describe('block rendering', () => {
     expect(out).toContain('2 rows');
   });
 
+  it('right-aligns numeric columns and formats raw numbers as financial values', () => {
+    const out = html(
+      <DataTableBlock
+        columns={[
+          { key: 'asset', label: 'Asset' },
+          { key: 'loss', label: 'Realised loss' },
+        ]}
+        rows={[
+          { asset: 'BTC', loss: -1234.5 },
+          { asset: 'ETH', loss: 2500 },
+        ]}
+      />,
+    );
+    const formatted = (-1234.5).toLocaleString(undefined, { maximumFractionDigits: 4 });
+    expect(out).toContain('text-align:right');
+    expect(out).toContain(formatted);
+    expect(out).toContain('text-rose-400/90');
+  });
+
   it('renders inline Markdown in table cells and headers (bold is never literal)', () => {
     const out = html(
       <DataTableBlock

@@ -14,20 +14,46 @@ and model-free; they never activate a change.
 """
 
 from .config import DEFAULT_MODE, MODES, RSLConfig
+from .hillclimb import HillClimbConfig, run_hillclimb
+from .lesson_feedback import (
+    LessonOutcomeStore,
+    LessonStats,
+    rank_lessons,
+    retire_unhelpful,
+)
 from .models import HarnessSnapshot, Observation
+from .proposer_model import model_settings_from_env, propose_variants
+from .replay import ReplaySuite, build_replay_suite, replay_gate
 from .security import (
     RSL_DENY_GLOBS,
     RSLTargetError,
     assert_landable_target,
 )
+from .state import HarnessStateStore
+from .utility import UtilityWeights, acceptance, utility
 
 __all__ = [
     "DEFAULT_MODE",
     "HarnessSnapshot",
+    "HarnessStateStore",
+    "HillClimbConfig",
+    "LessonOutcomeStore",
+    "LessonStats",
     "MODES",
     "Observation",
     "RSLConfig",
     "RSL_DENY_GLOBS",
     "RSLTargetError",
+    "ReplaySuite",
+    "UtilityWeights",
+    "acceptance",
     "assert_landable_target",
+    "build_replay_suite",
+    "model_settings_from_env",
+    "propose_variants",
+    "rank_lessons",
+    "replay_gate",
+    "retire_unhelpful",
+    "run_hillclimb",
+    "utility",
 ]

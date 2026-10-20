@@ -9,6 +9,9 @@ activation" discipline the MCP layer applies.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,6 +32,7 @@ from .code.execution import (
     run_analysis,
 )
 from .code.recipes import get_recipe, list_recipes, run_recipe
+from .code.sandbox_tools import ToolResolver, tool_names
 from .tools import ToolContext
 
 
@@ -41,6 +45,9 @@ class AnalysisRunInput(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     purpose: str = Field(..., min_length=1, max_length=300)
     timeout_s: int = Field(120, ge=1, le=600)
+    # Start a fresh sandbox interpreter for this session instead of reusing the
+    # warm one (a recovery escape hatch; it never changes the isolation rules).
+    reset: bool = False
 
 
 def analysis_schema() -> dict[str, Any]:
@@ -53,7 +60,13 @@ def analysis_schema() -> dict[str, Any]:
             },
             "source": {
                 "type": "string",
-                "description": "Only when no recipe fits: a short Python program. It reads its data from `inputs` and puts its answer in `result`. No network, no files outside its own folder.",
+                "description": (
+                    "Only when no recipe fits: a short Python program. It reads its data from "
+                    "`inputs` and puts its answer in `result`. It may `import eclipse_tools` "
+                    f"and call the read-only bindings {', '.join(tool_names())}; arguments are "
+                    "JSON values and fetched data stays out of the conversation. No network, "
+                    "no writes, no files outside its own folder."
+                ),
             },
             "inputs": {
                 "type": "object",
@@ -61,6 +74,10 @@ def analysis_schema() -> dict[str, Any]:
             },
             "purpose": {"type": "string", "description": "In plain words, what this works out (shown to the user)."},
             "timeout_s": {"type": "integer", "description": "How long it may run (seconds)."},
+            "reset": {
+                "type": "boolean",
+                "description": "Start a fresh sandbox interpreter for this session (use after a broken analysis).",
+            },
         },
         "required": ["purpose"],
         "additionalProperties": False,
@@ -86,6 +103,68 @@ def _artifacts_dir(ctx: ToolContext) -> Optional[Path]:
     if root is None:
         return None
     return Path(root) / ".black-eclipse" / "artifacts" / str(getattr(ctx, "run_id", "run"))
+
+
+def _capability_root(ctx: ToolContext) -> Optional[Path]:
+    root = getattr(getattr(ctx, "workspace", None), "root", None)
+    if root:
+        return Path(root)
+    from .code.workspace import default_root  # noqa: PLC0415
+
+    return default_root()
+
+
+def _refresh_capability_recipes(ctx: ToolContext) -> list[str]:
+    store = getattr(ctx, "memory_store", None)
+    if store is None:
+        return []
+    try:
+        from .capabilities.registry import refresh_generated_recipes  # noqa: PLC0415
+
+        return refresh_generated_recipes(store, _capability_root(ctx))
+    except Exception:  # noqa: BLE001 - generated recipes are additive
+        return []
+
+
+async def _record_capability_usage(ctx: ToolContext, name: str, result: AnalysisResult) -> None:
+    store = getattr(ctx, "memory_store", None)
+    if store is None:
+        return
+    try:
+        from .capabilities.registry import is_generated_recipe  # noqa: PLC0415
+        from .capabilities.store import CapabilityStore  # noqa: PLC0415
+
+        if not is_generated_recipe(name):
+            return
+        capability_store = CapabilityStore(store)
+        active = capability_store.records(capability_id=name, status="active", limit=1)
+        if not active:
+            return
+        usage = capability_store.record_usage(
+            name, str(active[0].get("version") or ""),
+            ok=(result.status == "ok"), run_id=getattr(ctx, "run_id", None),
+            duration_ms=result.duration_ms,
+        )
+        if result.status != "ok":
+            try:
+                from .code.evolution import record_mistake_recurrence  # noqa: PLC0415
+
+                record_mistake_recurrence(
+                    store, ["capability_failure"], run_id=getattr(ctx, "run_id", None),
+                )
+            except Exception:  # noqa: BLE001 - learning is additive
+                pass
+        if usage.get("disabled"):
+            from .code.tools import emit_code_event  # noqa: PLC0415
+
+            await emit_code_event(ctx, "capability.disabled", {
+                "capabilityId": name,
+                "version": str(active[0].get("version") or ""),
+                "reason": "repeated failures",
+                "status": "disabled",
+            })
+    except Exception:  # noqa: BLE001 - usage recording is additive
+        pass
 
 
 def _record_analysis(ctx: ToolContext, result: AnalysisResult) -> None:
@@ -135,6 +214,76 @@ def _record_analysis(ctx: ToolContext, result: AnalysisResult) -> None:
         pass
 
 
+#: How many analysis records a run may carry as evidence (bounded).
+MAX_RUN_ANALYSES = 20
+
+
+def load_run_analyses(store: Any, run_id: str, *, limit: int = MAX_RUN_ANALYSES) -> Optional[dict[str, Any]]:
+    """Read one run's recorded analyses as bounded evidence (W14).
+
+    The rows were written by `_record_analysis` during the run; the task
+    verifier reads them so a `data` task can check that a reproducible
+    computation happened — never a number in prose. `None` when the table does
+    not exist yet (no analysis ran) or the store is unavailable: never a
+    fabricated record.
+    """
+    if store is None or not run_id:
+        return None
+    db = getattr(store, "_db", None)
+    if db is None:
+        return None
+    try:
+        rows = db.execute(
+            "SELECT status, sourceDigest, result FROM AnalysisRecord WHERE runId=? "
+            "ORDER BY createdAt LIMIT ?",
+            (str(run_id), int(limit)),
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - a missing table/read failure is no evidence
+        return None
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        # Positional access works for both tuple rows and `sqlite3.Row`.
+        status, source_digest, raw = row[0], row[1], row[2]
+        try:
+            blob = json.loads(raw) if raw else {}
+        except Exception:  # noqa: BLE001 - a malformed row is skipped, not fatal
+            blob = {}
+        if not isinstance(blob, dict):
+            blob = {}
+        records.append({
+            "status": str(blob.get("status") or status or ""),
+            "sourceDigest": str(blob.get("sourceDigest") or source_digest or ""),
+            "inputDigests": blob.get("inputDigests") if isinstance(blob.get("inputDigests"), dict) else {},
+            "outputs": blob.get("outputs") if isinstance(blob.get("outputs"), dict) else {},
+            "artifactCount": len(blob.get("artifacts") or []),
+        })
+    if not records:
+        return None
+    return {"records": records, "count": len(records)}
+
+
+def _tool_resolver_for(ctx: ToolContext, deadline: float) -> Optional[ToolResolver]:
+    """Bridge a SANDBOX-side (sync, worker-thread) read to the async DataBridge.
+
+    `run_analysis` is synchronous and now runs on a worker thread, so it cannot
+    call the async bridge directly. The resolver posts the coroutine back to the
+    run's event loop and blocks only the worker thread, never the loop.
+    """
+    bridge = getattr(ctx, "data_bridge", None)
+    if bridge is None:
+        return None
+    loop = asyncio.get_running_loop()
+
+    def resolve(capability: str, params: dict[str, Any]) -> dict[str, Any]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("the analysis ran out of time while waiting for data")
+        future = asyncio.run_coroutine_threadsafe(bridge.fetch(capability, params), loop)
+        return future.result(timeout=remaining)
+
+    return resolve
+
+
 def _computed_text(result: AnalysisResult, purpose: str) -> str:
     """The plain, user-facing rendering — never interpreter/argv vocabulary."""
     if result.status != "ok":
@@ -142,6 +291,10 @@ def _computed_text(result: AnalysisResult, purpose: str) -> str:
     lines = ["Worked out by Eclipse.", f"What: {purpose}."]
     for key, value in list(result.outputs.items())[:12]:
         lines.append(f"  {key}: {value}")
+    if result.tool_calls:
+        lines.append(
+            f"Data read: {len(result.tool_calls)} lookup(s); names and digests are in the run record."
+        )
     if result.artifacts:
         names = ", ".join(a.name for a in result.artifacts)
         lines.append(f"Saved: {names}")
@@ -170,15 +323,33 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
     if not model.recipe and not model.source:
         return _refusal(INPUT_INVALID, "nothing to work out — a recipe or a program is needed")
 
+    _refresh_capability_recipes(ctx)
+
     output_dir = _artifacts_dir(ctx)
     await emit_code_event(ctx, "analysis.started", {"recipe": model.recipe or None, "purpose": model.purpose})
 
-    try:
-        if model.recipe:
-            result = run_recipe(
-                model.recipe, model.inputs, output_dir=output_dir, timeout_s=model.timeout_s,
-            )
-        else:
+    deadline = time.monotonic() + max(1, int(model.timeout_s))
+    resolver = _tool_resolver_for(ctx, deadline)
+
+    def _run_sync() -> AnalysisResult:
+        # The persistent kernel is an execution strategy, never a second data
+        # path. A spawn failure returns None and the one-shot runner is used,
+        # so a missing kernel can never fail an analysis.
+        from .code.kernel import (  # noqa: PLC0415
+            kernel_for_context,
+            release_kernel,
+            reset_kernel_for_context,
+        )
+
+        if model.reset:
+            reset_kernel_for_context(ctx)
+        kernel = kernel_for_context(ctx)
+        try:
+            if model.recipe:
+                return run_recipe(
+                    model.recipe, model.inputs, output_dir=output_dir,
+                    timeout_s=model.timeout_s, tool_resolver=resolver, kernel=kernel,
+                )
             request = AnalysisRequest(
                 source=model.source or "",
                 inputs=[
@@ -187,13 +358,25 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
                 ],
                 purpose=model.purpose,
                 timeout_s=model.timeout_s,
+                allow_tools=resolver is not None,
             )
-            result = run_analysis(request, output_dir=output_dir)
+            return run_analysis(
+                request, output_dir=output_dir, tool_resolver=resolver, kernel=kernel,
+            )
+        finally:
+            release_kernel(kernel)
+
+    try:
+        # The sandbox is synchronous; run it OFF the event loop so a read-only
+        # bridge call can be posted back to this loop while it waits.
+        result = await asyncio.to_thread(_run_sync)
     except AnalysisError as exc:
         await emit_code_event(ctx, "analysis.refused", {"code": exc.code})
         return _refusal(exc.code, exc.reason)
 
     _record_analysis(ctx, result)
+    if model.recipe and result.status in ("ok", "failed", "timed_out"):
+        await _record_capability_usage(ctx, model.recipe, result)
     # Universal registration: every file the sandbox produced is recorded in the
     # Artifact Center (idempotent per run+digest) so it is discoverable, not just
     # mentioned in this response. Best-effort; never fails the analysis.
@@ -244,6 +427,7 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
     data = {
         "status": result.status,
         "code": result.code,
+        "recipe": model.recipe or None,
         "provenance": result.provenance.to_dict() if result.provenance else None,
         "outputs": result.outputs,
         "artifacts": [a.model_dump(by_alias=True) for a in result.artifacts],
@@ -252,6 +436,8 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         "figure": result.figure.to_dict() if result.figure else None,
         "sourceDigest": result.source_digest,
         "inputDigests": result.input_digests,
+        # Phase 3: read-only host calls (metadata only, never the fetched value).
+        "toolCalls": [call.model_dump(by_alias=True) for call in result.tool_calls],
         "interpreter": result.interpreter,
         "packageLockDigest": result.package_lock_digest,
         "durationMs": result.duration_ms,
@@ -286,4 +472,12 @@ def _infer_kind(value: Any) -> str:
     return "scalar"
 
 
-__all__ = ["AnalysisRunInput", "analysis_run", "analysis_schema", "list_recipes", "get_recipe"]
+__all__ = [
+    "AnalysisRunInput",
+    "MAX_RUN_ANALYSES",
+    "analysis_run",
+    "analysis_schema",
+    "list_recipes",
+    "get_recipe",
+    "load_run_analyses",
+]

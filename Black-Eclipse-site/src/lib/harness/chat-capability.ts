@@ -30,11 +30,14 @@ export interface ChatCapabilityProfile {
  * `data_task` → no profile switch, analysis sandbox ON: the ordinary finance
  *   surface is unchanged and Eclipse may compute the result instead of
  *   refusing. Additive — a data task never widens the tool surface.
- * `not_code` → null: the ordinary finance surface is unchanged.
+ * `app_control` → no profile switch: the typed SDK tools serve the turn and the
+ *   run carries an `appControl` note. `not_code` → null: the ordinary finance
+ *   surface is unchanged.
  *
- * A `code_change` or `data_task` turn also enables the analysis sandbox for
- * that turn, so Eclipse can *compute* (a drawdown, a cleaned dataset) rather
- * than only describe it.
+ * The chat run path enables the analysis sandbox for EVERY chat turn
+ * (ADR-H228), so this returned `analysisEnabled` field is informational: it
+ * records the classifier's verdict and no longer decides the run payload. A
+ * code profile only narrows the tool surface; it never turns computation off.
  */
 export async function resolveChatCodeProfile(
   query: string,

@@ -20,7 +20,15 @@ from .model import (
     SdkDashboardSetZonesInput,
     SdkWidgetInput,
 )
+from .app_tools import APP_DEFS, APP_HANDLERS, APP_READ_TOOLS
+from .dashboard_template_tools import (
+    DASHBOARD_TEMPLATE_DEFS,
+    DASHBOARD_TEMPLATE_HANDLERS,
+    DASHBOARD_TEMPLATE_READ_TOOLS,
+)
+from .page_tools import PAGE_DEFS, PAGE_HANDLERS, PAGE_READ_TOOLS
 from .service import EclipseSdk, SdkError
+from .theme_tools import THEME_DEFS, THEME_HANDLERS, THEME_READ_TOOLS
 from ..ui.service import UiError
 
 
@@ -68,6 +76,24 @@ async def _capabilities(args: dict[str, Any], ctx: ToolContext) -> Any:
         f"{dashboards.get('count', 0)} dashboard(s).",
         result,
     )
+
+
+async def _audit_list(args: dict[str, Any], ctx: ToolContext) -> Any:
+    try:
+        limit = args.get("limit")
+        result = _service(ctx).list_audit(
+            limit=int(limit) if isinstance(limit, (int, float)) else 50,
+            action=args.get("action"),
+            resource_type=args.get("resourceType"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+    entries = result.get("entries") or []
+    lines = [
+        f'{entry.get("createdAt")}  {entry.get("action")}  {entry.get("summary")}'
+        for entry in entries
+    ]
+    return _ok("\n".join(lines) or "No SDK activity yet.", result)
 
 
 async def _widget_list(args: dict[str, Any], ctx: ToolContext) -> Any:
@@ -251,7 +277,9 @@ async def _lock_list(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 async def _lock_unlock(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
-        result = _service(ctx).unlock(str(args.get("lockId") or ""), str(args.get("passphrase") or ""))
+        result = _service(ctx).unlock(
+            str(args.get("lockId") or ""), str(args.get("passphrase") or ""), actor="chat",
+        )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
     return _ok("Unlocked.", result)
@@ -269,6 +297,7 @@ async def _lock_remove(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 _DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ("sdk_capabilities", "Summarize the Eclipse SDK control plane: user widgets, dashboards, pages, portfolio and locks.", {"type": "object", "properties": {}}),
+    ("sdk_audit_list", "List recent SDK activity (widgets, pages, dashboards, locks, themes, app shell).", {"type": "object", "properties": {"limit": {"type": "integer"}, "action": {"type": "string"}, "resourceType": {"type": "string"}}}),
     ("sdk_widget_list", "List the user's declarative widgets.", {"type": "object", "properties": {}}),
     ("sdk_widget_create", "Create a declarative user widget from a closed primitive (data-table, metric-card, charts, list, markdown, status-indicator, empty-state, error-state, clock).", {"type": "object", "properties": {"slug": {"type": "string"}, "label": {"type": "string"}, "description": {"type": "string"}, "icon": {"type": "string"}, "category": {"type": "string"}, "primitive": {"type": "string"}, "source": {"type": "string"}, "surface": {"type": "string", "enum": ["dashboard", "page", "both"]}, "config": {"type": "object"}, "sizes": {"type": "array", "items": {"type": "string"}}}, "required": ["slug", "label"]}),
     ("sdk_widget_delete", "Delete a user widget definition by component id (e.g. sdk.my-clock).", {"type": "object", "properties": {"componentId": {"type": "string"}}, "required": ["componentId"]}),
@@ -285,13 +314,14 @@ _DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ("sdk_dashboard_history", "List the retained revisions of a Command Center dashboard.", {"type": "object", "properties": {"dashboardId": {"type": "string"}}}),
     ("sdk_dashboard_restore", "Restore a Command Center dashboard to an earlier retained revision (recorded as a new revision, so it is undoable).", {"type": "object", "properties": {"dashboardId": {"type": "string"}, "revision": {"type": "integer"}}, "required": ["revision"]}),
     ("sdk_lock_list", "List passphrase locks (optionally by resourceType/resourceId).", {"type": "object", "properties": {"resourceType": {"type": "string"}, "resourceId": {"type": "string"}}}),
-    ("sdk_lock_create", "Lock a page, widget, portfolio, design, dashboard or theme. Subsequent mutations without a valid unlock token are refused.", {"type": "object", "properties": {"resourceType": {"type": "string", "enum": ["page", "widget", "portfolio", "design", "dashboard", "theme"]}, "resourceId": {"type": "string"}, "passphrase": {"type": "string"}, "label": {"type": "string"}, "hint": {"type": "string"}}, "required": ["resourceType", "resourceId", "passphrase"]}),
+    ("sdk_lock_create", "Lock a page, widget, portfolio, design, dashboard or theme. For a dashboard use the dashboardId from sdk_dashboard_active (not the blueprintId); for a theme use resourceId 'global'. Subsequent mutations without a valid unlock token are refused. Ask the user for a passphrase when they did not give one.", {"type": "object", "properties": {"resourceType": {"type": "string", "enum": ["page", "widget", "portfolio", "design", "dashboard", "theme"]}, "resourceId": {"type": "string"}, "passphrase": {"type": "string"}, "label": {"type": "string"}, "hint": {"type": "string"}}, "required": ["resourceType", "resourceId", "passphrase"]}),
     ("sdk_lock_unlock", "Unlock a locked resource with its passphrase.", {"type": "object", "properties": {"lockId": {"type": "string"}, "passphrase": {"type": "string"}}, "required": ["lockId", "passphrase"]}),
     ("sdk_lock_remove", "Remove a lock. Requires the unlock token or the passphrase.", {"type": "object", "properties": {"lockId": {"type": "string"}, "passphrase": {"type": "string"}}, "required": ["lockId"]}),
 ]
 
 _HANDLERS = {
     "sdk_capabilities": _capabilities,
+    "sdk_audit_list": _audit_list,
     "sdk_widget_list": _widget_list,
     "sdk_widget_create": _widget_create,
     "sdk_widget_delete": _widget_delete,
@@ -313,10 +343,19 @@ _HANDLERS = {
     "sdk_lock_remove": _lock_remove,
 }
 
+_DEFS.extend(PAGE_DEFS)
+_DEFS.extend(THEME_DEFS)
+_DEFS.extend(APP_DEFS)
+_DEFS.extend(DASHBOARD_TEMPLATE_DEFS)
+_HANDLERS.update(PAGE_HANDLERS)
+_HANDLERS.update(THEME_HANDLERS)
+_HANDLERS.update(APP_HANDLERS)
+_HANDLERS.update(DASHBOARD_TEMPLATE_HANDLERS)
+
 READ_TOOLS = frozenset({
-    "sdk_capabilities", "sdk_widget_list", "sdk_dashboard_list", "sdk_dashboard_active",
-    "sdk_dashboard_get", "sdk_dashboard_history", "sdk_lock_list",
-})
+    "sdk_capabilities", "sdk_audit_list", "sdk_widget_list", "sdk_dashboard_list",
+    "sdk_dashboard_active", "sdk_dashboard_get", "sdk_dashboard_history", "sdk_lock_list",
+}) | PAGE_READ_TOOLS | THEME_READ_TOOLS | APP_READ_TOOLS | DASHBOARD_TEMPLATE_READ_TOOLS
 SDK_TOOLS = tuple(name for name, _, _ in _DEFS)
 
 

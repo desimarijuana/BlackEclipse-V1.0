@@ -61,7 +61,7 @@ class _Service:
     def propose_routing_repair(self, incident_id: str, *, catalog=None):
         if incident_id != "inc_clock":
             return None
-        return propose("my dashboard is missing a world clock").to_dict()
+        return propose("my dashboard is missing a latency ribbon").to_dict()
 
 
 @pytest.fixture()
@@ -113,7 +113,7 @@ def test_the_prepared_change_lands_and_rolls_back(repo, service):
 
 def test_an_authority_target_is_refused_before_any_worktree(repo, service, monkeypatch):
     def _authority(incident_id: str, *, catalog=None):
-        proposal = propose("my dashboard is missing a world clock").to_dict()
+        proposal = propose("my dashboard is missing a latency ribbon").to_dict()
         proposal["targetFile"] = "python/harness/code/policy.py"
         return proposal
 
@@ -126,7 +126,7 @@ def test_an_authority_target_is_refused_before_any_worktree(repo, service, monke
 
 def test_a_non_code_proposal_is_not_landable(repo, service, monkeypatch):
     def _catalog_gap(incident_id: str, *, catalog=None):
-        return propose("I would love a world clock on my dashboard").to_dict()
+        return propose("I would love a latency ribbon on my dashboard").to_dict()
 
     monkeypatch.setattr(service, "propose_routing_repair", _catalog_gap)
     with pytest.raises(RoutingLandingError) as exc:

@@ -311,7 +311,7 @@ class ScriptedAgentInvoker:
                 provider="ollama", model=f"evaluation-{trial_id}",
                 base_url="http://localhost:11434/v1",
             ),
-            callbackBaseUrl="http://localhost:3000",
+            callbackBaseUrl="http://localhost:3000", liveSurface=False,
         )
         bus = EventBus()
         collected: list[dict[str, Any]] = []
@@ -390,7 +390,7 @@ class ServiceAgentInvoker:
             input=RunInput(query=str(getattr(task, "input", {}).get("prompt") or task.name)),
             agentId=self.agent_id,
             modelSettings=settings,
-            callbackBaseUrl="http://localhost:3000",
+            callbackBaseUrl="http://localhost:3000", liveSurface=False,
         )
         collected: list[dict[str, Any]] = []
         unsubscribe = self.service.bus.subscribe(

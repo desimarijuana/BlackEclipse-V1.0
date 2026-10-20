@@ -415,6 +415,11 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       return; // server unreachable — keep this origin's cached theme
     }
     if (remote) {
+      const current = normalizeTheme(get().theme);
+      if (get().customized && JSON.stringify(remote) === JSON.stringify(current)) {
+        set({ hydrated: true, customized: true });
+        return;
+      }
       applyThemeToDocument(remote);
       applyFavicon(remote);
       applyDocumentTitle(remote);
@@ -594,6 +599,16 @@ export function useHydrateTheme() {
       // The server theme is app-wide and authoritative; adopt it after the local
       // cache so every origin/device converges on the same look.
       void hydrateFromServer();
+      return;
     }
+    const refresh = () => void hydrateFromServer();
+    window.addEventListener('focus', refresh);
+    window.addEventListener('eclipse:theme-changed', refresh);
+    const timer = setInterval(refresh, 15_000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('eclipse:theme-changed', refresh);
+      clearInterval(timer);
+    };
   }, [hydrated, hydrate, hydrateFromServer]);
 }

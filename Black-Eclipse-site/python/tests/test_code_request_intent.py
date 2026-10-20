@@ -33,6 +33,22 @@ from harness.code.request_intent import CodeIntent, classify_code_request
         ("create an application within eclipse", "code_change"),
         ("add a new page to eclipse", "code_change"),
         ("build a plugin for eclipse", "code_change"),
+        ("add a clock to my command center", "app_control"),
+        ("move the watchlist to the right and make the board four columns", "app_control"),
+        ("reset my command center to the rates template", "app_control"),
+        ("create a cyberpunk neon theme with tight corners", "app_control"),
+        ("apply the Neon theme", "app_control"),
+        ("delete the Neon preset", "app_control"),
+        ("lock my command center", "app_control"),
+        ("create a page called Rates Desk and put it in the nav", "app_control"),
+        ("hide news from the sidebar", "app_control"),
+        ("reorder the sidebar and put chat first", "app_control"),
+        ("open the command center", "app_control"),
+        ("show the tasks page in the nav", "app_control"),
+        ("add a new kind of widget that shows a live gauge", "code_change"),
+        ("write a React component", "code_change"),
+        ("add a dependency", "code_change"),
+        ("fix a bug in the dashboard", "code_change"),
     ],
 )
 def test_labelled_verdicts(query: str, verdict: str) -> None:
@@ -44,6 +60,13 @@ def test_follow_up_after_a_code_change_turn_is_a_change() -> None:
     history = [{"role": "user", "content": "add a drawdown recipe and run the tests"}]
     intent = classify_code_request("do it", history=history)
     assert intent.verdict == "code_change"
+    assert "follow_up" in intent.signals
+
+
+def test_theme_follow_up_after_app_control_stays_app_control() -> None:
+    history = [{"role": "user", "content": "create a cyberpunk neon theme with tight corners"}]
+    intent = classify_code_request("save this as Neon", history=history)
+    assert intent.verdict == "app_control", intent
     assert "follow_up" in intent.signals
 
 

@@ -9,6 +9,11 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Check, Search } from '@/lib/icon
 import { cn } from '@/lib/utils';
 import { inlineText, isNegativeValue, isNumericText, isUnavailableText, parseInline } from '@/lib/chat/markdown';
 import { renderInline } from '@/components/chat/markdown';
+import {
+  formatNumericCell,
+  numericCellValue,
+  resolveColumnAlign,
+} from '@/lib/response/table-presentation';
 import type { TableCell } from '@/lib/response/contract';
 
 export interface DataTableBlockProps {
@@ -29,21 +34,13 @@ type SortState = { key: string; dir: 'asc' | 'desc' } | null;
 function cellText(cell: TableCell): string {
   if (cell == null) return '';
   if (typeof cell === 'boolean') return cell ? 'yes' : 'no';
+  if (typeof cell === 'number') return formatNumericCell(cell) ?? String(cell);
   return String(cell);
 }
 
 /** A cell's plain text with inline Markdown markers removed (for filter/sort/TSV). */
 function plainText(cell: TableCell): string {
   return inlineText(parseInline(cellText(cell)));
-}
-
-function cellNumber(cell: TableCell): number | null {
-  if (typeof cell === 'number') return cell;
-  if (typeof cell === 'string' && isNumericText(plainText(cell))) {
-    const n = Number(plainText(cell).replace(/[($€£¥,%KMBT\s]/gi, ''));
-    return Number.isFinite(n) ? (isNegativeValue(plainText(cell)) ? -Math.abs(n) : n) : null;
-  }
-  return null;
 }
 
 function renderCell(cell: TableCell) {
@@ -81,6 +78,13 @@ export function DataTableBlock({
   const [page, setPage] = useState(0);
   const [copied, setCopied] = useState(false);
 
+  // Right-align numeric columns unless the planner chose an alignment. This is
+  // what makes a P&L or holdings table read as a financial table, not prose.
+  const alignments = useMemo(
+    () => Object.fromEntries(columns.map((col) => [col.key, resolveColumnAlign(col, rows, col.key)])),
+    [columns, rows],
+  );
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     let out = rows;
@@ -89,11 +93,11 @@ export function DataTableBlock({
     }
     if (sort) {
       const { key, dir } = sort;
-      const numeric = out.every((row) => cellNumber(row[key]) != null || row[key] == null);
+      const numeric = out.every((row) => numericCellValue(row[key]) != null || row[key] == null);
       out = [...out].sort((a, b) => {
         if (numeric) {
-          const av = cellNumber(a[key]) ?? -Infinity;
-          const bv = cellNumber(b[key]) ?? -Infinity;
+          const av = numericCellValue(a[key]) ?? -Infinity;
+          const bv = numericCellValue(b[key]) ?? -Infinity;
           return dir === 'asc' ? av - bv : bv - av;
         }
         const av = plainText(a[key]).toLowerCase();
@@ -185,7 +189,7 @@ export function DataTableBlock({
                       active ? 'text-primary' : 'text-foreground/75',
                       sortable && 'group/th cursor-pointer select-none hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]',
                     )}
-                    style={{ textAlign: col.align }}
+                    style={{ textAlign: alignments[col.key] }}
                     onClick={() => toggleSort(col.key)}
                     aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : sortable ? 'none' : undefined}
                   >
@@ -215,7 +219,7 @@ export function DataTableBlock({
             {visible.map((row, ri) => (
               <tr key={ri} className="border-b border-white/[0.06] last:border-0">
                 {columns.map((col) => (
-                  <td key={col.key} className={cn('px-3 align-top break-words', compact ? 'py-1.5' : 'py-2.5')} style={{ textAlign: col.align }}>
+                  <td key={col.key} className={cn('px-3 align-top break-words', compact ? 'py-1.5' : 'py-2.5')} style={{ textAlign: alignments[col.key] }}>
                     {renderCell(row[col.key] ?? null)}
                   </td>
                 ))}

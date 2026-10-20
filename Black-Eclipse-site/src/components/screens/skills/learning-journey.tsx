@@ -17,6 +17,8 @@ import { formatWhen, LoadingState } from "./skill-ui";
 import { FullPageButton, KIND_COLOR, LearningGraphChart } from "./learning-graph";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { RslExperimentsPanel } from "./rsl-experiments-panel";
+import { RslControlPanel } from "./rsl-control-panel";
+import { RslOperatorPanel } from "./rsl-operator-panel";
 
 const KIND_STYLE: Record<string, string> = {
   memory: "border-violet-400/30 bg-violet-400/10 text-violet-300",
@@ -218,6 +220,8 @@ export function LearningJourneyPanel() {
         </div>
       )}
 
+      <RslControlPanel />
+      <RslOperatorPanel />
       <RslExperimentsPanel />
 
       {/* Full-page graph — portaled to <body> so a transformed ancestor cannot

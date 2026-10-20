@@ -54,6 +54,7 @@ from .routers.team import router as team_router
 from .routers.advisory import router as advisory_router
 from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
+from .routers.runs import router as runs_router
 from .routers.computer import router as computer_router
 from .routers.events import router as events_router
 from .routers.evaluation import router as evaluation_router
@@ -88,6 +89,7 @@ from .routers.ui import router as ui_router
 from .routers.video import router as video_router
 from .routers.workspace import router as workspace_router
 from .routers.recovery import router as recovery_router
+from .routers.capabilities import router as capabilities_router
 from .schemas import ModelSettings, RunRequest, RunResult
 from .sdk.middleware import install_sdk
 from .skills.draft import propose_draft
@@ -111,6 +113,7 @@ app.include_router(automation_router)
 app.include_router(code_router)
 app.include_router(channels_router)
 app.include_router(code_intel_router)
+app.include_router(runs_router)
 app.include_router(browser_router)
 app.include_router(computer_router)
 app.include_router(events_router)
@@ -146,16 +149,15 @@ app.include_router(ui_router)
 app.include_router(video_router)
 app.include_router(workspace_router)
 app.include_router(recovery_router)
+app.include_router(capabilities_router)
 # Process start time (epoch ms). The TS launcher compares this against the
 # build time of `python/harness/` to detect an orphaned runtime from an earlier
 # `npm run dev` that is still holding the port and serving stale code.
 _STARTED_AT_MS = int(time.time() * 1000)
-
 def _jsonschema_available() -> bool:
     """Whether the full JSON Schema validator is installed (skill contracts)."""
     from .skills.schema_validation import jsonschema_available
     return jsonschema_available()
-
 class StartRunResponse(BaseModel):
     success: bool
     runId: str
@@ -486,41 +488,6 @@ def usage(days: int = 30) -> dict[str, Any]:
     UI can be honest instead of showing a fabricated figure.
     """
     return {"success": True, **service.usage_summary(days)}
-
-
-@app.get("/runs/{run_id}/events")
-def get_events(run_id: str) -> dict[str, Any]:
-    if not service.get_run(run_id):
-        raise HTTPException(status_code=404, detail="Run not found")
-    return {
-        "success": True,
-        "runId": run_id,
-        "events": service.list_events(run_id),
-        "toolExecutions": service.list_tool_executions(run_id),
-    }
-
-
-@app.get("/runs/{run_id}/explain")
-def explain_run_endpoint(run_id: str) -> dict[str, Any]:
-    """Why did the agent know/use (or not use) this? Derived, read-only, redacted.
-
-    Combines the run's retrieval event (injected + excluded-with-reason + budget)
-    with its prompt plan/profile/bundle events. Changes nothing at runtime.
-    """
-    from .run_observability import explain_run  # noqa: PLC0415
-    if not service.get_run(run_id):
-        raise HTTPException(status_code=404, detail="Run not found")
-    retrievals = service.memory_store.list_retrievals(limit=1, run_id=run_id)
-    return {
-        "success": True,
-        **explain_run(
-            run_id=run_id,
-            retrieval_event=retrievals[0] if retrievals else None,
-            events=service.list_events(run_id),
-            run=service.get_run(run_id),
-            lineage=service.run_lineage().lineage(run_id),
-        ),
-    }
 
 
 @app.get("/runs/{run_id}/stream")

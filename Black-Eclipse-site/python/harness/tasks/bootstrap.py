@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 from ..persistence import now_iso
 from ..schemas import ModelSettings, RunInput, RunRequest
@@ -186,12 +186,30 @@ def _dump(result: Any) -> dict[str, Any]:
     return result.model_dump() if hasattr(result, "model_dump") else dict(result)
 
 
-#: Run-result blobs the task-type verifier (W8.4) may read as EVIDENCE. Each is
+#: Run-result blobs the task-type verifier (W8.4/W14) may read as EVIDENCE. Each is
 #: already bounded by its producer (ledger caps, claim caps); only present blobs
 #: travel, so an ordinary run carries no invented evidence.
 _EVIDENCE_KEYS: tuple[str, ...] = (
     "codeVerification", "research", "documents", "images", "vision", "capability",
 )
+
+
+def _run_analyses(service: Any, run_id: str) -> Optional[dict[str, Any]]:
+    """The analyses this run recorded (W14).
+
+    A `data` task may only complete on a reproducible computation, and the
+    sandbox writes one `AnalysisRecord` per analysis. The verifier reads those
+    rows — never a number in prose. `None` when the runtime recorded none.
+    """
+    if not run_id:
+        return None
+    try:
+        from ..analysis_tools import load_run_analyses  # noqa: PLC0415
+
+        return load_run_analyses(getattr(service, "store", None), run_id)
+    except Exception:  # noqa: BLE001 - evidence is additive; never break a task
+        log.debug("analysis evidence unavailable for run %s", run_id, exc_info=True)
+        return None
 
 
 def _outcome_from_dump(
@@ -200,12 +218,17 @@ def _outcome_from_dump(
     """Build the honest task-run outcome from a run result dump."""
     status = str(dumped.get("status") or "failed")
     error = dumped.get("error")
+    run_id = str(dumped.get("runId") or base_run_id)
+    evidence = {key: dumped[key] for key in _EVIDENCE_KEYS if dumped.get(key)}
+    analyses = _run_analyses(service, run_id)
+    if analyses:
+        evidence["analyses"] = analyses
     return TaskRunOutcome(
         status="completed" if status == "completed" else status,
         output=str(dumped.get("output") or ""),
         error=(error.get("message") if isinstance(error, dict) else None) or "",
         error_class=(error.get("code") if isinstance(error, dict) else None) or "",
-        run_id=str(dumped.get("runId") or base_run_id),
+        run_id=run_id,
         artifacts=_extract_artifacts(dumped, service),
         metrics={
             "modelSteps": dumped.get("modelSteps", 0),
@@ -213,7 +236,7 @@ def _outcome_from_dump(
             "toolErrors": dumped.get("toolErrors", 0),
             "totalTokens": dumped.get("totalTokens", 0),
         },
-        evidence={key: dumped[key] for key in _EVIDENCE_KEYS if dumped.get(key)},
+        evidence=evidence,
     )
 
 

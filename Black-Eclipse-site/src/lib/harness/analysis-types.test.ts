@@ -52,6 +52,19 @@ describe('computed vs retrieved', () => {
     expect(result?.figure).toBeNull();
   });
 
+  it('carries the analysis recipe name when one ran', () => {
+    const result = coerceComputedResult({
+      status: 'ok',
+      provenance: null,
+      outputs: {},
+      artifacts: [],
+      figure: null,
+      recipe: 'sum_values',
+    });
+    expect(result?.recipe).toBe('sum_values');
+    expect(coerceComputedResult({ status: 'ok', outputs: {} })?.recipe).toBeUndefined();
+  });
+
   it('coerces a figure payload and NEVER lets it claim evidence (Phase 18)', () => {
     const result = coerceComputedResult({
       status: 'ok',

@@ -197,7 +197,7 @@ class CandidateAgentInvoker:
             input=RunInput(query=str(getattr(task, "input", {}).get("prompt") or task.name)),
             agent=agent,
             modelSettings=settings,
-            callbackBaseUrl="http://localhost:3000",
+            callbackBaseUrl="http://localhost:3000", liveSurface=False,
         )
 
         trial_dir = tempfile.mkdtemp(prefix="be-rsl-trial-")

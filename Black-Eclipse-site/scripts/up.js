@@ -20,8 +20,9 @@ const {
   build,
 } = require("./lib/server");
 const { runLocalHost } = require("./local-host");
+const { PROD } = require("./lib/profiles");
 
-const PORT = process.env.PORT || "3000";
+const PORT = String(PROD.appPort);
 
 function log(msg) {
   console.log(`[up] ${msg}`);
@@ -39,6 +40,9 @@ isUp(PORT, 10_000).then((running) => {
 
 function start() {
   killPort(PORT);
+  // Free this profile's harness port too: an orphaned uvicorn from a previous
+  // production run would otherwise hold 8766 and fight the fresh spawn.
+  killPort(PROD.harnessPort);
   if (needsBuild()) {
     log("building (this runs once; next starts are instant)...");
     const t0 = Date.now();

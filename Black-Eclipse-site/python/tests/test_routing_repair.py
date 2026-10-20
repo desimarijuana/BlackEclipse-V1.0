@@ -20,7 +20,7 @@ from harness.recovery.taxonomy import FailureKind, NormalizedFailure, Retryabili
 from harness.ui.catalog import UiCatalog
 from harness.ui.mode import classify_request
 
-TEXT = "my dashboard is missing a world clock"
+TEXT = "my dashboard is missing a latency ribbon"
 
 
 def _mode(text: str = TEXT) -> tuple[str, bool]:
@@ -88,8 +88,8 @@ def test_the_proposal_emits_a_patch_op():
 
 
 def test_a_catalog_gap_is_an_engineering_proposal_not_a_code_patch():
-    # No additive phrase is missed; the catalog simply has no clock.
-    text = "I would love a world clock on my dashboard"
+    # No additive phrase is missed; the catalog simply has no latency ribbon.
+    text = "I would love a latency ribbon on my dashboard"
     assert _mode(text) == ("compose", False)
     proposal = propose(text)
     assert proposal.cause is RoutingCause.CATALOG_GAP
@@ -99,7 +99,7 @@ def test_a_catalog_gap_is_an_engineering_proposal_not_a_code_patch():
 
 
 def test_an_already_correct_route_needs_no_change():
-    proposal = propose("add a multi-zone world clock to my dashboard")
+    proposal = propose("add a clock to my dashboard")
     assert proposal.cause is RoutingCause.NO_ACTION
     assert proposal.kind == "none"
 
@@ -107,7 +107,7 @@ def test_an_already_correct_route_needs_no_change():
 def test_proposal_from_an_incident_uses_the_stored_request():
     proposal = proposal_from_incident({
         "id": "inc_1",
-        "message": "no registered component matches: my dashboard is missing a world clock",
+        "message": "no registered component matches: my dashboard is missing a latency ribbon",
     })
     assert proposal.cause is RoutingCause.VOCABULARY_GAP
     assert proposal.incident_id == "inc_1"
@@ -123,7 +123,7 @@ def test_the_recovery_service_exposes_a_proposal_for_a_stored_incident(tmp_path)
         service = RecoveryService(memory)
         recorded = service.record_failure(
             code="UI_CAPABILITY_GAP",
-            message="no registered component matches: my dashboard is missing a world clock",
+            message="no registered component matches: my dashboard is missing a latency ribbon",
             subsystem="ui",
             source="event",
             details={"capability_gap": True},

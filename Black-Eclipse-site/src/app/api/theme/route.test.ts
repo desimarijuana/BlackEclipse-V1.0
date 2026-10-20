@@ -14,8 +14,10 @@ vi.mock("@/lib/theme/server", () => ({
   setServerTheme: (raw: unknown) => setServerTheme(raw),
   clearServerTheme: () => clearServerTheme(),
 }));
+vi.mock("@/lib/sdk/audit-server", () => ({ recordSdkAudit: vi.fn(async () => undefined) }));
 
 import { GET, PUT, DELETE } from "@/app/api/theme/route";
+import { recordSdkAudit } from "@/lib/sdk/audit-server";
 
 function mutate(method: string, body?: unknown, origin = "http://localhost:3000"): Request {
   return new Request("http://localhost:3000/api/theme", {
@@ -29,6 +31,7 @@ beforeEach(() => {
   getServerThemeState.mockClear();
   setServerTheme.mockClear();
   clearServerTheme.mockClear();
+  vi.mocked(recordSdkAudit).mockClear();
 });
 
 describe("GET /api/theme", () => {
@@ -51,6 +54,9 @@ describe("PUT /api/theme", () => {
     expect(res.status).toBe(200);
     expect(setServerTheme).toHaveBeenCalledWith(DEFAULT_ECLIPSE_THEME);
     expect((await res.json()).success).toBe(true);
+    expect(recordSdkAudit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: "theme.apply",
+    }));
   });
 });
 
@@ -59,5 +65,8 @@ describe("DELETE /api/theme", () => {
     const res = await DELETE(mutate("DELETE"));
     expect(res.status).toBe(200);
     expect(clearServerTheme).toHaveBeenCalled();
+    expect(recordSdkAudit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: "theme.reset",
+    }));
   });
 });

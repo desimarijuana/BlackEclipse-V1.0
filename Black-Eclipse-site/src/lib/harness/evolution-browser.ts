@@ -7,16 +7,22 @@ import type {
   EvolutionExperiment,
   EvolutionExperimentDetail,
   EvolutionLandingResult,
+  EvolutionHarnessState,
+  EvolutionHarnessStates,
   EvolutionLesson,
   EvolutionLessonInput,
+  EvolutionLessonOutcomes,
   EvolutionProposeInput,
   EvolutionProposeResult,
   EvolutionRecursiveResult,
   EvolutionRecursiveVariant,
   EvolutionRslStatus,
   EvolutionRslTickResult,
+  EvolutionSurfaceActivation,
+  EvolutionSurfaceActivationResult,
   EvolutionSurfaceExperimentInput,
   EvolutionSurfaceExperimentResult,
+  EvolutionSurfacePreview,
 } from "./evolution-client";
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -65,6 +71,71 @@ export async function listEvolutionLessonsBrowser(limit = 50): Promise<Evolution
     `/api/evolution/lessons?limit=${encodeURIComponent(String(limit))}`,
   );
   return body.lessons ?? [];
+}
+
+export async function getEvolutionLessonOutcomesBrowser(
+  lessonId: string, limit = 50,
+): Promise<EvolutionLessonOutcomes> {
+  return api<EvolutionLessonOutcomes>(
+    `/api/evolution/lessons/${encodeURIComponent(lessonId)}/outcomes?limit=${encodeURIComponent(String(limit))}`,
+  );
+}
+
+export async function listEvolutionStatesBrowser(
+  input: { scope?: string; status?: string; limit?: number } = {},
+): Promise<EvolutionHarnessStates> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.status) params.set("status", input.status);
+  params.set("limit", String(input.limit ?? 50));
+  return api<EvolutionHarnessStates>(`/api/evolution/states?${params.toString()}`);
+}
+
+export async function promoteEvolutionStateBrowser(
+  stateId: string,
+): Promise<{ state: EvolutionHarnessState }> {
+  return api<{ state: EvolutionHarnessState }>(
+    `/api/evolution/states/${encodeURIComponent(stateId)}/promote`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export async function getEvolutionSurfacePreviewBrowser(
+  stateId: string,
+  scope?: string,
+): Promise<EvolutionSurfacePreview> {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return api<EvolutionSurfacePreview>(
+    `/api/evolution/states/${encodeURIComponent(stateId)}/surface-preview${query}`,
+  );
+}
+
+export async function activateEvolutionSurfaceStateBrowser(
+  stateId: string,
+  scope?: string,
+): Promise<EvolutionSurfaceActivationResult> {
+  return api<EvolutionSurfaceActivationResult>(
+    `/api/evolution/states/${encodeURIComponent(stateId)}/activate-surface`,
+    { method: "POST", body: JSON.stringify({ scope: scope ?? null }) },
+  );
+}
+
+export async function listEvolutionSurfaceActivationsBrowser(
+  limit = 50,
+): Promise<EvolutionSurfaceActivation[]> {
+  const body = await api<{ activations: EvolutionSurfaceActivation[] }>(
+    `/api/evolution/surface-activations?limit=${encodeURIComponent(String(limit))}`,
+  );
+  return body.activations ?? [];
+}
+
+export async function rollbackEvolutionSurfaceActivationBrowser(
+  activationId: string,
+): Promise<EvolutionSurfaceActivationResult> {
+  return api<EvolutionSurfaceActivationResult>(
+    `/api/evolution/surface-activations/${encodeURIComponent(activationId)}/rollback`,
+    { method: "POST", body: "{}" },
+  );
 }
 
 export async function adoptEvolutionLessonBrowser(

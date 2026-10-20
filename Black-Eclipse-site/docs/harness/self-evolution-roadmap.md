@@ -1,7 +1,7 @@
 ---
 title: Self-Evolution Roadmap — Round 4 Expanded — execution completion + the closed self-improvement loop
 status: Draft
-last-verified: 2026-10-18
+last-verified: 2026-10-19
 ---
 
 # Self-Evolution Roadmap — Round 4 Expanded
@@ -357,6 +357,21 @@ detected from the persisted UI tool texts (`test_routing_mistakes.py`); the
 (`test_routing_incident.py`, `test_ui_engineering.py`). The classifier/tool text
 now exposes its witness so the detection is deterministic.
 
+**Status — W1.3 landed 2026-10-19 (the outcome envelope).** The four facts are
+now ONE record: `python/harness/run_outcome.py` builds a derived, read-only
+envelope naming the intent verdict, the resolved surface + allowlist, the
+refusal code and the capability gap (`GET /runs/{id}/outcome`). Three of the
+four were already persisted (the run row's agent and terminal error code, the
+`prompt.plan` event's surface/allowlist summary, the `ui.capability_gap` event
+plus its `recovery.decided` incident id); the **intent verdict had no home**
+(it died with the tool result), so the `ui_classify_request` tool now records
+it once per run — the FIRST verdict wins, because it is the routing. The
+module owns its own `RunOutcome` table (the `run_lineage.py` pattern), so the
+ratcheted `persistence.py` does not grow. A fact that was never recorded is
+`null`: the envelope never guesses and never infers from prose. Tests:
+`python/tests/test_run_outcome.py` (12). Owning doc
+`docs/harness/architecture.md` (the execution graph); ADR-H241.
+
 ### W2 — Diagnosis → a typed, minimal harness change
 
 **Goal:** the incident yields a *specific* proposed change, not a vague "try
@@ -597,6 +612,33 @@ whose verified completion is the validation. Without a fact the step still hands
 back the exact missing information; nothing self-installs or self-enables
 (`test_recovery_install_handlers.py`, 8).
 
+**Status — the Capability Builder landed 2026-10-19 (W9 build rung).** A
+missing reusable analysis now goes through `capability_request` →
+`capability_build`: a validated manifest, implementation and contract test are
+written under `.black-eclipse/capabilities/`, verified in the existing PTC
+sandbox, and a pure workspace recipe auto-activates only on a pass. Active
+recipes join the existing `code/recipes.py` registry, so `analysis_run` reuses
+them immediately; three consecutive failures disable the version. Effectful
+kinds (tool/skill/UI/plugin/harness) route to their existing approval-gated
+surfaces. Rollback/retire are versioned. **UI loop landed 2026-10-19:** the chat
+`capability.*` lifecycle renders as one `CapabilityCard` (need, surface, version,
+test counts, failed checks, exact stderr, activation state) and Capability
+Studio › Generated lists the same records with operator activation /
+deactivation / rollback / retire routes. **Effectful hand-offs + retry landed
+2026-10-19:** `capability_build` routes tool/skill/UI/harness/plugin kinds to
+their existing owner (`capabilities/handoff.py`), and activation resumes the
+original durable task from its checkpoint when it is parked; a failed generated
+recipe records a `capability_failure` recurrence for the learning loop.
+**Sandbox tool RPC landed 2026-10-19:** analysis programs can call the three
+read-only `eclipse_tools` bindings through validated, memoized replay; fetched
+payloads stay in the sandbox (ADR-H235). **Adapter authoring landed 2026-10-19:**
+`capability_adapter` writes a reviewable, disabled broker/API plugin draft
+(validated manifest, generated code, README) and never installs or enables;
+activation stays operator-owned (ADR-H238). **Built-in catalogue landed
+2026-10-19:** `GET /capabilities/builtins` + the Studio read-only built-in
+listing. Owning doc `docs/harness/capability-builder.md`;
+ADR-H225/H226/H231/H232/H235/H238.
+
 ### W10 — Adaptive planning and stuck-loop control
 
 Extend `replan.py` and the recovery controller so the loop distinguishes routing
@@ -742,6 +784,27 @@ agent's self-report wherever a deterministic check exists.
 
 **Acceptance:** each benchmark family has a verifier that can reject a plausible
 but incomplete answer.
+
+**Status — W14 landed 2026-10-19 (unified verification by task type).** The
+verifiers now read the evidence the runtime REALLY writes, and each type has
+the rule W14 states: `research` ⇒ traceable sources, a claim backed by recorded
+evidence and the uncertainty RECORDED (a partial answer that names no open gap
+is refused); `document` ⇒ the artifact AND every section the contract required
+(the sections are named deterministically — `goal.parse_required_sections` —
+and the delivered document records the headings it wrote); `workflow` ⇒ observed
+steps AND an observable state change (the stored run id is not a result, so a
+workflow that produced nothing is refused — the old check could never fail);
+`finance` ⇒ provenance, freshness and claim-to-evidence, deferring to the
+Evidence Engine's own verdict instead of re-deriving a value; `data` is a NEW
+task type ⇒ a reproducible calculation (a recorded formula with its inputs, or
+an analysis that pinned the program it ran and the inputs it read — a number in
+prose is not a computation). Three recordings were added so those rules can be
+checked at all: the required sections of a document, the sandbox's
+`AnalysisRecord` rows as bounded run evidence, and the authored document's
+headings. The Evidence Engine stays the financial authority. Tests:
+`python/tests/test_tasks_verification.py` (37) and
+`python/tests/test_w14_verification_evidence.py` (9). Owning doc
+`docs/harness/task-plan-system.md`; ADR-H240.
 
 ### W15 — Autonomy tiers and operational control
 

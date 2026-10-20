@@ -61,7 +61,9 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # same test in `test_memory_tools.py`.
     # Re-pinned 30420→30897 for the learning-loop guidance (read the automatic
     # reviews/candidates instead of guessing). Matches the same test.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 30897
+    # Re-pinned 30897->31834 for the Capability Builder guidance (construct a
+    # missing capability instead of refusing; activation stays separate).
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 31834
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

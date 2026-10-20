@@ -17,11 +17,11 @@
   "tasks": [
     {
       "version": 1,
-      "id": "routing_e2e.clock_escalates.001",
+      "id": "routing_e2e.ribbon_escalates.001",
       "category": "recovery",
       "difficulty": "medium",
       "input": {
-        "prompt": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+        "prompt": "add a multi-zone latency ribbon to my dashboard showing New York, Karachi and London"
       },
       "environment": { "type": "ui" },
       "initial_state": {},
@@ -47,19 +47,19 @@
       "metadata": {
         "tier": 0,
         "suites": ["routing_e2e"],
-        "scenario": "clock",
+        "scenario": "ribbon",
         "measures": ["routing", "escalation", "capability_gap", "state"],
         "expected_tool_calls": [
           {
             "name": "ui_classify_request",
             "args": {
-              "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+              "text": "add a multi-zone latency ribbon to my dashboard showing New York, Karachi and London"
             }
           },
           {
             "name": "ui_start_engineering",
             "args": {
-              "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+              "text": "add a multi-zone latency ribbon to my dashboard showing New York, Karachi and London"
             }
           }
         ],
@@ -70,13 +70,13 @@
               {
                 "name": "ui_classify_request",
                 "args": {
-                  "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+                  "text": "add a multi-zone latency ribbon to my dashboard showing New York, Karachi and London"
                 }
               },
               {
                 "name": "ui_start_engineering",
                 "args": {
-                  "text": "add a multi-zone world clock to my dashboard showing New York, Karachi and London"
+                  "text": "add a multi-zone latency ribbon to my dashboard showing New York, Karachi and London"
                 }
               }
             ]

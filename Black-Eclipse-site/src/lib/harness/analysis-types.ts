@@ -40,6 +40,8 @@ export interface ComputedResult {
   figure: ComputedFigure | null;
   sourceDigest?: string;
   durationMs?: number;
+  /** The analysis recipe that produced this result, when one ran. */
+  recipe?: string;
 }
 
 /** The ONE place a computed/retrieved status word is chosen. */
@@ -119,5 +121,6 @@ export function coerceComputedResult(raw: unknown): ComputedResult | null {
     figure: coerceFigure(blob.figure),
     sourceDigest: typeof blob.sourceDigest === 'string' ? blob.sourceDigest : undefined,
     durationMs: typeof blob.durationMs === 'number' ? blob.durationMs : undefined,
+    recipe: typeof blob.recipe === 'string' && blob.recipe.length > 0 ? blob.recipe : undefined,
   };
 }

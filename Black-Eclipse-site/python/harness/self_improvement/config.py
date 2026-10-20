@@ -11,10 +11,13 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-MODES: tuple[str, ...] = ("off", "observe", "propose", "verify")
+MODES: tuple[str, ...] = ("off", "observe", "propose", "verify", "auto")
+STRATEGIES: tuple[str, ...] = ("rsl", "hillclimb")
 DEFAULT_MODE = "off"
+DEFAULT_STRATEGY = "rsl"
 
 _MODE_ENV = "HARNESS_RSL_MODE"
+_STRATEGY_ENV = "HARNESS_RSL_STRATEGY"
 
 
 def _env_int(
@@ -53,24 +56,36 @@ def _env_float(
     return max(minimum, min(maximum, value))
 
 
+def _env_bool(environ: Mapping[str, str], name: str, default: bool = False) -> bool:
+    raw = environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class RSLConfig:
     """The bounded RSL settings for one process.
 
-    `mode` is one of `off`/`observe`/`propose`/`verify`. R1 only implements the
-    deterministic observation pass; `propose` and `verify` are accepted so the
-    later phases can broaden behaviour without a config migration.
+    `mode` is one of `off`/`observe`/`propose`/`verify`/`auto`. `auto` runs the
+    bounded propose and verify phases in one tick; it still never lands a change.
+    The deterministic observation pass runs in every non-off mode.
     """
 
     mode: str = DEFAULT_MODE
+    strategy: str = DEFAULT_STRATEGY
     max_candidates: int = 5
     max_experiments_per_day: int = 3
     trials: int = 3
     k: int = 1
+    generations: int = 1
     tick_seconds: int = 300
     lease_seconds: int = 1800
     max_wall_seconds: int = 1800
     max_cost_usd: float = 5.0
+    lesson_retire: bool = False
+    model_proposer: bool = False
+    code_benchmark: bool = False
 
     @property
     def is_off(self) -> bool:
@@ -79,42 +94,60 @@ class RSLConfig:
     @property
     def observes(self) -> bool:
         """True for every non-off mode (the observation pass always runs first)."""
-        return self.mode in ("observe", "propose", "verify")
+        return self.mode in ("observe", "propose", "verify", "auto")
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> "RSLConfig":
         env: Mapping[str, str] = os.environ if environ is None else environ
         raw_mode = str(env.get(_MODE_ENV, DEFAULT_MODE)).strip().lower()
         mode = raw_mode if raw_mode in MODES else DEFAULT_MODE
+        raw_strategy = str(env.get(_STRATEGY_ENV, DEFAULT_STRATEGY)).strip().lower()
+        strategy = raw_strategy if raw_strategy in STRATEGIES else DEFAULT_STRATEGY
         return cls(
             mode=mode,
+            strategy=strategy,
             max_candidates=_env_int(env, "HARNESS_RSL_MAX_CANDIDATES", 5, 1, 50),
             max_experiments_per_day=_env_int(
                 env, "HARNESS_RSL_MAX_EXPERIMENTS_PER_DAY", 3, 0, 50,
             ),
             trials=_env_int(env, "HARNESS_RSL_TRIALS", 3, 1, 10),
             k=_env_int(env, "HARNESS_RSL_K", 1, 1, 8),
+            generations=_env_int(env, "HARNESS_RSL_GENERATIONS", 1, 1, 3),
             tick_seconds=_env_int(env, "HARNESS_RSL_TICK_SECONDS", 300, 10, 3600),
             lease_seconds=_env_int(env, "HARNESS_RSL_LEASE_SECONDS", 1800, 60, 86400),
             max_wall_seconds=_env_int(
                 env, "HARNESS_RSL_MAX_WALL_SECONDS", 1800, 30, 7200,
             ),
             max_cost_usd=_env_float(env, "HARNESS_RSL_MAX_COST_USD", 5.0, 0.0, 1000.0),
+            lesson_retire=_env_bool(env, "HARNESS_RSL_LESSON_RETIRE", False),
+            model_proposer=_env_bool(env, "HARNESS_RSL_MODEL_PROPOSER", False),
+            code_benchmark=_env_bool(env, "HARNESS_RSL_CODE_BENCHMARK", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
         """A bounded, non-secret diagnostic view."""
         return {
             "mode": self.mode,
+            "strategy": self.strategy,
             "maxCandidates": self.max_candidates,
             "maxExperimentsPerDay": self.max_experiments_per_day,
             "trials": self.trials,
             "k": self.k,
+            "generations": self.generations,
             "tickSeconds": self.tick_seconds,
             "leaseSeconds": self.lease_seconds,
             "maxWallSeconds": self.max_wall_seconds,
             "maxCostUsd": self.max_cost_usd,
+            "lessonRetire": self.lesson_retire,
+            "modelProposer": self.model_proposer,
+            "codeBenchmark": self.code_benchmark,
         }
 
 
-__all__ = ["DEFAULT_MODE", "MODES", "RSLConfig"]
+__all__ = [
+    "DEFAULT_MODE",
+    "DEFAULT_STRATEGY",
+    "MODES",
+    "RSLConfig",
+    "STRATEGIES",
+]

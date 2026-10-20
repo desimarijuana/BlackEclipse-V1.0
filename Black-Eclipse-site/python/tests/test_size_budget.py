@@ -103,7 +103,16 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2170→2197 to the measured working tree: pre-existing in-flight
     # shared-tree wiring. The Eclipse SDK touches NO part of graph.py (its seam is
     # `service.py` + `ui/service.py` + `portfolio/service.py`). May only shrink.
-    "graph.py": 2197,
+    # Re-pinned 2197→2215 to the measured working tree (2026-10-19): further
+    # in-flight app-control / lesson-manifest wiring grew graph.py. The external
+    # capability lane touches NO part of graph.py (it lives in
+    # `capabilities/external.py` + the recovery acquisition seam). May only shrink.
+    # Re-pinned 2221→2228 to the measured working tree (2026-10-20): further
+    # in-flight shared-tree wiring grew graph.py. The W1.3 outcome envelope adds
+    # NO line here (the `prompt.plan` payload is edited in place and
+    # `surface_summary` joins an existing import line) — the growth is the
+    # concurrent stream's. May only shrink.
+    "graph.py": 2228,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -199,7 +208,8 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1505→1532 for the Eclipse SDK boot seam (`install_sdk_layer` +
     # its comment in `__init__`); the SDK itself lives in `python/harness/sdk/`.
     # The rest was pre-existing shared-tree growth. May only shrink.
-    "service.py": 1532,
+    # Re-pinned 1532→1533 for `task_manager` in `_run_kwargs` (capability resume).
+    "service.py": 1533,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

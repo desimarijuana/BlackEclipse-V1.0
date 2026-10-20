@@ -52,15 +52,13 @@ const ChartWidget = dynamic(() => import('@/components/chart/chart-widget').then
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
-// Settings: code-split, but warmed during idle so the first open paints
-// instantly (cold chunk fetch + mount was the slow/blank-load cause).
-const settingsImport = () => import('./settings');
-const Settings = dynamic(() => settingsImport().then((m) => m.Settings), { ssr: false, loading: () => <ScreenSkeleton /> });
+// Settings: code-split and loaded on demand. It used to be prewarmed at idle,
+// but its import graph (every settings panel) is large enough that compiling it
+// in the background competed with the FIRST tab's screen chunk and made that
+// tab sit on the loader for tens of seconds in dev. The ScreenSkeleton covers a
+// cold open; keeping this off the boot path is the better trade.
+const Settings = dynamic(() => import('./settings').then((m) => m.Settings), { ssr: false, loading: () => <ScreenSkeleton /> });
 import type { SectionId } from './settings';
-if (typeof window !== 'undefined') {
-  const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
-  idle ? idle(() => void settingsImport()) : window.setTimeout(() => void settingsImport(), 2000);
-}
 const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m) => m.AlertsClient), {
   ssr: false,
   loading: () => <ScreenSkeleton />,

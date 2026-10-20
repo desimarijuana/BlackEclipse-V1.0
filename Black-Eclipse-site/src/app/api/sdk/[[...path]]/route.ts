@@ -23,6 +23,10 @@ import {
 import { DEFAULT_ECLIPSE_THEME, THEME_PRESETS, normalizeTheme } from "@/lib/theme/tokens";
 import { baseDesignTheme, mergeThemePatch } from "@/lib/sdk/design";
 import { designLockBlocked } from "@/lib/sdk/locks-server";
+import { themeRoute } from "@/lib/sdk/theme-server";
+import { appRoute } from "@/lib/sdk/app-server";
+import { recordSdkAudit } from "@/lib/sdk/audit-server";
+import { dashboardRoute, isDashboardTemplateRoute } from "@/lib/sdk/dashboard-server";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +116,12 @@ async function designRoute(request: Request, method: string): Promise<NextRespon
     if (blocked) return blocked;
     if (method === "DELETE") {
       await clearServerTheme();
+      await recordSdkAudit(request, {
+        action: "theme.reset",
+        summary: "Reset the app-wide design",
+        resourceType: "theme",
+        resourceId: "global",
+      });
       return NextResponse.json({ success: true, theme: DEFAULT_ECLIPSE_THEME });
     }
     const body = (await request.json().catch(() => ({}))) as { patch?: unknown; theme?: unknown };
@@ -119,6 +129,12 @@ async function designRoute(request: Request, method: string): Promise<NextRespon
       ? normalizeTheme(body.theme)
       : mergeThemePatch(baseDesignTheme(state.theme), body.patch);
     const saved = await setServerTheme(theme);
+    await recordSdkAudit(request, {
+      action: "theme.apply",
+      summary: "Updated the app-wide design",
+      resourceType: "theme",
+      resourceId: "global",
+    });
     return NextResponse.json({ success: true, theme: saved });
   } catch (err) {
     return NextResponse.json(
@@ -161,10 +177,20 @@ async function capabilitiesRoute(request: Request): Promise<NextResponse> {
   return NextResponse.json({ ...runtime, design, runtime: "available" });
 }
 
-async function handle(request: Request, ctx: Ctx, method: string): Promise<NextResponse> {
+async function handle(request: Request, ctx: Ctx, method: string): Promise<Response> {
   const { path } = await ctx.params;
   const segments = (path ?? []).join("/");
+  if (segments === "app" || segments.startsWith("app/")) {
+    return appRoute(request, method, path ?? []);
+  }
+  if (isDashboardTemplateRoute(path ?? [])) {
+    const handled = await dashboardRoute(request, method, path ?? []);
+    if (handled) return handled;
+  }
   if (segments === "design") return designRoute(request, method);
+  if (segments === "theme" || segments.startsWith("theme/")) {
+    return themeRoute(request, method, path ?? []);
+  }
   if (segments === "capabilities" && method === "GET") return capabilitiesRoute(request);
   if (method !== "GET") {
     const blocked = guardMutation(request, "sdk");

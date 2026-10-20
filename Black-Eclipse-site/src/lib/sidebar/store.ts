@@ -1,8 +1,11 @@
-// ── Sidebar customization store ──────────────────────────────────────────
+// ── Sidebar customization store ──────────────────────────────────────────────
 // Client-side zustand store holding the user's sidebar config (order,
-// visibility, shortcuts). Hydrated from localStorage after mount and written
-// back on every change, so the sidebar and the Settings panel stay in sync
-// without a prop-drilling chain.
+// visibility, shortcuts) and the active nav mode. The section config is
+// app-wide (JDDS `SystemConfig` via the SDK app-shell routes, with
+// `localStorage` as the instant cache). The ACTIVE MODE is deliberately
+// per-shell: each browser tab/window keeps its own mode in `sessionStorage`, so
+// switching to Bots in one tab never drags another tab out of its mode. The
+// shared `localStorage` mode is only the seed for a newly opened shell.
 
 'use client';
 
@@ -17,28 +20,119 @@ import {
   type NavGroup,
 } from './config';
 import type { AppTab } from '@/components/layout/sidebar';
+import { eclipseSdk } from '@/lib/sdk';
+import { normalizeAppNav, type AppNavMode, type AppShellState } from '@/lib/sdk/app-shell-types';
 
 export interface SidebarConfigStore {
   config: SidebarConfig;
   hydrated: boolean;
-  /** Active top-level menu mode (Terminal vs Agentic). Shared so keyboard
-   *  shortcuts and programmatic navigation can switch it, not just the UI. */
+  /** Active top-level menu mode (Terminal / Agentic / Bots / Graph). Per shell:
+   *  other open tabs keep their own mode, and a remote nav update never
+   *  overrides it. Keyboard shortcuts and navigation still switch it locally. */
   mode: NavGroup;
   /** Merge a hydrated config from localStorage (client only, post-mount). */
   hydrate: () => void;
   setConfig: (cfg: SidebarConfig) => void;
   setMode: (mode: NavGroup) => void;
+  /** Follow the active screen without treating it as an explicit app-wide change. */
+  setModeFromNavigation: (mode: NavGroup) => void;
   toggleEnabled: (id: AppTab) => void;
   setShortcut: (id: AppTab, shortcut: string) => void;
   /** Move an item from one index to another (reorder). */
   move: (from: number, to: number) => void;
   reset: () => void;
+  /** Apply an app-wide state pushed by the SDK route/SSE. Never echoes back. */
+  applyRemoteState: (state: AppShellState) => void;
 }
 
-/** Persisted top-level menu mode. */
+/** Persisted top-level menu mode — the shared seed for newly opened shells. */
 export const SIDEBAR_MODE_KEY = 'be_sidebar_mode_v1';
+/** This tab's own mode. `sessionStorage` is per browser tab/window. */
+export const SIDEBAR_TAB_MODE_KEY = 'be_sidebar_tab_mode_v1';
 
-export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
+function readStoredMode(storage: 'local' | 'session'): NavGroup | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const store = storage === 'session' ? window.sessionStorage : window.localStorage;
+    const saved = store.getItem(storage === 'session' ? SIDEBAR_TAB_MODE_KEY : SIDEBAR_MODE_KEY);
+    return isNavGroup(saved) ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredMode(storage: 'local' | 'session', mode: NavGroup): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const store = storage === 'session' ? window.sessionStorage : window.localStorage;
+    store.setItem(storage === 'session' ? SIDEBAR_TAB_MODE_KEY : SIDEBAR_MODE_KEY, mode);
+  } catch {
+    /* private mode / storage disabled — the in-memory mode still works */
+  }
+}
+
+interface NavPayload {
+  sections: Array<{ id: AppTab; enabled: boolean }>;
+  mode: AppNavMode;
+}
+
+function navPayload(config: SidebarConfig, mode: NavGroup): NavPayload {
+  return {
+    sections: config.sections.map((section) => ({ id: section.id, enabled: section.enabled })),
+    mode,
+  };
+}
+
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSyncedPayload: string | null = null;
+let remoteLoaded = false;
+// Navigation follows the active screen locally; only the switcher/hotkeys are
+// explicit app-wide mode changes worth an audit entry.
+let suppressModeSync = false;
+
+/**
+ * Push a local nav change app-wide (debounced). The echo from our own PUT is
+ * suppressed by `lastSyncedPayload`, so SSE does not fight the user's edit.
+ */
+function scheduleNavSync(config: SidebarConfig, mode: NavGroup): void {
+  if (typeof window === 'undefined') return;
+  const payload = navPayload(config, mode);
+  const key = JSON.stringify(payload);
+  if (key === lastSyncedPayload) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    const current = useSidebarConfigStore.getState();
+    const next = navPayload(current.config, current.mode);
+    const nextKey = JSON.stringify(next);
+    if (nextKey === lastSyncedPayload) return;
+    lastSyncedPayload = nextKey;
+    void eclipseSdk.app.update(next).catch(() => {
+      // Allow a later edit to retry; the local cache remains authoritative.
+      if (lastSyncedPayload === nextKey) lastSyncedPayload = null;
+    });
+  }, 500);
+}
+
+async function loadRemoteNav(config: SidebarConfig, mode: NavGroup): Promise<void> {
+  try {
+    const state = await eclipseSdk.app.get();
+    if (state.initialized) {
+      useSidebarConfigStore.getState().applyRemoteState(state);
+    } else {
+      // First run with the app-wide store: migrate the browser's existing
+      // arrangement up once, exactly like the theme's local→server migration.
+      const payload = navPayload(config, mode);
+      lastSyncedPayload = JSON.stringify(payload);
+      await eclipseSdk.app.update(payload).catch(() => undefined);
+    }
+  } catch {
+    /* app route unavailable — keep the local cache */
+  } finally {
+    remoteLoaded = true;
+  }
+}
+
+export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
   // SSR-consistent default; the real config is loaded on mount (avoids
   // hydration mismatch warnings).
   config: defaultSidebarConfig(),
@@ -48,16 +142,33 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
   hydrate: () => {
     const config = loadSidebarConfig();
     saveSidebarConfig(config);
-    let mode: NavGroup = 'terminal';
-    if (typeof window !== 'undefined') {
-      try {
-        // Validated against the ONE mode list — an unknown/legacy value falls
-        // back rather than putting the switcher into a mode it cannot render.
-        const saved = localStorage.getItem(SIDEBAR_MODE_KEY);
-        if (isNavGroup(saved)) mode = saved;
-      } catch { /* private mode — keep the default */ }
-    }
+    // This tab's own mode wins; a tab that has never chosen one starts from the
+    // last mode used in the app (then owns it independently).
+    const mode = readStoredMode('session') ?? readStoredMode('local') ?? 'terminal';
+    writeStoredMode('session', mode);
     set({ config, hydrated: true, mode });
+    void loadRemoteNav(config, mode);
+  },
+
+  applyRemoteState: (state) => {
+    const nav = normalizeAppNav(state.nav);
+    const current = useSidebarConfigStore.getState();
+    const shortcuts = new Map(current.config.sections.map((section) => [section.id, section.shortcut] as const));
+    const sections = nav.sections.map((section) => ({
+      id: section.id,
+      enabled: section.enabled,
+      shortcut: shortcuts.get(section.id) ?? '',
+    }));
+    // Sections are app-wide; the mode is not. Keep this shell's mode and only
+    // refresh the shared seed a newly opened shell would read.
+    const remoteMode: NavGroup = isNavGroup(nav.mode) ? nav.mode : current.mode;
+    const mode = current.mode;
+    const config: SidebarConfig = { sections };
+    saveSidebarConfig(config);
+    writeStoredMode('local', remoteMode);
+    writeStoredMode('session', mode);
+    lastSyncedPayload = JSON.stringify(navPayload(config, mode));
+    set({ config, mode, hydrated: true });
   },
 
   setConfig: (config) => {
@@ -66,9 +177,18 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
   },
 
   setMode: (mode) => {
-    if (typeof window !== 'undefined') {
-      try { localStorage.setItem(SIDEBAR_MODE_KEY, mode); } catch { /* ignore */ }
-    }
+    if (get().mode === mode) return;
+    suppressModeSync = false;
+    writeStoredMode('session', mode);
+    writeStoredMode('local', mode);
+    set({ mode });
+  },
+
+  setModeFromNavigation: (mode) => {
+    if (get().mode === mode) return;
+    suppressModeSync = true;
+    writeStoredMode('session', mode);
+    writeStoredMode('local', mode);
     set({ mode });
   },
 
@@ -113,6 +233,18 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
     set({ config });
   },
 }));
+
+// Local edits are mirrored app-wide once the remote state has been read (or
+// migrated). Remote applies set `lastSyncedPayload`, so they are not echoed.
+useSidebarConfigStore.subscribe((state, prev) => {
+  if (!remoteLoaded) return;
+  if (state.config === prev.config && state.mode === prev.mode) return;
+  if (suppressModeSync) {
+    suppressModeSync = false;
+    if (state.config === prev.config) return;
+  }
+  scheduleNavSync(state.config, state.mode);
+});
 
 /** Hydrate the sidebar config from localStorage once, on the client. */
 export function useHydrateSidebarConfig() {

@@ -77,12 +77,15 @@ is a separate subsystem and does use those three writers.)
 ## Authoring (the write side)
 
 Document Intelligence only READS. Producing new documents is a separate, small
-subsystem: **Document Authoring** (`python/harness/documents/`, tool
-`document_create`, ADR-H192). It builds REAL Word (`.docx`), Excel (`.xlsx`) and
-PowerPoint (`.pptx`) files — plus Markdown, CSV, JSON and `.txt` — from a neutral
-content vocabulary (`blocks` for docx/markdown/txt, `sheets` for xlsx, `slides`
-for pptx, `rows` for csv/json) and records the bytes in the **Artifact Center**
-(`artifacts/`, ADR-H160) for preview and download.
+subsystem: **Document Authoring** (`python/harness/documents/`, tools
+`document_create` and `eclipse_report`, ADR-H192). It builds REAL Word (`.docx`),
+Excel (`.xlsx`) and PowerPoint (`.pptx`) files — plus Markdown, CSV, JSON and
+`.txt` — from a neutral content vocabulary (`blocks` for docx/markdown/txt,
+`sheets` for xlsx, `slides` for pptx, `rows` for csv/json) and records the bytes
+in the **Artifact Center** (`artifacts/`, ADR-H160) for preview and download.
+`eclipse_report` adds paginated PDF reports via the vendored Matplotlib PDF
+backend (`documents/reporting.py`), using the same block vocabulary. See
+`docs/harness/reports.md`.
 
 - Writers are `python-docx`, `openpyxl`, `python-pptx` (pure-Python OOXML; see
   `python/requirements.txt`). They are imported lazily, so a partial install makes

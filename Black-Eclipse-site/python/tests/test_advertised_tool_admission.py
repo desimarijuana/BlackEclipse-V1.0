@@ -94,6 +94,8 @@ def _admit_args(name: str) -> dict[str, Any]:
         return {"name": "Demo", "instructions": "1. step one"}
     if name in ("skill_update", "skill_delete"):
         return {"skill_id": "user.demo"}
+    if name in ("python_env_install", "python_env_remove"):
+        return {"packages": ["demo"]}
     if name == "mcp_install":
         from harness.mcp.install_ops import list_catalog
 
@@ -117,6 +119,8 @@ def _admit_args(name: str) -> dict[str, Any]:
     "skill_install", "mcp_install",
     # the extension layer (agent-authored skills)
     "skill_create", "skill_update", "skill_delete",
+    # the managed analysis package environment
+    "python_env_install", "python_env_remove",
 ])
 def test_advertised_family_is_admitted(name: str) -> None:
     assert _admit(name, args=_admit_args(name)) is True, f"{name} is advertised but no layer admits it (dead tool)"

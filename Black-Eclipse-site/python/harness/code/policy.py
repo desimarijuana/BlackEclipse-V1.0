@@ -351,6 +351,7 @@ WRITE_TOOLS: tuple[str, ...] = (
     "terminal_run",                                 # command.execute (generic, gated)
     "shell_run", "shell_spawn", "process_kill",     # command.execute (real shell)
     "scaffold_kit",                                 # code.write (Phase 9)
+    "python_env_install", "python_env_remove",       # analysis package env (approval-gated)
     # The Code Execution & Verification Layer (Phase EX); named as its own tuple
     # above so the runtime authorizer can admit exactly this family.
     *EXECUTION_WRITE_TOOLS,

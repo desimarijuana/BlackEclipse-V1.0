@@ -69,6 +69,48 @@ def verify_code(
     }
 
 
+def verify_code_benchmark(
+    store: Any,
+    candidate: dict[str, Any],
+    *,
+    config: Any,
+    eval_store: Optional[Any] = None,
+) -> dict[str, Any]:
+    """Measure a code candidate in a patched worktree, if explicitly enabled.
+
+    This is the only code path that can return a measured benchmark delta. It is
+    opt-in (`HARNESS_RSL_CODE_BENCHMARK`) because it executes the patched harness
+    in a child process. The candidate never lands here; the decision is returned
+    to the conductor and the existing operator promotion remains the write path.
+    """
+    if not bool(getattr(config, "code_benchmark", False)):
+        return {
+            "ok": True,
+            "passed": True,
+            "benchmark": "UNMEASURED",
+            "decision": "code_benchmark_disabled",
+        }
+    from ..evaluation.worktree_invoker import (  # noqa: PLC0415
+        BenchmarkConfig,
+        run_candidate_benchmark,
+    )
+
+    settings = BenchmarkConfig(
+        dataset="benchmark_v1",
+        split="validation",
+        trials=max(1, int(getattr(config, "trials", 1) or 1)),
+        target_dimension="task_success",
+        min_improvement=0.0,
+    )
+    result = run_candidate_benchmark(
+        candidate, config=settings, eval_store=eval_store,
+    )
+    return {
+        **result,
+        "decisionRecord": result.get("decisionRecord"),
+    }
+
+
 def verify_skill(
     *,
     registry: Any,
@@ -370,6 +412,7 @@ async def verify_surface(
 __all__ = [
     "SurfaceConfigError",
     "verify_code",
+    "verify_code_benchmark",
     "verify_skill",
     "verify_surface",
     "verify_surface_candidate",

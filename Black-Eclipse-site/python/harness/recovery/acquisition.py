@@ -29,7 +29,7 @@ from .discovery import AcquisitionPlan, CapabilityIndex, acquisition_plan
 #: The surfaces an acquisition step can target. A step names ONE surface so the
 #: caller knows which existing gate to use.
 SURFACES: tuple[str, ...] = (
-    "existing_tool", "skill", "plugin", "scaffold_kit", "engineering",
+    "existing_tool", "skill", "plugin", "mcp", "scaffold_kit", "engineering",
     "alternative", "operator",
 )
 
@@ -104,6 +104,13 @@ def _install_surface(facts: Optional[dict[str, Any]]) -> tuple[str, bool, str, t
             "approval performs the install",
             (),
         )
+    if str(facts.get("integrationId") or "").strip():
+        return (
+            "mcp", False,
+            "an operator-supplied MCP preset; the approved single-use mcp_install "
+            "approval writes a DISABLED config and never enables it",
+            (),
+        )
     if str(facts.get("pluginPath") or "").strip():
         return (
             "plugin", False,
@@ -153,9 +160,10 @@ def propose(
 ) -> AcquisitionProposal:
     """The ordered lifecycle proposal for a capability need.
 
-    `facts` are operator-supplied install inputs (a GitHub source, a plugin
-    folder, a kit id); they only resolve WHICH existing gate an install step
-    names — the step stays approval-flagged, and the handler re-checks.
+    `facts` are operator-supplied install inputs (a GitHub source, an MCP preset
+    id, a plugin folder, a kit id); they only resolve WHICH existing gate an
+    install step names — the step stays approval-flagged, and the handler
+    re-checks.
     """
     plan: AcquisitionPlan = acquisition_plan(query, index)
     steps: list[AcquisitionStep] = []

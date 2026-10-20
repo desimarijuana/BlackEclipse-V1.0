@@ -159,6 +159,12 @@ def build_effect_authorizer(
     from ..skills.lifecycle_tools import make_skill_lifecycle_authorizer  # noqa: PLC0415
 
     code_authorizer = make_skill_lifecycle_authorizer(code_authorizer)
+
+    # The analysis sandbox's Python package environment: install/remove are
+    # separate, network-capable, single-use approval-gated mutations.
+    from ..python_env.authorizers import make_python_env_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_python_env_authorizer(code_authorizer)
     from ..mcp.install_tools import make_mcp_install_authorizer  # noqa: PLC0415
 
     code_authorizer = make_mcp_install_authorizer(code_authorizer)

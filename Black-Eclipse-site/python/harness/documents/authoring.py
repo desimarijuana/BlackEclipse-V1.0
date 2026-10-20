@@ -423,6 +423,54 @@ def build_json(rows: Any, *, title: str = "", blocks: Optional[Sequence[dict[str
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 
+#: How many headings one authored document may report (bounded).
+MAX_REPORTED_SECTIONS = 40
+
+
+def block_headings(blocks: Optional[Sequence[dict[str, Any]]]) -> list[str]:
+    """The heading titles an authored document actually contains.
+
+    The writer knows them, so it can RECORD them; that record is what the
+    completion verifier checks a contract's required sections against (W14).
+    """
+    out: list[str] = []
+    for block in blocks or []:
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("type") or "") != "heading":
+            continue
+        text = str(block.get("text") or "").strip()
+        if text:
+            out.append(text[:120])
+        if len(out) >= MAX_REPORTED_SECTIONS:
+            break
+    return out
+
+
+def report_authored_document(
+    ctx: Any, *, title: str, filename: str, headings: Sequence[str],
+) -> None:
+    """Report the document this run WROTE to the run's document collector.
+
+    Best-effort and never fatal: the collector turns this into the bounded
+    `authored` entry (its recorded section titles). Without a collector the
+    document still exists — only the recorded structure is missing.
+    """
+    sink = getattr(ctx, "document_sink", None)
+    if sink is None:
+        return
+    try:
+        sink({
+            "ok": True,
+            "kind": "authored_document",
+            "title": title or filename,
+            "state": "DELIVERED",
+            "ir": {"sections": [{"title": str(h)} for h in headings[:MAX_REPORTED_SECTIONS]]},
+        })
+    except Exception:  # noqa: BLE001 - the report is additive; never break the write
+        return
+
+
 def build(
     fmt: str,
     *,
@@ -456,6 +504,8 @@ __all__ = [
     "DocumentError",
     "FORMAT_EXTENSION",
     "FORMAT_MIME",
+    "MAX_REPORTED_SECTIONS",
+    "block_headings",
     "build",
     "build_csv",
     "build_docx",

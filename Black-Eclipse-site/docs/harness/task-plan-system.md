@@ -1,7 +1,7 @@
 ---
 title: Task / Plan System
 status: Current
-last-verified: 2026-10-18
+last-verified: 2026-10-19
 ---
 
 # Task / Plan System
@@ -50,8 +50,8 @@ run may itself use `task_fork` to fan out.
 | `dag.py` | Pure graph math: cycle detection, unmet dependencies, parent status, weighted progress, topological layers. |
 | `manager.py` | `TaskManager` — the ONE writer of task/plan state (CRUD, dependencies, criteria, verification, cancellation, roll-ups). |
 | `context.py` | The execution context envelope built from durable state, and its renderer (quotes the most recent FAILED attempt). |
-| `goal.py` | Round 4 (W8.1): the deterministic goal intake (`intake_goal`, `classify_task_type`, `durable_decision`) and `budget_violations`. PURE. |
-| `verification.py` | Round 4 (W8.4): the task-type verifier registry (`verify_task`) — evidence-based completion per `taskType`. PURE. |
+| `goal.py` | Round 4 (W8.1/W14): the deterministic goal intake (`intake_goal`, `classify_task_type`, `durable_decision`, `parse_required_sections`) and `budget_violations`. PURE. |
+| `verification.py` | Round 4 (W8.4/W14): the task-type verifier registry (`verify_task`) — evidence-based completion per `taskType`, reading the real evidence shapes. PURE. |
 | `scheduler.py` | `TaskScheduler` — claim, heartbeat, retry/backoff, lease-expiry recovery, dispatch, budget + verification gates. |
 | `tools.py` | The curated LLM-facing tool surface (`create_goal` included). |
 | `bootstrap.py` | Boot wiring onto `AgenticService` (the production executor). |
@@ -223,7 +223,7 @@ runtime AND the contract must pass. When a run completes, the scheduler marks th
 task's declared criteria `PASSED` with the run id as evidence unless the task sets
 `metadata.criteriaRequireExplicit` (then only explicitly reported criteria pass).
 
-### Verified completion by task type (round 4, W8.4)
+### Verified completion by task type (round 4, W8.4; unified in W14)
 
 `verify_completion` checks durable STATE (dependencies, children, criteria). The
 task-type verifier checks EVIDENCE — and it runs FIRST, inside the scheduler,
@@ -234,15 +234,23 @@ between `begin_verification` and `complete_task`:
   returns `None`) — every pre-W8 task is unchanged.
 - Verifiers read records the runtime already wrote: the run's
   `codeVerification` ledger (zero-exit `unit_test`/`python_test`/`build`/
-  `typecheck`/`lint` records), attached artifact references, recorded research
-  `sources`/`claims`, observed metrics. Never the model's prose.
+  `typecheck`/`lint` records), attached artifact references, the research
+  evidence (the ordinary run's `metadata.citations`/`collectedSources` and the
+  gated run's `validation.claims` + `receipt.evidenceRefs`), the recorded
+  document sections, the run's analysis records, observed metrics. Never the
+  model's prose.
 - `code` ⇒ the run completed, every check the acceptance/deliverables NAME has a
   zero-exit record (tests/build/typecheck/lint — matched on word boundaries, so
   the verb "build" is not a build check), and every declared deliverable has a
-  matching delivered artifact. `research` ⇒ recorded sources. `document` ⇒ a
-  delivered artifact (or document record). `workflow` ⇒ observed steps + a
-  result reference. `finance` ⇒ provenance (sources). `general` ⇒ a completed
-  run with a recorded result reference or artifact.
+  matching delivered artifact. `research` ⇒ traceable sources, a claim backed by
+  recorded evidence, and the uncertainty RECORDED (a partial answer that names
+  no open gap is refused). `document` ⇒ a delivered artifact AND every section
+  the contract required. `workflow` ⇒ observed steps AND an observable state
+  change (the run id is not a result). `finance` ⇒ provenance, freshness and
+  claim-to-evidence, deferring to the Evidence Engine's own verdict.
+  `data` ⇒ a reproducible calculation: a recorded formula with its inputs, or an
+  analysis that pinned the program it ran and the inputs it read.
+  `general` ⇒ a completed run with a recorded result reference or artifact.
 - A declared `taskType` with NO registered verifier is a REFUSAL, never a pass;
   a crashing verifier is also a refusal (`verification.py` logs and refuses).
 - A failed verification with retry budget left is retried with the missing
@@ -255,6 +263,33 @@ between `begin_verification` and `complete_task`:
 - On success the `run_complete` checkpoint payload carries the verdict
   (`verification: {ok, checks, missing}`), so a resumed or audited task shows
   WHAT proved it.
+
+#### What the evidence is (round 4, W14)
+
+The verifiers read the shapes the runtime REALLY writes, not an idealized
+one. Two research shapes exist and both are read: the ordinary run's collected
+blob (`source_collector.to_research_blob()`) and the gated run's blob
+(`status`, `validation.claims`, `coverage`, `receipt.evidenceRefs`). Three
+recordings were added so the rules above can be checked at all:
+
+- **Required sections.** A contract names them deterministically
+  (`goal.parse_required_sections` — only an explicit list counts: "sections:
+  risks, methodology"). The intake turns a request that names sections into the
+  acceptance line `the document contains the sections: …`, and the delivered
+  document records the headings it wrote (`documents/authoring.py::
+  report_authored_document` → the run's `authored` documents, or the processed
+  document's IR sections). A document that recorded no structure cannot prove
+  its sections — that is a refusal, not a pass.
+- **Reproducible calculations.** The sandbox writes one `AnalysisRecord` per
+  analysis (`analysis_tools._record_analysis`); the task outcome reads them as
+  bounded evidence (`analysis_tools.load_run_analyses` → `evidence.analyses`),
+  alongside the research engine's own calculation records
+  (`research.metadata.calculations`). A number in prose is not a computation.
+- **Observable state.** A workflow's "result" is an observed record — an
+  artifact, a document, an analysis, a code record, a capability or collected
+  sources. The run id the scheduler stores is NOT a result, so a workflow that
+  started, called one tool and produced nothing is refused.
+
 
 ### Contract budgets (round 4, W8.6)
 
@@ -391,8 +426,13 @@ write/restore, Artifact-Center linking and retention pruning.
 classification, deliverable/acceptance inference, the ONE-question ambiguity
 rule, the durable decision, budget comparison, contract persistence + update
 validation). `python/tests/test_tasks_verification.py` pins the verifier
-registry (dispatch, accept/reject per type, deliverable coverage, unknown and
-crashing verifiers refuse). `python/tests/test_goal_completion.py` is the round-4
+registry (dispatch, accept/reject per type against the REAL evidence shapes,
+the required-section rule, the reproducible-calculation rule, deliverable
+coverage, unknown and crashing verifiers refuse).
+`python/tests/test_w14_verification_evidence.py` pins the evidence itself: the
+analysis records are readable as bounded run evidence, the task outcome carries
+them, an authored document records its headings, and the processed-document
+list is unchanged by it. `python/tests/test_goal_completion.py` is the round-4
 acceptance: build → deliberate defect → the verifier rejects → repair (told what
 was missing) → verified completion with the artifact and the evidence-bearing
 checkpoint; an unverifiable goal ends `BLOCKED` (`VERIFICATION`); an exceeded

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
 import { coerceResponsePlan, toolLabel, sourceLabel, turnText, emptyTurn } from './response-model';
 
@@ -100,7 +100,7 @@ describe('normalizeHarnessEvent', () => {
     });
   });
 
-  it('maps fs previews — a multi-file change arrives as several items', () => {
+  it('maps fs previews â€” a multi-file change arrives as several items', () => {
     const e = normalizeHarnessEvent('fs.apply_diff', {
       type: 'fs.apply_diff',
       data: {
@@ -313,7 +313,7 @@ describe('normalizeHarnessEvent', () => {
         candidates: 12,
         usedChars: 2400,
         budgetChars: 4000,
-        // The full payload the runtime sends — none of this may reach the line.
+        // The full payload the runtime sends â€” none of this may reach the line.
         selectedIds: ['mem_secret_1', 'mem_secret_2'],
         excluded: [{ id: 'mem_no', reason: 'scope mismatch' }],
         selectionReasons: [{ id: 'mem_secret_1', reason: 'topic match' }],
@@ -483,5 +483,46 @@ describe('response.plan (Intelligent Response Orchestrator)', () => {
     expect(coerceResponsePlan('nope')).toBeUndefined();
     expect(coerceResponsePlan(null)).toBeUndefined();
     expect(coerceResponsePlan(['visualization'])).toBeUndefined();
+  });
+});
+
+describe('capability lifecycle events', () => {
+  it('maps a capability request to the typed capability event', () => {
+    const e = normalizeHarnessEvent('capability.requested', {
+      type: 'capability.requested',
+      data: {
+        requestId: 'capreq_1', capabilityId: 'ulcer_index', need: 'compute the ulcer index',
+        kind: 'recipe', status: 'gap', surface: 'capability_builder', scope: 'workspace',
+        requiresApproval: false, steps: ['write a manifest'], missing: ['contract test'],
+      },
+    });
+    expect(e).toMatchObject({
+      kind: 'capability',
+      phase: 'requested',
+      view: { capabilityId: 'ulcer_index', status: 'gap' },
+    });
+  });
+
+  it('maps build, activation, failure, disable and retire phases', () => {
+    const cases = [
+      ['capability.built', 'built'],
+      ['capability.activated', 'activated'],
+      ['capability.verification_failed', 'verification_failed'],
+      ['capability.disabled', 'disabled'],
+      ['capability.retired', 'retired'],
+    ] as const;
+    for (const [event, phase] of cases) {
+      const e = normalizeHarnessEvent(event, {
+        type: event,
+        data: { capabilityId: 'ulcer_index', version: '1.0.0', status: 'active' },
+      });
+      expect(e).toMatchObject({ kind: 'capability', phase });
+    }
+  });
+
+  it('drops a malformed capability payload instead of rendering a half card', () => {
+    expect(normalizeHarnessEvent('capability.built', {
+      type: 'capability.built', data: {},
+    })).toBeNull();
   });
 });

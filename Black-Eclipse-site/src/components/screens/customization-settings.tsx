@@ -1,9 +1,9 @@
 "use client";
 
-// ── Settings › Customization ──────────────────────────────────────────────
+// â”€â”€ Settings â€º Customization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The centralized theme/customization surface. Everything here flows through
 // the Eclipse theme store (`@/lib/theme`), which flattens the theme to CSS
-// design tokens on <html> — so changes recolor the entire app (chrome, cards,
+// design tokens on <html> â€” so changes recolor the entire app (chrome, cards,
 // charts, widgets) with no component-specific hacks.
 //
 // Editing model:
@@ -14,7 +14,7 @@
 //     card also shows the draft in isolation.
 //   * "Apply" persists the draft; "Discard" restores the saved theme.
 //
-// Tabs: Theme · Glass & Surfaces · Aurora · Charts · ChatBot Page · Language & Access.
+// Tabs: Theme Â· Glass & Surfaces Â· Aurora Â· Charts Â· ChatBot Page Â· Language & Access.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -53,6 +53,8 @@ import { ChartSettingsPanel } from "./chart-settings";
 import { ChatbotPageSettings } from "./chatbot-page-settings";
 import { PreviewLauncher } from "./customization-preview";
 import { SubSection, Toggle } from "./settings-ui";
+import { AppWideThemePresets } from "./app-wide-theme-presets";
+import { PresetTile, ThemePreview, rgbTriplet } from "./theme-preview";
 
 type CustomTab = "general" | "theme" | "glass" | "aurora" | "charts" | "chatbot" | "access";
 
@@ -86,106 +88,6 @@ function Card({
       </div>
       {children}
     </div>
-  );
-}
-
-/**
- * A miniature of the app rendered entirely from a theme's own tokens — a tiny
- * sidebar rail, a couple of glass cards and a chart line. It shows the user
- * what a preset actually looks like (brand hue, page darkness, surface tint,
- * accent) instead of a flat color circle, so picking a theme is visual.
- */
-function ThemePreview({ theme }: { theme: EclipseTheme }) {
-  const c = theme.colors;
-  const dark = theme.scheme !== "light";
-  const surface = `rgb(${rgbTriplet(c.surface)} / ${theme.glass.enabled ? Math.min(0.85, theme.glass.opacity + 0.25) : 0.97})`;
-  return (
-    <span
-      className="block w-full overflow-hidden rounded-lg border border-white/10"
-      style={{ backgroundColor: c.background }}
-      aria-hidden
-    >
-      <span className="flex h-[86px]">
-        {/* mini navigation rail */}
-        <span
-          className="flex w-[22%] shrink-0 flex-col justify-center gap-1.5 px-1.5"
-          style={{ backgroundColor: `rgb(${rgbTriplet(theme.sidebar.tint)} / ${theme.sidebar.opacity})` }}
-        >
-          <span className="h-1 w-full rounded-full" style={{ backgroundColor: c.primary }} />
-          <span className="h-1 w-2/3 rounded-full" style={{ backgroundColor: c.accent, opacity: 0.7 }} />
-          <span className="h-1 w-3/4 rounded-full" style={{ backgroundColor: c.text, opacity: 0.25 }} />
-        </span>
-        {/* page body */}
-        <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-1.5">
-          <span className="flex gap-1.5">
-            <span className="h-6 flex-1 rounded border border-white/10" style={{ backgroundColor: surface }} />
-            <span className="h-6 flex-1 rounded border border-white/10" style={{ backgroundColor: surface }} />
-          </span>
-          <span
-            className="relative flex flex-1 items-center justify-center overflow-hidden rounded border border-white/10"
-            style={{ backgroundColor: surface }}
-          >
-            <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="h-full w-full">
-              <polyline
-                points="0,22 18,14 32,18 50,7 68,13 84,4 100,9"
-                fill="none"
-                stroke={c.primary}
-                strokeWidth={2}
-              />
-            </svg>
-          </span>
-          <span className="flex gap-1">
-            <span className="h-1 flex-1 rounded-full" style={{ backgroundColor: c.text, opacity: 0.18 }} />
-            <span className="h-1 w-3 rounded-full" style={{ backgroundColor: c.bullish }} />
-            <span className="h-1 w-3 rounded-full" style={{ backgroundColor: c.bearish }} />
-          </span>
-        </span>
-      </span>
-      {/* footer wordmark strip — mirrors the preset's landing color */}
-      <span className="block h-1.5" style={{ backgroundColor: dark ? c.accent : c.secondary, opacity: 0.5 }} />
-    </span>
-  );
-}
-
-/**
- * A preset tile: the mini theme preview plus label/description. Used by both
- * shipped and user presets, with user tiles layering rename/overwrite/delete.
- */
-function PresetTile({
-  theme,
-  label,
-  description,
-  active,
-  onClick,
-}: {
-  theme: EclipseTheme;
-  label: string;
-  description: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={description}
-      className={cn(
-        "flex flex-col gap-2 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
-        active
-          ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-          : "border-border/20 glass-card-subtle hover:border-border/40",
-      )}
-    >
-      <ThemePreview theme={theme} />
-      <span className="flex flex-col min-w-0 px-0.5">
-        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-          {label}
-          {active && <Check className="w-3 h-3 text-primary shrink-0" />}
-        </span>
-        <span className="text-[10px] text-muted-foreground truncate">{description}</span>
-      </span>
-    </button>
   );
 }
 
@@ -235,7 +137,7 @@ function ColorField({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  // A native color picker fires `input` continuously while the user drags — far
+  // A native color picker fires `input` continuously while the user drags â€” far
   // more often than the app can repaint. Applying the theme on every event
   // restyles the whole glass-heavy UI each time, so events pile up faster than
   // frames are produced and the picker appears to stick. The shared hook keeps
@@ -336,7 +238,7 @@ function ImageField({
       </div>
       <Input
         value={value.startsWith("data:") ? "" : value}
-        placeholder={value.startsWith("data:") ? "Uploaded image" : "…or paste an image URL"}
+        placeholder={value.startsWith("data:") ? "Uploaded image" : "â€¦or paste an image URL"}
         onChange={(e) => onChange(e.target.value)}
         className="font-mono text-[11px]"
       />
@@ -372,8 +274,8 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   const setPreviewMode = useThemeStore((s) => s.setPreviewMode);
 
   // The saved chart palette is read imperatively inside the effect (not
-  // subscribed) so that manual edits made on the Charts tab don't retrigger —
-  // and clobber — the theme preview. Only draft/preset changes re-derive
+  // subscribed) so that manual edits made on the Charts tab don't retrigger â€”
+  // and clobber â€” the theme preview. Only draft/preset changes re-derive
   // chart colors. These action selectors are stable, so they never re-render.
   const setChartPreview = useChartPaletteStore((s) => s.setPreview);
   const setChartPalette = useChartPaletteStore((s) => s.setPalette);
@@ -404,7 +306,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   const importRef = useRef<HTMLInputElement | null>(null);
 
   // When the saved theme changes from outside (apply/reset/preset), resync the
-  // draft — but never while a draft preview is active.
+  // draft â€” but never while a draft preview is active.
   useEffect(() => {
     setDraft(theme);
   }, [theme]);
@@ -448,7 +350,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     clearChartPalettePreview();
   }, [cancelPreview, cancelBackgroundPreview, cancelAuroraPreview]);
 
-  // ── Draft mutators ──────────────────────────────────────────────────────
+  // â”€â”€ Draft mutators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const patch = (p: Partial<Omit<EclipseTheme, "colors">>) =>
     setDraft((d) => normalizeTheme({ ...d, ...p }));
   const patchColor = (key: keyof ThemeColors, hex: string) => {
@@ -544,7 +446,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      /* download unavailable — no-op */
+      /* download unavailable â€” no-op */
     }
   };
 
@@ -556,7 +458,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
         setDraft(normalizeTheme(parsed));
         setPendingBackground(normalizePresetBackground(parsed?.background) ?? null);
       } catch {
-        /* invalid file — ignore */
+        /* invalid file â€” ignore */
       }
     };
     reader.readAsText(file);
@@ -613,7 +515,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
   const draftBacked = tab === "theme" || tab === "glass" || tab === "aurora" || tab === "charts";
   return (
     <div className="space-y-6">
-      {/* ── Live preview toggle + Apply/Discard + full-screen preview ──── */}
+      {/* â”€â”€ Live preview toggle + Apply/Discard + full-screen preview â”€â”€â”€â”€ */}
       {draftBacked && (
       <div className="sticky top-0 z-20 -mx-1 px-1 pb-1">
         <div className="rounded-2xl border border-primary/20 glass-card-strong overflow-hidden">
@@ -638,7 +540,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
                 {dirty
                   ? livePreview
                     ? "Previewing unsaved changes across the app."
-                    : "Editing draft — turn on live preview to audition it."
+                    : "Editing draft â€” turn on live preview to audition it."
                   : "No unsaved changes."}
               </span>
             </div>
@@ -707,10 +609,10 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
         })}
       </div>
 
-      {/* ══ General (startup, market, display + behavior) ══════════════ */}
+      {/* â•â• General (startup, market, display + behavior) â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {tab === "general" && generalTab}
 
-      {/* ══ Glass & Surfaces ═══════════════════════════════════════════ */}
+      {/* â•â• Glass & Surfaces â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {tab === "glass" && (
         <div className="animate-fade-in-up space-y-6">
           <Card icon={Layers} title="Glass Mode">
@@ -788,7 +690,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
               />
               <p className="text-[10px] text-muted-foreground leading-relaxed">
                 Live preview of a themed surface. Frosted glass only reads correctly when the
-                tint is translucent — a high opacity hides the blur and looks solid.
+                tint is translucent â€” a high opacity hides the blur and looks solid.
               </p>
             </div>
           </Card>
@@ -814,12 +716,12 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
             </div>
           </Card>
 
-          {/* Sidebar surface — moved here from the Theme tab so every surface
+          {/* Sidebar surface â€” moved here from the Theme tab so every surface
               token lives on one tab. */}
           <Card icon={PanelLeft} title="Sidebar">
             <p className="text-[10px] text-muted-foreground -mt-2">
               The navigation rail has its own surface, independent of the page and
-              cards — so it can stay a soft grey instead of matching the black page.
+              cards â€” so it can stay a soft grey instead of matching the black page.
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               {SIDEBAR_PRESETS.map((s) => (
@@ -879,7 +781,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
         </div>
       )}
 
-      {/* ══ Aurora / Charts (embedded panels) ══════════════════════════ */}
+      {/* â•â• Aurora / Charts (embedded panels) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {tab === "aurora" && (
         <div className="animate-fade-in-up"><AuroraSettingsPanel /></div>
       )}
@@ -888,7 +790,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
       )}
       {tab === "chatbot" && <ChatbotPageSettings />}
 
-      {/* ══ Language & Access ══════════════════════════════════════════ */}
+      {/* â•â• Language & Access â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {tab === "access" && (
         <div className="animate-fade-in-up space-y-6">
           <Card icon={Languages} title={t("settings.customization.language")}>
@@ -945,10 +847,10 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
         </div>
       )}
 
-      {/* ══ Theme & Presets (default) ══════════════════════════════════ */}
+      {/* â•â• Theme & Presets (default) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {tab === "theme" && (
         <div className="animate-fade-in-up space-y-6">
-          {/* Presets — the starting point: browse a look, then fine-tune below. */}
+          {/* Presets â€” the starting point: browse a look, then fine-tune below. */}
           <SubSection
             icon={Palette}
             title="Presets"
@@ -996,7 +898,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
                         onClick={() => selectUserPreset(preset.id)}
                       />
                     )}
-                    {/* Actions overlay — hidden until hover so the preview stays clean. */}
+                    {/* Actions overlay â€” hidden until hover so the preview stays clean. */}
                     <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <button
                         type="button"
@@ -1027,7 +929,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
                 );
               })}
 
-              {/* The live, unsaved draft — always the last tile so "tune below"
+              {/* The live, unsaved draft â€” always the last tile so "tune below"
                   has an obvious home. */}
               <div
                 className={cn(
@@ -1044,19 +946,20 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
                     {dirty && activePreset === null && <Check className="w-3 h-3 text-primary shrink-0" />}
                   </span>
                   <span className="text-[10px] text-muted-foreground truncate">
-                    {dirty && activePreset === null ? "Unsaved — tune below" : "Tune tokens, then save"}
+                    {dirty && activePreset === null ? "Unsaved â€” tune below" : "Tune tokens, then save"}
                   </span>
                 </span>
               </div>
             </div>
 
+            <AppWideThemePresets theme={draft} />
             {/* Save / import / export / reset */}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Input
                 value={presetName}
                 onChange={(e) => setPresetName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
-                placeholder="Name this theme…"
+                placeholder="Name this themeâ€¦"
                 className="h-9 flex-1 min-w-[180px]"
               />
               <Button size="sm" className="rounded-xl cursor-pointer" onClick={handleSavePreset}>
@@ -1094,7 +997,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
           <Card icon={Wand2} title="Build Theme From Brand Color">
             <p className="text-[10px] text-muted-foreground -mt-2">
               Pick your organisation&apos;s brand color and Eclipse derives a coordinated
-              palette — primary, accent and market colors — around it.
+              palette â€” primary, accent and market colors â€” around it.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <label
@@ -1136,7 +1039,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
             </div>
           </Card>
 
-          {/* Fine-tune — every token that shapes the chosen preset. */}
+          {/* Fine-tune â€” every token that shapes the chosen preset. */}
           <SubSection
             icon={SlidersHorizontal}
             title="Fine-tune"
@@ -1272,7 +1175,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
               <Sun className="w-3.5 h-3.5 text-primary shrink-0" />
               <span>
                 The last four are derived automatically until you edit them. Charts, heatmaps and
-                candles live on the Charts tab. Light/dark mode still follows General › Theme.
+                candles live on the Charts tab. Light/dark mode still follows General â€º Theme.
               </span>
             </div>
           </Card>
@@ -1324,13 +1227,4 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
       )}
     </div>
   );
-}
-
-/** Local hex → "r g b" helper for inline preview swatches. */
-function rgbTriplet(hex: string): string {
-  const n = normalizeHex(hex);
-  if (!n) return "18 18 20";
-  return [n.slice(1, 3), n.slice(3, 5), n.slice(5, 7)]
-    .map((h) => parseInt(h, 16))
-    .join(" ");
 }

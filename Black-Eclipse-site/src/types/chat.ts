@@ -54,6 +54,12 @@ export interface Message {
   /** Phase 14 §6.4: the runtime-derived chat capability view, when any. */
   capability?: unknown;
   /**
+   * Generated-capability lifecycle (request, build, test, activation) for this
+   * turn. Absent on user turns and legacy rows; narrowed by the chat surface via
+   * `coerceCapabilityBuild`.
+   */
+  capabilityBuild?: unknown;
+  /**
    * Vision/Multimodal: the run's collected vision results (asset ids, regions,
    * OCR, confidence, provenance). Absent on user turns, non-vision runs, and
    * legacy rows. Narrowed by the chat surface via `coerceVisionRun`.

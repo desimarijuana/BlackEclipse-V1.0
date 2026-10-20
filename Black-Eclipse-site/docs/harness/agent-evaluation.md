@@ -263,9 +263,15 @@ write the production store and never activate a change.
 **R4 conductor.** `self_improvement/loop.py` scans and atomically claims
 `EvolutionCandidate` rows (one experiment at a time, daily budget + lease).
 Code candidates use `verify_code` (owning tests in a worktree; the benchmark is
-recorded as UNMEASURED), while surface candidates use `verify_surface` (the only
-measured path, recorded on an `EvaluationRun` with RSL metadata).
-`landing.prepare` returns the existing promotion preview and never applies it.
+recorded as UNMEASURED by default), while surface candidates use `verify_surface`
+(a measured path recorded on an `EvaluationRun` with RSL metadata). With
+`HARNESS_RSL_CODE_BENCHMARK=on`, `verify_code_benchmark` runs the deterministic
+suite in an isolated patched worktree (`evaluation/worktree_invoker.py`) and
+compares it to the unpatched baseline; only then is a code candidate recorded as
+`MEASURED`. Evaluation, candidate-trials and gate runs set
+`RunRequest.liveSurface=False`, so an operator-activated live surface can never
+contaminate a measurement. `landing.prepare` returns the existing promotion
+preview and never applies it.
 
 ## 7.1 Splits and provenance
 

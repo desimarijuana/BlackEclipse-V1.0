@@ -388,10 +388,14 @@ def test_prompt_char_ceiling():
     Raised to 30897 by the learning-loop guidance: the agent can read the
     automatic reviews and captured candidates and must not guess about them.
     One guidance paragraph; re-pinned to the measured size.
+    Raised to 31834 by the Capability Builder guidance: the agent must
+    construct a missing capability (`capability_request` -> `capability_build`)
+    instead of refusing, while keeping activation separate. One guidance
+    paragraph; re-pinned to the measured size.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 30897, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 31834, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

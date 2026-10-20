@@ -307,9 +307,9 @@ class RecoveryService:
     ) -> Optional[dict[str, Any]]:
         """The typed acquisition lifecycle (W5/W9): surface, approval, gaps, retry.
 
-        `facts` (an operator-supplied GitHub source / plugin folder / kit id)
-        only resolve which EXISTING gate an install step names; nothing is
-        granted and the step stays approval-flagged.
+        `facts` (an operator-supplied GitHub source / MCP preset id / plugin
+        folder / kit id) only resolve which EXISTING gate an install step names;
+        nothing is granted and the step stays approval-flagged.
         """
         if self.capability_index is None:
             return None

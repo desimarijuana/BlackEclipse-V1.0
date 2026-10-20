@@ -54,11 +54,19 @@ Function-key navigation shares the persisted sidebar configuration; it does not
 introduce a second router. Untouched legacy defaults migrate to assigned keys,
 while customized assignments and disabled sections are preserved.
 
-The sidebar has two top-level modes — **Terminal** (market tools) and
-**Agentic** — selected by a segmented switcher at the top of the menu and by
-**Alt+T / Alt+A**. The active mode lives in the shared sidebar store (`mode`), so
-the switcher, keyboard dispatch and programmatic navigation all read/write one
-value. ChatBot belongs to both modes; when a terminal/agentic-only screen is
+The sidebar has four top-level modes — **Terminal** (market tools),
+**Agentic**, **Bots** and **Graph Studio** — selected by a switcher at the top
+of the menu and by **Alt+T / Alt+A / Alt+B / Alt+G**. The active mode lives in
+the sidebar store (`mode`) and is **per shell**: each browser tab/window keeps
+its own choice in `sessionStorage`, so switching to Bots in one tab never drags
+another open tab out of its mode. The switcher, keyboard dispatch and
+programmatic navigation still read/write the one value for that shell. Order
+and visibility are mirrored app-wide through `/api/sdk/app` (JDDS
+`SystemConfig` key `eclipse_app_shell_nav`); `localStorage` is the instant cache
+and the shared mode seed for newly opened shells, and SSE
+(`/api/sdk/app/stream`) applies section changes without overriding an open
+shell's mode. Keyboard shortcuts stay local. ChatBot belongs to both Terminal
+and Agentic; when a terminal/agentic-only screen is
 opened by the palette or a deep link the switcher follows it. The switcher is
 hidden while collapsed, but the selected mode still filters the icons — switch
 with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse SDK,
@@ -66,12 +74,23 @@ Eclipse Memory and Artifacts**; the other agentic capabilities (Code, Editor,
 Jobs, Tasks, Pages, UI Builder, Plugins, Model Control Center, Search, Research,
 Backtest) are not sidebar tabs and are reached from ChatBot through its tools.
 The Eclipse SDK tab is the user-facing composition surface — declarative
-widgets, composed pages, the Command Center, fund portfolios, design patches and
-passphrase locks; see `docs/eclipse-sdk.md`. The dashboard is not a separate
+widgets, composed pages, the Command Center, typed themes, fund portfolios and
+passphrase locks; see `docs/eclipse-sdk.md`. Every SDK mutation appends to
+`SdkAudit` on `agent-memory.db` (bounded, no secrets); front-door-owned writes
+(theme, app shell, dashboard templates) record through the same loopback audit
+route, and the SDK screen's Activity panel reads it. The Command Center toolbar
+exposes retained-revision Undo/History; a restore is a new revision, so undo is
+itself undoable. The dashboard is not a separate
 store: `/dashboard/<id>` is a UI blueprint mirrored by `DashboardScreen`, and
 layout writes flow through the same UI Engineering engine, revisions and locks.
-`/api/ui/stream` carries a dashboard change kind so a durable edit lands on the
-live board without the old 20s poll.
+Persona templates stay in TS: `dashboards.applyTemplate/reset` build a full
+board from `src/lib/dashboard/templates.ts` and write it through that same
+revision-guarded layout API. `/api/ui/stream` carries a dashboard change kind so a durable edit lands on the
+live board without the old 20s poll. Theme creation is a closed `ThemeSpec` over
+the existing app-wide theme store; named presets live in `SystemConfig` and every
+theme write checks both `theme:global` and `design:global` locks. `/app` forces
+the app-control surface (no code profile); `/eclipsesdk` remains the source-code
+path.
 
 `src/hooks/use-page-shortcuts.ts` registers page actions against visible DOM
 roots, with matching and guards in `src/lib/keyboard.ts`. Keep-alive screens

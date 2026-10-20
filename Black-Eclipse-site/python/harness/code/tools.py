@@ -1207,8 +1207,6 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         handler=delegate_handler,
         permission="read", risk="low", timeout_ms=600_000,
     ))
-    # Phase 8: the analysis sandbox (compute, don't just retrieve). Handler lives
-    # in `harness/analysis_tools.py`; OFF per run (RunRequest.analysisEnabled).
     from ..analysis_tools import analysis_run  # noqa: PLC0415
 
     registry.register(ToolDefinition(
@@ -1242,6 +1240,8 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         handler=scaffold_kit,
         permission="write", risk="medium", timeout_ms=600_000, effect="write",
     ))
+    from ..capabilities.tools import register_capability_tools  # noqa: PLC0415
+    register_capability_tools(registry)
     # The Code Intelligence & Understanding Engine (CIUE). Its read tools are
     # always available; the one write tool (`code_rename_symbol`) is admitted by
     # the effect authorizer and applies to the disposable workspace. Handler:

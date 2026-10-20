@@ -23,6 +23,7 @@ import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ChatCapabilityPanel } from './chat-capability-panel';
 import { ComputedResultPanel } from './computed-result-panel';
+import { CapabilityCard } from './capability-card';
 import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
 import { BotAvatar } from '@/components/bots/bot-avatar';
@@ -451,6 +452,13 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                       ) : null}
                     </div>
                   )}
+                  {msg.capabilityBuild ? (
+                    <CapabilityCard
+                      view={msg.capabilityBuild}
+                      compact={compact}
+                      onFollowup={onFollowup}
+                    />
+                  ) : null}
                   {msg.vision ? (
                     <VisionPanel vision={msg.vision} compact={compact} />
                   ) : null}

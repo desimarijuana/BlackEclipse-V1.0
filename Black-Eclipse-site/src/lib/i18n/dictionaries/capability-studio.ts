@@ -1,6 +1,6 @@
-// ── English dictionary — Capability Studio domain (Phase D) ─────────────────
+﻿// â”€â”€ English dictionary â€” Capability Studio domain (Phase D) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // A DOMAIN slice of the canonical English dictionary, spread into `en` so
-// `t('studio.…')` stays autocompleted and type-checked exactly as before.
+// `t('studio.â€¦')` stays autocompleted and type-checked exactly as before.
 // Moving a domain here is the documented way the oversized `en.ts` SHRINKS
 // (see the ratchet note in `src/lib/size-budget.test.ts`). This slice owns the
 // Capability Studio chrome: the section switcher, the skills and integrations
@@ -8,16 +8,17 @@
 
 export const capabilityStudio = {
   'studio.title': 'Capability Studio',
-  'studio.subtitle': 'One place for everything Eclipse can be extended with — pages and widgets, tools and plugins, skills, and your connected data.',
+  'studio.subtitle': 'One place for everything Eclipse can be extended with â€” pages and widgets, tools and plugins, skills, and your connected data.',
   'studio.section.pages': 'Pages & widgets',
   'studio.section.plugins': 'Tools & plugins',
   'studio.section.skills': 'Skills',
   'studio.section.integrations': 'Integrations',
-  'studio.loading': 'Loading…',
-  'studio.loadFailed': "Couldn't load {what} — {reason}",
+  'studio.section.generated': 'Generated',
+  'studio.loading': 'Loading...',
+  'studio.loadFailed': "Couldn't load {what} â€” {reason}",
   'studio.retry': 'Retry',
   'studio.open': 'Open {what}',
-  'studio.plugins.hint': 'Enable, inspect and configure the tools your plugins contribute. Installing a new plugin goes through the operator acquisition route (Settings → Data Sources / the recovery console), never from here.',
+  'studio.plugins.hint': 'Enable, inspect and configure the tools your plugins contribute. Installing a new plugin goes through the operator acquisition route (Settings â†’ Data Sources / the recovery console), never from here.',
   'studio.skills.total': 'Skills',
   'studio.skills.enabled': 'Enabled',
   'studio.skills.pending': 'Awaiting evaluation',
@@ -32,4 +33,31 @@ export const capabilityStudio = {
   'studio.integrations.openData': 'Open Data Sources',
   'studio.integrations.openMcp': 'Open MCP Servers',
   'studio.integrations.empty': 'Nothing connected yet.',
+  'studio.generated.hint': 'Recipes Eclipse built for you. Every version was tested in the sandbox; activation is versioned, and the agent cannot activate an effectful capability.',
+  'studio.generated.total': 'Capabilities',
+  'studio.generated.active': 'Active',
+  'studio.generated.attention': 'Needs attention',
+  'studio.generated.versions': 'Versions',
+  'studio.generated.empty': 'No generated capabilities yet. Ask Eclipse to build one.',
+  'studio.generated.usage': '{ok} ok Â· {failed} failed',
+  'studio.generated.noUsage': 'Not used yet',
+  'studio.generated.activate': 'Activate',
+  'studio.generated.deactivate': 'Deactivate',
+  'studio.generated.rollback': 'Rollback',
+  'studio.generated.remove': 'Retire',
+  'studio.generated.confirmRemove': 'Retire {id}? Its files stay for audit.',
+  'studio.generated.actionFailed': 'Action failed: {reason}',
+  'studio.generated.testVerified': 'Contract test passed',
+  'studio.generated.testFailed': 'Contract test failed',
+  'studio.generated.testUnverified': 'No passing contract test',
+  'studio.generated.scope.workspace': 'Workspace',
+  'studio.generated.scope.global': 'Global',
+  'studio.generated.promote': 'Promote to global',
+  'studio.generated.promoteHint': 'Copy this verified recipe into the global capability set. Operator action; the workspace copy stays for audit.',
+  'studio.generated.rebuild': 'Rebuild with RSL',
+  'studio.generated.rebuildPrompt': 'Rebuild the capability {id} (v{version}) with the RSL self-improvement proposal: inspect why the contract test did not verify and supersede it with a new version.',
+  'studio.generated.builtins': 'Built-in recipes',
+  'studio.generated.builtinHint': 'Tested analyses Eclipse ships with. Read-only: they are used when they fit and cannot be edited here.',
+  'studio.generated.builtinInputs': '{count} input(s)',
+  'studio.generated.builtinBadge': 'Built-in',
 } as const;

@@ -10,6 +10,7 @@ ratchet; `MCPManager` inherits it, so the public API is unchanged.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -33,6 +34,33 @@ VERIFY_TIMEOUT_MS = 10_000
 
 class VerifyMixin:
     """The operator-triggered Verify action over the configured runtimes."""
+
+    async def secret_presence(self, names: Any) -> dict[str, bool]:
+        """Whether each vault secret NAME resolves to a value (never the value).
+
+        Used by the external-capability proposal and its install gate so the
+        runtime can say "credential present / missing" without reading a secret
+        value into a tool result, a record or a log. No resolver wired means the
+        answer is unknown (`{}`), never an optimistic True.
+        """
+        resolver = getattr(self, "_secret_resolver", None)
+        if resolver is None:
+            return {}
+        out: dict[str, bool] = {}
+        seen: set[str] = set()
+        for raw in names or ():
+            name = str(raw or "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            try:
+                value = resolver(name)
+                if inspect.isawaitable(value):
+                    value = await value
+                out[name] = bool(value)
+            except Exception:  # noqa: BLE001 - a resolver failure is "not verified"
+                out[name] = False
+        return out
 
     async def verify_credentials(
         self,

@@ -95,8 +95,11 @@ export interface CommandDeprecation {
 
 /** The forced autonomy profile for a chat profile command (e.g. `/eclipsesdk`). */
 export interface ChatCommandProfile {
-  autonomy: "plan_only" | "edit_verify";
+  /** null = force the ordinary app-control surface with no code profile. */
+  autonomy: "plan_only" | "edit_verify" | null;
   analysisEnabled: boolean;
+  /** The typed Eclipse SDK surface (widgets/dashboards/themes/locks). */
+  appControl?: boolean;
 }
 
 export interface CommandSpec {
@@ -554,10 +557,10 @@ const ECLIPSESDK: CommandSpec = {
   name: "eclipsesdk",
   aliases: ["esdk"],
   summaryKey: "code.command.eclipsesdk",
-  summary: "Build or change something inside Eclipse.",
+  summary: "Edit Eclipse's own source code.",
   description:
-    "Force the chat code profile (`edit_verify`: read + write + execute, no external action) and the analysis " +
-    "sandbox so a self-edit request is served by the code capability instead of the finance surface.",
+    "Force the chat code profile (`edit_verify`: read + write + execute, no external action) for changing Eclipse's " +
+    "source code. Use `/app` to control widgets, dashboards, pages, themes and locks through the typed SDK instead.",
   category: "dev",
   tags: ["code", "self-edit"],
   version: V,
@@ -571,6 +574,30 @@ const ECLIPSESDK: CommandSpec = {
   output: { type: "markdown", summary: "A normal agent turn under the code profile." },
   examples: ["/eclipsesdk create a page for my watchlist"],
   profile: { autonomy: "edit_verify", analysisEnabled: true },
+};
+
+const APP: CommandSpec = {
+  id: "app.control",
+  name: "app",
+  aliases: ["eclipse"],
+  summaryKey: "code.command.app",
+  summary: "Control your Eclipse app through the typed SDK.",
+  description:
+    "Force the app-control surface: add or edit widgets, the Command Center, pages, themes and locks through the typed Eclipse SDK. " +
+    "Use `/eclipsesdk` when you need to change Eclipse's own source code.",
+  category: "dev",
+  tags: ["app", "sdk", "ui", "theme", "dashboard"],
+  version: V,
+  status: "available",
+  args: [],
+  flags: [],
+  handler: { type: "profile", target: "profile.app" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  output: { type: "markdown", summary: "A normal agent turn under the app-control surface." },
+  examples: ["/app add a clock to my Command Center", "/app create a neon theme and save it"],
+  profile: { autonomy: null, analysisEnabled: true, appControl: true },
 };
 
 const TOOLS: CommandSpec = {
@@ -913,6 +940,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   TERMINAL,
   ANATOMY,
   VISUAL,
+  APP,
   ECLIPSESDK,
 ];
 

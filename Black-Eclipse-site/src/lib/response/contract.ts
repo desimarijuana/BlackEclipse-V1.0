@@ -233,6 +233,7 @@ const dataTableBlock = z.object({
 // ── Visualization blocks ──────────────────────────────────────────────────────
 
 export const CHART_TYPES = [
+  'auto',
   'line',
   'area',
   'bar',
@@ -251,6 +252,14 @@ export const CHART_TYPES = [
   'waterfall',
 ] as const;
 
+const chartBandSchema = z.object({
+  lower: z.array(z.number().finite()).max(RESPONSE_LIMITS.maxPointsPerSeries),
+  upper: z.array(z.number().finite()).max(RESPONSE_LIMITS.maxPointsPerSeries),
+  // 0 = a whisper, 1 = a strong range. The renderer maps this to opacity; it is
+  // presentation weight, never a probability or a claim about the data.
+  weight: z.number().min(0).max(1).optional(),
+});
+
 const chartSeriesSchema = z.object({
   name: shortString,
   data: z.array(pointSchema).max(RESPONSE_LIMITS.maxPointsPerSeries),
@@ -258,6 +267,10 @@ const chartSeriesSchema = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{3,8}$/)
     .optional(),
+  // Optional visual emphasis (0..1). Absent preserves the original look.
+  weight: z.number().min(0).max(1).optional(),
+  // An optional range around the series (a confidence cone, a forecast band).
+  band: chartBandSchema.optional(),
 });
 
 const chartBlock = z.object({

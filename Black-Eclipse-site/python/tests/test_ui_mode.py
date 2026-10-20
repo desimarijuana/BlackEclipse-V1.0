@@ -98,7 +98,7 @@ def test_named_capability_absent_from_catalog_escalates():
     # The recorded defect: a "world clock" classified Compose with no witness,
     # then `ui_start_engineering` refused as "nothing to engineer".
     decision = classify_request(
-        "add a multi-zone world clock to my dashboard showing New York, Karachi and London",
+        "add a multi-zone latency ribbon to my dashboard showing New York, Karachi and London",
         catalog=_catalog(),
     )
     assert decision.mode is UiMode.ENGINEER

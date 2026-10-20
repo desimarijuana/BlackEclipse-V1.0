@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
+import { recordSdkAudit } from "@/lib/sdk/audit-server";
 import { designLockBlocked } from "@/lib/sdk/locks-server";
 import {
   clearServerTheme,
@@ -37,6 +38,12 @@ export async function PUT(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { theme?: unknown };
     const theme = await setServerTheme(body.theme);
+    await recordSdkAudit(request, {
+      action: "theme.apply",
+      summary: "Updated the app-wide theme from Settings",
+      resourceType: "theme",
+      resourceId: "global",
+    });
     return NextResponse.json({ success: true, theme });
   } catch (err) {
     console.error("[api/theme] PUT error:", err);
@@ -54,6 +61,12 @@ export async function DELETE(request: Request) {
   if (locked) return locked;
   try {
     await clearServerTheme();
+    await recordSdkAudit(request, {
+      action: "theme.reset",
+      summary: "Reset the app-wide theme from Settings",
+      resourceType: "theme",
+      resourceId: "global",
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[api/theme] DELETE error:", err);

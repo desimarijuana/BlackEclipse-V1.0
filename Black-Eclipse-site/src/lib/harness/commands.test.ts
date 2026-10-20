@@ -32,6 +32,14 @@ describe("parseChatCommand", () => {
     expect(parsed?.instruction).toBe("fix the bug");
   });
 
+  it("parses /app as the SDK app-control surface", () => {
+    const parsed = parseChatCommand("/app add a clock to my Command Center");
+    expect(parsed?.command.name).toBe("app");
+    expect(parsed?.instruction).toBe("add a clock to my Command Center");
+    expect(parsed?.command.profile.autonomy).toBeNull();
+    expect(parsed?.command.profile.appControl).toBe(true);
+  });
+
   it("returns null for ordinary text", () => {
     expect(parseChatCommand("build me a page")).toBeNull();
   });

@@ -109,6 +109,14 @@ def _isolate_process_globals():
             _ui_bootstrap._SINGLETON = _ui_saved  # noqa: SLF001
         if _recovery_tools is not None:
             _recovery_tools._SERVICE = _recovery_saved  # noqa: SLF001
+        # A test may start a warm analysis kernel; never let its process tree
+        # survive into the next test (or the pytest process exit).
+        try:
+            from harness.code import kernel as _kernel  # noqa: PLC0415
+
+            _kernel.reset_kernel_pool()
+        except Exception:  # noqa: BLE001 - the analysis kernel is optional
+            pass
 
 
 @pytest.fixture

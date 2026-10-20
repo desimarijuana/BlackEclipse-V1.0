@@ -1,42 +1,13 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { profileFor } = require('./lib/profiles');
 
 const root = path.join(__dirname, '..');
 
-// ── port resolution ──────────────────────────────────────────────────────────
-// Resolve an env var from the process env OR `.env`. Next.js loads `.env` for
-// the app, but this pre-hook is a bare node process, so read the file as well.
-function envValue(key) {
-  if (process.env[key]) return process.env[key];
-  try {
-    const text = fs.readFileSync(path.join(root, '.env'), 'utf8');
-    for (const line of text.split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (m && m[1] === key) return m[2].replace(/^["']|["']$/g, '').trim();
-    }
-  } catch {
-    // No .env — fall through to the default.
-  }
-  return undefined;
-}
-
-// The Python runtime port, resolved the SAME way as
-// `src/lib/harness/python-runtime.ts` so the pre-hook clears the port the front
-// door will actually spawn uvicorn on.
-function runtimePort() {
-  const url = envValue('HARNESS_PY_URL');
-  if (url) {
-    try {
-      const parsed = new URL(url);
-      if (parsed.port) return Number(parsed.port);
-    } catch {
-      // Malformed URL — fall through.
-    }
-  }
-  const explicit = Number(envValue('HARNESS_PY_PORT'));
-  return Number.isFinite(explicit) && explicit > 0 ? explicit : 8765;
-}
+// The profile this launch belongs to: `node scripts/kill-port.js dev|prod`.
+// `predev` and `prestart` pass it explicitly; a manual run defaults to prod.
+const profile = profileFor(process.argv[2]);
 
 // ── kill listeners on a port ─────────────────────────────────────────────────
 function pidsListeningOn(port) {
@@ -75,17 +46,18 @@ function killPort(port, label) {
   return killed;
 }
 
-// 1. Clear the Next.js port (releases locks on the .next directory).
-console.log('Checking if port 3000 is in use...');
-let killedProcess = killPort(3000, 'Next.js');
+// 1. Clear this profile's Next.js port. Only the port of the profile being
+//    launched is touched — the other environment keeps running untouched.
+console.log(`Checking if ${profile.label} port ${profile.appPort} is in use...`);
+let killedProcess = killPort(profile.appPort, 'Next.js');
 
-// 2. Clear the Python runtime port. A runtime spawned as a child of a previous
-//    `npm run dev`/`npm start` survives the parent on Windows and keeps holding
-//    this port; a fresh runtime then fails to bind (`WinError 10048`) and its
-//    boot reconciliation would orphan the runs the survivor is executing.
-//    Clearing it here means every launch starts from a clean runtime.
-const pyPort = runtimePort();
-if (pyPort !== 3000) {
+// 2. Clear this profile's Python runtime port. A runtime spawned as a child of
+//    a previous launch survives the parent on Windows and keeps holding the
+//    port; a fresh runtime then fails to bind (`WinError 10048`) and its boot
+//    reconciliation would orphan the runs the survivor is executing. Dev and
+//    production use different harness ports, so neither clears the other's.
+const pyPort = profile.harnessPort;
+if (pyPort !== profile.appPort) {
   console.log(`Checking if Python runtime port ${pyPort} is in use...`);
   killedProcess = killPort(pyPort, 'Python runtime') || killedProcess;
 }
@@ -107,13 +79,13 @@ if (killedProcess) {
 //    persistent webpack cache makes restarts near-instant instead.
 if (process.env.BE_CLEAR_CACHE === '1') {
   try {
-    const nextCacheDir = path.join(root, '.next');
+    const nextCacheDir = path.join(root, profile.distDir);
     if (fs.existsSync(nextCacheDir)) {
-      console.log('Clearing Next.js build cache directory (.next)...');
+      console.log(`Clearing Next.js build cache directory (${profile.distDir})...`);
       fs.rmSync(nextCacheDir, { recursive: true, force: true });
       console.log('Next.js build cache cleared.');
     }
   } catch (cacheErr) {
-    console.warn('Warning: Could not clear .next directory:', cacheErr.message);
+    console.warn(`Warning: Could not clear ${profile.distDir} directory:`, cacheErr.message);
   }
 }

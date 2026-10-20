@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from harness.persistence import AgentMemoryStore
@@ -114,6 +116,81 @@ def test_sdk_dashboard_tools_are_on_the_standard_agent():
 
     assert "sdk_dashboard_add_widget" in SDK_TOOLS
     assert set(SDK_TOOLS) <= set(ECLIPSE_AGENT.tools)
+
+
+def test_sdk_page_tools_are_on_the_standard_agent():
+    from harness.agents import ECLIPSE_AGENT
+    from harness.sdk.tools import SDK_TOOLS
+
+    for name in (
+        "sdk_page_list", "sdk_page_create", "sdk_page_add_widget",
+        "sdk_page_update", "sdk_page_delete",
+    ):
+        assert name in SDK_TOOLS
+        assert name in ECLIPSE_AGENT.tools
+
+
+def test_add_page_widget_uses_the_sdk_contract(sdk):
+    from harness.sdk.model import SdkPageWidget
+
+    page = sdk.create_page(SdkCreatePageInput(title="Rates Desk", path="/rates-desk"))["blueprint"]
+    result = sdk.add_page_widget(page["id"], SdkPageWidget(component_id="clock"))
+    assert result["blueprint"]["path"] == "/rates-desk"
+    assert result["verification"]["renderable"] is True
+    assert "clock" in result["verification"]["instances"][0]["componentId"]
+
+
+@pytest.mark.asyncio
+async def test_page_update_and_delete_tools(sdk):
+    from harness.sdk import page_tools
+
+    page = sdk.create_page(SdkCreatePageInput(title="Old title", path="/old"))["blueprint"]
+    ctx = SimpleNamespace(sdk_service=sdk)
+
+    text, data = await page_tools._page_update(
+        {"blueprintId": page["id"], "title": "New title", "tags": ["rates", "macro"]},
+        ctx,
+    )
+    assert "New title" in text
+    assert data["blueprint"]["title"] == "New title"
+    assert data["blueprint"]["tags"] == ["rates", "macro"]
+
+    text, data = await page_tools._page_delete({"blueprintId": page["id"]}, ctx)
+    assert data["removed"] is True
+    assert "Deleted" in text
+    assert sdk.list_pages()["total"] == 0
+
+
+def test_sdk_theme_tools_are_on_the_standard_agent():
+    from harness.agents import ECLIPSE_AGENT
+    from harness.sdk.tools import SDK_TOOLS
+
+    for name in (
+        "sdk_theme_get", "sdk_theme_create", "sdk_theme_apply",
+        "sdk_theme_apply_preset", "sdk_theme_list_presets",
+        "sdk_theme_save_preset", "sdk_theme_delete_preset", "sdk_theme_reset",
+    ):
+        assert name in SDK_TOOLS
+        assert name in ECLIPSE_AGENT.tools
+
+
+@pytest.mark.asyncio
+async def test_theme_create_tool_calls_the_sdk_route(monkeypatch):
+    from harness.sdk import theme_tools
+
+    captured: dict = {}
+
+    async def fake_request(method, path, *, body=None):
+        captured.update({"method": method, "path": path, "body": body})
+        return 200, {"theme": {"appName": "Neon", "scheme": "dark"}}
+
+    monkeypatch.setattr(theme_tools, "_theme_request", fake_request)
+    text, data = await theme_tools._create({"spec": {"brand": "#ff2bd6"}}, None)
+    assert captured["method"] == "POST"
+    assert captured["path"] == ""
+    assert captured["body"]["spec"]["brand"] == "#ff2bd6"
+    assert "Neon" in text
+    assert data["theme"]["appName"] == "Neon"
 
 
 def test_dashboard_lock_refuses_mutation_until_unlocked(sdk):

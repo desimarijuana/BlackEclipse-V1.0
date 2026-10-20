@@ -40,9 +40,9 @@ def test_the_registry_exposes_the_ui_and_task_families():
 
 
 @pytest.mark.asyncio
-async def test_clock_escalates_through_the_real_graph(env):
+async def test_ribbon_escalates_through_the_real_graph(env):
     dataset = load_builtin_dataset("routing_e2e_v1")
-    trial = await _run(env, _task(dataset, "routing_e2e.clock_escalates.001"))
+    trial = await _run(env, _task(dataset, "routing_e2e.ribbon_escalates.001"))
     assert trial.passed, trial.score.grader_results
     ui = trial.env_state["ui"]
     assert ui["engineeringTaskCount"] == 1
@@ -76,7 +76,7 @@ async def test_a_new_widget_escalates_without_a_capability_gap(env):
 @pytest.mark.asyncio
 async def test_a_misroute_regression_fails_the_tier(env, monkeypatch):
     """The release-gate property: restore the pre-W0 defect (a witness-less
-    Compose verdict AND no catalog re-check) and the clock scenario FAILS on the
+    Compose verdict AND no catalog re-check) and the ribbon scenario FAILS on the
     real resulting state (no engineering task created)."""
     from harness.ui import engineering as engineering_module
     from harness.ui.service import UiService
@@ -98,7 +98,7 @@ async def test_a_misroute_regression_fails_the_tier(env, monkeypatch):
         engineering_module, "assess_capability", lambda text, catalog=None: _NoGap()
     )
     dataset = load_builtin_dataset("routing_e2e_v1")
-    trial = await _run(env, _task(dataset, "routing_e2e.clock_escalates.001"))
+    trial = await _run(env, _task(dataset, "routing_e2e.ribbon_escalates.001"))
     assert not trial.passed
     failures = [
         f for g in trial.score.grader_results if g.get("grader") == "state"
@@ -113,7 +113,7 @@ async def test_trials_are_isolated_from_each_other(env):
     """The shared trace store must not leak one trial's durable work into the
     next trial's graded state (the delta is what a trial did)."""
     dataset = load_builtin_dataset("routing_e2e_v1")
-    first = await _run(env, _task(dataset, "routing_e2e.clock_escalates.001"))
+    first = await _run(env, _task(dataset, "routing_e2e.ribbon_escalates.001"))
     assert first.passed
     second = await _run(env, _task(dataset, "routing_e2e.layout_composes.001"))
     assert second.passed, second.score.grader_results

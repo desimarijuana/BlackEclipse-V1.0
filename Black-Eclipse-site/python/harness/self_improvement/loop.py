@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as _dt
+import hashlib
+import inspect
+import json
 import time
 from typing import Any, Optional
 
@@ -22,8 +25,9 @@ from ..code.evolution_store import EvolutionStore
 from ..evaluation.store import EvaluationStore
 from ..persistence import now_iso
 from ..skills.permissions import Actor
-from . import proposer, recorder, verifier
+from . import hillclimb, proposer, proposer_model, recorder, verifier
 from .config import RSLConfig
+from .state import HarnessStateStore
 
 
 def _utc_day_start() -> str:
@@ -31,6 +35,20 @@ def _utc_day_start() -> str:
         hour=0, minute=0, second=0, microsecond=0,
     )
     return today.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
+
+
+def _variant_signature(candidate: dict[str, Any], proposal: Any) -> str:
+    """A stable child identity: parent + typed variant + exact ops."""
+    payload = json.dumps(
+        {
+            "parent": candidate.get("signature"),
+            "kind": getattr(proposal, "kind", ""),
+            "targetPath": getattr(proposal, "targetPath", ""),
+            "ops": list(getattr(proposal, "ops", ()) or ()),
+        },
+        sort_keys=True, separators=(",", ":"), default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
 class RSLLoop:
@@ -46,7 +64,10 @@ class RSLLoop:
         eval_store: Optional[EvaluationStore] = None,
         verify_fn: Any = None,
         propose_fn: Any = None,
+        model_propose_fn: Any = None,
+        code_benchmark_fn: Any = None,
         recorder_fn: Any = None,
+        state_store: Optional[HarnessStateStore] = None,
     ) -> None:
         self.service = service
         self.config = config or RSLConfig.from_env()
@@ -58,8 +79,13 @@ class RSLLoop:
         self.eval_store = eval_store or (
             EvaluationStore(self.run_store) if self.run_store is not None else None
         )
+        self.state_store = state_store or (
+            HarnessStateStore(self.run_store) if self.run_store is not None else None
+        )
         self.verify_fn = verify_fn
         self.propose_fn = propose_fn
+        self.model_propose_fn = model_propose_fn
+        self.code_benchmark_fn = code_benchmark_fn
         self.recorder_fn = recorder_fn or recorder.record_code_experiment
         self._task: Optional[asyncio.Task[Any]] = None
         self._wake = asyncio.Event()
@@ -118,11 +144,15 @@ class RSLLoop:
     def health(self) -> dict[str, Any]:
         return {
             "mode": self.config.mode,
+            "strategy": self.config.strategy,
             "running": bool(self._task is not None and not self._task.done()),
             "busy": self._busy,
             "maxCandidates": self.config.max_candidates,
             "maxExperimentsPerDay": self.config.max_experiments_per_day,
             "k": self.config.k,
+            "generations": self.config.generations,
+            "modelProposer": self.config.model_proposer,
+            "codeBenchmark": self.config.code_benchmark,
         }
 
     def status(self) -> dict[str, Any]:
@@ -158,7 +188,7 @@ class RSLLoop:
         uses the same configured `k`, actor, stores and daily budget, records
         the selection/composition as an `EvaluationRun`, and never activates.
         """
-        if self.config.mode != "verify":
+        if self.config.mode not in ("verify", "auto"):
             return {
                 "refused": True,
                 "reason": "mode",
@@ -197,6 +227,123 @@ class RSLLoop:
             )
         finally:
             self._busy = False
+
+    async def run_hillclimb(
+        self,
+        current: Optional[dict[str, Any]] = None,
+        *,
+        propose: Any,
+        evaluate: Any,
+        replay_baseline: Optional[dict[str, float]] = None,
+        critical_tasks: tuple[str, ...] = (),
+        scope: str = "global",
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        """Run ONE bounded hill-climb experiment through the conductor.
+
+        The caller supplies neighbor generation and evaluation; this method owns
+        the shared busy flag, the state store and the persistence hook. Accepted
+        states are saved as `candidate` rows and are never promoted here. An
+        operator promotion remains the only way to make a state current.
+        """
+        if self.config.mode not in ("verify", "auto"):
+            return {
+                "refused": True, "reason": "mode", "mode": self.config.mode,
+                "accepted": [], "current": None,
+            }
+        if self.config.strategy != "hillclimb":
+            return {
+                "refused": True, "reason": "strategy",
+                "strategy": self.config.strategy, "accepted": [], "current": None,
+            }
+        if self._busy:
+            return {
+                "refused": True, "reason": "busy", "accepted": [], "current": None,
+            }
+        if self.state_store is None:
+            return {
+                "refused": True, "reason": "state_store_unavailable",
+                "accepted": [], "current": None,
+            }
+        if not self.budget_ok():
+            return {
+                "refused": True, "reason": "daily_budget",
+                "accepted": [], "current": None,
+            }
+        state = current or self.state_store.current(scope)
+        if state is None:
+            return {
+                "refused": True, "reason": "no_current_state", "scope": scope,
+                "accepted": [], "current": None,
+            }
+
+        started = self.evolution.experiments_started_since(_utc_day_start())
+        remaining = max(
+            0, int(self.config.max_experiments_per_day) - int(started),
+        )
+        settings = hillclimb.HillClimbConfig(
+            generations=self.config.generations,
+            k=self.config.k,
+            require_replay=True,
+            max_evaluations=remaining,
+        )
+        self._busy = True
+        try:
+            result = await hillclimb.run_hillclimb(
+                state,
+                propose=propose,
+                evaluate=evaluate,
+                replay_baseline=replay_baseline,
+                critical_tasks=critical_tasks,
+                config=settings,
+                scope=scope,
+                on_accept=self.state_store.save_state if persist else None,
+            )
+            if persist:
+                self._record_hillclimb_attempts(result, state, scope)
+            result["refused"] = False
+            result["strategy"] = "hillclimb"
+            result["persisted"] = bool(persist)
+            return result
+        finally:
+            self._busy = False
+
+    def _record_hillclimb_attempts(
+        self,
+        result: dict[str, Any],
+        parent: dict[str, Any],
+        scope: str,
+    ) -> None:
+        """Count each evaluated neighbor against the daily experiment budget."""
+        for generation in result.get("generations") or []:
+            for record in generation.get("records") or []:
+                validation = record.get("validation")
+                try:
+                    self.evolution.save_attempt({
+                        "candidateId": str(
+                            record.get("candidateId") or record.get("id") or ""
+                        ),
+                        "targetPath": str(
+                            record.get("targetPath") or f"state:{scope}"
+                        ),
+                        "baseDigest": str(parent.get("snapshotDigest") or ""),
+                        "diffDigest": str(record.get("digest") or ""),
+                        "proposedOps": list(record.get("ops") or ()),
+                        "evaluation": (
+                            validation if isinstance(validation, dict) else {}
+                        ),
+                        "outcome": (
+                            "success" if record.get("decision") == "accepted"
+                            else "failure"
+                        ),
+                        "outcomeReason": (
+                            "; ".join(record.get("reasons") or ())
+                            or str(record.get("decision") or "")
+                        ),
+                        "finishedAt": now_iso(),
+                    })
+                except Exception:  # noqa: BLE001 - accounting is best-effort
+                    continue
 
     # -- recovery / budget -------------------------------------------------
     def resume(self) -> list[str]:
@@ -238,30 +385,84 @@ class RSLLoop:
         self._busy = True
         try:
             if self.config.mode == "propose":
-                return self._propose_tick()
+                return await self._propose_tick()
+            if self.config.mode == "auto":
+                proposed = await self._propose_tick()
+                verified = await self._verify_tick()
+                return {
+                    "mode": "auto",
+                    "proposed": proposed.get("proposed", []),
+                    "refused": proposed.get("refused", []),
+                    "verified": verified,
+                    "processed": (
+                        list(proposed.get("processed", []))
+                        + list(verified.get("processed", []))
+                    ),
+                }
             return await self._verify_tick()
         finally:
             self._busy = False
 
-    def _propose_tick(self) -> dict[str, Any]:
+    async def _propose_tick(self) -> dict[str, Any]:
         proposed: list[str] = []
         refused: list[dict[str, Any]] = []
         candidates = self.scan(status="inert")
         for candidate in candidates:
-            if not candidate.get("targetPath") or not candidate.get("proposedOps"):
+            has_ops = bool(candidate.get("targetPath") and candidate.get("proposedOps"))
+            if not has_ops and not self.config.model_proposer:
                 continue
             try:
-                if self.propose_fn is not None:
-                    self.propose_fn(candidate)
+                if has_ops:
+                    if self.propose_fn is not None:
+                        self.propose_fn(candidate)
+                    else:
+                        proposer.propose_from_ops(
+                            self.run_store, str(candidate["id"]), actor=self._actor(),
+                        )
+                    proposed.append(str(candidate["id"]))
                 else:
-                    proposer.propose_from_ops(
-                        self.run_store, str(candidate["id"]), actor=self._actor(),
+                    proposed.extend(
+                        await self._propose_with_model(candidate, k=self.config.k)
                     )
-                proposed.append(str(candidate["id"]))
             except proposer.ProposalRefused as exc:
                 refused.append({"candidateId": candidate["id"], **exc.to_dict()})
         return {"mode": "propose", "proposed": proposed, "refused": refused,
                 "processed": proposed}
+
+    async def _propose_with_model(
+        self, candidate: dict[str, Any], *, k: int,
+    ) -> list[str]:
+        """Ask the model for variants and persist each validated child candidate."""
+        if self.model_propose_fn is not None:
+            result = self.model_propose_fn(candidate, k=k, actor=self._actor())
+            if inspect.isawaitable(result):
+                result = await result
+        else:
+            result = await proposer_model.propose_variants(
+                candidate, k=k, actor=self._actor(),
+            )
+        proposals = list(result or [])
+        if not proposals:
+            raise proposer.ProposalRefused(
+                "MODEL_PROPOSER_EMPTY", "the model returned no valid variants",
+            )
+        child_ids: list[str] = []
+        for proposal in proposals:
+            signature = _variant_signature(candidate, proposal)
+            child = self.evolution.get_by_signature(signature)
+            if child is None:
+                child = self.evolution.save_candidate({
+                    "signature": signature,
+                    "sourceCategory": candidate.get("sourceCategory") or "rsl",
+                    "observedCount": int(candidate.get("observedCount") or 1),
+                    "problemStatement": candidate.get("problemStatement") or "",
+                    "targetPath": proposal.targetPath,
+                    "proposedOps": list(proposal.ops),
+                    "status": "proposed",
+                    "createdByRunId": candidate.get("createdByRunId"),
+                })
+            child_ids.append(str(child["id"]))
+        return child_ids
 
     async def _verify_tick(self) -> dict[str, Any]:
         if not self.budget_ok():
@@ -306,6 +507,50 @@ class RSLLoop:
                 "detail": str(exc),
             }
 
+        # R9 measured code path: owning tests must pass first, then the patched
+        # tree runs the deterministic benchmark. The benchmark can reject a
+        # candidate; it never lands one.
+        if (
+            subject_type != "surface"
+            and self.config.code_benchmark
+            and verification.get("passed")
+            and not verification.get("refused")
+        ):
+            try:
+                if self.code_benchmark_fn is not None:
+                    bench = self.code_benchmark_fn(
+                        self.run_store, candidate,
+                        config=self.config, eval_store=self.eval_store,
+                    )
+                    if inspect.isawaitable(bench):
+                        bench = await bench
+                else:
+                    bench = await asyncio.to_thread(
+                        verifier.verify_code_benchmark,
+                        self.run_store, candidate,
+                        config=self.config, eval_store=self.eval_store,
+                    )
+                if bench.get("benchmark") == "MEASURED":
+                    verification.update({
+                        "benchmark": "MEASURED",
+                        "decision": "benchmark",
+                        "decisionRecord": bench.get("decisionRecord"),
+                        "passed": bool(bench.get("passed")),
+                        "testsPassed": True,
+                        "benchmarkRunId": bench.get("runId"),
+                        "benchmarkMetrics": {
+                            "baseline": bench.get("baseline"),
+                            "candidate": bench.get("candidate"),
+                        },
+                    })
+                else:
+                    verification["benchmarkResult"] = bench
+            except Exception as exc:  # noqa: BLE001 - benchmark failure is not a pass
+                verification["benchmarkError"] = {
+                    "code": "CODE_BENCHMARK_ERROR",
+                    "detail": str(exc)[:500],
+                }
+
         if verification.get("refused"):
             self.evolution.update_candidate(
                 candidate_id, status="refused",
@@ -317,7 +562,7 @@ class RSLLoop:
                 candidate_id,
                 status="evaluated_ok" if verification.get("passed") else "evaluated_bad",
             )
-            if subject_type == "surface":
+            if subject_type == "surface" or verification.get("benchmark") == "MEASURED":
                 record = verification.get("decisionRecord") or {}
                 decision = (
                     "benchmark_accepted" if record.get("accepted")
@@ -326,6 +571,7 @@ class RSLLoop:
                 )
             else:
                 decision = "tests_passed" if verification.get("passed") else "tests_failed"
+        state_id = None
         if self.eval_store is not None and self.run_store is not None:
             if subject_type == "surface":
                 try:
@@ -345,14 +591,79 @@ class RSLLoop:
                     )
                 except Exception:  # noqa: BLE001 - recording is best-effort
                     pass
+        if (
+            subject_type == "surface"
+            and verification.get("benchmark") == "MEASURED"
+        ):
+            state_id = self._record_surface_state(candidate, verification)
         return {
             "mode": "verify",
             "candidateId": candidate_id,
             "runId": verification.get("runId") or run_id,
             "decision": decision,
             "benchmark": verification.get("benchmark", "UNMEASURED"),
+            "stateId": state_id,
             "processed": [candidate_id],
         }
+
+    def _record_surface_state(
+        self,
+        candidate: dict[str, Any],
+        verification: dict[str, Any],
+    ) -> Optional[str]:
+        """Materialize a measured surface as an inert `candidate` state."""
+        if self.state_store is None or self.eval_store is None:
+            return None
+        surface = dict(candidate.get("surfaceConfig") or {})
+        scope = str(surface.get("scope") or "global")
+        snapshot_digest = str(
+            (surface.get("snapshot") or {}).get("sourceDigest")
+            or candidate.get("signature")
+            or ""
+        )
+        run_id = str(verification.get("runId") or "")
+        if not snapshot_digest or not run_id:
+            return None
+        try:
+            existing = self.state_store.list_states(scope=scope, limit=200)
+            for row in existing:
+                if (
+                    row.get("candidateId") == candidate.get("id")
+                    and row.get("snapshotDigest") == snapshot_digest
+                ):
+                    return row.get("id")
+            aggregates: dict[str, Any] = {}
+            for metric in self.eval_store.list_metrics(run_id, scope="overall"):
+                if metric.get("dimension") and metric.get("value") is not None:
+                    aggregates[str(metric["dimension"])] = metric["value"]
+            if not aggregates:
+                record = verification.get("decisionRecord") or {}
+                if record.get("targetAfter") is not None:
+                    aggregates["task_success"] = record["targetAfter"]
+            run = self.eval_store.get_run(run_id) or {}
+            metadata = run.get("metadata") or {}
+            measured = int(
+                metadata.get("measuredTrials")
+                or metadata.get("trialCount")
+                or (verification.get("decisionRecord") or {}).get("measured")
+                or 0
+            )
+            metrics = {"aggregates": aggregates, "measuredTrials": measured}
+            from .utility import utility  # noqa: PLC0415 - keep the module light
+
+            scored = utility(metrics)
+            state = self.state_store.save_state({
+                "scope": scope,
+                "snapshotDigest": snapshot_digest,
+                "candidateId": candidate.get("id"),
+                "acceptedRunId": run_id,
+                "utility": None if scored.get("unmeasured") else scored.get("utility"),
+                "metrics": metrics,
+                "status": "candidate",
+            })
+            return str(state.get("id") or "")
+        except Exception:  # noqa: BLE001 - state materialization is best-effort
+            return None
 
 
 __all__ = ["RSLLoop", "now_iso"]

@@ -35,22 +35,29 @@ from .authoring import (
     canonical_format,
     slug_filename,
 )
+from .report_tools import register_report_tools
+from .reporting import PDF_MIME, REPORT_FORMATS, build_pdf, build_report
 from .tools import register_document_authoring_tools
 
 __all__ = [
     "DocumentError",
     "FORMAT_EXTENSION",
     "FORMAT_MIME",
+    "PDF_MIME",
+    "REPORT_FORMATS",
     "blocks_to_markdown",
     "build",
     "build_csv",
     "build_docx",
     "build_json",
     "build_markdown",
+    "build_pdf",
     "build_pptx",
+    "build_report",
     "build_txt",
     "build_xlsx",
     "canonical_format",
     "register_document_authoring_tools",
+    "register_report_tools",
     "slug_filename",
 ]

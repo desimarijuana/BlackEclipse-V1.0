@@ -60,6 +60,27 @@ def test_widget_page_and_stock_flow():
     assert stock.json()["status"] == "SUCCESS"
 
 
+def test_audit_route_records_and_lists_activity():
+    created = client.post("/sdk/audit", json={
+        "action": "api.test",
+        "summary": "API entry",
+        "resourceType": "page",
+        "resourceId": "page_audit",
+        "detail": {"safe": True},
+    })
+    assert created.status_code == 200, created.text
+    entry = created.json()["entry"]
+    assert entry["action"] == "api.test"
+    assert entry["detail"] == {"safe": True}
+    assert entry["actor"] == "local"
+
+    listed = client.get("/sdk/audit?action=api.test&resourceType=page")
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["entries"][0]["summary"] == "API entry"
+    assert body["total"] >= 1
+
+
 def test_lock_refuses_mutation_then_token_allows_it():
     fund = client.post("/sdk/funds", json={"name": "Locked API Fund"}).json()["fund"]
     lock = client.post("/sdk/locks", json={

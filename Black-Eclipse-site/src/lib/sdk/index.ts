@@ -14,6 +14,18 @@
 // Python runtime is the authority for everything except the app-wide theme.
 
 import type { EclipseTheme } from '@/lib/theme/tokens';
+import type { ThemeSpec } from './theme-spec';
+import type { AppNavigateTarget, AppNavPatch, AppShellResponse } from './app-shell-types';
+import { navigateTo } from './navigate';
+export type { ThemeSpec } from './theme-spec';
+export type {
+  AppNavigateTarget,
+  AppNavConfig,
+  AppNavMode,
+  AppNavPatch,
+  AppNavSection,
+  AppShellResponse,
+} from './app-shell-types';
 
 /** A deep-partial design patch (grouped tokens may be partially supplied). */
 export type ThemePatch = Partial<Omit<EclipseTheme, 'colors' | 'glass' | 'sidebar'>> & {
@@ -61,6 +73,7 @@ export interface SdkCapabilities {
     header?: string;
     count?: number;
   };
+  audit?: { count?: number };
 }
 
 export type SdkWidgetPrimitive =
@@ -202,6 +215,41 @@ export interface SdkDashboardTarget {
   columnIndex?: number;
 }
 
+export interface SdkDashboardTemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface SdkDashboardRevision {
+  revision: number;
+  summary: string;
+  changes: Array<{
+    type?: string;
+    instanceId?: string | null;
+    componentId?: string | null;
+    detail?: string;
+  }>;
+  createdAt: string;
+}
+
+export interface SdkAuditEntry {
+  id: string;
+  actor?: string | null;
+  action: string;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  summary: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface SdkAuditFilter {
+  limit?: number;
+  action?: string;
+  resourceType?: string;
+}
+
 export interface SdkWorkspaceLayout {
   version?: number;
   sections?: unknown[];
@@ -227,6 +275,30 @@ export interface SdkDashboardAddWidgetInput {
   zone?: 'left' | 'main' | 'right';
   height?: number;
   expectedRevision?: number;
+}
+
+export interface SdkThemePresetSummary {
+  id: string;
+  label: string;
+  description: string;
+  primary: string;
+  scheme: string;
+}
+
+export interface SdkSavedThemePreset {
+  name: string;
+  spec: ThemeSpec;
+  theme: EclipseTheme;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SdkThemeState {
+  success?: boolean;
+  theme: EclipseTheme;
+  initialized: boolean;
+  presets: SdkThemePresetSummary[];
+  savedPresets: SdkSavedThemePreset[];
 }
 
 export interface SdkDesignState {
@@ -319,6 +391,30 @@ function pageHref(page: string): string {
   return `/?${sp.toString()}`;
 }
 
+function notifyThemeChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('eclipse:theme-changed'));
+}
+
+function afterThemeChange<T>(promise: Promise<T>): Promise<T> {
+  return promise.then((result) => {
+    notifyThemeChanged();
+    return result;
+  });
+}
+
+function notifyLocksChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('eclipse:locks-changed'));
+}
+
+function afterLockChange<T>(promise: Promise<T>): Promise<T> {
+  return promise.then((result) => {
+    notifyLocksChanged();
+    return result;
+  });
+}
+
 /** Open a saved page through the shell's deep link (also works from the sidebar). */
 export function openPage(pageIdOrPath: string) {
   if (typeof window === 'undefined') return;
@@ -329,6 +425,46 @@ export function openPage(pageIdOrPath: string) {
 export const eclipseSdk = {
   capabilities() {
     return request<SdkCapabilities>('/capabilities');
+  },
+
+  app: {
+    /** Read the app-wide nav order/visibility, active mode and the manifest. */
+    get() {
+      return request<AppShellResponse>('/app');
+    },
+    /** Reorder/hide/show sidebar sections and/or set the nav mode app-wide. */
+    update(patch: AppNavPatch) {
+      return request<AppShellResponse>('/app', {
+        method: 'PUT',
+        body: JSON.stringify({ nav: patch }),
+      });
+    },
+    reset() {
+      return request<AppShellResponse>('/app', { method: 'DELETE' });
+    },
+    /** Open a tab/page/dashboard in THIS shell immediately. */
+    open(target: AppNavigateTarget) {
+      navigateTo(target);
+      return target;
+    },
+    /** Ask every connected shell (including chat/Python) to open a target. */
+    navigate(target: AppNavigateTarget) {
+      return request<{ success: boolean; target: AppNavigateTarget }>('/app/navigate', {
+        method: 'POST',
+        body: JSON.stringify({ target }),
+      });
+    },
+  },
+
+  audit: {
+    list(filter: SdkAuditFilter = {}) {
+      const qs = new URLSearchParams();
+      for (const [key, value] of Object.entries(filter)) {
+        if (value !== undefined && value !== '') qs.set(key, String(value));
+      }
+      const suffix = qs.toString();
+      return request<{ entries: SdkAuditEntry[]; total: number }>(`/audit${suffix ? `?${suffix}` : ''}`);
+    },
   },
 
   widgets: {
@@ -425,12 +561,29 @@ export const eclipseSdk = {
       });
     },
     history(dashboardId: string) {
-      return request<{ blueprintId: string; revisions: unknown[] }>(`/dashboards/${encodeURIComponent(dashboardId)}/history`);
+      return request<{ blueprintId: string; revisions: SdkDashboardRevision[] }>(`/dashboards/${encodeURIComponent(dashboardId)}/history`);
     },
     restore(dashboardId: string, revision: number) {
       return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/restore`, {
         method: 'POST',
         body: JSON.stringify({ revision }),
+      });
+    },
+    templates() {
+      return request<{ templates: SdkDashboardTemplateSummary[] }>('/dashboards/templates');
+    },
+    /** Replace the board with a persona template (centre + side rails). */
+    applyTemplate(dashboardId: string, templateId: string, options: { market?: string; expectedRevision?: number } = {}) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/template`, {
+        method: 'POST',
+        body: JSON.stringify({ templateId, ...options }),
+      });
+    },
+    /** Reset the board to the shipped default board/template. */
+    reset(dashboardId: string, options: { market?: string; expectedRevision?: number } = {}) {
+      return request<SdkDashboardSnapshot>(`/dashboards/${encodeURIComponent(dashboardId)}/reset`, {
+        method: 'POST',
+        body: JSON.stringify(options),
       });
     },
   },
@@ -450,18 +603,63 @@ export const eclipseSdk = {
     },
   },
 
+  theme: {
+    get() {
+      return request<SdkThemeState>('/theme');
+    },
+    create(spec: ThemeSpec) {
+      return afterThemeChange(request<{ theme: EclipseTheme; spec: ThemeSpec }>('/theme', {
+        method: 'POST',
+        body: JSON.stringify({ spec }),
+      }));
+    },
+    apply(patch: ThemePatch) {
+      return afterThemeChange(request<{ theme: EclipseTheme }>('/theme', {
+        method: 'PUT',
+        body: JSON.stringify({ patch }),
+      }));
+    },
+    replace(theme: EclipseTheme) {
+      return afterThemeChange(request<{ theme: EclipseTheme }>('/theme', {
+        method: 'PUT',
+        body: JSON.stringify({ theme }),
+      }));
+    },
+    applyPreset(preset: string) {
+      return afterThemeChange(request<{ theme: EclipseTheme; preset: unknown }>('/theme/presets/apply', {
+        method: 'POST',
+        body: JSON.stringify({ preset }),
+      }));
+    },
+    listPresets() {
+      return request<{ presets: SdkSavedThemePreset[] }>('/theme/presets');
+    },
+    savePreset(name: string, spec: ThemeSpec) {
+      return request<{ preset: SdkSavedThemePreset }>('/theme/presets', {
+        method: 'POST',
+        body: JSON.stringify({ name, spec }),
+      });
+    },
+    deletePreset(name: string) {
+      return request<{ removed: boolean }>(`/theme/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    },
+    reset() {
+      return afterThemeChange(request<{ theme: EclipseTheme }>('/theme', { method: 'DELETE' }));
+    },
+  },
+
   design: {
     get() {
       return request<SdkDesignState>('/design');
     },
     apply(patch: ThemePatch) {
-      return request<{ theme: EclipseTheme }>('/design', { method: 'PUT', body: JSON.stringify({ patch }) });
+      return afterThemeChange(request<{ theme: EclipseTheme }>('/design', { method: 'PUT', body: JSON.stringify({ patch }) }));
     },
     replace(theme: EclipseTheme) {
-      return request<{ theme: EclipseTheme }>('/design', { method: 'PUT', body: JSON.stringify({ theme }) });
+      return afterThemeChange(request<{ theme: EclipseTheme }>('/design', { method: 'PUT', body: JSON.stringify({ theme }) }));
     },
     reset() {
-      return request<{ theme: EclipseTheme }>('/design', { method: 'DELETE' });
+      return afterThemeChange(request<{ theme: EclipseTheme }>('/design', { method: 'DELETE' }));
     },
   },
 
@@ -472,7 +670,9 @@ export const eclipseSdk = {
       return request<{ locks: SdkLock[] }>(`/locks?${qs.toString()}`);
     },
     create(input: SdkCreateLockInput) {
-      return request<{ lock: SdkLock }>('/locks', { method: 'POST', body: JSON.stringify(input) });
+      return afterLockChange(
+        request<{ lock: SdkLock }>('/locks', { method: 'POST', body: JSON.stringify(input) }),
+      );
     },
     unlock(lockId: string, passphrase: string) {
       return request<{ token: string; expiresAt: string; lock: SdkLock }>(
@@ -480,12 +680,15 @@ export const eclipseSdk = {
         { method: 'POST', body: JSON.stringify({ passphrase }) },
       ).then((result) => {
         setUnlockToken(result.token);
+        notifyLocksChanged();
         return result;
       });
     },
     remove(lockId: string, passphrase?: string) {
       const qs = passphrase ? `?passphrase=${encodeURIComponent(passphrase)}` : '';
-      return request<{ removed: boolean }>(`/locks/${encodeURIComponent(lockId)}${qs}`, { method: 'DELETE' });
+      return afterLockChange(
+        request<{ removed: boolean }>(`/locks/${encodeURIComponent(lockId)}${qs}`, { method: 'DELETE' }),
+      );
     },
     assert(resourceType: SdkLock['resourceType'], resourceId: string, action: 'write' | 'delete' = 'write') {
       return request<{ locked: boolean }>('/locks/assert', {

@@ -1,9 +1,10 @@
 """Durable rows for the Eclipse SDK on the ONE `agent-memory.db`.
 
-Three tables only:
+Four tables only:
   * `SdkWidget` — a user widget definition (a primitive + source + config);
   * `SdkLock`   — a passphrase lock over a page/widget/portfolio/design;
   * `SdkMeta`   — small runtime secrets (the lock-token signing key).
+  * `SdkAudit`  - append-only SDK activity (no secrets), bounded to 2,000 rows.
 
 The SDK owns no second database and no second blueprint/portfolio store; those
 remain the UI Engineering and Portfolio subsystems.
@@ -55,9 +56,25 @@ CREATE TABLE IF NOT EXISTS SdkMeta (
   updatedAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS SdkAudit (
+  id           TEXT PRIMARY KEY,
+  actor        TEXT,
+  action       TEXT NOT NULL,
+  resourceType TEXT,
+  resourceId   TEXT,
+  summary      TEXT NOT NULL DEFAULT '',
+  detail       TEXT NOT NULL DEFAULT '{}',
+  createdAt    TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sdk_widget_updated ON SdkWidget(updatedAt);
 CREATE INDEX IF NOT EXISTS idx_sdk_lock_resource ON SdkLock(resourceType, resourceId);
+CREATE INDEX IF NOT EXISTS idx_sdk_audit_created ON SdkAudit(createdAt);
+CREATE INDEX IF NOT EXISTS idx_sdk_audit_action ON SdkAudit(action);
 """
+
+MAX_AUDIT_ROWS = 2_000
+MAX_AUDIT_LIST = 500
 
 
 def _json(value: Any) -> str:
@@ -251,5 +268,86 @@ class SdkStore:
         )
         self._db.commit()
 
+    # ── audit ─────────────────────────────────────────────────────────────────
 
-__all__ = ["SdkStore"]
+    def record_audit(
+        self,
+        *,
+        action: str,
+        actor: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        summary: str = "",
+        detail: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Append one SDK activity row. Never stores passphrases or lock hashes."""
+        entry_id = new_id("aud")
+        now = now_iso()
+        self._db.execute(
+            "INSERT INTO SdkAudit "
+            "(id, actor, action, resourceType, resourceId, summary, detail, createdAt) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (entry_id, actor, action, resource_type, resource_id, summary, _json(detail or {}), now),
+        )
+        # Keep the local audit bounded; the newest rows win.
+        self._db.execute(
+            "DELETE FROM SdkAudit WHERE rowid NOT IN "
+            "(SELECT rowid FROM SdkAudit ORDER BY createdAt DESC, rowid DESC LIMIT ?)",
+            (MAX_AUDIT_ROWS,),
+        )
+        self._db.commit()
+        row = self._db.execute("SELECT * FROM SdkAudit WHERE id=?", (entry_id,)).fetchone()
+        return self._audit_row(row) if row else {
+            "id": entry_id,
+            "actor": actor,
+            "action": action,
+            "resourceType": resource_type,
+            "resourceId": resource_id,
+            "summary": summary,
+            "detail": detail or {},
+            "createdAt": now,
+        }
+
+    def list_audit(
+        self,
+        *,
+        limit: int = 100,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        count = max(1, min(int(limit), MAX_AUDIT_LIST))
+        where: list[str] = []
+        params: list[Any] = []
+        if action:
+            where.append("action=?")
+            params.append(action)
+        if resource_type:
+            where.append("resourceType=?")
+            params.append(resource_type)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        params.append(count)
+        rows = self._db.execute(
+            f"SELECT * FROM SdkAudit {clause} ORDER BY createdAt DESC, rowid DESC LIMIT ?",  # noqa: S608
+            params,
+        ).fetchall()
+        return [self._audit_row(row) for row in rows]
+
+    def audit_count(self) -> int:
+        row = self._db.execute("SELECT COUNT(*) AS n FROM SdkAudit").fetchone()
+        return int(row["n"]) if row else 0
+
+    @staticmethod
+    def _audit_row(row: Any) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "actor": row["actor"],
+            "action": row["action"],
+            "resourceType": row["resourceType"],
+            "resourceId": row["resourceId"],
+            "summary": row["summary"] or "",
+            "detail": _loads(row["detail"], {}),
+            "createdAt": row["createdAt"],
+        }
+
+
+__all__ = ["MAX_AUDIT_LIST", "MAX_AUDIT_ROWS", "SdkStore"]

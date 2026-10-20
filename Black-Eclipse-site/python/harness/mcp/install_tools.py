@@ -29,6 +29,17 @@ APPROVAL_KIND = "mcp_install"
 PROBE_APPROVAL_KIND = "mcp_probe"
 
 
+def approval_digest(tool_name: str, integration_id: str) -> str:
+    """The ONE digest for an approval bound to an exact tool + integration id.
+
+    Shared by the authorizer and the recovery acquisition handler so a granted
+    `mcp_install` approval can never drift from the action it authorizes.
+    """
+    return hashlib.sha256(
+        f"{tool_name}\x00{integration_id}".encode("utf-8")
+    ).hexdigest()
+
+
 async def mcp_integrations_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     catalog = list_catalog()
     if not catalog:
@@ -238,7 +249,7 @@ def make_mcp_install_authorizer(inner: Any = None):
             if name == "mcp_install"
             else f"Probe MCP integration {integration_id} (no activation)"
         )
-        digest = hashlib.sha256(f"{name}\x00{integration_id}".encode("utf-8")).hexdigest()
+        digest = approval_digest(kind, integration_id)
         approvals = getattr(ctx, "approvals", None) if ctx is not None else None
         if approvals is None:
             return False
@@ -291,6 +302,7 @@ def make_mcp_install_authorizer(inner: Any = None):
 __all__ = [
     "APPROVAL_KIND",
     "PROBE_APPROVAL_KIND",
+    "approval_digest",
     "make_mcp_install_authorizer",
     "mcp_install_handler",
     "mcp_integrations_handler",
