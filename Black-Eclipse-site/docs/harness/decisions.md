@@ -8725,6 +8725,24 @@ a structured refusal instead of an arbitrary prompt injection.
 surface verifier, the surface-form hint, and `test_rsl_skill_drafts.py`. No new
 activation path.
 
+## ADR-H269 — RSL v2 starts with a read-only Pareto frontier
+
+**Decision.** `self_improvement/pareto.py` compares recorded harness states on
+success, target, coverage (max) and cost/latency (min). A state dominates only
+when at least two objectives are comparable on both sides, it is no worse on
+each, and strictly better on one. `GET /evolution/states/pareto` returns the
+frontier and the dominator of every other state; it never promotes or ranks one
+state as "best".
+
+**Why.** The hill climb's single weighted utility is useful for acceptance but
+hides genuine trade-offs. A Pareto view makes those trade-offs visible without
+changing acceptance, budgets or activation. Missing objectives are neutral, and
+one comparable objective is not enough to claim dominance.
+
+**Consequences.** The pure module, the operator route, and
+`test_rsl_pareto.py`. This is the first v2 slice; the acceptance path still uses
+`utility.acceptance`, so no existing decision changes.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

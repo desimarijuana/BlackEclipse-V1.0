@@ -1239,6 +1239,23 @@ existing promotion approval.
 
 ---
 
+## RSL v2 — first slice: multi-objective frontier (2026-10-20)
+
+**Status: foundation implemented.**
+
+`self_improvement/pareto.py` adds a read-only Pareto view over recorded
+`HarnessState` rows: success/target/coverage maximise, cost/latency minimise.
+Dominance requires at least two comparable objectives, no worse on each, and one
+strict improvement; missing objectives are neutral. `GET
+/evolution/states/pareto` returns the frontier and each dominated state's
+dominator. It does not change `utility.acceptance`, budgets or activation.
+Tests: `python/tests/test_rsl_pareto.py`. ADR-H269.
+
+Next v2 slices: surface the frontier in the operator panel; model-identity
+proposals; cross-scope lesson transfer; canary landing for code.
+
+---
+
 ## Related
 
 - `docs/harness/self-evolution-roadmap.md` — the meta loop and invariants §5.

@@ -202,6 +202,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/notifications/bots-run-watcher.tsx`. no doc change — perf/behavior
   fix; no data or API contract changed.
 
+- **perf(shell): the first-load client graph no longer carries closed chrome,
+  ECharts, xterm, or the dev toolbar.** The app shell now code-splits everything
+  that is closed or hidden at boot: the terminal dock (only loaded once the
+  terminal opens), the Bots scheduler dock, the floating `ChatDock` (only mounted
+  on tabs where it is visible, so it no longer instantiates a second
+  `useAgentRun`/`useChatModel`), the decorative WebGL Aurora (loaded 1.2 s after
+  the shell is interactive), and the sidebar graph/gateway dialogs (the graph one
+  pulled in two full ECharts graphs). The dev-only Agentation toolbar now loads
+  through an effect gated on its env flag, not a root import. The boot overlay
+  hides at 900 ms and its CSS fallback at 1.1 s (was 2.5 s / 2.4 s); the warm-up
+  requests keep running after it fades. New `src/components/screens/lazy-chrome.tsx`
+  keeps `stock-chat.tsx` within its size ratchet. Measured on the dev server:
+  initial HTML script tags **70 → 43** and boot JS **18.52 MB → 10.04 MB
+  (−46%)**; `stock-chat.tsx` remains at its pinned budget. Also re-saved
+  `src/app/globals.css` as UTF-8/LF with the same rules (no selector/value
+  changes) after a line-ending/encoding normalization. Verified:
+  `npx tsc --noEmit`, `npx vitest run` (362 files / 3671 tests). no doc change —
+  performance/plumbing only; no contract or architecture change.
+
 ## 2026-10-19
 
 - **fix(shell): the sidebar mode is now per browser tab/window.** Switching to
@@ -1163,6 +1182,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   scope; the drift card renders status/drop chips and selecting one changes the
   shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
   `docs/harness/architecture.md`.
+
+- **feat(harness): start RSL v2 with a Pareto frontier.**
+  `self_improvement/pareto.py` compares recorded states on success, target,
+  coverage, cost and latency; `GET /evolution/states/pareto` returns the
+  non-dominated set and each dominated state's dominator. Acceptance, budgets
+  and activation are unchanged. Docs: ADR-H269,
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
 
 - **feat(harness): complete RSL v1 with v1b skill-draft trials.**
   A candidate snapshot may carry inert `skillDraftIds`; the invoker validates

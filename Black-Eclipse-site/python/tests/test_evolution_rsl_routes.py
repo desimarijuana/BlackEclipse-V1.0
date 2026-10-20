@@ -150,6 +150,24 @@ def test_list_and_promote_harness_states(store):
     assert states.get_state(root["id"])["status"] == "superseded"
 
 
+def test_pareto_route_returns_a_frontier(store):
+    states = HarnessStateStore(store)
+    states.save_state({
+        "scope": "global", "snapshotDigest": "a", "utility": 0.8,
+        "metrics": {"aggregates": {"task_success": 0.8, "cost": 0.5}, "measuredTrials": 1},
+        "status": "candidate",
+    })
+    states.save_state({
+        "scope": "global", "snapshotDigest": "b", "utility": 0.6,
+        "metrics": {"aggregates": {"task_success": 0.7, "cost": 0.8}, "measuredTrials": 1},
+        "status": "candidate",
+    })
+    result = evolution_router.states_pareto(scope="global", limit=10, _=True)
+    assert result["success"] is True
+    assert len(result["frontier"]) == 1
+    assert len(result["dominated"]) == 1
+
+
 def test_lesson_outcomes_route_reports_stats_and_rows(store):
     outcomes = LessonOutcomeStore(store)
     outcomes.record_injections(
@@ -643,6 +661,7 @@ def test_every_rsl_route_refuses_a_remote_caller():
         ("get", "/evolution/lessons/cand_x/outcomes"),
         ("post", "/evolution/lessons/cand_x/retire"),
         ("get", "/evolution/states"),
+        ("get", "/evolution/states/pareto"),
         ("post", "/evolution/states/hstate_x/promote"),
         ("post", "/evolution/states/hstate_x/activate-surface"),
         ("get", "/evolution/states/hstate_x/surface-preview"),

@@ -1256,6 +1256,22 @@ async def rsl_tick(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, **await loop.tick()}
 
 
+@router.get("/evolution/states/pareto")
+def states_pareto(
+    scope: Optional[str] = None,
+    limit: int = 100,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Read-only multi-objective frontier over recorded harness states (v2)."""
+    from ..self_improvement.pareto import frontier  # noqa: PLC0415
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    states = HarnessStateStore(service.store).list_states(
+        scope=scope, limit=max(1, min(int(limit), 500)),
+    )
+    return {"success": True, **frontier(states)}
+
+
 @router.get("/evolution/metrics")
 def evolution_metrics(windowDays: int = 90, _: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, **evo.archive_metrics(service.store, window_days=windowDays)}
