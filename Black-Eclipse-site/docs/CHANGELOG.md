@@ -163,6 +163,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_analysis_guard.py` (+2). Docs updated:
   `docs/harness/decisions.md` (ADR-H243).
 
+- **fix(harness): the five-prompt limit probe — refusals that teach, and results that show.** A
+  hostile-prompt probe (alias import, concatenated URL, host file read/write,
+  process, socket, dunder chain, plus a full capability chain) found the boundary
+  solid and the *working path* leaky in four ways: a **guessed recipe name**
+  (`max_drawdown` does not exist; `drawdown_profile` does) failed with a bare
+  `RECIPE_NOT_FOUND`, so the refusal now **lists the ready-made recipes**; a
+  recipe called with the wrong input asked only "which series should I use?",
+  so it now **names the input and its kind** (`prices` (series: a list of
+  prices over time)) and the whole declared input set; the refusal for a
+  disallowed source element named only the element, so a model concluded "numpy
+  is not permitted" when the real cause was a dunder in its probe — the
+  message now says **only that element is refused, the rest of the program
+  runs**, and lists the importable modules; and a computed result with 26
+  values showed only the first few **without saying it was cut off**, so the
+  tool text now reports "showing 12 of 30 values". The stats engine's computed
+  metrics now publish their provenance, so a number the engine computed is
+  resolvable in the transcript instead of rendering as "this number has no
+  record of where it came from". Tests: `python/tests/test_analysis_guard.py`
+  (26). Docs updated: `docs/harness/decisions.md` (ADR-H243).
+
 - **chore(repo): normalize two mixed line-ending files.**
   `python/harness/capabilities/external.py` and
   `src/components/screens/capability-studio/generated-section.tsx` mixed CRLF and

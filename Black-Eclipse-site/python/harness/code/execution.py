@@ -672,7 +672,13 @@ def prepare_analysis(
         return AnalysisResult(
             status="refused", code=code, source_digest=source_digest,
             duration_ms=int((time.monotonic() - t0) * 1000),
-            stderr=f"disallowed source element(s): {', '.join(offenders)}",
+            stderr=(
+                f"disallowed source element(s): {', '.join(offenders)}. "
+                "Only that element(s) are refused — the rest of the program is "
+                "allowed; remove or rewrite the named one and it runs. "
+                f"The importable modules are: "
+                f"{', '.join(sorted(tuple(IMPORT_ALLOWLIST) + tuple(extra_allowlist)))}."
+            ),
         )
 
     try:

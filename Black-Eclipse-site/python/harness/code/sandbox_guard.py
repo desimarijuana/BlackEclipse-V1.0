@@ -442,7 +442,9 @@ def _guard_install(allowed_modules, read_roots, write_roots):
             return real_import(name, globals, locals, fromlist, level)
         if top not in _GUARD_MODULES and top not in _GUARD_SUPPORT:
             raise ImportError(
-                "import of %r is not allowed in an analysis (allowed: %s)"
+                "import of %r is not allowed in an analysis. Only that import is "
+                "refused — the rest of the program is allowed; remove or rewrite "
+                "it and the program runs. The importable modules are: %s"
                 % (name, ", ".join(sorted(_GUARD_MODULES)))
             )
         module = real_import(name, globals, locals, fromlist, level)

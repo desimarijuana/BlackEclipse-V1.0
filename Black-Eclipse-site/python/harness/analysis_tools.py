@@ -312,8 +312,18 @@ def _computed_text(result: AnalysisResult, purpose: str) -> str:
         tail = f" The error was: {detail[:600]}" if detail else ""
         return f"I couldn't work that out ({result.status}).{tail}"
     lines = ["Worked out by Eclipse.", f"What: {purpose}."]
-    for key, value in list(result.outputs.items())[:12]:
+    raw = result.outputs if isinstance(result.outputs, dict) else {}
+    values = [kv for kv in raw.items() if not str(kv[0]).startswith("_")]
+    shown = values[:12]
+    for key, value in shown:
         lines.append(f"  {key}: {value}")
+    if len(values) > len(shown):
+        # Say how many there are: a cut-off list must be VISIBLE as cut off, or
+        # the model reports the numbers it happened to see as the result.
+        lines.append(
+            f"  (showing {len(shown)} of {len(values)} values — re-run for the "
+            f"rest, or ask for a smaller payload)"
+        )
     if result.tool_calls:
         lines.append(
             f"Data read: {len(result.tool_calls)} lookup(s); names and digests are in the run record."

@@ -216,9 +216,28 @@ def test_a_wrong_recipe_name_is_refused_with_the_catalogue() -> None:
         assert recipe["name"] in (result.stderr or "")
 
 
+def test_a_missing_recipe_input_names_the_input_and_its_kind() -> None:
+    """The model must learn the input NAME from the refusal, not guess it again."""
+    from harness.code.recipes import run_recipe
+
+    result = run_recipe("drawdown_profile", {})
+    assert result.status == "refused"
+    text = (result.stderr or "") + " " + str(result.outputs or {})
+    assert "prices" in text
+    assert "series" in text
+
+
+def test_a_truncated_result_says_how_many_values_it_hides() -> None:
+    """A cut-off list must be VISIBLE as cut off."""
+    from harness.analysis_tools import _computed_text
+    from harness.code.execution import AnalysisResult
+
+    result = AnalysisResult(status="ok", outputs={f"k{i}": i for i in range(30)})
+    text = _computed_text(result, "a lot of values")
+    assert "showing 12 of 30" in text
+
+
 def test_the_stats_engines_computed_metrics_carry_their_provenance() -> None:
-    """A number the engine computed must be resolvable in the transcript —
-    otherwise it renders as 'this number has no record of where it came from'."""
     from harness.stats.tools import _publish_computed
 
     published: list[tuple[str, dict]] = []

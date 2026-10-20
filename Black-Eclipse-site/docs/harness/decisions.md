@@ -9002,3 +9002,38 @@ user sees nothing — the failure looks like the model, not like the runtime.
 `python/tests/test_analysis_guard.py` (the catalogue and the published
 provenance); `python/tests/test_memory_tools.py` (the sandbox's own bindings are
 a real surface the prompt may name). Docs: `docs/CHANGELOG.md`.
+## ADR-H244 — A refusal must teach the correction; a result must show what it hides
+
+**Decision.** Four rules the five-prompt limit probe forced, all about the
+messages the runtime sends the model:
+
+1. **A wrong recipe name is corrected in one call.** The refusal for an unknown
+   recipe lists the ready-made recipes (and their inputs). A model that guessed
+   `max_drawdown` now sees `drawdown_profile`, `drawdown_figure`, … instead of
+   a bare `RECIPE_NOT_FOUND`.
+2. **A missing recipe input names the INPUT and its kind.** "which series should
+   I use?" does not teach the input NAME; the refusal now says
+   `prices` (series: a list of prices over time) and lists the recipe's declared
+   inputs. A model that learns the name in one call stops guessing.
+3. **A refused element says that only it was refused.** The message for a
+   disallowed source element (and the runtime guard's import refusal) now says
+   that the REST of the program is allowed, names the offending element, and
+   lists the importable modules. Without it a model concluded "numpy is not
+   permitted" when the real cause was a dunder attribute in its own probe —
+   a false statement about the runtime, repeated to the user.
+4. **A truncated result says it is truncated.** The computed-result text reports
+   "showing 12 of 30 values". A cut-off list that does not announce itself is
+   read as the whole result.
+
+**Why.** The probe showed the boundary holds and the product still leaks: the
+model spent 36 tool calls rediscovering a contract the runtime could have
+stated once, then reported a false capability limit to the user ("NumPy and
+pandas are not permitted in this sandbox" — they are), and a headline number
+never reached the transcript because the payload was cut without saying so.
+Every one of those failures is a MESSAGE defect, not a computation defect, and
+messages are the runtime's job.
+
+**Consequences.** `code/recipes.py` (the catalogue and the input spec in the
+refusals), `code/execution.py` + `code/sandbox_guard.py` (the actionable
+refusals), `analysis_tools.py` ("showing N of M values"). Tests:
+`python/tests/test_analysis_guard.py` (26). Docs: `docs/CHANGELOG.md`.

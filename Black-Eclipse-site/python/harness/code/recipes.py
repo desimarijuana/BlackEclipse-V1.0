@@ -480,11 +480,27 @@ def run_recipe(
         prompt = recipe.missing_prompt
         if "{missing}" in prompt:
             prompt = prompt.replace("{missing}", names)
+        # The refusal must name the INPUT and its KIND, not just the concept:
+        # a model that reads "which series should I use?" does not learn that the
+        # input is called `prices` — and it then guesses a name and fails again.
+        spec = "; ".join(
+            f"`{i.name}` ({i.kind}: {i.description})" for i in missing
+        )
+        declared = "; ".join(
+            f"`{i.name}` ({i.kind})" for i in recipe.inputs
+        )
         return AnalysisResult(
             status="refused", code=INPUT_INVALID,
-            stderr=f"missing input(s): {names}",
+            stderr=(
+                f"missing input(s): {names}. This recipe takes: {declared}. "
+                f"Pass the missing one as the input named exactly."
+            ),
             provenance=None,
-            outputs={"_prompt": prompt, "_missing": [i.name for i in missing]},
+            outputs={
+                "_prompt": prompt,
+                "_missing": [i.name for i in missing],
+                "_required_inputs": spec,
+            },
         )
     try:
         request = AnalysisRequest(
