@@ -1145,6 +1145,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
   `docs/harness/architecture.md`.
 
+- **perf(bots): paint from the last successful sweep.**
+  The Bots store hydrates synchronously from a persisted cache and the run
+  watcher reuses the shared store hydrate instead of issuing its own list +
+  status calls. A failed refresh keeps the cached list on screen.
+  `no doc change — UI performance, contracts unchanged`.
+
 - **feat(harness,ui): drift operations are testable end to end.**
   Policy persists in `eclipse.rsl.driftPolicy`; the journey badge raises one
   notification per scope per day; the watch clears state on a reset history and

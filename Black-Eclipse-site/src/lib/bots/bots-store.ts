@@ -14,8 +14,6 @@ import {
   type AutomationView,
 } from '@/lib/harness/automation-browser';
 
-/** botId → its latest run. Filled by ONE batched request (not one per bot). */
-
 /** botId → the last execution id whose output the operator has actually seen
  *  in that bot's chat. The sidebar's unread dot is driven by this: a bot has an
  *  unseen message when its latest terminal run is newer than the one recorded
@@ -25,6 +23,65 @@ const SEEN_KEY = 'be_bots_seen_v1';
 /** botIds the operator pinned to the top of the sidebar list. Local UI
  *  preference, like the seen ledger — pinning never changes the automation. */
 const PINNED_KEY = 'be_bots_pinned_v1';
+
+/** The last successful list + statuses, so Bots paints in MILLISECONDS on a
+ *  fresh page load (or while the Python runtime is still cold-starting). The
+ *  network hydrate replaces it as soon as it returns; a failed refresh keeps
+ *  the cache on screen and surfaces the error banner. */
+const CACHE_KEY = 'be_bots_cache_v1';
+
+interface BotsCache {
+  bots: AutomationView[];
+  statusById: Record<string, AutomationStatusSummaryView>;
+}
+
+const EMPTY_CACHE: BotsCache = { bots: [], statusById: {} };
+
+function isCachedBot(value: unknown): value is AutomationView {
+  if (!value || typeof value !== 'object') return false;
+  const bot = value as Record<string, unknown>;
+  return typeof bot.id === 'string' && typeof bot.name === 'string' && typeof bot.state === 'string';
+}
+
+function loadBotsCache(): BotsCache {
+  if (typeof window === 'undefined') return EMPTY_CACHE;
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return EMPTY_CACHE;
+    const parsed = JSON.parse(raw) as { bots?: unknown; statusById?: unknown };
+    const bots = Array.isArray(parsed?.bots) ? parsed.bots.filter(isCachedBot) : [];
+    const statusById: Record<string, AutomationStatusSummaryView> = {};
+    if (parsed?.statusById && typeof parsed.statusById === 'object') {
+      for (const [id, status] of Object.entries(parsed.statusById as Record<string, unknown>)) {
+        if (status && typeof status === 'object') {
+          statusById[id] = status as AutomationStatusSummaryView;
+        }
+      }
+    }
+    return { bots, statusById };
+  } catch {
+    return EMPTY_CACHE;
+  }
+}
+
+let lastCacheJson = '';
+
+function persistBotsCache(bots: AutomationView[], statusById: Record<string, AutomationStatusSummaryView>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload = JSON.stringify({ bots, statusById } satisfies BotsCache);
+    // The 20 s poll usually returns identical data; do not rewrite the whole
+    // blob (and block the main thread) unless something actually changed.
+    if (payload === lastCacheJson) return;
+    lastCacheJson = payload;
+    localStorage.setItem(CACHE_KEY, payload);
+  } catch {
+    /* quota / private mode — in-memory only */
+  }
+}
+
+/** The last successful sweep, read once when the client store is created. */
+const initialCache = loadBotsCache();
 
 function loadSeenRuns(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -120,11 +177,14 @@ function setUrlParam(key: string, value: string | null) {
 }
 
 export const useBotsStore = create<BotsStore>((set, get) => ({
-  bots: [],
-  statusById: {},
+  // Seed synchronously from the last successful sweep: the first Bots render
+  // (and a deep link straight to a bot) has the real list and latest runs, so
+  // the user sees the workspace immediately while the network refresh runs.
+  bots: initialCache.bots,
+  statusById: initialCache.statusById,
   seenRuns: {},
   pinnedIds: [],
-  loading: true,
+  loading: initialCache.bots.length === 0,
   error: null,
   selectedId: null,
   selectedGroupId: null,
@@ -173,13 +233,16 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
         /* quota / private mode — in-memory only */
       }
     }
+    const nextBots = bots.filter((b) => b.id !== botId);
+    const nextStatus = Object.fromEntries(Object.entries(statusById).filter(([id]) => id !== botId));
     set({
-      bots: bots.filter((b) => b.id !== botId),
-      statusById: Object.fromEntries(Object.entries(statusById).filter(([id]) => id !== botId)),
+      bots: nextBots,
+      statusById: nextStatus,
       seenRuns: nextSeen,
       pinnedIds: nextPins,
       selectedId: selectedId === botId ? null : selectedId,
     });
+    persistBotsCache(nextBots, nextStatus);
   },
 
   release: (botId) => {
@@ -210,6 +273,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
       // and the subtitle, so they hydrate in the background instead of holding
       // the whole workspace blank behind N extra round-trips.
       set({ bots, seenRuns, pinnedIds, loading: false, error: null });
+      persistBotsCache(bots, get().statusById);
       const sel = get().selectedId;
       if (sel && !bots.some((b) => b.id === sel)) set({ selectedId: null });
 
@@ -221,6 +285,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
         const statusById = await getAutomationStatuses();
         if (seq !== hydrateSeq) return;
         set({ statusById });
+        persistBotsCache(get().bots, statusById);
       } catch {
         /* keep the previous statuses; the next hydrate retries */
       }
